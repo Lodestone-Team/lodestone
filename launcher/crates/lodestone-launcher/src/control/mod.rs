@@ -731,9 +731,9 @@ pub const METHODS: &[Method] = &[
         "Checks on friends: their states, which cores share now, and answers to your links.",
         friend_list::refresh,
     ),
-    method(
+    destructive(
         "friend_list.verify",
-        "Ticks \"Codes match\" for a friend after comparing safety codes (value: false unticks).",
+        "Ticks \"Codes match\" for a friend, only on the user's word that they compared safety codes aloud with them (value: false unticks).",
         friend_list::verify,
     ),
     method(
@@ -755,6 +755,11 @@ pub const METHODS: &[Method] = &[
         "friend_list.servers",
         "The servers a friend's cores share with you.",
         friend_list::servers,
+    ),
+    destructive(
+        "friend_list.retire_core",
+        "Retires one of your cores: friends drop it, and it's never shown to them again.",
+        friend_list::retire_core,
     ),
     destructive(
         "friend_list.retire",
@@ -1600,8 +1605,6 @@ pub const READ_METHODS: &[&str] = &[
     "friends.list",
     "friend_list.links",
     "friend_list.list",
-    "friend_list.preview_link",
-    "friend_list.servers",
     "jobs.list",
     "jobs.get",
     "jobs.wait",
@@ -1725,6 +1728,11 @@ mod tests {
             "shared.clear",
             "snapshots.revert",
             "snapshots.delete",
+            // only the user can say they compared safety codes
+            "friend_list.verify",
+            "friend_list.answer_link",
+            "friend_list.accept",
+            "friend_list.retire_core",
         ] {
             assert!(destructive.contains(&name), "{name} must need confirm");
         }
@@ -1819,6 +1827,10 @@ mod tests {
         "friend_list.hide",
         "friend_list.remove",
         "friend_list.retire",
+        "friend_list.retire_core",
+        // these reach the service or a friend's core
+        "friend_list.preview_link",
+        "friend_list.servers",
         "jobs.cancel",
     ];
 

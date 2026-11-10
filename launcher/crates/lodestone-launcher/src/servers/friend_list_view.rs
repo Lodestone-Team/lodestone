@@ -255,6 +255,38 @@ impl Servers {
         };
 
         let mut body: Vec<AnyElement> = vec![you.into_any_element()];
+        // the cores friends see this person share from, each with Retire (a lost or
+        // stolen computer)
+        for core in &book.my_cores {
+            let id = format!("friend-list-core-{}", short(&core.fingerprint));
+            let fingerprint = core.fingerprint.clone();
+            body.push(
+                row()
+                    .id(SharedString::from(id.clone()))
+                    .accessible(
+                        Role::Group,
+                        id.clone(),
+                        tr!(M::SharingFrom, core = core.name),
+                    )
+                    .pl_8()
+                    .child(Icon::Server.render(px(13.), colors::GRAY_400))
+                    .child(
+                        note(tr!(M::SharingFrom, core = core.name))
+                            .flex_1()
+                            .min_w_0()
+                            .truncate(),
+                    )
+                    .child(
+                        Button::new(SharedString::from(format!("{id}-retire")), t(M::RetireCore))
+                            .size(ButtonSize::Slim)
+                            .variant(ButtonVariant::Ghost)
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.open_friend_retire_core(&fingerprint, cx)
+                            })),
+                    )
+                    .into_any_element(),
+            );
+        }
         if let Some(error) = &list.open_error {
             body.push(
                 row()
@@ -268,7 +300,7 @@ impl Servers {
                             .size(ButtonSize::Slim)
                             .variant(ButtonVariant::Ghost)
                             .on_click(cx.listener(|this, _, _, cx| {
-                                this.friend_me(cx).detach();
+                                this.reopen_friend_list(cx);
                             })),
                     )
                     .into_any_element(),
@@ -553,7 +585,18 @@ impl Servers {
                             .child(note(status_line))
                             .when(friend.nickname.is_some(), |this| {
                                 this.child(note(tr!(M::TheirName, name = friend.name)))
-                            }),
+                            })
+                            // a name like another friend's (after a rename too): in case
+                            // someone is pretending
+                            .when_some(
+                                list.snapshot.name_clashes.get(&friend.key),
+                                |this, names| {
+                                    this.child(
+                                        note(tr!(M::NameLike, names = format::list(names)))
+                                            .text_color(colors::YELLOW),
+                                    )
+                                },
+                            ),
                     )
                     .when(!friend.verified, |this| {
                         this.child(
@@ -1076,6 +1119,35 @@ pub fn friend_list_dialog(
                         .disabled(!*understood || *retiring)
                         .on_click(move |_, _, cx| {
                             retire.update(cx, |this, cx| this.confirm_friend_retire(cx))
+                        }),
+                )
+                .footer(cancel_button(t(CommonMsg::Cancel)))
+                .into_any_element()
+        }
+        FriendDialog::RetireCore {
+            name,
+            retiring,
+            error,
+            ..
+        } => {
+            let retire = servers.clone();
+            dialog("friend-retire-core", tr!(M::RetireCoreTitle, name = name))
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap_3()
+                        .child(paragraph(tr!(M::RetireCoreBody, name = name)))
+                        .child(warning(t(M::RetireCoreWarning), colors::YELLOW))
+                        .children(error_note(error)),
+                )
+                .footer(
+                    Button::new("friend-retire-core-confirm", t(M::RetireCoreConfirm))
+                        .variant(ButtonVariant::Danger)
+                        .loading(*retiring)
+                        .disabled(*retiring)
+                        .on_click(move |_, _, cx| {
+                            retire.update(cx, |this, cx| this.confirm_friend_retire_core(cx))
                         }),
                 )
                 .footer(cancel_button(t(CommonMsg::Cancel)))

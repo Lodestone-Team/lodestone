@@ -90,6 +90,17 @@ pub fn text(message: M) -> &'static str {
         }
         M::RetireUnderstood => "我了解：所有好友都會被移除，且此操作無法復原",
         M::RetireConfirm => "停用身分",
+        M::SharingFrom => "從 {core} 共享",
+        M::RetireCore => "停用",
+        M::RetireCoreTitle => "要停用 {name} 嗎？",
+        M::RetireCoreBody => {
+            "你的好友會被告知不再使用 {name}：他們不再看到它的伺服器，也不再信任其中的模組。電腦遺失、遭竊，或你不再從它共享時，請這麼做。"
+        }
+        M::RetireCoreWarning => {
+            "此操作無法復原。即使此核心再次同步，好友也不會再看到它。要再次從那台電腦共享，它需要新的好友憑證。"
+        }
+        M::RetireCoreConfirm => "停用核心",
+        M::NameLike => "與 {names} 同名：請確認對方是誰",
         M::RemoveTitle => "要移除 {name} 嗎？",
         M::RemoveBody => {
             "你將看不到對方的伺服器，對方也看不到你的。Lodestone Host 下次更新你的核心時，它們會停止與對方分享。要重新成為好友，需要其中一人建立新的好友連結。"

@@ -4,10 +4,19 @@
 //! The list itself is `launcher_core::friend_list`: [`Friends`] keeps the book (sealed
 //! in `<data>/friend_list.json`), the person key (Keychain) and the service, and does
 //! the network calls on a Tokio thread of its own. This module keeps one `Friends` per
-//! window, opened the first time it is needed (the section opens it only when the
-//! friend file exists, so visiting the page makes no key), behind an async lock: every
-//! change runs as a task on the window's executor ([`Servers::friend_op`]) and leaves a
-//! copy of the book ([`Snapshot`]) for drawing.
+//! window, opened the first time it is needed without making anything
+//! ([`Friends::open_existing`]: the section opens it only when the friend file exists,
+//! so visiting the page, opening a friend link or a read-only call makes no key). It
+//! is started ([`Friends::create`]) only when the person does something that needs
+//! it: choosing a name, making or answering a friend link.
+//!
+//! Every operation ([`Servers::friend_op`]) takes a copy of the list and runs on the
+//! background executor, never on the window's thread: file work (the lock, sealing,
+//! writing) and network calls happen there, and the list's lock is held only to copy
+//! it, so a refresh or a server listing never holds up Play, Accept or Remove. Copies
+//! can't undo each other's changes: each change reloads the file under its lock first,
+//! as with the Host. Each operation leaves a copy of the book ([`Snapshot`]) for
+//! drawing.
 //!
 //! - **Refreshing** (`refresh` then `presence`, and the answers to open friend links)
 //!   happens when the section is shown and every [`REFRESH_EVERY`] while it stays
@@ -21,28 +30,33 @@
 //!   start untrusted, and trust ends when the friend retires the core or is removed.
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     path::PathBuf,
     rc::Rc,
+    sync::Arc,
     time::{Duration, Instant},
 };
 
 use futures::{
     FutureExt as _,
-    future::{LocalBoxFuture, Shared},
+    future::{BoxFuture, LocalBoxFuture, Shared},
     lock::Mutex,
 };
-use gpui::{AppContext as _, Context, Entity, FocusHandle, SharedString, Task};
+use gpui::{AppContext as _, AsyncApp, Context, Entity, FocusHandle, SharedString, Task};
 use launcher_core::{
+    SecretStore,
     cores::{
         connect::{GamePort, JoinError, Progress, SharedServer, Tunnel},
-        friends::{FriendLink, FriendsFile, Service},
+        friends::{FriendLink, FriendsFile},
     },
     friend_list::{
-        self, Book, Friend, FriendStatus as Status, Friends, FriendsError,
-        ops::{CorePresence, LinkPreview, LinkReply, Refreshed},
+        self, Book, Friend, FriendStatus as Status, Friends, FriendsError, Opened, StoredKeys,
+        ops::{self, CorePresence, LinkPreview, LinkReply, Refreshed},
     },
+    paths::DataDir,
 };
+
+pub use launcher_core::friend_list::{hex, service, unhex32};
 
 use super::{Notice, Servers, friends::Source};
 use crate::{
@@ -50,12 +64,9 @@ use crate::{
     i18n::{FriendListMsg as M, t, tr},
 };
 
-/// The environment variable that points the friend list at another service, such as
-/// a local Worker (`http://127.0.0.1:18790`). Invite links carry their own service.
-pub const SERVICE_ENV: &str = "LODESTONE_CONNECT_SERVICE";
-
-/// What an operation says once the identity was retired under it.
-const RETIRED: &str = "Your friend identity was retired. Start again with a new name.";
+/// What an operation says when there's no friend list (yet, or any more).
+const NO_LIST: &str =
+    "You have no friend list yet. Choose the name your friends will see to start one.";
 
 /// How often the section checks on friends while it is shown.
 pub const REFRESH_EVERY: Duration = Duration::from_secs(5 * 60);
@@ -63,43 +74,18 @@ pub const REFRESH_EVERY: Duration = Duration::from_secs(5 * 60);
 /// Showing the section again within this long doesn't check again.
 const REFRESH_AGAIN_AFTER: Duration = Duration::from_secs(20);
 
-/// The service new friend links go to: connect.lodestone.cc, or [`SERVICE_ENV`].
-pub fn service() -> Service {
-    service_from(std::env::var(SERVICE_ENV).ok().as_deref())
-}
-
-fn service_from(text: Option<&str>) -> Service {
-    text.map(str::trim)
-        .filter(|text| !text.is_empty())
-        .and_then(Service::parse)
-        .unwrap_or_default()
-}
-
-/// Lower-case hex.
-pub fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
-}
-
-/// 64 hex digits as 32 bytes.
-pub fn unhex32(text: &str) -> Option<[u8; 32]> {
-    if text.len() != 64 {
-        return None;
-    }
-    let mut out = [0u8; 32];
-    for (i, byte) in out.iter_mut().enumerate() {
-        *byte = u8::from_str_radix(text.get(i * 2..i * 2 + 2)?, 16).ok()?;
-    }
-    Some(out)
-}
-
 /// A short, stable piece of a key or fingerprint for automation ids.
 pub fn short(key: &str) -> &str {
     key.get(..12).unwrap_or(key)
 }
 
-/// The open friend list; `None` once its identity was retired.
-type Handle = Rc<Mutex<Option<Friends>>>;
+/// The open friend list; `None` when there's none (never started, or retired).
+type Handle = Arc<Mutex<Option<Friends>>>;
 type Opening = Shared<LocalBoxFuture<'static, Result<Handle, String>>>;
+
+/// An operation on a copy of the friend list, run on the background executor.
+pub type FriendOp<T> =
+    Box<dyn for<'a> FnOnce(&'a mut Friends) -> BoxFuture<'a, Result<T, FriendsError>> + Send>;
 
 /// What the window shows of the friend list: a copy taken after each change.
 #[derive(Clone, Debug, Default)]
@@ -108,16 +94,72 @@ pub struct Snapshot {
     /// This person's safety code and key; empty until the list is open.
     pub safety_code: String,
     pub key: String,
+    /// Friends whose name looks like another friend's: their key → the other names.
+    pub name_clashes: BTreeMap<String, Vec<String>>,
 }
 
 impl Snapshot {
-    fn of(friends: &Friends) -> Self {
+    pub fn of(friends: &Friends) -> Self {
         Self {
+            name_clashes: friends.book.name_clashes(),
             book: friends.book.clone(),
             safety_code: friends.safety_code(),
             key: friends.me().to_hex(),
         }
     }
+}
+
+/// Opens the friend list in `data` if there is one, making nothing: the Keychain is
+/// read on the window's thread (its futures aren't `Send`), the file off it. A retired
+/// list counts as none.
+async fn open_list(
+    data: DataDir,
+    store: Rc<dyn SecretStore>,
+    cx: &mut AsyncApp,
+) -> Result<Option<Friends>, FriendsError> {
+    if !Friends::exists(&data) {
+        return Ok(None);
+    }
+    let keys = friend_list::read_keys(&data, &*store).await?;
+    let opened = cx
+        .background_spawn(async move { Friends::open_with(&data, &keys, service()) })
+        .await?;
+    Ok(match opened {
+        Opened::Ready(friends) => Some(*friends),
+        Opened::None | Opened::Retired => None,
+    })
+}
+
+/// Starts the friend list in `data` (or opens the one there): the person did something
+/// that needs it. A retired list is deleted first, with its Keychain items, and a new
+/// identity made. The Keychain is used on the window's thread, the files off it.
+async fn start_list(
+    data: DataDir,
+    store: Rc<dyn SecretStore>,
+    cx: &mut AsyncApp,
+) -> Result<Friends, FriendsError> {
+    let keys = friend_list::read_keys(&data, &*store).await?;
+    let opening = data.clone();
+    let (opened, keys) = cx
+        .background_spawn(async move {
+            let opened = Friends::open_with(&opening, &keys, service());
+            (opened, keys)
+        })
+        .await;
+    let keys = match opened? {
+        Opened::Ready(friends) => return Ok(*friends),
+        Opened::None => keys,
+        Opened::Retired => {
+            let removing = data.clone();
+            cx.background_spawn(async move { friend_list::remove_file(&removing) })
+                .await?;
+            friend_list::forget_keys(&data, &*store).await?;
+            StoredKeys::default()
+        }
+    };
+    let keys = friend_list::make_keys(&data, &*store, keys).await?;
+    cx.background_spawn(async move { Friends::start_with(&data, &keys, service()) })
+        .await
 }
 
 /// The servers of one of a friend's cores, once asked.
@@ -179,6 +221,14 @@ pub enum FriendDialog {
     /// "Retire my friend identity": every friend is told, then the key and the list go.
     Retire {
         understood: bool,
+        retiring: bool,
+        error: Option<SharedString>,
+    },
+    /// "Retire" on one of this person's cores: friends drop it, and it's never listed
+    /// again.
+    RetireCore {
+        fingerprint: String,
+        name: String,
         retiring: bool,
         error: Option<SharedString>,
     },
@@ -246,8 +296,8 @@ impl FriendList {
         self.snapshot.book.friend(key)
     }
 
-    /// Starts over after the identity was retired: the next use opens (and makes) a
-    /// new one. Open dialogs stay, to close themselves.
+    /// Starts over after the identity was retired (or the file went): the next use
+    /// opens the list again. Open dialogs stay, to close themselves.
     fn forget(&mut self) {
         self.opening = None;
         self.opened = false;
@@ -367,8 +417,8 @@ pub struct RefreshReport {
 }
 
 impl Servers {
-    /// The friend list, opening it the first time (making the person key and the file
-    /// key in the Keychain on first use). `None` in the offscreen screenshots.
+    /// The friend list, opening it the first time, without making anything. `None` in
+    /// the offscreen screenshots.
     fn friends_opening(&mut self, cx: &mut Context<Self>) -> Option<Opening> {
         if self.preview {
             return None;
@@ -379,12 +429,12 @@ impl Servers {
         let accounts = self.accounts.read(cx);
         let secrets = accounts.secrets().clone();
         let data = accounts.data_dir().clone();
-        let async_cx = cx.to_async();
+        let mut async_cx = cx.to_async();
         let opening = async move {
             let store = secrets.store(&async_cx);
-            Friends::open(&data, &*store, service())
+            open_list(data, store, &mut async_cx)
                 .await
-                .map(|friends| Rc::new(Mutex::new(Some(friends))))
+                .map(|friends| Arc::new(Mutex::new(friends)))
                 .map_err(|err| err.to_string())
         }
         .boxed_local()
@@ -393,39 +443,85 @@ impl Servers {
         Some(opening)
     }
 
-    /// Runs `op` on the friend list (opening it first), then keeps a copy of the book
-    /// for the window. Changes run one at a time.
-    pub fn friend_op<T: 'static>(
+    /// The open list, or why it couldn't be opened (the window shows it, and the next
+    /// attempt opens it again).
+    async fn opened_handle(
+        opening: Opening,
+        this: &gpui::WeakEntity<Self>,
+        cx: &mut AsyncApp,
+    ) -> Result<Handle, String> {
+        opening.await.inspect_err(|err| {
+            this.update(cx, |this, cx| {
+                this.friend_list.opening = None;
+                this.friend_list.open_error = Some(err.clone());
+                cx.notify();
+            })
+            .ok();
+        })
+    }
+
+    /// Runs `op` on a copy of the friend list, on the background executor, then keeps a
+    /// copy of the book for the window. With `create`, a list that isn't there yet is
+    /// started first (the person's first name, link or answer); otherwise there must be
+    /// one. Operations run side by side: each change reloads the file under its lock.
+    pub fn friend_op<T: Send + 'static>(
         &mut self,
         cx: &mut Context<Self>,
-        op: impl for<'a> FnOnce(&'a mut Friends) -> LocalBoxFuture<'a, Result<T, FriendsError>>
-        + 'static,
+        create: bool,
+        op: FriendOp<T>,
     ) -> Task<Result<T, String>> {
         let Some(opening) = self.friends_opening(cx) else {
             return Task::ready(Err("The friend list isn't available here.".into()));
         };
+        let accounts = self.accounts.read(cx);
+        let secrets = accounts.secrets().clone();
+        let data = accounts.data_dir().clone();
         cx.spawn(async move |this, cx| {
-            let handle = match opening.await {
-                Ok(handle) => handle,
-                Err(err) => {
-                    this.update(cx, |this, cx| {
-                        // the next attempt opens it again
-                        this.friend_list.opening = None;
-                        this.friend_list.open_error = Some(err.clone());
-                        cx.notify();
-                    })
-                    .ok();
-                    return Err(err);
+            let handle = Self::opened_handle(opening, &this, cx).await?;
+            let copy = {
+                let mut guard = handle.lock().await;
+                if guard.is_none() && create {
+                    let store = secrets.store(cx);
+                    *guard = Some(
+                        start_list(data, store, cx)
+                            .await
+                            .map_err(|err| err.to_string())?,
+                    );
+                }
+                guard.clone()
+            };
+            let Some(mut friends) = copy else {
+                return Err(NO_LIST.to_string());
+            };
+            let (result, friends) = cx
+                .background_spawn(async move {
+                    let result = op(&mut friends).await;
+                    (result, friends)
+                })
+                .await;
+            let stale = matches!(&result, Err(err) if err.is_stale());
+            let snapshot = {
+                let mut guard = handle.lock().await;
+                match guard.as_mut() {
+                    Some(current) if !stale => {
+                        // keep the newer of the two books
+                        if friends.book.generation >= current.book.generation {
+                            current.book = friends.book;
+                        }
+                        Some(Snapshot::of(current))
+                    }
+                    _ => None,
                 }
             };
-            let mut guard = handle.lock().await;
-            let Some(friends) = guard.as_mut() else {
-                return Err(RETIRED.to_string());
-            };
-            let result = op(friends).await.map_err(|err| err.to_string());
-            let snapshot = Snapshot::of(friends);
-            drop(guard);
+            let result = result.map_err(|err| err.to_string());
             this.update(cx, |this, cx| {
+                let Some(snapshot) = snapshot else {
+                    // the file went, was retired, or needs other keys: open it again
+                    // next time, never from this copy
+                    this.friend_list.forget();
+                    cx.notify();
+                    return;
+                };
                 let first = !this.friend_list.opened;
                 this.friend_list.opened = true;
                 this.friend_list.open_error = None;
@@ -438,6 +534,37 @@ impl Servers {
             .ok();
             result
         })
+    }
+
+    /// The friend list as it is, for looking only: opens it if needed (making nothing),
+    /// starts no refresh. `None` when there's none.
+    pub fn friend_peek(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<Option<Snapshot>, String>> {
+        let Some(opening) = self.friends_opening(cx) else {
+            return Task::ready(Err("The friend list isn't available here.".into()));
+        };
+        cx.spawn(async move |this, cx| {
+            let handle = Self::opened_handle(opening, &this, cx).await?;
+            let snapshot = handle.lock().await.as_ref().map(Snapshot::of);
+            if let Some(snapshot) = &snapshot {
+                let snapshot = snapshot.clone();
+                this.update(cx, |this, cx| {
+                    this.friend_list.open_error = None;
+                    this.friend_list.snapshot = snapshot;
+                    cx.notify();
+                })
+                .ok();
+            }
+            Ok(snapshot)
+        })
+    }
+
+    /// "Try again" after the list failed to open: opens it again, making nothing.
+    pub fn reopen_friend_list(&mut self, cx: &mut Context<Self>) {
+        self.friend_list.opening = None;
+        self.friend_peek(cx).detach();
     }
 
     /// The section is shown or hidden: check on friends now and every few minutes
@@ -491,23 +618,27 @@ impl Servers {
     ) -> Task<Result<RefreshReport, String>> {
         self.friend_list.refreshing = true;
         cx.notify();
-        let task = self.friend_op(cx, |friends| {
-            async move {
-                let mut report = RefreshReport {
-                    refreshed: friends.refresh().await?,
-                    ..RefreshReport::default()
-                };
-                report.presence = friends.presence().await?;
-                if !friends.book.links.is_empty() {
-                    match friends.link_replies().await {
-                        Ok(replies) => report.replies = replies,
-                        Err(err) => report.problems.push(err.to_string()),
+        let task = self.friend_op(
+            cx,
+            false,
+            Box::new(|friends| {
+                async move {
+                    let mut report = RefreshReport {
+                        refreshed: friends.refresh().await?,
+                        ..RefreshReport::default()
+                    };
+                    report.presence = friends.presence().await?;
+                    if !friends.book.links.is_empty() {
+                        match friends.link_replies().await {
+                            Ok(replies) => report.replies = replies,
+                            Err(err) => report.problems.push(err.to_string()),
+                        }
                     }
+                    Ok(report)
                 }
-                Ok(report)
-            }
-            .boxed_local()
-        });
+                .boxed()
+            }),
+        );
         cx.spawn(async move |this, cx| {
             let result = task.await;
             this.update(cx, |this, cx| {
@@ -526,11 +657,12 @@ impl Servers {
 
     fn apply_refresh(&mut self, report: &RefreshReport) {
         let list = &mut self.friend_list;
-        list.presence = report
-            .presence
-            .iter()
-            .map(|p| ((p.friend.clone(), hex(&p.core.fingerprint)), p.online))
-            .collect();
+        // cores not checked this time (the service asked to slow down) keep what was
+        // seen last
+        for p in &report.presence {
+            list.presence
+                .insert((p.friend.clone(), hex(&p.core.fingerprint)), p.online);
+        }
         list.replies = report.replies.clone();
         // the made link is shown until it is answered, cancelled or expires
         if let Some(made) = &list.made
@@ -540,6 +672,10 @@ impl Servers {
         }
         let mut problems: Vec<String> = report.problems.clone();
         problems.extend(report.refreshed.problems.iter().map(|(key, why)| {
+            if key.is_empty() {
+                // not about one friend
+                return why.clone();
+            }
             let name = list
                 .snapshot
                 .book
@@ -600,9 +736,11 @@ impl Servers {
 
     /// Opens the list (making the keys on first use) and answers with its copy.
     pub fn friend_me(&mut self, cx: &mut Context<Self>) -> Task<Result<Snapshot, String>> {
-        let task = self.friend_op(cx, |friends| {
-            async move { Ok(Snapshot::of(friends)) }.boxed_local()
-        });
+        let task = self.friend_op(
+            cx,
+            true,
+            Box::new(|friends| async move { Ok(Snapshot::of(friends)) }.boxed()),
+        );
         cx.spawn(async move |_, _| task.await)
     }
 
@@ -611,26 +749,34 @@ impl Servers {
         name: String,
         cx: &mut Context<Self>,
     ) -> Task<Result<(), String>> {
-        self.friend_op(cx, move |friends| {
-            async move {
-                friends.set_name(&name)?;
-                // friends see the new name with the next state
-                let _ = friends.publish_states().await;
-                Ok(())
-            }
-            .boxed_local()
-        })
+        self.friend_op(
+            cx,
+            true,
+            Box::new(move |friends| {
+                async move {
+                    friends.set_name(&name)?;
+                    // friends see the new name with the next state
+                    let _ = friends.publish_states().await;
+                    Ok(())
+                }
+                .boxed()
+            }),
+        )
     }
 
     pub fn friend_create_link(&mut self, cx: &mut Context<Self>) -> Task<Result<MadeLink, String>> {
-        let task = self.friend_op(cx, |friends| {
-            async move {
-                let link = friends.create_link().await?;
-                let expires = friends.book.links.last().map_or(0, |l| l.expires);
-                Ok(MadeLink { link, expires })
-            }
-            .boxed_local()
-        });
+        let task = self.friend_op(
+            cx,
+            true,
+            Box::new(|friends| {
+                async move {
+                    let link = friends.create_link().await?;
+                    let expires = friends.book.links.last().map_or(0, |l| l.expires);
+                    Ok(MadeLink { link, expires })
+                }
+                .boxed()
+            }),
+        );
         cx.spawn(async move |this, cx| {
             let result = task.await;
             if let Ok(made) = &result {
@@ -651,9 +797,11 @@ impl Servers {
         cx: &mut Context<Self>,
     ) -> Task<Result<(), String>> {
         let cancel = code.clone();
-        let task = self.friend_op(cx, move |friends| {
-            async move { friends.cancel_link(&cancel).await }.boxed_local()
-        });
+        let task = self.friend_op(
+            cx,
+            false,
+            Box::new(move |friends| async move { friends.cancel_link(&cancel).await }.boxed()),
+        );
         cx.spawn(async move |this, cx| {
             let result = task.await;
             this.update(cx, |this, cx| {
@@ -677,9 +825,11 @@ impl Servers {
         &mut self,
         cx: &mut Context<Self>,
     ) -> Task<Result<Vec<LinkReply>, String>> {
-        let task = self.friend_op(cx, |friends| {
-            async move { friends.link_replies().await }.boxed_local()
-        });
+        let task = self.friend_op(
+            cx,
+            false,
+            Box::new(|friends| async move { friends.link_replies().await }.boxed()),
+        );
         cx.spawn(async move |this, cx| {
             let result = task.await;
             if let Ok(replies) = &result {
@@ -704,9 +854,13 @@ impl Servers {
     ) -> Task<Result<(), String>> {
         self.friend_list.busy.insert(key.clone());
         let (accept_code, accept_key) = (code.clone(), key.clone());
-        let task = self.friend_op(cx, move |friends| {
-            async move { friends.accept_reply(&accept_code, &accept_key).await }.boxed_local()
-        });
+        let task = self.friend_op(
+            cx,
+            false,
+            Box::new(move |friends| {
+                async move { friends.accept_reply(&accept_code, &accept_key).await }.boxed()
+            }),
+        );
         cx.spawn(async move |this, cx| {
             let result = task.await;
             this.update(cx, |this, cx| {
@@ -735,8 +889,22 @@ impl Servers {
         link: String,
         cx: &mut Context<Self>,
     ) -> Task<Result<LinkPreview, String>> {
-        self.friend_op(cx, move |friends| {
-            async move { friends.preview_link(&link).await }.boxed_local()
+        // Looking at a link makes nothing: without a friend list (a link opened from
+        // outside the launcher, say), the card is checked without one.
+        let Some(opening) = self.friends_opening(cx) else {
+            return Task::ready(Err("The friend list isn't available here.".into()));
+        };
+        cx.spawn(async move |this, cx| {
+            let handle = Self::opened_handle(opening, &this, cx).await?;
+            let copy = handle.lock().await.clone();
+            cx.background_spawn(async move {
+                match copy {
+                    Some(mut friends) => friends.preview_link(&link).await,
+                    None => ops::preview_link(&service(), None, &link).await,
+                }
+            })
+            .await
+            .map_err(|err| err.to_string())
         })
     }
 
@@ -747,9 +915,11 @@ impl Servers {
         link: String,
         cx: &mut Context<Self>,
     ) -> Task<Result<String, String>> {
-        self.friend_op(cx, move |friends| {
-            async move { friends.answer_link(&link).await }.boxed_local()
-        })
+        self.friend_op(
+            cx,
+            true,
+            Box::new(move |friends| async move { friends.answer_link(&link).await }.boxed()),
+        )
     }
 
     pub fn friend_set_verified(
@@ -758,9 +928,11 @@ impl Servers {
         verified: bool,
         cx: &mut Context<Self>,
     ) -> Task<Result<(), String>> {
-        self.friend_op(cx, move |friends| {
-            async move { friends.set_verified(&key, verified) }.boxed_local()
-        })
+        self.friend_op(
+            cx,
+            false,
+            Box::new(move |friends| async move { friends.set_verified(&key, verified) }.boxed()),
+        )
     }
 
     pub fn friend_set_nickname(
@@ -769,9 +941,13 @@ impl Servers {
         nickname: Option<String>,
         cx: &mut Context<Self>,
     ) -> Task<Result<(), String>> {
-        self.friend_op(cx, move |friends| {
-            async move { friends.set_nickname(&key, nickname.as_deref()) }.boxed_local()
-        })
+        self.friend_op(
+            cx,
+            false,
+            Box::new(move |friends| {
+                async move { friends.set_nickname(&key, nickname.as_deref()) }.boxed()
+            }),
+        )
     }
 
     pub fn friend_set_hidden(
@@ -780,9 +956,11 @@ impl Servers {
         hidden: bool,
         cx: &mut Context<Self>,
     ) -> Task<Result<(), String>> {
-        self.friend_op(cx, move |friends| {
-            async move { friends.set_hidden(&key, hidden) }.boxed_local()
-        })
+        self.friend_op(
+            cx,
+            false,
+            Box::new(move |friends| async move { friends.set_hidden(&key, hidden) }.boxed()),
+        )
     }
 
     /// Removes a friend, and stops trusting the mods of their cores' servers.
@@ -798,9 +976,11 @@ impl Servers {
             .map(|state| state.cores.iter().map(|c| hex(&c.fingerprint)).collect())
             .unwrap_or_default();
         let remove = key.clone();
-        let task = self.friend_op(cx, move |friends| {
-            async move { friends.remove(&remove).await }.boxed_local()
-        });
+        let task = self.friend_op(
+            cx,
+            false,
+            Box::new(move |friends| async move { friends.remove(&remove).await }.boxed()),
+        );
         cx.spawn(async move |this, cx| {
             let result = task.await;
             if result.is_ok() {
@@ -847,18 +1027,29 @@ impl Servers {
             .collect();
         cx.spawn(async move |this, cx| {
             let handle = opening.await?;
-            // waits for any change in progress, then takes the list: nothing runs on it
-            // after this
-            let friends = handle
+            // takes the list: no operation starts on it after this, and those running
+            // on copies find the book retired when they next change it
+            let mut friends = handle
                 .lock()
                 .await
                 .take()
-                .ok_or_else(|| RETIRED.to_string())?;
-            let store = secrets.store(cx);
-            let result = friends
-                .retire_identity(&*store, &data)
-                .await
-                .map_err(|err| err.to_string());
+                .ok_or_else(|| NO_LIST.to_string())?;
+            let result = cx
+                .background_spawn(async move { friends.retire_identity().await })
+                .await;
+            // the person key goes last: if deleting it fails, the book still says
+            // retired, so the identity is never used again, and starting a new one
+            // deletes it
+            let result = match result {
+                Ok(unreached) => {
+                    let store = secrets.store(cx);
+                    friend_list::forget_identity(&data, &*store)
+                        .await
+                        .map(|()| unreached)
+                }
+                Err(err) => Err(err),
+            }
+            .map_err(|err| err.to_string());
             this.update(cx, |this, cx| {
                 // retired or not, the old list is gone: the next use opens a new one
                 for key in &keys {
@@ -887,9 +1078,11 @@ impl Servers {
             .servers
             .insert(slot.clone(), CoreServers::Loading);
         cx.notify();
-        let task = self.friend_op(cx, move |friends| {
-            async move { friends.servers(&key, &core).await }.boxed_local()
-        });
+        let task = self.friend_op(
+            cx,
+            false,
+            Box::new(move |friends| async move { friends.servers(&key, &core).await }.boxed()),
+        );
         cx.spawn(async move |this, cx| {
             let result = task.await;
             this.update(cx, |this, cx| {
@@ -905,8 +1098,22 @@ impl Servers {
         })
     }
 
-    /// A tunnel to `instance` on a friend's core, for the join dialog. The friend list
-    /// stays locked while it opens (a few seconds).
+    /// Retires one of this person's cores: it leaves their state, friends drop it, and
+    /// it's never listed again. Answers with the friends it couldn't reach.
+    pub fn friend_retire_core(
+        &mut self,
+        fingerprint: String,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<Vec<(String, String)>, String>> {
+        self.friend_op(
+            cx,
+            false,
+            Box::new(move |friends| async move { friends.retire_core(&fingerprint).await }.boxed()),
+        )
+    }
+
+    /// A tunnel to `instance` on a friend's core, for the join dialog. It opens on a
+    /// copy of the list, so the list isn't held while it does (a few seconds).
     pub(super) fn friend_list_tunnel(
         &mut self,
         friend: String,
@@ -930,10 +1137,11 @@ impl Servers {
         };
         async move {
             let handle = opening.await.map_err(JoinError::Failed)?;
-            let guard = handle.lock().await;
-            let friends = guard
-                .as_ref()
-                .ok_or_else(|| JoinError::Failed(RETIRED.to_string()))?;
+            let friends = handle
+                .lock()
+                .await
+                .clone()
+                .ok_or_else(|| JoinError::Failed(NO_LIST.to_string()))?;
             friends
                 .open_tunnel(&friend, &core, &instance, game_port, progress)
                 .await
@@ -1511,6 +1719,69 @@ impl Servers {
     }
 }
 
+impl Servers {
+    /// "Retire" beside one of this person's cores in the "You" row.
+    pub fn open_friend_retire_core(&mut self, fingerprint: &str, cx: &mut Context<Self>) {
+        let name = self
+            .friend_list
+            .snapshot
+            .book
+            .my_cores
+            .iter()
+            .find(|c| c.fingerprint == fingerprint)
+            .map(|c| c.name.clone())
+            .unwrap_or_default();
+        self.friend_dialog(
+            FriendDialog::RetireCore {
+                fingerprint: fingerprint.to_string(),
+                name,
+                retiring: false,
+                error: None,
+            },
+            cx,
+        );
+    }
+
+    /// "Retire core" in the confirmation.
+    pub fn confirm_friend_retire_core(&mut self, cx: &mut Context<Self>) {
+        let Some(FriendDialog::RetireCore {
+            fingerprint,
+            retiring,
+            error,
+            ..
+        }) = self.friend_list.dialog.current_mut().map(|p| &mut p.dialog)
+        else {
+            return;
+        };
+        if *retiring {
+            return;
+        }
+        *retiring = true;
+        *error = None;
+        let fingerprint = fingerprint.clone();
+        let task = self.friend_retire_core(fingerprint, cx);
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            this.update(cx, |this, cx| match result {
+                Ok(_) => this.close_friend_dialog(cx),
+                Err(err) => {
+                    if let Some(FriendDialog::RetireCore {
+                        retiring, error, ..
+                    }) = this.friend_list.dialog.current_mut().map(|p| &mut p.dialog)
+                    {
+                        *retiring = false;
+                        *error = Some(err.into());
+                    }
+                    cx.notify();
+                }
+            })
+            .ok();
+        })
+        .detach();
+        cx.notify();
+    }
+}
+
 // -----------------------------------------------------------------------------
 // Offscreen screenshots
 
@@ -1606,7 +1877,7 @@ pub fn status_name(status: Status) -> &'static str {
 
 /// A well-formed friend link for `service`, for tests.
 #[cfg(test)]
-pub fn test_link(service: &Service) -> String {
+pub fn test_link(service: &launcher_core::cores::friends::Service) -> String {
     let sender = Friend {
         key: "ab".repeat(32),
         ..Friend::default()
@@ -1693,23 +1964,7 @@ mod tests {
     }
 
     #[test]
-    fn the_service_comes_from_the_environment_when_set() {
-        assert_eq!(service_from(None), Service::default());
-        assert_eq!(service_from(Some("  ")), Service::default());
-        let local = service_from(Some("http://127.0.0.1:18790"));
-        assert_eq!(local.host, "127.0.0.1");
-        assert_eq!(local.port, 18790);
-        assert!(!local.tls);
-        // nonsense falls back to the real service rather than nowhere
-        assert_eq!(service_from(Some("http://")), Service::default());
-    }
-
-    #[test]
-    fn hex_round_trips() {
-        let bytes = [0xab; 32];
-        assert_eq!(unhex32(&hex(&bytes)), Some(bytes));
-        assert_eq!(unhex32("ab"), None);
-        assert_eq!(unhex32(&"zz".repeat(32)), None);
+    fn short_ids_are_a_key_s_start() {
         assert_eq!(short(&"ab".repeat(32)), "abababababab");
         assert_eq!(short("abc"), "abc");
     }

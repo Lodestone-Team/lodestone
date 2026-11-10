@@ -110,6 +110,17 @@ pub fn text(message: M) -> &'static str {
             "J’ai compris\u{a0}: tous mes amis sont retirés, et c’est irréversible"
         }
         M::RetireConfirm => "Retirer l’identité",
+        M::SharingFrom => "Partage depuis {core}",
+        M::RetireCore => "Retirer",
+        M::RetireCoreTitle => "Retirer {name}\u{202F}?",
+        M::RetireCoreBody => {
+            "Vos amis sont prévenus d’oublier {name} : ils ne voient plus ses serveurs et ne font plus confiance à leurs mods. Faites-le pour un ordinateur perdu ou volé, ou depuis lequel vous ne partagez plus."
+        }
+        M::RetireCoreWarning => {
+            "C’est irréversible. Ce core n’est plus jamais montré à vos amis, même s’il se synchronise. Pour partager de nouveau depuis cet ordinateur, il lui faut un nouveau certificat d’ami."
+        }
+        M::RetireCoreConfirm => "Retirer le core",
+        M::NameLike => "Même nom que {names} : vérifiez de qui il s’agit",
         M::RemoveTitle => "Retirer {name}\u{202F}?",
         M::RemoveBody => {
             "Vous ne voyez plus ses serveurs, et il ne voit plus les vôtres. Vos cores cessent de partager avec lui la prochaine fois que Lodestone Host les met à jour. Pour redevenir amis, l’un de vous crée un nouveau lien d’ami."
