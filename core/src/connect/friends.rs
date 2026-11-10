@@ -220,7 +220,7 @@ pub struct FriendShares {
     retry: Duration,
     /// Starts to fail on purpose, as if offline.
     #[cfg(test)]
-    fail_starts: std::sync::atomic::AtomicUsize,
+    fail_starts: std::sync::Mutex<usize>,
 }
 
 impl FriendShares {
@@ -247,10 +247,19 @@ impl FriendShares {
         }
     }
 
+    /// Whether this start should fail on purpose (counting it).
+    #[cfg(test)]
+    fn take_failed_start(&self) -> bool {
+        let mut left = self.fail_starts.lock().expect("not poisoned");
+        let fail = *left > 0;
+        *left = left.saturating_sub(1);
+        fail
+    }
+
     /// Fails the next `starts` friend host starts, and tries again after `retry`.
     #[cfg(test)]
     pub(crate) fn failing_for_tests(mut self, starts: usize, retry: Duration) -> Self {
-        self.fail_starts = starts.into();
+        self.fail_starts = std::sync::Mutex::new(starts);
         self.retry = retry;
         self
     }
@@ -401,7 +410,7 @@ impl FriendShares {
                 .map(|friend| {
                     let key = friend.key.to_hex();
                     let mut shared: Vec<InstanceUuid> = friend.shared.iter().cloned().collect();
-                    shared.sort_by(|a, b| a.to_string().cmp(&b.to_string()));
+                    shared.sort_by_key(|a| a.to_string());
                     FriendView {
                         connected: !friend.hidden && connected.contains(&key),
                         key,
@@ -544,15 +553,7 @@ impl FriendShares {
             }
             None => {
                 #[cfg(test)]
-                if self
-                    .fail_starts
-                    .fetch_update(
-                        std::sync::atomic::Ordering::SeqCst,
-                        std::sync::atomic::Ordering::SeqCst,
-                        |n| n.checked_sub(1),
-                    )
-                    .is_ok()
-                {
+                if self.take_failed_start() {
                     return Err(Error {
                         kind: ErrorKind::External,
                         source: eyre!("Couldn't start sharing with friends: offline (test)"),
@@ -821,7 +822,7 @@ async fn shared_with(
         .get(friend)
         .map(|shared| shared.iter().cloned().collect())
         .unwrap_or_default();
-    uuids.sort_by(|a, b| a.to_string().cmp(&b.to_string()));
+    uuids.sort_by_key(|a| a.to_string());
     let mut out = Vec::new();
     for uuid in uuids {
         if let Ok(instance) = get_instance(&routes.state, &uuid) {

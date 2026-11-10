@@ -799,11 +799,9 @@ async fn a_damaged_friend_certificate_is_kept_aside_and_an_unreadable_one_is_not
     // unreadable (here, a folder in its place): an error, and nothing replaced
     let other = dir.path().join("other");
     std::fs::create_dir_all(other.join("core.json")).unwrap();
-    let err = offline_shares(&other)
-        .identity()
-        .await
-        .err()
-        .expect("an error");
+    let Err(err) = offline_shares(&other).identity().await else {
+        panic!("an error");
+    };
     assert!(
         format!("{err:?}").contains("Couldn't read the friend certificate"),
         "{err:?}"
