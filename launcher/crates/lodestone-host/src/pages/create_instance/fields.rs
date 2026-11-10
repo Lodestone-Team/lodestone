@@ -11,6 +11,7 @@ use launcher_core::cores::admin::{
     instances::{ConfigurableValue, ConfigurableValueType, SettingManifest},
     models::GlobalSettingsData,
 };
+use lodestone_ui::components::menu_toggle;
 use lodestone_ui::{
     components::{
         Accessible as _, KeyboardFocus as _, TextInput, Toggle,
@@ -403,7 +404,10 @@ pub fn control<V: HasFields>(
                     .justify_between()
                     .when(!disabled, |this| {
                         let filter = filter.clone();
-                        this.on_press(cx.listener(move |view, _, window, cx| {
+                        this.on_press(cx.listener(move |view, event, window, cx| {
+                            if !menu_toggle::toggles(&format!("field-{key:?}"), event) {
+                                return;
+                            }
                             if let Some(Field {
                                 input: Input::Choice { open, .. },
                                 ..
@@ -494,7 +498,8 @@ pub fn control<V: HasFields>(
                         popover_panel(SharedString::from(format!("{id_prefix}-{key}-panel")))
                             .w(px(240.))
                             .gap(px(4.))
-                            .on_mouse_down_out(cx.listener(move |view, _, _, cx| {
+                            .on_mouse_down_out(cx.listener(move |view, event, _, cx| {
+                                menu_toggle::closed_by(format!("field-{key:?}"), event);
                                 if let Some(Field {
                                     input: Input::Choice { open, .. },
                                     ..

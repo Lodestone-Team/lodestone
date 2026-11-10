@@ -11,6 +11,7 @@ use launcher_core::{
     instances::{Resolution, WindowSettings, format_env, parse_env},
     settings::max_ram_is_high,
 };
+use lodestone_ui::components::menu_toggle;
 
 use crate::{
     components::TextInput,
@@ -290,7 +291,11 @@ pub fn window_controls<V: 'static>(
                 .aria_label(t(M::WindowSize))
                 .aria_value(label)
                 .expandable(open, toggle_menu.clone())
-                .on_press(move |_, window, cx| toggle_menu(window, cx)),
+                .on_press(move |event, window, cx| {
+                    if menu_toggle::toggles("memory-size", event) {
+                        toggle_menu(window, cx)
+                    }
+                }),
         )
         .when(open, |this| {
             let close = cx.listener(move |this, _: &(), _, cx| {
@@ -299,7 +304,8 @@ pub fn window_controls<V: 'static>(
             });
             let mut panel = popover_panel(SharedString::from(format!("{id}-size-list")))
                 .w(px(240.))
-                .on_mouse_down_out(cx.listener(move |this, _, _, cx| {
+                .on_mouse_down_out(cx.listener(move |this, event, _, cx| {
+                    menu_toggle::closed_by("memory-size", event);
                     get(this).size_menu_open = false;
                     cx.notify();
                 }));

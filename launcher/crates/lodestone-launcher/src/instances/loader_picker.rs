@@ -10,6 +10,7 @@ use gpui::{
     UniformListScrollHandle, Window, div, prelude::*, uniform_list,
 };
 use launcher_core::game::loaders::{LoaderChoice, LoaderKind, LoaderVersion};
+use lodestone_ui::components::menu_toggle;
 
 use super::{Instances, LoaderVersions};
 use crate::components::{
@@ -375,7 +376,10 @@ impl LoaderPicker {
                     .aria_value(chosen_text)
                     .expandable(self.open, toggle)
                     .when(form, |this| this.w(px(300.)).justify_between())
-                    .on_press(cx.listener(|this, _, _, cx| {
+                    .on_press(cx.listener(|this, event, _, cx| {
+                        if !menu_toggle::toggles("loader-version", event) {
+                            return;
+                        }
                         this.open = !this.open;
                         cx.notify();
                     })),
@@ -390,7 +394,8 @@ impl LoaderPicker {
                     popover_panel("loader-version-list")
                         .w(px(if form { 300. } else { 280. }))
                         .h(px(panel_height))
-                        .on_mouse_down_out(cx.listener(|this, _, _, cx| {
+                        .on_mouse_down_out(cx.listener(|this, event, _, cx| {
+                            menu_toggle::closed_by("loader-version", event);
                             this.open = false;
                             cx.notify();
                         }))

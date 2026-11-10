@@ -100,7 +100,7 @@ pub fn text(message: M) -> &'static str {
 
         M::CreateInstance => "Créer l’instance",
         M::StartAndJoin => "Démarrer et rejoindre",
-        M::Play => "Jouer",
+        M::Play => "Jouer et rejoindre",
         M::SharedTag => "Partagé",
         M::CopyInviteLink => "Copier le lien d’invitation",
         M::InviteLinkCopied => "Lien d’invitation de {name} copié",

@@ -10,6 +10,7 @@ use launcher_core::accounts::AccountKind;
 use launcher_core::settings::AfterLaunch;
 use launcher_core::ui_skin::SurfaceId;
 use launcher_core::update::UpdateChannel;
+use lodestone_ui::components::menu_toggle;
 
 use super::{LauncherShell, account_box, developer};
 use crate::components::{
@@ -529,7 +530,10 @@ impl LauncherShell {
                                 .ok();
                         }
                     })
-                    .on_press(cx.listener(|this, _, _, cx| {
+                    .on_press(cx.listener(|this, event, _, cx| {
+                        if !menu_toggle::toggles("language", event) {
+                            return;
+                        }
                         this.language_menu_open = !this.language_menu_open;
                         cx.notify();
                     })),
@@ -810,7 +814,8 @@ impl LauncherShell {
     ) -> impl IntoElement + use<> {
         let mut list = popover_panel("language-list")
             .w(px(240.))
-            .on_mouse_down_out(cx.listener(|this, _, _, cx| {
+            .on_mouse_down_out(cx.listener(|this, event, _, cx| {
+                menu_toggle::closed_by("language", event);
                 this.language_menu_open = false;
                 cx.notify();
             }));

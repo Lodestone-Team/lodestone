@@ -82,7 +82,7 @@ pub fn text(message: M) -> &'static str {
 
         M::CreateInstance => "建立實例",
         M::StartAndJoin => "啟動並加入",
-        M::Play => "開始遊戲",
+        M::Play => "開始遊戲並加入",
         M::SharedTag => "已分享",
         M::CopyInviteLink => "複製邀請連結",
         M::InviteLinkCopied => "已複製 {name} 的邀請連結",

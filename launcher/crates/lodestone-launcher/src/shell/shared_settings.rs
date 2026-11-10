@@ -2,6 +2,7 @@
 //! from, "Copy from instance…", "Reset", and the shared values themselves.
 
 use crate::theme::px;
+use lodestone_ui::components::menu_toggle;
 use std::{collections::BTreeSet, path::PathBuf};
 
 use gpui::{
@@ -277,7 +278,12 @@ impl SharedSettings {
         .w(px(320.))
         .max_h(px(320.))
         .overflow_y_scroll()
-        .on_mouse_down_out(cx.listener(|this, _, _, cx| {
+        .on_mouse_down_out(cx.listener(|this, event, _, cx| {
+            let menu = match this.picker {
+                Some(Picker::SyncFrom) => "sync-from",
+                _ => "copy-from",
+            };
+            menu_toggle::closed_by(menu, event);
             this.picker = None;
             cx.notify();
         }));
@@ -432,9 +438,11 @@ impl Render for SharedSettings {
                         })
                     })
                     .when(has_instances, |button| {
-                        button.on_press(
-                            cx.listener(|this, _, _, cx| this.toggle_picker(Picker::SyncFrom, cx)),
-                        )
+                        button.on_press(cx.listener(|this, event, _, cx| {
+                            if menu_toggle::toggles("sync-from", event) {
+                                this.toggle_picker(Picker::SyncFrom, cx)
+                            }
+                        }))
                     }),
                 )
                 .when(self.picker == Some(Picker::SyncFrom), |this| {
@@ -459,9 +467,11 @@ impl Render for SharedSettings {
                         .variant(ButtonVariant::Secondary)
                         .size(ButtonSize::Slim)
                         .disabled(!has_instances)
-                        .on_click(
-                            cx.listener(|this, _, _, cx| this.toggle_picker(Picker::CopyFrom, cx)),
-                        ),
+                        .on_click(cx.listener(|this, event, _, cx| {
+                            if menu_toggle::toggles("copy-from", event) {
+                                this.toggle_picker(Picker::CopyFrom, cx)
+                            }
+                        })),
                 )
                 .when(self.picker == Some(Picker::CopyFrom), |this| {
                     let close = cx.listener(|this, _: &(), _, cx| {

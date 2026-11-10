@@ -518,6 +518,9 @@ pub struct IconButton {
     disabled: bool,
     /// Its tooltip and accessible name; without one, it is named after its icon.
     label: Option<SharedString>,
+    /// The icon's color, when it says something (a server's power icon shows its
+    /// state); faded grey otherwise.
+    color: Option<Color>,
     on_click: Option<ClickHandler>,
 }
 
@@ -528,8 +531,15 @@ impl IconButton {
             icon,
             disabled: false,
             label: None,
+            color: None,
             on_click: None,
         }
+    }
+
+    /// Colors the icon, in place of the faded grey.
+    pub fn color(mut self, color: Color) -> Self {
+        self.color = Some(color);
+        self
     }
 
     pub fn disabled(mut self, disabled: bool) -> Self {
@@ -564,7 +574,8 @@ impl IconButton {
 
 impl RenderOnce for IconButton {
     fn render(self, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
-        let color = colors::GRAY_FADED.opacity(30);
+        let tinted = self.color.is_some();
+        let color = self.color.unwrap_or(colors::GRAY_FADED.opacity(30));
         let name = self.label.clone().unwrap_or_else(|| self.icon.label());
         div()
             .id(self.id.clone())
@@ -598,7 +609,7 @@ impl RenderOnce for IconButton {
             .child(
                 self.icon
                     .render(px(14.), color)
-                    .when(!self.disabled, |icon| {
+                    .when(!self.disabled && !tinted, |icon| {
                         icon.group_hover("icon-button", |style| {
                             style.text_color(colors::WHITE.opacity(50))
                         })

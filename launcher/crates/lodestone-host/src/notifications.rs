@@ -18,6 +18,7 @@ use launcher_core::cores::admin::{
         EventLevel, InstanceEventInner, ProgressionEndValue, ProgressionEventInner, UserEventInner,
     },
 };
+use lodestone_ui::components::menu_toggle;
 use lodestone_ui::{
     components::{Icon, IconButton, Toast},
     theme::{colors, fonts, ink, px, radius, shadow, text, weights},
@@ -584,7 +585,10 @@ impl Notifications {
                 spread_radius: px(0.),
                 inset: false,
             }])
-            .on_mouse_down_out(cx.listener(|this, _, _, cx| this.close(cx)))
+            .on_mouse_down_out(cx.listener(|this, event, _, cx| {
+                menu_toggle::closed_by("notifications", event);
+                this.close(cx)
+            }))
             .child(
                 div()
                     .font_family(fonts::heading())
@@ -653,7 +657,11 @@ impl Render for Notifications {
                     .child(
                         IconButton::new("notifications", Icon::Bell)
                             .label(SharedString::from(t(CoreMsg::Notifications)))
-                            .on_click(cx.listener(|this, _, _, cx| this.toggle(cx))),
+                            .on_click(cx.listener(|this, event, _, cx| {
+                                if menu_toggle::toggles("notifications", event) {
+                                    this.toggle(cx)
+                                }
+                            })),
                     )
                     .when(dot, |this| {
                         this.child(

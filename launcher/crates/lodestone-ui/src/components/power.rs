@@ -26,6 +26,13 @@ pub fn power_actions(state: InstanceState) -> &'static [Power] {
     }
 }
 
+/// What a server's single power icon does, as the dashboard's power button: start
+/// it when stopped, stop it while it runs, kill it while it starts or stops, restart
+/// it after it crashed. None when there is nothing to do.
+pub fn power_toggle(state: InstanceState) -> Option<Power> {
+    power_actions(state).first().copied()
+}
+
 /// A power button's label: "Start", "Stop", "Restart", "Kill".
 pub fn power_name(power: Power) -> &'static str {
     t(match power {
