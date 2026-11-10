@@ -28,6 +28,15 @@
 //! A server shared through the friend list (`super::friend_list`) joins the same way,
 //! from [`Source::FriendList`]: the tunnel comes from the friend list instead of a
 //! link, and nothing goes to the Keychain.
+//!
+//! A server shared from a core running on this computer (the user joined their own
+//! invite link, say) isn't under "Friends' servers" while that core is found here: it
+//! shows under the core in "On this computer", or, when the core's card lists the same
+//! server, in that row with a "Shared with friends" tag
+//! (`launcher_core::cores::friends::Placement`). When the launcher is the core's owner,
+//! Play joins it straight at the core (`127.0.0.1:<the server's port>`) and gets its
+//! mods from the core, with no tunnel to itself (`DirectJoin`); otherwise it opens a
+//! tunnel as for any friend's server. "Check" always tries the invite link.
 
 use std::{
     collections::HashMap,
@@ -37,11 +46,18 @@ use std::{
 
 use gpui::{AppContext as _, Context, Entity, FocusHandle, SharedString, Task};
 pub use launcher_core::cores::friends::game_address;
-use launcher_core::cores::{
-    CoreClient, ServerInstance,
-    connect::{self, ConnectionKind, GamePort, Invite, JoinError, Progress, SharedServer, Tunnel},
-    friends::{self, FriendServer, FriendsFile, InstanceMatch},
-    link::ServerLink,
+use launcher_core::{
+    Secret,
+    cores::{
+        CoreClient, ServerInstance,
+        connect::{
+            self, ConnectionKind, GamePort, Invite, JoinError, Progress, SharedServer, Tunnel,
+        },
+        friends::{
+            self, DirectJoin, FriendServer, FriendsFile, InstanceMatch, LocalCore, Placement,
+        },
+        link::ServerLink,
+    },
 };
 
 use super::{Notice, Servers, ServersEvent};
@@ -88,10 +104,14 @@ pub struct FriendEntry {
     pub status: FriendStatus,
 }
 
-/// An open tunnel to a friend's server, while its dialog is open or its game runs.
+/// An open tunnel to a friend's server, while its dialog is open or its game runs; or,
+/// for a server shared from a core on this computer, the way straight to it.
 pub struct Session {
-    /// `None` only in the offscreen screenshots.
+    /// `None` when the server is joined directly, and in the offscreen screenshots.
     tunnel: Option<Tunnel>,
+    /// The server's core runs on this computer, and the launcher is its owner: the game
+    /// joins it there, and its mods come from the core, with no tunnel to itself.
+    direct: Option<DirectJoin>,
     /// What the host said when the tunnel opened.
     shared: SharedServer,
     kind: ConnectionKind,
@@ -117,13 +137,20 @@ impl Session {
     }
 
     pub fn rtt(&self) -> Duration {
-        self.tunnel
-            .as_ref()
-            .map_or(Duration::from_millis(18), Tunnel::rtt)
+        match (&self.tunnel, &self.direct) {
+            (Some(tunnel), _) => tunnel.rtt(),
+            (None, Some(_)) => Duration::ZERO,
+            (None, None) => Duration::from_millis(18),
+        }
     }
 
     pub fn shared(&self) -> &SharedServer {
         &self.shared
+    }
+
+    /// Whether the game joins the server straight at its core on this computer.
+    pub fn is_direct(&self) -> bool {
+        self.direct.is_some()
     }
 }
 
@@ -621,6 +648,7 @@ impl Servers {
                 address: game_address(tunnel.game_port()),
                 port_taken,
                 tunnel: Some(tunnel),
+                direct: None,
                 shared,
                 client,
                 server,
@@ -836,9 +864,16 @@ impl Servers {
         }
     }
 
-    /// The info port's client for a friend's server, while its tunnel is open.
-    pub(super) fn friend_client(&self, id: &str) -> Option<CoreClient> {
-        Some(self.friends.sessions.get(id)?.client.clone())
+    /// The client (and key) to pull a friend's server's client pack with, while its
+    /// session is open: its tunnel's info port, or its core on this computer, with the
+    /// owner key, when it is joined directly.
+    pub(super) fn friend_pull_client(&self, id: &str) -> Option<(CoreClient, Option<Secret>)> {
+        let session = self.friends.sessions.get(id)?;
+        let Some(direct) = &session.direct else {
+            return Some((session.client.clone(), None));
+        };
+        let core = self.cores.get(self.core_index(&direct.core_uuid)?)?;
+        Some((self.client(core), core.key.clone()))
     }
 
     /// Whether a pull from the friend's server `id` needs the advisory, and the name to
@@ -900,7 +935,13 @@ impl Servers {
         game_dir: Option<&Path>,
     ) -> Option<launcher_core::game::launch::JoinServer> {
         let session = self.friends.sessions.get_mut(id)?;
-        let target = session.tunnel.as_ref()?.join_target();
+        let target = match (&session.direct, &session.tunnel) {
+            (Some(direct), _) => direct.target.clone(),
+            (None, Some(tunnel)) => tunnel.join_target(),
+            (None, None) => return None,
+        };
+        // joined directly, the server list gets the core's address: no tunnel is open
+        let direct_address = session.direct.as_ref().map(DirectJoin::address);
         session.playing = Some(instance_id.to_string());
         // the dialog said so; it closes as the game starts, so the page says it too
         if let Some(saved) = session.port_taken {
@@ -915,9 +956,14 @@ impl Servers {
             entry.saved.instance_id = (!linked).then(|| instance_id.to_string());
             entry.saved.last_joined = Some(now());
             // the game still joins when this fails; the list is only a convenience
-            if let Some(game_dir) = game_dir
-                && let Err(err) = entry.saved.list_in_game(instance_id, game_dir, false)
-            {
+            let listed = match (game_dir, &direct_address) {
+                (None, _) => Ok(()),
+                (Some(game_dir), Some(address)) => {
+                    entry.saved.list_in_game_at(instance_id, game_dir, address)
+                }
+                (Some(game_dir), None) => entry.saved.list_in_game(instance_id, game_dir, false),
+            };
+            if let Err(err) = listed {
                 log::warn!("couldn't update {instance_id}'s server list: {err}");
             }
         }
@@ -964,6 +1010,10 @@ impl Servers {
                 cx.emit(ServersEvent::OpenInstance(instance));
             }
             return;
+        }
+        // shared from a core on this computer: straight there, no tunnel to itself
+        if let Some(direct) = self.friend_direct(id) {
+            return self.open_direct(id, direct, then_play, cx);
         }
         let name = self.friends.get(id).map(|f| f.saved.name.clone());
         // the dialog says it is connecting at once (the Keychain answers first), and an
@@ -1015,7 +1065,8 @@ impl Servers {
         if self.friends.checks.contains_key(id) {
             return;
         }
-        if let Some(session) = self.friends.sessions.get(id) {
+        // a server joined straight at its core here still has its link checked
+        if let Some(session) = self.friends.sessions.get(id).filter(|s| !s.is_direct()) {
             let (server, kind, rtt) = (
                 Box::new(session.shared().clone()),
                 session.kind(),
@@ -1141,6 +1192,136 @@ impl Servers {
     }
 }
 
+/// What the host says of `server` now, as its core lists it to its owner: the saved
+/// details, with the live state and players.
+fn live_shared(saved: &FriendServer, server: &ServerInstance) -> SharedServer {
+    use launcher_core::cores::ServerState;
+    // the names the host sends
+    let state = match server.state {
+        ServerState::Starting => Some("Starting"),
+        ServerState::Running => Some("Running"),
+        ServerState::Stopping => Some("Stopping"),
+        ServerState::Stopped => Some("Stopped"),
+        ServerState::Error => Some("Error"),
+        ServerState::Hidden | ServerState::Unknown => None,
+    }
+    .map(str::to_string);
+    SharedServer {
+        name: server.name.clone(),
+        game_version: server.game_version.clone(),
+        state,
+        player_count: server.player_count,
+        max_player_count: server.max_player_count,
+        ..saved.shared()
+    }
+}
+
+impl Servers {
+    /// The cores found on this computer, with what their cards list, for placing
+    /// friends' servers shared from them.
+    pub fn local_cores(&self) -> Vec<LocalCore<'_>> {
+        self.local
+            .found
+            .iter()
+            .map(|found| {
+                let card = self.cores.iter().find(|c| c.saved.uuid == found.info.uuid);
+                LocalCore {
+                    uuid: &found.info.uuid,
+                    url: &found.url,
+                    servers: card.map_or(&[], |card| card.servers()),
+                    owner: self.is_connected(&found.info.uuid, &found.url),
+                }
+            })
+            .collect()
+    }
+
+    /// Where the friend's server `entry` shows on the page.
+    pub fn friend_placement(&self, entry: &FriendEntry) -> Placement {
+        entry.saved.placement(&self.local_cores())
+    }
+
+    /// The friend's server shared from core `core_uuid` that is the server `server_uuid`
+    /// on that core's card (shown in that row, not again).
+    pub fn friend_on_core_row(&self, core_uuid: &str, server_uuid: &str) -> Option<&FriendEntry> {
+        let local = self.local_cores();
+        self.friends.list.iter().find(|entry| {
+            entry.saved.instance_uuid == server_uuid
+                && entry.saved.placement(&local) == Placement::CoreRow(core_uuid.to_string())
+        })
+    }
+
+    /// The friend's servers shared from core `core_uuid` on this computer that its card
+    /// doesn't list, in "On this computer" under it.
+    pub fn friends_shared_from(&self, core_uuid: &str) -> Vec<&FriendEntry> {
+        let local = self.local_cores();
+        let here = Placement::Local(core_uuid.to_string());
+        self.friends
+            .list
+            .iter()
+            .filter(|entry| entry.saved.placement(&local) == here)
+            .collect()
+    }
+
+    /// How Play joins the friend's server `id` straight at its core on this computer,
+    /// if it can.
+    pub fn friend_direct(&self, id: &str) -> Option<DirectJoin> {
+        self.friends.get(id)?.saved.direct_join(&self.local_cores())
+    }
+
+    /// Opens the friend's server `id`, whose core runs on this computer, without a
+    /// tunnel: the dialog shows it at once, as its core lists it. With `then_play`,
+    /// goes on to Play.
+    fn open_direct(
+        &mut self,
+        id: &str,
+        direct: DirectJoin,
+        then_play: bool,
+        cx: &mut Context<Self>,
+    ) {
+        self.drop_unused_sessions();
+        self.friends.connecting = None;
+        self.friends.ticker = None;
+        self.friends.attempt += 1;
+        let Some(core) = self.core_index(&direct.core_uuid).map(|i| &self.cores[i]) else {
+            return;
+        };
+        let client = self.client(core);
+        // the row's status stays what "Check" said of the invite link
+        let Some(entry) = self.friends.get(id) else {
+            return;
+        };
+        let shared = live_shared(&entry.saved, &direct.server);
+        let address = direct.address();
+        let server = direct.server.clone();
+        self.friends.sessions.insert(
+            id.to_string(),
+            Session {
+                tunnel: None,
+                direct: Some(direct),
+                shared,
+                kind: ConnectionKind::SameComputer,
+                client,
+                server,
+                address,
+                port_taken: None,
+                playing: None,
+                play_when_linked: false,
+                _ended: Task::ready(()),
+            },
+        );
+        self.join_stage(
+            JoinStage::Ready {
+                id: id.to_string(),
+                error: None,
+            },
+            cx,
+        );
+        if then_play {
+            self.friend_play(cx);
+        }
+    }
+}
+
 /// What the join dialog shows in an offscreen screenshot.
 pub enum PreviewJoin {
     Paste {
@@ -1206,6 +1387,7 @@ impl Servers {
                     id.clone(),
                     Session {
                         tunnel: None,
+                        direct: None,
                         kind,
                         address: game_address(taken_port.unwrap_or(port)),
                         port_taken: taken_port.map(|_| port),

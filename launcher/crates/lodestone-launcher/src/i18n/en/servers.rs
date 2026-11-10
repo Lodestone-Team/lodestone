@@ -335,6 +335,15 @@ crate::i18n::messages! {
         NoFriendsYet = "When a friend shares a server from Lodestone Host, they get an invite link. Open it, or paste it here with Join a friend.",
         /// {name} is the host's Lodestone core.
         SharedBy = "Shared by {name}",
+        /// Under a core in "On this computer": servers it shares with an invite link that
+        /// the user joined here. Also the tag on such a server's row on the core's card.
+        SharedWithFriends = "Shared with friends",
+        SharedWithFriendsHint = "You joined these with their invite links.",
+        /// Under a server shared from this computer, while the launcher isn't the core's
+        /// owner (as owner, the server shows in the core's own list).
+        ConnectToJoinDirectly = "Connect as owner to join it directly, without a tunnel.",
+        /// The connection fact in the join dialog, for a server shared from this computer.
+        DirectConnection = "Directly on this computer, without a tunnel",
         /// Asks once whether the server is shared now.
         FriendCheck = "Check",
         FriendChecking = "Checking…",

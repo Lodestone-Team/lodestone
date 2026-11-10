@@ -96,6 +96,9 @@ pub struct HostState {
     /// The window's toasts, which the shell draws over the page (see [`Self::toast`]).
     pub toasts: Entity<Toasts>,
     _stream: Option<LiveStream>,
+    /// File operations a page shows its own toast for, by instance and when they
+    /// started: the core's "Installed 1 file(s)" event for them isn't toasted again.
+    own_file_toasts: Vec<(String, std::time::Instant)>,
     _tasks: Vec<Task<()>>,
 }
 
@@ -116,6 +119,7 @@ impl HostState {
             _stream: None,
             share_requested: None,
             friends: None,
+            own_file_toasts: Vec::new(),
             _tasks: Vec::new(),
         };
         this.follow_events(cx);
@@ -193,6 +197,33 @@ impl HostState {
 
     /// Shows a toast at the bottom right of the window: `Toast::success(…)`,
     /// `Toast::error(…)`, with a key to replace an earlier one, or an action button.
+    /// A page is about to start a file operation on `instance` and shows its own toast
+    /// for the result, so the core's event for it shouldn't make a second one.
+    pub fn expect_own_file_toast(&mut self, instance: &str) {
+        self.own_file_toasts
+            .push((instance.to_string(), std::time::Instant::now()));
+    }
+
+    /// Whether the core's file-operation event for `instance` belongs to an operation
+    /// a page toasts itself (and forgets it). Claims older than a minute lapse, for
+    /// operations that failed before the core sent its event.
+    pub fn take_own_file_toast(&mut self, instance: &str) -> bool {
+        const LAPSE: std::time::Duration = std::time::Duration::from_secs(60);
+        self.own_file_toasts
+            .retain(|(_, started)| started.elapsed() < LAPSE);
+        match self
+            .own_file_toasts
+            .iter()
+            .position(|(id, _)| id == instance)
+        {
+            Some(index) => {
+                self.own_file_toasts.remove(index);
+                true
+            }
+            None => false,
+        }
+    }
+
     pub fn toast(&mut self, toast: Toast, cx: &mut Context<Self>) {
         self.toasts.update(cx, |toasts, cx| {
             toasts.push(toast, cx);

@@ -260,6 +260,9 @@ impl ModsPage {
         cx.notify();
         let admin = self.state.read(cx).admin.clone();
         let uuid = self.uuid.clone();
+        // this tab says how the install went; the core's event needn't
+        self.state
+            .update(cx, |state, _| state.expect_own_file_toast(&uuid));
         let task = cx.spawn(async move |this, cx| {
             let result = cx
                 .background_spawn(async move { admin.install_mod(&uuid, &request).await })

@@ -371,11 +371,20 @@ impl Notifications {
                 if let ProgressionEventInner::ProgressionEnd {
                     inner:
                         Some(ProgressionEndValue::FsOperationCompleted {
-                            success, message, ..
+                            instance_uuid,
+                            success,
+                            message,
                         }),
                     ..
                 } = &progression.progression_event_inner
                 {
+                    // a page that started it shows its own, fuller toast
+                    let own = self
+                        .state
+                        .update(cx, |state, _| state.take_own_file_toast(instance_uuid));
+                    if own {
+                        return;
+                    }
                     let toast = if *success {
                         Toast::success(message.clone())
                     } else {

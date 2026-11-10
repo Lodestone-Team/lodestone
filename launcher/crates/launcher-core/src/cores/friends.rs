@@ -28,6 +28,7 @@ use std::{
 };
 
 use serde::{Deserialize, Serialize};
+use url::Url;
 
 /// The friend list's service and links, for the apps (they don't depend on
 /// `lodestone_connect` themselves).
@@ -35,13 +36,15 @@ pub use lodestone_connect::{Service, friend::pair::FriendLink};
 
 use super::{
     connect::{GamePort, Invite, SharedServer, loader},
+    join::join_target,
     link::ServerLink,
     matching_loader,
-    models::ServerLoader,
+    models::{ServerInstance, ServerLoader},
     server_list::{self, Listed},
 };
 use crate::{
     Secret, SecretStore,
+    game::launch::JoinServer,
     instances::{Instance, Loader},
     storage::{self, Document, Migration, StorageError},
 };
@@ -289,10 +292,22 @@ impl FriendServer {
         let Some(port) = self.game_port.filter(|_| !runs) else {
             return Ok(());
         };
+        self.list_in_game_at(instance_id, game_dir, &game_address(port))
+    }
+
+    /// Adds this server to the instance's server list at `address`, or moves the entry
+    /// added before there: [`Self::list_in_game`] with another address that stays the
+    /// same from session to session (the server's own port, when its core runs on this
+    /// computer). Never call it while the instance's game runs.
+    pub fn list_in_game_at(
+        &mut self,
+        instance_id: &str,
+        game_dir: &Path,
+        address: &str,
+    ) -> std::io::Result<()> {
         let previous = self.listed_in(instance_id);
-        let address = game_address(port);
         let listed =
-            server_list::list_server(game_dir, previous, instance_id, &self.name, &address)?;
+            server_list::list_server(game_dir, previous, instance_id, &self.name, address)?;
         if let Some(listed) = listed {
             self.listed.retain(|l| l.instance_id != instance_id);
             self.listed.push(listed);
@@ -356,6 +371,106 @@ impl FriendServer {
 /// Where Minecraft joins a friend's server whose game port is `port`.
 pub fn game_address(port: u16) -> String {
     format!("127.0.0.1:{port}")
+}
+
+/// A Lodestone core found running on this computer, as friends' servers see it. A
+/// server the user saved from an invite link may be shared by one of these: their own
+/// Lodestone Host, say, when they joined their own link.
+#[derive(Clone, Copy, Debug)]
+pub struct LocalCore<'a> {
+    /// The core's id, as its `/info` says.
+    pub uuid: &'a str,
+    /// Where it answered on this computer (a loopback address).
+    pub url: &'a Url,
+    /// The servers its card on the Servers page lists: empty when it has no card, or
+    /// its list hasn't loaded.
+    pub servers: &'a [ServerInstance],
+    /// The launcher is signed in to it as owner, at the address it answered on.
+    pub owner: bool,
+}
+
+/// Where a friend's server shows on the Servers page.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Placement {
+    /// Under "Friends' servers": its host isn't on this computer, or isn't known (an
+    /// entry saved before the launcher kept the host's id).
+    Friends,
+    /// In "On this computer", under the core with this id, which shares it.
+    Local(String),
+    /// In the row of the same server on the card of the core with this id, which says
+    /// it is shared with friends. It isn't shown a second time.
+    CoreRow(String),
+}
+
+/// How Play joins a friend's server whose core runs on this computer, without a
+/// tunnel to itself.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DirectJoin {
+    /// The core's id.
+    pub core_uuid: String,
+    /// The server as the core lists it to its owner.
+    pub server: ServerInstance,
+    /// The core's address here, and the server's port.
+    pub target: JoinServer,
+}
+
+impl DirectJoin {
+    /// Where Minecraft joins: `127.0.0.1:25565` (an IPv6 address in brackets).
+    pub fn address(&self) -> String {
+        let JoinServer { host, port } = &self.target;
+        if host.contains(':') {
+            format!("[{host}]:{port}")
+        } else {
+            format!("{host}:{port}")
+        }
+    }
+}
+
+/// The core in `local` that shares `entry`.
+fn sharing_core<'a, 'b>(
+    entry: &FriendServer,
+    local: &'a [LocalCore<'b>],
+) -> Option<&'a LocalCore<'b>> {
+    if entry.core_uuid.is_empty() {
+        return None;
+    }
+    local.iter().find(|core| core.uuid == entry.core_uuid)
+}
+
+/// The server `entry` is on `core`'s card, when the card lists it.
+fn listed_on<'a>(entry: &FriendServer, core: &LocalCore<'a>) -> Option<&'a ServerInstance> {
+    if entry.instance_uuid.is_empty() {
+        return None;
+    }
+    core.servers.iter().find(|s| s.uuid == entry.instance_uuid)
+}
+
+impl FriendServer {
+    /// Where this server shows, given the cores found on this computer (`local`).
+    /// When its core stops (or isn't found), it goes back under "Friends' servers":
+    /// its link still works from other computers.
+    pub fn placement(&self, local: &[LocalCore]) -> Placement {
+        match sharing_core(self, local) {
+            None => Placement::Friends,
+            Some(core) if listed_on(self, core).is_some() => {
+                Placement::CoreRow(core.uuid.to_string())
+            }
+            Some(core) => Placement::Local(core.uuid.to_string()),
+        }
+    }
+
+    /// How Play joins this server straight at its core on this computer: when the core
+    /// runs here, the launcher is its owner, and the core lists the server with its
+    /// port. `None`: Play opens a tunnel, as for any friend's server.
+    pub fn direct_join(&self, local: &[LocalCore]) -> Option<DirectJoin> {
+        let core = sharing_core(self, local).filter(|core| core.owner)?;
+        let server = listed_on(self, core)?;
+        Some(DirectJoin {
+            core_uuid: core.uuid.to_string(),
+            target: join_target(core.url, server)?,
+            server: server.clone(),
+        })
+    }
 }
 
 /// Where game ports are picked: unprivileged, and away from Minecraft's 25565 and the
@@ -1223,5 +1338,141 @@ mod tests {
             match_instance(id, &shared("other", None, false), None, &instances, &links),
             InstanceMatch::Create
         );
+    }
+
+    fn core_server(uuid: &str, port: Option<u32>) -> ServerInstance {
+        ServerInstance {
+            uuid: uuid.into(),
+            name: "SMP".into(),
+            game_version: "1.21.4".into(),
+            loader: ServerLoader::Vanilla,
+            loader_version: None,
+            port,
+            state: super::super::ServerState::Running,
+            player_count: None,
+            max_player_count: None,
+            has_client_pack: Some(false),
+            listed: false,
+        }
+    }
+
+    #[test]
+    fn a_server_shared_from_this_computer_has_its_own_place() {
+        // shared by core "core", instance "server"
+        let entry = FriendServer::new(&invite(0xab), &shared("vanilla", None, false), 1);
+        let url = Url::parse("http://127.0.0.1:16662").unwrap();
+        let other = [core_server("another", Some(25570))];
+        let listed = [core_server("server", Some(25565))];
+        let here = |uuid, servers, owner| LocalCore {
+            uuid,
+            url: &url,
+            servers,
+            owner,
+        };
+
+        // its core runs here: under it in "On this computer"
+        assert_eq!(
+            entry.placement(&[here("core", &[], false)]),
+            Placement::Local("core".into())
+        );
+        assert_eq!(
+            entry.placement(&[here("elsewhere", &[], true), here("core", &other, true)]),
+            Placement::Local("core".into())
+        );
+        // the core's card lists the same server: shown once, in that row
+        assert_eq!(
+            entry.placement(&[here("core", &listed, true)]),
+            Placement::CoreRow("core".into())
+        );
+        assert_eq!(
+            entry.placement(&[here("core", &listed, false)]),
+            Placement::CoreRow("core".into())
+        );
+        // its core isn't found here: back under "Friends' servers"
+        assert_eq!(entry.placement(&[]), Placement::Friends);
+        assert_eq!(
+            entry.placement(&[here("elsewhere", &listed, true)]),
+            Placement::Friends
+        );
+        // an entry saved before the host's id was kept stays under "Friends' servers"
+        let mut old = entry.clone();
+        old.core_uuid.clear();
+        old.instance_uuid.clear();
+        assert_eq!(
+            old.placement(&[here("", &listed, true)]),
+            Placement::Friends
+        );
+        assert_eq!(old.direct_join(&[here("", &listed, true)]), None);
+    }
+
+    #[test]
+    fn play_joins_a_server_on_this_computer_directly() {
+        let entry = FriendServer::new(&invite(0xab), &shared("vanilla", None, false), 1);
+        let url = Url::parse("http://127.0.0.1:16662").unwrap();
+        let listed = [core_server("server", Some(25565))];
+        let here = |servers, owner| LocalCore {
+            uuid: "core",
+            url: &url,
+            servers,
+            owner,
+        };
+
+        // the owner sees the server and its port: straight there, no tunnel
+        assert_eq!(
+            entry.direct_join(&[here(&listed, true)]),
+            Some(DirectJoin {
+                core_uuid: "core".into(),
+                server: listed[0].clone(),
+                target: JoinServer {
+                    host: "127.0.0.1".into(),
+                    port: 25565,
+                },
+            })
+        );
+        let direct = entry.direct_join(&[here(&listed, true)]).unwrap();
+        assert_eq!(direct.address(), "127.0.0.1:25565");
+        let v6 = Url::parse("http://[::1]:16662").unwrap();
+        let on_v6 = LocalCore {
+            uuid: "core",
+            url: &v6,
+            servers: &listed,
+            owner: true,
+        };
+        assert_eq!(
+            entry.direct_join(&[on_v6]).unwrap().address(),
+            "[::1]:25565"
+        );
+        // not the owner here (the pack and port need it): through the tunnel
+        assert_eq!(entry.direct_join(&[here(&listed, false)]), None);
+        // the list hasn't loaded, or doesn't have the server
+        assert_eq!(entry.direct_join(&[here(&[], true)]), None);
+        let other = [core_server("another", Some(25570))];
+        assert_eq!(entry.direct_join(&[here(&other, true)]), None);
+        // the core hides the port
+        let hidden = [core_server("server", None)];
+        assert_eq!(entry.direct_join(&[here(&hidden, true)]), None);
+        // the core isn't running here
+        assert_eq!(entry.direct_join(&[]), None);
+    }
+
+    #[test]
+    fn a_direct_join_lists_the_servers_own_address() {
+        use super::server_list::SERVERS_DAT;
+        let dir = tempfile::tempdir().unwrap();
+        let game_dir = dir.path().join("a").join("minecraft");
+        let mut entry = FriendServer::new(&invite(0xab), &shared("vanilla", None, false), 1);
+        entry.game_port = Some(31234);
+        entry.list_in_game("a", &game_dir, false).unwrap();
+        // joined directly: the same entry moves to the core's address
+        entry
+            .list_in_game_at("a", &game_dir, "127.0.0.1:25565")
+            .unwrap();
+        assert_eq!(entry.listed.len(), 1);
+        assert_eq!(entry.listed_in("a").unwrap().ip, "127.0.0.1:25565");
+        let text = String::from_utf8_lossy(&std::fs::read(game_dir.join(SERVERS_DAT)).unwrap())
+            .into_owned();
+        assert!(text.contains("127.0.0.1:25565") && !text.contains("31234"));
+        // the saved game port stays for the tunnel
+        assert_eq!(entry.game_port, Some(31234));
     }
 }

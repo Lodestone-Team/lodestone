@@ -14,7 +14,7 @@ use gpui::App;
 use launcher_control::{ErrorObject, codes};
 use launcher_core::cores::{
     connect::{ConnectionKind, Invite, JoinError},
-    friends::InstanceMatch,
+    friends::{InstanceMatch, Placement},
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -95,6 +95,15 @@ fn friend_json(entry: &FriendEntry, servers: &Servers) -> Value {
         "address": saved.game_port.map(game_address),
         "status": status,
         "playing": playing,
+        // where the page shows it: "friends", or under the core on this computer that
+        // shares it ("local"), or in that core's row of the same server ("core_row")
+        "placement": match servers.friend_placement(entry) {
+            Placement::Friends => json!({ "section": "friends" }),
+            Placement::Local(core) => json!({ "section": "local", "core": core }),
+            Placement::CoreRow(core) => json!({ "section": "core_row", "core": core }),
+        },
+        // Play joins it straight at its core on this computer, without a tunnel
+        "direct": servers.friend_direct(&saved.id).is_some(),
     })
 }
 
@@ -207,6 +216,8 @@ fn card_json(servers: &Servers, id: &str, cx: &App) -> Option<Value> {
         "players": shared.player_count,
         "max_players": shared.max_player_count,
         "connection": kind_name(session.kind()),
+        // joined straight at its core on this computer, without a tunnel
+        "direct": session.is_direct(),
         "rtt_ms": session.rtt().as_millis() as u64,
         // this session's; another than the usual one when that port was taken
         "address": session.address,

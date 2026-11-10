@@ -745,7 +745,7 @@ impl Servers {
                 let core = &self.cores[index];
                 Some((self.client(core), core.key.clone()))
             }
-            None => Some((self.friend_client(core_uuid)?, None)),
+            None => self.friend_pull_client(core_uuid),
         }
     }
 
