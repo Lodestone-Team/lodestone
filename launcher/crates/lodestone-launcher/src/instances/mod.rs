@@ -595,9 +595,13 @@ impl Instances {
         cx.notify();
         match result {
             Ok(settings) => {
+                // The accounts save and trace the developer section themselves, so
+                // this copy of it can be older than the file: compare it as it is now.
+                let mut previous = self.settings.clone();
+                previous.developer = settings.developer.clone();
                 launcher_core::trace::settings_changed(
                     "launcher",
-                    &self.settings,
+                    &previous,
                     &settings,
                     serde_json::Value::Null,
                 );

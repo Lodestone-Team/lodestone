@@ -53,8 +53,10 @@ pub const USER_AGENT: &str = concat!(
     " (+https://github.com/Lodestone-Team/lodestone)"
 );
 
-/// Offline accounts are a development aid: they are available in debug builds, or
-/// in any build with `LODESTONE_LAUNCHER_OFFLINE=1`.
+/// Offline accounts are a development aid. They are always available in debug builds
+/// and with `LODESTONE_LAUNCHER_OFFLINE=1`; other builds offer them once Settings >
+/// Developer > Accounts > "Offline accounts" is on
+/// ([`settings::DeveloperSettings::offline_accounts`]).
 pub fn offline_mode_enabled() -> bool {
     offline_mode_enabled_with(
         cfg!(debug_assertions),

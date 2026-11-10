@@ -546,7 +546,7 @@ pub const METHODS: &[Method] = &[
     ),
     method(
         "accounts.add_offline",
-        "Adds an offline account (development builds or LODESTONE_LAUNCHER_OFFLINE=1).",
+        "Adds an offline account (once Settings > Developer > Offline accounts is on; always in debug builds and with LODESTONE_LAUNCHER_OFFLINE=1).",
         accounts::add_offline,
     ),
     destructive(

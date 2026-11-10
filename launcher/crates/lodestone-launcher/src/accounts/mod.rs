@@ -173,18 +173,40 @@ impl Accounts {
     }
 
     /// Turns Settings > Developer > "Offline accounts" on or off and saves it in
-    /// `settings.json`. Offline accounts already added are kept.
-    pub fn set_offline_accounts(&mut self, enabled: bool, cx: &mut Context<Self>) {
-        let result = settings::update(&self.data_dir.settings_file(), |settings| {
-            settings.developer.offline_accounts = enabled;
-        });
-        match result {
-            Ok(_) => self.offline_setting = enabled,
-            Err(err) => {
-                self.notice = Some(tr!(M::CouldntSaveSettings, error = err).into());
-            }
+    /// `settings.json`. Offline accounts already added are kept. The error says why
+    /// it couldn't be saved; the setting is then unchanged.
+    pub fn set_offline_accounts(
+        &mut self,
+        enabled: bool,
+        cx: &mut Context<Self>,
+    ) -> Result<(), SharedString> {
+        let result = self.save_developer(|developer| developer.offline_accounts = enabled);
+        if result.is_ok() {
+            self.offline_setting = enabled;
         }
         cx.notify();
+        result
+    }
+
+    /// Changes the developer section of `settings.json`, which the accounts own:
+    /// read as the file is now, changed and written back, and traced.
+    fn save_developer(
+        &self,
+        change: impl FnOnce(&mut settings::DeveloperSettings),
+    ) -> Result<(), SharedString> {
+        let mut before = None;
+        let saved = settings::update(&self.data_dir.settings_file(), |settings| {
+            before = Some(settings.developer.clone());
+            change(&mut settings.developer);
+        })
+        .map_err(|err| SharedString::from(tr!(M::CouldntSaveSettings, error = err)))?;
+        launcher_core::trace::settings_changed(
+            "launcher",
+            &serde_json::json!({ "developer": before }),
+            &serde_json::json!({ "developer": saved.developer }),
+            serde_json::Value::Null,
+        );
+        Ok(())
     }
 
     /// Whether "Sign in as the Minecraft Launcher" is on.
@@ -212,18 +234,20 @@ impl Accounts {
     }
 
     /// Turns "Sign in as the Minecraft Launcher" on or off and saves it in
-    /// `settings.json`. Accounts already signed in are not changed.
-    pub fn set_launcher_identity(&mut self, enabled: bool, cx: &mut Context<Self>) {
-        let result = settings::update(&self.data_dir.settings_file(), |settings| {
-            settings.developer.sign_in_as_minecraft_launcher = enabled;
-        });
-        match result {
-            Ok(_) => self.launcher_identity = enabled,
-            Err(err) => {
-                self.notice = Some(tr!(M::CouldntSaveSettings, error = err).into());
-            }
+    /// `settings.json`. Accounts already signed in are not changed. The error says
+    /// why it couldn't be saved; the setting is then unchanged.
+    pub fn set_launcher_identity(
+        &mut self,
+        enabled: bool,
+        cx: &mut Context<Self>,
+    ) -> Result<(), SharedString> {
+        let result =
+            self.save_developer(|developer| developer.sign_in_as_minecraft_launcher = enabled);
+        if result.is_ok() {
+            self.launcher_identity = enabled;
         }
         cx.notify();
+        result
     }
 
     /// Signs out (removes) every account signed in as the Minecraft Launcher,
@@ -579,4 +603,107 @@ pub fn create(cx: &mut App) -> Entity<Accounts> {
             cx,
         )
     })
+}
+
+/// Settings > Developer's options as a release build has them: not forced on.
+#[cfg(all(test, feature = "screenshot"))]
+mod developer_setting_tests {
+    use std::path::{Path, PathBuf};
+
+    use gpui::{AppContext as _, TestAppContext};
+    use launcher_core::{auth::MsaConfig, paths::DataDir};
+
+    use super::{Accounts, MemorySecretStore, Secrets};
+
+    /// A data folder of its own, removed when the test ends.
+    struct TempDir(PathBuf);
+
+    impl TempDir {
+        fn new(name: &str) -> Self {
+            let dir = std::env::temp_dir().join(format!(
+                "lodestone-launcher-test-{name}-{}",
+                std::process::id()
+            ));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).unwrap();
+            Self(dir)
+        }
+
+        fn path(&self) -> &Path {
+            &self.0
+        }
+    }
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn accounts(dir: &Path, cx: &mut TestAppContext) -> gpui::Entity<Accounts> {
+        let dir = DataDir::at(dir.to_path_buf());
+        cx.update(|cx| {
+            cx.new(|cx| {
+                Accounts::new(
+                    dir,
+                    launcher_core::http::default_client().unwrap(),
+                    MsaConfig::from_env(),
+                    Secrets::Memory(MemorySecretStore::new()),
+                    false,
+                    cx,
+                )
+            })
+        })
+    }
+
+    #[test]
+    fn offline_accounts_follow_the_saved_setting() {
+        let mut cx = TestAppContext::single();
+        let dir = TempDir::new("offline-setting");
+        let accounts = accounts(dir.path(), &mut cx);
+        cx.update(|cx| {
+            assert!(!accounts.read(cx).offline_enabled());
+            assert!(!accounts.read(cx).offline_forced());
+            accounts
+                .update(cx, |a, cx| a.set_offline_accounts(true, cx))
+                .unwrap();
+            assert!(accounts.read(cx).offline_enabled());
+        });
+        // a new start reads it back
+        let again = self::accounts(dir.path(), &mut cx);
+        cx.update(|cx| {
+            assert!(again.read(cx).offline_enabled());
+            again
+                .update(cx, |a, cx| a.set_offline_accounts(false, cx))
+                .unwrap();
+            assert!(!again.read(cx).offline_enabled());
+        });
+    }
+
+    #[test]
+    fn a_setting_that_cant_be_saved_says_why_and_stays() {
+        let mut cx = TestAppContext::single();
+        let dir = TempDir::new("unsaved-setting");
+        // A file this build can't read (a newer version) isn't overwritten.
+        let settings = DataDir::at(dir.path().to_path_buf()).settings_file();
+        std::fs::create_dir_all(settings.parent().unwrap()).unwrap();
+        std::fs::write(&settings, r#"{"version":999}"#).unwrap();
+        let accounts = accounts(dir.path(), &mut cx);
+        cx.update(|cx| {
+            let notice = accounts.read(cx).notice().cloned();
+            let saved = accounts.update(cx, |a, cx| a.set_offline_accounts(true, cx));
+            assert!(saved.is_err());
+            assert!(!accounts.read(cx).offline_enabled());
+            let launcher = accounts.read(cx).launcher_identity_enabled();
+            let saved = accounts.update(cx, |a, cx| a.set_launcher_identity(!launcher, cx));
+            assert!(saved.is_err());
+            assert_eq!(accounts.read(cx).launcher_identity_enabled(), launcher);
+            // the accounts' own notice is left alone
+            assert_eq!(accounts.read(cx).notice().cloned(), notice);
+        });
+        assert_eq!(
+            std::fs::read_to_string(&settings).unwrap(),
+            r#"{"version":999}"#
+        );
+    }
 }

@@ -873,7 +873,8 @@ pub enum Accounts {
         /// The account's id or username.
         account: String,
     },
-    /// Adds an offline account (debug builds, or LODESTONE_LAUNCHER_OFFLINE=1).
+    /// Adds an offline account (once Settings › Developer › Offline accounts is on;
+    /// always in debug builds and with LODESTONE_LAUNCHER_OFFLINE=1).
     #[command(after_help = "Examples:\n  lodestone-launcher-cli accounts add-offline Tester")]
     AddOffline { username: String },
     /// Removes an account and its saved sign-in. Needs --yes.

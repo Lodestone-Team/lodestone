@@ -133,7 +133,7 @@ pub fn add_offline(call: Call, cx: &mut App) -> Reply {
     if !control.accounts.read(cx).offline_enabled() {
         return ready(Err(api_error(
             codes::UNAVAILABLE,
-            "Offline accounts are for development: they are only offered in debug builds, or with LODESTONE_LAUNCHER_OFFLINE=1 when the launcher starts.",
+            "Offline accounts are off. Ask the user to turn on Settings > Developer > Accounts > Offline accounts in the launcher's window. They are always on in debug builds and with LODESTONE_LAUNCHER_OFFLINE=1.",
         )));
     }
     let account = tri!(

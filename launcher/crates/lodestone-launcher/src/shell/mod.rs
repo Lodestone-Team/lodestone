@@ -2719,3 +2719,43 @@ mod tests {
         }
     }
 }
+
+/// The paste shortcut in the real window: the shell's key context and its
+/// PasteInvite handler must be on the root that has focus when nothing else does.
+#[cfg(all(test, feature = "screenshot"))]
+mod paste_tests {
+    use gpui::TestAppContext;
+
+    use super::LauncherShell;
+
+    #[test]
+    fn the_window_root_takes_the_paste_shortcut() {
+        let mut cx = TestAppContext::single();
+        cx.update(|cx| {
+            crate::components::init(cx);
+            crate::bind_paste_invite(cx);
+        });
+        let (shell, cx) = cx.add_window_view(|_, cx| {
+            let accounts = crate::preview::accounts("home", cx);
+            let instances = crate::preview::instances("home", &accounts, cx);
+            LauncherShell::new(accounts, instances, cx)
+        });
+        cx.run_until_parked();
+        let root = shell.read_with(cx, |shell, _| shell.root_focus.clone());
+        cx.update(|window, cx| window.focus(&root, cx));
+        cx.run_until_parked();
+        cx.update(|window, _| {
+            assert!(
+                window.is_action_available_in(&crate::PasteInvite, &root),
+                "the root handles PasteInvite"
+            );
+            assert!(
+                !window
+                    .bindings_for_action_in(&crate::PasteInvite, &root)
+                    .is_empty(),
+                "the paste shortcut reaches the root: {:?}",
+                window.context_stack()
+            );
+        });
+    }
+}
