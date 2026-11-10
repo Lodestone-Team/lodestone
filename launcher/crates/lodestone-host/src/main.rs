@@ -19,7 +19,12 @@ fn main() {
     // exits.
     launcher_core::update::wait_for_previous();
     let (show_tx, mut show_rx) = futures::channel::mpsc::unbounded();
-    if !single_instance::acquire(show_tx) {
+    // `--screenshot` (the `screenshot` feature) may run beside an installed Host, with
+    // its own data folders and core port (LODESTONE_PATH, LODESTONE_HOST_DATA_DIR,
+    // LODESTONE_HOST_CORE_PORT), as the launcher's screenshots do.
+    let screenshot =
+        cfg!(feature = "screenshot") && std::env::args().any(|arg| arg == "--screenshot");
+    if !screenshot && !single_instance::acquire(show_tx) {
         return;
     }
     let app = gpui_platform::application().with_assets(Assets);

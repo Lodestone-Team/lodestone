@@ -571,6 +571,8 @@ crate::i18n::messages! {
         /// The top bar's notice, beside its Restart button.
         UpdateReadyBadge = "Update ready",
         UpdateAvailableBadge = "Update available",
+        /// Beside the top bar's logo in a development build (`cargo build`).
+        DevBadge = "DEV",
 
         // Shared components.
         /// Under a Modrinth description that is cut short.

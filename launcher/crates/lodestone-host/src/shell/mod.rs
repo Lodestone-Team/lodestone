@@ -4,7 +4,7 @@
 
 pub mod settings;
 pub mod sidebar;
-mod top_bar;
+pub(crate) mod top_bar;
 
 use gpui::{
     AnyView, Context, Entity, IntoElement, ParentElement, Render, Styled, Subscription, Window,
