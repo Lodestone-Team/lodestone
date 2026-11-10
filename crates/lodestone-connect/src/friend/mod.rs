@@ -18,6 +18,8 @@ pub mod protocol;
 pub mod state;
 
 #[cfg(feature = "host")]
+mod gate;
+#[cfg(feature = "host")]
 pub mod host;
 #[cfg(feature = "join")]
 pub mod join;

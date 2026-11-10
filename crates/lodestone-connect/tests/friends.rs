@@ -263,6 +263,9 @@ async fn friends_pair_and_join_without_links() {
     let core_addr = host.status().candidates[0].addr;
     let stranger = quinn_attempt(core_addr, fingerprint).await;
     assert!(stranger.is_err(), "the core answered a stranger");
+    // Not even QUIC's own answers: a version negotiation or a stateless reset would show
+    // a server is here.
+    assert_silent(core_addr);
 
     // --- Ben joins
     let joined = join_friend(&service, &ben, &core, options()).await.unwrap();
@@ -365,6 +368,39 @@ async fn a_core_publishes_again_after_its_session_ends() {
 "
     );
     host.stop().await;
+}
+
+/// Sends `addr` datagrams any QUIC server answers (an Initial with a version it doesn't
+/// know, which gets a version negotiation; a short-header packet for no connection,
+/// which gets a stateless reset) and checks nothing comes back.
+fn assert_silent(addr: SocketAddr) {
+    let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
+    socket
+        .set_read_timeout(Some(Duration::from_millis(1500)))
+        .unwrap();
+    // long header, version 0x1a2a3a4a, 8-byte connection ids, padded to 1200 bytes
+    let mut unknown_version = vec![0xc0, 0x1a, 0x2a, 0x3a, 0x4a, 8];
+    unknown_version.extend_from_slice(&[7; 8]);
+    unknown_version.push(8);
+    unknown_version.extend_from_slice(&[9; 8]);
+    unknown_version.resize(1200, 0);
+    // short header for a connection id the server never gave out
+    let mut short = vec![0x40];
+    short.extend(std::iter::repeat_n(0x5a, 99));
+    for datagram in [&unknown_version, &short] {
+        socket.send_to(datagram, addr).unwrap();
+        let mut buf = [0u8; 2048];
+        match socket.recv_from(&mut buf) {
+            Ok((len, _)) => panic!("the core answered a stranger's datagram ({len} bytes)"),
+            Err(err) => assert!(
+                matches!(
+                    err.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                ),
+                "{err}"
+            ),
+        }
+    }
 }
 
 /// A bare QUIC handshake to `addr` pinning `fingerprint`, with a short timeout.

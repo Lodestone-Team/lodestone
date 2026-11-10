@@ -5,8 +5,10 @@
 //! - It has its own certificate ([`CoreIdentity`]), socket and QUIC protocol
 //!   ([`FRIEND_ALPN`]), apart from every invite host.
 //! - It answers QUIC only from addresses in a knock it accepted in the last
-//!   [`ALLOW_FOR`]; everyone else gets silence, so a removed friend who remembers the
-//!   core's address learns nothing.
+//!   [`ALLOW_FOR`], or on a connection now; everyone else gets silence, so a removed
+//!   friend who remembers the core's address learns nothing. Their datagrams never
+//!   reach QUIC ([`Gate`]), so not even a version negotiation or a stateless reset
+//!   answers them.
 //! - The first stream of a connection must be the friend hello: the friend's key and a
 //!   signature over this connection's TLS exporter. Until then nothing else is read.
 //! - Every later stream is checked against the friend list as it is then.
@@ -28,6 +30,7 @@ use tokio::{sync::watch, task::JoinHandle};
 use super::{
     client::{DeliveredKnock, MeetEvent, MeetSession},
     crypto::{probe_tag, PublicKey, Secret, ID_LEN, SIGNATURE_LEN},
+    gate::Gate,
     meet::{self, ReplayGuard},
     protocol::{hello_message, FriendStreamKind, HELLO_CONTEXT, HELLO_LABEL, MAX_INSTANCE_LEN},
 };
@@ -258,6 +261,25 @@ impl Drop for Unproven {
     }
 }
 
+/// An address on a connection now (or a connection still saying hello): its datagrams
+/// pass the [`Gate`] after its knock's [`ALLOW_FOR`] ends. Dropping it lets that go.
+struct PeerHold {
+    shared: Arc<Shared>,
+    ip: IpAddr,
+}
+
+impl Drop for PeerHold {
+    fn drop(&mut self) {
+        let mut peers = self.shared.peers.lock().expect("not poisoned");
+        if let Some(count) = peers.get_mut(&self.ip) {
+            *count -= 1;
+            if *count == 0 {
+                peers.remove(&self.ip);
+            }
+        }
+    }
+}
+
 struct Shared {
     fingerprint: [u8; 32],
     service: Service,
@@ -269,6 +291,10 @@ struct Shared {
     /// never crowd out another.
     allowed: Mutex<HashMap<PublicKey, (Vec<IpAddr>, Instant)>>,
     connections: Mutex<Connections>,
+    /// The addresses on connections now, and how many connections each has. The
+    /// [`Gate`] reads this for every datagram, inside QUIC: never call QUIC while
+    /// holding it (nor `allowed`).
+    peers: Mutex<HashMap<IpAddr, usize>>,
     next_connection: AtomicU64,
     status: Mutex<FriendHostStatus>,
     changed: watch::Sender<u64>,
@@ -284,6 +310,34 @@ impl Shared {
 
     fn is_friend(&self, key: &PublicKey) -> bool {
         self.friends.lock().expect("not poisoned").contains_key(key)
+    }
+
+    /// Whether datagrams from `ip` may reach QUIC: an accepted knock lets it connect, or
+    /// it's on a connection now. For the [`Gate`], so it allocates nothing.
+    fn may_reach(&self, ip: IpAddr) -> bool {
+        if self.peers.lock().expect("not poisoned").contains_key(&ip) {
+            return true;
+        }
+        let now = Instant::now();
+        self.allowed
+            .lock()
+            .expect("not poisoned")
+            .values()
+            .any(|(ips, until)| *until > now && ips.contains(&ip))
+    }
+
+    /// Lets `ip`'s datagrams through for as long as the hold lasts.
+    fn hold_peer(self: &Arc<Self>, ip: IpAddr) -> PeerHold {
+        *self
+            .peers
+            .lock()
+            .expect("not poisoned")
+            .entry(ip)
+            .or_default() += 1;
+        PeerHold {
+            shared: self.clone(),
+            ip,
+        }
     }
 
     /// The friends whose accepted knocks let `ip` connect now.
@@ -421,6 +475,7 @@ impl FriendHost {
             generation: watch::channel(0).0,
             allowed: Mutex::new(HashMap::new()),
             connections: Mutex::new(Connections::default()),
+            peers: Mutex::new(HashMap::new()),
             next_connection: AtomicU64::new(1),
             status: Mutex::new(FriendHostStatus {
                 state: HostState::Reconnecting,
@@ -434,7 +489,11 @@ impl FriendHost {
             mapping: Mutex::new(gathered.mapping),
             candidates,
         });
-        let endpoint = tunnel::endpoint(gathered.socket, Some(server))?;
+        let admit = {
+            let shared = shared.clone();
+            Arc::new(move |ip| shared.may_reach(ip))
+        };
+        let endpoint = Gate::endpoint(gathered.socket, server, admit)?;
         let (stop, stop_rx) = watch::channel(false);
         let handler: Arc<dyn FriendHandler> = Arc::new(handler);
         let tasks = vec![
@@ -857,9 +916,12 @@ async fn accept_loop(
                 continue;
             }
         };
+        let peer = shared.hold_peer(ip);
         let shared = shared.clone();
         let handler = handler.clone();
         tokio::spawn(async move {
+            // kept for as long as the connection is
+            let _peer = peer;
             // The handshake and the hello together, so an unproven place is held only
             // briefly.
             let proven = tokio::time::timeout(HELLO_WITHIN, async {
@@ -1011,6 +1073,7 @@ pub(crate) mod tests {
             generation: watch::channel(0).0,
             allowed: Mutex::new(HashMap::new()),
             connections: Mutex::new(Connections::default()),
+            peers: Mutex::new(HashMap::new()),
             next_connection: AtomicU64::new(1),
             status: Mutex::new(FriendHostStatus {
                 state: HostState::Sharing,
@@ -1052,6 +1115,27 @@ pub(crate) mod tests {
         assert_eq!(shared.reserve(crowd).unwrap().friend, Some(dee));
         drop(bens_place);
         assert_eq!(shared.connections.lock().unwrap().unproven_total(), 0);
+    }
+
+    #[test]
+    fn only_allowed_addresses_and_connections_reach_quic() {
+        let dee = key(1);
+        let shared = shared_with(&[dee]);
+        let knocked: IpAddr = "198.18.0.7".parse().unwrap();
+        let stranger: IpAddr = "198.18.0.9".parse().unwrap();
+        assert!(!shared.may_reach(knocked));
+        shared.allow(dee, [knocked]);
+        assert!(shared.may_reach(knocked));
+        assert!(!shared.may_reach(stranger));
+        // a connection outlasts its knock
+        let hold = shared.hold_peer(knocked);
+        let second = shared.hold_peer(knocked);
+        shared.disallow(&dee);
+        assert!(shared.may_reach(knocked));
+        drop(hold);
+        assert!(shared.may_reach(knocked));
+        drop(second);
+        assert!(!shared.may_reach(knocked));
     }
 
     #[test]
