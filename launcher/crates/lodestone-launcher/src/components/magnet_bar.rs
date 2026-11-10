@@ -17,7 +17,9 @@
 //! Drawn at about 30 frames a second while it shows; with reduced motion, still,
 //! without the melting, the springing or the pointer.
 
+use std::cell::Cell;
 use std::f32::consts::PI;
+use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use gpui::{
@@ -65,6 +67,13 @@ const RING_WIDTH: f32 = 18.0;
 /// Between frames.
 const FRAME: Duration = Duration::from_millis(33);
 
+/// Where the Play button is, in the window: [`PlayButton::anchor`] writes it as it's
+/// laid out, and [`MagnetBar::anchor`] reads it, so the button melts from its own
+/// shape, without the line under it ("Play without joining").
+///
+/// [`PlayButton::anchor`]: super::PlayButton::anchor
+pub type MagnetAnchor = Rc<Cell<Option<Bounds<Pixels>>>>;
+
 /// The Play bar's content (`child`, the Play button) over its filings. Fills the
 /// bar; the filings reach `bleed` past it, to the bar's edges.
 #[derive(IntoElement)]
@@ -74,6 +83,9 @@ pub struct MagnetBar {
     launch: Option<f32>,
     look: MagnetLook,
     bleed: (f32, f32),
+    anchor: Option<MagnetAnchor>,
+    /// The button is drawn dimmed (disabled) right now.
+    dimmed: bool,
     child: AnyElement,
 }
 
@@ -84,6 +96,8 @@ impl MagnetBar {
             launch: None,
             look: MagnetLook::default(),
             bleed: (0.0, 0.0),
+            anchor: None,
+            dimmed: false,
             child: child.into_any_element(),
         }
     }
@@ -96,6 +110,20 @@ impl MagnetBar {
     /// The skin's colours, for the button to melt from and the filings.
     pub fn look(mut self, look: MagnetLook) -> Self {
         self.look = look;
+        self
+    }
+
+    /// Where the button is, as the button itself writes it. Without one, the whole
+    /// of `child` is taken for the button.
+    pub fn anchor(mut self, anchor: MagnetAnchor) -> Self {
+        self.anchor = Some(anchor);
+        self
+    }
+
+    /// Whether the button is drawn dimmed right now (disabled, as while a server's
+    /// mods are checked before Play joins it), so it melts from that look.
+    pub fn dimmed(mut self, dimmed: bool) -> Self {
+        self.dimmed = dimmed;
         self
     }
 
@@ -163,6 +191,17 @@ impl MagnetLook {
                 .collect(),
             // weak filings: a little of the bar's text colour over the bar
             weak: channels(backdrop.mean.mix(readable::best_ink(backdrop), 0.4)),
+        }
+    }
+
+    /// The look of the button drawn disabled, as the Play button dims it.
+    fn dimmed(&self) -> Self {
+        Self {
+            fill: self.fill.opacity(25),
+            gradient: None,
+            edge: self.fill.opacity(30),
+            glow: false,
+            ..self.clone()
         }
     }
 
@@ -286,6 +325,17 @@ impl RoundedBox {
     }
 }
 
+/// The melting button at `k` (0 to 1 of [`MELT`]), gliding from where it was to
+/// `toward`, where the step's text settles (lower, once "Play without joining" under
+/// a server's Play has gone).
+fn melted_toward(from: RoundedBox, toward: (f32, f32), k: f32) -> RoundedBox {
+    let mut shape = melted(from, k);
+    let e = ease_out_cubic(k);
+    shape.cx += (toward.0 - from.cx) * e;
+    shape.cy += (toward.1 - from.cy) * e;
+    shape
+}
+
 /// The melting button at `k` (0 to 1 of [`MELT`]): wider, thinner and rounder.
 fn melted(from: RoundedBox, k: f32) -> RoundedBox {
     let k = k.clamp(0.0, 1.0);
@@ -351,6 +401,8 @@ struct Field {
     seen: bool,
     /// Draws the next frame settled.
     snap: bool,
+    /// The button was drawn dimmed when last seen before a launch.
+    dimmed: bool,
     frame: Option<Task<()>>,
 }
 
@@ -373,12 +425,19 @@ impl Field {
             button: None,
             seen: false,
             snap: false,
+            dimmed: false,
             frame: None,
         }
     }
 
     /// Starts or ends a launch. Whether there is anything to draw.
-    fn set_launch(&mut self, launch: Option<f32>, look: &MagnetLook, still: bool) -> bool {
+    fn set_launch(
+        &mut self,
+        launch: Option<f32>,
+        look: &MagnetLook,
+        dimmed: bool,
+        still: bool,
+    ) -> bool {
         match launch {
             Some(reach) => {
                 if !self.active {
@@ -391,7 +450,11 @@ impl Field {
                             self.pressed = Some(Pressed {
                                 at: Instant::now(),
                                 button,
-                                look: look.clone(),
+                                look: if self.dimmed {
+                                    look.dimmed()
+                                } else {
+                                    look.clone()
+                                },
                             });
                             self.emerge = true;
                         }
@@ -409,6 +472,7 @@ impl Field {
                     self.active = false;
                     self.released = (!still).then(Instant::now);
                 }
+                self.dimmed = dimmed;
             }
         }
         if still {
@@ -536,7 +600,7 @@ impl Field {
                 let (d, _, tangent) = from.measure(f.x, f.y);
                 // nearer ones first, as the button stretches out to meet them
                 f.born = 0.03 + d.max(0.0) * 0.0011 + noise(n as u32, 3) * 0.1;
-                let edge = melted(from, f.born / MELT);
+                let edge = melted_toward(from, (magnet.cx, magnet.cy), f.born / MELT);
                 f.from = edge.nearest(f.x, f.y);
                 f.angle = tangent;
             }
@@ -544,7 +608,7 @@ impl Field {
         if let (Some(p), Some(from)) = (pressed, from)
             && since < MELT + SHATTER
         {
-            paint_melting(window, origin, from, &p.look, since);
+            paint_melting(window, origin, from, (magnet.cx, magnet.cy), &p.look, since);
         }
 
         // The pointer: a second magnet pointing at the text, so the two pull together.
@@ -683,11 +747,12 @@ fn paint_melting(
     window: &mut Window,
     origin: Point<Pixels>,
     from: RoundedBox,
+    toward: (f32, f32),
     look: &MagnetLook,
     since: f32,
 ) {
     let k = (since / MELT).clamp(0.0, 1.0);
-    let shape = melted(from, k);
+    let shape = melted_toward(from, toward, k);
     let at = |x: f32, y: f32| point(origin.x + px(x), origin.y + px(y));
     let faded = |color: Color, by: f32| {
         let color = Rgba::from(color);
@@ -856,7 +921,10 @@ impl RenderOnce for MagnetBar {
         let still = crate::components::prefers_reduced_motion();
         let field = window.use_keyed_state(self.id, cx, |_, _| Field::new());
         let look = self.look;
-        let drawing = field.update(cx, |field, _| field.set_launch(self.launch, &look, still));
+        let dimmed = self.dimmed;
+        let drawing = field.update(cx, |field, _| {
+            field.set_launch(self.launch, &look, dimmed, still)
+        });
         if drawing && !still {
             // the next frame, about 30 a second; drawing again sooner starts it over
             let task = window.spawn(cx, async move |cx| {
@@ -868,6 +936,9 @@ impl RenderOnce for MagnetBar {
         let inks = drawing.then(|| look.inks());
         let (bleed_x, bleed_y) = self.bleed;
         let painter = field.clone();
+        let reader = field.clone();
+        let anchor = self.anchor;
+        let measure_child = anchor.is_none();
         div()
             .relative()
             .flex()
@@ -876,6 +947,22 @@ impl RenderOnce for MagnetBar {
             .justify_center()
             .flex_1()
             .self_stretch()
+            // the button's place, as it wrote it while being laid out this frame,
+            // before the filings are drawn
+            .when_some(anchor, |this, anchor| {
+                this.child(
+                    canvas(
+                        |_, _, _| {},
+                        move |_, _, _, cx| {
+                            if let Some(button) = anchor.get() {
+                                reader.update(cx, |field, _| field.button = Some(button));
+                            }
+                        },
+                    )
+                    .absolute()
+                    .size_0(),
+                )
+            })
             .when(drawing, |this| {
                 this.child(
                     canvas(
@@ -900,17 +987,19 @@ impl RenderOnce for MagnetBar {
                 div()
                     .relative()
                     .child(self.child)
-                    // where the button is, to melt from and go around
-                    .child(
-                        canvas(
-                            move |bounds, _, cx| {
-                                field.update(cx, |field, _| field.button = Some(bounds))
-                            },
-                            |_, _, _, _| {},
+                    // without an anchor, the whole child is the button
+                    .when(measure_child, |this| {
+                        this.child(
+                            canvas(
+                                move |bounds, _, cx| {
+                                    field.update(cx, |field, _| field.button = Some(bounds))
+                                },
+                                |_, _, _, _| {},
+                            )
+                            .absolute()
+                            .inset_0(),
                         )
-                        .absolute()
-                        .inset_0(),
-                    ),
+                    }),
             )
     }
 }
@@ -996,9 +1085,13 @@ mod tests {
     fn shows_while_launching_and_fades_after() {
         let look = MagnetLook::default();
         let mut field = Field::new();
-        assert!(!field.set_launch(None, &look, true));
-        assert!(field.set_launch(Some(0.3), &look, true));
+        assert!(!field.set_launch(None, &look, false, true));
+        assert!(field.set_launch(Some(0.3), &look, false, true));
         assert_eq!(field.reach_to, 0.3);
-        assert!(!field.set_launch(None, &look, true));
+        assert!(!field.set_launch(None, &look, false, true));
+        // a dimmed button melts from its dimmed look
+        let dim = look.dimmed();
+        assert_eq!(dim.fill, look.fill.opacity(25));
+        assert!(dim.gradient.is_none() && !dim.glow);
     }
 }

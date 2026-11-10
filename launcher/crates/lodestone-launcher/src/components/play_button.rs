@@ -80,6 +80,8 @@ pub struct PlayButton {
     progress: Option<Rgb>,
     /// Whether to show the skin's prepared paint (an image or a rich gradient).
     layer: bool,
+    /// Where it writes its place as it's laid out, for the filings it melts into.
+    anchor: Option<super::MagnetAnchor>,
 }
 
 const WIDTH: f32 = 260.;
@@ -98,7 +100,15 @@ impl PlayButton {
             look: PlaySpec::default(),
             progress: None,
             layer: false,
+            anchor: None,
         }
+    }
+
+    /// Writes where the button is into `anchor` as it's laid out, so the filings
+    /// melt from it alone, without the line under it.
+    pub fn anchor(mut self, anchor: super::MagnetAnchor) -> Self {
+        self.anchor = Some(anchor);
+        self
     }
 
     /// Draws it as a skin says: colour, gradient, shape, label and glow.
@@ -158,6 +168,7 @@ fn shell(
     width: f32,
     shape: Shape,
     label: SharedString,
+    anchor: Option<super::MagnetAnchor>,
 ) -> gpui::Stateful<gpui::Div> {
     div()
         .id(id.clone())
@@ -175,6 +186,16 @@ fn shell(
         })
         .border_1()
         .overflow_hidden()
+        .when_some(anchor, |this, anchor| {
+            this.child(
+                gpui::canvas(
+                    move |bounds, _, _| anchor.set(Some(bounds)),
+                    |_, _, _, _| {},
+                )
+                .absolute()
+                .inset_0(),
+            )
+        })
 }
 
 /// The light top and dark bottom edges of a block-like button.
@@ -282,7 +303,7 @@ impl RenderOnce for PlayButton {
                     Some(caption) => format!("{} {caption}", t(ShellMsg::Play)).into(),
                     None => t(ShellMsg::Play).into(),
                 };
-                shell(self.id, width, shape, name)
+                shell(self.id, width, shape, name, self.anchor)
                     .justify_center()
                     .font_family(fonts::title())
                     .text_size(theme::text_size(text::H1))
@@ -375,6 +396,7 @@ impl RenderOnce for PlayButton {
                     Some(detail) => format!("{label}, {detail}").into(),
                     None => label.clone(),
                 },
+                self.anchor,
             )
             .role(Role::ProgressIndicator)
             .when_some(fraction, |this, fraction| {
@@ -441,39 +463,45 @@ impl RenderOnce for PlayButton {
                 self.on_stop,
             )))
             .into_any_element(),
-            PlayButtonState::Playing => shell(self.id, width, shape, t(ShellMsg::Playing).into())
-                .role(Role::Status)
-                .bg(colors::GRAY_800)
-                .border_color(colors::GREEN_400)
-                .child(
-                    div()
-                        .flex()
-                        .flex_row()
-                        .items_center()
-                        .gap_2()
-                        .flex_1()
-                        .min_w_0()
-                        .pl_5()
-                        .child(
-                            div()
-                                .flex_none()
-                                .size(px(10.))
-                                .rounded_full()
-                                .bg(colors::GREEN_200),
-                        )
-                        .child(
-                            div()
-                                .min_w_0()
-                                .truncate()
-                                .font_family(fonts::title())
-                                .text_size(theme::text_size(text::H2))
-                                .font_weight(weights::EXTRABOLD.into())
-                                .text_color(colors::GREEN_300)
-                                .child(t(ShellMsg::Playing).to_uppercase()),
-                        ),
-                )
-                .child(side_button("play-stop", t(CommonMsg::Stop), self.on_stop))
-                .into_any_element(),
+            PlayButtonState::Playing => shell(
+                self.id,
+                width,
+                shape,
+                t(ShellMsg::Playing).into(),
+                self.anchor,
+            )
+            .role(Role::Status)
+            .bg(colors::GRAY_800)
+            .border_color(colors::GREEN_400)
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap_2()
+                    .flex_1()
+                    .min_w_0()
+                    .pl_5()
+                    .child(
+                        div()
+                            .flex_none()
+                            .size(px(10.))
+                            .rounded_full()
+                            .bg(colors::GREEN_200),
+                    )
+                    .child(
+                        div()
+                            .min_w_0()
+                            .truncate()
+                            .font_family(fonts::title())
+                            .text_size(theme::text_size(text::H2))
+                            .font_weight(weights::EXTRABOLD.into())
+                            .text_color(colors::GREEN_300)
+                            .child(t(ShellMsg::Playing).to_uppercase()),
+                    ),
+            )
+            .child(side_button("play-stop", t(CommonMsg::Stop), self.on_stop))
+            .into_any_element(),
         }
     }
 }
