@@ -36,7 +36,17 @@ use gpui::{
 
 actions!(
     lodestone_host,
-    [Quit, ShowWindow, ZoomIn, ZoomOut, ResetZoom, OpenSettings]
+    [
+        Quit,
+        ShowWindow,
+        ZoomIn,
+        ZoomOut,
+        ResetZoom,
+        OpenSettings,
+        /// Restarts this computer's core (its servers stop first), with the settings as
+        /// they are now.
+        RestartCore
+    ]
 );
 
 /// The window's title and the app menu's name.

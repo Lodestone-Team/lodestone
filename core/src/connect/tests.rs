@@ -341,3 +341,26 @@ fn game_streams_reach_the_port_only_while_the_server_runs() {
         assert!(!game_port_open(state), "{state:?}");
     }
 }
+
+#[test]
+fn the_service_override_is_checked_like_the_apps_setting() {
+    assert_eq!(service_from(None), Service::default());
+    assert_eq!(service_from(Some("  ")), Service::default());
+    assert_eq!(
+        service_from(Some("https://connect-dev.lodestone.cc/")).base_url(),
+        "https://connect-dev.lodestone.cc"
+    );
+    assert_eq!(
+        service_from(Some("http://127.0.0.1:8787")).base_url(),
+        "http://127.0.0.1:8787"
+    );
+    // plain HTTP to another computer, a path, or no scheme: the default
+    for bad in [
+        "http://connect-dev.lodestone.cc",
+        "https://connect-dev.lodestone.cc/v1",
+        "connect-dev.lodestone.cc",
+        "https://user@connect-dev.lodestone.cc",
+    ] {
+        assert_eq!(service_from(Some(bad)), Service::default(), "{bad}");
+    }
+}

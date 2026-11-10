@@ -528,6 +528,13 @@ impl OverviewPage {
     }
 }
 
+/// "Dev relay: connect-dev.lodestone.cc" when the share's link goes through another
+/// Lodestone Connect service than connect.lodestone.cc (the Connect service setting).
+pub fn share_relay_note(share: &InstanceShare) -> Option<String> {
+    let invite = launcher_core::cores::connect::Invite::parse(share.link.as_deref()?).ok()?;
+    super::connect_service::relay_note(&invite.service)
+}
+
 /// How long until the share status is fetched again, or `None` to stop.
 pub fn share_poll_interval(share: &InstanceShare) -> Option<Duration> {
     if !share.sharing {
@@ -917,6 +924,11 @@ impl OverviewPage {
                         }),
                 )
                 .child(link)
+                // the link names its service: say so when it isn't connect.lodestone.cc,
+                // so testers don't send a dev link to friends
+                .when_some(share_relay_note(&share), |this, relay| {
+                    this.child(note(relay, colors::YELLOW))
+                })
                 .child(note(t(M::ShareHowFriendsJoin).into(), colors::GRAY_500))
                 .when_some(share.problem.clone(), |this, problem| {
                     this.child(note(problem, colors::YELLOW))
@@ -1506,6 +1518,27 @@ impl Render for OverviewPage {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_link_through_another_service_says_so() {
+        let secret = format!("{}.{}", "ab".repeat(32), "01".repeat(16));
+        let mut share = InstanceShare {
+            link: Some(format!(
+                "https://connect.lodestone.cc/j/ABCDEFGH23#{secret}"
+            )),
+            ..Default::default()
+        };
+        assert_eq!(share_relay_note(&share), None, "the default service");
+        share.link = Some(format!(
+            "https://connect-dev.lodestone.cc/j/ABCDEFGH23#{secret}"
+        ));
+        assert_eq!(
+            share_relay_note(&share).as_deref(),
+            Some("Dev relay: connect-dev.lodestone.cc")
+        );
+        share.link = None;
+        assert_eq!(share_relay_note(&share), None);
+    }
 
     #[test]
     fn sharing_is_checked_as_often_as_the_dashboard_does() {

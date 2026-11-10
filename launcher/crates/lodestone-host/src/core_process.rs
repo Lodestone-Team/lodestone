@@ -178,9 +178,36 @@ pub struct CoreConfig {
     pub port: u16,
     /// Where the core's output goes.
     pub log_file: PathBuf,
+    /// The Lodestone Connect service the core shares through, when it isn't
+    /// connect.lodestone.cc: `https://connect-dev.lodestone.cc`. Passed as
+    /// `LODESTONE_CONNECT_SERVICE`; see [`CoreConfig::env`].
+    pub connect_service: Option<String>,
 }
 
 impl CoreConfig {
+    /// The Connect service the core should use: the Host's
+    /// ([`connect_service::active`]: `LODESTONE_CONNECT_SERVICE`, else Settings ›
+    /// Updates › Developer), when it isn't the default.
+    ///
+    /// [`connect_service::active`]: launcher_core::cores::connect_service::active
+    pub fn connect_service_now() -> Option<String> {
+        let active = launcher_core::cores::connect_service::active();
+        active.is_custom().then(|| active.url())
+    }
+
+    /// What changes in the core's environment: `Some` to set a variable, `None` to
+    /// remove it. Our `LODESTONE_PATH` is removed (the folder is on the command line),
+    /// and `LODESTONE_CONNECT_SERVICE` is always the Host's choice, never inherited.
+    pub fn env(&self) -> Vec<(&'static str, Option<String>)> {
+        vec![
+            (env::DATA, None),
+            (
+                launcher_core::cores::connect_service::ENV,
+                self.connect_service.clone(),
+            ),
+        ]
+    }
+
     /// The core's arguments.
     pub fn args(&self) -> Vec<std::ffi::OsString> {
         vec![
@@ -218,9 +245,13 @@ impl CoreProcess {
             .args(config.args())
             .stdin(Stdio::piped())
             .stdout(Stdio::from(log.try_clone()?))
-            .stderr(Stdio::from(log))
-            // the folder is given on the command line; don't let ours confuse it
-            .env_remove(env::DATA);
+            .stderr(Stdio::from(log));
+        for (name, value) in config.env() {
+            match value {
+                Some(value) => command.env(name, value),
+                None => command.env_remove(name),
+            };
+        }
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt as _;
@@ -350,6 +381,7 @@ mod tests {
             data_dir: "/data".into(),
             port: 17000,
             log_file: "/log".into(),
+            connect_service: None,
         };
         let args: Vec<String> = config
             .args()
@@ -368,6 +400,58 @@ mod tests {
             ]
         );
         assert_eq!(config.local_url().as_str(), "http://127.0.0.1:17000/");
+        // the default service: the variable is removed, so the core uses its default
+        assert_eq!(
+            config.env(),
+            [
+                ("LODESTONE_PATH", None),
+                ("LODESTONE_CONNECT_SERVICE", None)
+            ]
+        );
+    }
+
+    #[test]
+    fn the_connect_service_reaches_the_core_in_its_environment() {
+        let config = CoreConfig {
+            program: "core".into(),
+            data_dir: "/data".into(),
+            port: 17000,
+            log_file: "/log".into(),
+            connect_service: Some("https://connect-dev.lodestone.cc".into()),
+        };
+        assert!(config.env().contains(&(
+            "LODESTONE_CONNECT_SERVICE",
+            Some("https://connect-dev.lodestone.cc".into())
+        )));
+    }
+
+    /// A real child process gets the variable: `sh` prints it.
+    #[cfg(unix)]
+    #[test]
+    fn the_child_process_sees_the_connect_service() {
+        let dir = tempfile::tempdir().unwrap();
+        let script = dir.path().join("core");
+        fs::write(
+            &script,
+            "#!/bin/sh\necho \"service=$LODESTONE_CONNECT_SERVICE data=$LODESTONE_PATH\"\n",
+        )
+        .unwrap();
+        use std::os::unix::fs::PermissionsExt as _;
+        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+        let config = CoreConfig {
+            program: script,
+            data_dir: dir.path().join("data"),
+            port: 17000,
+            log_file: dir.path().join("core.log"),
+            connect_service: Some("https://connect-dev.lodestone.cc".into()),
+        };
+        let mut process = CoreProcess::spawn(&config).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while process.try_wait().is_none() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        let log = fs::read_to_string(&config.log_file).unwrap();
+        assert_eq!(log.trim(), "service=https://connect-dev.lodestone.cc data=");
     }
 
     #[test]

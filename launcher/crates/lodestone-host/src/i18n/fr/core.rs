@@ -393,6 +393,28 @@ pub fn text(message: M) -> &'static str {
             "Redémarrer Lodestone Host les arrête d’abord. Les serveurs qui démarrent tout seuls redémarrent après."
         }
         M::RestartUpdateConfirm => "Arrêter les serveurs et redémarrer",
+        M::DeveloperSection => "Développeur",
+        M::ConnectService => "Service Connect (relais)",
+        M::ConnectServiceHint => {
+            "Pour les tests. Les liens d’invitation et la liste d’amis utilisent ce service. Le changer redémarre le cœur."
+        }
+        M::ConnectServiceInUse => "Relais de dév.\u{a0}: {service}",
+        M::ConnectServiceEnv => {
+            "{var} est défini, donc le cœur utilise {service}. Le réglage s’appliquera une fois la variable retirée."
+        }
+        M::ConnectServiceScheme => "Commencez l’adresse par https://.",
+        M::ConnectServiceInsecure => {
+            "Utilisez https://. Seul un service sur cet ordinateur (127.0.0.1 ou localhost) peut utiliser http://."
+        }
+        M::ConnectServiceExtra => {
+            "Saisissez seulement l’adresse, sans chemin, requête ni nom d’utilisateur."
+        }
+        M::ConnectServiceAddress => "Cette adresse n’est pas valide.",
+        M::SaveAndRestartCore => "Enregistrer et redémarrer le cœur",
+        M::RestartCoreTitle => "Redémarrer le cœur ?",
+        M::RestartCoreBody => {
+            "Changer le service Connect redémarre Lodestone Core, qui arrête d’abord ces serveurs. Les serveurs qui démarrent tout seuls redémarrent après."
+        }
         M::UpdateFailed => "Impossible de mettre à jour : {error}",
         M::CheckForUpdates => "Vérifier",
         M::DownloadUpdate => "Télécharger",

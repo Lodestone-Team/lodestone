@@ -65,6 +65,7 @@ fn start_core(mut ports: std::ops::Range<u16>) -> Option<TestCore> {
         data_dir: data.path().join("core"),
         port,
         log_file: data.path().join("core.log"),
+        connect_service: None,
     };
     let mut process = CoreProcess::spawn(&config).expect("the core starts");
     let http = launcher_core::http::default_client().unwrap();

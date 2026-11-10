@@ -240,18 +240,10 @@ impl ConnectShares {
         }
     }
 
-    /// The service from [`SERVICE_ENV`], else connect.lodestone.cc.
+    /// The service from [`SERVICE_ENV`], else connect.lodestone.cc. Lodestone Host
+    /// sets it from its developer setting.
     pub fn service_from_env() -> Service {
-        std::env::var(SERVICE_ENV)
-            .ok()
-            .and_then(|text| {
-                let service = Service::parse(&text);
-                if service.is_none() {
-                    warn!("{SERVICE_ENV} isn't a service URL; using connect.lodestone.cc");
-                }
-                service
-            })
-            .unwrap_or_default()
+        service_from(std::env::var(SERVICE_ENV).ok().as_deref())
     }
 
     fn file(&self, uuid: &InstanceUuid) -> PathBuf {
@@ -510,6 +502,27 @@ impl StreamHandler for CoreStreams {
     fn info(&self, stream: TunnelStream, _friend: FriendId) {
         // dropped (closed) when too many are waiting
         let _ = self.info.try_send(stream);
+    }
+}
+
+/// The service `value` (from [`SERVICE_ENV`]) names, checked as Lodestone Launcher and
+/// Host check their setting ([`Service::from_setting`]): HTTPS, or plain HTTP to this
+/// computer only. Anything else is warned about and connect.lodestone.cc used.
+pub(crate) fn service_from(value: Option<&str>) -> Service {
+    let Some(text) = value.map(str::trim).filter(|text| !text.is_empty()) else {
+        return Service::default();
+    };
+    match Service::from_setting(text) {
+        Ok(service) => {
+            if service != Service::default() {
+                info!("Sharing through the Lodestone Connect service at {text}");
+            }
+            service
+        }
+        Err(e) => {
+            warn!("{SERVICE_ENV} ({text}) isn't a service URL: {e}. Using connect.lodestone.cc");
+            Service::default()
+        }
     }
 }
 

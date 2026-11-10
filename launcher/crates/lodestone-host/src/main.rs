@@ -4,7 +4,7 @@
 use futures::StreamExt as _;
 use gpui::{AppContext as _, WindowHandle};
 use lodestone_host::{
-    APP_NAME, Quit, ShowWindow,
+    APP_NAME, Quit, RestartCore, ShowWindow,
     app::HostApp,
     i18n::{ShellMsg, t},
     single_instance,
@@ -46,6 +46,9 @@ fn main() {
 
         cx.on_action(move |_: &Quit, cx| quit(cx));
         cx.on_action(move |_: &ShowWindow, cx| show(cx));
+        cx.on_action(move |_: &RestartCore, cx| {
+            window.update(cx, |app, _, cx| app.restart_core(cx)).ok();
+        });
 
         // the menu bar icon
         let (tray_tx, mut tray_rx) = futures::channel::mpsc::unbounded();
@@ -191,6 +194,24 @@ mod screenshot {
                     .ok();
                 cx.background_executor()
                     .timer(Duration::from_millis(2500))
+                    .await;
+            }
+            // `--type-connect-service <text>`: types into Settings › Updates' Connect
+            // service field (with `--settings updates`), without saving
+            if let Some(text) = arg_after("--type-connect-service") {
+                window
+                    .update(cx, |app, _, cx| {
+                        let view = app.shell()?.read(cx).settings_view()?;
+                        let page = view
+                            .downcast::<lodestone_host::pages::updates::UpdatesPage>()
+                            .ok()?;
+                        let field = page.read(cx).connect_service().clone();
+                        field.update(cx, |field, cx| field.preview_type(&text, cx));
+                        Some(())
+                    })
+                    .ok();
+                cx.background_executor()
+                    .timer(Duration::from_millis(500))
                     .await;
             }
             if share_core {

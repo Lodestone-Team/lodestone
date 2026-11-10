@@ -6,8 +6,8 @@
 //! page asks first.
 
 use gpui::{
-    AnyElement, Context, Entity, FocusHandle, IntoElement, ParentElement, Render, Styled,
-    Subscription, Window, div,
+    AnyElement, AppContext as _, Context, Entity, FocusHandle, IntoElement, ParentElement, Render,
+    Styled, Subscription, Window, div,
 };
 use launcher_core::cores::admin::InstanceState;
 use lodestone_ui::{
@@ -32,6 +32,8 @@ pub struct UpdatesPage {
     updater: Option<Entity<Updater>>,
     /// "Restart to update?", while servers run.
     confirm: DialogSlot<Self, FocusHandle>,
+    /// Developer › "Connect service (relay)".
+    connect_service: Entity<super::connect_service::ConnectServiceSetting>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -58,12 +60,22 @@ impl UpdatesPage {
             .iter()
             .map(|updater| cx.observe(updater, |_, _, cx| cx.notify()))
             .collect();
+        let connect_service = {
+            let state = state.clone();
+            cx.new(|cx| super::connect_service::ConnectServiceSetting::new(state, cx))
+        };
         Self {
             state,
             updater,
             confirm: DialogSlot::new(|this: &mut Self| &mut this.confirm),
+            connect_service,
             _subscriptions: subscriptions,
         }
+    }
+
+    /// Developer › "Connect service (relay)", for the development screenshots.
+    pub fn connect_service(&self) -> &Entity<super::connect_service::ConnectServiceSetting> {
+        &self.connect_service
     }
 
     /// "Restart": asks first when servers run, which the restart stops.
@@ -244,54 +256,64 @@ impl Render for UpdatesPage {
                 )
                 .into_any_element()
         });
-        let page = parts::page([settings::section(
-            t(CoreMsg::UpdatesTitle),
-            Some(t(CoreMsg::UpdatesLead).into()),
-        )
-        .child(settings::card(
-            [
-                SettingRow::new(t(CoreMsg::ThisVersion))
-                    .hint(status)
-                    .children_opt(action)
-                    .below(
-                        div()
-                            .text_size(text::SMALL)
-                            .text_color(ink::muted())
-                            .child(version),
-                    )
-                    .into_any_element(),
-                SettingRow::new(t(CoreMsg::UpdateAutomatically))
-                    .hint(t(CoreMsg::UpdateAutomaticallyHint))
-                    .child(
-                        Toggle::new("auto-update", prefs.auto_update)
-                            .label(t(CoreMsg::UpdateAutomatically))
-                            .disabled(!available)
-                            .on_change(move |value, _, cx| {
-                                let value = *value;
-                                Prefs::update(cx, |p| p.auto_update = value);
-                                auto_changed(cx);
-                            }),
-                    )
-                    .into_any_element(),
-                SettingRow::new(t(CoreMsg::BetaBuilds))
-                    .hint(t(CoreMsg::BetaBuildsHint))
-                    .child(
-                        // Developer builds include betas.
-                        Toggle::new("beta-builds", prefs.beta_builds || prefs.dev_builds)
-                            .label(t(CoreMsg::BetaBuilds))
-                            .disabled(!available || prefs.dev_builds)
-                            .on_change(move |value, _, cx| {
-                                let value = *value;
-                                Prefs::update(cx, |p| p.beta_builds = value);
-                                beta_changed(cx);
-                            }),
-                    )
-                    .into_any_element(),
-            ]
+        // Developer: the Connect service, for developers and testers only
+        let developer = super::connect_service::offered(cx).then(|| {
+            settings::section(t(CoreMsg::DeveloperSection), None)
+                .child(self.connect_service.clone())
+                .into_any_element()
+        });
+        let page = parts::page(
+            [settings::section(
+                t(CoreMsg::UpdatesTitle),
+                Some(t(CoreMsg::UpdatesLead).into()),
+            )
+            .child(settings::card(
+                [
+                    SettingRow::new(t(CoreMsg::ThisVersion))
+                        .hint(status)
+                        .children_opt(action)
+                        .below(
+                            div()
+                                .text_size(text::SMALL)
+                                .text_color(ink::muted())
+                                .child(version),
+                        )
+                        .into_any_element(),
+                    SettingRow::new(t(CoreMsg::UpdateAutomatically))
+                        .hint(t(CoreMsg::UpdateAutomaticallyHint))
+                        .child(
+                            Toggle::new("auto-update", prefs.auto_update)
+                                .label(t(CoreMsg::UpdateAutomatically))
+                                .disabled(!available)
+                                .on_change(move |value, _, cx| {
+                                    let value = *value;
+                                    Prefs::update(cx, |p| p.auto_update = value);
+                                    auto_changed(cx);
+                                }),
+                        )
+                        .into_any_element(),
+                    SettingRow::new(t(CoreMsg::BetaBuilds))
+                        .hint(t(CoreMsg::BetaBuildsHint))
+                        .child(
+                            // Developer builds include betas.
+                            Toggle::new("beta-builds", prefs.beta_builds || prefs.dev_builds)
+                                .label(t(CoreMsg::BetaBuilds))
+                                .disabled(!available || prefs.dev_builds)
+                                .on_change(move |value, _, cx| {
+                                    let value = *value;
+                                    Prefs::update(cx, |p| p.beta_builds = value);
+                                    beta_changed(cx);
+                                }),
+                        )
+                        .into_any_element(),
+                ]
+                .into_iter()
+                .chain(dev_row),
+            ))
+            .into_any_element()]
             .into_iter()
-            .chain(dev_row),
-        ))
-        .into_any_element()])
+            .chain(developer),
+        )
         .text_color(colors::GRAY_300);
         let dialogs = self
             .confirm

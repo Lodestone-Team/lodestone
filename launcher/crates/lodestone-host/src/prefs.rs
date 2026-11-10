@@ -70,6 +70,13 @@ pub struct PrefsData {
     pub file_list_width: Option<f32>,
     /// The Files tab's editor wraps long lines (Monaco's `wordWrap: 'on'`).
     pub editor_wrap: bool,
+    /// Settings › Updates › Developer › "Connect service (relay)": the Lodestone
+    /// Connect service the core shares through, as a URL, for testing. `None` for
+    /// connect.lodestone.cc, and left out of the file then.
+    /// `LODESTONE_CONNECT_SERVICE` wins over it
+    /// ([`launcher_core::cores::connect_service`]).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub connect_service: Option<String>,
 }
 
 impl PrefsData {
@@ -112,6 +119,7 @@ impl Default for PrefsData {
             sidebar_width: None,
             file_list_width: None,
             editor_wrap: true,
+            connect_service: None,
         }
     }
 }
@@ -130,6 +138,7 @@ impl Prefs {
     pub fn init(cx: &mut App) {
         let path = crate::core_process::host_dir().join("settings.json");
         let data = load(&path);
+        launcher_core::cores::connect_service::set_setting_text(data.connect_service.as_deref());
         lodestone_ui::i18n::apply(data.language);
         lodestone_ui::theme::zoom::set(data.zoom);
         cx.set_global(Prefs {
@@ -231,9 +240,14 @@ mod tests {
             sidebar_width: Some(260.),
             file_list_width: Some(340.),
             editor_wrap: false,
+            connect_service: Some("https://connect-dev.lodestone.cc".into()),
         };
         save(&path, &data).unwrap();
         assert_eq!(load(&path), data);
+        // the default service is left out of the file
+        save(&path, &PrefsData::default()).unwrap();
+        let raw = std::fs::read_to_string(&path).unwrap();
+        assert!(!raw.contains("connect_service"), "{raw}");
         std::fs::write(&path, r#"{"theme":"sepia","zoom":0.9,"something":1}"#).unwrap();
         let old = load(&path);
         assert_eq!(old.theme, Theme::System);

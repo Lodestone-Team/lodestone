@@ -239,6 +239,12 @@ pub struct DeveloperSettings {
     /// file while off.
     #[serde(default, skip_serializing_if = "is_false")]
     pub offline_accounts: bool,
+    /// "Connect service (relay)": the Lodestone Connect introduction service the
+    /// friend list uses, as a URL (`https://connect-dev.lodestone.cc`), for testing.
+    /// `LODESTONE_CONNECT_SERVICE` wins over it ([`crate::cores::connect_service`]).
+    /// Left out of the file for connect.lodestone.cc.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connect_service: Option<String>,
     /// Developer options this build doesn't know, kept so that a newer build's
     /// options survive a save by this one (as [`Settings::other`] does for the whole
     /// file).
@@ -255,6 +261,7 @@ impl Default for DeveloperSettings {
         Self {
             sign_in_as_minecraft_launcher: true,
             offline_accounts: false,
+            connect_service: None,
             other: Map::new(),
         }
     }
@@ -539,6 +546,24 @@ mod tests {
         assert_eq!(raw["developer"], json!({ "offline_accounts": true }));
         assert!(load_or_default(&path).developer.offline_accounts);
         update(&path, |s| s.developer.offline_accounts = false).unwrap();
+        let raw: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert!(raw.get("developer").is_none(), "{raw}");
+    }
+
+    #[test]
+    fn the_connect_service_is_saved_only_while_set() {
+        assert_eq!(Settings::default().developer.connect_service, None);
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        let dev = "https://connect-dev.lodestone.cc";
+        update(&path, |s| s.developer.connect_service = Some(dev.into())).unwrap();
+        let raw: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(raw["developer"], json!({ "connect_service": dev }));
+        assert_eq!(
+            load_or_default(&path).developer.connect_service.as_deref(),
+            Some(dev)
+        );
+        update(&path, |s| s.developer.connect_service = None).unwrap();
         let raw: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
         assert!(raw.get("developer").is_none(), "{raw}");
     }

@@ -363,7 +363,7 @@ pub const METHODS: &[Method] = &[
     ),
     method(
         "settings.developer.set",
-        "Changes developer settings.",
+        "Changes developer settings: sign_in_as_minecraft_launcher (with sign_out_accounts), connect_service (a Lodestone Connect service URL, or \"default\").",
         settings::developer_set,
     ),
     method(
@@ -1808,6 +1808,36 @@ mod tests {
         assert!(
             settings::developer_params(json!({ "sign_in_as_minecraft_launcher": true })).is_ok()
         );
+        assert!(
+            settings::developer_params(
+                json!({ "connect_service": "https://connect-dev.lodestone.cc" })
+            )
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn the_connect_service_is_checked_as_the_window_checks_it() {
+        let url =
+            |text: &str| settings::connect_service_param(text).map(|s| s.map(|s| s.base_url()));
+        assert_eq!(
+            url("https://connect-dev.lodestone.cc/"),
+            Ok(Some("https://connect-dev.lodestone.cc".into()))
+        );
+        assert_eq!(
+            url("http://127.0.0.1:8787"),
+            Ok(Some("http://127.0.0.1:8787".into()))
+        );
+        for reset in ["", "default", "Default", "https://connect.lodestone.cc"] {
+            assert_eq!(url(reset), Ok(None), "{reset}");
+        }
+        for bad in [
+            "http://connect-dev.lodestone.cc",
+            "connect-dev.lodestone.cc",
+            "https://connect-dev.lodestone.cc/v1",
+        ] {
+            assert!(url(bad).is_err(), "{bad}");
+        }
     }
 
     #[test]

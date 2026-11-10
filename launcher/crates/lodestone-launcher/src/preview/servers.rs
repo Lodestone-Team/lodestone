@@ -46,6 +46,7 @@ pub const SCENES: &[&str] = &[
     "servers-shared-local",
     "servers-shared-local-gone",
     "servers-friends",
+    "servers-friends-relay",
     "servers-join-paste",
     "servers-join-connecting",
     "servers-join-ready",
@@ -416,7 +417,16 @@ fn apply_servers(scene: &str, servers: &mut Servers, cx: &mut Context<Servers>) 
         "servers-shared-local" | "servers-shared-local-gone" => {
             apply_shared_local(scene == "servers-shared-local", servers)
         }
-        scene if scene == "servers-friends" || scene.starts_with("servers-join") => {
+        scene if scene.starts_with("servers-friends") || scene.starts_with("servers-join") => {
+            if scene == "servers-friends-relay" {
+                // a tester pointed at the dev service: the section says so
+                launcher_core::cores::connect_service::set_setting(
+                    launcher_core::cores::connect_service::Service::from_setting(
+                        "https://connect-dev.lodestone.cc",
+                    )
+                    .ok(),
+                );
+            }
             servers.preview(vec![home(true)], Vec::new());
             servers.preview_friends(made_up_friends());
             apply_join(scene, servers, cx);

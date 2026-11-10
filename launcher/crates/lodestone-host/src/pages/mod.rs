@@ -22,6 +22,7 @@
 
 pub mod account_dialogs;
 pub mod api_keys;
+pub mod connect_service;
 pub mod console;
 pub mod core_settings;
 pub mod cores;

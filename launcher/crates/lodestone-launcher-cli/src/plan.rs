@@ -381,15 +381,23 @@ pub fn plan(
                 DeveloperSettings::Set {
                     sign_in_as_minecraft_launcher,
                     sign_out_accounts,
+                    connect_service,
                 } => call(
                     "settings.developer.set",
-                    vec![
+                    [
                         (
                             "sign_in_as_minecraft_launcher",
-                            json!(sign_in_as_minecraft_launcher),
+                            sign_in_as_minecraft_launcher.map(|on| json!(on)),
                         ),
-                        ("sign_out_accounts", json!(sign_out_accounts)),
-                    ],
+                        ("sign_out_accounts", sign_out_accounts.then(|| json!(true))),
+                        (
+                            "connect_service",
+                            connect_service.as_ref().map(|s| json!(s)),
+                        ),
+                    ]
+                    .into_iter()
+                    .filter_map(|(key, value)| Some((key, value?)))
+                    .collect(),
                 ),
             },
         },
@@ -1099,6 +1107,32 @@ mod tests {
         assert_eq!(params["override"], json!(["guiScale"]));
         assert_eq!(params["set"], json!({ "guiScale": "2" }));
         assert!(plan_of(&["instances", "group", "S"]).is_err());
+    }
+
+    #[test]
+    fn developer_set_sends_only_what_is_given() {
+        let dev = "https://connect-dev.lodestone.cc";
+        let (method, params, _) =
+            call_of(&["settings", "developer", "set", "--connect-service", dev]);
+        assert_eq!(method, "settings.developer.set");
+        assert_eq!(params, json!({ "connect_service": dev }));
+        let (_, params, _) = call_of(&[
+            "settings",
+            "developer",
+            "set",
+            "--sign-in-as-minecraft-launcher",
+            "false",
+            "--sign-out-accounts",
+        ]);
+        assert_eq!(
+            params,
+            json!({ "sign_in_as_minecraft_launcher": false, "sign_out_accounts": true })
+        );
+        // something to change is needed
+        assert!(
+            Cli::try_parse_from(["lodestone-launcher-cli", "settings", "developer", "set"])
+                .is_err()
+        );
     }
 
     #[test]

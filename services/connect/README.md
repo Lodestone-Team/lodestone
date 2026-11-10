@@ -116,6 +116,14 @@ Locally, loopback candidates are allowed (`ALLOW_LOOPBACK`) and the join and hos
 limits are higher, so the tests fit in a minute. `test/idle.test.js` runs a second
 local Worker with the idle time cut to 2 seconds (`--var IDLE_MS:2000`).
 
+To point the apps at another service (this local Worker, or a test deployment such
+as `https://connect-dev.lodestone.cc`), set "Connect service (relay)" in Lodestone
+Launcher's Settings › Developer, or in Lodestone Host's Settings › Updates ›
+Developer (shown in developer and debug builds). The Host passes it to its core as
+`LODESTONE_CONNECT_SERVICE` and restarts the core. Setting that variable yourself wins
+over both settings. The value must be `https://…`, or `http://` to this computer only
+(`http://127.0.0.1:8787`), with no path.
+
 ## Deploying
 
 Deploys go to Cloudflare under the account that owns lodestone.cc, with the `cf` CLI

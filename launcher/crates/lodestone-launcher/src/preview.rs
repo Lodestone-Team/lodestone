@@ -125,6 +125,9 @@ pub const SCENES: &[&str] = &[
     "narrator-offer",
     "settings-accounts",
     "settings-developer",
+    "settings-developer-relay-default",
+    "settings-developer-relay",
+    "settings-developer-relay-error",
     "perf-monitor",
     "settings-storage",
     "settings-storage-confirm",
@@ -1183,6 +1186,26 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
                 preview_control(cx);
             }
             shell.open_settings(Some(page), None, cx);
+        }
+        // Settings > Developer, tall enough for "Connect service (relay)": as it is,
+        // pointed at the dev service, and with a URL it refuses.
+        "settings-developer-relay-default"
+        | "settings-developer-relay"
+        | "settings-developer-relay-error" => {
+            use launcher_core::cores::connect_service::{self, Service};
+            preview_control(cx);
+            let dev = "https://connect-dev.lodestone.cc";
+            let (setting, typed) = match scene {
+                "settings-developer-relay" => (Service::from_setting(dev).ok(), dev),
+                "settings-developer-relay-error" => (None, "http://connect-dev.lodestone.cc"),
+                _ => (None, ""),
+            };
+            // set for this process only: the screenshots save nothing
+            connect_service::set_setting(setting);
+            shell
+                .connect_service_setting()
+                .update(cx, |setting, cx| setting.preview_type(typed, cx));
+            shell.open_settings(Some(crate::shell::SettingsPage::Developer), None, cx);
         }
         "skin-bright" | "settings-skin-bright" | "skin-bright-host" => {
             use_bright_skin(shell, cx);
