@@ -417,12 +417,17 @@ mod screenshot {
             }
             // `--click X,Y` (repeatable as X,Y;X,Y): left clicks at window points, each
             // followed by a short wait (`--click-wait MS`, 600 by default), to check how
-            // a control responds, or to catch an animation partway.
+            // a control responds, or to catch an animation partway. `X,Y@MS` waits `MS`
+            // after that click instead.
             let click_wait = arg_after("--click-wait")
                 .and_then(|ms| ms.parse().ok())
                 .unwrap_or(600);
             if let Some(clicks) = arg_after("--click") {
                 for at in clicks.split(';') {
+                    let (at, wait) = match at.split_once('@') {
+                        Some((at, ms)) => (at, ms.trim().parse().unwrap_or(click_wait)),
+                        None => (at, click_wait),
+                    };
                     let Some((x, y)) = at.split_once(',') else {
                         continue;
                     };
@@ -463,7 +468,7 @@ mod screenshot {
                         })
                         .ok();
                     cx.background_executor()
-                        .timer(Duration::from_millis(click_wait))
+                        .timer(Duration::from_millis(wait))
                         .await;
                 }
             }

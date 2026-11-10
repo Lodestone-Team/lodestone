@@ -2046,6 +2046,11 @@ impl Instances {
 
     /// Cancels the preparation, or kills the game.
     pub fn stop(&mut self, id: &str, cx: &mut Context<Self>) {
+        // the offscreen screenshots' Play button, back to Play (`--click` on Cancel)
+        if self.preview_state.take().is_some() {
+            cx.notify();
+            return;
+        }
         let Some(run) = self.runs.get_mut(id) else {
             return;
         };
