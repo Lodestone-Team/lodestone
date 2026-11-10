@@ -105,14 +105,24 @@ fn command_joining(
     assert!(!text.contains("SECRET"), "{text}");
     assert!(!format!("{command:?}").contains("SECRET"));
     assert!(!command.display().contains("SECRET"));
-    (command.args.clone(), text)
+    // The command lines are for other systems, under a made-up /data; on Windows
+    // its paths are joined with `\`.
+    let args = command
+        .args
+        .iter()
+        .map(|arg| arg.replace('\\', "/"))
+        .collect();
+    (args, text)
 }
 
 fn check_golden(name: &str, text: &str) {
+    // The command lines are for other systems, under a made-up /data; on Windows
+    // its paths are joined with `\`.
+    let text = text.replace('\\', "/");
     let path = testdata(&format!("golden/{name}.txt"));
     if std::env::var_os("UPDATE_GOLDEN").is_some() {
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        std::fs::write(&path, text).unwrap();
+        std::fs::write(&path, &text).unwrap();
         return;
     }
     let expected = std::fs::read_to_string(&path)
