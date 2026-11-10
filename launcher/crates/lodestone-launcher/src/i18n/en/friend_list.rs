@@ -116,6 +116,17 @@ crate::i18n::messages! {
         RetireWarning = "This can't be undone. To be friends with anyone again, you make a new identity and add them again with new friend links.",
         RetireUnderstood = "I understand: all my friends are removed, and this can't be undone",
         RetireConfirm = "Retire identity",
+        /// Under "You": a computer (core) friends see this person share from; {core} is its name.
+        SharingFrom = "Sharing from {core}",
+        /// The button beside one of those cores.
+        RetireCore = "Retire",
+        /// {name} is the core's name.
+        RetireCoreTitle = "Retire {name}?",
+        RetireCoreBody = "Your friends are told to drop {name}: they stop seeing its servers and stop trusting their mods. Do this for a computer that was lost or stolen, or that you no longer share from.",
+        RetireCoreWarning = "This can't be undone. Friends are never shown this core again, even if it syncs. To share from that computer again, it needs a new friend certificate: Lodestone Host on that computer offers one in a server's Settings, under Friends.",
+        RetireCoreConfirm = "Retire core",
+        /// Under a friend whose name looks like another friend's; {names} is one or more names.
+        NameLike = "Same name as {names}: make sure you know who this is",
 
         // ===== Remove =====
         /// {name} is the friend's name.

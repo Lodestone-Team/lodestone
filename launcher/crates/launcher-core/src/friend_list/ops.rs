@@ -8,7 +8,7 @@
 use lodestone_connect::{
     Service, SharedServer,
     friend::{
-        crypto::{PersonKey, core_secret},
+        crypto::{PersonKey, PublicKey, core_secret},
         join::{FriendCore, is_online, join_friend},
         pair::{FriendLink, Invitation, answer, open_card},
         state::{
@@ -20,10 +20,46 @@ use lodestone_connect::{
 };
 
 use super::{
-    Friend, FriendState, FriendStatus, Friends, FriendsError, MAX_FRIENDS, PendingLink, hex, now,
-    on_tokio,
+    Book, Friend, FriendState, FriendStatus, Friends, FriendsError, MAX_FRIENDS, PendingLink, hex,
+    now, on_tokio,
 };
 use crate::cores::connect::{GamePort, JoinError, Progress, Tunnel, open_friend};
+
+/// How far ahead of this computer's clock a friend's state may say it was issued (their
+/// clock may be ahead).
+pub const MAX_ISSUED_AHEAD_SECS: u64 = 24 * 60 * 60;
+
+/// How far a state's number may be above the time it was issued. Numbers follow the
+/// clock (a new state is numbered at least the time it was made, in seconds), so only
+/// changes faster than one a second put a number ahead, and never by a day. A state
+/// numbered further ahead is refused: someone with a stolen key could otherwise number
+/// a state so high that the owner's later states all look older. (A retired state is
+/// taken whatever its number: retiring is final.)
+pub const MAX_SEQ_AHEAD_SECS: u64 = 24 * 60 * 60;
+
+/// Why a friend's (not retired) state can't be believed, if it can't.
+pub fn implausible_state(state: &State, now: u64) -> Option<&'static str> {
+    if state.issued > now.saturating_add(MAX_ISSUED_AHEAD_SECS) {
+        return Some("their state says it was made more than a day from now");
+    }
+    if state.seq > state.issued.saturating_add(MAX_SEQ_AHEAD_SECS) {
+        return Some("their state's number is too far ahead of when it was made");
+    }
+    None
+}
+
+/// What a refresh reports when the service asked it to slow down.
+const SLOW_DOWN: &str =
+    "The introduction service asked to slow down. The rest are checked next time.";
+
+/// Whether the service turned a request down for coming too often (`429`).
+fn is_rate_limited(err: &lodestone_connect::Error) -> bool {
+    matches!(err, lodestone_connect::Error::Service { status: 429, .. })
+}
+
+/// How many times a state is sent again when a newer one was made while it was being
+/// sent (by the other app, or a retirement).
+const REPUBLISH_TRIES: usize = 3;
 
 /// A friend link's card, opened and checked: who sent it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -62,6 +98,9 @@ pub struct Refreshed {
     /// Cores friends no longer list (their fingerprints, hex): stop trusting their
     /// servers' mods.
     pub dropped_cores: Vec<String>,
+    /// Friends who renamed themselves to a name another friend has: (their key, the
+    /// other friends' names). Shown, in case someone is pretending.
+    pub same_name: Vec<(String, Vec<String>)>,
     /// Friends whose state couldn't be read, and why.
     pub problems: Vec<(String, String)>,
 }
@@ -83,20 +122,58 @@ fn pkcs8_of(me: &PersonKey) -> Vec<u8> {
     me.pkcs8().to_vec()
 }
 
-impl Friends {
-    /// A friend link's text, checked: a link to the service this friend list uses (over
-    /// HTTPS, or plain HTTP to this computer for testing). A link naming any other place
-    /// is refused, so nobody can make the launcher send its requests elsewhere.
-    fn checked_link(&self, text: &str) -> Result<FriendLink, FriendsError> {
-        let link = FriendLink::parse(text).map_err(|err| refused(err.to_string()))?;
-        if link.service != self.service {
-            return Err(refused(format!(
-                "That friend link is for {}, not {}. Ask for a new one.",
-                link.service.base_url(),
-                self.service.base_url()
-            )));
+/// A friend link's text, checked: a link to `service`, the one the friend list uses
+/// (over HTTPS, or plain HTTP to this computer for testing). A link naming any other
+/// place is refused, so nobody can make the launcher send its requests elsewhere.
+fn checked_link(service: &Service, text: &str) -> Result<FriendLink, FriendsError> {
+    let link = FriendLink::parse(text).map_err(|err| refused(err.to_string()))?;
+    if &link.service != service {
+        return Err(refused(format!(
+            "That friend link is for {}, not {}. Ask for a new one.",
+            link.service.base_url(),
+            service.base_url()
+        )));
+    }
+    Ok(link)
+}
+
+/// Opens a friend link and checks its card: who it's from. `mine` is this person's key
+/// and book when they have a friend list; without one, this makes nothing (no key),
+/// so a link opened from outside the launcher can be looked at before anything is
+/// made.
+pub async fn preview_link(
+    service: &Service,
+    mine: Option<(PublicKey, &Book)>,
+    text: &str,
+) -> Result<LinkPreview, FriendsError> {
+    let link = checked_link(service, text)?;
+    let card = fetch_card(&link).await?;
+    let key = card.key.to_hex();
+    let (already_friends, same_name_as) = match mine {
+        Some((me, _)) if card.key == me => {
+            return Err(refused("That's your own friend link."));
         }
-        Ok(link)
+        Some((_, book)) => (
+            book.friend(&key).is_some(),
+            book.same_name(&card.name, &key)
+                .iter()
+                .map(|f| f.display_name().to_string())
+                .collect(),
+        ),
+        None => (false, Vec::new()),
+    };
+    Ok(LinkPreview {
+        name: card.name.clone(),
+        safety_code: card.key.safety_code(),
+        already_friends,
+        same_name_as,
+        key,
+    })
+}
+
+impl Friends {
+    fn checked_link(&self, text: &str) -> Result<FriendLink, FriendsError> {
+        checked_link(&self.service, text)
     }
 
     // -----------------------------------------------------------------------
@@ -260,25 +337,9 @@ impl Friends {
 
     /// Opens a friend link and checks its card: who it's from.
     pub async fn preview_link(&mut self, text: &str) -> Result<LinkPreview, FriendsError> {
-        let link = self.checked_link(text)?;
-        let card = fetch_card(&link).await?;
-        let key = card.key.to_hex();
-        if card.key == self.me() {
-            return Err(refused("That's your own friend link."));
-        }
         self.reload()?;
-        Ok(LinkPreview {
-            name: card.name.clone(),
-            safety_code: card.key.safety_code(),
-            already_friends: self.book.friend(&key).is_some(),
-            same_name_as: self
-                .book
-                .same_name(&card.name, &key)
-                .iter()
-                .map(|f| f.display_name().to_string())
-                .collect(),
-            key,
-        })
+        let service = self.service.clone();
+        preview_link(&service, Some((self.me(), &self.book)), text).await
     }
 
     /// Answers a friend link: the sender becomes a pending friend until their first
@@ -329,7 +390,9 @@ impl Friends {
     // -----------------------------------------------------------------------
     // States
 
-    fn my_state(&self, retired: bool) -> State {
+    /// This person's current state, as the book has it (retired once the identity is).
+    fn my_state(&self) -> State {
+        let retired = self.book.retired;
         let issued = if self.book.state_issued == 0 {
             now()
         } else {
@@ -384,21 +447,48 @@ impl Friends {
     }
 
     /// Writes this person's state to one friend's slot.
+    ///
+    /// The slot write happens outside the file's lock, so the other app (or a
+    /// retirement) may make a newer state meanwhile and send it first; this write
+    /// would then put the older one back. So afterwards it looks again under the lock,
+    /// and sends the newer state if there is one.
     pub async fn publish_state_to(&mut self, key: &str) -> Result<(), FriendsError> {
-        self.freshen_state()?;
-        let state = self.my_state(false);
+        if self.book.retired {
+            self.reload_retired()?;
+        } else {
+            self.freshen_state()?;
+        }
         let friend = self
             .book
             .friend(key)
             .cloned()
             .ok_or_else(|| refused("No such friend."))?;
-        self.write_state(&friend, &state).await?;
-        self.modify(|book| {
-            if let Some(friend) = book.friend_mut(key) {
-                friend.sent_seq = friend.sent_seq.max(state.seq);
+        for _ in 0..REPUBLISH_TRIES {
+            let state = self.my_state();
+            self.write_state(&friend, &state).await?;
+            let current = self.modify_book(true, |book| {
+                if let Some(friend) = book.friend_mut(key) {
+                    friend.sent_seq = friend.sent_seq.max(state.seq);
+                }
+                Ok((book.state_seq.max(1), book.retired))
+            })?;
+            if current == (state.seq, state.retired) {
+                return Ok(());
             }
-            Ok(())
-        })
+            // a newer state was made while this one was being sent: send that
+            if !self.book.retired {
+                self.freshen_state()?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Reads the book again, retired or not.
+    fn reload_retired(&mut self) -> Result<(), FriendsError> {
+        match self.reload() {
+            Ok(()) | Err(FriendsError::Retired) => Ok(()),
+            Err(err) => Err(err),
+        }
     }
 
     /// Writes this person's state to every confirmed friend who doesn't have the current
@@ -406,7 +496,7 @@ impl Friends {
     /// Returns the friends it couldn't reach, and why.
     pub async fn publish_states(&mut self) -> Result<Vec<(String, String)>, FriendsError> {
         self.freshen_state()?;
-        let seq = self.my_state(false).seq;
+        let seq = self.my_state().seq;
         let mut problems = Vec::new();
         let behind: Vec<String> = self
             .book
@@ -431,10 +521,21 @@ impl Friends {
         let me = self.me();
         let mut out = Refreshed::default();
         let mut read: Vec<(String, State)> = Vec::new();
-        for friend in self.book.friends.clone() {
-            if friend.status == FriendStatus::Retired {
-                continue;
-            }
+        let mut friends: Vec<Friend> = self
+            .book
+            .friends
+            .iter()
+            .filter(|f| f.status != FriendStatus::Retired)
+            .cloned()
+            .collect();
+        // The service limits slot reads per address. Start at another friend each
+        // time, so a long list that runs into the limit isn't always cut at the same
+        // friends.
+        if !friends.is_empty() {
+            let start = (now() / 60) as usize % friends.len();
+            friends.rotate_left(start);
+        }
+        for friend in friends {
             let (Some(key), Some(pair)) = (friend.public_key(), friend.pair_secret()) else {
                 continue;
             };
@@ -444,6 +545,11 @@ impl Friends {
             {
                 Ok(Some(sealed)) => sealed,
                 Ok(None) => continue,
+                Err(err) if is_rate_limited(&err) => {
+                    // the rest are read next time; nothing is wrong with them
+                    out.problems.push((String::new(), SLOW_DOWN.to_string()));
+                    break;
+                }
                 Err(err) => {
                     out.problems.push((friend.key.clone(), err.to_string()));
                     continue;
@@ -454,16 +560,43 @@ impl Friends {
                 Err(err) => out.problems.push((friend.key.clone(), err.to_string())),
             }
         }
+        let now = now();
         self.modify(|book| {
             for (key, state) in read {
+                // a friend who takes on another friend's name is flagged, as at adding
+                let renamed = book
+                    .friend(&key)
+                    .is_some_and(|f| !state.retired && f.name != state.name);
+                let same_name: Vec<String> = if renamed {
+                    book.same_name(&state.name, &key)
+                        .iter()
+                        .map(|f| f.display_name().to_string())
+                        .collect()
+                } else {
+                    Vec::new()
+                };
                 let Some(entry) = book.friend_mut(&key) else {
                     // removed meanwhile, in this app or the other
                     continue;
                 };
-                let known = entry.state.as_ref().map_or(0, |s| s.seq);
-                if state.seq <= known || entry.status == FriendStatus::Retired {
-                    // the same, or older (a rollback): keep what we have
+                if entry.status == FriendStatus::Retired {
                     continue;
+                }
+                let known = entry.state.as_ref().map_or(0, |s| s.seq);
+                // A retired state is final, and taken whatever its number: someone with
+                // a stolen key can't block it by numbering a state of theirs higher.
+                if !state.retired {
+                    if state.seq <= known {
+                        // the same, or older (a rollback): keep what we have
+                        continue;
+                    }
+                    if let Some(why) = implausible_state(&state, now) {
+                        out.problems.push((key.clone(), why.to_string()));
+                        continue;
+                    }
+                }
+                if !same_name.is_empty() {
+                    out.same_name.push((key.clone(), same_name));
                 }
                 if state.retired {
                     entry.status = FriendStatus::Retired;
@@ -486,7 +619,7 @@ impl Friends {
                 }
                 entry.name = state.name.clone();
                 entry.state = Some(FriendState {
-                    seq: state.seq,
+                    seq: state.seq.max(known),
                     expires: state.expires,
                     cores: if state.retired {
                         Vec::new()
@@ -499,6 +632,35 @@ impl Friends {
         })?;
         out.problems.extend(self.publish_states().await?);
         Ok(out)
+    }
+
+    /// Retires one of this person's cores (a lost or stolen computer, or one they no
+    /// longer share from): it leaves their state and is never listed again, and the new
+    /// state goes to friends, whose launchers drop it and stop trusting its servers'
+    /// mods. Returns the friends it couldn't reach, and why.
+    pub async fn retire_core(
+        &mut self,
+        fingerprint: &str,
+    ) -> Result<Vec<(String, String)>, FriendsError> {
+        let fingerprint = fingerprint.trim().to_ascii_lowercase();
+        if !self
+            .book
+            .my_cores
+            .iter()
+            .any(|c| c.fingerprint == fingerprint)
+        {
+            self.reload()?;
+            if !self
+                .book
+                .my_cores
+                .iter()
+                .any(|c| c.fingerprint == fingerprint)
+            {
+                return Err(refused("You don't share from that core."));
+            }
+        }
+        self.retire_my_core(&fingerprint)?;
+        self.publish_states().await
     }
 
     /// Removes a friend: their entry and this person's slot for them go. This person's
@@ -525,45 +687,51 @@ impl Friends {
     }
 
     /// Retires this person's friend identity, for a key that may be stolen or a fresh
-    /// start: a final state saying so, signed with this key, goes to every friend (their
-    /// launchers drop this person and remove them from their cores), then the person
-    /// key, the file key and the friend file are deleted. Returns the friends it couldn't
-    /// reach, and why; it retires anyway.
-    pub async fn retire_identity(
-        mut self,
-        store: &dyn crate::SecretStore,
-        data: &crate::paths::DataDir,
-    ) -> Result<Vec<(String, String)>, FriendsError> {
-        self.reload()?;
-        self.modify(|book| {
-            book.new_state();
-            book.state_issued = now();
+    /// start. In order:
+    ///
+    /// 1. the book is marked retired, so nothing (this app or Lodestone Host) uses the
+    ///    identity again, even if a later step fails;
+    /// 2. a final state saying so, signed with this key, goes to every friend (their
+    ///    launchers drop this person and remove them from their cores);
+    /// 3. the book is emptied down to that mark: friends, pair secrets and links go.
+    ///
+    /// The app then deletes the person key ([`super::forget_identity`]). The emptied
+    /// file stays, so Lodestone Host sees the retirement and clears its core; the
+    /// Launcher deletes it, and the file key, when the person starts a new identity.
+    /// Returns the friends it couldn't reach, and why; it retires anyway.
+    pub async fn retire_identity(&mut self) -> Result<Vec<(String, String)>, FriendsError> {
+        self.modify_book(true, |book| {
+            if !book.retired {
+                book.retired = true;
+                book.new_state();
+                book.state_issued = now();
+            }
             Ok(())
         })?;
-        let state = self.my_state(true);
         let mut problems = Vec::new();
-        for friend in self.book.friends.clone() {
-            if friend.status == FriendStatus::Retired {
-                continue;
-            }
-            if let Err(err) = self.write_state(&friend, &state).await {
-                problems.push((friend.key.clone(), err.to_string()));
+        let friends: Vec<String> = self
+            .book
+            .friends
+            .iter()
+            .filter(|f| f.status != FriendStatus::Retired)
+            .map(|f| f.key.clone())
+            .collect();
+        for key in friends {
+            if let Err(err) = self.publish_state_to(&key).await {
+                problems.push((key, err.to_string()));
             }
         }
-        let keychain = |err: anyhow::Error| FriendsError::Keychain(err.to_string());
-        store
-            .delete(&super::secret_name(super::IDENTITY_SECRET, data))
-            .await
-            .map_err(keychain)?;
-        store
-            .delete(&super::secret_name(super::FILE_KEY_SECRET, data))
-            .await
-            .map_err(keychain)?;
-        match std::fs::remove_file(&self.path) {
-            Ok(()) => {}
-            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
-            Err(err) => return Err(err.into()),
-        }
+        self.modify_book(true, |book| {
+            *book = Book {
+                name: book.name.clone(),
+                state_seq: book.state_seq,
+                state_issued: book.state_issued,
+                retired: true,
+                generation: book.generation,
+                ..Book::default()
+            };
+            Ok(())
+        })?;
         Ok(problems)
     }
 
@@ -591,11 +759,21 @@ impl Friends {
                 }
             }
         }
+        // as for slot reads: start somewhere else each time, and stop when the service
+        // asks to slow down (the cores not checked stay unknown, not offline)
+        if !checks.is_empty() {
+            let start = (now / 60) as usize % checks.len();
+            checks.rotate_left(start);
+        }
         let service = self.service.clone();
         let results = on_tokio(move || async move {
             let mut out = Vec::new();
             for (friend, core, target) in checks {
-                let online = is_online(&service, &target).await.unwrap_or(false);
+                let online = match is_online(&service, &target).await {
+                    Ok(online) => online,
+                    Err(err) if is_rate_limited(&err) => break,
+                    Err(_) => false,
+                };
                 out.push(CorePresence {
                     friend,
                     core,

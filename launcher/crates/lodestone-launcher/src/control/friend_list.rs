@@ -5,7 +5,13 @@
 //! shows each change at once. Adding someone always needs confirmation: answering a
 //! link and accepting an answer need `"confirm": true` (after showing the user the name
 //! and safety code, from `friend_list.preview_link` or `friend_list.replies`), and
-//! `answer_link` can also check the safety code it expects.
+//! `answer_link` can also check the safety code it expects. Ticking "Codes match"
+//! (`verify`) needs it too, and only the user can say the codes matched.
+//!
+//! The read-only methods (`list`, `links`) open the friend list without making
+//! anything, and answer "no friend list yet" when there's none; they start no refresh
+//! and reach no one. `me` and the methods that start a friendship make the person key
+//! on first use.
 //!
 //! A friend link is returned by `create_link` so it can be sent: it lets its holder ask
 //! to be this person's friend, nothing more (the person still accepts the answer). No
@@ -59,7 +65,15 @@ fn friend_json(friend: &Friend, servers: &Servers) -> Value {
         "added_at": friend.added_at,
         "online": list.online(friend),
         "cores": cores,
+        "same_name_as": list.snapshot.name_clashes.get(&friend.key).cloned().unwrap_or_default(),
     })
+}
+
+/// What a read-only method answers when there's no friend list.
+const NO_LIST_NOTE: &str = "No friend list yet: choose a name first (`friend-list set-name`).";
+
+fn no_list() -> ErrorObject {
+    api_error(codes::NOT_FOUND, NO_LIST_NOTE)
 }
 
 fn reply_json(reply: &LinkReply) -> Value {
@@ -81,6 +95,12 @@ fn me_json(snapshot: &Snapshot) -> Value {
         "key": snapshot.key,
         "friends": snapshot.book.friends.len(),
         "links": snapshot.book.links.len(),
+        "cores": snapshot
+            .book
+            .my_cores
+            .iter()
+            .map(|c| json!({ "fingerprint": c.fingerprint, "name": c.name }))
+            .collect::<Vec<_>>(),
     })
 }
 
@@ -109,9 +129,9 @@ fn with_friend<T: 'static>(
     answer: impl FnOnce(T, String, &mut AsyncApp, &Entity<Servers>) -> ApiResult + 'static,
 ) -> Reply {
     let servers = call.control.servers.clone();
-    let opening = servers.update(cx, |servers, cx| servers.friend_me(cx));
+    let opening = servers.update(cx, |servers, cx| servers.friend_peek(cx));
     cx.spawn(async move |cx| {
-        let snapshot = opening.await.map_err(failed)?;
+        let snapshot = opening.await.map_err(failed)?.ok_or_else(no_list)?;
         let key = find_friend(&snapshot.book, &reference).map_err(|err| match err {
             FindError::NotFound => api_error(
                 codes::NOT_FOUND,
@@ -182,12 +202,15 @@ pub fn create_link(call: Call, cx: &mut App) -> Reply {
     )
 }
 
-/// `friend_list.links`: this person's open friend links (their mailbox codes).
+/// `friend_list.links`: this person's open friend links (their mailbox codes). Makes
+/// nothing.
 pub fn links(call: Call, cx: &mut App) -> Reply {
     let servers = call.control.servers.clone();
-    let opening = servers.update(cx, |servers, cx| servers.friend_me(cx));
+    let opening = servers.update(cx, |servers, cx| servers.friend_peek(cx));
     cx.spawn(async move |_| {
-        let snapshot = opening.await.map_err(failed)?;
+        let Some(snapshot) = opening.await.map_err(failed)? else {
+            return Ok(json!({ "links": [], "note": NO_LIST_NOTE }));
+        };
         Ok(json!({
             "links": snapshot
                 .book
@@ -224,7 +247,8 @@ struct LinkParams {
     safety_code: Option<String>,
 }
 
-/// `friend_list.preview_link`: who a friend link is from, without answering it.
+/// `friend_list.preview_link`: who a friend link is from, without answering it. It asks
+/// the service (so it isn't read-only), but makes no key.
 pub fn preview_link(call: Call, cx: &mut App) -> Reply {
     let params: LinkParams = params!(call);
     run(
@@ -323,11 +347,14 @@ pub fn accept(call: Call, cx: &mut App) -> Reply {
 }
 
 /// `friend_list.list`: friends, as last checked (`friend_list.refresh` checks again).
+/// Makes nothing and reaches no one.
 pub fn list(call: Call, cx: &mut App) -> Reply {
     let servers = call.control.servers.clone();
-    let opening = servers.update(cx, |servers, cx| servers.friend_me(cx));
+    let opening = servers.update(cx, |servers, cx| servers.friend_peek(cx));
     cx.spawn(async move |cx| {
-        opening.await.map_err(failed)?;
+        if opening.await.map_err(failed)?.is_none() {
+            return Ok(json!({ "me": null, "friends": [], "note": NO_LIST_NOTE }));
+        }
         Ok(cx.update(|cx| {
             let servers = servers.read(cx);
             let list = &servers.friend_list;
@@ -345,11 +372,21 @@ fn report_json(report: &RefreshReport) -> Value {
         "confirmed": report.refreshed.confirmed,
         "retired": report.refreshed.retired,
         "dropped_cores": report.refreshed.dropped_cores,
+        "same_name": report
+            .refreshed
+            .same_name
+            .iter()
+            .map(|(key, names)| json!({ "friend": key, "same_name_as": names }))
+            .collect::<Vec<_>>(),
         "problems": report
             .refreshed
             .problems
             .iter()
-            .map(|(key, why)| json!({ "friend": key, "error": why }))
+            .map(|(key, why)| match key.as_str() {
+                // not about one friend (the service asked to slow down)
+                "" => json!({ "error": why }),
+                key => json!({ "friend": key, "error": why }),
+            })
             .chain(report.problems.iter().map(|why| json!({ "error": why })))
             .collect::<Vec<_>>(),
         "presence": report
@@ -378,10 +415,24 @@ struct FriendParams {
     value: Option<bool>,
 }
 
-/// `friend_list.verify`: ticks (or with `value: false` unticks) "Codes match".
+/// Ticking "Codes match" needs `"confirm": true`; unticking doesn't.
+fn verify_confirmation(verified: bool, params: &Value) -> Result<(), ErrorObject> {
+    if !verified || super::confirmed(params) {
+        return Ok(());
+    }
+    Err(api_error(
+        codes::CONFIRMATION_REQUIRED,
+        "This marks the friend as checked: that their safety code is the one the user's friend read out by voice or in person. Only the user can say so. Show them both codes (`friend-list list`, `friend-list me`), ask them to compare the codes with their friend aloud, and pass --yes (\"confirm\": true) only if they say the codes match.",
+    ))
+}
+
+/// `friend_list.verify`: ticks (or with `value: false` unticks) "Codes match". Ticking
+/// needs `"confirm": true`, on the user's word only: it's what says this friend is who
+/// they claim to be.
 pub fn verify(call: Call, cx: &mut App) -> Reply {
     let params: FriendParams = params!(call);
     let verified = params.value.unwrap_or(true);
+    tri!(verify_confirmation(verified, &call.params));
     with_friend(
         &call,
         cx,
@@ -472,9 +523,9 @@ fn server_json(server: &SharedServer) -> Value {
 pub fn servers(call: Call, cx: &mut App) -> Reply {
     let params: ServersParams = params!(call);
     let servers = call.control.servers.clone();
-    let opening = servers.update(cx, |servers, cx| servers.friend_me(cx));
+    let opening = servers.update(cx, |servers, cx| servers.friend_peek(cx));
     cx.spawn(async move |cx| {
-        let snapshot = opening.await.map_err(failed)?;
+        let snapshot = opening.await.map_err(failed)?.ok_or_else(no_list)?;
         let key = find_friend(&snapshot.book, &params.friend).map_err(|_| {
             api_error(
                 codes::NOT_FOUND,
@@ -548,6 +599,70 @@ pub fn retire(call: Call, cx: &mut App) -> Reply {
     )
 }
 
+#[derive(Deserialize)]
+struct CoreParams {
+    /// One of this person's cores: its fingerprint (or its first 8+ hex digits), or
+    /// its name.
+    core: String,
+}
+
+/// `friend_list.retire_core`: retires one of this person's cores (`"confirm": true`):
+/// friends drop it, and it's never listed again.
+pub fn retire_core(call: Call, cx: &mut App) -> Reply {
+    let params: CoreParams = params!(call);
+    tri!(call.confirm(
+        "retires one of your cores: friends drop it and stop trusting its servers' mods, and it's never shown to them again. It can't be undone"
+    ));
+    let servers = call.control.servers.clone();
+    let opening = servers.update(cx, |servers, cx| servers.friend_peek(cx));
+    cx.spawn(async move |cx| {
+        let snapshot = opening.await.map_err(failed)?.ok_or_else(no_list)?;
+        let reference = params.core.trim().to_string();
+        let lower = reference.to_ascii_lowercase();
+        let found: Vec<_> = snapshot
+            .book
+            .my_cores
+            .iter()
+            .filter(|c| {
+                c.fingerprint == lower
+                    || (lower.len() >= 8 && c.fingerprint.starts_with(&lower))
+                    || c.name.eq_ignore_ascii_case(&reference)
+            })
+            .collect();
+        let core = match found.as_slice() {
+            [core] => (*core).clone(),
+            [] => {
+                return Err(api_error(
+                    codes::NOT_FOUND,
+                    format!(
+                        "You don't share from a core called \"{reference}\". See `friend-list me`."
+                    ),
+                ));
+            }
+            _ => {
+                return Err(api_error(
+                    codes::AMBIGUOUS,
+                    format!("Several of your cores match \"{reference}\". Use its fingerprint."),
+                ));
+            }
+        };
+        let task = cx.update(|cx| {
+            servers.update(cx, |servers, cx| {
+                servers.friend_retire_core(core.fingerprint.clone(), cx)
+            })
+        });
+        let unreached = task.await.map_err(failed)?;
+        Ok(json!({
+            "retired": core.fingerprint,
+            "name": core.name,
+            "unreached": unreached
+                .iter()
+                .map(|(key, why)| json!({ "friend": key, "error": why }))
+                .collect::<Vec<_>>(),
+        }))
+    })
+}
+
 /// Opens the Add friend dialog for a friend link (`friends.open` with a friend link,
 /// as opening `lodestone://friend?link=…` does). Nothing is added.
 pub fn open_link(link: String, cx: &mut App, servers: &Entity<Servers>) -> ApiResult {
@@ -564,5 +679,15 @@ mod tests {
         assert!(same_code("K7Q2-M9XD-4TRW-H3BE", "k7q2m9xd4trwh3be"));
         assert!(same_code(" K7Q2 M9XD 4TRW H3BE ", "K7Q2-M9XD-4TRW-H3BE"));
         assert!(!same_code("K7Q2-M9XD-4TRW-H3BE", "K7Q2-M9XD-4TRW-H3BF"));
+    }
+
+    #[test]
+    fn codes_match_needs_the_user_s_confirmation() {
+        let refused = verify_confirmation(true, &json!({ "friend": "Alex" })).unwrap_err();
+        assert_eq!(refused.code, codes::CONFIRMATION_REQUIRED);
+        assert!(refused.message.contains("aloud"), "{}", refused.message);
+        assert!(verify_confirmation(true, &json!({ "friend": "Alex", "confirm": true })).is_ok());
+        // unticking needs nothing
+        assert!(verify_confirmation(false, &json!({ "friend": "Alex" })).is_ok());
     }
 }

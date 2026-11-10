@@ -5,7 +5,7 @@ use gpui::Context;
 use launcher_core::{
     cores::connect::SharedServer,
     friend_list::{
-        Book, Friend, FriendState, FriendStatus, PendingLink, now,
+        Book, Friend, FriendState, FriendStatus, MyCore, PendingLink, now,
         ops::{LinkPreview, LinkReply},
     },
 };
@@ -68,7 +68,8 @@ fn shared(
 }
 
 /// Alex (verified, online, expanded), Sam (not verified, offline, nicknamed), Jo
-/// (waiting to confirm) and Kim (hidden, sharing nothing).
+/// (waiting to confirm) and Kim (hidden, sharing nothing, and calling themselves
+/// "Alex": flagged).
 fn friends() -> Vec<Friend> {
     let mut alex = friend(0x11, "Alex", FriendStatus::Active, true);
     alex.state = Some(core(0xa1, "Alex's PC"));
@@ -76,7 +77,8 @@ fn friends() -> Vec<Friend> {
     sam.nickname = Some("Sam".into());
     sam.state = Some(core(0xb2, "Sam's laptop"));
     let jo = friend(0x33, "Jo", FriendStatus::Pending, false);
-    let mut kim = friend(0x44, "Kim", FriendStatus::Active, false);
+    let mut kim = friend(0x44, "Alex", FriendStatus::Active, false);
+    kim.nickname = Some("Kim".into());
     kim.hidden = true;
     kim.state = Some(FriendState {
         seq: 1,
@@ -87,13 +89,25 @@ fn friends() -> Vec<Friend> {
 }
 
 fn base(name: &str, friends: Vec<Friend>) -> PreviewFriendList {
+    let book = Book {
+        name: name.into(),
+        friends,
+        // this person shares from one core
+        my_cores: if name.is_empty() {
+            Vec::new()
+        } else {
+            vec![MyCore {
+                fingerprint: key(0xa5),
+                name: format!("{name}'s PC"),
+                source: None,
+            }]
+        },
+        ..Book::default()
+    };
     PreviewFriendList {
         snapshot: Snapshot {
-            book: Book {
-                name: name.into(),
-                friends,
-                ..Book::default()
-            },
+            name_clashes: book.name_clashes(),
+            book,
             safety_code: if name.is_empty() {
                 String::new()
             } else {
@@ -210,6 +224,10 @@ pub fn apply(scene: &str, servers: &mut Servers, cx: &mut Context<Servers>) {
         "servers-friend-list-retire" => {
             servers.preview_friend_list(base("Peter", friends()));
             servers.preview_friend_dialog("retire", PreviewAddFriend::Empty, cx);
+        }
+        "servers-friend-list-retire-core" => {
+            servers.preview_friend_list(base("Peter", friends()));
+            servers.open_friend_retire_core(&key(0xa5), cx);
         }
         _ => {}
     }

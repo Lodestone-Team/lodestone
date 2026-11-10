@@ -221,6 +221,28 @@ crate::i18n::messages! {
         FriendsRetrying = "Lodestone Host tries again every minute.",
         /// This core has the friend list as it is now.
         FriendsSynced = "Friend list synced",
+        /// The person retired their friend identity in Lodestone Launcher.
+        FriendsRetired = "Your friend identity was retired",
+        FriendsRetiredHint = "This core no longer shares with anyone. To start again, choose a new name in Lodestone Launcher's Friends section, then add your friends again.",
+        /// A test copy of the Host (a developer's), whose core or friend list is a test one.
+        FriendsOff = "Sharing with friends is off in this test copy",
+        FriendsOffHint = "Its core or its friend list is in a test folder, and the other isn't, so your real friends never reach a test core. To test sharing, set both LODESTONE_PATH and LODESTONE_LAUNCHER_DATA_DIR to test folders.",
+        /// Before the first share with a friend whose safety code wasn't compared; {name} is their name.
+        FriendsConfirmUnverified = "You haven’t compared safety codes with {name} yet, so you can’t be sure it’s really them: someone else could have answered your friend link. Compare codes in Lodestone Launcher first, or share anyway.",
+        FriendsShareAnyway = "Share anyway",
+        /// The core's friend certificate: what friends know this core by.
+        FriendsCertificate = "This core’s friend certificate",
+        FriendsCertificateHint = "Friends know this core by it. Retire it if this computer’s data may have been copied: friends drop it, and the core gets a new one they find instead.",
+        FriendsCertificateRetire = "Retire certificate…",
+        FriendsCertificateRetireBody = "Friends drop this core’s current certificate and stop trusting its servers’ mods. The core gets a new certificate, and friends find it under that one the next time they check. Everyone connected now is disconnected.",
+        FriendsCertificateRetireConfirm = "Retire and get a new one",
+        /// The core's certificate was retired (here, or in Lodestone Launcher).
+        FriendsCertificateRetired = "This core’s friend certificate was retired",
+        FriendsCertificateRetiredHint = "Friends don’t see this core now. Get it a new certificate to share from this computer again.",
+        FriendsCertificateNew = "Get a new certificate",
+        /// For a core too old to make a new certificate; {path} is the certificate's file.
+        FriendsCertificateManual = "Friends don’t see this core now. This core can’t make a new certificate itself: quit Lodestone Host, delete {path}, and open it again.",
+        FriendsCancel = "Cancel",
     }
 
     pub enum InstancePlural {

@@ -59,6 +59,7 @@ pub const SCENES: &[&str] = &[
     "servers-friend-list-verify",
     "servers-friend-list-remove",
     "servers-friend-list-retire",
+    "servers-friend-list-retire-core",
 ];
 
 /// Made-up fingerprints.

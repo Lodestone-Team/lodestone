@@ -203,6 +203,36 @@ pub fn text(message: M) -> &'static str {
         M::FriendsRetry => "重試",
         M::FriendsRetrying => "Lodestone Host 每分鐘會自動重試。",
         M::FriendsSynced => "好友名單已同步",
+        M::FriendsRetired => "你的好友身分已停用",
+        M::FriendsRetiredHint => {
+            "此核心不再與任何人共享。要重新開始，請在 Lodestone Launcher 的好友區塊選擇新名稱，然後重新加入好友。"
+        }
+        M::FriendsOff => "此測試副本已關閉與好友共享",
+        M::FriendsOffHint => {
+            "它的核心或好友名單在測試資料夾中，而另一個不在，因此你真正的好友永遠不會進入測試核心。要測試共享，請將 LODESTONE_PATH 和 LODESTONE_LAUNCHER_DATA_DIR 都設為測試資料夾。"
+        }
+        M::FriendsConfirmUnverified => {
+            "你還沒有和 {name} 核對安全碼，所以無法確定真的是對方：別人也可能回應了你的好友連結。請先在 Lodestone Launcher 中核對安全碼，或仍然共享。"
+        }
+        M::FriendsShareAnyway => "仍然共享",
+        M::FriendsCertificate => "此核心的好友憑證",
+        M::FriendsCertificateHint => {
+            "好友透過它識別此核心。如果這台電腦的資料可能遭到複製，請停用它：好友會放棄它，核心會取得新憑證，好友改用新憑證找到它。"
+        }
+        M::FriendsCertificateRetire => "停用憑證…",
+        M::FriendsCertificateRetireBody => {
+            "好友會放棄此核心目前的憑證，並不再信任其伺服器的模組。核心會取得新憑證，好友下次檢查時會透過新憑證找到它。目前連線的所有人都會中斷連線。"
+        }
+        M::FriendsCertificateRetireConfirm => "停用並取得新憑證",
+        M::FriendsCertificateRetired => "此核心的好友憑證已停用",
+        M::FriendsCertificateRetiredHint => {
+            "好友現在看不到此核心。為它取得新憑證，即可再次從這台電腦共享。"
+        }
+        M::FriendsCertificateNew => "取得新憑證",
+        M::FriendsCertificateManual => {
+            "好友現在看不到此核心。此核心無法自行產生新憑證：請結束 Lodestone Host，刪除 {path}，然後重新開啟。"
+        }
+        M::FriendsCancel => "取消",
     }
 }
 

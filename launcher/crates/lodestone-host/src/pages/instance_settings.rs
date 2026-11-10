@@ -132,6 +132,8 @@ pub struct InstanceSettingsPage {
     delete: DialogSlot<Self, DeletePrompt>,
     deleting: bool,
     nav: SectionNav,
+    /// A section to scroll to at the next draw, by title (the screenshots' `--friends`).
+    pub show_section: Option<SharedString>,
     /// When the tab opened, so "Loading" waits [`LOADING_DELAY`].
     opened: Instant,
     /// What it shows came from the cache, and the fetch hasn't answered yet.
@@ -162,6 +164,7 @@ impl InstanceSettingsPage {
             delete: DialogSlot::new(|this: &mut Self| &mut this.delete),
             deleting: false,
             nav: SectionNav::default(),
+            show_section: None,
             opened: Instant::now(),
             fetched: None,
             _tasks: Vec::new(),
@@ -1200,6 +1203,11 @@ impl Render for InstanceSettingsPage {
         sections.push((t(M::DangerZone).into(), self.danger_section(cx)));
 
         let titles: Vec<SharedString> = sections.iter().map(|(title, _)| title.clone()).collect();
+        if let Some(show) = self.show_section.take()
+            && let Some(index) = titles.iter().position(|title| *title == show)
+        {
+            self.nav.pick(index);
+        }
         let active = self.nav.active(titles.len());
         // the list of sections, when the page is wide enough for it beside them
         let wide = window.viewport_size().width >= px(1080.);

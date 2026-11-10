@@ -245,6 +245,36 @@ pub fn text(message: M) -> &'static str {
         M::FriendsRetry => "Réessayer",
         M::FriendsRetrying => "Lodestone Host réessaie chaque minute.",
         M::FriendsSynced => "Liste d’amis synchronisée",
+        M::FriendsRetired => "Votre identité d’ami a été retirée",
+        M::FriendsRetiredHint => {
+            "Ce core ne partage plus avec personne. Pour recommencer, choisissez un nouveau nom dans la section Amis de Lodestone Launcher, puis ajoutez de nouveau vos amis."
+        }
+        M::FriendsOff => "Le partage avec des amis est désactivé dans cette copie de test",
+        M::FriendsOffHint => {
+            "Son core ou sa liste d’amis est dans un dossier de test, et l’autre non : vos vrais amis n’atteignent donc jamais un core de test. Pour tester le partage, définissez LODESTONE_PATH et LODESTONE_LAUNCHER_DATA_DIR sur des dossiers de test."
+        }
+        M::FriendsConfirmUnverified => {
+            "Vous n’avez pas encore comparé les codes de sécurité avec {name} : vous ne pouvez pas être sûr que c’est bien cette personne, quelqu’un d’autre a pu répondre à votre lien d’ami. Comparez d’abord les codes dans Lodestone Launcher, ou partagez quand même."
+        }
+        M::FriendsShareAnyway => "Partager quand même",
+        M::FriendsCertificate => "Certificat d’ami de ce core",
+        M::FriendsCertificateHint => {
+            "Vos amis reconnaissent ce core grâce à lui. Retirez-le si les données de cet ordinateur ont pu être copiées : vos amis l’oublient, et le core en reçoit un nouveau qu’ils trouvent à la place."
+        }
+        M::FriendsCertificateRetire => "Retirer le certificat…",
+        M::FriendsCertificateRetireBody => {
+            "Vos amis oublient le certificat actuel de ce core et ne font plus confiance aux mods de ses serveurs. Le core reçoit un nouveau certificat, sous lequel vos amis le trouvent à leur prochaine vérification. Toutes les personnes connectées sont déconnectées."
+        }
+        M::FriendsCertificateRetireConfirm => "Retirer et en obtenir un nouveau",
+        M::FriendsCertificateRetired => "Le certificat d’ami de ce core a été retiré",
+        M::FriendsCertificateRetiredHint => {
+            "Vos amis ne voient plus ce core. Donnez-lui un nouveau certificat pour partager de nouveau depuis cet ordinateur."
+        }
+        M::FriendsCertificateNew => "Obtenir un nouveau certificat",
+        M::FriendsCertificateManual => {
+            "Vos amis ne voient plus ce core. Ce core ne peut pas créer lui-même un nouveau certificat : quittez Lodestone Host, supprimez {path}, puis rouvrez-le."
+        }
+        M::FriendsCancel => "Annuler",
     }
 }
 

@@ -100,10 +100,39 @@ Receivers keep the highest `seq` seen and refuse lower ones. A state expires 90 
 it was issued; launchers issue a new one weekly while they run. A friend's cores in an
 expired state aren't joined.
 
+State numbers follow the clock: a new state is numbered at least the time it was made,
+in seconds. So receivers also refuse a state issued more than a day ahead of their
+clock, or numbered more than a day above the time it was issued
+(`MAX_ISSUED_AHEAD_SECS`, `MAX_SEQ_AHEAD_SECS` in `friend_list/ops.rs`): someone with a
+stolen key can't number a state so high that the owner's later states all look older.
+A **retired** state is taken whatever its number: retiring is final.
+
+A slot is written outside the friend file's lock, so the Launcher and the Host could
+put an older state over a newer one the other app just sent. After each write the
+launcher looks again under the lock, and sends the newer state if there is one.
+
+The service limits slot reads and presence checks per address. A refresh starts at
+another friend each time, and stops reading when the service says to slow down
+(`429`), so a long friend list is checked across refreshes rather than cut at the
+same friends each time.
+
 States are how a person:
 
 - **adds or retires a core.** A retired core is dropped, and trust in its servers' mods
-  is cleared;
+  is cleared. The person retires a core with **Retire** beside it in the "You" row (or
+  `friend-list retire-core`); it's then never listed again, even if it syncs (its
+  fingerprint is kept in `retired_cores`). When Lodestone Host syncs its core and the
+  core has another friend certificate than the one this Host added before (its data
+  was reset, say), the old one leaves the state by itself; cores added another way
+  stay (`MyCore::source`, the core's data folder). To go on sharing from a computer
+  whose core was retired, the core needs a new friend certificate. Lodestone Host
+  offers it in a server's Settings › Friends: "Retire certificate…" (retire and get a
+  new one in one step, for a computer whose data may have been copied), or, once the
+  core was retired in the Launcher, "Get a new certificate". Both call
+  `POST /connect/friends/certificate` (`core_sync::new_certificate`), then sync, which
+  lists the new fingerprint and publishes the state. A core too old for that route
+  shows how to do it by hand instead: quit the Host, delete
+  `stores/connect/friends/core.json` in the core's data folder, and open it again;
 - **confirms a new friendship** (the first state);
 - **retires their key** (`retired: true`, signed by the old key). Friends' launchers mark
   the friend retired and remove them from their own cores.
@@ -137,7 +166,10 @@ again when they changed: after a move to another network, say.
 
 Presence: `HEAD` on a lookup id says whether that core is publishing for you now. The
 launcher checks every 5 minutes while the friend list is open, and never in the
-background. Owners can hide from chosen friends, which stops their records.
+background. Owners can hide from chosen friends, which stops their records. A hidden
+friend stays on the core with `hidden: true`: the core keeps what's shared with them,
+but publishes nothing for them and serves them nothing, so showing them again gives it
+all back.
 
 ## Joining
 
@@ -199,10 +231,32 @@ These routes:
   they carry secrets. The launcher sends them only to a core whose certificate it has
   pinned, or over loopback.
 
-Lodestone Host keeps its core in step: it syncs at start, whenever the friend file
-changes and after sharing changes, and shows whether the last sync worked. A removal
-reaches a core only through that sync, so a core whose Host isn't running keeps its old
-list until it next starts (and syncs) or is reached.
+Lodestone Host keeps its core in step: it syncs at start and after sharing changes, and
+reads the friend list every 60 seconds, syncing again when what the core depends on
+changed (friends, their names, status, hidden and verified; not its own state numbers),
+so a removal reaches the core within about a minute. It shows whether the last sync
+worked; a sync that failed is tried again every minute. A removal reaches a core only
+through that sync, so a core whose Host isn't running keeps its old list until it next
+starts (and syncs) or is reached.
+
+The Host never makes a friend identity. It opens the list that is there, without
+making keys, and reads the Keychain only when the file appears or changes, or on Try
+again (never every minute after a refusal). **A missing file stops it**: when the file
+goes (moved with the data folder in Settings › Storage, say) or can't be opened any
+more, the Host drops the list, looks for the data folder again and opens what it finds.
+It never empties a core because a file is missing. Only a retired identity's list
+empties the core, on purpose: its friendships are over on both sides.
+
+Before the first share with a friend whose safety code wasn't compared, the Host asks
+("Share anyway"), and each friend's safety code is shown beside their name.
+
+A test copy of the Host doesn't share: when its core's data folder isn't
+`~/.lodestone` and `LODESTONE_LAUNCHER_DATA_DIR` isn't set (a dev bundle, a debug
+build, a test), it would sync the person's real friend list into a test core; when the
+core is `~/.lodestone` but `LODESTONE_LAUNCHER_DATA_DIR` is set, a test list would
+replace the real core's friends. Either way the Settings say sharing is off.
+`launcher/scripts/host_dev_bundle.py` sets `LODESTONE_LAUNCHER_DATA_DIR` to a folder of
+its own, so a dev bundle shares with a test Launcher's friends.
 
 A core shares with at most 120 friends (hidden friends don't count): each gets one or
 two records, and the service takes at most 256 from a core.
@@ -244,10 +298,30 @@ new fingerprint in its next state.
 - Person key: Keychain.
 - Friend file `<data>/friend_list.json`: sealed with a key kept in the Keychain. It holds
   friends (key, names, pair secret, verified, pending, last state), pending links (`s`,
-  `eA`, the mailbox secret) and own state numbers. The friend graph isn't readable from
-  the disk alone.
+  `eA`, the mailbox secret), own cores and retired cores, and own state numbers. The
+  friend graph isn't readable from the disk alone.
 - Keychain items can be read by any program running as the same user (on Windows, DPAPI
   protects them with the user's sign-in). That's the boundary.
+- **Who makes it.** Only the Launcher starts a friend list, when the person first
+  chooses a name or makes or answers a friend link. Opening the Servers page, looking up
+  a friend link (pasted, or opened from outside the Launcher), and the read-only control
+  methods (`friend_list.list`, `links`) make no key and no file.
+- **Changes.** Every change takes an operating system lock on `friend_list.lock` (the
+  system lets go of it if the app dies), reads the file fresh, and writes it only if it
+  changed, with the book's `generation` one higher. A missing file is never written
+  anew: that would seal a list with keys the Keychain may no longer have. The Launcher
+  runs file work and network calls on its background executor, on a copy of the list,
+  so the window never waits for them and a refresh never holds up Play or Accept.
+- **Retiring the identity.** The book is marked retired first (so nothing uses the
+  identity again, even if a later step fails), the retired state goes to every friend,
+  the book is emptied down to that mark (no friends, pair secrets or links left), then
+  the person key is deleted from the Keychain. The emptied file stays, so the Host sees
+  the retirement; the Launcher deletes it, and the file key, when the person starts a
+  new identity.
+- **Uninstalling on Windows** with "delete data" (or `/DELETEDATA`) also removes the
+  `friend-identity` and `friend-list-key` credentials, when the deleted folder is the
+  data folder the launcher really uses (not one named by
+  `LODESTONE_LAUNCHER_DATA_DIR`).
 
 ## Service protocol (v2)
 
@@ -325,11 +399,14 @@ A core registers one **session** with all its records, and waits on one WebSocke
 | A card or state is replayed elsewhere | Cards sign the link's hash; states sign the receiver's key; seals bind role and context. |
 | A knock is replayed | Refused when more than 10 minutes from the core's clock, or once seen (ids are remembered for 25 minutes, longer than the window, also while the friend host stops and starts, but only while the core runs: just after a core restart a replay can open the knocker's addresses for 2 minutes, and the hello still needs the friend's key). Records carry their issue time. |
 | A stolen core | Its owner retires it in a new state; friends drop it and clear mod trust. It never held pair secrets. |
-| A stolen launcher key | A final retired state, signed with it, tells friends to drop it. |
+| A stolen launcher key | A final retired state, signed with it, tells friends to drop it. Friends take a retired state whatever its number, so the thief can't block it with a state numbered higher; and they refuse states numbered more than a day ahead of when they were issued, or issued more than a day ahead of their clock, so the thief can't block the owner's later states for long either. |
+| A friend takes another friend's name | Names are checked when a friend is added and again whenever a state renames them; the list flags both friends, and the Host shows each friend's safety code. |
 | A removed friend keeps trying | Their records stop, cores that got the new list refuse their key and forget their knocks, and cores don't answer anything without an accepted knock, not even QUIC's version negotiation or stateless resets. Someone sharing an address with a friend who knocked does get a handshake, but not past the hello. |
 | Someone scans for cores | Nothing comes back from a core's friend port without an accepted knock: its datagrams never reach QUIC. |
 | A friend floods a core | Per friend: 2 sprays and 2 knocks' addresses, 256 remembered knocks, 4 connections (counting those still in their handshake). Per connection: 10 seconds to say hello and for each stream's header, 8 headers read at once. The core probes only addresses someone else can be at, and takes at most 64 KiB and 16 knocks a message from the service. The service rate-limits per address. |
-| The Launcher and the Host change the friend file at once | Every change reloads the file under a lock first; state numbers never go back. |
+| The Launcher and the Host change the friend file at once | Every change reloads the file under an operating system lock first; state numbers never go back, and a slot written with an older state is written again with the newer one. |
+| The friend file goes missing (retired, deleted, moved) | Changes stop; the file is never written again with old keys, and the Host never empties its core for it. |
+| An agent using the control API ticks "Codes match" | `friend_list.verify` needs `"confirm": true`, only on the user's word that they compared codes aloud. |
 | Name tricks | Names are cleaned and shown beside local nicknames; duplicates are flagged. |
 
 ## What this doesn't protect against
@@ -382,7 +459,7 @@ A core registers one **session** with all its records, and waits on one WebSocke
 
 The Launcher and the Host share one friend list: the file in the Launcher's data folder
 and the Keychain items `friend-identity` and `friend-list-key` (account "Lodestone
-Launcher"). The Host syncs its core whenever the file changes. When the data folder
+Launcher"). The Host syncs its core whenever the list changes. When the data folder
 isn't the default one (`LODESTONE_LAUNCHER_DATA_DIR`, tests, dev bundles), the items
 are `friend-identity@<8 hex digits>` and so on, so development never makes or uses a
 person's real identity.
@@ -433,6 +510,19 @@ friend); a check-then-insert race on the per-friend limit; knock memory lost whe
 friend host restarted (now kept while the core runs); unbounded WebSocket messages from
 the service; a game header with no deadline after its first byte; and sprays towards
 loopback, broadcast and similar addresses.
+
+In the clients: a missing or retired friend file could be written again with keys the
+Keychain no longer had, and the Host could empty its core because the file was gone
+(now changes stop, and only a retired identity empties a core); the file lock was a
+lock file a crash could leave behind (now an operating system lock); a stolen key could
+number a state so high that the owner's later states looked older (now refused past a
+day ahead); a retired core came back on the next sync, and there was no way to give a
+core a new certificate (now **Retire**, `friend-list retire-core`, and the Host's
+"Retire certificate…"); test copies of the Host and dev bundles could use the real
+identity or sync a test list into the real core; read-only control methods made keys;
+`friend_list.verify` could be ticked by an agent without the user (now needs
+`"confirm": true`, `--yes` in the CLI); the Launcher's window waited on file and network
+work; and uninstalling on Windows left the friend credentials behind.
 
 What the first review changed:
 

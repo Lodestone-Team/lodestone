@@ -229,7 +229,26 @@ begin
     'Your instances with their worlds, mods, resource packs and screenshots, your ' +
     'accounts and settings, and downloaded game files. Deleting it also signs your ' +
     'Microsoft accounts out of this computer, and removes the saved keys of your ' +
-    'servers and your friends'' invite links.');
+    'servers, your friends'' invite links and your friend list.');
+end;
+
+{ The friend list's two credentials, "friend-identity" (the person key) and
+  "friend-list-key" (the key friend_list.json is sealed with;
+  launcher-core/src/friend_list/mod.rs, secret_name), belong to the data folder the
+  launcher really uses: the default one, or wherever it was moved (the identity moves
+  with it). A folder named by LODESTONE_LAUNCHER_DATA_DIR (a developer's) has items of
+  its own, named with a hash of its path, which are left alone, as are the real ones
+  then. }
+procedure DeleteFriendListCredentials(const Folder: String);
+begin
+  if Trim(GetEnv('LODESTONE_LAUNCHER_DATA_DIR')) <> '' then
+    Exit;
+  if CompareText(Folder, DataFolder) <> 0 then
+    Exit;
+  if CredDelete('zed:url=friend-identity', CRED_TYPE_GENERIC, 0) then
+    Log('Removed the friend identity');
+  if CredDelete('zed:url=friend-list-key', CRED_TYPE_GENERIC, 0) then
+    Log('Removed the friend list''s key');
 end;
 
 { Deletes the credential "zed:url=" + Prefix + Value for each "Key": "Value" in
@@ -276,7 +295,8 @@ end;
     launcher-core/src/cores/store.rs, key_secret_name);
   - each friend's invite link, "lodestone-connect-invite:<id>" (friends.json;
     launcher-core/src/cores/friends.rs, invite_secret_name), which lets anyone
-    who has it join.
+    who has it join;
+  - the friend list's person key and file key (DeleteFriendListCredentials).
   Only this folder's are deleted: another data folder (a developer's, say) keeps its
   own.
   A moved data folder's location file goes too, so a later install doesn't look
@@ -297,6 +317,7 @@ begin
     'lodestone-core-key:');
   DeleteCredentialsListedIn(AddBackslash(KeptFolders[Index]) + 'friends.json', 'id',
     'lodestone-connect-invite:');
+  DeleteFriendListCredentials(KeptFolders[Index]);
   if not LoadStringFromFile(AddBackslash(KeptFolders[Index]) + 'accounts.json', Json) then
     Exit;
   Rest := String(Json);

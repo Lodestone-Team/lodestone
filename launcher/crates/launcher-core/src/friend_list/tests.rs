@@ -4,13 +4,33 @@ use lodestone_connect::friend::state::StateCore;
 use super::*;
 use crate::MemorySecretStore;
 
+fn test_service() -> Service {
+    Service::parse("http://127.0.0.1:9").unwrap()
+}
+
+/// Starts (or opens) the friend list in `dir`, as the Launcher does.
 fn open(dir: &Path, store: &MemorySecretStore) -> Friends {
-    block_on(Friends::open(
+    block_on(Friends::create(&DataDir::at(dir), store, test_service())).unwrap()
+}
+
+/// Opens the list in `dir` as Lodestone Host does: never making anything.
+fn open_existing(dir: &Path, store: &MemorySecretStore) -> Opened {
+    block_on(Friends::open_existing(
         &DataDir::at(dir),
         store,
-        Service::parse("http://127.0.0.1:9").unwrap(),
+        test_service(),
     ))
     .unwrap()
+}
+
+fn ben() -> Friend {
+    Friend {
+        key: "ab".repeat(32),
+        name: "Ben".into(),
+        pair: "cd".repeat(32),
+        status: FriendStatus::Active,
+        ..Friend::default()
+    }
 }
 
 #[test]
@@ -34,13 +54,7 @@ fn the_book_is_sealed_and_survives_reopening() {
     assert_eq!(friends.book.name, "Ana");
     friends
         .modify(|book| {
-            book.friends.push(Friend {
-                key: "ab".repeat(32),
-                name: "Ben".into(),
-                pair: "cd".repeat(32),
-                status: FriendStatus::Active,
-                ..Friend::default()
-            });
+            book.friends.push(ben());
             Ok(())
         })
         .unwrap();
@@ -55,14 +69,95 @@ fn the_book_is_sealed_and_survives_reopening() {
     assert_eq!(again.me(), me);
     assert_eq!(again.book, friends.book);
 
-    // another computer's (or a wiped) Keychain can't open it
+    // another computer's (or a wiped) Keychain can't open it, and makes nothing
     let elsewhere = MemorySecretStore::new();
-    let failed = block_on(Friends::open(
+    let failed = block_on(Friends::open_existing(
         &DataDir::at(dir.path()),
         &elsewhere,
-        Service::parse("http://127.0.0.1:9").unwrap(),
+        test_service(),
     ));
     assert!(matches!(failed, Err(FriendsError::Damaged(_))));
+    assert!(elsewhere.keys().is_empty());
+    let failed = block_on(Friends::create(
+        &DataDir::at(dir.path()),
+        &elsewhere,
+        test_service(),
+    ));
+    assert!(
+        matches!(failed, Err(FriendsError::Damaged(_))),
+        "a damaged list is never replaced"
+    );
+}
+
+#[test]
+fn opening_an_existing_list_makes_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = MemorySecretStore::new();
+    assert!(matches!(open_existing(dir.path(), &store), Opened::None));
+    assert!(store.keys().is_empty(), "no key made");
+    assert!(!dir.path().join(FILE_NAME).exists(), "no file made");
+    open(dir.path(), &store);
+    assert!(matches!(
+        open_existing(dir.path(), &store),
+        Opened::Ready(_)
+    ));
+}
+
+#[test]
+fn a_missing_file_stops_changes_and_is_never_written_anew() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = MemorySecretStore::new();
+    let mut launcher = open(dir.path(), &store);
+    launcher.set_name("Ana").unwrap();
+    launcher
+        .modify(|book| {
+            book.friends.push(ben());
+            Ok(())
+        })
+        .unwrap();
+    let mut host = launcher.clone();
+    // the file goes (the data folder was moved, say)
+    std::fs::remove_file(dir.path().join(FILE_NAME)).unwrap();
+    assert!(matches!(host.reload(), Err(FriendsError::Missing)));
+    assert!(matches!(
+        host.set_verified(&"ab".repeat(32), true),
+        Err(FriendsError::Missing)
+    ));
+    assert!(matches!(
+        host.add_my_core(&"11".repeat(32), "PC", None),
+        Err(FriendsError::Missing)
+    ));
+    assert!(
+        !dir.path().join(FILE_NAME).exists(),
+        "a change never writes a new file with the old keys"
+    );
+    assert!(matches!(
+        read_book(&dir.path().join(FILE_NAME), &launcher.file_key),
+        Err(FriendsError::Missing)
+    ));
+}
+
+#[test]
+fn an_unchanged_book_is_not_written_again() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = MemorySecretStore::new();
+    let mut friends = open(dir.path(), &store);
+    friends.set_name("Ana").unwrap();
+    let generation = friends.book.generation;
+    let stamp = file_stamp(&DataDir::at(dir.path()));
+    friends.set_name("Ana").unwrap();
+    friends.set_verified("nobody", true).unwrap();
+    assert_eq!(friends.book.generation, generation);
+    assert_eq!(
+        file_stamp(&DataDir::at(dir.path())),
+        stamp,
+        "the file wasn't touched"
+    );
+    // a real change is written, with the next generation, and a new stamp (a new
+    // nonce) even within the same second
+    friends.set_name("Ana B").unwrap();
+    assert_eq!(friends.book.generation, generation + 1);
+    assert_ne!(file_stamp(&DataDir::at(dir.path())), stamp);
 }
 
 #[test]
@@ -75,9 +170,15 @@ fn names_cores_and_flags() {
     let seq = friends.book.state_seq;
 
     let fp = "11".repeat(32);
-    assert!(friends.add_my_core(&fp, "Ana's PC").unwrap());
-    assert!(!friends.add_my_core(&fp, "Ana's PC").unwrap(), "no change");
-    assert!(friends.add_my_core(&fp, "Ana's server").unwrap(), "renamed");
+    assert!(friends.add_my_core(&fp, "Ana's PC", None).unwrap());
+    assert!(
+        !friends.add_my_core(&fp, "Ana's PC", None).unwrap(),
+        "no change"
+    );
+    assert!(
+        friends.add_my_core(&fp, "Ana's server", None).unwrap(),
+        "renamed"
+    );
     assert!(friends.book.state_seq > seq);
     assert_eq!(
         friends.book.state_cores(),
@@ -86,16 +187,14 @@ fn names_cores_and_flags() {
             name: "Ana's server".into()
         }]
     );
-    assert!(friends.remove_my_core(&fp).unwrap());
+    assert!(friends.retire_my_core(&fp).unwrap());
     assert!(friends.book.state_cores().is_empty());
 
     friends
         .modify(|book| {
             book.friends.push(Friend {
-                key: "ab".repeat(32),
-                name: "Ben".into(),
-                pair: "cd".repeat(32),
-                ..Friend::default()
+                status: FriendStatus::Pending,
+                ..ben()
             });
             Ok(())
         })
@@ -115,6 +214,65 @@ fn names_cores_and_flags() {
         "a Cyrillic look-alike"
     );
     assert!(friends.book.same_name("Ben", &"ab".repeat(32)).is_empty());
+}
+
+#[test]
+fn a_retired_core_is_never_listed_again_and_a_new_certificate_replaces_the_old() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = MemorySecretStore::new();
+    let mut friends = open(dir.path(), &store);
+    let (old, new, elsewhere) = ("11".repeat(32), "22".repeat(32), "33".repeat(32));
+    friends.add_my_core(&old, "PC", Some("host:a")).unwrap();
+    friends
+        .add_my_core(&elsewhere, "Laptop", Some("host:b"))
+        .unwrap();
+    // the same core comes back with another certificate: the old one goes, the other
+    // core stays
+    assert!(friends.add_my_core(&new, "PC", Some("host:a")).unwrap());
+    let fingerprints: Vec<&str> = friends
+        .book
+        .my_cores
+        .iter()
+        .map(|c| c.fingerprint.as_str())
+        .collect();
+    assert_eq!(fingerprints, [elsewhere.as_str(), new.as_str()]);
+    // retired: gone, and refused when it syncs again
+    let seq = friends.book.state_seq;
+    assert!(friends.retire_my_core(&new.to_uppercase()).unwrap());
+    assert!(friends.book.state_seq > seq, "friends get a new state");
+    assert!(friends.book.my_cores.iter().all(|c| c.fingerprint != new));
+    assert!(matches!(
+        friends.add_my_core(&new, "PC", Some("host:a")),
+        Err(FriendsError::CoreRetired)
+    ));
+    assert_eq!(friends.book.my_cores.len(), 1);
+}
+
+#[test]
+fn a_friend_renamed_like_another_is_flagged() {
+    let mut book = Book {
+        friends: vec![
+            ben(),
+            Friend {
+                key: "cd".repeat(32),
+                name: "Sam".into(),
+                ..ben()
+            },
+        ],
+        ..Book::default()
+    };
+    assert!(book.name_clashes().is_empty());
+    // Sam's next state calls them "Bеn" (with a Cyrillic е)
+    book.friends[1].name = "B\u{0435}n".into();
+    let clashes = book.name_clashes();
+    assert_eq!(
+        clashes.get(&"cd".repeat(32)).unwrap(),
+        &vec!["Ben".to_string()]
+    );
+    assert_eq!(
+        clashes.get(&"ab".repeat(32)).unwrap(),
+        &vec!["B\u{0435}n".to_string()]
+    );
 }
 
 #[test]
@@ -139,6 +297,28 @@ fn only_active_friends_with_a_live_state_can_be_joined() {
     assert!(friend.joinable_cores(10).is_empty());
 }
 
+#[test]
+fn states_numbered_far_ahead_are_refused() {
+    use lodestone_connect::friend::state::State;
+    let now = 1_800_000_000;
+    let state = |seq: u64, issued: u64| State {
+        seq,
+        issued,
+        expires: issued + 1000,
+        name: "Ana".into(),
+        cores: Vec::new(),
+        retired: false,
+    };
+    assert_eq!(ops::implausible_state(&state(now, now), now), None);
+    // a few changes within a second put the number a little ahead
+    assert_eq!(ops::implausible_state(&state(now + 5, now), now), None);
+    // a stolen key numbering a state to block the owner's later ones
+    assert!(ops::implausible_state(&state(u64::MAX, now), now).is_some());
+    assert!(ops::implausible_state(&state(now + 3 * 86_400, now), now).is_some());
+    // or claiming to be issued far in the future
+    assert!(ops::implausible_state(&state(now + 3 * 86_400, now + 3 * 86_400), now).is_some());
+}
+
 /// The whole flow between two people, against the introduction service at
 /// CONNECT_TEST_SERVICE (`npm run dev` in services/connect). Skipped without it.
 #[test]
@@ -149,22 +329,25 @@ fn two_people_become_friends_through_the_service() {
     let service = Service::parse(&url).unwrap();
     let (ana_dir, ben_dir) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
     let (ana_keys, ben_keys) = (MemorySecretStore::new(), MemorySecretStore::new());
-    let mut ana = block_on(Friends::open(
+    let mut ana = block_on(Friends::create(
         &DataDir::at(ana_dir.path()),
         &ana_keys,
         service.clone(),
     ))
     .unwrap();
-    let mut ben = block_on(Friends::open(
+    let mut ben = block_on(Friends::create(
         &DataDir::at(ben_dir.path()),
         &ben_keys,
-        service,
+        service.clone(),
     ))
     .unwrap();
     ana.set_name("Ana").unwrap();
     ben.set_name("Ben").unwrap();
 
     let link = block_on(ana.create_link()).unwrap();
+    // someone without a friend list can look at the link, and nothing is made
+    let nobody = block_on(ops::preview_link(&service, None, &link)).unwrap();
+    assert_eq!(nobody.safety_code, ana.safety_code());
     let preview = block_on(ben.preview_link(&link)).unwrap();
     assert_eq!(preview.name, "Ana");
     assert_eq!(preview.safety_code, ana.safety_code());
@@ -201,7 +384,7 @@ fn two_people_become_friends_through_the_service() {
 
     // Ana adds a core: Ben sees it; she retires it: Ben drops it
     let fp = "22".repeat(32);
-    ana.add_my_core(&fp, "Ana's PC").unwrap();
+    ana.add_my_core(&fp, "Ana's PC", None).unwrap();
     block_on(ana.publish_states()).unwrap();
     block_on(ben.refresh()).unwrap();
     let cores = ben
@@ -212,14 +395,102 @@ fn two_people_become_friends_through_the_service() {
         .to_vec();
     assert_eq!(cores.len(), 1);
     assert_eq!(cores[0].name, "Ana's PC");
-    ana.remove_my_core(&fp).unwrap();
-    block_on(ana.publish_states()).unwrap();
+    assert!(block_on(ana.retire_core(&fp)).unwrap().is_empty());
     let refreshed = block_on(ben.refresh()).unwrap();
     assert_eq!(refreshed.dropped_cores, vec![fp]);
+
+    // The Launcher and the Host each send a state: neither rolls the other's back.
+    // The Host's copy sends an older state after the Launcher sent a newer one; it
+    // sees that under the lock and sends the newer one again.
+    let mut host = ana.clone();
+    ana.set_name("Ana B").unwrap();
+    block_on(ana.publish_state_to(&ben_key)).unwrap();
+    let newest = ana.book.state_seq;
+    host.book.state_seq -= 1; // what the Host had before
+    block_on(host.publish_state_to(&ben_key)).unwrap();
+    block_on(ben.refresh()).unwrap();
+    assert_eq!(ben.book.friend(&ana_key).unwrap().name, "Ana B");
+    assert_eq!(
+        ben.book
+            .friend(&ana_key)
+            .unwrap()
+            .state
+            .as_ref()
+            .unwrap()
+            .seq,
+        newest
+    );
+
+    // Ana retires her identity: Ben sees it, whatever its number (as if a thief had
+    // sent him a state numbered as high as can be first)
+    ben.modify(|book| {
+        book.friend_mut(&ana_key)
+            .unwrap()
+            .state
+            .as_mut()
+            .unwrap()
+            .seq = u64::MAX;
+        Ok(())
+    })
+    .unwrap();
+    block_on(ana.retire_identity()).unwrap();
+    assert!(
+        ana.book.retired && ana.book.friends.is_empty(),
+        "nothing secret kept"
+    );
+    let refreshed = block_on(ben.refresh()).unwrap();
+    assert_eq!(refreshed.retired, vec![ana_key.clone()]);
+    assert_eq!(
+        ben.book.friend(&ana_key).unwrap().status,
+        FriendStatus::Retired
+    );
+    // nothing uses the retired identity again
+    assert!(matches!(
+        block_on(ana.create_link()),
+        Err(FriendsError::Retired)
+    ));
 
     // Ben removes Ana: his slot for her goes
     block_on(ben.remove(&ana_key)).unwrap();
     assert!(ben.book.friend(&ana_key).is_none());
+}
+
+#[test]
+fn a_retired_identity_is_never_used_and_starting_again_makes_a_new_one() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = MemorySecretStore::new();
+    let data = DataDir::at(dir.path());
+    let mut friends = open(dir.path(), &store);
+    friends.set_name("Ana").unwrap();
+    friends
+        .modify(|book| {
+            book.friends.push(ben());
+            Ok(())
+        })
+        .unwrap();
+    let old = friends.me();
+    let mut host = friends.clone();
+    // Ben can't be reached (no service here), but the identity is retired anyway
+    let problems = block_on(friends.retire_identity()).unwrap();
+    assert_eq!(problems.len(), 1);
+    assert!(friends.book.retired);
+    assert!(friends.book.friends.is_empty(), "no pair secrets kept");
+    // the Host sees it, and changes nothing
+    assert!(matches!(host.reload(), Err(FriendsError::Retired)));
+    assert!(matches!(
+        host.add_my_core(&"11".repeat(32), "PC", None),
+        Err(FriendsError::Retired)
+    ));
+    // the person key is still in the Keychain (deleting it failed, say), but the
+    // retired list is never opened for use
+    assert!(matches!(open_existing(dir.path(), &store), Opened::Retired));
+    block_on(forget_identity(&data, &store)).unwrap();
+    assert!(matches!(open_existing(dir.path(), &store), Opened::Retired));
+    // starting again deletes the old list and makes a new identity
+    let again = open(dir.path(), &store);
+    assert_ne!(again.me(), old);
+    assert!(!again.book.retired);
+    assert!(again.book.friends.is_empty());
 }
 
 #[test]
@@ -232,16 +503,14 @@ fn two_apps_writing_the_file_never_undo_each_other() {
     launcher
         .modify(|book| {
             book.friends.push(Friend {
-                key: "ab".repeat(32),
-                name: "Ben".into(),
-                pair: "cd".repeat(32),
-                ..Friend::default()
+                status: FriendStatus::Pending,
+                ..ben()
             });
             Ok(())
         })
         .unwrap();
     // the Host's copy is stale, but its change starts from the file
-    host.add_my_core(&"11".repeat(32), "PC").unwrap();
+    host.add_my_core(&"11".repeat(32), "PC", None).unwrap();
     assert_eq!(host.book.friends.len(), 1, "the Host saw Ben");
     launcher.reload().unwrap();
     assert_eq!(launcher.book.my_cores.len(), 1);
@@ -253,16 +522,23 @@ fn two_apps_writing_the_file_never_undo_each_other() {
     launcher.reload().unwrap();
     assert!(launcher.book.state_seq >= seq);
     assert!(seq >= now() - 5, "state numbers never fall behind the time");
-    // a stale lock (an app that died) is taken over
+    // a lock file left behind (by an app that died) doesn't block: only a held lock
+    // does, and the system lets go of it when its app exits
     std::fs::write(dir.path().join(FILE_NAME).with_extension("lock"), b"").unwrap();
-    let old = std::time::SystemTime::now() - Duration::from_secs(60);
-    std::fs::File::options()
-        .write(true)
-        .open(dir.path().join(FILE_NAME).with_extension("lock"))
-        .unwrap()
-        .set_modified(old)
-        .unwrap();
     launcher.set_name("Ana B").unwrap();
+    // while one app holds the lock, the other waits
+    let held = FileLock::acquire(&dir.path().join(FILE_NAME)).unwrap();
+    let started = std::time::Instant::now();
+    let waiter = std::thread::spawn({
+        let mut host = host.clone();
+        move || host.set_name("Ana C")
+    });
+    std::thread::sleep(Duration::from_millis(200));
+    drop(held);
+    waiter.join().unwrap().unwrap();
+    assert!(started.elapsed() >= Duration::from_millis(200));
+    launcher.reload().unwrap();
+    assert_eq!(launcher.book.name, "Ana C");
 }
 
 #[test]
@@ -279,4 +555,24 @@ fn nothing_secret_is_printed() {
         expires: 1,
     };
     assert!(!format!("{link:?}").contains("secret-stuff"));
+}
+
+#[test]
+fn the_service_comes_from_the_environment_when_set() {
+    assert_eq!(service_from(None), Service::default());
+    assert_eq!(service_from(Some("  ")), Service::default());
+    let local = service_from(Some("http://127.0.0.1:18790"));
+    assert_eq!(local.host, "127.0.0.1");
+    assert_eq!(local.port, 18790);
+    assert!(!local.tls);
+    // nonsense falls back to the real service rather than nowhere
+    assert_eq!(service_from(Some("http://")), Service::default());
+}
+
+#[test]
+fn hex_round_trips() {
+    let bytes = [0xab; 32];
+    assert_eq!(unhex32(&hex(&bytes)), Some(bytes));
+    assert_eq!(unhex32("ab"), None);
+    assert_eq!(unhex32(&"zz".repeat(32)), None);
 }

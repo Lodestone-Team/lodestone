@@ -1,10 +1,8 @@
+use super::*;
 use launcher_core::friend_list::{
     Book, Friend, FriendStatus,
     core_sync::{CoreFriend, CoreFriends},
 };
-use lodestone_connect::Service;
-
-use super::*;
 
 fn friend(key: char, name: &str, status: FriendStatus) -> Friend {
     Friend {
@@ -34,6 +32,7 @@ fn core(friends: Vec<(char, Vec<&str>, bool)>) -> CoreFriends {
                 name: String::new(),
                 shared: shared.into_iter().map(String::from).collect(),
                 connected,
+                hidden: false,
             })
             .collect(),
         host: None,
@@ -128,26 +127,83 @@ fn shared_and_connected_come_from_the_core() {
 }
 
 #[test]
-fn the_service_comes_from_the_environment() {
-    assert_eq!(service_from(None), Service::default());
-    assert_eq!(service_from(Some(" ")), Service::default());
-    let local = service_from(Some("http://127.0.0.1:18791"));
+fn a_test_copy_never_shares_with_the_real_friend_list() {
+    let home = std::path::Path::new("/Users/ana");
+    let real = home.join(".lodestone");
+    let test = std::path::Path::new("/tmp/host-dev/core");
+    // the real core with the real friend list
+    assert!(sharing_allowed(&real, Some(home), false));
+    // a dev bundle or test: a test core, but the real friend list
+    assert!(!sharing_allowed(test, Some(home), false));
+    // a debug build's own folder isn't the real one either
+    assert!(!sharing_allowed(
+        &home.join(".lodestone-host-dev"),
+        Some(home),
+        false
+    ));
+    // both test folders: allowed, for testing
+    assert!(sharing_allowed(test, Some(home), true));
+    // a test friend list must not replace the real core's friends
+    assert!(!sharing_allowed(&real, Some(home), true));
+}
+
+#[test]
+fn each_core_folder_is_its_own_source() {
+    let a = core_source(std::path::Path::new("/Users/ana/.lodestone"));
+    assert!(a.starts_with("host:") && a.len() == 21, "{a}");
     assert_eq!(
-        (local.host.as_str(), local.port, local.tls),
-        ("127.0.0.1", 18791, false)
+        a,
+        core_source(std::path::Path::new("/Users/ana/.lodestone"))
     );
-    assert_eq!(
-        service_from(Some("https://a b")),
-        Service::default(),
-        "not an address: the default"
-    );
+    assert_ne!(a, core_source(std::path::Path::new("/tmp/core")));
+}
+
+#[test]
+fn only_changes_the_core_cares_about_sync_again() {
+    let mut book = book("Me", vec![friend('a', "Alex", FriendStatus::Active)]);
+    let view = SyncView::of(&book);
+    // the Host's own writes: state numbers, sent states, the generation
+    book.state_seq += 5;
+    book.generation += 3;
+    book.friends[0].sent_seq = 9;
+    assert_eq!(SyncView::of(&book), view);
+    // the Launcher's: hiding, renaming, verifying, retiring, a retired core
+    let changes: [fn(&mut Book); 5] = [
+        |b| b.friends[0].hidden = true,
+        |b| b.friends[0].nickname = Some("Al".into()),
+        |b| b.friends[0].verified = true,
+        |b| b.friends[0].status = FriendStatus::Retired,
+        |b| b.retired_cores.push("11".repeat(32)),
+    ];
+    for change in changes {
+        let mut changed = book.clone();
+        change(&mut changed);
+        assert_ne!(SyncView::of(&changed), view);
+    }
+}
+
+#[test]
+fn rows_carry_safety_codes_and_unverified_shares_ask_first() {
+    let mut alex = friend('a', "Alex", FriendStatus::Active);
+    alex.key = lodestone_connect::friend::PersonKey::generate()
+        .unwrap()
+        .public()
+        .to_hex();
+    let rows = listed(&book("Me", vec![alex.clone()]));
+    assert_eq!(rows[0].safety_code, alex.safety_code());
+    assert_eq!(rows[0].safety_code.len(), 19);
+    let current = core(vec![('b', vec!["one"], false)]);
+    assert!(shares_anything(Some(&current), &key('b')));
+    assert!(!shares_anything(Some(&current), &key('a')));
+    assert!(!shares_anything(None, &key('b')));
 }
 
 /// End to end, as the Host runs it ([`run`]), against the real `lodestone_core`
 /// program and an introduction service: two people become friends (as two launchers
 /// would), then the Host puts the friend on its core, shares an instance, the friend
-/// sees the core in the person's state, and removing the friend drops them from the
-/// core. Needs the core's program (`cargo build -p lodestone_core
+/// sees the core in the person's state. A friend file that goes missing stops the Host
+/// without touching the core, removing the friend drops them from the core, and a
+/// retired identity empties it. Needs the core's program (`cargo build -p lodestone_core
 /// --no-default-features`) and `LODESTONE_HOST_FRIENDS_SERVICE` (a local service:
 /// `wrangler dev --local` in services/connect); without them it says so and passes.
 /// The Keychain isn't used (an in-memory store), and no server is started.
@@ -167,7 +223,7 @@ fn the_host_keeps_its_core_in_step_with_the_friend_list() {
 
     let Some(service) = std::env::var("LODESTONE_HOST_FRIENDS_SERVICE")
         .ok()
-        .and_then(|s| Service::parse(&s))
+        .and_then(|s| lodestone_connect::Service::parse(&s))
     else {
         eprintln!("skipped: set LODESTONE_HOST_FRIENDS_SERVICE");
         return;
@@ -235,7 +291,7 @@ fn the_host_keeps_its_core_in_step_with_the_friend_list() {
 
     // two people become friends, as their launchers would
     let open = |dir: &std::path::Path, store: &MemorySecretStore| {
-        block_on(Friends::open(&DataDir::at(dir), store, service.clone())).unwrap()
+        block_on(Friends::create(&DataDir::at(dir), store, service.clone())).unwrap()
     };
     let (dir_a, dir_b) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
     let (store_a, store_b) = (MemorySecretStore::new(), MemorySecretStore::new());
@@ -253,14 +309,21 @@ fn the_host_keeps_its_core_in_step_with_the_friend_list() {
     let ana_key = ana.me().to_hex();
     let ben_key = ben.me().to_hex();
     assert_eq!(listed(&ana.book).len(), 1);
+    let ana_file = dir_a.path().join(launcher_core::friend_list::FILE_NAME);
     let ana = Arc::new(Mutex::new(ana));
+    let source = core_source(&data_dir);
+    let check = || Job::Check {
+        last: None,
+        force: true,
+    };
 
     // the Host's first sync: Ben is on the core, with nothing shared
     let synced = block_on(run(
         ana.clone(),
         admin.clone(),
         "Ana's core".into(),
-        Job::Sync { reload: false },
+        source.clone(),
+        check(),
     ));
     let core = synced.core.unwrap().expect("synced");
     assert!(!synced.needs_launcher);
@@ -277,6 +340,7 @@ fn the_host_keeps_its_core_in_step_with_the_friend_list() {
         ana.clone(),
         admin.clone(),
         "Ana's core".into(),
+        source.clone(),
         Job::Share {
             key: ben_key.clone(),
             instance: instance.into(),
@@ -305,6 +369,7 @@ fn the_host_keeps_its_core_in_step_with_the_friend_list() {
         ana.clone(),
         admin.clone(),
         "Ana's core".into(),
+        source.clone(),
         Job::Share {
             key: ben_key.clone(),
             instance: instance.into(),
@@ -315,6 +380,105 @@ fn the_host_keeps_its_core_in_step_with_the_friend_list() {
     assert_eq!(core.friends.len(), 1);
     assert!(!is_shared(Some(&core), &ben_key, instance));
 
+    // retiring this core's certificate from the Host: friends drop the old one, and
+    // the core gets a new one they find instead
+    let renewed = block_on(run(
+        ana.clone(),
+        admin.clone(),
+        "Ana's core".into(),
+        source.clone(),
+        Job::Renew {
+            retire_current: true,
+        },
+    ));
+    if renewed.no_certificate_route {
+        // a core from before POST /connect/friends/certificate: the Settings say how
+        // to get one by hand, and the rest of this test needs the core shared
+        assert!(renewed.core_retired);
+        eprintln!("this core can't make a new friend certificate: stopping here");
+        let _ = process.stop(Duration::from_secs(30));
+        return;
+    }
+    let core = renewed.core.unwrap().expect("renewed");
+    assert_ne!(core.fingerprint, fingerprint, "a new certificate");
+    assert_eq!(core.friends.len(), 1, "the list stays");
+    let refreshed = block_on(ben.refresh()).unwrap();
+    assert_eq!(refreshed.dropped_cores, vec![fingerprint.clone()]);
+    let cores = ben.book.friend(&ana_key).unwrap().joinable_cores(now());
+    let hexes: Vec<String> = cores
+        .iter()
+        .map(|c| c.fingerprint.iter().map(|b| format!("{b:02x}")).collect())
+        .collect();
+    assert_eq!(hexes, vec![core.fingerprint.clone()]);
+    {
+        let book = &block_on(ana.lock()).book;
+        assert!(book.retired_cores.contains(&fingerprint));
+        assert_eq!(book.my_cores.len(), 1, "only the new certificate is listed");
+    }
+
+    // hiding Ben keeps him on the core with what's shared with him (the core serves him
+    // nothing meanwhile), and showing him again gives it back
+    let share = |share: bool| Job::Share {
+        key: ben_key.clone(),
+        instance: instance.into(),
+        share,
+    };
+    let sync = |job: Job| {
+        block_on(run(
+            ana.clone(),
+            admin.clone(),
+            "Ana's core".into(),
+            source.clone(),
+            job,
+        ))
+    };
+    sync(share(true)).core.unwrap().expect("shared");
+    block_on(async { ana.lock().await.set_hidden(&ben_key, true) }).unwrap();
+    let hidden = sync(check()).core.unwrap().expect("synced while hidden");
+    let entry = hidden.friends.iter().find(|f| f.key == ben_key).unwrap();
+    assert!(
+        entry.hidden && entry.shared == [instance.to_string()],
+        "{entry:?}"
+    );
+    block_on(async { ana.lock().await.set_hidden(&ben_key, false) }).unwrap();
+    let shown = sync(check()).core.unwrap().expect("synced when shown");
+    let entry = shown.friends.iter().find(|f| f.key == ben_key).unwrap();
+    assert!(
+        !entry.hidden && entry.shared == [instance.to_string()],
+        "{entry:?}"
+    );
+    let renewed = sync(share(false));
+
+    // nothing changed: the next check does nothing
+    let again = block_on(run(
+        ana.clone(),
+        admin.clone(),
+        "Ana's core".into(),
+        source.clone(),
+        Job::Check {
+            last: renewed.view.clone(),
+            force: false,
+        },
+    ));
+    assert!(again.unchanged);
+
+    // the friend file goes (moved with the data folder, say): the Host stops, and the
+    // core keeps Ben (never an empty list because a file is missing)
+    let moved = dir_a.path().join("moved.json");
+    std::fs::rename(&ana_file, &moved).unwrap();
+    let lost = block_on(run(
+        ana.clone(),
+        admin.clone(),
+        "Ana's core".into(),
+        source.clone(),
+        check(),
+    ));
+    assert!(lost.lost && lost.core.is_none());
+    assert!(!ana_file.exists(), "nothing wrote it again");
+    let core = block_on(core_sync::read(&admin)).unwrap();
+    assert_eq!(core.friends.len(), 1, "Ben is still on the core");
+    std::fs::rename(&moved, &ana_file).unwrap();
+
     // removing Ben (in the launcher) drops him from the core at the next sync, though
     // there's no one left to share with
     block_on(async { ana.lock().await.remove(&ben_key).await }).unwrap();
@@ -322,11 +486,24 @@ fn the_host_keeps_its_core_in_step_with_the_friend_list() {
         ana.clone(),
         admin.clone(),
         "Ana's core".into(),
-        Job::Sync { reload: true },
+        source.clone(),
+        check(),
     ));
     assert!(removed.needs_launcher);
     let core = removed.core.unwrap().expect("synced after the removal");
     assert!(core.friends.is_empty(), "{core:?}");
+
+    // a retired identity: the Host sees it, and empties the core on purpose
+    block_on(async { ana.lock().await.retire_identity().await }).unwrap();
+    let retired = block_on(run(
+        ana.clone(),
+        admin.clone(),
+        "Ana's core".into(),
+        source.clone(),
+        check(),
+    ));
+    assert!(retired.retired);
+    assert!(retired.core.unwrap().unwrap().friends.is_empty());
 
     let status = process.stop(Duration::from_secs(30));
     assert!(status.is_some_and(|s| s.success()), "{status:?}");
