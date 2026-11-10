@@ -643,3 +643,52 @@ fn friend_entries_never_print_their_secret() {
     };
     assert!(!format!("{entry:?}").contains(&"cd".repeat(32)));
 }
+
+fn offline_shares(dir: &Path) -> friends::FriendShares {
+    friends::FriendShares::new(
+        dir.to_path_buf(),
+        lodestone_connect::Service::parse("http://127.0.0.1:9").unwrap(),
+        lodestone_connect::GatherOptions {
+            portmap: false,
+            loopback_only: true,
+        },
+    )
+}
+
+#[tokio::test]
+async fn a_damaged_friend_certificate_is_kept_aside_and_an_unreadable_one_is_not_replaced() {
+    let dir = tempfile::tempdir().unwrap();
+    let friends_dir = dir.path().join("friends");
+    std::fs::create_dir_all(&friends_dir).unwrap();
+
+    // damaged: moved aside, and a new one made
+    std::fs::write(friends_dir.join("core.json"), "{not json").unwrap();
+    let made = offline_shares(&friends_dir).identity().await.unwrap();
+    let backups: Vec<String> = std::fs::read_dir(&friends_dir)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().to_string())
+        .filter(|name| name.starts_with("core.json.damaged-"))
+        .collect();
+    assert_eq!(backups.len(), 1, "{backups:?}");
+    assert_eq!(
+        std::fs::read_to_string(friends_dir.join(&backups[0])).unwrap(),
+        "{not json"
+    );
+    // the new one is saved, and read back as it is
+    let again = offline_shares(&friends_dir).identity().await.unwrap();
+    assert_eq!(again.fingerprint(), made.fingerprint());
+
+    // unreadable (here, a folder in its place): an error, and nothing replaced
+    let other = dir.path().join("other");
+    std::fs::create_dir_all(other.join("core.json")).unwrap();
+    let err = offline_shares(&other)
+        .identity()
+        .await
+        .err()
+        .expect("an error");
+    assert!(
+        format!("{err:?}").contains("Couldn't read the friend certificate"),
+        "{err:?}"
+    );
+    assert!(other.join("core.json").is_dir(), "left as it was");
+}

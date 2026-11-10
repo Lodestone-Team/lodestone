@@ -238,21 +238,45 @@ impl FriendShares {
     }
 
     /// The friend certificate, made on first use.
+    ///
+    /// A new one is made only when there is no file, or when the file is damaged; a
+    /// damaged file is kept beside it as `core.json.damaged-<seconds since 1970>`.
+    /// Any other read error (permissions, a disk problem) is an error: replacing the
+    /// certificate would cut off every friend who pinned it.
     pub async fn identity(&self) -> Result<CoreIdentity, Error> {
         let mut identity = self.identity.lock().await;
         if let Some(identity) = identity.as_ref() {
             return Ok(identity.clone());
         }
-        let loaded = match tokio::fs::read_to_string(self.identity_file()).await {
+        let file = self.identity_file();
+        let loaded = match tokio::fs::read_to_string(&file).await {
             Ok(text) => match CoreIdentity::from_json(&text) {
                 Ok(loaded) => Some(loaded),
                 Err(e) => {
+                    let since = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map_or(0, |d| d.as_secs());
+                    let backup = self.dir.join(format!("core.json.damaged-{since}"));
+                    tokio::fs::rename(&file, &backup).await.map_err(|err| {
+                        internal(format!(
+                            "The friend certificate is damaged ({e}), and it couldn't be moved aside: {err}"
+                        ))
+                    })?;
                     // Friends pinned the old one: they'll need the owner's new state.
-                    warn!("The friend certificate is damaged, making a new one: {e}");
+                    warn!(
+                        "The friend certificate is damaged ({e}); it was moved to {} and a new one is made. Friends see this core again once the owner's launcher sends them its new state.",
+                        backup.display()
+                    );
                     None
                 }
             },
-            Err(_) => None,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+            Err(e) => {
+                return Err(internal(format!(
+                    "Couldn't read the friend certificate {}: {e}",
+                    file.display()
+                )))
+            }
         };
         let made = match loaded {
             Some(loaded) => loaded,
