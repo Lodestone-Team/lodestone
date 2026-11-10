@@ -7,8 +7,13 @@
 //! bar into line, so no outline is left. Then they trace the field around the
 //! step's text, running along its outline and fanning out from its ends, and reach
 //! further along the bar as the launch goes on. The pointer is a second magnet that
-//! bends them, with a dark spot and a lit ring, as on the website. When the game
-//! opens (or the launch is cancelled) they draw back in and fade.
+//! bends them, with a dark spot and a lit ring, as on the website.
+//!
+//! When the game opens (or the launch is cancelled) the button wells back up from its
+//! middle like a drop of liquid, slowing until it comes to rest in its shape, and the
+//! swelling sends a wave out across the bar that pushes the filings away, like beads
+//! of water off glass: pushed out, slowing, beading up into drops and fading. Then
+//! the real button shows over the drop.
 //!
 //! It takes the skin's colours ([`MagnetLook`]): the button melts in the skin's
 //! (or the instance's) Play colour, gradient, shape and glow, and the filings take
@@ -56,8 +61,19 @@ const MELT: f32 = 0.55;
 const SHATTER: f32 = 0.28;
 /// How long a filing takes to spring from the button's edge to its place.
 const SPRING: f32 = 0.8;
-/// How long the filings take to draw back in.
-const GATHER: f32 = 0.45;
+/// After a launch, in seconds since it ended: the wave out from the swelling button
+/// leaves its edge at `WAVE_AT` and reaches the furthest filings `WAVE` later, slowing
+/// as it spreads.
+const WAVE_AT: f32 = 0.1;
+const WAVE: f32 = 0.6;
+/// How long a filing it hits takes to drift out and fade.
+const FLY: f32 = 0.6;
+/// How long the button takes to well back up and come to rest.
+const GROW: f32 = 0.95;
+/// The real button shows over the drop as it comes to rest.
+const REVEAL: (f32, f32) = (0.7, 1.05);
+/// When it's all over.
+const RETURN: f32 = 1.35;
 /// No frame for this long and the window was away: minimized while the game ran, say.
 const AWAY: Duration = Duration::from_millis(250);
 /// Back from being away, the filings wait this long before drawing back in, for the
@@ -360,6 +376,32 @@ fn melted(from: RoundedBox, k: f32) -> RoundedBox {
     }
 }
 
+/// The button welling back up `t` seconds after a launch ended: a small round drop in
+/// its middle swelling into its shape, rounding out first and then spreading wide,
+/// slowing all the way until it comes to rest in place, never past it.
+fn welled(to: RoundedBox, t: f32) -> RoundedBox {
+    let k = t / GROW;
+    let start = to.hh * 0.35;
+    let hh = start + (to.hh - start) * come_to_rest(k * 1.25);
+    RoundedBox {
+        hw: start + (to.hw - start) * come_to_rest(k),
+        hh,
+        // round while it swells, then its own corners; a square button stays square
+        corner: if to.corner <= 0.0 {
+            0.0
+        } else {
+            hh + (to.corner - hh) * smoothstep(0.25, 0.8, k)
+        },
+        ..to
+    }
+}
+
+/// 0 to 1, quick at first and slowing ever more gently into 1, like something
+/// coming to rest.
+fn come_to_rest(t: f32) -> f32 {
+    1.0 - (1.0 - t.clamp(0.0, 1.0)).powi(4)
+}
+
 struct Filing {
     x: f32,
     y: f32,
@@ -389,8 +431,10 @@ struct Field {
     pressed: Option<Pressed>,
     /// The filings still have to find their places on the edge they spring from.
     emerge: bool,
-    /// When the launch ended: the filings draw back in.
+    /// When the launch ended: the filings draw back in, and the button condenses
+    /// back in this look.
     released: Option<Instant>,
+    returning: Option<MagnetLook>,
     /// Fades in with a launch and out after it, 0 to 1.
     presence: f32,
     /// How far the launch has come, eased, and where it's heading.
@@ -422,6 +466,7 @@ impl Field {
             pressed: None,
             emerge: false,
             released: None,
+            returning: None,
             presence: 0.0,
             reach: 0.0,
             reach_to: 0.0,
@@ -476,6 +521,8 @@ impl Field {
                 if self.active {
                     self.active = false;
                     self.released = (!still).then(Instant::now);
+                    // into the button as it is now: Play again, or dimmed
+                    self.returning = Some(if dimmed { look.dimmed() } else { look.clone() });
                 }
                 self.dimmed = dimmed;
             }
@@ -520,12 +567,32 @@ impl Field {
     /// window is brought back, and by the time it's on screen they nearly have. Back
     /// from being away, they draw back in from the start, once the window is back.
     fn hold_while_away(&mut self, now: Instant) {
-        let away = self
-            .last
-            .is_some_and(|last| now.saturating_duration_since(last) > AWAY);
-        if away && self.released.is_some() {
+        let (Some(last), Some(released)) = (self.last, self.released) else {
+            return;
+        };
+        let away = now.saturating_duration_since(last) > AWAY;
+        // not once it's over: nothing is drawn then, so every frame looks like a return
+        let playing = last.saturating_duration_since(released).as_secs_f32() < RETURN;
+        if away && playing {
             self.released = Some(now + RETURNING);
         }
+    }
+
+    /// Seconds since the launch ended, while it plays back (negative while it waits
+    /// for the window to come back).
+    fn returned(&self, now: Instant) -> Option<f32> {
+        let released = self.released.filter(|_| !self.active)?;
+        Some(match now.checked_duration_since(released) {
+            Some(since) => since.as_secs_f32(),
+            None => -released.duration_since(now).as_secs_f32(),
+        })
+    }
+
+    /// How much of the real button shows: none while it condenses back after a
+    /// launch, until it's back in shape.
+    fn button_shown(&self, now: Instant) -> f32 {
+        self.returned(now)
+            .map_or(1.0, |since| smoothstep(REVEAL.0, REVEAL.1, since))
     }
 
     /// Moves everything on and paints it. `bounds` is the filings' area in the
@@ -573,12 +640,10 @@ impl Field {
             corner,
         };
 
-        // Fading out after the launch, as the filings draw back in.
-        let gathered = self
-            .released
-            .map(|r| (now.duration_since(r).as_secs_f32() / GATHER).clamp(0.0, 1.0));
-        match gathered {
-            Some(g) => self.presence = 1.0 - ease_in_cubic(g),
+        // Playing back after the launch, until the button is whole again.
+        let returned = self.returned(now);
+        match returned {
+            Some(since) => self.presence = if since < RETURN { 1.0 } else { 0.0 },
             None if !self.active => self.presence = 0.0,
             None => {}
         }
@@ -629,6 +694,11 @@ impl Field {
         {
             paint_melting(window, origin, from, (magnet.cx, magnet.cy), &p.look, since);
         }
+        if let (Some(back), Some(returning)) = (returned, &self.returning)
+            && back > 0.0
+        {
+            paint_welling(window, origin, magnet, returning, back, reach);
+        }
 
         // The pointer: a second magnet pointing at the text, so the two pull together.
         let (mx, my) = (f32::from(mouse.x - origin.x), f32::from(mouse.y - origin.y));
@@ -658,8 +728,8 @@ impl Field {
 
         let bands = inks.bands.len();
         let mut batches: Vec<Vec<f32>> = vec![Vec::new(); bands * LEVELS];
-        for f in &mut self.filings {
-            let (d, _, tangent) = magnet.measure(f.x, f.y);
+        for (n, f) in self.filings.iter_mut().enumerate() {
+            let (d, normal, tangent) = magnet.measure(f.x, f.y);
             // Close to the text the lines run along its outline; further out they
             // fan out from its ends and arc between them, a bar magnet's field.
             let curve = bar_magnet(
@@ -706,12 +776,37 @@ impl Field {
             } else {
                 f.angle += half_turn(target - f.angle) * ease(7.0);
             }
-            if let Some(g) = gathered {
-                let (ex, ey) = magnet.nearest(f.x, f.y);
-                let s = ease_in_cubic(g);
-                x += (ex - x) * s;
-                y += (ey - y) * s;
-                f.angle += half_turn(tangent - f.angle) * s;
+            // After the launch, pushed away by the button welling back up, like beads
+            // of water flicked off glass.
+            let mut angle = f.angle;
+            let (mut stretch, mut charge, mut sink) = (1.0, 0.0, 1.0);
+            if let Some(back) = returned {
+                let n = n as u32;
+                // the wave reaches it, slowing as it spreads
+                let out = (d / reach.max(1.0)).clamp(0.0, 1.0);
+                let hit = WAVE_AT + WAVE * out.powf(1.6) + 0.05 * noise(n, 5);
+                let e = ((back - hit) / FLY).clamp(0.0, 1.0);
+                if e >= 1.0 {
+                    continue;
+                }
+                if e > 0.0 {
+                    // flung out from the button, a little either way, and further the
+                    // closer it was, then slowing as if through water
+                    let spread = (noise(n, 6) - 0.5) * 0.7;
+                    let (c, s) = (spread.cos(), spread.sin());
+                    let (nx, ny) = (normal.0 * c - normal.1 * s, normal.0 * s + normal.1 * c);
+                    let push = (22.0 + 38.0 * noise(n, 4)) * (1.4 - 0.7 * out);
+                    let go = come_to_rest(e) * push;
+                    x += nx * go;
+                    y += ny * go;
+                    angle += half_turn(ny.atan2(nx) - angle) * smoothstep(0.0, 0.3, e);
+                    // drawn out by the shove, then beading up into a drop
+                    stretch =
+                        (1.0 + 0.8 * (1.0 - e).powi(3)) * (1.0 - 0.75 * smoothstep(0.15, 0.7, e));
+                    // a flash as it's hit, then fading
+                    charge = (1.0 - e).powi(4);
+                    sink = (1.0 - e).powf(1.4);
+                }
             }
 
             let lit = smoothstep(reach, reach - 30.0, d) * smoothstep(1.0, 14.0, d);
@@ -723,19 +818,22 @@ impl Field {
             } else {
                 0.0
             };
-            let shown = (self.presence
+            // after the launch, flashing as they're hit, then fading
+            let shown = ((self.presence
                 * born
                 * ((lit * (0.22 + 0.7 * strength)).max(flash * 0.8)).min(1.0)
                 * (1.0 - 0.95 * fade)
                 + self.presence * 0.4 * ring * lit.max(0.25))
-            .min(1.0);
+                * (1.0 + 1.3 * charge)
+                * sink)
+                .min(1.0);
             if shown < 0.04 {
                 continue;
             }
             let level = ((shown * LEVELS as f32) as usize).min(LEVELS - 1);
             let band = ((f.along * bands as f32) as usize).min(bands - 1);
-            let half = SPACING * (0.22 + 0.14 * strength);
-            let (ux, uy) = (f.angle.cos() * half, f.angle.sin() * half);
+            let half = SPACING * (0.22 + 0.14 * strength) * stretch;
+            let (ux, uy) = (angle.cos() * half, angle.sin() * half);
             batches[band * LEVELS + level].extend([x - ux, y - uy, x + ux, y + uy]);
         }
 
@@ -836,6 +934,87 @@ fn paint_melting(
         let level = (((1.0 - b) * 4.0) as usize).min(3);
         batches[level].extend([x - ux, y - uy, x + ux, y + uy]);
     }
+    paint_outline(window, origin, &batches, edge);
+}
+
+/// The button welling back up `since` seconds after the launch ended, into its shape
+/// (`to`, where it is now): a drop swelling from its middle with a bright rim, like
+/// liquid glass, a faint wave going out from it across the bar as `reach` far as the
+/// filings were, and the real button showing over it once it settles.
+fn paint_welling(
+    window: &mut Window,
+    origin: Point<Pixels>,
+    to: RoundedBox,
+    look: &MagnetLook,
+    since: f32,
+    reach: f32,
+) {
+    let shape = welled(to, since);
+    // The real button shows over it: under one that's `shown`, the drop keeps just
+    // enough that the two together cover as the button alone does (all of it, under
+    // an opaque button), so it neither dims nor doubles as they cross.
+    let shown = smoothstep(REVEAL.0, REVEAL.1, since);
+    if shown >= 1.0 {
+        return;
+    }
+    let opacity = Rgba::from(look.fill).a;
+    let keep = (1.0 - shown) / (1.0 - opacity * shown);
+    let at = |x: f32, y: f32| point(origin.x + px(x), origin.y + px(y));
+    let faded = |color: Color, by: f32| {
+        let color = Rgba::from(color);
+        Rgba {
+            a: color.a * by,
+            ..color
+        }
+    };
+    let rect = |shape: RoundedBox, grow: f32| {
+        Bounds::new(
+            at(shape.cx - shape.hw - grow, shape.cy - shape.hh - grow),
+            size(px((shape.hw + grow) * 2.0), px((shape.hh + grow) * 2.0)),
+        )
+    };
+
+    // the wave pushing the filings away, slowing as it spreads
+    let w = (since - WAVE_AT) / WAVE;
+    if (0.0..1.0).contains(&w) {
+        let grow = 2.0 + (reach - 2.0).max(0.0) * w.powf(1.0 / 1.6);
+        window.paint_quad(
+            gpui::fill(rect(to, grow), gpui::transparent_black())
+                .corner_radii(px(to.corner() + grow))
+                .border_widths(px(1.5))
+                .border_color(faded(look.edge, 0.35 * (1.0 - w).powi(2))),
+        );
+    }
+
+    let body = smoothstep(0.0, 0.12, since) * keep;
+    if look.glow {
+        for (grow, alpha) in [(14.0, 0.08), (8.0, 0.14), (3.0, 0.22)] {
+            window.paint_quad(
+                gpui::fill(rect(shape, grow), faded(look.fill, alpha * body))
+                    .corner_radii(px(shape.corner() + grow)),
+            );
+        }
+    }
+    let paint: gpui::Background = match look.gradient {
+        Some(to) => gpui::linear_gradient(
+            180.,
+            gpui::linear_color_stop(faded(look.fill, body), 0.),
+            gpui::linear_color_stop(faded(to, body), 1.),
+        ),
+        None => faded(look.fill, body).into(),
+    };
+    // its rim catches the light, fading into the button's own outline
+    window.paint_quad(
+        gpui::fill(rect(shape, 0.0), paint)
+            .corner_radii(px(shape.corner()))
+            .border_widths(px(1.5))
+            .border_color(faded(look.edge, body * (1.0 - 0.6 * shown))),
+    );
+}
+
+/// The outline's strokes, in four batches from faintest to full `edge`.
+fn paint_outline(window: &mut Window, origin: Point<Pixels>, batches: &[Vec<f32>; 4], edge: Rgba) {
+    let at = |x: f32, y: f32| point(origin.x + px(x), origin.y + px(y));
     for (level, batch) in batches.iter().enumerate() {
         if batch.is_empty() {
             continue;
@@ -909,10 +1088,6 @@ fn ease_out_cubic(t: f32) -> f32 {
     1.0 - (1.0 - t.clamp(0.0, 1.0)).powi(3)
 }
 
-fn ease_in_cubic(t: f32) -> f32 {
-    t.clamp(0.0, 1.0).powi(3)
-}
-
 /// A steady pseudo-random number in 0..1 for filing `n`.
 fn noise(n: u32, salt: u32) -> f32 {
     let mut x = n.wrapping_mul(0x9E37_79B9) ^ salt.wrapping_mul(0x85EB_CA6B);
@@ -941,8 +1116,11 @@ impl RenderOnce for MagnetBar {
         let field = window.use_keyed_state(self.id, cx, |_, _| Field::new());
         let look = self.look;
         let dimmed = self.dimmed;
-        let drawing = field.update(cx, |field, _| {
-            field.set_launch(self.launch, &look, dimmed, still)
+        let (drawing, shown) = field.update(cx, |field, _| {
+            let now = Instant::now();
+            field.hold_while_away(now);
+            let drawing = field.set_launch(self.launch, &look, dimmed, still);
+            (drawing, field.button_shown(now))
         });
         if drawing && !still {
             // the next frame, about 30 a second; drawing again sooner starts it over
@@ -1005,6 +1183,8 @@ impl RenderOnce for MagnetBar {
             .child(
                 div()
                     .relative()
+                    // hidden while it condenses back after a launch
+                    .when(shown < 1.0, |this| this.opacity(shown))
                     .child(self.child)
                     // without an anchor, the whole child is the button
                     .when(measure_child, |this| {
@@ -1101,6 +1281,54 @@ mod tests {
     }
 
     #[test]
+    fn wells_back_up_into_the_button() {
+        // a small round drop in the middle
+        let start = welled(BOX, 0.0);
+        assert_eq!((start.cx, start.cy), (BOX.cx, BOX.cy));
+        assert!(start.hw < BOX.hh && start.hw == start.hh && start.corner() == start.hh);
+        // swelling steadily into the button, never past it, slowing to a stop
+        let frames: Vec<_> = (0..=60)
+            .map(|i| welled(BOX, GROW * i as f32 / 60.0))
+            .collect();
+        for pair in frames.windows(2) {
+            assert!(pair[1].hw >= pair[0].hw && pair[1].hh >= pair[0].hh);
+            assert!(pair[1].hw <= BOX.hw + 1e-3 && pair[1].hh <= BOX.hh + 1e-3);
+        }
+        let last_step = frames[60].hw - frames[59].hw;
+        assert!(last_step < (frames[1].hw - frames[0].hw) * 0.01);
+        // at rest by the time the real button has shown
+        let settled = welled(BOX, REVEAL.1);
+        assert!((settled.hw - BOX.hw).abs() < 1e-3 && (settled.hh - BOX.hh).abs() < 1e-3);
+        assert!((settled.corner() - BOX.corner()).abs() < 1e-3);
+        // a square button stays square
+        let square = RoundedBox { corner: 0.0, ..BOX };
+        assert_eq!(welled(square, 0.2).corner, 0.0);
+    }
+
+    #[test]
+    fn hides_the_button_until_it_has_welled_back() {
+        let look = MagnetLook::default();
+        let mut field = Field::new();
+        field.set_launch(Some(0.5), &look, false, false);
+        assert_eq!(field.button_shown(Instant::now()), 1.0);
+        // ends into a dimmed button: condenses back in its dimmed look
+        field.set_launch(None, &look, true, false);
+        assert_eq!(field.returning, Some(look.dimmed()));
+        let ended = field.released.unwrap();
+        assert_eq!(field.button_shown(ended), 0.0);
+        assert_eq!(field.button_shown(ended + Duration::from_secs(2)), 1.0);
+        // still waiting for the window to come back
+        field.released = Some(ended + RETURNING);
+        assert!(field.returned(ended).unwrap() < 0.0);
+        assert_eq!(field.button_shown(ended), 0.0);
+        // with reduced motion it's just there
+        let mut still = Field::new();
+        still.set_launch(Some(0.5), &look, false, true);
+        still.set_launch(None, &look, false, true);
+        assert_eq!(still.button_shown(Instant::now()), 1.0);
+    }
+
+    #[test]
     fn shows_while_launching_and_fades_after() {
         let look = MagnetLook::default();
         let mut field = Field::new();
@@ -1130,5 +1358,11 @@ mod tests {
         field.last = Some(back);
         field.hold_while_away(back + FRAME);
         assert_eq!(field.released, Some(back + RETURNING));
+        // once it's over, frames stop and it stays over: the button shows
+        let over = back + RETURNING + Duration::from_secs(2);
+        field.last = Some(over);
+        field.hold_while_away(over + Duration::from_secs(10));
+        assert_eq!(field.released, Some(back + RETURNING));
+        assert_eq!(field.button_shown(over + Duration::from_secs(10)), 1.0);
     }
 }
