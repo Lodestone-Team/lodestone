@@ -149,16 +149,22 @@ pub fn apply(scene: &str, servers: &mut Servers, cx: &mut Context<Servers>) {
                 ((key(0x11), hex(&[0xa1; 32])), true),
                 ((key(0x22), hex(&[0xb2; 32])), false),
             ];
-            list.expanded = vec![(
-                key(0x11),
-                vec![(
-                    hex(&[0xa1; 32]),
-                    CoreServers::Loaded(vec![
-                        shared("Survival SMP", "fabric", Some("0.16.14"), true, "Running"),
-                        shared("Creative build", "vanilla", None, false, "Stopped"),
-                    ]),
-                )],
-            )];
+            list.expanded = vec![
+                (
+                    key(0x11),
+                    vec![(
+                        hex(&[0xa1; 32]),
+                        CoreServers::Loaded(vec![
+                            shared("Survival SMP", "fabric", Some("0.16.14"), true, "Running"),
+                            shared("Creative build", "vanilla", None, false, "Stopped"),
+                        ]),
+                    )],
+                ),
+                // Sam's core doesn't answer, and Jo hasn't confirmed: their status
+                // isn't repeated in the open panel
+                (key(0x22), Vec::new()),
+                (key(0x33), Vec::new()),
+            ];
             servers.preview_friend_list(list);
             match scene {
                 "servers-friend-list-verify" => {

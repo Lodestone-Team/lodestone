@@ -545,7 +545,9 @@ impl Servers {
                         tr!(M::OnlineOn, cores = format::list(&names)),
                     )
                 }
-                _ => (colors::GRAY_500, t(M::Offline).into()),
+                // A core only answers friends it shares something with, so this is
+                // also what a running core that shares nothing with them looks like.
+                _ => (colors::GRAY_500, t(M::NotSharingNow).into()),
             },
         };
         let toggle_key = key.clone();
@@ -614,7 +616,8 @@ impl Servers {
                                 },
                             ),
                     )
-                    .when(!friend.verified, |this| {
+                    // open, the panel's actions have Compare codes
+                    .when(!friend.verified && !expanded, |this| {
                         this.child(
                             Button::new(
                                 SharedString::from(format!("{id}-verify")),
@@ -655,12 +658,11 @@ impl Servers {
             Some(JoinStage::Connecting { .. } | JoinStage::Preparing { .. })
         );
         let mut panel = div().flex().flex_col().gap_2().pl_8().pr_4().pb_3();
+        // "Waiting for … to confirm" and "Not sharing any server with you yet" are
+        // already under the friend's name
         let cores = friend.joinable_cores(launcher_core::friend_list::now());
-        if friend.status == Status::Pending {
-            panel = panel.child(note(tr!(M::WaitingFor, name = friend.name)));
-        } else if cores.is_empty() {
-            panel = panel.child(note(t(M::SharesNothing)));
-        }
+        // with one core, the status under the friend's name is that core's
+        let several = cores.len() > 1;
         for core in cores {
             let fingerprint = hex(&core.fingerprint);
             let slot = (friend.key.clone(), fingerprint.clone());
@@ -695,9 +697,9 @@ impl Servers {
                         )
                         .child(
                             note(match online {
-                                Some(true) => t(M::CoreOnline),
-                                Some(false) => t(M::CoreOffline),
-                                None => "",
+                                Some(true) if several => t(M::CoreOnline),
+                                Some(false) if several => t(M::CoreOffline),
+                                _ => "",
                             })
                             .text_color(if online == Some(true) {
                                 colors::GREEN_200
