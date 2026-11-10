@@ -15,6 +15,7 @@ pub mod configurator;
 pub mod content;
 pub mod cores;
 pub mod data_move;
+pub mod datapacks;
 pub mod disk;
 pub mod downloads;
 pub mod export;

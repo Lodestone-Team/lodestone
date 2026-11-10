@@ -1566,7 +1566,18 @@ impl ContentView {
             this.update(cx, |this, cx| match result {
                 Ok(target) => {
                     this.section_mut(kind).browse.results = Load::NotLoaded;
+                    // Modrinth calls data packs mods; only their loader tells them apart.
+                    let loaders = &target.project.loaders;
+                    let data_pack = target.project.project_type == "datapack"
+                        || (!loaders.is_empty()
+                            && loaders
+                                .iter()
+                                .all(|l| l == launcher_core::datapacks::MODRINTH_LOADER));
                     match ContentKind::from_project_type(&target.project.project_type) {
+                        _ if data_pack => {
+                            this.section_mut(kind).browse.results =
+                                Load::Failed(t(M::LinkIsDataPack).into());
+                        }
                         Some(project_kind) => {
                             this.kind = project_kind;
                             let version = target.version.map(|v| v.id);

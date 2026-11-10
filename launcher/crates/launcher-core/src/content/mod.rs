@@ -105,7 +105,8 @@ impl ContentKind {
             ClientProjectType::Mod => ContentKind::Mod,
             ClientProjectType::ResourcePack => ContentKind::ResourcePack,
             ClientProjectType::Shader => ContentKind::ShaderPack,
-            ClientProjectType::Modpack => return None,
+            // Data packs belong to a world, not the instance (`crate::datapacks`).
+            ClientProjectType::Modpack | ClientProjectType::DataPack => return None,
         })
     }
 

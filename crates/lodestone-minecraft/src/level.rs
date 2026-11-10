@@ -1,10 +1,11 @@
 //! What a world's `level.dat` says about it: its name, when it was last played, the game
-//! mode, the version that last saved it, and whether it is hardcore or allows cheats.
+//! mode, the version that last saved it, whether it is hardcore or allows cheats, and
+//! which data packs it turns on and off.
 //!
 //! `level.dat` is a gzipped [`nbt`](crate::nbt) document with the world's settings
 //! under `Data`. See <https://minecraft.wiki/w/Java_Edition_level_format>.
 
-use crate::nbt::{self, NbtError, Root, Tag};
+use crate::nbt::{self, Compound, NbtError, Root, Tag};
 
 /// `level.dat` is never this large unpacked; bigger files are refused.
 pub const MAX_LEVEL_DAT_BYTES: u64 = 32 * 1024 * 1024;
@@ -91,20 +92,98 @@ pub fn summarize(bytes: &[u8]) -> Result<LevelSummary, NbtError> {
 /// `level.dat` with the world's name set to `name`, gzipped, or `None` if the file
 /// doesn't read and write back to the same bytes (so nothing else in it could change).
 pub fn rename(bytes: &[u8], name: &str) -> Option<Vec<u8>> {
+    edit_data(bytes, |data| {
+        data.set("LevelName", Tag::String(name.into()));
+        Some(())
+    })
+}
+
+/// Reads `level.dat`, lets `edit` change its `Data`, and writes it back gzipped. `None`
+/// if the file doesn't read and write back to the same bytes (so nothing but the edit
+/// could change), has no `Data`, or `edit` gives up.
+fn edit_data(bytes: &[u8], edit: impl FnOnce(&mut Compound) -> Option<()>) -> Option<Vec<u8>> {
     let unpacked = nbt::unpack(bytes, MAX_LEVEL_DAT_BYTES).ok()?;
     let mut root = nbt::read(&unpacked).ok()?;
     if nbt::write(&root) != unpacked {
         return None;
     }
     let data = root.value.get_mut("Data")?.as_compound_mut()?;
-    data.set("LevelName", Tag::String(name.into()));
+    edit(data)?;
     Some(nbt::gzip(&nbt::write(&root)))
+}
+
+/// The data packs a world turns on and off, `Data.DataPacks` in `level.dat` (1.13 and
+/// later). Packs are named by source: `vanilla`, `file/<name>` for a pack in the
+/// world's `datapacks` folder, and others for packs from mods. Enabled packs are in load
+/// order: later ones win.
+///
+/// A pack in the folder that neither list names is new; the game turns it on the next
+/// time it loads the world.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct DataPackLists {
+    pub enabled: Vec<String>,
+    pub disabled: Vec<String>,
+}
+
+impl DataPackLists {
+    /// The id the game gives a pack in the world's `datapacks` folder.
+    pub fn file_id(name: &str) -> String {
+        format!("file/{name}")
+    }
+
+    /// Turns the pack `id` on (last, so it loads over the others) or off.
+    pub fn set_enabled(&mut self, id: &str, enabled: bool) {
+        self.enabled.retain(|p| p != id);
+        self.disabled.retain(|p| p != id);
+        if enabled {
+            self.enabled.push(id.to_string());
+        } else {
+            self.disabled.push(id.to_string());
+        }
+    }
+}
+
+fn string_list(compound: &Compound, name: &str) -> Vec<String> {
+    match compound.get(name) {
+        Some(Tag::List(_, items)) => items.iter().filter_map(Tag::as_str).collect(),
+        _ => Vec::new(),
+    }
+}
+
+fn to_list(items: &[String]) -> Tag {
+    Tag::List(
+        8,
+        items
+            .iter()
+            .map(|s| Tag::String(s.as_str().into()))
+            .collect(),
+    )
+}
+
+/// The world's data pack lists, or `None` if `level.dat` has none (a world from before
+/// 1.13, or one the game hasn't saved since).
+pub fn data_packs(root: &Root) -> Option<DataPackLists> {
+    let packs = root.value.compound("Data")?.compound("DataPacks")?;
+    Some(DataPackLists {
+        enabled: string_list(packs, "Enabled"),
+        disabled: string_list(packs, "Disabled"),
+    })
+}
+
+/// `level.dat` with its data pack lists set to `lists`, gzipped. `None` if it has no
+/// lists to change (see [`data_packs`]) or doesn't write back to the same bytes.
+pub fn set_data_packs(bytes: &[u8], lists: &DataPackLists) -> Option<Vec<u8>> {
+    edit_data(bytes, |data| {
+        let packs = data.get_mut("DataPacks")?.as_compound_mut()?;
+        packs.set("Enabled", to_list(&lists.enabled));
+        packs.set("Disabled", to_list(&lists.disabled));
+        Some(())
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::nbt::Compound;
 
     const MODERN: &[u8] = include_bytes!("../testdata/level/1.21.11.dat");
     const LEGACY: &[u8] = include_bytes!("../testdata/level/1.8.9.dat");
@@ -160,6 +239,47 @@ mod tests {
             .unwrap()
             .set("LevelName", Tag::String("New Name".into()));
         assert_eq!(after, expected);
+    }
+
+    #[test]
+    fn data_pack_lists() {
+        let root = read_level(MODERN).unwrap();
+        let lists = data_packs(&root).unwrap();
+        assert!(lists.enabled.contains(&"vanilla".to_string()), "{lists:?}");
+        // before 1.13 there are none, and nothing to change
+        assert_eq!(data_packs(&read_level(LEGACY).unwrap()), None);
+        assert!(set_data_packs(LEGACY, &lists).is_none());
+
+        let mut changed = lists.clone();
+        changed.set_enabled(&DataPackLists::file_id("a.zip"), true);
+        changed.set_enabled(&DataPackLists::file_id("b"), false);
+        changed.set_enabled(&DataPackLists::file_id("a.zip"), false);
+        // the fixture already lists the experimental packs as disabled
+        assert!(lists.disabled.contains(&"trade_rebalance".to_string()));
+        assert_eq!(
+            changed.disabled[lists.disabled.len()..],
+            ["file/b", "file/a.zip"]
+        );
+        assert!(!changed.enabled.contains(&"file/a.zip".to_string()));
+        changed.set_enabled("file/b", true);
+        assert_eq!(changed.enabled.last().map(String::as_str), Some("file/b"));
+
+        let written = set_data_packs(MODERN, &changed).unwrap();
+        let after = read_level(&written).unwrap();
+        assert_eq!(data_packs(&after).unwrap(), changed);
+        // only the lists changed
+        let mut expected = root.clone();
+        let packs = expected
+            .value
+            .get_mut("Data")
+            .and_then(Tag::as_compound_mut)
+            .and_then(|d| d.get_mut("DataPacks"))
+            .and_then(Tag::as_compound_mut)
+            .unwrap();
+        packs.set("Enabled", to_list(&changed.enabled));
+        packs.set("Disabled", to_list(&changed.disabled));
+        assert_eq!(after, expected);
+        assert_eq!(summarize(&written).unwrap(), summarize(MODERN).unwrap());
     }
 
     #[test]

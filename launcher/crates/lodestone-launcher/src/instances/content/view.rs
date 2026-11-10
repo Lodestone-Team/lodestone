@@ -6,6 +6,7 @@
 use crate::skin::Skinned;
 use crate::theme::px;
 use launcher_core::ui_skin::SurfaceId;
+use lodestone_ui::components::menu_toggle;
 use std::sync::Arc;
 
 use gpui::{
@@ -566,7 +567,10 @@ impl ContentView {
             .child(
                 IconButton::new(("content-menu", kind as usize), Icon::Ellipsis)
                     .label(format!("{}: {}", t(CommonMsg::Menu), kind.label()))
-                    .on_click(cx.listener(|this, _, _, cx| {
+                    .on_click(cx.listener(|this, event, _, cx| {
+                        if !menu_toggle::toggles("content-menu", event) {
+                            return;
+                        }
                         this.menu_open = !this.menu_open;
                         cx.notify();
                     })),
@@ -578,7 +582,8 @@ impl ContentView {
                 });
                 let mut panel = popover_panel("content-menu-list")
                     .w(px(220.))
-                    .on_mouse_down_out(cx.listener(|this, _, _, cx| {
+                    .on_mouse_down_out(cx.listener(|this, event, _, cx| {
+                        menu_toggle::closed_by("content-menu", event);
                         this.menu_open = false;
                         cx.notify();
                     }));
@@ -2085,7 +2090,10 @@ impl ContentView {
                         .ok();
                     }
                 })
-                .on_press(cx.listener(|this, _, _, cx| {
+                .on_press(cx.listener(|this, event, _, cx| {
+                    if !menu_toggle::toggles("content-sort", event) {
+                        return;
+                    }
                     this.sort_open = !this.sort_open;
                     cx.notify();
                 })),
@@ -2097,7 +2105,8 @@ impl ContentView {
                 });
                 let mut panel = popover_panel("modrinth-sort-list")
                     .w(px(180.))
-                    .on_mouse_down_out(cx.listener(|this, _, _, cx| {
+                    .on_mouse_down_out(cx.listener(|this, event, _, cx| {
+                        menu_toggle::closed_by("content-sort", event);
                         this.sort_open = false;
                         cx.notify();
                     }));

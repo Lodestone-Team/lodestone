@@ -11,22 +11,22 @@ use gpui::{
 };
 use launcher_core::cores::{
     CoreError, CoreProduct, LaunchedBy, ServerInstance, ServerLoader, ServerState,
-    admin::instances::Power, client::display_address, local_claim::ClaimError, sync::PackChanges,
-    trust::Advisory,
+    client::display_address, local_claim::ClaimError, sync::PackChanges, trust::Advisory,
 };
 use launcher_core::ui_skin::SurfaceId;
 use launcher_core::wording;
 
 use super::{
-    AdvisoryAnswer, AdvisoryPrompt, Busy, CertPrompt, CoreEntry, CoreStatus, NoticeKind, Servers,
+    AdvisoryAnswer, AdvisoryPrompt, CertPrompt, CoreEntry, CoreStatus, NoticeKind, Servers,
     TrustPrompt, UpdatePrompt, core_error, loader_label, local::FoundCore, power_state,
     status_label, trust_explanation,
 };
 use crate::{
     components::{
         Button, ButtonSize, ButtonVariant, Dialog, DialogSlot, Icon, IconButton, KeyboardFocus,
-        ListRow, LoadingDots, PowerButtons, Toggle,
+        ListRow, LoadingDots, Toggle,
         a11y::{Accessible, Role},
+        power_name, power_toggle,
         settings::{popover, popover_panel},
         text_tooltip,
     },
@@ -212,8 +212,22 @@ impl Servers {
         let signed_in = core.signed_in();
 
         let mut actions: Vec<AnyElement> = Vec::new();
-        let power_busy = busy.filter(|busy| matches!(busy, Busy::Starting | Busy::Stopping));
-        if let Some(busy) = busy.filter(|_| power_busy.is_none()) {
+        // the dashboard's power icon, before the name; the core refuses what this
+        // device's key may not do
+        let power = power_toggle(power_state(server.state))
+            .filter(|_| signed_in)
+            .map(|power| {
+                let (c, s) = (core_uuid.clone(), server.clone());
+                IconButton::new(
+                    SharedString::from(format!("power-{row_id}-{power:?}")),
+                    Icon::PowerOff,
+                )
+                .label(power_name(power))
+                .color(state_color(server.state))
+                .disabled(busy.is_some())
+                .on_click(cx.listener(move |this, _, _, cx| this.power(&c, s.clone(), power, cx)))
+            });
+        if let Some(busy) = busy {
             actions.push(
                 div()
                     .flex()
@@ -225,17 +239,6 @@ impl Servers {
                     .child(small(busy.label()))
                     .into_any_element(),
             );
-        } else if signed_in {
-            // the Host's power buttons; the core refuses what this device's key may not do
-            let (c, s) = (core_uuid.clone(), server.clone());
-            let press = cx
-                .listener(move |this, power: &Power, _, cx| this.power(&c, s.clone(), *power, cx));
-            let power = PowerButtons::new(format!("power-{row_id}"), power_state(server.state))
-                .pending(power_busy.map(Busy::label))
-                .on_power(move |power, window, cx| press(&power, window, cx));
-            if !power.is_empty() {
-                actions.push(power.into_any_element());
-            }
         }
         if busy.is_none() {
             if let Some(friend) = friend_play.clone() {
@@ -302,7 +305,7 @@ impl Servers {
 
         let status = status_label(server);
         let element_id = SharedString::from(format!("server-{row_id}"));
-        // the row shows the state with its dot and power buttons; screen readers hear it
+        // the row shows the state with its power icon (or dot); screen readers hear it
         let mut description = format!("{status} · {}", server_detail(server));
         if shared {
             description = format!("{description} · {}", t(M::SharedTag));
@@ -349,14 +352,16 @@ impl Servers {
             .py_2p5()
             .border_t_1()
             .border_color(crate::theme::ink::border())
-            .when(server.state != ServerState::Hidden, |this| {
-                this.child(
+            .map(|this| match power {
+                Some(power) => this.child(power),
+                None if server.state != ServerState::Hidden => this.child(
                     div()
                         .flex_none()
                         .size(px(8.))
                         .rounded_full()
                         .bg(state_color(server.state)),
-                )
+                ),
+                None => this,
             })
             .child(
                 div()

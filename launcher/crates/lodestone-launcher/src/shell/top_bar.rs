@@ -246,7 +246,7 @@ fn arrow(
         .flex_none()
         .items_center()
         .justify_center()
-        .size(px(26.))
+        .size(px(22.))
         .rounded(radius::DEFAULT)
         .occlude()
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
@@ -258,7 +258,7 @@ fn arrow(
                 .active(|style| style.bg(colors::GRAY_850))
                 .on_press(on_press)
         })
-        .child(icon.render(px(14.), color))
+        .child(icon.render(px(11.), color))
 }
 
 /// The DEV badge beside the logo in a development build, as Lodestone Host's.

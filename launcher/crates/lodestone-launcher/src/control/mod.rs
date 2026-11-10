@@ -534,6 +534,41 @@ pub const METHODS: &[Method] = &[
         "Moves a backup to the Trash.",
         worlds::delete_backup,
     ),
+    method(
+        "worlds.datapacks",
+        "A world's data packs, and whether each is on.",
+        worlds::datapacks,
+    ),
+    method(
+        "worlds.datapack_search",
+        "Data packs on Modrinth for the instance's Minecraft version.",
+        worlds::datapack_search,
+    ),
+    method(
+        "worlds.datapack_add",
+        "Copies a data pack (.zip or folder, absolute path) into a world.",
+        worlds::datapack_add,
+    ),
+    method(
+        "worlds.datapack_install",
+        "Installs a Modrinth data pack into a world; a newer version replaces the old file.",
+        worlds::datapack_install,
+    ),
+    method(
+        "worlds.datapack_enable",
+        "Turns a world's data pack on (from the next time the world loads).",
+        worlds::datapack_enable,
+    ),
+    method(
+        "worlds.datapack_disable",
+        "Turns a world's data pack off (from the next time the world loads).",
+        worlds::datapack_disable,
+    ),
+    destructive(
+        "worlds.datapack_remove",
+        "Moves a world's data pack to the Trash.",
+        worlds::datapack_remove,
+    ),
     // accounts
     method(
         "accounts.list",
@@ -1597,6 +1632,8 @@ pub const READ_METHODS: &[&str] = &[
     "snapshots.list",
     "worlds.list",
     "worlds.backups",
+    "worlds.datapacks",
+    "worlds.datapack_search",
     "accounts.list",
     "import.detect",
     "cores.list",
@@ -1791,6 +1828,11 @@ mod tests {
         "worlds.restore",
         "worlds.delete",
         "worlds.delete_backup",
+        "worlds.datapack_add",
+        "worlds.datapack_install",
+        "worlds.datapack_enable",
+        "worlds.datapack_disable",
+        "worlds.datapack_remove",
         "accounts.switch",
         "accounts.add_offline",
         "accounts.remove",

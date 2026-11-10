@@ -1,9 +1,13 @@
-//! The Worlds tab: the instance's worlds with their backups, and its screenshots.
+//! The Worlds tab: the instance's worlds with their backups and data packs, and its
+//! screenshots.
 //!
-//! The work is `launcher_core::worlds` and `launcher_core::screenshots`'; this view runs
-//! it in the background, one job at a time, and refuses changes while the game runs.
-//! Deleting a world and replacing it with a backup ask the window for a confirmation
-//! ([`WorldsEvent`]).
+//! The work is `launcher_core::worlds`, `launcher_core::datapacks` and
+//! `launcher_core::screenshots`; this view runs it in the background, one job at a time,
+//! and refuses changes while the game runs. Deleting a world and replacing it with a
+//! backup ask the window for a confirmation ([`WorldsEvent`]).
+//!
+//! A world's row opens one panel at a time below it: its backups, or its data packs
+//! (turned on and off in the world's own list, added from files, or found on Modrinth).
 
 use crate::components::RichText;
 use crate::skin::Skinned;
@@ -21,17 +25,21 @@ use gpui::{
     SharedString, Subscription, Task, Window, div, img, prelude::*,
 };
 use launcher_core::{
-    content::InstanceDirs,
+    content::{InstanceDirs, packs::Compatibility},
+    datapacks::{self, PackState, WorldDataPacks},
     game::download::{CancelToken, Progress},
     screenshots::{self, Screenshot},
     worlds::{self, Backup, RestoreMode, World, WorldError},
 };
-use lodestone_minecraft::level::GameMode;
+use lodestone_minecraft::{
+    level::GameMode,
+    modrinth::{ClientProjectType, ClientSearchParams, ModrinthProject, ModrinthSearchHit},
+};
 
 use super::{
     Instances,
     content::{
-        Load,
+        Load, RemoteIcon,
         view::{badge, card, list_box, muted, pills, row_base, small, small_rich},
     },
 };
@@ -39,15 +47,64 @@ use crate::components::{
     KeyboardFocus,
     a11y::{Accessible, Role},
 };
-use crate::i18n::{CommonMsg, WorldsMsg as M, WorldsPlural as P, format, t, tr, trn};
+use crate::i18n::{CommonMsg, ContentMsg, WorldsMsg as M, WorldsPlural as P, format, t, tr, trn};
 use crate::{
-    components::{Button, ButtonSize, ButtonVariant, Icon, LoadingDots, TextInput},
+    components::{Button, ButtonSize, ButtonVariant, Icon, LoadingDots, TextInput, Toggle},
     file_dialog,
     theme::{self, colors, fonts, radius, text, weights},
 };
 
 /// Screenshot thumbnails are at most this many pixels on a side.
 const THUMB_PIXELS: u32 = 480;
+/// The data pack search waits this long after the last key.
+const SEARCH_DELAY: Duration = Duration::from_millis(300);
+/// The data pack search shows this many results.
+const PACK_RESULTS: u32 = 8;
+
+/// The panel open below a world's row.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum WorldPanel {
+    #[default]
+    Backups,
+    DataPacks,
+}
+
+/// A data pack found on Modrinth.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PackHit {
+    pub project_id: String,
+    pub title: String,
+    pub description: String,
+    pub author: String,
+    pub icon_url: Option<String>,
+    pub downloads: u64,
+}
+
+impl From<ModrinthSearchHit> for PackHit {
+    fn from(hit: ModrinthSearchHit) -> Self {
+        Self {
+            project_id: hit.project_id,
+            title: hit.title,
+            description: hit.description,
+            author: hit.author,
+            icon_url: hit.icon_url,
+            downloads: hit.downloads,
+        }
+    }
+}
+
+impl From<ModrinthProject> for PackHit {
+    fn from(project: ModrinthProject) -> Self {
+        Self {
+            project_id: project.id,
+            title: project.title,
+            description: project.description,
+            author: String::new(),
+            icon_url: project.icon_url,
+            downloads: project.downloads,
+        }
+    }
+}
 /// The large view decodes at most this many pixels on a side.
 const LARGE_PIXELS: u32 = 2560;
 
@@ -82,6 +139,9 @@ pub enum JobLabel {
     Renaming,
     Exporting(String),
     Importing,
+    AddingDataPacks,
+    InstallingDataPack(String),
+    SavingPackList,
 }
 
 impl JobLabel {
@@ -96,6 +156,11 @@ impl JobLabel {
             JobLabel::Renaming => t(M::Renaming).to_string(),
             JobLabel::Exporting(name) => tr!(M::Exporting, name = name),
             JobLabel::Importing => t(M::ImportingWorlds).to_string(),
+            JobLabel::AddingDataPacks => t(M::AddingDataPacks).to_string(),
+            JobLabel::InstallingDataPack(name) => {
+                tr!(crate::i18n::InstancesMsg::InstallingName, name = name)
+            }
+            JobLabel::SavingPackList => t(M::SavingPackList).to_string(),
         }
     }
 }
@@ -121,9 +186,21 @@ pub struct WorldsView {
     pub section: Section,
     pub worlds: Load<Vec<World>>,
     icons: HashMap<String, Arc<RenderImage>>,
-    /// The world whose backups are shown.
+    /// The world whose panel is open, and which panel.
     pub expanded: Option<String>,
+    pub panel: WorldPanel,
     backups: HashMap<String, Vec<Backup>>,
+    /// Data packs, by world folder, read when a world's panel opens.
+    pub datapacks: HashMap<String, Load<WorldDataPacks>>,
+    /// `pack.png`s, by world folder and pack name.
+    pack_icons: HashMap<(String, String), Arc<RenderImage>>,
+    pack_search: Entity<TextInput>,
+    /// What the search was last run with.
+    pack_query: String,
+    pub pack_results: Load<Vec<PackHit>>,
+    hit_icons: HashMap<String, RemoteIcon>,
+    pack_search_task: Option<Task<()>>,
+    datapacks_task: Option<Task<()>>,
     /// The world being renamed, with its name field.
     renaming: Option<(String, Entity<TextInput>)>,
     pub job: Option<Job>,
@@ -172,7 +249,15 @@ impl WorldsView {
     }
 
     pub fn new(instances: Entity<Instances>, cx: &mut Context<Self>) -> Self {
-        let observe = vec![cx.observe(&instances, |this, _, cx| this.sync(cx))];
+        let pack_search = cx.new(|cx| {
+            TextInput::new(cx)
+                .with_placeholder(M::SearchDataPacks)
+                .with_automation_id("datapack-search")
+        });
+        let observe = vec![
+            cx.observe(&instances, |this, _, cx| this.sync(cx)),
+            cx.observe(&pack_search, |this, _, cx| this.pack_search_changed(cx)),
+        ];
         let mut this = Self {
             instances,
             instance_id: None,
@@ -180,7 +265,16 @@ impl WorldsView {
             worlds: Load::NotLoaded,
             icons: HashMap::new(),
             expanded: None,
+            panel: WorldPanel::Backups,
             backups: HashMap::new(),
+            datapacks: HashMap::new(),
+            pack_icons: HashMap::new(),
+            pack_search,
+            pack_query: String::new(),
+            pack_results: Load::NotLoaded,
+            hit_icons: HashMap::new(),
+            pack_search_task: None,
+            datapacks_task: None,
             renaming: None,
             job: None,
             message: None,
@@ -216,6 +310,11 @@ impl WorldsView {
             self.screenshots = Load::NotLoaded;
             self.icons.clear();
             self.backups.clear();
+            self.datapacks.clear();
+            self.pack_icons.clear();
+            // Another instance may run another Minecraft version.
+            self.pack_results = Load::NotLoaded;
+            self.pack_query.clear();
             self.thumbs.clear();
             self.expanded = None;
             self.renaming = None;
@@ -312,6 +411,9 @@ impl WorldsView {
             })
             .ok();
         }));
+        if let (Some(folder), WorldPanel::DataPacks) = (self.expanded.clone(), self.panel) {
+            self.load_datapacks(folder, cx);
+        }
         cx.notify();
     }
 
@@ -338,6 +440,22 @@ impl WorldsView {
         + 'static,
         cx: &mut Context<Self>,
     ) {
+        self.run_async(
+            label,
+            move |dirs, progress, cancel| async move { work(&dirs, &progress, &cancel) },
+            cx,
+        );
+    }
+
+    /// Like [`Self::run`], for work that waits on the network.
+    fn run_async<F>(
+        &mut self,
+        label: JobLabel,
+        work: impl FnOnce(InstanceDirs, Arc<Progress>, CancelToken) -> F,
+        cx: &mut Context<Self>,
+    ) where
+        F: std::future::Future<Output = Result<String, WorldError>> + Send + 'static,
+    {
         if !self.can_change(cx) {
             return;
         }
@@ -347,9 +465,7 @@ impl WorldsView {
         let progress = Arc::new(Progress::default());
         let cancel = CancelToken::new();
         let task = {
-            let progress = progress.clone();
-            let cancel = cancel.clone();
-            let work = cx.background_spawn(async move { work(&dirs, &progress, &cancel) });
+            let work = cx.background_spawn(work(dirs, progress.clone(), cancel.clone()));
             cx.spawn(async move |this, cx| {
                 let result = work.await;
                 this.update(cx, |this, cx| {
@@ -615,6 +731,307 @@ impl WorldsView {
         }
     }
 
+    // ---- data packs ----
+
+    /// Opens `panel` below the world `folder`, or closes it if it is open.
+    pub fn toggle_panel(&mut self, folder: String, panel: WorldPanel, cx: &mut Context<Self>) {
+        if self.expanded.as_deref() == Some(folder.as_str()) && self.panel == panel {
+            self.expanded = None;
+        } else {
+            self.expanded = Some(folder.clone());
+            self.panel = panel;
+            if panel == WorldPanel::DataPacks {
+                self.load_datapacks(folder, cx);
+                if matches!(self.pack_results, Load::NotLoaded) {
+                    self.run_pack_search(cx);
+                }
+            }
+        }
+        cx.notify();
+    }
+
+    /// The Minecraft version the instance runs.
+    fn game_version(&self, cx: &gpui::App) -> Option<String> {
+        let id = self.instance_id.as_deref()?;
+        Some(self.instances.read(cx).content_target(id)?.game_version)
+    }
+
+    /// Reads the world's data packs and their icons.
+    pub fn load_datapacks(&mut self, folder: String, cx: &mut Context<Self>) {
+        let Some((id, dirs)) = self.dirs(cx) else {
+            return;
+        };
+        if !matches!(self.datapacks.get(&folder), Some(Load::Ready(_))) {
+            self.datapacks.insert(folder.clone(), Load::Loading);
+        }
+        let world = folder.clone();
+        let work = cx.background_spawn(async move { datapacks::list(&dirs, &world) });
+        self.datapacks_task = Some(cx.spawn(async move |this, cx| {
+            let result = work.await;
+            this.update(cx, |this, cx| {
+                if this.instance_id.as_deref() != Some(id.as_str()) {
+                    return;
+                }
+                this.pack_icons.retain(|(world, _), _| world != &folder);
+                let loaded = match result {
+                    Ok(packs) => {
+                        for pack in &packs.packs {
+                            if let Some(icon) = &pack.meta.icon {
+                                this.pack_icons.insert(
+                                    (folder.clone(), pack.name.clone()),
+                                    crate::images::render_image((**icon).clone()),
+                                );
+                            }
+                        }
+                        Load::Ready(packs)
+                    }
+                    Err(err) => Load::Failed(err.to_string().into()),
+                };
+                this.datapacks.insert(folder, loaded);
+                cx.notify();
+            })
+            .ok();
+        }));
+        cx.notify();
+    }
+
+    /// "Add data pack…": zips and folders.
+    pub fn pick_datapacks(&mut self, folder: String, name: String, cx: &mut Context<Self>) {
+        if !self.can_change(cx) {
+            return;
+        }
+        let picked = cx.prompt_for_paths(PathPromptOptions {
+            files: true,
+            directories: true,
+            multiple: true,
+            prompt: Some(t(M::AddDataPackPrompt).into()),
+        });
+        self._prompt = Some(cx.spawn(async move |this, cx| {
+            let Some(paths) = file_dialog::chosen(picked, &this, cx).await else {
+                return;
+            };
+            this.update(cx, |this, cx| this.add_datapacks(folder, name, paths, cx))
+                .ok();
+        }));
+    }
+
+    /// Copies `paths` into the world's data packs. Each that can't be added says why; the
+    /// others are added anyway.
+    pub fn add_datapacks(
+        &mut self,
+        folder: String,
+        name: String,
+        paths: Vec<PathBuf>,
+        cx: &mut Context<Self>,
+    ) {
+        if paths.is_empty() {
+            return;
+        }
+        self.run(
+            JobLabel::AddingDataPacks,
+            move |dirs, _, _| {
+                let mut added = Vec::new();
+                let mut failed = Vec::new();
+                for path in &paths {
+                    match datapacks::add(dirs, &folder, path) {
+                        Ok(pack) => added.push(pack),
+                        Err(err) => failed.push(tr!(
+                            M::FileError,
+                            name = path
+                                .file_name()
+                                .map_or_else(String::new, |n| n.to_string_lossy().into_owned()),
+                            error = err
+                        )),
+                    }
+                }
+                match (added.is_empty(), failed.is_empty()) {
+                    (_, true) => Ok(tr!(
+                        M::AddedDataPacks,
+                        packs = format::list(&added),
+                        name = name
+                    )),
+                    (true, false) => Err(WorldError::Invalid(failed.join(" "))),
+                    (false, false) => Ok(format!(
+                        "{} {}",
+                        tr!(M::AddedDataPacks, packs = format::list(&added), name = name),
+                        failed.join(" ")
+                    )),
+                }
+            },
+            cx,
+        );
+    }
+
+    /// Turns the pack on or off in the world's list.
+    pub fn set_pack_enabled(
+        &mut self,
+        folder: String,
+        pack: String,
+        enabled: bool,
+        cx: &mut Context<Self>,
+    ) {
+        self.run(
+            JobLabel::SavingPackList,
+            move |dirs, _, _| {
+                datapacks::set_enabled(dirs, &folder, &pack, enabled)?;
+                Ok(if enabled {
+                    tr!(M::PackTurnedOn, pack = pack)
+                } else {
+                    tr!(M::PackTurnedOff, pack = pack)
+                })
+            },
+            cx,
+        );
+    }
+
+    /// Moves the pack to the Trash.
+    pub fn delete_pack(&mut self, folder: String, pack: String, cx: &mut Context<Self>) {
+        self.run(
+            JobLabel::MovingToTrash(pack.clone()),
+            move |dirs, _, _| {
+                datapacks::delete(dirs, &folder, &pack)?;
+                Ok(tr!(M::InTrash, name = pack, trash = t(CommonMsg::TheTrash)))
+            },
+            cx,
+        );
+    }
+
+    /// Installs the newest data pack version of the Modrinth project that fits the
+    /// instance's Minecraft version (a release when there is one) into the world.
+    pub fn install_pack(
+        &mut self,
+        folder: String,
+        name: String,
+        hit: PackHit,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(api) = self.instances.read(cx).modrinth() else {
+            self.set_message(t(M::ModrinthUnavailable), true, cx);
+            return;
+        };
+        let Some(game_version) = self.game_version(cx) else {
+            return;
+        };
+        let downloader = self.instances.read(cx).content_downloader();
+        self.run_async(
+            JobLabel::InstallingDataPack(hit.title.clone()),
+            move |dirs, progress, cancel| async move {
+                let versions = api
+                    .versions(
+                        &hit.project_id,
+                        &[datapacks::MODRINTH_LOADER.to_string()],
+                        std::slice::from_ref(&game_version),
+                    )
+                    .await
+                    .map_err(|err| WorldError::Invalid(err.to_string()))?;
+                let version =
+                    datapacks::pick_version(&game_version, versions).ok_or_else(|| {
+                        WorldError::Invalid(tr!(
+                            M::NoDataPackVersion,
+                            name = hit.title,
+                            version = game_version
+                        ))
+                    })?;
+                let installed = datapacks::install(
+                    &api,
+                    &downloader,
+                    &dirs,
+                    &folder,
+                    &version,
+                    &progress,
+                    &cancel,
+                )
+                .await?;
+                Ok(match installed.replaced {
+                    Some(old) => tr!(
+                        M::UpdatedDataPack,
+                        pack = installed.name,
+                        name = name,
+                        old = old
+                    ),
+                    None => tr!(M::InstalledDataPack, pack = installed.name, name = name),
+                })
+            },
+            cx,
+        );
+    }
+
+    fn pack_search_changed(&mut self, cx: &mut Context<Self>) {
+        let text = self.pack_search.read(cx).text().trim().to_string();
+        if text == self.pack_query {
+            return;
+        }
+        self.pack_search_task = Some(cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(SEARCH_DELAY).await;
+            this.update(cx, |this, cx| this.run_pack_search(cx)).ok();
+        }));
+    }
+
+    /// Searches Modrinth for data packs for the instance's Minecraft version, or opens
+    /// a pasted modrinth.com link.
+    pub fn run_pack_search(&mut self, cx: &mut Context<Self>) {
+        let text = self.pack_search.read(cx).text().trim().to_string();
+        self.pack_query = text.clone();
+        let Some(api) = self.instances.read(cx).modrinth() else {
+            self.pack_results = Load::Failed(t(M::ModrinthUnavailable).into());
+            cx.notify();
+            return;
+        };
+        let Some(game_version) = self.game_version(cx) else {
+            return;
+        };
+        self.pack_results = Load::Loading;
+        let work = if text.contains("modrinth.com/") {
+            cx.background_spawn(async move {
+                let target = api.resolve_link(&text).await.map_err(|e| e.to_string())?;
+                if target
+                    .project
+                    .loaders
+                    .iter()
+                    .any(|l| l == datapacks::MODRINTH_LOADER)
+                {
+                    Ok(vec![PackHit::from(target.project)])
+                } else {
+                    Err(t(M::LinkNotDataPack).to_string())
+                }
+            })
+        } else {
+            let params = ClientSearchParams::new(
+                (!text.is_empty()).then_some(text),
+                ClientProjectType::DataPack,
+                Some(game_version),
+                Vec::new(),
+                None,
+                Some(0),
+                Some(PACK_RESULTS),
+            );
+            cx.background_spawn(async move {
+                let params = params.map_err(|e| e.to_string())?;
+                let results = api.search(&params).await.map_err(|e| e.to_string())?;
+                Ok(results.hits.into_iter().map(PackHit::from).collect())
+            })
+        };
+        self.pack_search_task = Some(cx.spawn(async move |this, cx| {
+            let result: Result<Vec<PackHit>, String> = work.await;
+            this.update(cx, |this, cx| {
+                this.pack_results = match result {
+                    Ok(hits) => Load::Ready(hits),
+                    Err(err) => Load::Failed(err.into()),
+                };
+                cx.notify();
+            })
+            .ok();
+        }));
+        cx.notify();
+    }
+
+    fn hit_icon(&mut self, url: &str, cx: &mut Context<Self>) -> Option<Arc<RenderImage>> {
+        let api = self.instances.read(cx).modrinth();
+        super::modpack_browser::fetch_image(&mut self.hit_icons, url, false, api, cx, |this| {
+            &mut this.hit_icons
+        })
+    }
+
     // ---- screenshots ----
 
     pub fn reload_screenshots(&mut self, cx: &mut Context<Self>) {
@@ -836,6 +1253,47 @@ impl WorldsView {
         self.screenshots = Load::Ready(shots);
     }
 
+    /// Opens the world's data packs with `hits` as the Modrinth results, and their icons
+    /// by URL, read right away for the offscreen screenshots.
+    pub fn preview_datapacks(
+        &mut self,
+        folder: &str,
+        query: &str,
+        hits: Vec<PackHit>,
+        icons: Vec<(String, image::RgbaImage)>,
+        cx: &mut Context<Self>,
+    ) {
+        let Some((_, dirs)) = self.dirs(cx) else {
+            return;
+        };
+        self.section = Section::Worlds;
+        self.expanded = Some(folder.to_string());
+        self.panel = WorldPanel::DataPacks;
+        if let Ok(packs) = datapacks::list(&dirs, folder) {
+            for pack in &packs.packs {
+                if let Some(icon) = &pack.meta.icon {
+                    self.pack_icons.insert(
+                        (folder.to_string(), pack.name.clone()),
+                        crate::images::render_image((**icon).clone()),
+                    );
+                }
+            }
+            self.datapacks
+                .insert(folder.to_string(), Load::Ready(packs));
+        }
+        self.pack_query = query.to_string();
+        self.pack_search
+            .update(cx, |input, cx| input.set_text(query.to_string(), cx));
+        for (url, icon) in icons {
+            self.hit_icons
+                .insert(url, RemoteIcon::Ready(crate::images::render_image(icon)));
+        }
+        self.pack_results = Load::Ready(hits);
+        // Typing the query above must not start a real search.
+        self.pack_search_task = None;
+        cx.notify();
+    }
+
     /// Decodes the large view right away, for the offscreen screenshots.
     pub fn preview_view(&mut self, index: usize, cx: &mut Context<Self>) {
         let Some(shot) = self.shot(index).cloned() else {
@@ -957,7 +1415,7 @@ impl WorldsView {
     }
 
     fn render_world(
-        &self,
+        &mut self,
         index: usize,
         world: &World,
         busy: bool,
@@ -965,7 +1423,14 @@ impl WorldsView {
     ) -> AnyElement {
         let folder = world.folder.clone();
         let name = world.name();
-        let expanded = self.expanded.as_deref() == Some(folder.as_str());
+        let open = self.expanded.as_deref() == Some(folder.as_str());
+        let expanded = open && self.panel == WorldPanel::Backups;
+        let packs_open = open && self.panel == WorldPanel::DataPacks;
+        let pack_count = self
+            .datapacks
+            .get(&folder)
+            .and_then(Load::ready)
+            .map(|p| p.packs.len());
         let backups = self.backups(&folder).to_vec();
         let mut details = world_details(world);
         if let Some(time) = world.last_played() {
@@ -1106,13 +1571,32 @@ impl WorldsView {
                             .on_click({
                                 let folder = folder.clone();
                                 cx.listener(move |this, _, _, cx| {
-                                    this.expanded =
-                                        if this.expanded.as_deref() == Some(folder.as_str()) {
-                                            None
-                                        } else {
-                                            Some(folder.clone())
-                                        };
-                                    cx.notify();
+                                    this.toggle_panel(folder.clone(), WorldPanel::Backups, cx)
+                                })
+                            }),
+                        )
+                        .child(
+                            Button::new(
+                                ("datapacks", index),
+                                match pack_count {
+                                    Some(count) if count > 0 => format!(
+                                        "{} {}",
+                                        t(M::DataPacks),
+                                        format::number(count as u64)
+                                    ),
+                                    _ => t(M::DataPacks).to_string(),
+                                },
+                            )
+                            .variant(if packs_open {
+                                ButtonVariant::Primary
+                            } else {
+                                ButtonVariant::Ghost
+                            })
+                            .size(ButtonSize::Slim)
+                            .on_click({
+                                let folder = folder.clone();
+                                cx.listener(move |this, _, _, cx| {
+                                    this.toggle_panel(folder.clone(), WorldPanel::DataPacks, cx)
                                 })
                             }),
                         )
@@ -1177,7 +1661,417 @@ impl WorldsView {
         if expanded {
             row = row.child(self.render_backups(index, &folder, &name, &backups, busy, cx));
         }
+        if packs_open {
+            row = row.child(self.render_datapacks(&folder, &name, busy, cx));
+        }
         row.into_any_element()
+    }
+
+    /// The panel below a world: its data packs, and a Modrinth search.
+    fn render_datapacks(
+        &mut self,
+        folder: &str,
+        name: &str,
+        busy: bool,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let game_version = self.game_version(cx).unwrap_or_default();
+        let toolbar = div()
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap_2()
+            .child(
+                Button::new("add-datapack", t(M::AddDataPack))
+                    .variant(ButtonVariant::Secondary)
+                    .icon(Icon::Upload)
+                    .size(ButtonSize::Slim)
+                    .disabled(busy)
+                    .on_click({
+                        let (folder, name) = (folder.to_string(), name.to_string());
+                        cx.listener(move |this, _, _, cx| {
+                            this.pick_datapacks(folder.clone(), name.clone(), cx)
+                        })
+                    }),
+            )
+            .child(
+                Button::new("open-datapacks", t(CommonMsg::OpenFolder))
+                    .variant(ButtonVariant::Ghost)
+                    .size(ButtonSize::Slim)
+                    .on_click({
+                        let folder = folder.to_string();
+                        cx.listener(move |this, _, _, cx| {
+                            if let Some((_, dirs)) = this.dirs(cx)
+                                && let Ok(dir) = datapacks::dir(&dirs, &folder)
+                            {
+                                let _ = std::fs::create_dir_all(&dir);
+                                cx.open_with_system(&dir);
+                            }
+                        })
+                    }),
+            );
+
+        let installed_projects: Vec<String>;
+        let list: AnyElement = match self.datapacks.get(folder) {
+            None | Some(Load::NotLoaded | Load::Loading) => {
+                installed_projects = Vec::new();
+                div()
+                    .flex()
+                    .flex_row()
+                    .gap_2()
+                    .text_color(crate::theme::ink::muted())
+                    .child(LoadingDots)
+                    .child(t(M::ReadingDataPacks))
+                    .into_any_element()
+            }
+            Some(Load::Failed(err)) => {
+                installed_projects = Vec::new();
+                small(err.clone())
+                    .whitespace_normal()
+                    .text_color(colors::RED_200)
+                    .into_any_element()
+            }
+            Some(Load::Ready(packs)) if packs.packs.is_empty() => {
+                installed_projects = Vec::new();
+                small(t(M::NoDataPacksYet))
+                    .whitespace_normal()
+                    .text_color(crate::theme::ink::muted())
+                    .into_any_element()
+            }
+            Some(Load::Ready(packs)) => {
+                let packs = packs.clone();
+                installed_projects = packs
+                    .packs
+                    .iter()
+                    .filter_map(|p| p.modrinth_project.clone())
+                    .collect();
+                let mut rows = div().flex().flex_col().gap_1();
+                if !packs.switchable {
+                    rows = rows.child(
+                        small(t(M::PacksNotSwitchable))
+                            .whitespace_normal()
+                            .text_color(colors::YELLOW_300),
+                    );
+                }
+                for (index, pack) in packs.packs.iter().enumerate() {
+                    rows = rows.child(self.render_pack(
+                        index,
+                        folder,
+                        pack,
+                        packs.switchable,
+                        &game_version,
+                        busy,
+                        cx,
+                    ));
+                }
+                rows.into_any_element()
+            }
+        };
+
+        div()
+            .flex()
+            .flex_col()
+            .gap_2()
+            .pl(px(76.))
+            .pr_4()
+            .py_2()
+            .bg(colors::GRAY_850)
+            .border_t_1()
+            .border_color(colors::GRAY_FADED.opacity(15))
+            .child(toolbar)
+            .child(list)
+            .child(self.render_pack_search(folder, name, &installed_projects, busy, cx))
+            .into_any_element()
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn render_pack(
+        &self,
+        index: usize,
+        folder: &str,
+        pack: &datapacks::DataPack,
+        switchable: bool,
+        game_version: &str,
+        busy: bool,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let icon = match self
+            .pack_icons
+            .get(&(folder.to_string(), pack.name.clone()))
+        {
+            Some(image) => img(image.clone())
+                .flex_none()
+                .size(px(32.))
+                .rounded(radius::MD)
+                .object_fit(ObjectFit::Cover)
+                .into_any_element(),
+            None => div()
+                .flex_none()
+                .size(px(32.))
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded(radius::MD)
+                .bg(colors::GRAY_800)
+                .child(Icon::Folder.render(px(14.), colors::GRAY_500))
+                .into_any_element(),
+        };
+        let compatibility = datapacks::compatibility(pack.meta.formats.as_ref(), game_version);
+        let mut details = Vec::new();
+        if let Some(description) = &pack.meta.description {
+            details.push(description.clone());
+        }
+        details.push(format::bytes(pack.size));
+        let on = pack.state.is_on();
+        div()
+            .id(("datapack-row", index))
+            .accessible(
+                Role::Group,
+                format!("datapack-{}", pack.name),
+                pack.name.clone(),
+            )
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap_3()
+            .py_1()
+            .child(icon)
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .flex_1()
+                    .min_w_0()
+                    .child(
+                        div()
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap_2()
+                            .min_w_0()
+                            .child(
+                                div()
+                                    .truncate()
+                                    .font_weight(weights::BOLD.into())
+                                    .when(!on, |this| this.text_color(crate::theme::ink::muted()))
+                                    .child(pack.name.clone()),
+                            )
+                            .when(pack.state == PackState::New, |this| {
+                                this.child(badge(t(M::NewPack), colors::GREEN_300))
+                            })
+                            .when(compatibility.warning().is_some(), |this| {
+                                this.child(badge(
+                                    if compatibility == Compatibility::TooOld {
+                                        t(ContentMsg::OlderVersion)
+                                    } else {
+                                        t(ContentMsg::NewerVersion)
+                                    },
+                                    colors::YELLOW_300,
+                                ))
+                            }),
+                    )
+                    .child(
+                        small_rich(RichText::minecraft(details.join(" · ")))
+                            .truncate()
+                            .text_color(crate::theme::ink::muted()),
+                    )
+                    .when(pack.state == PackState::New, |this| {
+                        this.child(small(t(M::NewPackHint)).text_color(crate::theme::ink::muted()))
+                    })
+                    .when_some(pack.meta.problem.clone(), |this, problem| {
+                        this.child(
+                            small(problem)
+                                .whitespace_normal()
+                                .text_color(colors::YELLOW_300),
+                        )
+                    }),
+            )
+            .child(
+                Toggle::new(("datapack-on", index), on)
+                    .label(if on {
+                        t(CommonMsg::On)
+                    } else {
+                        t(CommonMsg::Off)
+                    })
+                    .disabled(busy || !switchable)
+                    .on_change({
+                        let (folder, pack) = (folder.to_string(), pack.name.clone());
+                        cx.listener(move |this, value: &bool, _, cx| {
+                            this.set_pack_enabled(folder.clone(), pack.clone(), *value, cx)
+                        })
+                    }),
+            )
+            .child(
+                Button::new(("delete-datapack", index), t(CommonMsg::Delete))
+                    .variant(ButtonVariant::Danger)
+                    .size(ButtonSize::Slim)
+                    .disabled(busy)
+                    .on_click({
+                        let (folder, pack) = (folder.to_string(), pack.name.clone());
+                        cx.listener(move |this, _, _, cx| {
+                            this.delete_pack(folder.clone(), pack.clone(), cx)
+                        })
+                    }),
+            )
+            .into_any_element()
+    }
+
+    fn render_pack_search(
+        &mut self,
+        folder: &str,
+        name: &str,
+        installed: &[String],
+        busy: bool,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let mut panel = div()
+            .flex()
+            .flex_col()
+            .gap_1()
+            .pt_2()
+            .border_t_1()
+            .border_color(colors::GRAY_FADED.opacity(15))
+            .child(self.pack_search.clone());
+        let hits = match &self.pack_results {
+            Load::NotLoaded => return panel.into_any_element(),
+            Load::Loading => {
+                return panel
+                    .child(
+                        div()
+                            .flex()
+                            .flex_row()
+                            .gap_2()
+                            .py_1()
+                            .text_color(crate::theme::ink::muted())
+                            .child(LoadingDots)
+                            .child(t(M::SearchingModrinth)),
+                    )
+                    .into_any_element();
+            }
+            Load::Failed(err) => {
+                return panel
+                    .child(
+                        small(err.clone())
+                            .whitespace_normal()
+                            .text_color(colors::RED_200),
+                    )
+                    .into_any_element();
+            }
+            Load::Ready(hits) => hits.clone(),
+        };
+        if hits.is_empty() {
+            let version = self.game_version(cx).unwrap_or_default();
+            return panel
+                .child(
+                    small(tr!(M::NoDataPacksFound, version = version))
+                        .text_color(crate::theme::ink::muted()),
+                )
+                .into_any_element();
+        }
+        for (index, hit) in hits.into_iter().enumerate() {
+            let icon = hit
+                .icon_url
+                .as_deref()
+                .and_then(|url| self.hit_icon(url, cx));
+            let is_installed = installed.contains(&hit.project_id);
+            let mut details = Vec::new();
+            if !hit.author.is_empty() {
+                details.push(hit.author.clone());
+            }
+            details.push(tr!(
+                ContentMsg::DownloadsCompact,
+                count = format::compact(hit.downloads)
+            ));
+            panel = panel.child(
+                div()
+                    .id(("datapack-hit", index))
+                    .accessible(
+                        Role::Group,
+                        format!("datapack-hit-{}", hit.project_id),
+                        hit.title.clone(),
+                    )
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap_3()
+                    .py_1()
+                    .child(match icon {
+                        Some(image) => img(image)
+                            .flex_none()
+                            .size(px(32.))
+                            .rounded(radius::MD)
+                            .object_fit(ObjectFit::Cover)
+                            .into_any_element(),
+                        None => div()
+                            .flex_none()
+                            .size(px(32.))
+                            .rounded(radius::MD)
+                            .bg(colors::GRAY_800)
+                            .into_any_element(),
+                    })
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .flex_1()
+                            .min_w_0()
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_row()
+                                    .items_center()
+                                    .gap_2()
+                                    .min_w_0()
+                                    .child(
+                                        div()
+                                            .truncate()
+                                            .font_weight(weights::BOLD.into())
+                                            .child(hit.title.clone()),
+                                    )
+                                    .child(
+                                        small(details.join(" · "))
+                                            .flex_none()
+                                            .text_color(crate::theme::ink::muted()),
+                                    )
+                                    .when(is_installed, |this| {
+                                        this.child(badge(
+                                            t(ContentMsg::InstalledBadge),
+                                            colors::GREEN_300,
+                                        ))
+                                    }),
+                            )
+                            .child(
+                                small(hit.description.clone())
+                                    .truncate()
+                                    .text_color(crate::theme::ink::muted()),
+                            ),
+                    )
+                    .child(
+                        Button::new(
+                            ("install-datapack", index),
+                            if is_installed {
+                                t(CommonMsg::Update)
+                            } else {
+                                t(CommonMsg::Install)
+                            },
+                        )
+                        .variant(if is_installed {
+                            ButtonVariant::Ghost
+                        } else {
+                            ButtonVariant::Secondary
+                        })
+                        .size(ButtonSize::Slim)
+                        .disabled(busy)
+                        .on_click({
+                            let (folder, name) = (folder.to_string(), name.to_string());
+                            cx.listener(move |this, _, _, cx| {
+                                this.install_pack(folder.clone(), name.clone(), hit.clone(), cx)
+                            })
+                        }),
+                    ),
+            );
+        }
+        panel.into_any_element()
     }
 
     fn render_backups(

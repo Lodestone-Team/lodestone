@@ -10,6 +10,7 @@
 //! Maintenance buttons) happen at once.
 
 use crate::theme::px;
+use lodestone_ui::components::menu_toggle;
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use gpui::{
@@ -1463,7 +1464,8 @@ impl InstanceSettings {
             .w(px(400.))
             .p_3()
             .gap_3()
-            .on_mouse_down_out(cx.listener(|this, _, _, cx| {
+            .on_mouse_down_out(cx.listener(|this, event, _, cx| {
+                menu_toggle::closed_by("background-picker", event);
                 this.background_picker = false;
                 cx.notify();
             }))
@@ -1643,7 +1645,8 @@ impl InstanceSettings {
             .w(px(392.))
             .p_3()
             .gap_3()
-            .on_mouse_down_out(cx.listener(|this, _, _, cx| {
+            .on_mouse_down_out(cx.listener(|this, event, _, cx| {
+                menu_toggle::closed_by("icon-picker", event);
                 this.icon_picker = None;
                 cx.notify();
             }))
@@ -2190,7 +2193,10 @@ impl Render for InstanceSettings {
                                     Button::new("choose-icon", t(CommonMsg::Change))
                                         .variant(ButtonVariant::Secondary)
                                         .size(ButtonSize::Slim)
-                                        .on_click(cx.listener(|this, _, _, cx| {
+                                        .on_click(cx.listener(|this, event, _, cx| {
+                                            if !menu_toggle::toggles("icon-picker", event) {
+                                                return;
+                                            }
                                             this.icon_picker = match this.icon_picker {
                                                 Some(_) => None,
                                                 None => Some(IconTab::Library),
@@ -2240,9 +2246,11 @@ impl Render for InstanceSettings {
                             Button::new("choose-background", t(CommonMsg::Change))
                                 .variant(ButtonVariant::Secondary)
                                 .size(ButtonSize::Slim)
-                                .on_click(
-                                    cx.listener(|this, _, _, cx| this.toggle_background_picker(cx)),
-                                ),
+                                .on_click(cx.listener(|this, event, _, cx| {
+                                    if menu_toggle::toggles("background-picker", event) {
+                                        this.toggle_background_picker(cx)
+                                    }
+                                })),
                         )
                         .when(self.background_picker, |this| {
                             let close = cx.listener(|this, _: &(), _, cx| {

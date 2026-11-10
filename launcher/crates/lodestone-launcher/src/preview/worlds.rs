@@ -3,6 +3,7 @@
 
 use std::{
     fs,
+    io::Write as _,
     path::Path,
     time::{Duration, SystemTime},
 };
@@ -10,12 +11,13 @@ use std::{
 use gpui::Context;
 use launcher_core::{
     content::InstanceDirs,
+    datapacks,
     game::download::{CancelToken, Progress},
     worlds,
 };
 use lodestone_minecraft::nbt::{self, Tag};
 
-use crate::instances::worlds::{Section, WorldsView};
+use crate::instances::worlds::{PackHit, Section, WorldsView};
 
 const MODERN: &[u8] =
     include_bytes!("../../../../../crates/lodestone-minecraft/testdata/level/1.21.11.dat");
@@ -217,6 +219,7 @@ pub fn fill(instance_dir: &Path) {
             );
         }
     }
+    fill_datapacks(&dirs, "New World");
     // Two backups of the first world, a day apart.
     let progress = Progress::default();
     let cancel = CancelToken::new();
@@ -245,11 +248,133 @@ pub fn fill(instance_dir: &Path) {
     }
 }
 
+/// Data packs in `world`: one from Modrinth, one added by hand and turned off, a folder
+/// the game hasn't loaded yet, and one made for an older version.
+fn fill_datapacks(dirs: &InstanceDirs, world: &str) {
+    let Ok(folder) = datapacks::dir(dirs, world) else {
+        return;
+    };
+    let _ = fs::create_dir_all(&folder);
+    let icon = |palette: usize, seed: f32| {
+        let mut png = std::io::Cursor::new(Vec::new());
+        let _ = landscape(64, 64, palette, seed).write_to(&mut png, image::ImageFormat::Png);
+        png.into_inner()
+    };
+    let mcmeta = |format: u32, description: &str| {
+        serde_json::json!({ "pack": { "pack_format": format, "description": description } })
+            .to_string()
+    };
+    let zip = |name: &str, format: u32, description: &str, png: Option<Vec<u8>>| {
+        let Ok(file) = fs::File::create(folder.join(name)) else {
+            return;
+        };
+        let mut zip = zip::ZipWriter::new(file);
+        let options = zip::write::SimpleFileOptions::default();
+        let _ = zip.start_file("pack.mcmeta", options);
+        let _ = zip.write_all(mcmeta(format, description).as_bytes());
+        let _ = zip.start_file("data/pack/function/load.mcfunction", options);
+        let _ = zip.write_all(b"say loaded");
+        if let Some(png) = png {
+            let _ = zip.start_file("pack.png", options);
+            let _ = zip.write_all(&png);
+        }
+        let _ = zip.finish();
+    };
+    zip(
+        "Terralith_1.20_v2.4.11.zip",
+        15,
+        "§6Explore almost 100 new biomes",
+        Some(icon(0, 3.0)),
+    );
+    zip(
+        "graves-1.3.zip",
+        15,
+        "Keeps your items safe in a grave",
+        Some(icon(2, 7.0)),
+    );
+    zip("old-tweaks.zip", 10, "Small tweaks for 1.19", None);
+    let loose = folder.join("Coordinates HUD");
+    let _ = fs::create_dir_all(loose.join("data/hud"));
+    let _ = fs::write(
+        loose.join("pack.mcmeta"),
+        mcmeta(15, "Shows your coordinates"),
+    );
+    let _ = fs::write(loose.join("data/hud/tags.json"), b"{}");
+    // On, on, off; the folder is new.
+    let level_dat = worlds::saves_dir(dirs).join(world).join("level.dat");
+    if let Ok(bytes) = fs::read(&level_dat)
+        && let Some(mut lists) = lodestone_minecraft::level::read_level(&bytes)
+            .ok()
+            .and_then(|root| lodestone_minecraft::level::data_packs(&root))
+    {
+        for (name, on) in [
+            ("Terralith_1.20_v2.4.11.zip", true),
+            ("old-tweaks.zip", true),
+            ("graves-1.3.zip", false),
+        ] {
+            lists.set_enabled(&format!("file/{name}"), on);
+        }
+        if let Some(written) = lodestone_minecraft::level::set_data_packs(&bytes, &lists) {
+            let _ = fs::write(&level_dat, written);
+        }
+    }
+}
+
+/// Made-up Modrinth results, with icons by URL.
+fn pack_hits() -> (Vec<PackHit>, Vec<(String, image::RgbaImage)>) {
+    let hit = |id: &str, title: &str, author: &str, description: &str, downloads: u64| PackHit {
+        project_id: id.into(),
+        title: title.into(),
+        description: description.into(),
+        author: author.into(),
+        icon_url: Some(format!("https://cdn.modrinth.com/preview/{id}.png")),
+        downloads,
+    };
+    let hits = vec![
+        hit(
+            "terralith",
+            "Terralith",
+            "Stardust Labs",
+            "Explore almost 100 new biomes consisting of both realism and fantasy",
+            9_800_000,
+        ),
+        hit(
+            "dnt",
+            "Dungeons and Taverns",
+            "nova_",
+            "Adds new structures that fit the vanilla style",
+            7_100_000,
+        ),
+        hit(
+            "veinminer",
+            "VeinMiner",
+            "MiraculixxT",
+            "Mine whole ore veins and trees at once",
+            1_400_000,
+        ),
+    ];
+    let icons = hits
+        .iter()
+        .enumerate()
+        .filter_map(|(i, h)| {
+            Some((
+                h.icon_url.clone()?,
+                landscape(64, 64, i + 1, i as f32 * 2.3),
+            ))
+        })
+        .collect();
+    (hits, icons)
+}
+
 pub fn apply(scene: &str, view: &mut WorldsView, cx: &mut Context<WorldsView>) {
     view.preview_load(cx);
     match scene {
         "worlds" => view.preview(Section::Worlds, None, None, cx),
         "worlds-backups" => view.preview(Section::Worlds, Some("New World"), None, cx),
+        "worlds-datapacks" => {
+            let (hits, icons) = pack_hits();
+            view.preview_datapacks("New World", "", hits, icons, cx);
+        }
         "screenshots" => view.preview(Section::Screenshots, None, None, cx),
         "screenshot-view" => {
             view.preview(Section::Screenshots, None, None, cx);

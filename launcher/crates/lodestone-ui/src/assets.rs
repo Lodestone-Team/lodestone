@@ -135,6 +135,7 @@ static FILES: &[(&str, &[u8])] = embed!(
     "icons/code-compare.svg",
     "icons/inbox.svg",
     "icons/play.svg",
+    "icons/power-off.svg",
     // Modrinth's category icons, for the Content tab's filters.
     "images/categories/adventure.svg",
     "images/categories/any.svg",
