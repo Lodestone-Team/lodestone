@@ -14,7 +14,7 @@ use lodestone_minecraft::modrinth::{
 };
 use serde_json::json;
 
-use crate::instances::content::ContentView;
+use crate::instances::content::{ContentView, ListView};
 
 /// A square icon in two shades of `rgb`, with a lighter block in the middle.
 pub(super) fn icon(rgb: [u8; 3]) -> image::RgbaImage {
@@ -258,6 +258,7 @@ pub fn fill(instance_dir: &Path, scene: &str) {
             | "content-project"
             | "content-description"
             | "content-gallery"
+            | "content-page-scrolled"
             | "content-project-narrow"
             | "content-cf-project"
             | "content-formatted-shaders"
@@ -569,6 +570,7 @@ pub fn apply(scene: &str, view: &mut ContentView, cx: &mut Context<ContentView>)
                     "audio"
                 });
             browse.filters.open_source = true;
+            view.set_view(kind, ListView::Modrinth, cx);
         }
         "content-shaders-vanilla" => {
             view.preview_state(ContentKind::ShaderPack, None, HashMap::new(), icons(), cx)
@@ -657,6 +659,10 @@ pub fn apply(scene: &str, view: &mut ContentView, cx: &mut Context<ContentView>)
             }))
             .expect("a valid response");
             view.preview_results(ContentKind::ResourcePack, text, response.normalize(), cx);
+            // Typed in the installed list: its matches, then the way to Modrinth's.
+            if scene == "content-search-modrinth-only" {
+                view.set_view(ContentKind::ResourcePack, ListView::Modrinth, cx);
+            }
         }
         "content-browse" | "content-browse-idle" | "content-filters" => {
             view.preview_state(ContentKind::Mod, None, HashMap::new(), icons(), cx);
@@ -724,6 +730,7 @@ pub fn apply(scene: &str, view: &mut ContentView, cx: &mut Context<ContentView>)
             // Typed "so", or browsing with nothing typed (with the filter panel open).
             let text = if scene == "content-browse" { "so" } else { "" };
             view.preview_results(ContentKind::Mod, text, response.normalize(), cx);
+            view.set_view(ContentKind::Mod, ListView::Modrinth, cx);
             if scene == "content-filters" {
                 let browse = &mut view.section_mut(ContentKind::Mod).browse;
                 browse.filters_open = true;
@@ -752,6 +759,7 @@ pub fn apply(scene: &str, view: &mut ContentView, cx: &mut Context<ContentView>)
         "content-project"
         | "content-description"
         | "content-gallery"
+        | "content-page-scrolled"
         | "content-project-narrow" => {
             view.preview_state(ContentKind::Mod, None, HashMap::new(), icons(), cx);
             let versions = vec![
@@ -848,6 +856,11 @@ pub fn apply(scene: &str, view: &mut ContentView, cx: &mut Context<ContentView>)
                 _ => crate::instances::content::ProjectTab::Description,
             };
             view.set_project_tab(ContentKind::Mod, tab, cx);
+            // The description read part of the way down: "Back to top" shows.
+            if scene == "content-page-scrolled" {
+                view.page_scroll
+                    .set_offset(gpui::point(gpui::px(0.), gpui::px(-480.)));
+            }
         }
         _ => {}
     }

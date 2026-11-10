@@ -99,6 +99,28 @@ pub enum ProjectTab {
     Versions,
 }
 
+/// What a section's list shows: what is installed, or one platform's projects to
+/// browse. Each view has the list to itself, so a long installed list never pushes the
+/// projects to browse out of reach.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ListView {
+    #[default]
+    Installed,
+    Modrinth,
+    CurseForge,
+}
+
+impl ListView {
+    /// The search field's hint in this view.
+    fn placeholder(self) -> M {
+        match self {
+            ListView::Installed => M::SearchInstalled,
+            ListView::Modrinth => M::SearchModrinth,
+            ListView::CurseForge => M::SearchCurseForge,
+        }
+    }
+}
+
 /// A Modrinth project opened from Browse or a link.
 pub struct ProjectView {
     pub project_id: String,
@@ -147,6 +169,8 @@ pub struct Section {
     /// Whether updates were looked for once on their own, after the first listing.
     auto_checked: bool,
     pub browse: Browse,
+    /// What the list shows.
+    pub view: ListView,
     /// Modrinth projects whose Install was clicked, while their version is picked.
     pub resolving: HashSet<String>,
     /// The Installed list's scroll state and the entries it was last told about.
@@ -160,7 +184,7 @@ impl Section {
     fn new(kind: ContentKind, cx: &mut Context<ContentView>) -> Self {
         let search = cx.new(|cx| {
             TextInput::new(cx)
-                .with_placeholder(M::SearchInstalledOrModrinth)
+                .with_placeholder(ListView::default().placeholder())
                 .with_leading_icon(Icon::MagnifyingGlass)
                 .with_automation_id(format!("{}-search", kind.dir()))
         });
@@ -187,6 +211,7 @@ impl Section {
                 project: None,
                 task: None,
             },
+            view: ListView::default(),
             rows: gpui::ListState::new(0, gpui::ListAlignment::Top, crate::theme::px(400.)),
             plan: Vec::new(),
             load_task: None,
@@ -291,6 +316,8 @@ pub struct ContentView {
     pub panel_width: Option<f32>,
     /// The panel of this section is sliding shut; its project is let go once it has.
     pub panel_closing: Option<ContentKind>,
+    /// Where the open project's page is scrolled.
+    pub page_scroll: gpui::ScrollHandle,
     /// Parsed project descriptions, by project id.
     descriptions: HashMap<String, Arc<Vec<launcher_core::markdown::Block>>>,
     /// Whether the game was running at the last check, to reload when it stops.
@@ -364,6 +391,7 @@ impl ContentView {
             description_images: HashMap::new(),
             panel_width: None,
             panel_closing: None,
+            page_scroll: gpui::ScrollHandle::new(),
             descriptions: HashMap::new(),
             was_active: false,
             prerelease: false,
@@ -525,6 +553,36 @@ impl ContentView {
     pub fn select_kind(&mut self, kind: ContentKind, cx: &mut Context<Self>) {
         self.kind = kind;
         self.confirm_delete = None;
+        cx.notify();
+    }
+
+    /// Shows `view` in the list of `kind`, from its top. What is typed stays: it
+    /// searches the view switched to.
+    pub fn set_view(&mut self, kind: ContentKind, view: ListView, cx: &mut Context<Self>) {
+        if self.section(kind).view == view {
+            return;
+        }
+        let section = self.section_mut(kind);
+        section.view = view;
+        section.rows.scroll_to(gpui::ListOffset::default());
+        let search = section.browse.search.clone();
+        search.update(cx, |input, cx| {
+            input.set_placeholder(view.placeholder(), cx)
+        });
+        cx.notify();
+    }
+
+    /// Scrolls the list of `kind` back to its top.
+    pub fn scroll_list_to_top(&mut self, kind: ContentKind, cx: &mut Context<Self>) {
+        self.section(kind)
+            .rows
+            .scroll_to(gpui::ListOffset::default());
+        cx.notify();
+    }
+
+    /// Scrolls the open project's page back to its top.
+    pub fn scroll_page_to_top(&mut self, _kind: ContentKind, cx: &mut Context<Self>) {
+        self.page_scroll.set_offset(gpui::Point::default());
         cx.notify();
     }
 
@@ -1557,6 +1615,7 @@ impl ContentView {
             .ok();
         });
         self.panel_closing = None;
+        self.page_scroll.set_offset(gpui::Point::default());
         // A link to a version opens on the versions.
         let tab = if linked_version.is_some() {
             ProjectTab::Versions

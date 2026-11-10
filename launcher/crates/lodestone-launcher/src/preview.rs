@@ -114,6 +114,7 @@ pub const SCENES: &[&str] = &[
     "content-formatted-shaders",
     "content-description",
     "content-gallery",
+    "content-page-scrolled",
     "content-project-narrow",
     "content-cf-project",
     "loader-change",
