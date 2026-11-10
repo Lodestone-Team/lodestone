@@ -24,7 +24,7 @@
     // Higher than production (30 and 60) so the tests fit in a minute.
     { "name": "JOIN_LIMIT", "namespace_id": "1002", "simple": { "limit": 1000, "period": 60 } },
     { "name": "HOST_LIMIT", "namespace_id": "1003", "simple": { "limit": 1000, "period": 60 } },
-    // v2. Higher than production (10, 30, 120 and 60) so the tests fit in a minute.
+    // v2. Higher than production (10, 30, 120, 600, 40 and 60) so the tests fit in a minute.
     { "name": "FRIEND_CREATE_LIMIT", "namespace_id": "1004", "simple": { "limit": 1000, "period": 60 } },
     { "name": "KNOCK_LIMIT", "namespace_id": "1005", "simple": { "limit": 1000, "period": 60 } },
     { "name": "LOOKUP_LIMIT", "namespace_id": "1006", "simple": { "limit": 1000, "period": 60 } },
