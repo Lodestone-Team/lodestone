@@ -8,4 +8,9 @@ export type PublicUser = {
   is_owner: boolean;
   is_admin: boolean;
   permissions: UserPermission;
+  /**
+   * Whether the user can sign in with a password. Only Lodestone Host's owner has none,
+   * until they set one to share the core. Missing on older cores: everyone has one.
+   */
+  has_password?: boolean;
 };
