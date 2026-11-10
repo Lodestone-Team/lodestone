@@ -207,6 +207,10 @@ pub struct FriendShares {
     inner: Mutex<Inner>,
     access: Access,
     identity: Mutex<Option<CoreIdentity>>,
+    /// Where friends' info streams go: one server for the life of the shares, started
+    /// with the first friend host, so restarting the friend host doesn't leave one
+    /// behind each time.
+    info: std::sync::OnceLock<mpsc::Sender<(TunnelStream, PublicKey)>>,
 }
 
 impl FriendShares {
@@ -224,7 +228,23 @@ impl FriendShares {
             }),
             access: Arc::default(),
             identity: Mutex::new(None),
+            info: std::sync::OnceLock::new(),
         }
+    }
+
+    /// Where friends' info streams go, starting the server for them the first time.
+    fn info_streams(&self, state: &AppState) -> mpsc::Sender<(TunnelStream, PublicKey)> {
+        self.info
+            .get_or_init(|| {
+                let (info, streams) = mpsc::channel(16);
+                tokio::spawn(serve_friend_info(
+                    state.clone(),
+                    self.access.clone(),
+                    streams,
+                ));
+                info
+            })
+            .clone()
     }
 
     fn identity_file(&self) -> PathBuf {
@@ -487,7 +507,11 @@ impl FriendShares {
             }
             None => {
                 let identity = self.identity().await?;
-                let handler = CoreFriendStreams::new(state.clone(), self.access.clone());
+                let handler = CoreFriendStreams {
+                    state: state.clone(),
+                    access: self.access.clone(),
+                    info: self.info_streams(state),
+                };
                 let host = FriendHost::start(
                     &identity,
                     friends,
@@ -540,6 +564,12 @@ impl FriendShares {
         if let Some(host) = self.inner.lock().await.host.take() {
             host.stop().await;
         }
+    }
+
+    /// The info streams' channel, once its server started.
+    #[cfg(test)]
+    pub(crate) fn info_for_tests(&self) -> Option<mpsc::Sender<(TunnelStream, PublicKey)>> {
+        self.info.get().cloned()
     }
 
     /// Which instances each friend may reach now.
@@ -615,18 +645,6 @@ struct CoreFriendStreams {
     state: AppState,
     access: Access,
     info: mpsc::Sender<(TunnelStream, PublicKey)>,
-}
-
-impl CoreFriendStreams {
-    fn new(state: AppState, access: Access) -> Self {
-        let (info, streams) = mpsc::channel(16);
-        tokio::spawn(serve_friend_info(state.clone(), access.clone(), streams));
-        Self {
-            state,
-            access,
-            info,
-        }
-    }
 }
 
 fn may_reach(access: &Access, friend: &PublicKey, uuid: &InstanceUuid) -> bool {

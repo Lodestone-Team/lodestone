@@ -492,12 +492,29 @@ async fn the_friend_list_is_the_owners_and_only_moves_forward() {
     assert_eq!(view.fingerprint, body_fingerprint(&core).await);
 
     // nothing shared with anyone: the friend host stops
+    let info = core
+        .state
+        .connect
+        .friends
+        .info_for_tests()
+        .expect("started");
     let none = json!({"version": 2, "friends": [{"key": ben, "name": "Ben", "secret": secret, "shared": []}]});
     let (status, body) = core
         .call_json(Method::PUT, "/connect/friends", &core.owner_jwt, none)
         .await;
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body["host"], Value::Null);
+
+    // sharing again starts a new friend host, but the same info server serves it
+    let mut again = list.clone();
+    again["version"] = json!(3);
+    let (status, body) = core
+        .call_json(Method::PUT, "/connect/friends", &core.owner_jwt, again)
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert!(body["host"].is_object());
+    let info_again = core.state.connect.friends.info_for_tests().unwrap();
+    assert!(info.same_channel(&info_again), "no second info server");
     core.state.connect.stop_all().await;
 }
 
