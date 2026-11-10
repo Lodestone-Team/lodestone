@@ -1,16 +1,16 @@
 //! The launcher's data directory.
 //!
-//! On macOS it is `~/Library/Application Support/Lodestone Launcher/`. The
-//! `LODESTONE_LAUNCHER_DATA_DIR` environment variable replaces it, for development.
+//! On macOS it is `~/Library/Application Support/Lodestone Launcher/`, unless the
+//! person moved it to another folder (Settings › Storage, [`crate::data_move`]) or
+//! the `LODESTONE_LAUNCHER_DATA_DIR` environment variable replaces it, for
+//! development. `launcher_control::paths` finds it, for the CLI too.
 //! Nothing in it is secret: tokens live in the [`SecretStore`](crate::SecretStore).
 
-use std::{
-    ffi::OsString,
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 
-/// The folder name under the platform's data directory.
-pub const APP_DIR_NAME: &str = "Lodestone Launcher";
+pub use launcher_control::paths::{
+    APP_DIR_NAME, DataDirLocation, DataDirSource, LOCATION_FILE, locate as locate_data_dir,
+};
 
 /// The paths of the launcher's files.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -21,17 +21,7 @@ pub struct DataDir {
 impl DataDir {
     /// The data directory for this user, or `None` if the home directory is unknown.
     pub fn locate() -> Option<Self> {
-        Self::locate_with(
-            std::env::var_os("LODESTONE_LAUNCHER_DATA_DIR"),
-            dirs::data_dir(),
-        )
-    }
-
-    fn locate_with(env_override: Option<OsString>, platform_dir: Option<PathBuf>) -> Option<Self> {
-        if let Some(dir) = env_override.filter(|dir| !dir.is_empty()) {
-            return Some(Self::at(PathBuf::from(dir)));
-        }
-        platform_dir.map(|dir| Self::at(dir.join(APP_DIR_NAME)))
+        locate_data_dir().map(|location| Self::at(location.dir))
     }
 
     /// A data directory at `root`, for tests and the offscreen screenshots.
@@ -94,13 +84,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn uses_the_platform_data_dir() {
-        let dir = DataDir::locate_with(None, Some("/Users/me/Library/Application Support".into()))
-            .unwrap();
-        assert_eq!(
-            dir.root(),
-            Path::new("/Users/me/Library/Application Support/Lodestone Launcher")
-        );
+    fn files_are_in_the_root() {
+        let dir = DataDir::at("/Users/me/Library/Application Support/Lodestone Launcher");
         assert_eq!(
             dir.accounts_file(),
             Path::new("/Users/me/Library/Application Support/Lodestone Launcher/accounts.json")
@@ -109,15 +94,6 @@ mod tests {
             dir.settings_file(),
             Path::new("/Users/me/Library/Application Support/Lodestone Launcher/settings.json")
         );
-    }
-
-    #[test]
-    fn the_env_var_overrides_it() {
-        let dir = DataDir::locate_with(Some("/tmp/dev".into()), Some("/ignored".into())).unwrap();
-        assert_eq!(dir.root(), Path::new("/tmp/dev"));
-        let dir = DataDir::locate_with(Some("".into()), Some("/platform".into())).unwrap();
-        assert_eq!(dir.root(), Path::new("/platform/Lodestone Launcher"));
-        assert_eq!(DataDir::locate_with(None, None), None);
     }
 
     #[cfg(target_os = "macos")]

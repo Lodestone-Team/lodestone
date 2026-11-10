@@ -831,6 +831,41 @@ pub fn text(message: M) -> &'static str {
         }
         M::StorageOther => "Réglages et autres fichiers",
         M::StorageCacheAndLogs => "Cache et journaux",
+        M::StorageDataFolder => "Dossier de données",
+        M::StorageDataFolderHint => {
+            "Vos instances et mondes, comptes, réglages et fichiers du jeu. Déplacez-le pour les garder sur un autre disque."
+        }
+        M::StorageMoveEllipsis => "Déplacer…",
+        M::StorageMoveBackEllipsis => "Ramener…",
+        M::StorageMoveHere => "Déplacer ici",
+        M::StorageMoveCantUse => "Impossible de déplacer les données là\u{a0}: {error}",
+        M::StorageMoveStopGame => "Arrêtez le jeu avant de déplacer le dossier de données.",
+        M::StorageMoveTitle => "Déplacer vos données\u{a0}?",
+        M::StorageMoveBody => {
+            "Tout le dossier de données va dans {to}\u{a0}: vos instances et mondes, comptes, réglages et fichiers du jeu. Le launcher redémarre une fois terminé."
+        }
+        M::StorageMoveBackTitle => "Ramener vos données\u{a0}?",
+        M::StorageMoveBackBody => {
+            "Tout revient dans le dossier par défaut, {to}. Le launcher redémarre une fois terminé."
+        }
+        M::StorageMoveSize => "Cela représente {size}.",
+        M::StorageMoveConfirm => "Déplacer et redémarrer",
+        M::StorageMoving => "Déplacement de vos données…",
+        M::StorageMovingTo => "Vers {to}",
+        M::StorageMovingPreparing => "Préparation…",
+        M::StorageMovingProgress => "{done} sur {total}",
+        M::StorageMovingNote => "Annuler les laisse où elles étaient.",
+        M::StorageMoveFailedTitle => "Impossible de déplacer vos données",
+        M::StorageMoveFailedBody => "Vos données sont toujours dans {from}. {error}",
+        M::StorageMoveRestartFailed => {
+            "Vos données ont été déplacées. Quittez le launcher et rouvrez-le pour utiliser le nouveau dossier."
+        }
+        M::DataFolderMissingTitle => "Dossier de données introuvable",
+        M::DataFolderMissingBody => {
+            "Vos instances et mondes sont dans {path}, qui est introuvable. S'il est sur un disque non connecté, connectez-le et réessayez. Le dossier par défaut démarre vide, et vos données restent où elles sont."
+        }
+        M::DataFolderUseDefault => "Utiliser le dossier par défaut",
+        M::DataFolderQuit => "Quitter",
         M::StorageLogs => "Journaux et rapports de plantage",
         M::StorageOldLogs => "{size} de plus de 30\u{a0}jours",
         M::StorageVersions => "Versions",

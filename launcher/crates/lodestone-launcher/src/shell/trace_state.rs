@@ -41,6 +41,8 @@ impl Modal {
             Modal::DisableLauncherIdentity { .. } => "disable_launcher_identity",
             Modal::Unsaved { .. } => "unsaved_changes",
             Modal::StorageClean { .. } => "storage_clean",
+            Modal::DataMove { .. } => "data_move",
+            Modal::DataFolderMissing { .. } => "data_folder_missing",
         }
     }
 }

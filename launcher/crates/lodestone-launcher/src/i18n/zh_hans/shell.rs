@@ -703,6 +703,37 @@ pub fn text(message: M) -> &'static str {
         }
         M::StorageOther => "设置和其他文件",
         M::StorageCacheAndLogs => "缓存和日志",
+        M::StorageDataFolder => "数据文件夹",
+        M::StorageDataFolderHint => {
+            "你的实例和世界、账户、设置和游戏文件。移动它可以把它们放到另一个磁盘上。"
+        }
+        M::StorageMoveEllipsis => "移动…",
+        M::StorageMoveBackEllipsis => "移回…",
+        M::StorageMoveHere => "移到这里",
+        M::StorageMoveCantUse => "无法把数据移到那里：{error}",
+        M::StorageMoveStopGame => "请先停止游戏，再移动数据文件夹。",
+        M::StorageMoveTitle => "移动你的数据？",
+        M::StorageMoveBody => {
+            "数据文件夹中的所有内容都会移到 {to}：你的实例和世界、账户、设置和游戏文件。完成后启动器会重新启动。"
+        }
+        M::StorageMoveBackTitle => "把数据移回去？",
+        M::StorageMoveBackBody => "所有内容都会移回默认文件夹 {to}。完成后启动器会重新启动。",
+        M::StorageMoveSize => "共 {size}。",
+        M::StorageMoveConfirm => "移动并重启",
+        M::StorageMoving => "正在移动你的数据…",
+        M::StorageMovingTo => "移到 {to}",
+        M::StorageMovingPreparing => "正在准备…",
+        M::StorageMovingProgress => "{done} / {total}",
+        M::StorageMovingNote => "取消后数据会留在原处。",
+        M::StorageMoveFailedTitle => "无法移动你的数据",
+        M::StorageMoveFailedBody => "你的数据仍在 {from}。{error}",
+        M::StorageMoveRestartFailed => "数据已移动。请退出启动器并重新打开，以使用新文件夹。",
+        M::DataFolderMissingTitle => "找不到你的数据文件夹",
+        M::DataFolderMissingBody => {
+            "你的实例和世界在 {path}，但它不存在。如果它在未连接的磁盘上，请连接后重试。默认文件夹是空的，你的数据会留在原处。"
+        }
+        M::DataFolderUseDefault => "使用默认文件夹",
+        M::DataFolderQuit => "退出",
         M::StorageLogs => "日志和崩溃报告",
         M::StorageOldLogs => "{size} 超过 30 天",
         M::StorageVersions => "版本",

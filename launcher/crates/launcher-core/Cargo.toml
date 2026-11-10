@@ -17,6 +17,7 @@ futures.workspace = true
 http_client.workspace = true
 http_client_tls.workspace = true
 image.workspace = true
+launcher-control.workspace = true
 libc.workspace = true
 lodestone_connect.workspace = true
 lodestone_minecraft.workspace = true
