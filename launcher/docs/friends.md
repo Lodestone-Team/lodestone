@@ -170,9 +170,13 @@ In the launcher, a server joined this way is a `FriendServer` with the id
 ## The core's friend list
 
 The owner's launcher keeps each of the owner's cores up to date:
-`PUT /connect/friends` with `{version, friends: [{key, name, secret, shared}]}`, where
-`secret` is that friend's core secret for this core. The core refuses a version lower
-than the one it has. These routes:
+`PUT /connect/friends` with `{version, friends: [{key, name, secret, shared, hidden}]}`,
+where `secret` is that friend's core secret for this core. The core refuses a version
+lower than the one it has. `hidden` (optional, false when missing) is for friends the
+owner hides from: the core keeps what's shared with them, so unhiding restores it, but
+publishes no records for them, refuses their connections and serves them nothing.
+`GET /connect/friends` reports each friend's `shared` and `hidden`, never secrets. These
+routes:
 
 - need the **owner**, not just an instance's settings permission;
 - are refused unless the request arrived over the core's HTTPS or from loopback, since
@@ -184,11 +188,20 @@ changes and after sharing changes, and shows whether the last sync worked. A rem
 reaches a core only through that sync, so a core whose Host isn't running keeps its old
 list until it next starts (and syncs) or is reached.
 
-A core shares with at most 120 friends: each gets one or two records, and the service
-takes at most 256 from a core.
+A core shares with at most 120 friends (hidden friends don't count): each gets one or
+two records, and the service takes at most 256 from a core.
 
 The core keeps its list in `stores/connect/friends/list.json` (0600 on Unix; on Windows, the
 user's profile folder already limits it to that user).
+
+If the friend host can't start (offline, say), the core still saves the list, answers
+the `PUT`, and tries again every minute, as it does at start. Until it starts,
+`GET /connect/friends` shows the host as `reconnecting` with the reason in `problem`.
+
+The friend certificate (`core.json`) is made only when there is none. A damaged one is
+moved aside to `core.json.damaged-<seconds since 1970>` and replaced, with a warning in
+the log; friends then need the owner's next state, which names the new certificate. Any
+other read error (permissions, a disk problem) is reported and the file is left alone.
 
 ## Mods
 
@@ -366,6 +379,15 @@ edge, missing invisible characters and look-alikes in names, secrets in `Debug` 
 friend links to any host over plain HTTP (now only the configured service), a record cap
 mismatch, cross-site use of unauthenticated reads, forwarded requests counted as
 loopback, and a missing "retire my identity". All are fixed or described above.
+
+The pull request's review then found, in the service and the core: slots could fill
+storage for 90 days (now 21 days, with a per-address budget for new slots); read limits
+allowed about a million Durable Object calls a day per address (now smaller, with slot
+reads cached at the edge); any session could take a live session's lookup ids (now
+only once the holder has gone quiet); a friend host that failed to start during a sync
+was never tried again; an unreadable friend certificate was silently replaced; restarting
+the friend host leaked a task; and the loopback check knew few proxy headers. All are
+fixed or described above.
 
 What the first review changed:
 
