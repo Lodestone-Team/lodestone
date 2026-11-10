@@ -21,6 +21,7 @@ pub struct ListRow {
     detail: Option<SharedString>,
     selected: bool,
     disabled: bool,
+    danger: bool,
     on_click: Option<ClickHandler>,
 }
 
@@ -33,6 +34,7 @@ impl ListRow {
             detail: None,
             selected: false,
             disabled: false,
+            danger: false,
             on_click: None,
         }
     }
@@ -59,6 +61,12 @@ impl ListRow {
         self
     }
 
+    /// In red, for a menu item that removes or deletes something.
+    pub fn danger(mut self, danger: bool) -> Self {
+        self.danger = danger;
+        self
+    }
+
     pub fn on_click(
         mut self,
         handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
@@ -79,7 +87,9 @@ impl ListRow {
 
 impl RenderOnce for ListRow {
     fn render(self, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
-        let icon_color = if self.selected {
+        let icon_color = if self.danger {
+            colors::RED_200
+        } else if self.selected {
             colors::WHITE.opacity(50)
         } else {
             colors::GRAY_FADED.opacity(30)
@@ -106,11 +116,21 @@ impl RenderOnce for ListRow {
             .text_size(theme::text_size(text::MEDIUM))
             .line_height(rems(1.25))
             .font_weight(weights::MEDIUM.into())
-            .text_color(crate::theme::ink::text())
+            .text_color(if self.danger {
+                colors::RED_200
+            } else {
+                crate::theme::ink::text()
+            })
             .when(self.disabled, |this| this.opacity(0.4))
             .when(!self.disabled, |this| {
-                this.cursor_pointer()
-                    .hover(|style| style.bg(colors::GRAY_700).text_color(colors::WHITE))
+                let danger = self.danger;
+                this.cursor_pointer().hover(move |style| {
+                    if danger {
+                        style.bg(colors::RED_300.opacity(15))
+                    } else {
+                        style.bg(colors::GRAY_700).text_color(colors::WHITE)
+                    }
+                })
             })
             .when(self.selected, |this| {
                 this.bg(colors::GRAY_750)

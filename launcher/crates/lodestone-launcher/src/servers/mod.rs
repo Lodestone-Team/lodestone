@@ -473,6 +473,8 @@ pub struct Servers {
     pub busy: HashMap<RowKey, Busy>,
     /// A message at the top of the page.
     pub notice: Option<Notice>,
+    /// The core (by uuid) whose "…" menu is open.
+    core_menu: Option<String>,
     dialog: DialogSlot<Servers, (Entity<AddServerDialog>, Subscription)>,
     pub prompt: DialogSlot<Servers, UpdatePrompt>,
     /// A server's page, shown instead of the list (see [`detail`]).
@@ -523,6 +525,7 @@ impl Servers {
             links_revision: 0,
             busy: HashMap::new(),
             notice: None,
+            core_menu: None,
             dialog: DialogSlot::new(|this: &mut Servers| &mut this.dialog),
             prompt: DialogSlot::new(|this: &mut Servers| &mut this.prompt),
             detail: None,
@@ -1306,6 +1309,49 @@ impl Servers {
             }));
         }
         self.refresh(index, cx);
+        cx.notify();
+    }
+
+    /// Opens core `uuid`'s "…" menu, or closes it when it is open.
+    pub(crate) fn toggle_core_menu(&mut self, uuid: &str, cx: &mut Context<Self>) {
+        self.core_menu = if self.core_menu.as_deref() == Some(uuid) {
+            None
+        } else {
+            Some(uuid.to_string())
+        };
+        cx.notify();
+    }
+
+    pub(crate) fn close_core_menu(&mut self, cx: &mut Context<Self>) {
+        if self.core_menu.take().is_some() {
+            cx.notify();
+        }
+    }
+
+    /// Core `uuid`'s "…" menu is open.
+    pub(crate) fn core_menu_open(&self, uuid: &str) -> bool {
+        self.core_menu.as_deref() == Some(uuid)
+    }
+
+    /// Copies the owner API key that claiming core `index` here gave, and says so.
+    pub fn copy_owner_key(&mut self, index: usize, cx: &mut Context<Self>) {
+        let Some(core) = self.cores.get(index) else {
+            return;
+        };
+        let name = core.saved.name.clone();
+        let Some(key) = self
+            .local_credentials(&core.saved.uuid)
+            .and_then(|credentials| credentials.api_key.clone())
+        else {
+            return;
+        };
+        cx.write_to_clipboard(gpui::ClipboardItem::new_string(key));
+        self.notice = Some(Notice::success(move || {
+            (
+                tr!(M::OwnerKeyCopied, name = name),
+                t(M::OwnerKeyCopiedHint).into(),
+            )
+        }));
         cx.notify();
     }
 
@@ -2336,6 +2382,11 @@ impl Servers {
             .into_iter()
             .map(|(core, server, instance)| ((core, server), instance))
             .collect();
+    }
+
+    /// Opens core `uuid`'s "…" menu, for the offscreen screenshots.
+    pub fn preview_core_menu(&mut self, uuid: &str) {
+        self.core_menu = Some(uuid.to_string());
     }
 
     pub fn preview_busy(&mut self, core: &str, server: &str, busy: Busy) {
