@@ -533,11 +533,6 @@ pub const METHODS: &[Method] = &[
         "Moves a backup to the Trash.",
         worlds::delete_backup,
     ),
-    method(
-        "worlds.download",
-        "Downloads a server's world from its core into an instance.",
-        servers::download_world,
-    ),
     // accounts
     method(
         "accounts.list",
@@ -647,11 +642,6 @@ pub const METHODS: &[Method] = &[
         "servers.host",
         "Hosts an instance's modpack as a new server on a core.",
         servers::host,
-    ),
-    method(
-        "servers.resource_pack",
-        "Saves a server's resource pack into an instance.",
-        servers::resource_pack,
     ),
     method(
         "prompts.list",
@@ -1702,7 +1692,6 @@ mod tests {
         "worlds.restore",
         "worlds.delete",
         "worlds.delete_backup",
-        "worlds.download",
         "accounts.switch",
         "accounts.add_offline",
         "accounts.remove",
@@ -1722,7 +1711,6 @@ mod tests {
         "servers.link",
         "servers.unlink",
         "servers.host",
-        "servers.resource_pack",
         "prompts.answer",
         "friends.open",
         "friends.join",

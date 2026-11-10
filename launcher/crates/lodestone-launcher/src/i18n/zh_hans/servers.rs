@@ -23,15 +23,10 @@ pub fn text(message: M) -> &'static str {
         M::ProductCoreHint => "独立的核心（服务器程序或 Docker）",
         M::ConnectedAsOwner => "已以所有者身份连接到 {name}",
         M::ConnectedMadeOwner => {
-            "它还没有所有者，因此 Lodestone Launcher 创建了所有者账户 {username}。密码显示在核心的卡片上，请妥善保存。"
+            "它还没有所有者，因此 Lodestone Launcher 创建了所有者账户 {username}。"
         }
         M::ConnectedOwnerKey => "此启动器现在拥有它的所有者密钥。你可以在核心的控制面板中撤销它。",
-        M::OwnerSignIn => "所有者登录",
         M::OwnerKey => "所有者密钥",
-        M::ShowPassword => "显示",
-        M::HidePassword => "隐藏",
-        M::CopyUsername => "复制用户名",
-        M::CopyPassword => "复制密码",
         M::CopyApiKey => "复制 API 密钥",
         M::StartedBy => "由 {who} 启动",
         M::StartedDirectly => "直接启动",
@@ -87,7 +82,6 @@ pub fn text(message: M) -> &'static str {
         M::CreateInstance => "创建实例",
         M::StartAndJoin => "启动并加入",
         M::Play => "开始游戏",
-        M::More => "更多…",
         M::InstanceReady => "实例已就绪",
         M::AddressHidden => "所有者未共享此服务器的地址。",
 
@@ -293,9 +287,6 @@ pub fn text(message: M) -> &'static str {
         M::ChatHint => "文字会通过 /say 发给所有人。以 / 开头可执行命令。",
         M::Console => "控制台",
         M::JumpToLatest => "跳到最新",
-        M::Players => "玩家",
-        M::NoOneOnline => "没有人在线。",
-        M::ServerNotRunning => "服务器未在运行。",
         M::MinecraftAccount => "Minecraft 账户",
         M::CoreTooOldToLink => "此核心版本过旧，无法关联 Minecraft 账户。",
         M::Unlink => "取消关联",
@@ -352,48 +343,6 @@ pub fn text(message: M) -> &'static str {
         }
         M::NoInstancesYet => "你还没有实例。请先创建一个。",
 
-        M::ANewInstance => "新实例",
-        M::NewMatchingInstance => "新的匹配实例",
-        M::NoResourcePack => "此服务器没有设置资源包。",
-        M::DownloadToInstance => "下载到实例",
-        M::PackNote => "Minecraft 会在你加入时下载它；保存到 {target} 后，离线时也能使用。",
-        M::PackNoteRequired => {
-            "玩家必须接受它才能加入。Minecraft 会在你加入时下载它；保存到 {target} 后，离线时也能使用。"
-        }
-        M::PackNoteNoSha => {
-            "服务器没有提供它的 SHA-1。Minecraft 会在你加入时下载它；保存到 {target} 后，离线时也能使用。"
-        }
-        M::PackNoteRequiredNoSha => {
-            "玩家必须接受它才能加入。服务器没有提供它的 SHA-1。Minecraft 会在你加入时下载它；保存到 {target} 后，离线时也能使用。"
-        }
-        M::InstanceLabel => "实例",
-        M::ResourcePack => "资源包",
-        M::World => "世界",
-        M::WorldCopyHint => {
-            "服务器世界的单人游戏副本，放在一个新的世界文件夹中。你在其中做的更改只保留在{computer} 上。"
-        }
-        M::StopToDownload => "请先停止服务器再下载其世界：运行中的服务器可能正在写入它。",
-        M::PasswordNotKeptDownload => "你的密码只会在为这次下载登录时发送一次，不会被保存。",
-        M::DownloadWorld => "下载世界",
-        M::WorldNeedsPassword => {
-            "请输入你在此核心上的用户名和密码。下载世界需要读取服务器文件的权限，而{computer} 上的密钥没有此权限。"
-        }
-        M::SignInToSeePack => "登录此核心以查看服务器的资源包。",
-        M::CreatingMatching => "正在创建匹配的实例",
-        M::CreatingMatchingBody => {
-            "匹配实例会在服务器的模组下载完成后创建。届时请再次打开服务器的“{more}”，选择它，然后重新下载。"
-        }
-        M::CouldNotCreateInstance => "无法创建实例。",
-        M::QuitGameFirst => "请先退出该实例中的游戏。",
-        M::WorldZipping => "核心正在压缩世界…",
-        M::WorldDownloading => "正在下载…",
-        M::WorldDownloadingOf => "正在下载：{done} / {total}",
-        M::WorldDownloadingSize => "正在下载：{done}",
-        M::WorldImporting => "正在导入…",
-        M::WorldImportingOf => "正在导入：{done} / {total}",
-        M::WorldImported => {
-            "已作为世界“{folder}”导入到 {instance}。请从“单人游戏”中打开它；它是一个副本，因此更改不会同步回服务器。"
-        }
         M::FriendsTitle => "好友的服务器",
         M::FriendsHint => "好友通过 Lodestone Connect 邀请链接与你共享的服务器。",
         M::JoinAFriend => "加入好友",
@@ -485,9 +434,6 @@ pub fn text(message: M) -> &'static str {
         M::AcceptEula => "接受 Minecraft EULA",
         M::EulaAccepted => "你已为此服务器接受 Minecraft EULA，现在可以启动了。",
         M::EulaAcceptFailed => "无法接受 EULA：{error}",
-        M::PackSaved => {
-            "已保存到实例的资源包中，文件名为 {file}。在资源包列表中启用它，即可在其他服务器上使用。"
-        }
     }
 }
 

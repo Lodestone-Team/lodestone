@@ -11,9 +11,7 @@
 //! - [`join`]: where to join a server;
 //! - [`live`]: a server's live state, players and console, and linking Minecraft
 //!   accounts;
-//! - [`worlds`]: a server's world as a singleplayer copy;
 //! - [`hosting`]: "Host this modpack", a launcher instance as a new server;
-//! - [`resource_pack`]: a server's resource pack;
 //! - [`lan`]: worlds opened to LAN on this network;
 //! - [`local_claim`]: "Connect as owner" for a core on this computer;
 //! - [`connect`] and [`friends`]: servers friends share with Lodestone Connect invite
@@ -23,6 +21,7 @@
 pub mod admin;
 pub mod client;
 pub mod connect;
+pub mod download;
 pub mod friends;
 pub mod hosting;
 pub mod join;
@@ -31,13 +30,11 @@ pub mod link;
 pub mod live;
 pub mod local_claim;
 pub mod models;
-pub mod resource_pack;
 pub mod server_list;
 pub mod store;
 pub mod sync;
 pub mod tls;
 pub mod trust;
-pub mod worlds;
 
 pub use client::{CoreClient, CoreError, PackFetch, parse_address};
 pub use models::{

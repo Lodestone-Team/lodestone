@@ -278,14 +278,6 @@ impl CoreClient {
         Ok(parse_buffer(events, server))
     }
 
-    /// The players on `server` now.
-    pub async fn players(&self, key: &Secret, server: &str) -> Result<Vec<Player>, CoreError> {
-        let path = format!("instance/{}/players", segment(server)?);
-        let mut players: Vec<Player> = self.json_with_key(Method::GET, &path, key, None).await?;
-        players.sort_by_key(|p| p.name.to_lowercase());
-        Ok(players)
-    }
-
     /// Runs `command` (without a leading `/`) on `server`'s console.
     pub async fn send_command(
         &self,
