@@ -229,6 +229,18 @@ pub enum RemoteIcon {
 pub enum ContentEvent {
     /// Open "New instance" with Fabric chosen.
     NewFabricInstance,
+    /// A mod being turned off has mods that can't load without it: ask whether to
+    /// turn those off too (then [`ContentView::disable_mods`]).
+    ConfirmDisable(DisablePrompt),
+}
+
+/// "Turn off Fabric API?": a mod and the enabled mods that need it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct DisablePrompt {
+    pub instance_id: String,
+    pub file_name: String,
+    pub name: String,
+    pub dependents: Vec<launcher_core::content::mod_finder::Dependent>,
 }
 
 pub struct ContentView {
@@ -258,6 +270,10 @@ pub struct ContentView {
     pub confirm_delete: Option<(ContentKind, String)>,
     /// The file being moved to the Trash, off the window's thread, and its instance.
     pub deleting: Option<(String, ContentKind, String)>,
+    /// The mod whose toggle was turned off, while the mods that need it are looked
+    /// for (every enabled jar is read).
+    pub checking_dependents: Option<String>,
+    _dependents: Option<Task<()>>,
     _delete: Option<Task<()>>,
     remote_icons: HashMap<String, RemoteIcon>,
     /// Images of project descriptions, by URL.
@@ -328,6 +344,8 @@ impl ContentView {
             message: None,
             confirm_delete: None,
             deleting: None,
+            checking_dependents: None,
+            _dependents: None,
             _delete: None,
             remote_icons: HashMap::new(),
             description_images: HashMap::new(),
@@ -963,31 +981,103 @@ impl ContentView {
         self.reload(kind, cx);
     }
 
+    /// A mod's toggle. Turning one off first looks for the enabled mods that can't
+    /// load without it; when there are some, the window asks whether to turn them off
+    /// too ([`ContentEvent::ConfirmDisable`]) instead.
     pub fn set_mod_enabled(&mut self, file_name: String, enabled: bool, cx: &mut Context<Self>) {
+        if enabled {
+            self.apply_mods_enabled(&[file_name], true, cx);
+            return;
+        }
+        if self.checking_dependents.is_some() || !self.can_change(cx) {
+            return;
+        }
+        let Some((id, dirs, _)) = self.context(cx) else {
+            return;
+        };
+        let name = self
+            .section(ContentKind::Mod)
+            .items()
+            .iter()
+            .find(|item| item.file.file_name == file_name)
+            .map_or_else(|| file_name.clone(), |item| item.display_name());
+        self.checking_dependents = Some(file_name.clone());
+        let work = {
+            let file_name = file_name.clone();
+            cx.background_spawn(async move {
+                launcher_core::content::mod_finder::dependents(&dirs, &file_name)
+            })
+        };
+        self._dependents = Some(cx.spawn(async move |this, cx| {
+            let dependents = work.await;
+            this.update(cx, |this, cx| {
+                this.checking_dependents = None;
+                if this.instance_id.as_deref() != Some(id.as_str()) {
+                    cx.notify();
+                    return;
+                }
+                if dependents.is_empty() {
+                    this.apply_mods_enabled(&[file_name], false, cx);
+                } else {
+                    cx.emit(ContentEvent::ConfirmDisable(DisablePrompt {
+                        instance_id: id,
+                        file_name,
+                        name,
+                        dependents,
+                    }));
+                    cx.notify();
+                }
+            })
+            .ok();
+        }));
+        cx.notify();
+    }
+
+    /// Turns off mods of `instance_id`, from the prompt that asked about the mods
+    /// needing one: that mod alone, or with them.
+    pub fn disable_mods(
+        &mut self,
+        instance_id: &str,
+        file_names: &[String],
+        cx: &mut Context<Self>,
+    ) {
+        if self.instance_id.as_deref() == Some(instance_id) {
+            self.apply_mods_enabled(file_names, false, cx);
+        }
+    }
+
+    /// Turns mods on or off, then reads the folder again.
+    fn apply_mods_enabled(&mut self, file_names: &[String], enabled: bool, cx: &mut Context<Self>) {
         if !self.can_change(cx) {
             return;
         }
         let Some((_, dirs, _)) = self.context(cx) else {
             return;
         };
-        match files::set_mod_enabled(&dirs, &file_name, enabled) {
-            Ok(new_name) => {
-                self.message = None;
-                // Show it at once: reading a large folder again takes a moment, and
-                // until then the row would show the old state and the old name.
-                if let Load::Ready(listing) = &mut self.section_mut(ContentKind::Mod).listing
-                    && let Some(item) = listing
-                        .items
-                        .iter_mut()
-                        .find(|item| item.file.file_name == file_name)
-                {
-                    item.file.file_name = new_name;
-                    item.enabled = enabled;
+        self.message = None;
+        let mut errors = Vec::new();
+        for file_name in file_names {
+            match files::set_mod_enabled(&dirs, file_name, enabled) {
+                Ok(new_name) => {
+                    // Show it at once: reading a large folder again takes a moment, and
+                    // until then the row would show the old state and the old name.
+                    if let Load::Ready(listing) = &mut self.section_mut(ContentKind::Mod).listing
+                        && let Some(item) = listing
+                            .items
+                            .iter_mut()
+                            .find(|item| item.file.file_name == *file_name)
+                    {
+                        item.file.file_name = new_name;
+                        item.enabled = enabled;
+                    }
                 }
-                cx.notify();
+                Err(err) => errors.push(err.to_string()),
             }
-            Err(err) => self.message = Some((err.to_string().into(), true)),
         }
+        if !errors.is_empty() {
+            self.message = Some((errors.join(" ").into(), true));
+        }
+        cx.notify();
         self.reload(ContentKind::Mod, cx);
         // A shader mod may have been turned on or off.
         self.reload(ContentKind::ShaderPack, cx);

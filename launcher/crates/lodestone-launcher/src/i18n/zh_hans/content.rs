@@ -247,6 +247,12 @@ pub fn text(message: M) -> &'static str {
         M::WatchFolderPrompt => "监视此文件夹",
         M::CouldntAddDownload => "无法添加 {name}：{error}",
         M::AddedDownloads => "已添加 {names}。",
+        M::DisableModTitle => "要关闭 {name} 吗？",
+        M::DisableModOnlyWarning => {
+            "如果只关闭 {name}，在它们也关闭或重新开启 {name} 之前，游戏将无法启动。"
+        }
+        M::DisableModAll => "全部关闭",
+        M::DisableModOnly => "仅关闭 {name}",
     }
 }
 
@@ -255,6 +261,7 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::Downloads => ["{count} 次下载"; 2],
         P::Follows => ["{count} 人关注"; 2],
         P::Followers => ["{count} 位关注者"; 2],
+        P::NeededBy => ["以下 {count} 个模组需要 {name}，没有它将无法加载："; 2],
         P::MoreVersions => ["Modrinth 上还有 {count} 个版本。"; 2],
     }
 }
