@@ -390,15 +390,12 @@ fn rail_instance(
         .hover(|style| style.bg(crate::skin::sidebar_inks().fill))
         .when(is_selected, |this| {
             this.bg(crate::skin::sidebar_inks().fill)
-                // a linked instance's outline stands for its border
-                .when(linked.is_none(), |this| {
-                    this.border_color(crate::theme::ink::border())
-                })
-        })
-        .when(linked.is_some(), |this| {
-            this.child(linked_outline(is_selected, false))
+                .border_color(crate::theme::ink::border())
         })
         .child(icon)
+        .when(linked.is_some(), |this| {
+            this.child(linked_badge(px(14.), px(3.), cx))
+        })
         .when(active, |this| {
             this.child(
                 div()
@@ -700,10 +697,7 @@ fn instance_row(
         .hover(|style| style.bg(crate::skin::sidebar_inks().fill))
         .when(is_selected, |this| {
             this.bg(crate::skin::sidebar_inks().fill)
-                // a linked instance's outline stands for its border
-                .when(linked.is_none(), |this| {
-                    this.border_color(crate::theme::ink::border())
-                })
+                .border_color(crate::theme::ink::border())
         })
         .when_some(banner, |this, (banner, backdrop)| {
             this.child(
@@ -727,7 +721,10 @@ fn instance_row(
                 .flex_none()
                 .size(px(ROW_ICON))
                 .child(icon)
-                .children(overlay),
+                .children(overlay)
+                .when(linked.is_some(), |this| {
+                    this.child(linked_badge(px(13.), px(-4.), cx))
+                }),
         )
         .child(
             div()
@@ -763,10 +760,6 @@ fn instance_row(
                     }),
             )
         })
-        // over the banner, which covers the row
-        .when(linked.is_some(), |this| {
-            this.child(linked_outline(is_selected, hovered))
-        })
         .when_some(tooltip, |this, tooltip| {
             this.tooltip(crate::components::text_tooltip(tooltip))
         })
@@ -775,8 +768,8 @@ fn instance_row(
 }
 
 /// "Linked to Survival SMP on Peter's core", for an instance linked to a server (one
-/// on a Lodestone core, or a friend's shared server). Its row is outlined in
-/// Lodestone Host's green, and assistive technology reads this.
+/// on a Lodestone core, or a friend's shared server). Its icon carries Lodestone
+/// Host's mark, and assistive technology reads this.
 fn linked_to(shell: &LauncherShell, id: &str, cx: &Context<LauncherShell>) -> Option<String> {
     let link = shell.servers.read(cx).instance_link(id)?;
     Some(tr!(
@@ -786,20 +779,25 @@ fn linked_to(shell: &LauncherShell, id: &str, cx: &Context<LauncherShell>) -> Op
     ))
 }
 
-/// A linked instance's outline in Lodestone Host's green: quiet until its row is
-/// selected or the pointer is on it.
-fn linked_outline(selected: bool, hovered: bool) -> impl IntoElement {
-    let opacity = match (selected, hovered) {
-        (true, _) => 100,
-        (false, true) => 85,
-        (false, false) => 60,
-    };
-    crate::components::server_outline(
-        radius::MD,
-        1.,
-        opacity,
-        crate::skin::sidebar_inks().dark_text(),
-    )
+/// The Lodestone Host mark on the bottom right corner of a linked instance's icon,
+/// `size` wide, `inset` in from the corner (negative: out past it). A dark round
+/// backing keeps it readable over any icon.
+fn linked_badge(
+    size: gpui::Pixels,
+    inset: gpui::Pixels,
+    cx: &Context<LauncherShell>,
+) -> impl IntoElement + use<> {
+    div()
+        .absolute()
+        .right(inset)
+        .bottom(inset)
+        .size(size + px(4.))
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded_full()
+        .bg(colors::GRAY_900.opacity(90))
+        .child(img(crate::images::mark(false, cx)).size(size))
 }
 
 /// A group's name as the sidebar shows it: the automatic groups' names in the
