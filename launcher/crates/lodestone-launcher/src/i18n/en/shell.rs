@@ -66,6 +66,9 @@ crate::i18n::messages! {
         Vanilla = "Vanilla",
         /// The automatic sidebar group of instances imported from other launchers.
         GroupImported = "Imported",
+        /// The automatic sidebar group of instances linked to a server: on a Lodestone
+        /// core, or a friend's shared server. It comes first.
+        GroupServers = "Servers",
 
         // The Play tab.
         NoInstanceSelected = "No instance selected",
@@ -185,7 +188,7 @@ crate::i18n::messages! {
         NoAccount = "No account",
         ManageAccounts = "Manage accounts",
         GroupAutomatically = "Group instances automatically",
-        GroupAutomaticallyHint = "Sorts ungrouped instances by loader.",
+        GroupAutomaticallyHint = "Sorts ungrouped instances by server or loader.",
         /// Settings > Instance defaults: a toggle, on by default.
         AutoConfigure = "Set up new instances automatically",
         AutoConfigureHint = "Before a new instance's first game, chooses its memory, Java arguments and video settings for this computer and its mods, and copies your mouse sensitivity and key bindings when shared settings don't. Anything you change yourself is kept.",

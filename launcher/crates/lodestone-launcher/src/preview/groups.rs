@@ -25,6 +25,15 @@ pub const SCENES: &[&str] = &[
     "sidebar-play-hover",
     "sidebar-play-hover-dark",
     "sidebar-play-preparing",
+    // instances linked to a server: grouped under Servers and outlined, the selected
+    // one and the one played last among them; the pointer on one (with Play), the
+    // Bright skin, automatic groups off, and the folded sidebar
+    "sidebar-linked",
+    "sidebar-linked-hover",
+    "sidebar-linked-bright",
+    "sidebar-linked-bright-hover",
+    "sidebar-linked-off",
+    "sidebar-linked-rail",
 ];
 
 pub fn is_scene(scene: &str) -> bool {
@@ -97,7 +106,7 @@ pub fn fill(data_dir: &DataDir, store: &InstanceStore, scene: &str) {
         if let Some(ago) = ago {
             let _ = store.record_play(&instance.id, now - ago, 3 * hour + 10 * 60);
         }
-        if scene.starts_with("sidebar-play-") {
+        if scene.starts_with("sidebar-play-") || scene.starts_with("sidebar-linked") {
             match name {
                 // a white logo, like a modpack's, for the scrim to darken
                 "Fabulously Optimized" => {
@@ -115,8 +124,46 @@ pub fn fill(data_dir: &DataDir, store: &InstanceStore, scene: &str) {
     }
     let _ = settings::update(&data_dir.settings_file(), |settings| {
         settings.collapsed_groups.insert("Quilt (modded)".into());
-        settings.auto_groups = scene != "sidebar-groups-off";
+        settings.auto_groups = !scene.ends_with("-off");
     });
+}
+
+/// The `sidebar-linked*` scenes: the instance opened (played last) is linked to a
+/// friend's core's server and Fabulously Optimized to one on the user's core.
+fn apply_linked(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherShell>) {
+    let id_of = |name: &str, cx: &mut Context<LauncherShell>| {
+        shell
+            .instances()
+            .read(cx)
+            .list()
+            .iter()
+            .find(|instance| instance.name == name)
+            .map(|instance| instance.id.clone())
+    };
+    let (Some(selected), Some(optimized)) =
+        (id_of(SELECTED, cx), id_of("Fabulously Optimized", cx))
+    else {
+        return;
+    };
+    super::servers::link_instances(
+        shell,
+        vec![
+            (selected, "friend", "skyblock"),
+            (optimized.clone(), "home", "smp"),
+        ],
+        cx,
+    );
+    if scene.starts_with("sidebar-linked-bright") {
+        super::use_bright_skin(shell, cx);
+    }
+    if scene == "sidebar-linked-rail" {
+        shell.instances().clone().update(cx, |instances, cx| {
+            instances.set_sidebar(crate::theme::layout::SIDEBAR_DEFAULT, true, cx)
+        });
+    }
+    if scene.ends_with("-hover") {
+        shell.preview_sidebar_hover(format!("instance-{optimized}").into(), cx);
+    }
 }
 
 /// A white logo with a pale grey mark: the hardest icon for a white Play to read on.
@@ -135,6 +182,10 @@ fn white_icon() -> image::RgbaImage {
 
 /// The row the pointer is on, in the `sidebar-play-*` scenes: by its element id.
 pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherShell>) {
+    if scene.starts_with("sidebar-linked") {
+        apply_linked(scene, shell, cx);
+        return;
+    }
     let (name, place) = match scene {
         "sidebar-play-hover" => ("Fabulously Optimized", "instance"),
         "sidebar-play-hover-dark" => (SELECTED, "last-played"),

@@ -451,8 +451,12 @@ impl LauncherShell {
                 );
             }
         }));
-        // the instance page shows the server an instance is linked to, and its progress
-        observe.push(cx.observe(&servers, |_, _, cx| cx.notify()));
+        // the instance page shows the server an instance is linked to, and its progress;
+        // the sidebar groups and outlines the linked instances
+        observe.push(cx.observe(&servers, |this, _, cx| {
+            this.sync_linked(cx);
+            cx.notify();
+        }));
         let shared_settings = {
             let instances = instances.clone();
             cx.new(|cx| SharedSettings::new(instances, cx))
@@ -1038,6 +1042,22 @@ impl LauncherShell {
             }
             _ => return None,
         })
+    }
+
+    /// Hands the instances linked to a server, as the Lodestone Host page read their
+    /// links, to the instance list, which groups them under Servers.
+    fn sync_linked(&mut self, cx: &mut Context<Self>) {
+        let servers = self.servers.read(cx);
+        let linked: std::collections::HashSet<String> = self
+            .instances
+            .read(cx)
+            .list()
+            .iter()
+            .filter(|instance| servers.instance_link(&instance.id).is_some())
+            .map(|instance| instance.id.clone())
+            .collect();
+        self.instances
+            .update(cx, |instances, cx| instances.set_linked(linked, cx));
     }
 
     /// Rebuilds the Settings tab when another instance is selected.

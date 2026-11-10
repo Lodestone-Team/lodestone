@@ -66,6 +66,7 @@ pub fn text(message: M) -> &'static str {
         M::Emoji => "Emoji",
         M::UploadImage => "Importer une image…",
 
+        M::AutoGroupServers => "Serveurs",
         M::AutoGroupFabric => "Fabric (moddé)",
         M::AutoGroupForge => "Forge (moddé)",
         M::AutoGroupNeoForge => "NeoForge (moddé)",
