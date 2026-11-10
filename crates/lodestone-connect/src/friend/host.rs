@@ -35,7 +35,7 @@ use super::{
     protocol::{hello_message, FriendStreamKind, HELLO_CONTEXT, HELLO_LABEL, MAX_INSTANCE_LEN},
 };
 use crate::{
-    addr::{canonical, ConnectionKind},
+    addr::{canonical, is_probe_target, ConnectionKind},
     gather::{self, Candidate, CandidateKind, GatherOptions},
     hex,
     host::{HostState, MAX_FRIENDS, MAX_SPRAYS, MAX_UNPROVEN},
@@ -307,6 +307,8 @@ struct Shared {
     mapping: Mutex<Option<portmap::Mapping>>,
     /// The addresses the records carry. Collected again every [`REFRESH_EVERY`].
     candidates: Mutex<Vec<SocketAddr>>,
+    /// Both sides on this computer (tests): knocks may name loopback addresses.
+    loopback: bool,
 }
 
 impl Shared {
@@ -516,6 +518,7 @@ impl FriendHost {
             changed: watch::channel(0).0,
             mapping: Mutex::new(gathered.mapping),
             candidates: Mutex::new(candidates),
+            loopback: config.gather.loopback_only,
         });
         let admit = {
             let shared = shared.clone();
@@ -858,7 +861,18 @@ fn on_knock(
     if !guards.entry(*key).or_default().admit(&knock, now_secs()) {
         return;
     }
-    shared.allow(*key, knock.candidates.iter().map(|addr| addr.ip()));
+    // Only addresses someone else can be at: a friend can't make the core probe its
+    // own loopback, or broadcast or multicast addresses.
+    let candidates: Vec<SocketAddr> = knock
+        .candidates
+        .into_iter()
+        .map(canonical)
+        .filter(|addr| is_probe_target(*addr, shared.loopback))
+        .collect();
+    if candidates.is_empty() {
+        return;
+    }
+    shared.allow(*key, candidates.iter().map(|addr| addr.ip()));
     // a few sprays per friend: a new knock replaces their oldest
     sprays.retain(|(_, spray)| !spray.is_finished());
     while sprays.iter().filter(|(friend, _)| friend == key).count() >= KNOCKS_PER_FRIEND {
@@ -881,7 +895,7 @@ fn on_knock(
             *key,
             tokio::spawn(probe::spray(
                 socket,
-                knock.candidates,
+                candidates,
                 tag,
                 SPRAY_FOR,
                 stop.clone(),
@@ -1194,8 +1208,14 @@ pub(crate) mod tests {
         PublicKey([byte; 32])
     }
 
-    /// A friend host's shared state with these friends, and no sockets.
+    /// A friend host's shared state with these friends, and no sockets, for both sides on
+    /// this computer.
     fn shared_with(friends: &[PublicKey]) -> Arc<Shared> {
+        shared_for(friends, true)
+    }
+
+    /// [`shared_with`], with `loopback` saying whether both sides are on this computer.
+    fn shared_for(friends: &[PublicKey], loopback: bool) -> Arc<Shared> {
         Arc::new(Shared {
             fingerprint: [0; 32],
             service: Service::default(),
@@ -1221,6 +1241,7 @@ pub(crate) mod tests {
             changed: watch::channel(0).0,
             mapping: Mutex::new(None),
             candidates: Mutex::new(Vec::new()),
+            loopback,
         })
     }
 
@@ -1301,6 +1322,58 @@ pub(crate) mod tests {
         assert!(shared.may_reach(joins[1].ip()));
         assert!(shared.may_reach(joins[2].ip()));
         assert!(!shared.may_reach(joins[0].ip()), "the oldest knock's went");
+        for (_, spray) in sprays {
+            spray.abort();
+        }
+    }
+
+    #[tokio::test]
+    async fn knocks_cant_make_the_core_probe_its_own_network_or_broadcast() {
+        let dee = key(1);
+        let shared = shared_for(&[dee], false);
+        let sprayer = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let (_stop, stop) = watch::channel(false);
+        let (mut guards, mut sprays) = (HashMap::new(), VecDeque::new());
+        let bad: Vec<SocketAddr> = [
+            "127.0.0.1:25565",
+            "[::1]:25565",
+            "0.0.0.0:25565",
+            "255.255.255.255:25565",
+            "224.0.0.251:5353",
+            "169.254.1.1:25565",
+        ]
+        .iter()
+        .map(|text| text.parse().unwrap())
+        .collect();
+        let (knock, index) = knock_from(&shared, dee, &bad);
+        on_knock(
+            &shared,
+            &index,
+            knock,
+            &mut guards,
+            &mut sprays,
+            &sprayer,
+            &stop,
+        );
+        assert!(sprays.is_empty());
+        assert!(bad.iter().all(|addr| !shared.may_reach(addr.ip())));
+        // a knock with one good address among them gets a spray towards it alone
+        let good: SocketAddr = "192.168.1.4:9".parse().unwrap();
+        let mut mixed = bad.clone();
+        mixed.push(good);
+        let (knock, index) = knock_from(&shared, dee, &mixed);
+        on_knock(
+            &shared,
+            &index,
+            knock,
+            &mut guards,
+            &mut sprays,
+            &sprayer,
+            &stop,
+        );
+        assert_eq!(sprays.len(), 1);
+        assert!(shared.may_reach(good.ip()));
+        assert!(!shared.may_reach(bad[0].ip()));
         for (_, spray) in sprays {
             spray.abort();
         }
