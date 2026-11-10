@@ -525,6 +525,7 @@ mod tests {
         let mut ben = friend(1, "Ben", FriendStatus::Active, true);
         let fingerprint = "ab".repeat(32);
         ben.state = Some(friend_list::FriendState {
+            players: Vec::new(),
             seq: 1,
             expires: friend_list::now() + 86_400,
             cores: vec![

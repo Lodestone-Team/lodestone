@@ -96,6 +96,22 @@ signed state:
   `("state", receiver key, seq, issued, expires, name, cores, retired)`.
 
 `cores` lists `(core fingerprint, core name)` for each core the person shares from.
+
+A state may also list `players`: up to 4 of the person's Minecraft accounts, each a
+player name, a UUID and whether it's an offline account. The Launcher fills them from its
+accounts (Microsoft first) before each refresh, and a change makes a new state. They're
+signed apart, as `players_sig` over `("state-players", everything the state's signature
+covers, the players)`, so launchers from before them still check the first signature and
+ignore the field. A state with players and no valid `players_sig` is refused.
+
+When the owner shares a server with a friend in Lodestone Host, and the server's
+`server.properties` has `white-list=true`, the Host adds the friend's players to
+`whitelist.json` (`lodestone-host/src/whitelist.rs`) and tells a running server
+`whitelist reload`. In online mode it uses each Microsoft account's own UUID and leaves out
+offline accounts, which can't join there. In offline mode every player goes in with their
+offline UUID. Players already listed, by UUID or name, aren't added twice, and
+unsharing removes nobody. The Host shows each friend's players under their box, so the
+owner sees who sharing would whitelist.
 Receivers keep the highest `seq` seen and refuse lower ones. A state expires 90 days after
 it was issued; launchers issue a new one weekly while they run. A friend's cores in an
 expired state aren't joined.
@@ -435,6 +451,9 @@ A core registers one **session** with all its records, and waits on one WebSocke
 - **Offline cores.** A core that hasn't received a removal yet still accepts that
   friend, but only after an accepted knock, and the launcher shows it's pending.
 - **A friend who turns bad** can join what you shared with them and sees your address.
+  They can also list someone else's Minecraft name among their players, and sharing
+  with them would whitelist it. The Host shows those names under the friend's box before
+  you share.
 - **Networks that can't punch through** still fail (`NoPath`).
 - **A friend whose connection comes from an address not in their knock** gets no
   answer: the core lets in only the addresses the knock named. Some carrier-grade NATs

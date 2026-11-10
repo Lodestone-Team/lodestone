@@ -235,6 +235,13 @@ pub fn text(message: M) -> &'static str {
         M::FriendsLoading => "Chargement de vos amis…",
         M::FriendsShareWith => "Partager ce serveur avec {name}",
         M::FriendsNotVerified => "Non vérifié",
+        M::FriendsMinecraft => {
+            "Minecraft\u{a0}: {names}. Ajoutés à la liste blanche quand vous partagez, si le serveur l’a activée."
+        }
+        M::FriendsWhitelisted => "{names} ajouté(s) à la liste blanche du serveur",
+        M::FriendsWhitelistFailed => {
+            "Partagé avec {name}, mais impossible de l’ajouter à la liste blanche du serveur\u{a0}: {error}"
+        }
         M::FriendsConnected => "Connecté",
         M::FriendsSyncFailed => {
             "Impossible de synchroniser votre liste d’amis avec ce core : {error}"

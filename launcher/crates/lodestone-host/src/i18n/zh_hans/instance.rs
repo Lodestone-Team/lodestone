@@ -195,6 +195,11 @@ pub fn text(message: M) -> &'static str {
         M::FriendsLoading => "正在加载好友…",
         M::FriendsShareWith => "与 {name} 共享此服务器",
         M::FriendsNotVerified => "未验证",
+        M::FriendsMinecraft => {
+            "Minecraft：{names}。如果服务器开启了白名单，共享时会把他们加入白名单。"
+        }
+        M::FriendsWhitelisted => "已将 {names} 加入服务器白名单",
+        M::FriendsWhitelistFailed => "已与 {name} 共享，但无法把对方加入服务器白名单：{error}",
         M::FriendsConnected => "已连接",
         M::FriendsSyncFailed => "无法将好友列表同步到此核心：{error}",
         M::FriendsOpenFailed => "无法打开你的好友列表：{error}",

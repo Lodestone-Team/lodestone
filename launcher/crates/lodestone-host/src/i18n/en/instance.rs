@@ -211,6 +211,12 @@ crate::i18n::messages! {
         FriendsShareWith = "Share this server with {name}",
         /// The two haven't compared safety codes in Lodestone Launcher.
         FriendsNotVerified = "Not verified",
+        /// Under a friend to share with: {names} are their Minecraft accounts.
+        FriendsMinecraft = "Minecraft: {names}. Added to the whitelist when you share, if the server has it on.",
+        /// A toast after sharing: {names} are Minecraft player names.
+        FriendsWhitelisted = "Added {names} to the server's whitelist",
+        /// {name} is a friend's name, {error} what went wrong.
+        FriendsWhitelistFailed = "Shared with {name}, but couldn't add them to the server's whitelist: {error}",
         FriendsConnected = "Connected now",
         FriendsSyncFailed = "Couldn’t sync your friend list to this core: {error}",
         FriendsOpenFailed = "Couldn’t open your friend list: {error}",

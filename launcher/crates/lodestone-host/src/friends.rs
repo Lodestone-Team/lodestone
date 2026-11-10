@@ -39,7 +39,7 @@ use gpui::{AppContext as _, Context, Task, WeakEntity};
 use launcher_core::{
     cores::admin::AdminClient,
     friend_list::{
-        self, Book, FriendStatus, Friends, FriendsError, Opened,
+        self, Book, FriendStatus, Friends, FriendsError, Opened, StatePlayer,
         core_sync::{self, CoreFriends, SyncError},
     },
     paths::DataDir,
@@ -90,6 +90,9 @@ pub struct FriendRow {
     pub verified: bool,
     /// Their safety code, so a friend named like another can be told apart.
     pub safety_code: String,
+    /// Their Minecraft accounts, as their state lists them: put on a server's
+    /// whitelist when it's shared with them ([`crate::whitelist`]).
+    pub players: Vec<StatePlayer>,
 }
 
 /// The friends things can be shared with: active and not hidden (a hidden friend is
@@ -104,6 +107,11 @@ pub fn listed(book: &Book) -> Vec<FriendRow> {
             name: f.display_name().to_string(),
             verified: f.verified,
             safety_code: f.safety_code(),
+            players: f
+                .state
+                .as_ref()
+                .map(|state| state.players.clone())
+                .unwrap_or_default(),
         })
         .collect();
     rows.sort_by(|a, b| {
@@ -263,6 +271,10 @@ struct Outcome {
     core_retired: bool,
     /// The core can't make a new certificate (an older core).
     no_certificate_route: bool,
+    /// After a share: the friend's players put on the server's whitelist.
+    whitelisted: Vec<String>,
+    /// After a share: why the whitelist couldn't be changed (the friend's name, why).
+    whitelist_failed: Option<(String, String)>,
 }
 
 /// Sharing with friends, for the Host's own core while signed in as its owner. Pages
@@ -720,6 +732,26 @@ impl FriendSharing {
         self.synced = synced && error.is_none();
         self.sync_failed = error.is_some();
         self.error = error;
+        // who went on the server's whitelist with this share
+        let toast = if !outcome.whitelisted.is_empty() {
+            Some(lodestone_ui::components::Toast::success(tr!(
+                M::FriendsWhitelisted,
+                names = lodestone_ui::i18n::format::list(&outcome.whitelisted)
+            )))
+        } else {
+            outcome.whitelist_failed.map(|(name, why)| {
+                lodestone_ui::components::Toast::warning(tr!(
+                    M::FriendsWhitelistFailed,
+                    name = name,
+                    error = why
+                ))
+            })
+        };
+        if let Some(toast) = toast {
+            self.state
+                .update(cx, |state, cx| state.toast(toast, cx))
+                .ok();
+        }
     }
 
     /// Whether the Host tries again by itself after the current error: after a failed
@@ -756,6 +788,11 @@ impl FriendSharing {
             name: name.into(),
             verified,
             safety_code: code.into(),
+            players: vec![StatePlayer {
+                name: format!("{name}_mc"),
+                uuid: [c as u8; 16],
+                offline: false,
+            }],
         };
         let friend = |c: char, name: &str, shared: bool, connected: bool| CoreFriend {
             key: key(c),
@@ -854,6 +891,15 @@ async fn run(
     outcome.rows = listed(&friends.book);
     outcome.needs_launcher = needs_launcher(&friends.book);
     let view = SyncView::of(&friends.book);
+    // a share with a friend: their players go on the server's whitelist after it
+    let whitelist_for = match &job {
+        Job::Share {
+            key,
+            instance,
+            share: true,
+        } => Some((key.clone(), instance.clone())),
+        _ => None,
+    };
     let synced = match job {
         Job::Check { last, force } => {
             if !force && last.as_ref() == Some(&view) {
@@ -912,6 +958,14 @@ async fn run(
             match friends.publish_states().await {
                 Ok(problems) => outcome.problems = problems,
                 Err(err) => outcome.problems = vec![(String::new(), err.to_string())],
+            }
+            if let Some((key, instance)) = whitelist_for
+                && let Some(row) = listed(&friends.book).into_iter().find(|r| r.key == key)
+            {
+                match crate::whitelist::add(&admin, &instance, &row.players).await {
+                    Ok(added) => outcome.whitelisted = added,
+                    Err(err) => outcome.whitelist_failed = Some((row.name, err.to_string())),
+                }
             }
         }
         Err(SyncError::Friends(FriendsError::Retired)) => {

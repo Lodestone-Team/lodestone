@@ -42,15 +42,17 @@ use futures::{
     future::{BoxFuture, LocalBoxFuture, Shared},
     lock::Mutex,
 };
-use gpui::{AppContext as _, AsyncApp, Context, Entity, FocusHandle, SharedString, Task};
+use gpui::{App, AppContext as _, AsyncApp, Context, Entity, FocusHandle, SharedString, Task};
 use launcher_core::{
     SecretStore,
+    accounts::AccountKind,
     cores::{
         connect::{GamePort, JoinError, Progress, SharedServer, Tunnel},
         friends::{FriendLink, FriendsFile},
     },
     friend_list::{
-        self, Book, Friend, FriendStatus as Status, Friends, FriendsError, Opened, StoredKeys,
+        self, Book, Friend, FriendStatus as Status, Friends, FriendsError, Opened, StatePlayer,
+        StoredKeys,
         ops::{self, CorePresence, LinkPreview, LinkReply, Refreshed},
     },
     paths::DataDir,
@@ -610,6 +612,21 @@ impl Servers {
         }));
     }
 
+    /// This launcher's Minecraft accounts as friends see them, so their Hosts can put
+    /// them on a server's whitelist: Microsoft accounts first.
+    fn my_players(&self, cx: &App) -> Vec<StatePlayer> {
+        let mut accounts: Vec<_> = self.accounts.read(cx).accounts().to_vec();
+        accounts.sort_by_key(|account| account.kind == AccountKind::Offline);
+        accounts
+            .into_iter()
+            .map(|account| StatePlayer {
+                name: account.username,
+                uuid: *account.uuid.as_bytes(),
+                offline: account.kind == AccountKind::Offline,
+            })
+            .collect()
+    }
+
     /// Reads friends' states (confirming pending friends, dropping retired cores),
     /// checks which cores share now, and asks for answers to open friend links.
     pub fn friend_refresh(
@@ -618,11 +635,15 @@ impl Servers {
     ) -> Task<Result<RefreshReport, String>> {
         self.friend_list.refreshing = true;
         cx.notify();
+        let players = self.my_players(cx);
         let task = self.friend_op(
             cx,
             false,
             Box::new(|friends| {
                 async move {
+                    // this launcher's Minecraft accounts, for friends' whitelists: a
+                    // change goes out with the states the refresh publishes
+                    friends.set_players(players)?;
                     let mut report = RefreshReport {
                         refreshed: friends.refresh().await?,
                         ..RefreshReport::default()
@@ -1951,6 +1972,7 @@ mod tests {
         };
         alex.status = Status::Active;
         alex.state = Some(FriendState {
+            players: Vec::new(),
             seq: 1,
             expires: friend_list::now() + 3600,
             cores: vec![core(1), core(2)],

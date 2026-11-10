@@ -169,6 +169,7 @@ fn apply_linked(scene: &str, shell: &mut LauncherShell, cx: &mut Context<Launche
                 status: FriendStatus::Active,
                 verified: true,
                 state: Some(FriendState {
+                    players: Vec::new(),
                     seq: 1,
                     expires: launcher_core::friend_list::now() + 86_400,
                     cores: vec![serde_json::from_value(core).expect("a made-up core")],

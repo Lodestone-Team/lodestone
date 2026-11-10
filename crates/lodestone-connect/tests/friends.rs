@@ -209,6 +209,7 @@ async fn friends_pair_and_join_without_links() {
             name: "Ana's PC".into(),
         }],
         retired: false,
+        players: Vec::new(),
     };
     let id = slot_id(&pair, &ana.public(), &ben.public());
     let proof = slot_proof(&pair, &ana.public(), &ben.public());

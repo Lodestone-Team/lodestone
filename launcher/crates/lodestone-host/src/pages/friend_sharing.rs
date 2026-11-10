@@ -142,6 +142,7 @@ pub fn friend_rows(sharing: &Entity<FriendSharing>, instance: &str, cx: &App) ->
             .when(connected, |this| {
                 this.child(tag(t(M::FriendsConnected), colors::GREEN))
             });
+        let minecraft: Vec<&str> = friend.players.iter().map(|p| p.name.as_str()).collect();
         rows.push(
             div()
                 .id(SharedString::from(format!("friend-{}", friend.key)))
@@ -164,6 +165,20 @@ pub fn friend_rows(sharing: &Entity<FriendSharing>, instance: &str, cx: &App) ->
                     .on_change(on_change),
                 )
                 .child(tags)
+                // their Minecraft accounts, which sharing puts on the whitelist
+                .when(!minecraft.is_empty(), |this| {
+                    this.child(
+                        div()
+                            .w_full()
+                            .pl(px(28.))
+                            .text_size(text::SMALL)
+                            .text_color(ink::muted())
+                            .child(tr!(
+                                M::FriendsMinecraft,
+                                names = lodestone_ui::i18n::format::list(&minecraft)
+                            )),
+                    )
+                })
                 .into_any_element(),
         );
         if model

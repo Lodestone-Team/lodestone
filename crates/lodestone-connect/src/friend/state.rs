@@ -4,6 +4,11 @@
 //! goes into one slot at the service for each friend, sealed with the pair secret and
 //! signed for that friend alone. Receivers keep the highest number they've seen and
 //! refuse older ones, so a slot can't be rolled back.
+//!
+//! A state may also list the person's Minecraft accounts ([`StatePlayer`]), so a friend's
+//! Host can put them on a server's whitelist. They're signed apart (`players_sig`, over
+//! everything the first signature covers and the accounts), so copies from before them
+//! still check the first signature and ignore them.
 
 use serde::{Deserialize, Serialize};
 
@@ -21,6 +26,8 @@ pub const REISSUE_AFTER_SECS: u64 = 7 * 24 * 60 * 60;
 pub const MAX_CORES: usize = 16;
 /// A sealed state's largest size (the service takes 4 KiB).
 pub const MAX_SEALED: usize = 4096;
+/// The most Minecraft accounts in a state.
+pub const MAX_PLAYERS: usize = 4;
 
 const VERSION: u32 = 1;
 
@@ -32,6 +39,28 @@ pub struct StateCore {
     pub fingerprint: [u8; 32],
     /// The core's name, as its owner's launcher read it (shown, never trusted).
     pub name: String,
+}
+
+/// One of a person's Minecraft accounts, for a friend's whitelist.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StatePlayer {
+    /// The player name: 1 to 16 letters, digits or underscores.
+    pub name: String,
+    /// The profile UUID (a Microsoft account's), or the offline one for an offline
+    /// account.
+    #[serde(with = "hex16")]
+    pub uuid: [u8; 16],
+    /// An offline account: it can join only servers in offline mode.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub offline: bool,
+}
+
+impl StatePlayer {
+    /// Whether `name` can be a Minecraft player name.
+    pub fn is_name(name: &str) -> bool {
+        (1..=16).contains(&name.len())
+            && name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
+    }
 }
 
 /// A person's signed state for one friend.
@@ -47,6 +76,8 @@ pub struct State {
     pub cores: Vec<StateCore>,
     /// The person retired this key: drop them.
     pub retired: bool,
+    /// Their Minecraft accounts, at most [`MAX_PLAYERS`].
+    pub players: Vec<StatePlayer>,
 }
 
 impl State {
@@ -65,6 +96,11 @@ struct Wire {
     cores: Vec<StateCore>,
     retired: bool,
     sig: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    players: Vec<StatePlayer>,
+    /// Over [`players_message`]; present when `players` is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    players_sig: Option<String>,
 }
 
 fn message(receiver: &PublicKey, state: &State) -> Vec<u8> {
@@ -91,6 +127,30 @@ fn message(receiver: &PublicKey, state: &State) -> Vec<u8> {
     let retired = [u8::from(state.retired)];
     fields.push(&retired);
     transcript(&fields)
+}
+
+/// What `players_sig` signs: everything the state's signature does, then the accounts.
+fn players_message(receiver: &PublicKey, state: &State) -> Vec<u8> {
+    let base = message(receiver, state);
+    let count = u32::try_from(state.players.len())
+        .unwrap_or(u32::MAX)
+        .to_be_bytes();
+    let mut fields: Vec<&[u8]> = vec![&base, &count];
+    let flags: Vec<[u8; 1]> = state
+        .players
+        .iter()
+        .map(|player| [u8::from(player.offline)])
+        .collect();
+    for (player, flag) in state.players.iter().zip(&flags) {
+        fields.push(player.name.as_bytes());
+        fields.push(&player.uuid);
+        fields.push(flag);
+    }
+    transcript(&fields)
+}
+
+fn players_in_bounds(players: &[StatePlayer]) -> bool {
+    players.len() <= MAX_PLAYERS && players.iter().all(|p| StatePlayer::is_name(&p.name))
 }
 
 /// The slot `sender` keeps for `receiver`: its id at the service.
@@ -126,11 +186,18 @@ pub fn seal_state(
             "Friends can see at most {MAX_CORES} of your cores."
         )));
     }
+    if !players_in_bounds(&state.players) {
+        return Err(Error::Other(format!(
+            "Friends can see at most {MAX_PLAYERS} of your Minecraft accounts."
+        )));
+    }
     let mut state = state.clone();
     for core in &mut state.cores {
         core.name = clean_name(&core.name);
     }
     let sig = me.sign("state", &message(receiver, &state));
+    let players_sig = (!state.players.is_empty())
+        .then(|| hex(&me.sign("state-players", &players_message(receiver, &state))));
     let bytes = serde_json::to_vec(&Wire {
         v: VERSION,
         seq: state.seq,
@@ -140,6 +207,8 @@ pub fn seal_state(
         cores: state.cores.clone(),
         retired: state.retired,
         sig: hex(&sig),
+        players: state.players.clone(),
+        players_sig,
     })
     .expect("serializable");
     let id = slot_id(pair, &me.public(), receiver);
@@ -174,10 +243,23 @@ pub fn open_state(
         name: wire.name,
         cores: wire.cores,
         retired: wire.retired,
+        players: wire.players,
     };
     let sig = unhex(&wire.sig).ok_or_else(|| bad("signature"))?;
     if !sender.verify("state", &message(me, &state), &sig) {
         return Err(bad("signature"));
+    }
+    if !state.players.is_empty() {
+        let players_sig = wire
+            .players_sig
+            .as_deref()
+            .and_then(unhex)
+            .ok_or_else(|| bad("signature"))?;
+        if !sender.verify("state-players", &players_message(me, &state), &players_sig)
+            || !players_in_bounds(&state.players)
+        {
+            return Err(bad("accounts"));
+        }
     }
     if state.cores.len() > MAX_CORES
         || state.expires > state.issued.saturating_add(STATE_LIFETIME_SECS)
@@ -190,6 +272,21 @@ pub fn open_state(
         return Err(bad("out of bounds"));
     }
     Ok(state)
+}
+
+mod hex16 {
+    use serde::{Deserialize as _, Deserializer, Serializer};
+
+    pub fn serialize<S: Serializer>(bytes: &[u8; 16], serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&crate::hex(bytes))
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<[u8; 16], D::Error> {
+        let text = String::deserialize(deserializer)?;
+        crate::unhex(&text)
+            .and_then(|bytes| bytes.try_into().ok())
+            .ok_or_else(|| serde::de::Error::custom("expected 32 hex digits"))
+    }
 }
 
 mod hex32 {
@@ -222,7 +319,70 @@ mod tests {
                 name: "Ana's PC".into(),
             }],
             retired: false,
+            players: Vec::new(),
         }
+    }
+
+    fn player(name: &str) -> StatePlayer {
+        StatePlayer {
+            name: name.into(),
+            uuid: [9; 16],
+            offline: false,
+        }
+    }
+
+    #[test]
+    fn accounts_are_signed_and_older_copies_still_open_the_state() {
+        let ana = PersonKey::generate().unwrap();
+        let ben = PersonKey::generate().unwrap();
+        let pair = Secret::random().unwrap();
+        let mut with = state(4);
+        with.players = vec![
+            player("Ana_mc"),
+            StatePlayer {
+                offline: true,
+                ..player("ana")
+            },
+        ];
+        let sealed = seal_state(&ana, &ben.public(), &pair, &with).unwrap();
+        let opened = open_state(&ana.public(), &ben.public(), &pair, &sealed).unwrap();
+        assert_eq!(opened, with);
+
+        // a copy from before accounts: the same bytes parse into its fields, and its
+        // signature check covers only those
+        let id = slot_id(&pair, &ana.public(), &ben.public());
+        let bytes = crypto::open(&pair, Role::State, &id, &sealed).unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        let old = State {
+            players: Vec::new(),
+            ..with.clone()
+        };
+        let sig = unhex(json["sig"].as_str().unwrap()).unwrap();
+        assert!(ana
+            .public()
+            .verify("state", &message(&ben.public(), &old), &sig));
+
+        // accounts swapped in without their signature are refused
+        let mut forged = json.clone();
+        forged["players"] = serde_json::json!([{ "name": "Notch", "uuid": "09".repeat(16) }]);
+        let resealed = crypto::seal(
+            &pair,
+            Role::State,
+            &id,
+            &serde_json::to_vec(&forged).unwrap(),
+        )
+        .unwrap();
+        assert!(open_state(&ana.public(), &ben.public(), &pair, &resealed).is_err());
+
+        // too many, or a name that can't be a player's
+        let mut many = state(5);
+        many.players = (0..=MAX_PLAYERS)
+            .map(|i| player(&format!("p{i}")))
+            .collect();
+        assert!(seal_state(&ana, &ben.public(), &pair, &many).is_err());
+        let mut odd = state(6);
+        odd.players = vec![player("not a name")];
+        assert!(seal_state(&ana, &ben.public(), &pair, &odd).is_err());
     }
 
     #[test]
