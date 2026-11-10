@@ -2,8 +2,9 @@
 //! as the fallback, and friendly errors with a retry.
 //!
 //! With Settings > Developer > "Sign in as the Minecraft Launcher" on, the dialog
-//! signs in with the official launcher's client instead: a device code by default,
-//! or a pasted link from login.live.com's final page.
+//! signs in with the official launcher's client instead, with a device code. (Its
+//! other way, pasting the address of login.live.com's final page, is left out: it
+//! teaches people to copy sign-in addresses out of the browser.)
 
 use crate::theme::px;
 use std::time::Duration;
@@ -11,7 +12,7 @@ use std::time::Duration;
 use super::{Accounts, auth_errors};
 use crate::{
     components::{
-        Button, ButtonVariant, Dialog, DialogSlot, Icon, IconButton, RichText, TextInput,
+        Button, ButtonVariant, Dialog, DialogSlot, Icon, IconButton, RichText,
         a11y::{Accessible, Role},
     },
     i18n::{CommonMsg, ShellMsg as M, t, tr},
@@ -22,9 +23,7 @@ use gpui::{
     AsyncApp, ClipboardItem, Context, Entity, EventEmitter, FocusHandle, Focusable, IntoElement,
     Render, SharedString, Task, WeakEntity, Window, div, prelude::*,
 };
-use launcher_core::auth::{
-    AuthError, ClientIdentity, LinkSignIn, MsTokens, loopback::CancelHandle,
-};
+use launcher_core::auth::{AuthError, ClientIdentity, MsTokens, loopback::CancelHandle};
 
 /// How long the browser sign-in waits for the redirect.
 const BROWSER_TIMEOUT: Duration = Duration::from_secs(5 * 60);
@@ -41,11 +40,6 @@ pub enum Stage {
         user_code: SharedString,
         verification_uri: SharedString,
         opened: bool,
-    },
-    /// Waiting for the address of login.live.com's final page, pasted by the user.
-    /// `error` is why the last paste was refused.
-    Link {
-        error: Option<AuthError>,
     },
     /// Signing in to Xbox Live and Minecraft.
     Finishing,
@@ -75,11 +69,6 @@ pub struct SignInDialog {
     cancel: Option<CancelHandle>,
     /// The client to sign in with, from the developer setting when the dialog opened.
     identity: ClientIdentity,
-    /// The sign-in by pasted link in progress, and the field it is pasted into.
-    link: Option<LinkSignIn>,
-    link_input: Entity<TextInput>,
-    /// The code was just copied with the button beside it, which shows a check
-    /// for a moment.
     code_copied: bool,
     _code_copied_reset: Option<Task<()>>,
     /// "Stop signing in?", over the dialog once the code has been copied.
@@ -104,12 +93,6 @@ impl SignInDialog {
             task: None,
             cancel: None,
             identity,
-            link: None,
-            link_input: cx.new(|cx| {
-                TextInput::new(cx)
-                    .with_placeholder(format!("{}?code=…", auth_errors::LINK_PAGE))
-                    .with_automation_id("sign-in-link")
-            }),
             code_copied: false,
             _code_copied_reset: None,
             stop_prompt: DialogSlot::new(|this: &mut SignInDialog| &mut this.stop_prompt),
@@ -177,7 +160,6 @@ impl SignInDialog {
             cancel.cancel();
         }
         self.task = None;
-        self.link = None;
     }
 
     /// Back: stops the sign-in under way and goes back to the first step. (The × and
@@ -238,49 +220,6 @@ impl SignInDialog {
             }
             let sleep = move |duration| executor.timer(duration).boxed_local();
             let tokens = auth.complete_device_code(&code, &sleep).await;
-            finish(this, tokens, cx).await;
-        }));
-    }
-
-    /// Opens login.live.com's sign-in page and waits for the user to paste the
-    /// address of the page it ends on.
-    fn start_link(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.stop();
-        let sign_in = self.accounts.read(cx).authenticator().start_link_sign_in();
-        cx.open_url(sign_in.url().as_str());
-        self.link = Some(sign_in);
-        self.link_input
-            .update(cx, |input, cx| input.set_text("", cx));
-        window.focus(&self.link_input.focus_handle(cx), cx);
-        self.set_stage(Stage::Link { error: None }, cx);
-    }
-
-    fn reopen_link(&mut self, cx: &mut Context<Self>) {
-        if let Some(sign_in) = &self.link {
-            cx.open_url(sign_in.url().as_str());
-        }
-    }
-
-    /// Checks the pasted address. A bad one keeps the dialog on the paste step with
-    /// the reason; a good one is exchanged for tokens.
-    fn submit_link(&mut self, cx: &mut Context<Self>) {
-        let Some(sign_in) = &self.link else {
-            return;
-        };
-        // The address holds a sign-in code: it is checked here and never logged.
-        let pasted = self.link_input.read(cx).text().to_string();
-        let code = match sign_in.check(&pasted) {
-            Ok(code) => code,
-            Err(err) => return self.set_stage(Stage::Link { error: Some(err) }, cx),
-        };
-        // A code works once; clear it from the field.
-        self.link_input
-            .update(cx, |input, cx| input.set_text("", cx));
-        self.link = None;
-        self.set_stage(Stage::Finishing, cx);
-        let auth = self.accounts.read(cx).authenticator().clone();
-        self.task = Some(cx.spawn(async move |this, cx| {
-            let tokens = auth.exchange_link_code(&code).await;
             finish(this, tokens, cx).await;
         }));
     }
@@ -463,18 +402,12 @@ impl Render for SignInDialog {
             });
 
         let launcher_identity = self.launcher_identity();
-        // The other way to sign in: a code for Lodestone's app, a pasted link for
-        // the Minecraft Launcher's client (whose default is the code).
+        // The other way to sign in with Lodestone's app: a code. (The Minecraft
+        // Launcher's client signs in with a code only.)
         let use_code = |cx: &mut Context<Self>| {
-            if launcher_identity {
-                Button::new("use-link", t(M::UseLinkInstead))
-                    .variant(ButtonVariant::Ghost)
-                    .on_click(cx.listener(|this, _, window, cx| this.start_link(window, cx)))
-            } else {
-                Button::new("use-code", t(M::UseCodeInstead))
-                    .variant(ButtonVariant::Ghost)
-                    .on_click(cx.listener(|this, _, _, cx| this.start_device_code(cx)))
-            }
+            Button::new("use-code", t(M::UseCodeInstead))
+                .variant(ButtonVariant::Ghost)
+                .on_click(cx.listener(|this, _, _, cx| this.start_device_code(cx)))
         };
         let back = |cx: &mut Context<Self>| {
             Button::new("sign-in-back", t(CommonMsg::Back))
@@ -501,8 +434,7 @@ impl Render for SignInDialog {
                         Button::new("get-code", t(M::GetCode))
                             .variant(ButtonVariant::Primary)
                             .on_click(cx.listener(|this, _, _, cx| this.start_device_code(cx))),
-                    )
-                    .footer(use_code(cx));
+                    );
             }
             Stage::Choose => {
                 dialog = dialog
@@ -631,43 +563,6 @@ impl Render for SignInDialog {
                     )
                     .footer(back(cx));
             }
-            Stage::Link { error } => {
-                dialog = dialog
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .gap_3()
-                            .child(launcher_identity_note())
-                            .child(muted(t(M::LinkInstructions)))
-                            .child(self.link_input.clone())
-                            .child(
-                                div()
-                                    .text_size(theme::text_size(text::SMALL))
-                                    .line_height(theme::line_height(text::SMALL, leading::NORMAL))
-                                    .font_weight(weights::BOLD.into())
-                                    .map(|this| match error {
-                                        Some(err) => this
-                                            .text_color(colors::RED_200)
-                                            .child(auth_errors::message(err)),
-                                        None => this.text_color(crate::theme::ink::muted()).child(
-                                            tr!(M::LinkStartsWith, url = auth_errors::LINK_PAGE),
-                                        ),
-                                    }),
-                            ),
-                    )
-                    .footer(
-                        Button::new("submit-link", t(CommonMsg::SignIn))
-                            .variant(ButtonVariant::Primary)
-                            .on_click(cx.listener(|this, _, _, cx| this.submit_link(cx))),
-                    )
-                    .footer(
-                        Button::new("reopen-link", t(M::OpenBrowserAgain))
-                            .variant(ButtonVariant::Ghost)
-                            .on_click(cx.listener(|this, _, _, cx| this.reopen_link(cx))),
-                    )
-                    .footer(back(cx));
-            }
             Stage::Finishing => {
                 dialog = dialog.child(waiting(t(M::SigningInToMinecraft)));
             }
@@ -709,17 +604,18 @@ impl Render for SignInDialog {
                             .on_click(cx.listener(|_, _, _, cx| cx.emit(SignInEvent::UseOffline))),
                     );
                 }
-                dialog = dialog
-                    .footer(
-                        Button::new("retry", t(CommonMsg::TryAgain))
-                            .variant(if not_approved && offline_enabled {
-                                ButtonVariant::Secondary
-                            } else {
-                                ButtonVariant::Primary
-                            })
-                            .on_click(cx.listener(|this, _, _, cx| this.start_default(cx))),
-                    )
-                    .footer(use_code(cx));
+                dialog = dialog.footer(
+                    Button::new("retry", t(CommonMsg::TryAgain))
+                        .variant(if not_approved && offline_enabled {
+                            ButtonVariant::Secondary
+                        } else {
+                            ButtonVariant::Primary
+                        })
+                        .on_click(cx.listener(|this, _, _, cx| this.start_default(cx))),
+                );
+                if !launcher_identity {
+                    dialog = dialog.footer(use_code(cx));
+                }
             }
         }
         // The question is a second dialog over this one, so this view fills the window

@@ -440,7 +440,6 @@ crate::i18n::messages! {
         // Signing in with Microsoft.
         SignInWithMicrosoft = "Sign in with Microsoft",
         LauncherIdentityNote = "Developer option: signing in as the Minecraft Launcher, not as Lodestone Launcher. Microsoft's pages may show Minecraft's name instead of Lodestone's.",
-        UseLinkInstead = "Use a sign-in link instead",
         UseCodeInstead = "Use a code instead",
         SignInCodeBody = "Sign in with the Microsoft account you play Minecraft: Java Edition with. You'll get a code to enter on Microsoft's website.",
         SignInBrowserBody = "Sign in with the Microsoft account you play Minecraft: Java Edition with. Your browser opens to finish signing in.",
@@ -463,9 +462,6 @@ crate::i18n::messages! {
         StopSigningInBody = "Microsoft is still waiting for the code you copied. If you stop now, entering it won't sign you in.",
         StopSigningIn = "Stop signing in",
         KeepWaiting = "Keep waiting",
-        LinkInstructions = "Sign in in the browser window that opened. Microsoft then shows a page saying it is not normally shown. Copy the full address from the browser's address bar and paste it only into this launcher.",
-        /// {url} is the start of the address to paste.
-        LinkStartsWith = "It starts with {url}",
         SigningInToMinecraft = "Signing in to Minecraft…",
         ExpectedUntilApproved = "This is expected until Mojang approves the app. Nothing is wrong with your account.",
 

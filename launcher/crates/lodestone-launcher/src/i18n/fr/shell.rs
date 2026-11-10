@@ -461,7 +461,6 @@ pub fn text(message: M) -> &'static str {
         M::LauncherIdentityNote => {
             "Option de développement\u{a0}: connexion en tant que Minecraft Launcher, et non en tant que Lodestone Launcher. Les pages de Microsoft peuvent afficher le nom de Minecraft au lieu de celui de Lodestone."
         }
-        M::UseLinkInstead => "Utiliser plutôt un lien de connexion",
         M::UseCodeInstead => "Utiliser plutôt un code",
         M::SignInCodeBody => {
             "Connectez-vous avec le compte Microsoft avec lequel vous jouez à Minecraft: Java Edition. Vous recevrez un code à saisir sur le site de Microsoft."
@@ -490,10 +489,6 @@ pub fn text(message: M) -> &'static str {
         }
         M::StopSigningIn => "Arrêter la connexion",
         M::KeepWaiting => "Continuer d’attendre",
-        M::LinkInstructions => {
-            "Connectez-vous dans la fenêtre du navigateur qui s’est ouverte. Microsoft affiche ensuite une page indiquant qu’elle n’est normalement pas affichée. Copiez l’adresse complète depuis la barre d’adresse du navigateur et collez-la uniquement dans ce lanceur."
-        }
-        M::LinkStartsWith => "Elle commence par {url}",
         M::SigningInToMinecraft => "Connexion à Minecraft…",
         M::ExpectedUntilApproved => {
             "C’est normal tant que Mojang n’a pas approuvé l’application. Votre compte n’a aucun problème."
