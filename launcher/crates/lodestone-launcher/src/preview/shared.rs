@@ -77,6 +77,8 @@ pub fn window_height(scene: &str) -> Option<f32> {
         // Down to "Other cores", under the friends sections.
         "servers-local" => Some(2500.),
         "servers"
+        | "servers-core-menu"
+        | "servers-core-menu-other"
         | "servers-local-none"
         | "servers-local-unclaimed"
         | "servers-shared-local"

@@ -25,8 +25,6 @@ pub fn text(message: M) -> &'static str {
             "它還沒有擁有者，因此 Lodestone Launcher 建立了擁有者帳號 {username}。"
         }
         M::ConnectedOwnerKey => "此啟動器現在擁有它的擁有者金鑰。你可以在核心的控制面板中撤銷它。",
-        M::OwnerKey => "擁有者金鑰",
-        M::CopyApiKey => "複製 API 金鑰",
         M::StartedBy => "由 {who} 啟動",
         M::StartedDirectly => "直接啟動",
         M::DirectNote => {
@@ -58,8 +56,11 @@ pub fn text(message: M) -> &'static str {
             "依位址新增一個 Lodestone 核心。不登入時，你會看到其擁有者公開列出的伺服器。"
         }
 
-        M::BadgeTrusted => "已信任",
-        M::BadgePinned => "憑證已釘選",
+        M::CoreMoreActions => "{name} 的更多動作",
+        M::CopyOwnerApiKey => "複製擁有者 API 金鑰",
+        M::OwnerKeyCopied => "已複製 {name} 的擁有者 API 金鑰",
+        M::OwnerKeyCopiedHint => "請妥善保管：拿到它的人都能以擁有者身分控制這個核心。",
+        M::CertificatePinned => "憑證已釘選",
         M::SignedInAs => "已用 {username} 登入",
         M::SignedIn => "已登入",
         M::NotSignedIn => "未登入：僅顯示公開伺服器",

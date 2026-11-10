@@ -29,8 +29,6 @@ crate::i18n::messages! {
         ConnectedAsOwner = "Connected to {name} as its owner",
         ConnectedMadeOwner = "It had no owner yet, so Lodestone Launcher made the owner account {username}.",
         ConnectedOwnerKey = "This launcher has an owner key for it now. You can revoke it from the core's dashboard.",
-        OwnerKey = "Owner key",
-        CopyApiKey = "Copy API key",
         StartedBy = "Started by {who}",
         StartedDirectly = "Started directly",
         DirectNote = "This core was started directly. Lodestone Core is meant to be run with lodestone_cli, which installs it and keeps it updated.",
@@ -56,10 +54,15 @@ crate::i18n::messages! {
         NoServersHint = "Add a Lodestone core by its address. Without signing in you see the servers its owner lists publicly.",
 
         // ===== A core's card =====
-        /// A badge next to a core's name: the user trusts it for mods.
-        BadgeTrusted = "Trusted",
-        /// A badge next to a core's name: its own HTTPS certificate is trusted.
-        BadgePinned = "Pinned certificate",
+        /// The "…" button on a core's card.
+        CoreMoreActions = "More actions for {name}",
+        /// In a core's "…" menu: copies the owner key that claiming the core here gave.
+        CopyOwnerApiKey = "Copy owner API key",
+        OwnerKeyCopied = "Copied the owner API key of {name}",
+        OwnerKeyCopiedHint = "Keep it private: anyone who has it can control this core as its owner.",
+        /// At the bottom of a core's "…" menu: the launcher only accepts the core's own
+        /// HTTPS certificate, the one the user trusted.
+        CertificatePinned = "Certificate pinned",
         /// After the core's address: "192.168.1.20:16662 · Signed in as peter".
         SignedInAs = "Signed in as {username}",
         SignedIn = "Signed in",

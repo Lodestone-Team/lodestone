@@ -25,8 +25,6 @@ pub fn text(message: M) -> &'static str {
             "它还没有所有者，因此 Lodestone Launcher 创建了所有者账户 {username}。"
         }
         M::ConnectedOwnerKey => "此启动器现在拥有它的所有者密钥。你可以在核心的控制面板中撤销它。",
-        M::OwnerKey => "所有者密钥",
-        M::CopyApiKey => "复制 API 密钥",
         M::StartedBy => "由 {who} 启动",
         M::StartedDirectly => "直接启动",
         M::DirectNote => {
@@ -58,8 +56,11 @@ pub fn text(message: M) -> &'static str {
             "按地址添加一个 Lodestone 核心。不登录时，你能看到其所有者公开列出的服务器。"
         }
 
-        M::BadgeTrusted => "已信任",
-        M::BadgePinned => "证书已固定",
+        M::CoreMoreActions => "{name} 的更多操作",
+        M::CopyOwnerApiKey => "复制所有者 API 密钥",
+        M::OwnerKeyCopied => "已复制 {name} 的所有者 API 密钥",
+        M::OwnerKeyCopiedHint => "请妥善保管：拿到它的人都能以所有者身份控制这个核心。",
+        M::CertificatePinned => "证书已固定",
         M::SignedInAs => "已以 {username} 身份登录",
         M::SignedIn => "已登录",
         M::NotSignedIn => "未登录：仅显示公开服务器",

@@ -29,8 +29,6 @@ pub fn text(message: M) -> &'static str {
         M::ConnectedOwnerKey => {
             "Ce lanceur a maintenant une clé de propriétaire pour ce core. Vous pouvez la révoquer depuis le tableau de bord du core."
         }
-        M::OwnerKey => "Clé de propriétaire",
-        M::CopyApiKey => "Copier la clé d’API",
         M::StartedBy => "Démarré par {who}",
         M::StartedDirectly => "Démarré directement",
         M::DirectNote => {
@@ -70,8 +68,13 @@ pub fn text(message: M) -> &'static str {
             "Ajoutez un Lodestone Core par son adresse. Sans vous connecter, vous voyez les serveurs que son propriétaire liste publiquement."
         }
 
-        M::BadgeTrusted => "De confiance",
-        M::BadgePinned => "Certificat épinglé",
+        M::CoreMoreActions => "Plus d’actions pour {name}",
+        M::CopyOwnerApiKey => "Copier la clé d’API de propriétaire",
+        M::OwnerKeyCopied => "Clé d’API de propriétaire de {name} copiée",
+        M::OwnerKeyCopiedHint => {
+            "Gardez-la secrète\u{202F}: toute personne qui l’a peut contrôler ce core en tant que propriétaire."
+        }
+        M::CertificatePinned => "Certificat épinglé",
         M::SignedInAs => "Connecté en tant que {username}",
         M::SignedIn => "Connecté",
         M::NotSignedIn => "Non connecté\u{a0}: serveurs publics uniquement",

@@ -28,6 +28,8 @@ pub const SCENES: &[&str] = &[
     "servers-empty",
     "servers",
     "servers-ready",
+    "servers-core-menu",
+    "servers-core-menu-other",
     "servers-add",
     "servers-update",
     "servers-signed-out",
@@ -280,7 +282,7 @@ fn apply_servers(scene: &str, servers: &mut Servers, cx: &mut Context<Servers>) 
             };
             servers.preview_local(found, Vec::new(), None);
         }
-        "servers" | "servers-ready" => {
+        "servers" | "servers-ready" | "servers-core-menu" | "servers-core-menu-other" => {
             servers.preview(
                 vec![
                     local_home(),
@@ -300,8 +302,12 @@ fn apply_servers(scene: &str, servers: &mut Servers, cx: &mut Context<Servers>) 
             );
             servers.preview_busy("home", "atm", Busy::Starting);
             found_home(servers);
-            if scene == "servers-ready" {
-                servers.preview_ready("Cobblemon Official Modpack [Fabric]");
+            match scene {
+                "servers-ready" => servers.preview_ready("Cobblemon Official Modpack [Fabric]"),
+                // the "…" menu of the Host here, or of Alex's core under "Other cores"
+                "servers-core-menu" => servers.preview_core_menu("home"),
+                "servers-core-menu-other" => servers.preview_core_menu("friend"),
+                _ => {}
             }
         }
         "servers-add" | "servers-update" => {

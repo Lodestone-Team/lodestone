@@ -23,8 +23,10 @@ use super::{
 };
 use crate::{
     components::{
-        Button, ButtonSize, ButtonVariant, Dialog, DialogSlot, Icon, LoadingDots, Toggle,
+        Button, ButtonSize, ButtonVariant, Dialog, DialogSlot, Icon, IconButton, ListRow,
+        LoadingDots, Toggle,
         a11y::{Accessible, Role},
+        settings::{popover, popover_panel},
     },
     i18n::{CommonMsg, ServersMsg as M, ServersPlural as P, format, t, tr, trn},
     theme::{self, colors, fonts, leading, radius, text, weights},
@@ -88,18 +90,6 @@ fn other_files(advisory: &Advisory) -> Option<String> {
     .map(|(count, message)| trn!(message, count))
     .collect();
     (!parts.is_empty()).then(|| format::list(&parts))
-}
-
-fn badge(label: &'static str, color: theme::Color) -> gpui::Div {
-    div()
-        .flex_none()
-        .px_1p5()
-        .rounded(radius::DEFAULT)
-        .bg(color.opacity(15))
-        .text_color(color)
-        .text_size(theme::text_size(text::CAPTION))
-        .font_weight(weights::BOLD.into())
-        .child(label)
 }
 
 /// A fingerprint in two lines of 16 bytes, in the mono font.
@@ -533,31 +523,21 @@ impl Servers {
                 .into_any_element(),
         };
         let card_id = SharedString::from(format!("core-{}", core.saved.uuid));
-        let card_description: SharedString =
-            format!("{} · {account}", display_address(&core.url)).into();
-        let sign_button = if signed_in {
-            Some(
-                Button::new(
-                    SharedString::from(format!("sign-out-{index}")),
-                    t(CommonMsg::SignOut),
-                )
-                .size(ButtonSize::Slim)
-                .variant(ButtonVariant::Ghost)
-                .on_click(cx.listener(move |this, _, _, cx| this.sign_out(index, cx))),
+        let card_description: SharedString = format!(
+            "{} · {} · {account}",
+            core.saved.product.label(),
+            display_address(&core.url)
+        )
+        .into();
+        let sign_in_button = (!signed_in && connect_button.is_none()).then(|| {
+            Button::new(
+                SharedString::from(format!("sign-in-{index}")),
+                t(CommonMsg::SignIn),
             )
-        } else if connect_button.is_none() {
-            Some(
-                Button::new(
-                    SharedString::from(format!("sign-in-{index}")),
-                    t(CommonMsg::SignIn),
-                )
-                .size(ButtonSize::Slim)
-                .icon(Icon::User)
-                .on_click(cx.listener(move |this, _, _, cx| this.open_add(Some(index), cx))),
-            )
-        } else {
-            None
-        };
+            .size(ButtonSize::Slim)
+            .icon(Icon::User)
+            .on_click(cx.listener(move |this, _, _, cx| this.open_add(Some(index), cx)))
+        });
         card_frame(card_id.clone(), local)
             .accessible(Role::Group, card_id, core.saved.name.clone())
             .aria_description(card_description)
@@ -586,17 +566,7 @@ impl Servers {
                                             .font_weight(weights::BOLD.into())
                                             .text_color(crate::theme::ink::text())
                                             .child(RichText::new(core.saved.name.clone())),
-                                    )
-                                    .child(product_badge(core.saved.product))
-                                    .when(trusted, |this| {
-                                        this.child(badge(t(M::BadgeTrusted), colors::GREEN_300))
-                                    })
-                                    .when(core.saved.certificate.is_some(), |this| {
-                                        this.child(badge(
-                                            t(M::BadgePinned),
-                                            crate::theme::accent::light(),
-                                        ))
-                                    }),
+                                    ),
                             )
                             .child(
                                 div()
@@ -633,16 +603,8 @@ impl Servers {
                             ),
                     )
                     .children(connect_button)
-                    .children(sign_button)
-                    .child(
-                        Button::new(
-                            SharedString::from(format!("remove-core-{index}")),
-                            t(CommonMsg::Remove),
-                        )
-                        .size(ButtonSize::Slim)
-                        .variant(ButtonVariant::Ghost)
-                        .on_click(cx.listener(move |this, _, _, cx| this.remove(index, cx))),
-                    ),
+                    .children(sign_in_button)
+                    .child(self.core_menu(index, core, cx)),
             )
             .children(claim_error.map(|row| {
                 row.px_4()
@@ -650,7 +612,6 @@ impl Servers {
                     .border_t_1()
                     .border_color(crate::theme::ink::border())
             }))
-            .children(self.owner_row(index, core))
             .when(core.saved.launched_by == LaunchedBy::Direct, |this| {
                 this.child(direct_note(index))
             })
@@ -659,38 +620,109 @@ impl Servers {
             .into_any_element()
     }
 
-    /// The owner key claiming the core here gave, to copy. (An owner account the
-    /// launcher made is kept with it, and isn't shown.)
-    fn owner_row(&self, index: usize, core: &CoreEntry) -> Option<AnyElement> {
-        let key = self.local_credentials(&core.saved.uuid)?.api_key.clone()?;
-        let row = div()
-            .id(SharedString::from(format!("owner-sign-in-{index}")))
-            .flex()
-            .flex_row()
-            .items_center()
-            .gap_2()
-            .px_4()
-            .py_3()
-            .border_t_1()
-            .border_color(crate::theme::ink::border())
+    /// "…" on a core's card, and its menu: Copy owner API key (when claiming the core
+    /// here gave one), Sign out, Remove, and whether its certificate is pinned.
+    fn core_menu(&self, index: usize, core: &CoreEntry, cx: &mut Context<Self>) -> gpui::Div {
+        let uuid = core.saved.uuid.clone();
+        let open = self.core_menu_open(&uuid);
+        let has_key = self
+            .local_credentials(&uuid)
+            .is_some_and(|credentials| credentials.api_key.is_some());
+        let signed_in = core.signed_in();
+        let pinned = core.saved.certificate.is_some();
+        div()
+            .relative()
+            .flex_none()
             .child(
-                small(t(M::OwnerKey))
-                    .flex_1()
-                    .font_weight(weights::BOLD.into())
-                    .text_color(crate::theme::ink::text()),
-            )
-            .child(
-                Button::new(
-                    SharedString::from(format!("owner-copy-key-{index}")),
-                    t(M::CopyApiKey),
+                IconButton::new(
+                    SharedString::from(format!("core-menu-{index}")),
+                    Icon::Ellipsis,
                 )
-                .size(ButtonSize::Slim)
-                .icon(Icon::Copy)
-                .on_click(move |_, _, cx| {
-                    cx.write_to_clipboard(gpui::ClipboardItem::new_string(key.clone()))
-                }),
-            );
-        Some(row.into_any_element())
+                .label(tr!(M::CoreMoreActions, name = core.saved.name.clone()))
+                .on_click(cx.listener(move |this, _, _, cx| this.toggle_core_menu(&uuid, cx))),
+            )
+            .when(open, |this| {
+                let mut panel =
+                    popover_panel(SharedString::from(format!("core-menu-list-{index}")))
+                        .w(px(220.))
+                        .on_mouse_down_out(cx.listener(|this, _, _, cx| this.close_core_menu(cx)));
+                if has_key {
+                    panel = panel.child(
+                        ListRow::new(
+                            SharedString::from(format!("owner-copy-key-{index}")),
+                            t(M::CopyOwnerApiKey),
+                        )
+                        .icon(Icon::Copy)
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.close_core_menu(cx);
+                            this.copy_owner_key(index, cx);
+                        })),
+                    );
+                }
+                if signed_in {
+                    panel = panel.child(
+                        ListRow::new(
+                            SharedString::from(format!("sign-out-{index}")),
+                            t(CommonMsg::SignOut),
+                        )
+                        .icon(Icon::RightFromBracket)
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.close_core_menu(cx);
+                            this.sign_out(index, cx);
+                        })),
+                    );
+                }
+                panel = panel.child(
+                    ListRow::new(
+                        SharedString::from(format!("remove-core-{index}")),
+                        t(CommonMsg::Remove),
+                    )
+                    .icon(Icon::TrashCan)
+                    .danger(true)
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.close_core_menu(cx);
+                        this.remove(index, cx);
+                    })),
+                );
+                // Not a button: says the launcher only accepts this core's own
+                // certificate, the one the user trusted.
+                if pinned {
+                    panel = panel.child(
+                        div()
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap(px(6.))
+                            .mt_1()
+                            .px_2()
+                            .pt_1p5()
+                            .pb_1()
+                            .border_t_1()
+                            .border_color(crate::theme::ink::border())
+                            .child(Icon::CircleCheck.render(px(12.), colors::GREEN_300))
+                            .child(
+                                small(t(M::CertificatePinned))
+                                    .text_color(crate::theme::ink::muted()),
+                            ),
+                    );
+                }
+                let close = cx.listener(|this, _: &(), _, cx| this.close_core_menu(cx));
+                // In a box as wide as the list, under the button and out of the
+                // header's layout: the popover starts where its parent does, so the
+                // list's right edge lines up with the button's.
+                this.child(
+                    div()
+                        .absolute()
+                        .top_full()
+                        .right_0()
+                        .w(px(220.))
+                        .child(popover(
+                            SharedString::from(format!("core-menu-popover-{index}")),
+                            panel,
+                            move |window, cx| close(&(), window, cx),
+                        )),
+                )
+            })
     }
 
     /// "Connect as owner" for the core the scan found as row `found_index`.
@@ -796,23 +828,15 @@ impl Servers {
                                     .min_w_0()
                                     .child(this_computer_label())
                                     .child(
-                                        div()
-                                            .flex()
-                                            .flex_row()
-                                            .items_center()
-                                            .gap_2()
-                                            .child(
-                                                div()
-                                                    .truncate()
-                                                    .font_family(fonts::heading())
-                                                    .text_size(theme::text_size(text::H3))
-                                                    .font_weight(weights::BOLD.into())
-                                                    .text_color(crate::theme::ink::text())
-                                                    .child(RichText::new(
-                                                        found.info.core_name.clone(),
-                                                    )),
-                                            )
-                                            .child(product_badge(found.info.product)),
+                                        div().flex().flex_row().items_center().gap_2().child(
+                                            div()
+                                                .truncate()
+                                                .font_family(fonts::heading())
+                                                .text_size(theme::text_size(text::H3))
+                                                .font_weight(weights::BOLD.into())
+                                                .text_color(crate::theme::ink::text())
+                                                .child(RichText::new(found.info.core_name.clone())),
+                                        ),
                                     )
                                     .child(
                                         small(format!(
@@ -841,8 +865,8 @@ impl Servers {
     }
 
     /// "On this computer": the cores here, each as a card in Lodestone Host's green.
-    /// Those connected show in full (their servers, the owner key, and the servers
-    /// shared from them), the others with "Connect as owner". While nothing runs here,
+    /// Those connected show in full (their servers, and the servers shared from them;
+    /// the owner key is in the card's "…" menu), the others with "Connect as owner". While nothing runs here,
     /// it says so, and offers Lodestone Host.
     fn render_local(&self, cards: Vec<AnyElement>, cx: &mut Context<Self>) -> AnyElement {
         let local = &self.local;
@@ -1145,17 +1169,6 @@ fn direct_note(index: usize) -> gpui::Div {
             .icon(Icon::ArrowUpRightFromSquare)
             .on_click(|_, _, cx| cx.open_url(LODESTONE_CLI_RELEASES)),
         )
-}
-
-/// "Lodestone Host" or "Lodestone Core", beside a core's name.
-fn product_badge(product: CoreProduct) -> gpui::Div {
-    badge(
-        product.label(),
-        match product {
-            CoreProduct::Host => crate::theme::accent::light(),
-            CoreProduct::Core => colors::GRAY_400,
-        },
-    )
 }
 
 impl Render for Servers {
