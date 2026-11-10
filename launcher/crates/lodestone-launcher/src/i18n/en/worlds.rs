@@ -1,4 +1,4 @@
-//! The Worlds tab: worlds, backups and screenshots.
+//! The Worlds tab: worlds, their backups and data packs, and screenshots.
 
 crate::i18n::messages! {
     pub enum WorldsMsg {
@@ -63,6 +63,36 @@ crate::i18n::messages! {
         NoBackupsYet = "No backups yet. \"Back up\" saves the world as a zip in the instance's backups folder.",
         RestoreAsCopy = "Restore as copy",
         ReplaceWorld = "Replace world…",
+
+        // A world's data packs.
+        DataPacks = "Data packs",
+        ReadingDataPacks = "Reading the data packs",
+        NoDataPacksYet = "No data packs in this world yet. Add a .zip or a folder, or find one on Modrinth below.",
+        AddDataPack = "Add data pack…",
+        /// The file dialog's button.
+        AddDataPackPrompt = "Add data pack",
+        SearchDataPacks = "Search Modrinth for data packs, or paste a Modrinth link",
+        /// A data pack the game hasn't loaded yet.
+        NewPack = "New",
+        NewPackHint = "The game turns it on the next time it loads the world.",
+        PacksNotSwitchable = "Open this world in Minecraft 1.13 or later once, then its data packs can be turned on and off here.",
+        /// Over the progress bar.
+        AddingDataPacks = "Adding data packs",
+        SavingPackList = "Saving the world's data pack list",
+        /// {packs} is a list of file names; {name} is a world's name.
+        AddedDataPacks = "Added {packs} to {name}.",
+        /// {pack} is a file name.
+        InstalledDataPack = "Installed {pack} in {name}.",
+        /// {old} is the older file of the same pack it replaced.
+        UpdatedDataPack = "Installed {pack} in {name}, replacing {old}.",
+        PackTurnedOn = "{pack} is on. It loads the next time the world opens.",
+        PackTurnedOff = "{pack} is off. It stops loading the next time the world opens.",
+        /// {name} is a Modrinth project; {version} a Minecraft version.
+        NoDataPackVersion = "{name} has no data pack for Minecraft {version}.",
+        SearchingModrinth = "Searching Modrinth",
+        NoDataPacksFound = "No data packs found for Minecraft {version}.",
+        LinkNotDataPack = "That link isn't a data pack.",
+        ModrinthUnavailable = "Modrinth can't be reached now; data packs can still be added from files.",
 
         // The worlds list.
         ImportWorld = "Import world…",

@@ -74,6 +74,8 @@ pub fn window_height(scene: &str) -> Option<f32> {
         "sidebar-groups" | "sidebar-groups-off" => Some(1000.),
         // Tall enough for the Modrinth section under six mods.
         "content-mods" => Some(1100.),
+        // A world's data packs, then Modrinth's results.
+        "worlds-datapacks" => Some(1050.),
         // The installed mods, then Modrinth's results to browse (and its filters).
         "content-browse-idle" => Some(1500.),
         "content-description" | "content-gallery" | "content-cf-project" => Some(1400.),

@@ -58,6 +58,38 @@ pub fn text(message: M) -> &'static str {
         M::RestoreAsCopy => "Restaurer une copie",
         M::ReplaceWorld => "Remplacer le monde…",
 
+        M::DataPacks => "Packs de données",
+        M::ReadingDataPacks => "Lecture des packs de données",
+        M::NoDataPacksYet => {
+            "Aucun pack de données dans ce monde pour l’instant. Ajoutez un .zip ou un dossier, ou trouvez-en un sur Modrinth ci-dessous."
+        }
+        M::AddDataPack => "Ajouter un pack de données…",
+        M::AddDataPackPrompt => "Ajouter le pack de données",
+        M::SearchDataPacks => {
+            "Chercher des packs de données sur Modrinth, ou coller un lien Modrinth"
+        }
+        M::NewPack => "Nouveau",
+        M::NewPackHint => "Le jeu l’activera au prochain chargement du monde.",
+        M::PacksNotSwitchable => {
+            "Ouvrez ce monde une fois dans Minecraft 1.13 ou plus récent\u{a0}; ses packs de données pourront ensuite être activés et désactivés ici."
+        }
+        M::AddingDataPacks => "Ajout des packs de données",
+        M::SavingPackList => "Enregistrement de la liste des packs de données du monde",
+        M::AddedDataPacks => "{packs} ajouté à {name}.",
+        M::InstalledDataPack => "{pack} installé dans {name}.",
+        M::UpdatedDataPack => "{pack} installé dans {name}, à la place de {old}.",
+        M::PackTurnedOn => "{pack} est activé. Il se chargera à la prochaine ouverture du monde.",
+        M::PackTurnedOff => {
+            "{pack} est désactivé. Il ne se chargera plus à la prochaine ouverture du monde."
+        }
+        M::NoDataPackVersion => "{name} n’a pas de pack de données pour Minecraft {version}.",
+        M::SearchingModrinth => "Recherche sur Modrinth",
+        M::NoDataPacksFound => "Aucun pack de données trouvé pour Minecraft {version}.",
+        M::LinkNotDataPack => "Ce lien n’est pas un pack de données.",
+        M::ModrinthUnavailable => {
+            "Modrinth est injoignable pour le moment\u{a0}; vous pouvez toujours ajouter des packs de données depuis des fichiers."
+        }
+
         M::ImportWorld => "Importer un monde…",
         M::OpenSavesFolder => "Ouvrir le dossier saves",
         M::ReadingWorlds => "Lecture des mondes",

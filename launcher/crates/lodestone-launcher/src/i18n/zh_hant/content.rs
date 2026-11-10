@@ -54,6 +54,9 @@ pub fn text(message: M) -> &'static str {
         M::AddToResourcePacks => "加入資源包",
         M::AddToShaders => "加入光影",
 
+        M::LinkIsDataPack => {
+            "此連結指向一個資料包。資料包屬於某個世界：請在「世界」分頁中，從該世界的資料包加入。"
+        }
         M::LinkNotInstallable => {
             "此連結指向「{kind}」類型的專案，Lodestone Launcher 目前還不支援安裝。"
         }

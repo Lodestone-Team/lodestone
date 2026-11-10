@@ -634,6 +634,49 @@ pub fn plan(
                 pairs.push(("backup", json!(backup)));
                 call("worlds.delete_backup", pairs)
             }
+            Worlds::Datapacks(w) => call("worlds.datapacks", world(w)),
+            Worlds::DatapackSearch {
+                instance,
+                query,
+                limit,
+            } => call(
+                "worlds.datapack_search",
+                vec![
+                    ("instance", json!(instance)),
+                    ("query", json!(query)),
+                    ("limit", json!(limit)),
+                ],
+            ),
+            Worlds::DatapackAdd { world: w, path } => {
+                let mut pairs = world(w);
+                pairs.push(("path", json!(absolute(path)?)));
+                call("worlds.datapack_add", pairs)
+            }
+            Worlds::DatapackInstall {
+                world: w,
+                project,
+                version,
+            } => {
+                let mut pairs = world(w);
+                pairs.push(("project", json!(project)));
+                pairs.push(("version", json!(version)));
+                long("worlds.datapack_install", pairs)
+            }
+            Worlds::DatapackEnable { world: w, pack } => {
+                let mut pairs = world(w);
+                pairs.push(("pack", json!(pack)));
+                call("worlds.datapack_enable", pairs)
+            }
+            Worlds::DatapackDisable { world: w, pack } => {
+                let mut pairs = world(w);
+                pairs.push(("pack", json!(pack)));
+                call("worlds.datapack_disable", pairs)
+            }
+            Worlds::DatapackRemove { world: w, pack } => {
+                let mut pairs = world(w);
+                pairs.push(("pack", json!(pack)));
+                call("worlds.datapack_remove", pairs)
+            }
         },
         Command::Accounts(c) => match c {
             Accounts::List => call("accounts.list", vec![]),

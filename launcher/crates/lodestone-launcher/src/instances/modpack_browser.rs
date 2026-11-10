@@ -457,7 +457,7 @@ impl ModpackBrowser {
 
 /// The image at a Modrinth CDN URL from `cache`, fetched the first time (`large` for
 /// description images, else icons).
-fn fetch_image<V: 'static>(
+pub(crate) fn fetch_image<V: 'static>(
     cache: &mut HashMap<String, RemoteIcon>,
     url: &str,
     large: bool,

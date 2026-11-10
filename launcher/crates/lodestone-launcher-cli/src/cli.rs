@@ -867,6 +867,77 @@ pub enum Worlds {
         world: WorldArgs,
         backup: String,
     },
+    /// A world's data packs, and whether each is on.
+    #[command(
+        after_help = "Examples:\n  lodestone-launcher-cli worlds datapacks Survival \"New World\""
+    )]
+    Datapacks(WorldArgs),
+    /// Data packs on Modrinth for the instance's Minecraft version.
+    #[command(
+        name = "datapack-search",
+        after_help = "Examples:\n  lodestone-launcher-cli worlds datapack-search Survival terralith"
+    )]
+    DatapackSearch {
+        instance: String,
+        query: Option<String>,
+        #[arg(long)]
+        limit: Option<u32>,
+    },
+    /// Copies a data pack (.zip or folder) into a world.
+    #[command(
+        name = "datapack-add",
+        after_help = "Examples:\n  lodestone-launcher-cli worlds datapack-add Survival \"New World\" ~/Downloads/tools.zip"
+    )]
+    DatapackAdd {
+        #[command(flatten)]
+        world: WorldArgs,
+        path: std::path::PathBuf,
+    },
+    /// Installs a data pack from Modrinth into a world (the newest that fits by default).
+    #[command(
+        name = "datapack-install",
+        after_help = "Examples:\n  lodestone-launcher-cli worlds datapack-install Survival \"New World\" terralith"
+    )]
+    DatapackInstall {
+        #[command(flatten)]
+        world: WorldArgs,
+        /// A Modrinth project id or slug.
+        project: String,
+        /// A version id or number.
+        #[arg(long)]
+        version: Option<String>,
+    },
+    /// Turns a data pack on, from the next time the world loads.
+    #[command(
+        name = "datapack-enable",
+        after_help = "Examples:\n  lodestone-launcher-cli worlds datapack-enable Survival \"New World\" tools.zip"
+    )]
+    DatapackEnable {
+        #[command(flatten)]
+        world: WorldArgs,
+        /// The pack's file name (`.zip` may be left off).
+        pack: String,
+    },
+    /// Turns a data pack off, from the next time the world loads.
+    #[command(
+        name = "datapack-disable",
+        after_help = "Examples:\n  lodestone-launcher-cli worlds datapack-disable Survival \"New World\" tools"
+    )]
+    DatapackDisable {
+        #[command(flatten)]
+        world: WorldArgs,
+        pack: String,
+    },
+    /// Moves a data pack to the Trash. Needs --yes.
+    #[command(
+        name = "datapack-remove",
+        after_help = "Examples:\n  lodestone-launcher-cli worlds datapack-remove Survival \"New World\" tools.zip --yes"
+    )]
+    DatapackRemove {
+        #[command(flatten)]
+        world: WorldArgs,
+        pack: String,
+    },
 }
 
 /// A password: never on the command line.
