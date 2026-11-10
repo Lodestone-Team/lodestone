@@ -156,7 +156,6 @@ crate::i18n::messages! {
         ModsUpdateAll = "Update all ({count})",
         ModsCheckUpdates = "Check for updates",
         ModsUpload = "Upload",
-        ModsDropToUpload = "Release to upload .jar files",
         ModsUploadPrompt = "Upload",
         ModsLoadFailedMod = "Couldn’t load the mods: {error}",
         ModsLoadFailedPlugin = "Couldn’t load the plugins: {error}",
