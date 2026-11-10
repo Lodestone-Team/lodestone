@@ -101,6 +101,29 @@ impl User {
         }
     }
 
+    /// The owner Lodestone Host makes on its first run: no password, so nobody can sign
+    /// in with one. The Host signs in through the local claim until the owner sets a
+    /// password to share the core (`PUT /user/owner_account`).
+    pub fn owner_without_password(username: String) -> Self {
+        User {
+            uid: UserId::default(),
+            username,
+            hashed_psw: HashedPassword::none(),
+            is_owner: true,
+            is_admin: false,
+            permissions: UserPermission::default(),
+            secret: UserSecret::default(),
+            auth_source: AuthSource::Session,
+            key_all_instances: false,
+            key_console: None,
+        }
+    }
+
+    /// Whether the user has a password to sign in with.
+    pub fn has_password(&self) -> bool {
+        self.hashed_psw.is_set()
+    }
+
     /// Who to name in events and logs for what this request does: the username, plus the
     /// key's name for a request made with an API key.
     pub fn caused_by(&self) -> CausedBy {
@@ -554,6 +577,11 @@ pub struct PublicUser {
     pub is_owner: bool,
     pub is_admin: bool,
     pub permissions: UserPermission,
+    /// Whether the user can sign in with a password. Only Lodestone Host's owner has
+    /// none, until they set one to share the core. Older cores don't send it: all their
+    /// users have one.
+    #[serde(default = "crate::global_settings::default_true")]
+    pub has_password: bool,
 }
 
 impl From<&User> for PublicUser {
@@ -564,18 +592,21 @@ impl From<&User> for PublicUser {
             is_owner: user.is_owner,
             is_admin: user.is_admin,
             permissions: user.permissions.clone(),
+            has_password: user.has_password(),
         }
     }
 }
 
 impl From<User> for PublicUser {
     fn from(user: User) -> Self {
+        let has_password = user.has_password();
         PublicUser {
             uid: user.uid,
             username: user.username,
             is_owner: user.is_owner,
             is_admin: user.is_admin,
             permissions: user.permissions,
+            has_password,
         }
     }
 }
@@ -881,6 +912,71 @@ impl UsersManager {
                 Err(e)
             }
         }
+    }
+
+    /// Gives the owner `uid`, who has no password yet (Lodestone Host's first run), a
+    /// username and a password, `hashed` already. Fails with 409 when they have a
+    /// password: that is changed with the old one. Their sessions stay signed in.
+    pub async fn set_up_owner_account(
+        &mut self,
+        uid: &UserId,
+        username: String,
+        hashed: HashedPassword,
+        caused_by: CausedBy,
+    ) -> Result<User, Error> {
+        let user = self.users.get(uid).ok_or_else(|| Error {
+            kind: ErrorKind::NotFound,
+            source: eyre!("User id not found"),
+        })?;
+        if !user.is_owner {
+            return Err(Error {
+                kind: ErrorKind::PermissionDenied,
+                source: eyre!("Only the owner sets up the owner account"),
+            });
+        }
+        if user.has_password() {
+            return Err(Error {
+                kind: ErrorKind::Conflict,
+                source: eyre!("The owner already has a password. Change it in your profile"),
+            });
+        }
+        if self
+            .users
+            .values()
+            .any(|other| other.username == username && other.uid != *uid)
+        {
+            return Err(Error {
+                kind: ErrorKind::BadRequest,
+                source: eyre!("Username already exist"),
+            });
+        }
+        let old = user.clone();
+        let renamed = old.username != username;
+        if let Some(user) = self.users.get_mut(uid) {
+            user.username = username.clone();
+            user.hashed_psw = hashed;
+        }
+        if let Err(e) = self.write_to_file().await {
+            self.users.insert(uid.clone(), old);
+            return Err(e);
+        }
+        if renamed {
+            self.event_broadcaster.send(Event {
+                event_inner: EventInner::UserEvent(UserEvent {
+                    user_id: uid.clone(),
+                    user_event_inner: UserEventInner::UsernameChanged {
+                        new_username: username,
+                    },
+                }),
+                details: "".to_string(),
+                snowflake: Snowflake::default(),
+                caused_by,
+            });
+        }
+        self.get_user(uid).ok_or_else(|| Error {
+            kind: ErrorKind::NotFound,
+            source: eyre!("User id not found"),
+        })
     }
 
     pub fn get_user_by_username(&self, username: impl AsRef<str>) -> Option<User> {
@@ -1213,6 +1309,11 @@ fn credential_mismatch() -> Error {
 }
 
 fn verify_password(hash: &HashedPassword, password: &str) -> Result<(), Error> {
+    if !hash.is_set() {
+        // no password matches: as slow as a wrong one, so it doesn't show
+        let _ = verify_password(&DUMMY_PASSWORD_HASH, password);
+        return Err(credential_mismatch());
+    }
     let hash = argon2::PasswordHash::new(hash.as_ref()).map_err(|e| Error {
         kind: ErrorKind::Internal,
         source: eyre!("Stored password hash is invalid: {e}"),

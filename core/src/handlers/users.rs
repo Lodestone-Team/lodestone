@@ -224,6 +224,46 @@ pub async fn change_password(
     Ok(Json(()))
 }
 
+/// The body of `PUT /user/owner_account`.
+#[derive(Deserialize)]
+pub struct OwnerAccount {
+    pub username: String,
+    pub password: String,
+}
+
+/// Sets up the owner account to share the core: gives the owner who has no password yet
+/// (Lodestone Host's first run) a username and a password, then lets other devices use
+/// the core (see [`crate::remote_access`]). Only the owner, signed in (not with an API
+/// key). Fails with 409 when the owner already has a password. The owner stays signed in.
+pub async fn set_up_owner_account(
+    State(state): State<AppState>,
+    requester: AuthedUser,
+    Json(account): Json<OwnerAccount>,
+) -> Result<Json<PublicUser>, Error> {
+    requester.require_session()?;
+    requester.owner_only("set up the owner account")?;
+    let bad = |message: &str| Error {
+        kind: ErrorKind::BadRequest,
+        source: eyre!(message.to_string()),
+    };
+    let username = crate::remote_access::owner_username(&account.username).map_err(bad)?;
+    crate::remote_access::owner_password(&account.password).map_err(bad)?;
+    let password = account.password;
+    let hashed = run_argon2(move || crate::auth::hashed_password::hash_password(password)).await?;
+    let owner = state
+        .users_manager
+        .write()
+        .await
+        .set_up_owner_account(&requester.uid, username, hashed, requester.caused_by())
+        .await?;
+    tracing::info!(
+        "The owner account {} was set up with a password",
+        owner.username
+    );
+    crate::remote_access::set(&state, true, requester.caused_by()).await?;
+    Ok(Json(owner.into()))
+}
+
 #[derive(Serialize, TS)]
 #[ts(export)]
 pub struct LoginReply {
@@ -345,6 +385,7 @@ pub fn get_user_routes(state: AppState) -> Router {
         .route("/user/{uid}", delete(delete_user))
         .route("/user/{uid}/update_perm", put(update_permissions))
         .route("/user/info", get(get_self_info))
+        .route("/user/owner_account", put(set_up_owner_account))
         .route("/user/{uid}/rename", put(rename_user))
         .route("/user/{uid}/password", put(change_password))
         .route("/user/login", post(login))

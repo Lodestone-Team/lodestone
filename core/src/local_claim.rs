@@ -15,6 +15,9 @@
 //!    there, in a folder only its user can open.
 //! 2. The program writes the value into `claim`, a random value of its own into `reply`
 //!    and, for a core without an owner yet, `owner.json` (`{"username", "password"}`).
+//!    A session claim from this computer may leave the password out (Lodestone Host's
+//!    first run): the owner then has none, and the core serves only this computer until
+//!    they set one (`crate::remote_access`).
 //! 3. `POST /local_claim/finish` checks `claim`, creates the owner if asked, mints an
 //!    owner API key and writes `result.json` (0600): the key, the program's `reply`, and
 //!    the SHA-256 fingerprint of the core's certificate. A program that asks for a
@@ -145,11 +148,15 @@ pub struct ClaimResult {
     pub tls_fingerprint_sha256: Option<String>,
 }
 
-/// `<dir>/owner.json`, written by the program for a core without an owner.
+/// `<dir>/owner.json`, written by the program for a core without an owner. Without a
+/// password (`null` or left out), the owner has none: only for a session claim from this
+/// computer (Lodestone Host's first run), and the core then serves only this computer
+/// until the owner sets one (see `crate::remote_access`).
 #[derive(Deserialize)]
 struct OwnerFile {
     username: String,
-    password: String,
+    #[serde(default)]
+    password: Option<String>,
 }
 
 /// The kinds of client address, each with its own waiting claims.
@@ -470,7 +477,8 @@ impl LocalClaims {
                          username and password",
                     ));
                 };
-                (create_owner(app, &text).await?, true)
+                let passwordless_allowed = session && pending.origin == Origin::Loopback;
+                (create_owner(app, &text, passwordless_allowed).await?, true)
             }
         };
         let name = key_name(name);
@@ -535,37 +543,42 @@ async fn current_owner(app: &AppState) -> Option<User> {
 }
 
 /// Creates the owner from `owner.json`, as `POST /setup/{key}` does, using up the
-/// first-time setup key. Errors never repeat the file's contents.
-async fn create_owner(app: &AppState, text: &str) -> Result<User, Error> {
+/// first-time setup key. Without a password only when `passwordless_allowed`. Errors
+/// never repeat the file's contents.
+async fn create_owner(
+    app: &AppState,
+    text: &str,
+    passwordless_allowed: bool,
+) -> Result<User, Error> {
     let owner: OwnerFile =
         serde_json::from_str(text).map_err(|_| denied("owner.json isn't valid"))?;
-    let username = owner.username.trim().to_string();
-    let chars = username.chars().count();
-    if chars == 0 || chars > 64 || username.chars().any(char::is_control) {
-        return Err(denied("The owner's username must have 1 to 64 characters"));
-    }
-    if owner.password.chars().count() < 12 || owner.password.len() > 256 {
-        return Err(denied(
-            "The owner's password must have 12 to 256 characters",
-        ));
+    let username = crate::remote_access::owner_username(&owner.username).map_err(denied)?;
+    match &owner.password {
+        Some(password) => crate::remote_access::owner_password(password).map_err(denied)?,
+        None if passwordless_allowed => {}
+        None => return Err(denied("owner.json must have the owner's password")),
     }
     // held until the owner is saved, as in setup_owner
     let mut setup_key = app.first_time_setup_key.lock().await;
     if current_owner(app).await.is_some() {
         return Err(denied("This core already has an owner"));
     }
-    let password = owner.password;
-    let user = tokio::task::spawn_blocking(move || {
-        User::new(username, &password, true, false, UserPermission::default())
-    })
-    .await
-    .context("Password hashing task failed")?;
+    let user = match owner.password {
+        Some(password) => tokio::task::spawn_blocking(move || {
+            User::new(username, &password, true, false, UserPermission::default())
+        })
+        .await
+        .context("Password hashing task failed")?,
+        None => User::owner_without_password(username),
+    };
     app.users_manager
         .write()
         .await
         .add_user(user.clone(), CausedBy::System)
         .await?;
     setup_key.take();
+    drop(setup_key);
+    crate::remote_access::owner_created(app, user.has_password()).await;
     Ok(user)
 }
 
@@ -1056,6 +1069,98 @@ mod tests {
                 .unwrap();
             assert_eq!(response.status(), StatusCode::OK);
         }
+    }
+
+    /// Lodestone Host's first run: the owner without a password, and the core only for
+    /// this computer from then on.
+    #[tokio::test]
+    async fn a_session_claim_makes_an_owner_without_a_password() {
+        let core = core(false).await;
+        assert!(core.state.remote_access.allowed());
+        let start = core.start().await;
+        core.answer(&start, &start.value);
+        std::fs::write(
+            core.folder(&start).join("owner.json"),
+            r#"{"username":" peter ","password":null}"#,
+        )
+        .unwrap();
+        let (status, body) = core
+            .post(
+                "/local_claim/finish",
+                json!({ "id": start.id, "name": "Lodestone Host", "session": true }),
+            )
+            .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let result = core.result(&start);
+        assert!(result.owner_created);
+        assert_eq!(result.owner_username, "peter");
+        let token = result.session_token.unwrap();
+        assert!(core.state.first_time_setup_key.lock().await.is_none());
+
+        let users = core.state.users_manager.read().await;
+        let owner = users.try_auth(&token).unwrap();
+        assert!(owner.is_owner);
+        assert!(!owner.has_password());
+        assert!(users.login("peter", "").is_err());
+        assert!(users.login("peter", "any password at all").is_err());
+        drop(users);
+        // explicit and saved: only this computer from now on
+        assert!(!core.state.remote_access.allowed());
+        let stored: Value = serde_json::from_slice(
+            &std::fs::read(core.dir.path().join("global_settings.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(stored["allow_remote_access"], false);
+        // a later claim signs in the same owner
+        let again = core.claim().await;
+        assert!(!again.owner_created);
+        assert_eq!(again.owner_username, "peter");
+    }
+
+    /// Only a session claim may leave the password out: a launcher's claim (a key) can't
+    /// make a core nobody can sign in to with a password.
+    #[tokio::test]
+    async fn a_key_claim_must_give_the_owners_password() {
+        let core = core(false).await;
+        let start = core.start().await;
+        core.answer(&start, &start.value);
+        std::fs::write(
+            core.folder(&start).join("owner.json"),
+            r#"{"username":"peter"}"#,
+        )
+        .unwrap();
+        assert_eq!(core.finish(&start.id).await.0, StatusCode::FORBIDDEN);
+        assert!(core.state.first_time_setup_key.lock().await.is_some());
+        assert!(core.state.remote_access.allowed());
+    }
+
+    /// An owner made with a password (an older Host) serves other devices, as before,
+    /// even on a core that started local-only.
+    #[tokio::test]
+    async fn an_owner_with_a_password_lets_other_devices_in() {
+        let core = core_with(
+            GlobalSettingsData {
+                allow_remote_access: false,
+                ..Default::default()
+            },
+            false,
+        )
+        .await;
+        let start = core.start().await;
+        core.answer(&start, &start.value);
+        std::fs::write(
+            core.folder(&start).join("owner.json"),
+            r#"{"username":"host_owner","password":"Zq8-strong-chosen-pw"}"#,
+        )
+        .unwrap();
+        let (status, _) = core
+            .post(
+                "/local_claim/finish",
+                json!({ "id": start.id, "name": "Lodestone Host", "session": true }),
+            )
+            .await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(core.state.remote_access.allowed());
     }
 
     /// A launcher's claim (no `session`) still gets a key and no token.
