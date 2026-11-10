@@ -1153,7 +1153,8 @@ impl Servers {
     // The window
 
     /// Play on a server a friend's core shares: the join dialog, through the friend
-    /// list, then Play.
+    /// list, then Play. A server joined before whose core runs on this computer, with
+    /// the launcher as its owner, is joined straight at the core, as from its row.
     pub fn play_friend_server(
         &mut self,
         friend: &str,
@@ -1161,6 +1162,12 @@ impl Servers {
         server: &SharedServer,
         cx: &mut Context<Self>,
     ) {
+        let saved =
+            launcher_core::cores::friends::friend_list_id(fingerprint, &server.instance_uuid);
+        if self.friend_direct(&saved).is_some() {
+            self.open_friend(&saved, true, cx);
+            return;
+        }
         self.connect_source(
             Source::FriendList {
                 friend: friend.to_string(),
