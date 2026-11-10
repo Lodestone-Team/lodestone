@@ -184,6 +184,11 @@ pub fn keystrokes(scene: &str) -> &'static [&'static str] {
         // From the window's root: the logo, the account box, then the sidebar's New
         // instance.
         "focus-home" => &["tab", "tab", "tab"],
+        // The Lodestone Host page: Tab to Survival SMP's name, and Enter opens its page.
+        "servers-open-title" => &[
+            "tab", "tab", "tab", "tab", "tab", "tab", "tab", "tab", "tab", "tab", "tab", "tab",
+            "enter",
+        ],
         // Shared game settings: past Manage accounts and the seven pages, the Sync
         // from list opened with Enter (it takes focus), then Tab to its second row.
         "focus-popover" => &[

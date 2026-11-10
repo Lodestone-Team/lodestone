@@ -10,9 +10,9 @@ use gpui::{
 use super::{LauncherShell, Page};
 use crate::{
     components::{
-        Button, ButtonSize, ButtonVariant, KeyboardFocus,
+        Button, ButtonSize, ButtonVariant, Icon, KeyboardFocus,
         a11y::{Accessible, Role},
-        caption,
+        caption, text_tooltip,
         window_frame::{self, Side},
     },
     i18n::{ShellMsg as M, t},
@@ -31,10 +31,11 @@ pub const TOP_BAR_HEIGHT: f32 = 42.0;
 /// The top bar, after the dashboard's `TopNav`. It replaces the title bar.
 ///
 /// On macOS the logo is centred, the window's traffic-light buttons sit in the left
-/// column and the empty areas move the window, as in the dashboard app. The right
-/// column holds the update notice.
+/// column, followed by the back and forward arrows, and the empty areas move the
+/// window, as in the dashboard app. The right column holds the update notice.
 ///
-/// On Windows the logo sits on the left, where Windows apps put their icon, and the
+/// On Windows the logo sits on the left, where Windows apps put their icon, with the
+/// arrows after it, and the
 /// right end leaves room for the caption buttons of [`window_controls`]. A centred
 /// logo would leave too little room beside it, at the narrowest window, for the
 /// update notice and the buttons. Windows itself moves the window from the bar's
@@ -122,8 +123,22 @@ pub fn render(
                 window.show_window_menu(event.position)
             })
         })
+        // The back and forward arrows start the bar: after the window's buttons on
+        // macOS and Linux, after the logo on Windows, where the logo starts it.
         .when(!windows, |bar| {
-            bar.child(side().children(controls_room(Side::Left, window, cx)))
+            bar.child(
+                side()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .children(controls_room(Side::Left, window, cx))
+                    // past macOS's traffic lights, which start 16px in and are 52px
+                    // wide, as the performance monitor's bar leaves them
+                    .when(cfg!(target_os = "macos"), |this| {
+                        this.child(div().flex_none().w(gpui::px(MAC_TRAFFIC_LIGHTS)))
+                    })
+                    .child(history_arrows(shell, cx)),
+            )
         })
         .child(
             div()
@@ -132,7 +147,10 @@ pub fn render(
                 .items_center()
                 .gap(px(8.))
                 .child(logo(windows || own_frame, cx))
-                .when(IS_DEV, |this| this.child(dev_badge())),
+                .when(IS_DEV, |this| this.child(dev_badge()))
+                .when(windows, |this| {
+                    this.child(div().ml(px(8.)).child(history_arrows(shell, cx)))
+                }),
         )
         .child(
             side()
@@ -168,6 +186,79 @@ fn logo(occlude: bool, cx: &mut Context<LauncherShell>) -> impl IntoElement {
                 // The logo's viewBox is 106 by 22.
                 .h(layout::logo_width() * (22.0 / 106.0)),
         )
+}
+
+/// macOS: the room the traffic lights take after the bar's left padding, with a gap
+/// before the arrows (the lights end 68px in; the arrows start at 84px).
+const MAC_TRAFFIC_LIGHTS: f32 = 68.0;
+
+/// The back and forward arrows: the place shown before, and back again (see
+/// [`super::history`]). Each is greyed out while there is nowhere to go.
+fn history_arrows(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoElement {
+    let (back_keys, forward_keys) = if cfg!(target_os = "macos") {
+        ("⌘[", "⌘]")
+    } else {
+        ("Alt+Left", "Alt+Right")
+    };
+    div()
+        .flex()
+        .flex_row()
+        .flex_none()
+        .items_center()
+        .gap(px(2.))
+        .child(arrow(
+            "history-back",
+            Icon::ChevronLeft,
+            t(M::GoBack),
+            back_keys,
+            shell.can_go_back(),
+            cx.listener(|this, _, _, cx| this.go_back(cx)),
+        ))
+        .child(arrow(
+            "history-forward",
+            Icon::ChevronRight,
+            t(M::GoForward),
+            forward_keys,
+            shell.can_go_forward(),
+            cx.listener(|this, _, _, cx| this.go_forward(cx)),
+        ))
+}
+
+/// One of the [`history_arrows`]. It isn't part of the window's caption: pressing it
+/// doesn't move the window, and on Windows it takes the click instead of the caption.
+fn arrow(
+    id: &'static str,
+    icon: Icon,
+    label: &'static str,
+    keys: &'static str,
+    enabled: bool,
+    on_press: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
+) -> impl IntoElement {
+    let color = if enabled {
+        crate::theme::ink::secondary()
+    } else {
+        crate::theme::ink::muted().opacity(30)
+    };
+    div()
+        .id(id)
+        .accessible(Role::Button, id, label)
+        .flex()
+        .flex_none()
+        .items_center()
+        .justify_center()
+        .size(px(26.))
+        .rounded(radius::DEFAULT)
+        .occlude()
+        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+        .tooltip(text_tooltip(format!("{label} ({keys})")))
+        .when(enabled, |this| {
+            this.keyboard_focus()
+                .cursor_pointer()
+                .hover(|style| style.bg(colors::GRAY_700))
+                .active(|style| style.bg(colors::GRAY_850))
+                .on_press(on_press)
+        })
+        .child(icon.render(px(14.), color))
 }
 
 /// The DEV badge beside the logo in a development build, as Lodestone Host's.

@@ -160,3 +160,7 @@ too.
 - **Set up state** (instances, mods, accounts) with `lodestone-launcher-cli`.
 - **Check a UI change in the code** with the offscreen scenes:
   `--features screenshot`, then `--scene NAME --screenshot FILE.png`.
+  `launcher/scripts/dev_loop.py launcher --scene NAME --png FILE.png --no-open`
+  renders it again after each save (`host --png FILE.png` for the Host, with its own
+  data folders and core port). `launcher/docs/dev-loop.md` has the build times and
+  what was tried to speed them up.

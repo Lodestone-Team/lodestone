@@ -32,7 +32,18 @@ use gpui::{
     WindowOptions, actions, px, size,
 };
 
-actions!(launcher, [Quit, ZoomIn, ZoomOut, ResetZoom, PasteInvite]);
+actions!(
+    launcher,
+    [
+        Quit,
+        ZoomIn,
+        ZoomOut,
+        ResetZoom,
+        PasteInvite,
+        GoBack,
+        GoForward
+    ]
+);
 pub use lodestone_ui::{Redo, Undo};
 
 /// The window title, also used for the app menu.
@@ -76,6 +87,7 @@ pub fn init(cx: &mut App) {
         KeyBinding::new("ctrl-y", Redo, None),
     ]);
     bind_paste_invite(cx);
+    bind_history(cx);
     set_menus(cx);
     // The launcher has one window; closing it quits, as in the dashboard app.
     cx.on_window_closed(|cx, _| {
@@ -107,6 +119,23 @@ fn bind_paste_invite(cx: &mut App) {
         PasteInvite,
         Some(OUTSIDE_TEXT_FIELDS),
     )]);
+}
+
+/// The top bar's back and forward arrows: ⌘[ and ⌘] on macOS, as in Safari and
+/// Finder; Alt+Left and Alt+Right elsewhere, as in browsers. Text fields keep their
+/// own (Alt+Left moves by word on macOS).
+fn bind_history(cx: &mut App) {
+    const OUTSIDE_TEXT_FIELDS: &str = "Launcher && !TextInput && !TextEditor";
+    #[cfg(target_os = "macos")]
+    cx.bind_keys([
+        KeyBinding::new("cmd-[", GoBack, Some(OUTSIDE_TEXT_FIELDS)),
+        KeyBinding::new("cmd-]", GoForward, Some(OUTSIDE_TEXT_FIELDS)),
+    ]);
+    #[cfg(not(target_os = "macos"))]
+    cx.bind_keys([
+        KeyBinding::new("alt-left", GoBack, Some(OUTSIDE_TEXT_FIELDS)),
+        KeyBinding::new("alt-right", GoForward, Some(OUTSIDE_TEXT_FIELDS)),
+    ]);
 }
 
 /// Quit's shortcut: ⌘Q on macOS and Ctrl+Q elsewhere, as in browsers and most
