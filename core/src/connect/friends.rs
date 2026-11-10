@@ -643,6 +643,71 @@ impl FriendShares {
         self.apply_or_retry(state, &mut inner).await;
     }
 
+    /// Replaces the friend certificate with a new one, for an owner who retired this core
+    /// in their state (friends refuse a retired fingerprint for good). The old
+    /// `core.json` is kept as `core.json.retired-<seconds since 1970>`. A running friend
+    /// host is restarted with the new certificate, which drops every friend connection;
+    /// the friend list and what's shared stay. Friends reach this core again once the
+    /// owner's launcher lists the new fingerprint in its state.
+    pub async fn rotate_certificate(
+        self: &Arc<Self>,
+        state: &AppState,
+    ) -> Result<FriendsView, Error> {
+        let mut inner = self.inner.lock().await;
+        self.load(&mut inner).await;
+        {
+            // the old one is read (or made) first, so a damaged file is set aside as such
+            let old = self.identity().await?;
+            let made = CoreIdentity::generate().map_err(|e| internal(e.to_string()))?;
+            let mut identity = self.identity.lock().await;
+            self.ensure_dir().await?;
+            let file = self.identity_file();
+            if tokio::fs::try_exists(&file).await.unwrap_or(false) {
+                let since = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map_or(0, |d| d.as_secs());
+                let mut backup = self.dir.join(format!("core.json.retired-{since}"));
+                for n in 1.. {
+                    if !tokio::fs::try_exists(&backup).await.unwrap_or(false) {
+                        break;
+                    }
+                    backup = self.dir.join(format!("core.json.retired-{since}-{n}"));
+                }
+                tokio::fs::rename(&file, &backup).await.map_err(|e| {
+                    internal(format!(
+                        "Couldn't keep the old friend certificate aside: {e}"
+                    ))
+                })?;
+            }
+            crate::persist::write_atomic(&file, made.to_json(), Some(0o600)).await?;
+            *identity = Some(made.clone());
+            info!(
+                "Made a new friend certificate {} (was {})",
+                lodestone_connect_hex(&made.fingerprint()),
+                lodestone_connect_hex(&old.fingerprint())
+            );
+        }
+        // the friend host serves the old certificate: start it again with the new one
+        if let Some(host) = inner.host.take() {
+            host.stop().await;
+        }
+        self.access.write().expect("not poisoned").clear();
+        self.apply_or_retry(state, &mut inner).await;
+        drop(inner);
+        self.view().await
+    }
+
+    /// The running friend host's certificate fingerprint.
+    #[cfg(test)]
+    pub(crate) async fn host_fingerprint_for_tests(&self) -> Option<[u8; 32]> {
+        self.inner
+            .lock()
+            .await
+            .host
+            .as_ref()
+            .map(FriendHost::fingerprint)
+    }
+
     /// Applies the list again: after an instance was deleted, say.
     pub async fn refresh(self: &Arc<Self>, state: &AppState) {
         let mut inner = self.inner.lock().await;

@@ -175,8 +175,9 @@ where `secret` is that friend's core secret for this core. The core refuses a ve
 lower than the one it has. `hidden` (optional, false when missing) is for friends the
 owner hides from: the core keeps what's shared with them, so unhiding restores it, but
 publishes no records for them, refuses their connections and serves them nothing.
-`GET /connect/friends` reports each friend's `shared` and `hidden`, never secrets. These
-routes:
+`GET /connect/friends` reports each friend's `shared` and `hidden`, never secrets.
+`POST /connect/friends/certificate` gives the core a new friend certificate (see below).
+These routes:
 
 - need the **owner**, not just an instance's settings permission;
 - are refused unless the request arrived over the core's HTTPS or from loopback, since
@@ -202,6 +203,16 @@ The friend certificate (`core.json`) is made only when there is none. A damaged 
 moved aside to `core.json.damaged-<seconds since 1970>` and replaced, with a warning in
 the log; friends then need the owner's next state, which names the new certificate. Any
 other read error (permissions, a disk problem) is reported and the file is left alone.
+
+**A new certificate after retiring a core.** Friends refuse a retired core's fingerprint
+for good, so to share from that computer again its core needs a new friend certificate:
+`POST /connect/friends/certificate` (no body; the same owner, HTTPS-or-loopback and
+forwarded-header rules as the other routes). The core keeps the old `core.json` as
+`core.json.retired-<seconds since 1970>`, makes a new one, restarts a running friend host
+with it (which drops every friend connection), and answers `200` with the same JSON as
+`GET /connect/friends`, whose `fingerprint` is the new one. The friend list, its version
+and what's shared stay. Friends reach the core again once the owner's launcher lists the
+new fingerprint in its next state.
 
 ## Mods
 

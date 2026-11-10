@@ -762,6 +762,102 @@ async fn hidden_friends_keep_their_shares_but_get_nothing() {
     core.state.connect.stop_all().await;
 }
 
+#[tokio::test]
+async fn only_the_owner_replaces_the_friend_certificate_and_the_host_serves_the_new_one() {
+    let core = core().await;
+    let secret = lodestone_connect::friend::Secret::random()
+        .unwrap()
+        .to_hex();
+    let ben = friend_key();
+    let list = json!({"version": 1, "friends": [
+        {"key": ben, "name": "Ben", "secret": secret, "shared": [core.fabric.to_string()]}
+    ]});
+    let (status, body) = core
+        .call_json(Method::PUT, "/connect/friends", &core.owner_jwt, list)
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let old = body["fingerprint"].as_str().unwrap().to_string();
+    let hex = |bytes: [u8; 32]| bytes.iter().map(|b| format!("{b:02x}")).collect::<String>();
+    let host = core.state.connect.friends.host_fingerprint_for_tests();
+    assert_eq!(hex(host.await.unwrap()), old);
+
+    // someone who isn't the owner, or a request a local proxy passed on: refused
+    let mut lots = UserPermission::default();
+    lots.can_view_instance.insert(core.fabric.clone());
+    lots.can_access_instance_setting.insert(core.fabric.clone());
+    let helper = add_user(&core.state, "helper", false, lots).await;
+    let helper = helper.create_jwt().unwrap().to_string();
+    let path = "/connect/friends/certificate";
+    let (status, _) = core.call(Method::POST, path, &helper).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let forwarded = reqwest::Client::new()
+        .post(format!("{}{path}", core.base))
+        .bearer_auth(&core.owner_jwt)
+        .header("x-forwarded-for", "203.0.113.9")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(forwarded.status(), StatusCode::FORBIDDEN);
+    assert_eq!(body_fingerprint(&core).await, old, "unchanged");
+
+    // the owner: a new certificate, the list and shares kept, the host restarted with it
+    let (status, body) = core.call(Method::POST, path, &core.owner_jwt).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let new = body["fingerprint"].as_str().unwrap().to_string();
+    assert_eq!(new.len(), 64);
+    assert_ne!(new, old);
+    assert_eq!(body["version"], 1);
+    assert_eq!(body["friends"][0]["key"], ben);
+    assert_eq!(
+        body["friends"][0]["shared"],
+        json!([core.fabric.to_string()])
+    );
+    assert!(body["host"].is_object());
+    let host = core.state.connect.friends.host_fingerprint_for_tests();
+    assert_eq!(
+        hex(host.await.unwrap()),
+        new,
+        "the old certificate is no longer served"
+    );
+    assert_eq!(body_fingerprint(&core).await, new);
+
+    // the old one is kept aside, and the new one is what a restart reads
+    let dir = core.dir.path().join("connect").join("friends");
+    let retired: Vec<_> = std::fs::read_dir(&dir)
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .filter(|p| {
+            p.file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with("core.json.retired-")
+        })
+        .collect();
+    assert_eq!(retired.len(), 1);
+    let kept = std::fs::read_to_string(&retired[0]).unwrap();
+    let kept = lodestone_connect::friend::host::CoreIdentity::from_json(&kept).unwrap();
+    assert_eq!(hex(kept.fingerprint()), old);
+    let view = offline_shares(&dir).view().await.unwrap();
+    assert_eq!(view.fingerprint, new);
+
+    // again: each old one is kept
+    let (status, body) = core.call(Method::POST, path, &core.owner_jwt).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_ne!(body["fingerprint"].as_str().unwrap(), new);
+    let count = std::fs::read_dir(&dir)
+        .unwrap()
+        .filter(|e| {
+            e.as_ref()
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .starts_with("core.json.retired-")
+        })
+        .count();
+    assert_eq!(count, 2);
+    core.state.connect.stop_all().await;
+}
+
 fn offline_shares(dir: &Path) -> friends::FriendShares {
     friends::FriendShares::new(
         dir.to_path_buf(),

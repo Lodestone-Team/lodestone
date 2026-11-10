@@ -11,18 +11,20 @@
 //!
 //! - `GET /connect/friends`: the friend certificate's fingerprint, the friends (no
 //!   secrets), what's shared with each, and who is connected;
-//! - `PUT /connect/friends`: replaces the list, with a higher version.
+//! - `PUT /connect/friends`: replaces the list, with a higher version;
+//! - `POST /connect/friends/certificate`: makes a new friend certificate (for a core its
+//!   owner retired) and answers as `GET` does, with the new fingerprint.
 //!
-//! Both need the owner, signed in (not an API key), and a connection that can't be read
-//! on the way: loopback, or HTTPS. The list carries the secrets this core shares with
-//! each friend.
+//! All three need the owner, signed in (not an API key), and a connection that can't be
+//! read on the way: loopback, or HTTPS. The list carries the secrets this core shares
+//! with each friend.
 
 use std::net::IpAddr;
 
 use axum::{
     extract::{Path, State},
     http::HeaderMap,
-    routing::get,
+    routing::{get, post},
     Json, Router,
 };
 use color_eyre::eyre::eyre;
@@ -153,6 +155,18 @@ async fn put_friends(
     Ok(Json(state.connect.friends.replace(&state, list).await?))
 }
 
+async fn rotate_certificate(
+    State(state): State<AppState>,
+    ClientIp(peer): ClientIp,
+    headers: HeaderMap,
+    requester: AuthedUser,
+) -> Result<Json<FriendsView>, Error> {
+    friends_allowed(&state, &requester, peer, &headers).await?;
+    Ok(Json(
+        state.connect.friends.rotate_certificate(&state).await?,
+    ))
+}
+
 pub fn get_connect_routes(state: AppState) -> Router {
     Router::new()
         .route(
@@ -160,5 +174,6 @@ pub fn get_connect_routes(state: AppState) -> Router {
             get(get_share).post(start_share).delete(stop_share),
         )
         .route("/connect/friends", get(get_friends).put(put_friends))
+        .route("/connect/friends/certificate", post(rotate_certificate))
         .with_state(state)
 }
