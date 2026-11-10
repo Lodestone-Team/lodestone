@@ -164,3 +164,11 @@ too.
   renders it again after each save (`host --png FILE.png` for the Host, with its own
   data folders and core port). `launcher/docs/dev-loop.md` has the build times and
   what was tried to speed them up.
+
+## Copy (UI text)
+
+`launcher/tools/copy-desk/` is the Copy Desk: a clickable mock of the Launcher and the
+Host where anyone can edit the English text in place (`copy_desk.py serve`). The edits
+are saved to `edits.json`. To apply them to the i18n source and redo the translations,
+follow `.claude/skills/apply-copy-edits/SKILL.md`. When you remove or rename a message,
+also update the mock in `page/mock/` if it shows that message.

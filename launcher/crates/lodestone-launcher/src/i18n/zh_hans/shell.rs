@@ -42,7 +42,7 @@ pub fn text(message: M) -> &'static str {
         M::GroupServers => "服务器",
 
         M::NoInstanceSelected => "未选择实例",
-        M::NoInstanceSelectedHint => "创建一个实例，即可选择 Minecraft 版本和加载器。",
+        M::NoInstanceSelectedHint => "在侧边栏中选择一个实例即可开始。",
         M::MinecraftVersion => "Minecraft {version}",
         M::MinecraftWith => "Minecraft {version}，{loader}",
         M::HeroPlayed => "{game}。已游玩 {time}。",
@@ -157,15 +157,12 @@ pub fn text(message: M) -> &'static str {
         M::GroupAutomatically => "自动分组实例",
         M::GroupAutomaticallyHint => "按服务器或加载器为未分组的实例分组。",
         M::AutoConfigure => "自动设置新实例",
-        M::AutoConfigureHint => {
-            "新实例首次游戏前，根据这台电脑和它的模组选择内存、Java 参数和视频设置；共享设置未涵盖时，还会沿用你的鼠标灵敏度和按键绑定。你自己更改的设置会保留。"
-        }
+        M::AutoConfigureHint => "让 Lodestone 自动设置内存、鼠标灵敏度和其他游戏内设置。",
         M::WhenAGameStarts => "游戏启动后",
         M::AfterLaunchStay => "保持打开",
         M::AfterLaunchMinimize => "最小化",
         M::AfterLaunchQuit => "退出",
         M::AfterLaunchStayHint => "启动器在游戏旁保持打开。",
-        M::AfterLaunchMinimizeHint => "游戏窗口打开后启动器最小化，游戏关闭时恢复。",
         M::AfterLaunchQuitHint => {
             "游戏窗口打开后启动器退出。游戏会继续运行，但不会记录其日志、崩溃报告和游戏时长。"
         }
@@ -194,7 +191,7 @@ pub fn text(message: M) -> &'static str {
         M::EditHereOnly => "仅在此处编辑",
         M::Value => "值",
         M::SyncFrom => "主实例",
-        M::SyncFromHint => "你在主实例游戏中更改的设置，会在其他实例启动时复制过去。",
+        M::SyncFromHint => "你在主实例中更改的设置会自动复制到其他实例。",
         M::SyncFromNoneHint => "没有主实例时，共享设置只在这里更改。",
         M::MainOfferTitle => "将“{name}”设为主实例？",
         M::MainOfferBody => {
@@ -225,7 +222,7 @@ pub fn text(message: M) -> &'static str {
         M::ServerListHint => "即将推出。",
         M::Source => "来源",
         M::WhatsShared => "共享内容",
-        M::WhatsSharedLead => "关闭的类别仍由各实例单独设置。",
+        M::WhatsSharedLead => "关闭你不想共享的类别。",
         M::CategoryControls => "控制",
         M::CategoryVideo => "视频",
         M::CategorySound => "声音",
@@ -333,7 +330,7 @@ pub fn text(message: M) -> &'static str {
         M::CopyPrompt => "复制提示",
         M::CommandLineSection => "命令行",
         M::CommandLineLead => {
-            "lodestone-launcher-cli 和你运行的其他程序通过启动器数据文件夹中的套接字与它通信。只有你的用户账户可以连接。这些设置只能在这里更改，不能通过命令行更改。"
+            "lodestone-launcher-cli 和你运行的其他程序通过启动器数据文件夹中的套接字与它通信。只有你的用户账户可以连接。"
         }
         M::AllowCli => "允许命令行连接",
         M::AllowCliHint => "关闭后，套接字会关闭，已连接的程序会被断开。",
@@ -515,13 +512,9 @@ pub fn text(message: M) -> &'static str {
         M::UpdateAutomatically => "自动更新",
         M::UpdateAutomaticallyHint => "在后台从 GitHub 下载新构建。",
         M::BetaBuilds => "测试版构建",
-        M::BetaBuildsHint => {
-            "抢先体验新功能。测试版构建可能有错误。关闭后会保留当前构建，直到有更新的稳定版构建。"
-        }
+        M::BetaBuildsHint => "测试版构建可能有错误。",
         M::DeveloperBuilds => "开发者构建",
-        M::DeveloperBuildsHint => {
-            "供 Lodestone 开发者使用：更新到开发中的构建，可能无法正常工作。关闭后会保留当前构建，直到有更新的正式发布。"
-        }
+        M::DeveloperBuildsHint => "供 Lodestone 开发者使用：更新到开发版构建，可能有错误。",
         M::BuildNumber => "构建 {build}",
         M::BuildNumberCommit => "构建 {build} · {commit}",
         M::DevelopmentBuild => "开发构建",
@@ -644,9 +637,6 @@ pub fn text(message: M) -> &'static str {
         M::SkinBannerMissing => "此横幅所属的皮肤已不存在，正在显示默认横幅。",
         M::SkinEditorTitle => "皮肤编辑器",
         M::SkinPopOut => "打开编辑器窗口",
-        M::SkinEditorLead => {
-            "在编辑器中修改每个界面区域、字体和横幅。修改会立即显示在窗口中，可以用撤销恢复。"
-        }
         M::SkinSummary => "已设置 {surfaces} 个区域 · {fonts} 种字体 · {banners} 个横幅",
         M::SkinSurfaces => "界面区域",
         M::SkinTokens => "文字颜色",
@@ -716,9 +706,7 @@ pub fn text(message: M) -> &'static str {
         M::StorageOther => "设置和其他文件",
         M::StorageCacheAndLogs => "缓存和日志",
         M::StorageDataFolder => "数据文件夹",
-        M::StorageDataFolderHint => {
-            "你的实例和世界、账户、设置和游戏文件。移动它可以把它们放到另一个磁盘上。"
-        }
+        M::StorageDataFolderHint => "Lodestone 存放你的实例和世界、账户、设置和游戏文件的位置。",
         M::StorageMoveEllipsis => "移动…",
         M::StorageMoveBackEllipsis => "移回…",
         M::StorageMoveHere => "移到这里",

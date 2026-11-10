@@ -43,7 +43,7 @@ pub fn text(message: M) -> &'static str {
 
         M::NoInstanceSelected => "Aucune instance sélectionnée",
         M::NoInstanceSelectedHint => {
-            "Créez une instance pour choisir une version de Minecraft et un chargeur."
+            "Sélectionnez une instance dans la barre latérale pour commencer."
         }
         M::MinecraftVersion => "Minecraft {version}",
         M::MinecraftWith => "Minecraft {version} avec {loader}",
@@ -194,16 +194,13 @@ pub fn text(message: M) -> &'static str {
         }
         M::AutoConfigure => "Configurer automatiquement les nouvelles instances",
         M::AutoConfigureHint => {
-            "Avant la première partie d’une nouvelle instance, choisit sa mémoire, ses arguments Java et ses réglages graphiques selon cet ordinateur et ses mods, et reprend votre sensibilité de la souris et vos touches si les paramètres partagés ne le font pas. Ce que vous modifiez vous-même est conservé."
+            "Laissez Lodestone régler automatiquement la mémoire, la sensibilité de la souris et d’autres réglages du jeu."
         }
         M::WhenAGameStarts => "Au lancement d’un jeu",
         M::AfterLaunchStay => "Rester ouvert",
         M::AfterLaunchMinimize => "Réduire",
         M::AfterLaunchQuit => "Quitter",
         M::AfterLaunchStayHint => "Le lanceur reste ouvert à côté du jeu.",
-        M::AfterLaunchMinimizeHint => {
-            "Le lanceur se réduit dès que la fenêtre du jeu s’ouvre, et revient quand le jeu se ferme."
-        }
         M::AfterLaunchQuitHint => {
             "Le lanceur se ferme dès que la fenêtre du jeu s’ouvre. Le jeu continue, mais son journal, son rapport de plantage et son temps de jeu ne sont pas enregistrés."
         }
@@ -237,7 +234,7 @@ pub fn text(message: M) -> &'static str {
         M::Value => "Valeur",
         M::SyncFrom => "Instance principale",
         M::SyncFromHint => {
-            "Les réglages modifiés en jeu dans votre instance principale sont copiés dans vos autres instances à leur démarrage."
+            "Les réglages que vous modifiez dans l’instance principale sont copiés automatiquement dans vos autres instances."
         }
         M::SyncFromNoneHint => {
             "Sans instance principale, les réglages partagés ne changent qu’ici."
@@ -275,7 +272,7 @@ pub fn text(message: M) -> &'static str {
         M::ServerListHint => "Bientôt disponible.",
         M::Source => "Source",
         M::WhatsShared => "Ce qui est partagé",
-        M::WhatsSharedLead => "Les catégories désactivées restent propres à chaque instance.",
+        M::WhatsSharedLead => "Désactivez chaque catégorie que vous ne voulez pas partager.",
         M::CategoryControls => "Commandes",
         M::CategoryVideo => "Vidéo",
         M::CategorySound => "Son",
@@ -403,7 +400,7 @@ pub fn text(message: M) -> &'static str {
         M::CopyPrompt => "Copier le prompt",
         M::CommandLineSection => "Ligne de commande",
         M::CommandLineLead => {
-            "lodestone-launcher-cli et les autres programmes que vous lancez joignent le lanceur par un socket dans son dossier de données. Seul votre compte utilisateur peut s’y connecter. Ces réglages ne se changent qu’ici, jamais depuis la ligne de commande."
+            "lodestone-launcher-cli et les autres programmes que vous lancez joignent le lanceur par un socket dans son dossier de données. Seul votre compte utilisateur peut s’y connecter."
         }
         M::AllowCli => "Autoriser les connexions en ligne de commande",
         M::AllowCliHint => {
@@ -635,12 +632,10 @@ pub fn text(message: M) -> &'static str {
             "Télécharge les nouveaux builds depuis GitHub en arrière-plan."
         }
         M::BetaBuilds => "Builds bêta",
-        M::BetaBuildsHint => {
-            "Profitez des nouveautés avant tout le monde. Les builds bêta peuvent comporter des bugs. Si vous désactivez cette option, vous gardez votre build jusqu’à ce qu’un build stable plus récent sorte."
-        }
+        M::BetaBuildsHint => "Les builds bêta peuvent comporter des bugs.",
         M::DeveloperBuilds => "Builds de développeur",
         M::DeveloperBuildsHint => {
-            "Pour les développeurs de Lodestone : met à jour vers des builds de travaux en cours, qui peuvent ne pas fonctionner. Si vous désactivez cette option, vous gardez votre build jusqu’à ce qu’une version plus récente sorte."
+            "Pour les développeurs de Lodestone : met à jour vers des builds de développement, qui peuvent comporter des bugs."
         }
         M::BuildNumber => "Build {build}",
         M::BuildNumberCommit => "Build {build} · {commit}",
@@ -774,9 +769,6 @@ pub fn text(message: M) -> &'static str {
         }
         M::SkinEditorTitle => "Éditeur de thème",
         M::SkinPopOut => "Ouvrir l’éditeur",
-        M::SkinEditorLead => {
-            "Modifiez chaque surface, police et bannière dans l’éditeur. Les changements s’affichent dans la fenêtre au fur et à mesure, et Annuler les reprend."
-        }
         M::SkinSummary => "{surfaces} surfaces peintes · {fonts} polices · {banners} bannières",
         M::SkinSurfaces => "Surfaces",
         M::SkinTokens => "Couleurs du texte",
@@ -851,7 +843,7 @@ pub fn text(message: M) -> &'static str {
         M::StorageCacheAndLogs => "Cache et journaux",
         M::StorageDataFolder => "Dossier de données",
         M::StorageDataFolderHint => {
-            "Vos instances et mondes, comptes, réglages et fichiers du jeu. Déplacez-le pour les garder sur un autre disque."
+            "L’endroit où Lodestone garde vos instances et mondes, comptes, réglages et fichiers du jeu."
         }
         M::StorageMoveEllipsis => "Déplacer…",
         M::StorageMoveBackEllipsis => "Ramener…",

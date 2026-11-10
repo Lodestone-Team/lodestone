@@ -605,11 +605,11 @@ impl LauncherShell {
                 )
                 .into_any_element(),
             SettingRow::new(t(M::WhenAGameStarts))
-                .hint(t(match after_launch {
-                    AfterLaunch::Stay => M::AfterLaunchStayHint,
-                    AfterLaunch::Minimize => M::AfterLaunchMinimizeHint,
-                    AfterLaunch::Quit => M::AfterLaunchQuitHint,
-                }))
+                .hint_opt(match after_launch {
+                    AfterLaunch::Stay => Some(t(M::AfterLaunchStayHint)),
+                    AfterLaunch::Minimize => None,
+                    AfterLaunch::Quit => Some(t(M::AfterLaunchQuitHint)),
+                })
                 .child(segmented(
                     "after-launch",
                     AfterLaunch::ALL
