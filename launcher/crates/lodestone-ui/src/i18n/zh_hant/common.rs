@@ -40,6 +40,8 @@ pub fn text(message: M) -> &'static str {
         M::SignOut => "登出",
         M::Start => "啟動",
         M::Stop => "停止",
+        M::Restart => "重新啟動",
+        M::Kill => "強制停止",
         M::TryAgain => "再試一次",
         M::Update => "更新",
         M::Menu => "選單",

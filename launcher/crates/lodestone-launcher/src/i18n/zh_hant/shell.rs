@@ -546,6 +546,8 @@ pub fn text(message: M) -> &'static str {
         M::UpdateReadyBadge => "更新已就緒",
         M::UpdateAvailableBadge => "有可用的更新",
         M::DevBadge => "DEV",
+        M::GoBack => "上一頁",
+        M::GoForward => "下一頁",
 
         M::RestOnModrinth => "其餘說明請在 Modrinth 上查看。",
         M::Storage => "儲存空間",

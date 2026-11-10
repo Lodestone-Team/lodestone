@@ -80,11 +80,13 @@ pub fn text(message: M) -> &'static str {
         M::ReviewNewCertificate => "信任新憑證…",
         M::ReviewCertificate => "信任憑證…",
 
-        M::Details => "詳細資料",
         M::CreateInstance => "建立實例",
         M::StartAndJoin => "啟動並加入",
         M::Play => "開始遊戲",
-        M::InstanceReady => "實例已就緒",
+        M::SharedTag => "已分享",
+        M::CopyInviteLink => "複製邀請連結",
+        M::InviteLinkCopied => "已複製 {name} 的邀請連結",
+        M::InviteLinkCopiedHint => "在伺服器分享期間，拿到連結的人都能加入。",
         M::AddressHidden => "擁有者未分享此伺服器的位址。",
 
         M::StateStarting => "啟動中",

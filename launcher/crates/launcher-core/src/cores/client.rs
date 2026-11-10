@@ -714,6 +714,36 @@ impl CoreClient {
             .await
     }
 
+    /// Stops a server and starts it again.
+    pub async fn restart(&self, key: &Secret, uuid: &str) -> Result<(), CoreError> {
+        self.put(key, &format!("instance/{}/restart", segment(uuid)?))
+            .await
+    }
+
+    /// Ends a server at once, while it starts or stops.
+    pub async fn kill(&self, key: &Secret, uuid: &str) -> Result<(), CoreError> {
+        self.put(key, &format!("instance/{}/kill", segment(uuid)?))
+            .await
+    }
+
+    /// Whether a server is shared with friends, and its invite link once known
+    /// (`GET /instance/{uuid}/share`). Only keys that may change the server's settings
+    /// get an answer, such as the owner key that claiming a core on this computer
+    /// gives; a launcher device's key gets [`CoreError::Forbidden`].
+    pub async fn share(
+        &self,
+        key: &Secret,
+        uuid: &str,
+    ) -> Result<super::admin::instances::InstanceShare, CoreError> {
+        self.json(
+            Method::GET,
+            &format!("instance/{}/share", segment(uuid)?),
+            Auth::Bearer(key),
+            None,
+        )
+        .await
+    }
+
     /// Whether the Minecraft EULA is accepted for a server: it can't start until it is.
     pub async fn eula_accepted(&self, key: &Secret, uuid: &str) -> Result<bool, CoreError> {
         let status: EulaStatus = self

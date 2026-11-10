@@ -523,18 +523,6 @@ pub fn connection_after_probe(answer: Result<(), CoreError>, reason: String) -> 
     }
 }
 
-/// What the power button offers for an instance in `state`, as the dashboard's
-/// instance card does.
-pub fn power_actions(state: InstanceState) -> &'static [Power] {
-    match state {
-        InstanceState::Stopped => &[Power::Start],
-        InstanceState::Running => &[Power::Stop, Power::Restart],
-        InstanceState::Starting | InstanceState::Stopping => &[Power::Kill],
-        InstanceState::Error => &[Power::Restart],
-        InstanceState::Unknown => &[],
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -554,16 +542,5 @@ mod tests {
             connection_after_probe(Err(CoreError::SignedOut), reason()),
             None
         );
-    }
-
-    #[test]
-    fn power_follows_the_state() {
-        assert_eq!(power_actions(InstanceState::Stopped), [Power::Start]);
-        assert_eq!(
-            power_actions(InstanceState::Running),
-            [Power::Stop, Power::Restart]
-        );
-        assert_eq!(power_actions(InstanceState::Starting), [Power::Kill]);
-        assert_eq!(power_actions(InstanceState::Error), [Power::Restart]);
     }
 }
