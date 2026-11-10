@@ -834,9 +834,13 @@ impl ModsPage {
         };
         let can_drop = can_write && self.list.is_some() && !self.uploading;
         div()
-            .relative()
-            .group("mods-drop")
+            .id("mods-installed")
             .min_h(px(360.))
+            // while files are dragged over the view, its edge and a tint say they can be
+            // dropped (as the launcher's Content tab does)
+            .rounded(radius::LG)
+            .border_2()
+            .border_color(colors::TRANSPARENT)
             .flex()
             .flex_col()
             .gap(px(16.))
@@ -846,42 +850,14 @@ impl ModsPage {
             .child(toolbar)
             .child(list)
             .when(can_drop, |this| {
-                this.on_drop(cx.listener(|this, paths: &ExternalPaths, _, cx| {
+                this.drag_over::<ExternalPaths>(|style, _, _, _| {
+                    style
+                        .border_color(lodestone_ui::theme::accent::light().opacity(60))
+                        .bg(lodestone_ui::theme::accent::base().opacity(8))
+                })
+                .on_drop(cx.listener(|this, paths: &ExternalPaths, _, cx| {
                     this.upload_paths(paths.paths().to_vec(), cx)
                 }))
-                // "Release to upload", while files are dragged over the tab
-                .child(
-                    div()
-                        .absolute()
-                        .inset_0()
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .invisible()
-                        .group_drag_over::<ExternalPaths>("mods-drop", |style| style.visible())
-                        .rounded(radius::XL_2)
-                        .bg(colors::GRAY_900.opacity(70))
-                        .child(
-                            div()
-                                .flex()
-                                .flex_col()
-                                .items_center()
-                                .gap(px(16.))
-                                .w(px(240.))
-                                .pt(px(48.))
-                                .pb(px(32.))
-                                .rounded(radius::XL_2)
-                                .border_2()
-                                .border_dashed()
-                                .border_color(colors::GRAY_FADED.opacity(30))
-                                .bg(colors::GRAY_800.opacity(50))
-                                .text_color(colors::WHITE.opacity(50))
-                                .child(
-                                    Icon::Download.render(px(40.), colors::GRAY_FADED.opacity(80)),
-                                )
-                                .child(t(M::ModsDropToUpload)),
-                        ),
-                )
             })
             .into_any_element()
     }

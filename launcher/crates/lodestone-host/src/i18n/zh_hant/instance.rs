@@ -137,7 +137,6 @@ pub fn text(message: M) -> &'static str {
         M::ModsUpdateAll => "全部更新（{count}）",
         M::ModsCheckUpdates => "檢查更新",
         M::ModsUpload => "上傳",
-        M::ModsDropToUpload => "放開以上傳 .jar 檔案",
         M::ModsUploadPrompt => "上傳",
         M::ModsLoadFailedMod => "無法載入模組：{error}",
         M::ModsLoadFailedPlugin => "無法載入外掛：{error}",

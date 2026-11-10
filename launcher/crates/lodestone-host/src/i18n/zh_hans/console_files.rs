@@ -24,7 +24,6 @@ pub fn text(message: M) -> &'static str {
         M::ConsoleOwnerOnlyAtom => "只有所有者可以控制 atom 服务器",
         M::ConsoleJumpToLatest => "跳到最新",
         M::Console => "控制台",
-        M::FilesDropToUpload => "松开以上传文件",
         M::FilesAddRemove => "添加/移除",
         M::FilesSelectAll => "全选",
         M::FilesDeselectAll => "取消全选",
