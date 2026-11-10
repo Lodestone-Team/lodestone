@@ -389,7 +389,6 @@ pub fn text(message: M) -> &'static str {
         M::LauncherIdentityNote => {
             "開發者選項：以 Minecraft Launcher 身分登入，而不是以 Lodestone Launcher 身分。Microsoft 的頁面可能會顯示 Minecraft 的名稱，而不是 Lodestone 的。"
         }
-        M::UseLinkInstead => "改用登入連結",
         M::UseCodeInstead => "改用代碼",
         M::SignInCodeBody => {
             "使用你玩 Minecraft: Java Edition 的 Microsoft 帳號登入。你會取得一組代碼，需要在 Microsoft 網站上輸入。"
@@ -412,10 +411,6 @@ pub fn text(message: M) -> &'static str {
         M::StopSigningInBody => "Microsoft 仍在等待你複製的代碼。如果現在停止，輸入它將無法登入。",
         M::StopSigningIn => "停止登入",
         M::KeepWaiting => "繼續等待",
-        M::LinkInstructions => {
-            "請在開啟的瀏覽器視窗中登入。接著 Microsoft 會顯示一個頁面，說明這個頁面通常不會顯示。從瀏覽器的網址列複製完整網址，並且只貼到這個啟動器中。"
-        }
-        M::LinkStartsWith => "網址以 {url} 開頭",
         M::SigningInToMinecraft => "正在登入 Minecraft…",
         M::ExpectedUntilApproved => {
             "在 Mojang 核准這個應用程式之前，這是正常的。你的帳號沒有任何問題。"
