@@ -1,4 +1,4 @@
-use super::util::AuthedUser;
+use super::util::{AuthedUser, ClientIp};
 use axum::{
     routing::{get, put},
     Json, Router,
@@ -174,6 +174,16 @@ pub async fn change_allow_local_claim(
     Json(enabled): Json<bool>,
 ) -> Result<(), Error> {
     requester.owner_only("let programs on this computer claim owner access")?;
+    if !enabled && !crate::remote_access::owner_has_password(&state).await {
+        // the claim is then the only way to sign in as the owner
+        return Err(Error {
+            kind: ErrorKind::BadRequest,
+            source: eyre!(
+                "The owner has no password yet, so apps on this computer must be able to \
+                 claim owner access. Set up the owner account first"
+            ),
+        });
+    }
     state
         .global_settings
         .lock()
@@ -225,6 +235,37 @@ pub async fn change_list_instances_publicly(
     Ok(())
 }
 
+/// Lets other devices use the core, or only this computer (see
+/// [`crate::remote_access`]). Owner only. Turning it on needs an owner with a password
+/// (`PUT /user/owner_account` sets one up and turns it on). Turning it off is only
+/// allowed from this computer: from another device it would lock the requester out.
+pub async fn change_allow_remote_access(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    ClientIp(ip): ClientIp,
+    requester: AuthedUser,
+    Json(allowed): Json<bool>,
+) -> Result<(), Error> {
+    requester.owner_only("allow or refuse access from other devices")?;
+    if allowed && !crate::remote_access::owner_has_password(&state).await {
+        return Err(Error {
+            kind: ErrorKind::BadRequest,
+            source: eyre!(
+                "Set up the owner account with a password before allowing access from \
+                 other devices"
+            ),
+        });
+    }
+    if !allowed && !ip.is_some_and(crate::tls::is_loopback) {
+        return Err(Error {
+            kind: ErrorKind::PermissionDenied,
+            source: eyre!(
+                "Turn off access from other devices in Lodestone Host, on the core's computer"
+            ),
+        });
+    }
+    crate::remote_access::set(&state, allowed, requester.caused_by()).await
+}
+
 pub fn get_global_settings_routes(state: AppState) -> Router {
     Router::new()
         .route("/global_settings", get(get_core_settings))
@@ -246,6 +287,10 @@ pub fn get_global_settings_routes(state: AppState) -> Router {
         .route(
             "/global_settings/list_instances_publicly",
             put(change_list_instances_publicly),
+        )
+        .route(
+            "/global_settings/allow_remote_access",
+            put(change_allow_remote_access),
         )
         .with_state(state)
 }

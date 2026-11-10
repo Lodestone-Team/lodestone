@@ -21,8 +21,8 @@ use crate::{
         instance_macro::get_instance_macro_routes, instance_mods::get_instance_mods_routes,
         instance_players::get_instance_players_routes, instance_server::get_instance_server_routes,
         instance_setup_configs::get_instance_setup_config_routes, modpack::get_modpack_routes,
-        modrinth::get_modrinth_routes, monitor::get_monitor_routes,
-        setup::get_setup_route, system::get_system_routes, users::get_user_routes,
+        modrinth::get_modrinth_routes, monitor::get_monitor_routes, setup::get_setup_route,
+        system::get_system_routes, users::get_user_routes,
     },
     util::{port_in_use, rand_alphanumeric},
 };
@@ -123,6 +123,7 @@ mod port_manager;
 pub mod prelude;
 pub mod product;
 mod public_listing;
+pub mod remote_access;
 pub mod tauri_export;
 mod tls;
 pub mod trace;
@@ -181,7 +182,9 @@ pub(crate) mod test_util {
             settings,
         );
         let code_execution = global_settings.code_execution_switch();
+        let remote_access = global_settings.remote_access();
         crate::AppState {
+            remote_access,
             instances: Arc::new(dashmap::DashMap::new()),
             users_manager: Arc::new(RwLock::new(users_manager)),
             events_buffer: Arc::new(Mutex::new(ringbuffer::AllocRingBuffer::new(512))),
@@ -267,6 +270,35 @@ pub(crate) mod test_util {
         });
         format!("http://{addr}/api/v1")
     }
+
+    /// [`serve_api`], but every request looks as if it came from `peer`, such as another
+    /// device on the network: the address is replaced before any of the API's layers.
+    pub(crate) async fn serve_api_from(state: crate::AppState, peer: std::net::IpAddr) -> String {
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .unwrap();
+        let addr = listener.local_addr().unwrap();
+        let app = axum::Router::new()
+            .nest("/api/v1", crate::api_router(state))
+            .layer(axum::middleware::from_fn(
+                move |mut request: axum::extract::Request, next: axum::middleware::Next| async move {
+                    request
+                        .extensions_mut()
+                        .insert(axum::extract::ConnectInfo(std::net::SocketAddr::new(
+                            peer, 50000,
+                        )));
+                    next.run(request).await
+                },
+            ));
+        tokio::spawn(async move {
+            axum::serve(
+                listener,
+                app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+            )
+            .await
+        });
+        format!("http://{addr}/api/v1")
+    }
 }
 
 #[derive(Clone)]
@@ -309,6 +341,9 @@ pub struct AppState {
     product: product::CoreProduct,
     /// What started the core, reported in `/info`. Fixed at startup.
     launched_by: product::LaunchedBy,
+    /// Whether other devices may use the core, kept in sync by [`GlobalSettings`]; see
+    /// [`remote_access`].
+    remote_access: Arc<remote_access::RemoteAccess>,
 }
 
 impl AppState {
@@ -383,6 +418,12 @@ fn api_router(shared_state: AppState) -> Router {
         ))
         .merge(handlers::trace::get_trace_routes(shared_state.clone()))
         .layer(axum::middleware::from_fn(crate::trace::http_middleware))
+        // inside CORS, so a dashboard on another origin can read why it was refused (and
+        // preflights are answered); before every route, WebSocket upgrades included
+        .layer(axum::middleware::from_fn_with_state(
+            shared_state.remote_access.clone(),
+            remote_access::guard,
+        ))
         .layer(cors)
         .layer(trace)
 }
@@ -909,6 +950,17 @@ pub async fn run_with(
         global_settings.lock_code_execution();
     }
     global_settings.load_from_file().await?;
+    let has_owner = users_manager.as_ref().values().any(|user| user.is_owner);
+    if args.is_host && !has_owner && global_settings.allow_remote_access() {
+        // Lodestone Host makes its owner without a password: until the owner sets one to
+        // share the core, only apps on this computer may use it (`remote_access`)
+        global_settings.set_allow_remote_access(false).await?;
+        info!("New Lodestone Host core: only apps on this computer can use it until its owner shares it");
+    }
+    let remote_access = global_settings.remote_access();
+    if !remote_access.allowed() {
+        info!("Only apps on this computer can use this core (access from other devices is off)");
+    }
     let code_execution = global_settings.code_execution_switch();
     if !code_execution.is_enabled() {
         warn!("Code execution is disabled: atom instances will not be restored, and macros, extensions, instance scripts and custom Java commands will not run");
@@ -956,6 +1008,7 @@ pub async fn run_with(
     let local_claims = local_claim::LocalClaims::new(&lodestone_path);
     local_claims.clean_up().await;
     let shared_state = AppState {
+        remote_access: remote_access.clone(),
         local_claims: Arc::new(local_claims),
         connect: Arc::new(connect::ConnectShares::new(
             connect::connect_dir(path_to_stores()),
@@ -1186,8 +1239,11 @@ pub async fn run_with(
                     async move {
                         let https = tls_setup.config.is_some();
                         let acceptor_allows_lan_http = allow_lan_http.clone();
-                        let acceptor =
-                            tls::DualProtocolAcceptor::new(tls_setup.config, allow_lan_http);
+                        let acceptor = tls::DualProtocolAcceptor::new(
+                            tls_setup.config,
+                            allow_lan_http,
+                            remote_access,
+                        );
                         if https {
                             let plain_http = if acceptor_allows_lan_http
                                 .load(std::sync::atomic::Ordering::SeqCst)
