@@ -160,9 +160,12 @@ impl UsersPage {
     fn open_dialog(&mut self, uid: Option<String>, cx: &mut Context<Self>) {
         self.menu = None;
         let state = self.state.clone();
+        // other users sign in from other devices: the owner sets up a password first
+        let owner_first = uid.is_none() && account_dialogs::needs_owner_account(state.read(cx));
         let (dialog, subscription) = account_dialogs::open(
             move |cx| match uid {
                 Some(uid) => AccountDialog::change_password(state, uid, cx),
+                None if owner_first => AccountDialog::owner_account(state, cx),
                 None => AccountDialog::create_user(state, cx),
             },
             |this: &mut Self, dialog, event, cx| {
@@ -179,6 +182,17 @@ impl UsersPage {
                         }
                     }
                     AccountDialogEvent::Changed => parts::saved(&this.state, cx),
+                    AccountDialogEvent::OwnerSetUp(owner) => {
+                        if let Some(Ok(users)) = this.users.as_mut()
+                            && let Some(user) = users.iter_mut().find(|u| u.uid == owner.uid)
+                        {
+                            *user = (**owner).clone();
+                        }
+                        // on to the new user it was for
+                        this.dialog.close(cx);
+                        this.open_dialog(None, cx);
+                        return;
+                    }
                 }
                 this.dialog.close(cx);
                 cx.notify();

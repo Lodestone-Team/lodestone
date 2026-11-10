@@ -648,6 +648,7 @@ mod tests {
             is_owner: true,
             is_admin: false,
             permissions: Default::default(),
+            has_password: true,
         };
         let settings = GlobalSettingsData {
             code_execution_enabled: true,

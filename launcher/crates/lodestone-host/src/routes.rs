@@ -131,6 +131,7 @@ mod tests {
             is_owner: true,
             is_admin: false,
             permissions: UserPermission::default(),
+            has_password: true,
         };
         let mut user = owner.clone();
         user.is_owner = false;
