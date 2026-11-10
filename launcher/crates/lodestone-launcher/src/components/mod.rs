@@ -11,4 +11,4 @@ pub use play_button::{PlayButton, PlayButtonState};
 
 mod server_outline;
 
-pub use server_outline::{host_gradient, server_outline};
+pub use server_outline::host_gradient;
