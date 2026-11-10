@@ -215,9 +215,12 @@ end;
 function InitializeUninstall: Boolean;
 begin
   Result := True;
+  { /SUPPRESSMSGBOXES answers Cancel: a silent uninstall stops instead of waiting. }
   while Result and CheckForMutexes('Local\LodestoneLauncher.SingleInstance') do
-    Result := MsgBox('{#AppName} is open. Close it, then click OK to uninstall it.',
-      mbError, MB_OKCANCEL) = IDOK;
+    Result := SuppressibleMsgBox('{#AppName} is open. Close it, then click OK to uninstall it.',
+      mbError, MB_OKCANCEL, IDCANCEL) = IDOK;
+  if not Result then
+    Log('Not uninstalled: Lodestone Launcher is open.');
 end;
 
 procedure RegisterKeptData;
@@ -225,13 +228,57 @@ begin
   AddKeptData('Instances, worlds and accounts', DataFolder,
     'Your instances with their worlds, mods, resource packs and screenshots, your ' +
     'accounts and settings, and downloaded game files. Deleting it also signs your ' +
-    'Microsoft accounts out of this computer.');
+    'Microsoft accounts out of this computer, and removes the saved keys of your ' +
+    'servers and your friends'' invite links.');
 end;
 
-{ The Microsoft accounts' tokens are in Windows' Credential Manager, not the data
-  folder: one generic credential per account, "zed:url=lodestone-launcher:<id>"
-  (launcher-core/src/accounts.rs's secret_key, as GPUI's write_credentials names
-  it). The ids come from accounts.json, before it is deleted.
+{ Deletes the credential "zed:url=" + Prefix + Value for each "Key": "Value" in
+  FileName. }
+procedure DeleteCredentialsListedIn(const FileName, Key, Prefix: String);
+var
+  Json: AnsiString;
+  Rest, Value: String;
+  At, Stop: Integer;
+begin
+  if not LoadStringFromFile(FileName, Json) then
+    Exit;
+  Rest := String(Json);
+  At := Pos('"' + Key + '"', Rest);
+  while At > 0 do
+  begin
+    Rest := Copy(Rest, At + Length(Key) + 2, Length(Rest));
+    Stop := Pos('"', Rest);
+    if Stop = 0 then
+      Break;
+    { Only a string value: nothing but the colon before its quote. }
+    if Trim(Copy(Rest, 1, Stop - 1)) = ':' then
+    begin
+      Rest := Copy(Rest, Stop + 1, Length(Rest));
+      Stop := Pos('"', Rest);
+      if Stop = 0 then
+        Break;
+      Value := Copy(Rest, 1, Stop - 1);
+      Rest := Copy(Rest, Stop + 1, Length(Rest));
+      if Value <> '' then
+        if CredDelete('zed:url=' + Prefix + Value, CRED_TYPE_GENERIC, 0) then
+          Log('Removed the saved secret ' + Prefix + Value);
+    end;
+    At := Pos('"' + Key + '"', Rest);
+  end;
+end;
+
+{ The secrets are in Windows' Credential Manager, not the data folder: generic
+  credentials named as GPUI's write_credentials names them, "zed:url=<name>". The
+  names come from the data folder's files, before they are deleted:
+  - each Microsoft account's tokens, "lodestone-launcher:<id>" (accounts.json;
+    launcher-core/src/accounts.rs, secret_key);
+  - each server's device key, "lodestone-core-key:<uuid>" (servers.json;
+    launcher-core/src/cores/store.rs, key_secret_name);
+  - each friend's invite link, "lodestone-connect-invite:<id>" (friends.json;
+    launcher-core/src/cores/friends.rs, invite_secret_name), which lets anyone
+    who has it join.
+  Only this folder's are deleted: another data folder (a developer's, say) keeps its
+  own.
   A moved data folder's location file goes too, so a later install doesn't look
   for a folder that is gone. }
 procedure BeforeDeletingKeptData(Index: Integer);
@@ -246,6 +293,10 @@ begin
     DeleteFile(AddBackslash(DefaultDataFolder) + 'data-move-cleanup.json');
     RemoveDir(DefaultDataFolder);
   end;
+  DeleteCredentialsListedIn(AddBackslash(KeptFolders[Index]) + 'servers.json', 'uuid',
+    'lodestone-core-key:');
+  DeleteCredentialsListedIn(AddBackslash(KeptFolders[Index]) + 'friends.json', 'id',
+    'lodestone-connect-invite:');
   if not LoadStringFromFile(AddBackslash(KeptFolders[Index]) + 'accounts.json', Json) then
     Exit;
   Rest := String(Json);
