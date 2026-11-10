@@ -128,7 +128,7 @@ pub fn add(
 
 /// Copies the folder `source` to `dir/name`, through a temporary folder. Symbolic links
 /// are skipped, and every path is checked to stay inside the copy.
-fn copy_folder(source: &Path, dir: &Path, name: &str) -> Result<(), ContentError> {
+pub(crate) fn copy_folder(source: &Path, dir: &Path, name: &str) -> Result<(), ContentError> {
     let temp = dir.join(format!(
         ".lodestone-add-{:016x}",
         u64::from_le_bytes(crate::random_bytes())

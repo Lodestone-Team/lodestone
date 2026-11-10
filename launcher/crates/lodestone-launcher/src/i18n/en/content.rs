@@ -79,6 +79,7 @@ crate::i18n::messages! {
 
         /// {kind} is Modrinth's word for the project's type: "modpack", "plugin".
         LinkNotInstallable = "That link is a {kind}, which Lodestone Launcher doesn't install yet.",
+        LinkIsDataPack = "That link is a data pack. Data packs belong to a world: add it from the world's Data packs in the Worlds tab.",
 
         // The installed list.
         CheckForUpdates = "Check for updates",

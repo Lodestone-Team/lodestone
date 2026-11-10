@@ -52,6 +52,32 @@ pub fn text(message: M) -> &'static str {
         M::RestoreAsCopy => "恢复为副本",
         M::ReplaceWorld => "替换世界…",
 
+        M::DataPacks => "数据包",
+        M::ReadingDataPacks => "正在读取数据包",
+        M::NoDataPacksYet => {
+            "这个世界还没有数据包。添加一个 .zip 文件或文件夹，或在下方从 Modrinth 查找。"
+        }
+        M::AddDataPack => "添加数据包…",
+        M::AddDataPackPrompt => "添加数据包",
+        M::SearchDataPacks => "在 Modrinth 上搜索数据包，或粘贴 Modrinth 链接",
+        M::NewPack => "新",
+        M::NewPackHint => "游戏会在下次加载这个世界时启用它。",
+        M::PacksNotSwitchable => {
+            "请先用 Minecraft 1.13 或更高版本打开这个世界一次，之后就能在这里启用和禁用它的数据包。"
+        }
+        M::AddingDataPacks => "正在添加数据包",
+        M::SavingPackList => "正在保存世界的数据包列表",
+        M::AddedDataPacks => "已将 {packs} 添加到 {name}。",
+        M::InstalledDataPack => "已将 {pack} 安装到 {name}。",
+        M::UpdatedDataPack => "已将 {pack} 安装到 {name}，替换了 {old}。",
+        M::PackTurnedOn => "{pack} 已启用，会在下次打开世界时加载。",
+        M::PackTurnedOff => "{pack} 已禁用，下次打开世界时不再加载。",
+        M::NoDataPackVersion => "{name} 没有适用于 Minecraft {version} 的数据包。",
+        M::SearchingModrinth => "正在搜索 Modrinth",
+        M::NoDataPacksFound => "没有找到适用于 Minecraft {version} 的数据包。",
+        M::LinkNotDataPack => "这个链接不是数据包。",
+        M::ModrinthUnavailable => "现在无法连接 Modrinth；仍然可以从文件添加数据包。",
+
         M::ImportWorld => "导入世界…",
         M::OpenSavesFolder => "打开 saves 文件夹",
         M::ReadingWorlds => "正在读取世界",

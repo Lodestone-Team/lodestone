@@ -162,12 +162,14 @@ impl SearchParams {
 }
 
 /// What a game client's folder holds, as Modrinth project types: mods, resource packs and
-/// shader packs, and the modpacks instances are made from. Lodestone Launcher browses these.
+/// shader packs, the data packs its worlds hold, and the modpacks instances are made
+/// from. Lodestone Launcher browses these.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ClientProjectType {
     Mod,
     ResourcePack,
     Shader,
+    DataPack,
     Modpack,
 }
 
@@ -178,6 +180,7 @@ impl ClientProjectType {
             ClientProjectType::Mod => "mod",
             ClientProjectType::ResourcePack => "resourcepack",
             ClientProjectType::Shader => "shader",
+            ClientProjectType::DataPack => "datapack",
             ClientProjectType::Modpack => "modpack",
         }
     }
@@ -187,6 +190,7 @@ impl ClientProjectType {
             "mod" => Some(ClientProjectType::Mod),
             "resourcepack" => Some(ClientProjectType::ResourcePack),
             "shader" => Some(ClientProjectType::Shader),
+            "datapack" => Some(ClientProjectType::DataPack),
             "modpack" => Some(ClientProjectType::Modpack),
             _ => None,
         }
@@ -518,6 +522,20 @@ mod tests {
             Some(ClientProjectType::Modpack)
         );
         assert_eq!(ClientProjectType::from_project_type("plugin"), None);
+        // data packs: no loader or client-side facet
+        assert_eq!(
+            new(ClientProjectType::DataPack, Some("1.21.1"), &[])
+                .unwrap()
+                .facets(),
+            vec![
+                vec!["project_type:datapack".to_string()],
+                vec!["versions:1.21.1".to_string()],
+            ]
+        );
+        assert_eq!(
+            ClientProjectType::from_project_type("datapack"),
+            Some(ClientProjectType::DataPack)
+        );
         let modpacks = new(ClientProjectType::Modpack, None, &["fabric"])
             .unwrap()
             .facets();

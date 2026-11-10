@@ -131,7 +131,7 @@ pub fn backups_dir(dirs: &InstanceDirs) -> PathBuf {
 }
 
 /// The world folder `folder`, if it is a plain name of a folder in `saves/`.
-fn world_dir(dirs: &InstanceDirs, folder: &str) -> Result<PathBuf, WorldError> {
+pub fn world_dir(dirs: &InstanceDirs, folder: &str) -> Result<PathBuf, WorldError> {
     if !is_plain_name(folder) {
         return Err(WorldError::NotFound(format!(
             "There is no world {folder:?}."

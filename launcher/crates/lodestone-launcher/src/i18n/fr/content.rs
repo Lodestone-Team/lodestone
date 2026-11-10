@@ -60,6 +60,9 @@ pub fn text(message: M) -> &'static str {
         M::AddToResourcePacks => "Ajouter aux packs de ressources",
         M::AddToShaders => "Ajouter aux shaders",
 
+        M::LinkIsDataPack => {
+            "Ce lien mène à un pack de données. Les packs de données appartiennent à un monde\u{a0}: ajoutez-le depuis les packs de données du monde, dans l’onglet Mondes."
+        }
         M::LinkNotInstallable => {
             "Ce lien mène à un projet de type «\u{a0}{kind}\u{a0}», que Lodestone Launcher n’installe pas encore."
         }

@@ -1,6 +1,7 @@
-//! The Worlds tab: worlds and their backups. Each change is the tab's
-//! `launcher_core::worlds` call, with the tab's checks (nothing while the game runs, one
-//! job at a time), and the tab shows it when it shows that instance.
+//! The Worlds tab: worlds, their backups and their data packs. Each change is the tab's
+//! `launcher_core::worlds` or `launcher_core::datapacks` call, with the tab's checks
+//! (nothing while the game runs, one job at a time), and the tab shows it when it shows
+//! that instance.
 
 use std::{sync::Arc, time::UNIX_EPOCH};
 
@@ -8,6 +9,7 @@ use gpui::{App, AppContext as _};
 use launcher_control::{ErrorObject, codes};
 use launcher_core::{
     content::InstanceDirs,
+    datapacks::{self, PackState},
     game::download::{CancelToken, Progress as Downloads},
     instances::Instance,
     worlds::{self, Backup, RestoreMode, World, WorldError},
@@ -202,12 +204,32 @@ fn run(
     + 'static,
     cx: &mut App,
 ) -> Reply {
+    run_async(
+        call,
+        target,
+        kind_label,
+        move |dirs, progress, cancel| async move { work(&dirs, &progress, &cancel) },
+        cx,
+    )
+}
+
+/// Like [`run`], for work that waits on the network.
+fn run_async<F>(
+    call: &Call,
+    target: Target,
+    kind_label: String,
+    work: impl FnOnce(InstanceDirs, Arc<Downloads>, CancelToken) -> F,
+    cx: &mut App,
+) -> Reply
+where
+    F: std::future::Future<Output = Result<Value, WorldError>> + Send + 'static,
+{
     tri!(can_change(&target, cx));
     let progress = Arc::new(Downloads::default());
     let cancel = CancelToken::new();
     let dirs = target.dirs.clone();
     let (job_progress, job_cancel) = (progress.clone(), cancel.clone());
-    let background = cx.background_spawn(async move { work(&dirs, &progress, &cancel) });
+    let background = cx.background_spawn(work(dirs, progress, cancel));
     let control = target.control.clone();
     let id = target.instance.id.clone();
     let task = cx.spawn(async move |cx| {
@@ -334,6 +356,287 @@ pub fn delete(call: Call, cx: &mut App) -> Reply {
 #[derive(Deserialize)]
 struct DeleteBackupParams {
     backup: String,
+}
+
+// ---- data packs ----
+
+fn datapack_json(pack: &datapacks::DataPack, game_version: &str) -> Value {
+    let compatibility = datapacks::compatibility(pack.meta.formats.as_ref(), game_version);
+    json!({
+        "name": pack.name,
+        "folder": pack.is_dir,
+        "size": pack.size,
+        "state": match pack.state {
+            PackState::Enabled => "enabled",
+            PackState::Disabled => "disabled",
+            PackState::New => "new",
+        },
+        "description": pack.meta.description.as_deref().map(launcher_core::mc_text::strip),
+        // A bare major number as the maximum means any minor of it.
+        "formats": pack.meta.formats.map(|f| json!({
+            "min": f.min.to_string(),
+            "max": if f.max.minor == u32::MAX { f.max.major.to_string() } else { f.max.to_string() },
+        })),
+        "warning": compatibility.warning(),
+        "problem": pack.meta.problem,
+        "modrinth_project": pack.modrinth_project,
+    })
+}
+
+fn game_version(target: &Target) -> String {
+    target.instance.game_version.clone()
+}
+
+/// A world's data packs, with whether each is on.
+pub fn datapacks(call: Call, cx: &mut App) -> Reply {
+    let target = tri!(target(&call, cx));
+    let version = game_version(&target);
+    cx.background_spawn(async move {
+        let listed = datapacks::list(&target.dirs, &target.world.folder).map_err(world_error)?;
+        Ok(json!({
+            "instance": target.instance.id,
+            "world": target.world.folder,
+            "folder": datapacks::dir(&target.dirs, &target.world.folder).map_err(world_error)?,
+            "game_version": version,
+            "switchable": listed.switchable,
+            "datapacks": listed.packs.iter().map(|p| datapack_json(p, &version)).collect::<Vec<_>>(),
+        }))
+    })
+}
+
+#[derive(Deserialize)]
+struct PackParams {
+    pack: String,
+}
+
+/// The pack named by `reference`: its file name, or the name without `.zip`, in any case.
+fn find_pack(target: &Target, reference: &str) -> Result<String, ErrorObject> {
+    let listed = datapacks::list(&target.dirs, &target.world.folder).map_err(world_error)?;
+    if let Some(pack) = listed.packs.iter().find(|p| p.name == reference) {
+        return Ok(pack.name.clone());
+    }
+    let stem = |name: &str| {
+        let lower = name.to_lowercase();
+        lower
+            .strip_suffix(".zip")
+            .map(str::to_string)
+            .unwrap_or(lower)
+    };
+    let matches: Vec<&str> = listed
+        .packs
+        .iter()
+        .filter(|p| stem(&p.name) == stem(reference))
+        .map(|p| p.name.as_str())
+        .collect();
+    match matches.as_slice() {
+        [name] => Ok(name.to_string()),
+        [] => Err(api_error(
+            codes::NOT_FOUND,
+            format!(
+                "{} has no data pack \"{reference}\". List them with `worlds datapacks`.",
+                target.world.name()
+            ),
+        )),
+        _ => Err(api_error(
+            codes::AMBIGUOUS,
+            format!("More than one data pack is called \"{reference}\"; use its file name."),
+        )
+        .with_data(json!({ "matches": matches }))),
+    }
+}
+
+fn set_pack(call: Call, enabled: bool, cx: &mut App) -> Reply {
+    let params: PackParams = params!(call);
+    let target = tri!(target(&call, cx));
+    let pack = tri!(find_pack(&target, &params.pack));
+    tri!(can_change(&target, cx));
+    tri!(
+        datapacks::set_enabled(&target.dirs, &target.world.folder, &pack, enabled)
+            .map_err(world_error)
+    );
+    refresh_view(&target.control, &target.instance.id, cx);
+    ready(Ok(json!({
+        "world": target.world.folder,
+        "pack": pack,
+        "state": if enabled { "enabled" } else { "disabled" },
+        "applies": "the next time the world loads",
+    })))
+}
+
+pub fn datapack_enable(call: Call, cx: &mut App) -> Reply {
+    set_pack(call, true, cx)
+}
+
+pub fn datapack_disable(call: Call, cx: &mut App) -> Reply {
+    set_pack(call, false, cx)
+}
+
+#[derive(Deserialize)]
+struct AddParams {
+    /// An absolute path to a .zip or a folder.
+    path: std::path::PathBuf,
+}
+
+pub fn datapack_add(call: Call, cx: &mut App) -> Reply {
+    let params: AddParams = params!(call);
+    if !params.path.is_absolute() {
+        return ready(Err(api_error(
+            codes::INVALID_PARAMS,
+            "Give the data pack's absolute path.",
+        )));
+    }
+    let target = tri!(target(&call, cx));
+    tri!(can_change(&target, cx));
+    let name =
+        tri!(datapacks::add(&target.dirs, &target.world.folder, &params.path).map_err(world_error));
+    refresh_view(&target.control, &target.instance.id, cx);
+    ready(Ok(json!({ "world": target.world.folder, "added": name })))
+}
+
+pub fn datapack_remove(call: Call, cx: &mut App) -> Reply {
+    let params: PackParams = params!(call);
+    let target = tri!(target(&call, cx));
+    let pack = tri!(find_pack(&target, &params.pack));
+    tri!(call.confirm(format!(
+        "moves the data pack {pack} of \"{}\" to the Trash",
+        target.world.name()
+    )));
+    tri!(can_change(&target, cx));
+    tri!(datapacks::delete(&target.dirs, &target.world.folder, &pack).map_err(world_error));
+    refresh_view(&target.control, &target.instance.id, cx);
+    ready(Ok(json!({ "deleted": pack, "trash": true })))
+}
+
+fn modrinth(
+    control: &Control,
+    cx: &App,
+) -> Result<Arc<launcher_core::content::Modrinth>, ErrorObject> {
+    control.instances.read(cx).modrinth().ok_or_else(|| {
+        api_error(
+            codes::UNAVAILABLE,
+            "Modrinth isn't available (the launcher is offline).",
+        )
+    })
+}
+
+#[derive(Deserialize)]
+struct SearchParams {
+    #[serde(default)]
+    query: Option<String>,
+    #[serde(default)]
+    limit: Option<u32>,
+}
+
+/// Data packs on Modrinth for the instance's Minecraft version.
+pub fn datapack_search(call: Call, cx: &mut App) -> Reply {
+    let params: SearchParams = params!(call);
+    let control = call.control.clone();
+    let instance = tri!(control.instance_param(&call, cx));
+    let api = tri!(modrinth(&control, cx));
+    let search = tri!(
+        lodestone_minecraft::modrinth::ClientSearchParams::new(
+            params.query.filter(|q| !q.trim().is_empty()),
+            lodestone_minecraft::modrinth::ClientProjectType::DataPack,
+            Some(instance.game_version.clone()),
+            Vec::new(),
+            None,
+            Some(0),
+            params.limit.or(Some(10)),
+        )
+        .map_err(|err| api_error(codes::INVALID_PARAMS, err.to_string()))
+    );
+    cx.background_spawn(async move {
+        let results = api
+            .search(&search)
+            .await
+            .map_err(|err| api_error(codes::FAILED, err.to_string()))?;
+        Ok(json!({
+            "game_version": instance.game_version,
+            "total": results.total_hits,
+            "hits": results.hits.iter().map(|h| json!({
+                "project": h.project_id,
+                "slug": h.slug,
+                "title": h.title,
+                "author": h.author,
+                "description": h.description,
+                "downloads": h.downloads,
+            })).collect::<Vec<_>>(),
+        }))
+    })
+}
+
+#[derive(Deserialize)]
+struct InstallParams {
+    /// A Modrinth project id or slug.
+    project: String,
+    /// A version id or number; the newest that fits by default.
+    #[serde(default)]
+    version: Option<String>,
+}
+
+/// Installs a Modrinth data pack into a world.
+pub fn datapack_install(call: Call, cx: &mut App) -> Reply {
+    let params: InstallParams = params!(call);
+    let target = tri!(target(&call, cx));
+    let api = tri!(modrinth(&target.control, cx));
+    let downloader = target.control.instances.read(cx).content_downloader();
+    let version = game_version(&target);
+    let folder = target.world.folder.clone();
+    let label = format!("Installing {} in {}", params.project, target.world.name());
+    run_async(
+        &call,
+        target,
+        label,
+        move |dirs, progress, cancel| async move {
+            let invalid =
+                |err: launcher_core::content::ModrinthError| WorldError::Invalid(err.to_string());
+            let picked = match &params.version {
+                Some(v) => {
+                    let picked = api
+                        .project_version(&params.project, v)
+                        .await
+                        .map_err(invalid)?;
+                    if let Some(problem) = datapacks::incompatibility(&picked, &version) {
+                        return Err(WorldError::Invalid(problem));
+                    }
+                    picked
+                }
+                None => {
+                    let versions = api
+                        .versions(
+                            &params.project,
+                            &[datapacks::MODRINTH_LOADER.to_string()],
+                            std::slice::from_ref(&version),
+                        )
+                        .await
+                        .map_err(invalid)?;
+                    datapacks::pick_version(&version, versions).ok_or_else(|| {
+                        WorldError::Invalid(format!(
+                            "{} has no data pack for Minecraft {version}.",
+                            params.project
+                        ))
+                    })?
+                }
+            };
+            let installed = datapacks::install(
+                &api,
+                &downloader,
+                &dirs,
+                &folder,
+                &picked,
+                &progress,
+                &cancel,
+            )
+            .await?;
+            Ok(json!({
+                "world": folder,
+                "installed": installed.name,
+                "version": picked.version_number,
+                "replaced": installed.replaced,
+            }))
+        },
+        cx,
+    )
 }
 
 pub fn delete_backup(call: Call, cx: &mut App) -> Reply {

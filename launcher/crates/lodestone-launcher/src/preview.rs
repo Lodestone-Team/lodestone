@@ -128,6 +128,7 @@ pub const SCENES: &[&str] = &[
     "modpack-update",
     "worlds",
     "worlds-backups",
+    "worlds-datapacks",
     "screenshots",
     "screenshot-view",
     "shared-settings",
