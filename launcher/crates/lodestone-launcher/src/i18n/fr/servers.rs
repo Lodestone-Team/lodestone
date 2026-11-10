@@ -13,6 +13,10 @@ pub fn text(message: M) -> &'static str {
         M::Rescan => "Rechercher à nouveau",
         M::ScanningLocal => "Recherche de cores sur cet ordinateur…",
         M::NoLocalCores => "Aucun Lodestone Host ni Lodestone Core ne tourne sur cet ordinateur.",
+        M::HostOfferTitle => "Hébergez n’importe quel serveur et jouez avec vos amis tout de suite",
+        M::HostOfferBody => "Rien à configurer, aucune redirection de port.",
+        M::HostOfferDownload => "Télécharger Lodestone Host",
+        M::HostOfferCoreOnly => "Télécharger Lodestone Core seul",
         M::ConnectAsOwner => "Se connecter en tant que propriétaire",
         M::Connected => "Connecté",
         M::ChooseDataFolder => "Choisir le dossier…",
@@ -21,17 +25,12 @@ pub fn text(message: M) -> &'static str {
         M::ProductCoreHint => "un core seul (le programme serveur, ou Docker)",
         M::ConnectedAsOwner => "Connecté à {name} en tant que propriétaire",
         M::ConnectedMadeOwner => {
-            "Il n’avait pas encore de propriétaire\u{202F}: Lodestone Launcher a créé le compte propriétaire {username}. Son mot de passe est sur la carte du core\u{202F}; gardez-le en lieu sûr."
+            "Il n’avait pas encore de propriétaire\u{202F}: Lodestone Launcher a créé le compte propriétaire {username}."
         }
         M::ConnectedOwnerKey => {
             "Ce lanceur a maintenant une clé de propriétaire pour ce core. Vous pouvez la révoquer depuis le tableau de bord du core."
         }
-        M::OwnerSignIn => "Connexion du propriétaire",
         M::OwnerKey => "Clé de propriétaire",
-        M::ShowPassword => "Afficher",
-        M::HidePassword => "Masquer",
-        M::CopyUsername => "Copier le nom d’utilisateur",
-        M::CopyPassword => "Copier le mot de passe",
         M::CopyApiKey => "Copier la clé d’API",
         M::StartedBy => "Démarré par {who}",
         M::StartedDirectly => "Démarré directement",
@@ -97,7 +96,6 @@ pub fn text(message: M) -> &'static str {
         M::CreateInstance => "Créer l’instance",
         M::StartAndJoin => "Démarrer et rejoindre",
         M::Play => "Jouer",
-        M::More => "Plus…",
         M::InstanceReady => "Instance prête",
         M::AddressHidden => "Le propriétaire n’a pas partagé l’adresse de ce serveur.",
 
@@ -341,9 +339,6 @@ pub fn text(message: M) -> &'static str {
         }
         M::Console => "Console",
         M::JumpToLatest => "Aller à la fin",
-        M::Players => "Joueurs",
-        M::NoOneOnline => "Personne n’est en ligne.",
-        M::ServerNotRunning => "Le serveur n’est pas en marche.",
         M::MinecraftAccount => "Compte Minecraft",
         M::CoreTooOldToLink => "Ce core est trop ancien pour lier des comptes Minecraft.",
         M::Unlink => "Délier",
@@ -412,56 +407,6 @@ pub fn text(message: M) -> &'static str {
         }
         M::NoInstancesYet => "Vous n’avez pas encore d’instance. Créez-en une d’abord.",
 
-        M::ANewInstance => "une nouvelle instance",
-        M::NewMatchingInstance => "Nouvelle instance correspondante",
-        M::NoResourcePack => "Ce serveur ne définit pas de pack de ressources.",
-        M::DownloadToInstance => "Télécharger dans l’instance",
-        M::PackNote => {
-            "Minecraft le télécharge quand vous rejoignez le serveur\u{202F}; l’enregistrer dans {target} le rend aussi disponible hors ligne."
-        }
-        M::PackNoteRequired => {
-            "Les joueurs doivent l’accepter pour jouer. Minecraft le télécharge quand vous rejoignez le serveur\u{202F}; l’enregistrer dans {target} le rend aussi disponible hors ligne."
-        }
-        M::PackNoteNoSha => {
-            "Le serveur ne donne pas de SHA-1 pour ce pack. Minecraft le télécharge quand vous rejoignez le serveur\u{202F}; l’enregistrer dans {target} le rend aussi disponible hors ligne."
-        }
-        M::PackNoteRequiredNoSha => {
-            "Les joueurs doivent l’accepter pour jouer. Le serveur ne donne pas de SHA-1 pour ce pack. Minecraft le télécharge quand vous rejoignez le serveur\u{202F}; l’enregistrer dans {target} le rend aussi disponible hors ligne."
-        }
-        M::InstanceLabel => "Instance",
-        M::ResourcePack => "Pack de ressources",
-        M::World => "Monde",
-        M::WorldCopyHint => {
-            "Une copie solo du monde du serveur, dans un nouveau dossier de monde. Les modifications que vous y faites restent sur {computer}."
-        }
-        M::StopToDownload => {
-            "Arrêtez le serveur pour télécharger son monde\u{a0}: un serveur en marche peut être en train d’y écrire."
-        }
-        M::PasswordNotKeptDownload => {
-            "Votre mot de passe est envoyé une seule fois pour vous connecter pour ce téléchargement, et n’est pas conservé."
-        }
-        M::DownloadWorld => "Télécharger le monde",
-        M::WorldNeedsPassword => {
-            "Saisissez votre nom d’utilisateur et votre mot de passe pour ce core. Télécharger un monde demande l’autorisation de lire les fichiers du serveur, que la clé de {computer} n’a pas."
-        }
-        M::SignInToSeePack => {
-            "Connectez-vous à ce core pour voir le pack de ressources du serveur."
-        }
-        M::CreatingMatching => "Création de l’instance correspondante",
-        M::CreatingMatchingBody => {
-            "Elle sera créée une fois les mods du serveur téléchargés. Ouvrez alors de nouveau {more} sur le serveur, choisissez-la, et relancez le téléchargement."
-        }
-        M::CouldNotCreateInstance => "Impossible de créer l’instance.",
-        M::QuitGameFirst => "Quittez d’abord le jeu dans cette instance.",
-        M::WorldZipping => "Le core compresse le monde…",
-        M::WorldDownloading => "Téléchargement…",
-        M::WorldDownloadingOf => "Téléchargement\u{a0}: {done} sur {total}",
-        M::WorldDownloadingSize => "Téléchargement\u{a0}: {done}",
-        M::WorldImporting => "Importation…",
-        M::WorldImportingOf => "Importation\u{a0}: {done} sur {total}",
-        M::WorldImported => {
-            "Importé comme le monde «\u{a0}{folder}\u{a0}» dans {instance}. Ouvrez-le depuis Solo\u{202F}; c’est une copie, les modifications ne reviennent donc pas sur le serveur."
-        }
         M::FriendsTitle => "Serveurs d’amis",
         M::FriendsHint => {
             "Les serveurs que vos amis partagent avec vous grâce aux liens d’invitation Lodestone Connect."
@@ -571,9 +516,6 @@ pub fn text(message: M) -> &'static str {
             "Vous avez accepté le CLUF de Minecraft pour ce serveur. Il peut démarrer maintenant."
         }
         M::EulaAcceptFailed => "Impossible d’accepter le CLUF\u{a0}: {error}",
-        M::PackSaved => {
-            "Enregistré sous {file} dans les packs de ressources de l’instance. Activez-le là-bas pour l’utiliser aussi sur d’autres serveurs."
-        }
     }
 }
 

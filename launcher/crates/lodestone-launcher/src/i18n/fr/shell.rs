@@ -39,6 +39,7 @@ pub fn text(message: M) -> &'static str {
         M::GroupModded => "{loader} (moddé)",
         M::Vanilla => "Vanilla",
         M::GroupImported => "Importées",
+        M::GroupServers => "Serveurs",
 
         M::NoInstanceSelected => "Aucune instance sélectionnée",
         M::NoInstanceSelectedHint => {
@@ -188,7 +189,9 @@ pub fn text(message: M) -> &'static str {
         M::NoAccount => "Aucun compte",
         M::ManageAccounts => "Gérer les comptes",
         M::GroupAutomatically => "Grouper les instances automatiquement",
-        M::GroupAutomaticallyHint => "Classe les instances sans groupe par chargeur de mods.",
+        M::GroupAutomaticallyHint => {
+            "Classe les instances sans groupe par serveur ou par chargeur de mods."
+        }
         M::AutoConfigure => "Configurer automatiquement les nouvelles instances",
         M::AutoConfigureHint => {
             "Avant la première partie d’une nouvelle instance, choisit sa mémoire, ses arguments Java et ses réglages graphiques selon cet ordinateur et ses mods, et reprend votre sensibilité de la souris et vos touches si les paramètres partagés ne le font pas. Ce que vous modifiez vous-même est conservé."
@@ -254,7 +257,7 @@ pub fn text(message: M) -> &'static str {
         M::FirstTimeSetupSection => "Première configuration",
         M::ResetFirstTimeSetup => "Réinitialiser la première configuration",
         M::ResetFirstTimeSetupHint => {
-            "La prochaine nouvelle instance sera de nouveau proposée comme instance principale, et la désactivation du narrateur sera proposée au prochain démarrage. L’instance principale actuelle est retirée\u{a0}; les valeurs partagées restent."
+            "La prochaine nouvelle instance sera de nouveau proposée comme instance principale, et la désactivation du narrateur sera proposée au prochain démarrage, et la page Lodestone Host propose de nouveau Lodestone Host. L’instance principale actuelle est retirée\u{a0}; les valeurs partagées restent."
         }
         M::FirstTimeSetupReset => {
             "La première configuration est réinitialisée. Créez une instance pour la voir."

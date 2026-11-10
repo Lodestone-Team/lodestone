@@ -451,8 +451,12 @@ impl LauncherShell {
                 );
             }
         }));
-        // the instance page shows the server an instance is linked to, and its progress
-        observe.push(cx.observe(&servers, |_, _, cx| cx.notify()));
+        // the instance page shows the server an instance is linked to, and its progress;
+        // the sidebar groups and outlines the linked instances
+        observe.push(cx.observe(&servers, |this, _, cx| {
+            this.sync_linked(cx);
+            cx.notify();
+        }));
         let shared_settings = {
             let instances = instances.clone();
             cx.new(|cx| SharedSettings::new(instances, cx))
@@ -1038,6 +1042,22 @@ impl LauncherShell {
             }
             _ => return None,
         })
+    }
+
+    /// Hands the instances linked to a server, as the Lodestone Host page read their
+    /// links, to the instance list, which groups them under Servers.
+    fn sync_linked(&mut self, cx: &mut Context<Self>) {
+        let servers = self.servers.read(cx);
+        let linked: std::collections::HashSet<String> = self
+            .instances
+            .read(cx)
+            .list()
+            .iter()
+            .filter(|instance| servers.instance_link(&instance.id).is_some())
+            .map(|instance| instance.id.clone())
+            .collect();
+        self.instances
+            .update(cx, |instances, cx| instances.set_linked(linked, cx));
     }
 
     /// Rebuilds the Settings tab when another instance is selected.
@@ -2705,5 +2725,45 @@ mod tests {
         ] {
             assert_eq!(cause_text(cause), cause.explanation());
         }
+    }
+}
+
+/// The paste shortcut in the real window: the shell's key context and its
+/// PasteInvite handler must be on the root that has focus when nothing else does.
+#[cfg(all(test, feature = "screenshot"))]
+mod paste_tests {
+    use gpui::TestAppContext;
+
+    use super::LauncherShell;
+
+    #[test]
+    fn the_window_root_takes_the_paste_shortcut() {
+        let mut cx = TestAppContext::single();
+        cx.update(|cx| {
+            crate::components::init(cx);
+            crate::bind_paste_invite(cx);
+        });
+        let (shell, cx) = cx.add_window_view(|_, cx| {
+            let accounts = crate::preview::accounts("home", cx);
+            let instances = crate::preview::instances("home", &accounts, cx);
+            LauncherShell::new(accounts, instances, cx)
+        });
+        cx.run_until_parked();
+        let root = shell.read_with(cx, |shell, _| shell.root_focus.clone());
+        cx.update(|window, cx| window.focus(&root, cx));
+        cx.run_until_parked();
+        cx.update(|window, _| {
+            assert!(
+                window.is_action_available_in(&crate::PasteInvite, &root),
+                "the root handles PasteInvite"
+            );
+            assert!(
+                !window
+                    .bindings_for_action_in(&crate::PasteInvite, &root)
+                    .is_empty(),
+                "the paste shortcut reaches the root: {:?}",
+                window.context_stack()
+            );
+        });
     }
 }

@@ -47,6 +47,10 @@ pub async fn setup_owner_account(
     }
     users_manager.add_user(user, CausedBy::System).await?;
     setup_key_lock.take();
+    drop(users_manager);
+    drop(setup_key_lock);
+    // an owner with a password: other devices may use the core, as always
+    crate::remote_access::owner_created(app_state, true).await;
     Ok(())
 }
 

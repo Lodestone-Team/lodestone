@@ -41,6 +41,9 @@ pub async fn setup_owner(
                 .add_user(owner.clone(), CausedBy::System)
                 .await?;
             setup_key_lock.take();
+            drop(setup_key_lock);
+            // an owner with a password: other devices may use the core, as always
+            crate::remote_access::owner_created(&state, true).await;
             Ok(Json(LoginReply {
                 token: owner.create_jwt()?,
                 user: owner.into(),

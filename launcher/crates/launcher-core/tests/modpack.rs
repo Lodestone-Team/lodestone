@@ -99,12 +99,14 @@ fn tree(dir: &Path) -> Vec<String> {
     fn walk(root: &Path, dir: &Path, out: &mut Vec<String>) {
         for entry in fs::read_dir(dir).into_iter().flatten().flatten() {
             let path = entry.path();
-            out.push(
-                path.strip_prefix(root)
-                    .unwrap()
-                    .to_string_lossy()
-                    .into_owned(),
-            );
+            // with `/` between the parts on every system
+            let parts: Vec<_> = path
+                .strip_prefix(root)
+                .unwrap()
+                .components()
+                .map(|part| part.as_os_str().to_string_lossy().into_owned())
+                .collect();
+            out.push(parts.join("/"));
             if path.is_dir() {
                 walk(root, &path, out);
             }

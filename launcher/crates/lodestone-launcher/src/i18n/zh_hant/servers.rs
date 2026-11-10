@@ -11,6 +11,10 @@ pub fn text(message: M) -> &'static str {
         M::Rescan => "重新掃描",
         M::ScanningLocal => "正在尋找這台電腦上的核心…",
         M::NoLocalCores => "這台電腦上沒有正在執行的 Lodestone Host 或 Lodestone Core。",
+        M::HostOfferTitle => "架設任何伺服器，立刻和朋友一起玩",
+        M::HostOfferBody => "無需設定，無需連接埠轉發。",
+        M::HostOfferDownload => "下載 Lodestone Host",
+        M::HostOfferCoreOnly => "僅下載 Lodestone Core",
         M::ConnectAsOwner => "以擁有者身分連線",
         M::Connected => "已連線",
         M::ChooseDataFolder => "選擇資料夾…",
@@ -19,15 +23,10 @@ pub fn text(message: M) -> &'static str {
         M::ProductCoreHint => "獨立的核心（伺服器程式或 Docker）",
         M::ConnectedAsOwner => "已以擁有者身分連線到 {name}",
         M::ConnectedMadeOwner => {
-            "它還沒有擁有者，因此 Lodestone Launcher 建立了擁有者帳號 {username}。密碼顯示在核心的卡片上，請妥善保存。"
+            "它還沒有擁有者，因此 Lodestone Launcher 建立了擁有者帳號 {username}。"
         }
         M::ConnectedOwnerKey => "此啟動器現在擁有它的擁有者金鑰。你可以在核心的控制面板中撤銷它。",
-        M::OwnerSignIn => "擁有者登入",
         M::OwnerKey => "擁有者金鑰",
-        M::ShowPassword => "顯示",
-        M::HidePassword => "隱藏",
-        M::CopyUsername => "複製使用者名稱",
-        M::CopyPassword => "複製密碼",
         M::CopyApiKey => "複製 API 金鑰",
         M::StartedBy => "由 {who} 啟動",
         M::StartedDirectly => "直接啟動",
@@ -83,7 +82,6 @@ pub fn text(message: M) -> &'static str {
         M::CreateInstance => "建立實例",
         M::StartAndJoin => "啟動並加入",
         M::Play => "開始遊戲",
-        M::More => "更多…",
         M::InstanceReady => "實例已就緒",
         M::AddressHidden => "擁有者未分享此伺服器的位址。",
 
@@ -291,9 +289,6 @@ pub fn text(message: M) -> &'static str {
         M::ChatHint => "文字會透過 /say 傳給所有人。以 / 開頭即可執行指令。",
         M::Console => "主控台",
         M::JumpToLatest => "跳到最新",
-        M::Players => "玩家",
-        M::NoOneOnline => "沒有人在線上。",
-        M::ServerNotRunning => "伺服器未在執行。",
         M::MinecraftAccount => "Minecraft 帳號",
         M::CoreTooOldToLink => "此核心的版本太舊，無法連結 Minecraft 帳號。",
         M::Unlink => "取消連結",
@@ -352,48 +347,6 @@ pub fn text(message: M) -> &'static str {
         }
         M::NoInstancesYet => "你還沒有任何實例。請先建立一個。",
 
-        M::ANewInstance => "新的實例",
-        M::NewMatchingInstance => "新的相符實例",
-        M::NoResourcePack => "此伺服器沒有設定資源包。",
-        M::DownloadToInstance => "下載到實例",
-        M::PackNote => "Minecraft 會在你加入時下載它；將它儲存到 {target} 中，離線時也能使用。",
-        M::PackNoteRequired => {
-            "玩家必須接受它才能加入。Minecraft 會在你加入時下載它；將它儲存到 {target} 中，離線時也能使用。"
-        }
-        M::PackNoteNoSha => {
-            "伺服器沒有提供它的 SHA-1。Minecraft 會在你加入時下載它；將它儲存到 {target} 中，離線時也能使用。"
-        }
-        M::PackNoteRequiredNoSha => {
-            "玩家必須接受它才能加入。伺服器沒有提供它的 SHA-1。Minecraft 會在你加入時下載它；將它儲存到 {target} 中，離線時也能使用。"
-        }
-        M::InstanceLabel => "實例",
-        M::ResourcePack => "資源包",
-        M::World => "世界",
-        M::WorldCopyHint => {
-            "伺服器世界的單人遊戲副本，放在新的世界資料夾中。你在其中所做的變更只會保留在{computer} 上。"
-        }
-        M::StopToDownload => "請先停止伺服器再下載它的世界：執行中的伺服器可能正在寫入它。",
-        M::PasswordNotKeptDownload => "你的密碼只會在為這次下載登入時傳送一次，不會被儲存。",
-        M::DownloadWorld => "下載世界",
-        M::WorldNeedsPassword => {
-            "請輸入你在此核心上的使用者名稱和密碼。下載世界需要讀取伺服器檔案的權限，而{computer} 上的金鑰沒有這項權限。"
-        }
-        M::SignInToSeePack => "登入此核心即可查看伺服器的資源包。",
-        M::CreatingMatching => "正在建立相符的實例",
-        M::CreatingMatchingBody => {
-            "相符實例會在伺服器的模組下載完成後建立。屆時請再次開啟伺服器的「{more}」，選擇它，然後重新下載。"
-        }
-        M::CouldNotCreateInstance => "無法建立實例。",
-        M::QuitGameFirst => "請先結束該實例中的遊戲。",
-        M::WorldZipping => "核心正在壓縮世界…",
-        M::WorldDownloading => "正在下載…",
-        M::WorldDownloadingOf => "正在下載：{done} / {total}",
-        M::WorldDownloadingSize => "正在下載：{done}",
-        M::WorldImporting => "正在匯入…",
-        M::WorldImportingOf => "正在匯入：{done} / {total}",
-        M::WorldImported => {
-            "已匯入為 {instance} 中的世界「{folder}」。請從「單人遊戲」開啟它；它是副本，因此變更不會同步回伺服器。"
-        }
         M::FriendsTitle => "好友的伺服器",
         M::FriendsHint => "好友透過 Lodestone Connect 邀請連結與你共享的伺服器。",
         M::JoinAFriend => "加入好友",
@@ -485,9 +438,6 @@ pub fn text(message: M) -> &'static str {
         M::AcceptEula => "接受 Minecraft EULA",
         M::EulaAccepted => "你已為此伺服器接受 Minecraft EULA，現在可以啟動了。",
         M::EulaAcceptFailed => "無法接受 EULA：{error}",
-        M::PackSaved => {
-            "已儲存到實例的資源包中，檔名為 {file}。在資源包清單中啟用它，也能在其他伺服器上使用。"
-        }
     }
 }
 

@@ -173,6 +173,24 @@ impl HostState {
         }
     }
 
+    /// The owner account was set up (`PUT /user/owner_account`): `owner` as the core now
+    /// has them, with a password, and other devices may use the core.
+    pub fn owner_account_set_up(&mut self, owner: PublicUser, cx: &mut Context<Self>) {
+        if owner.uid == self.me.uid {
+            self.me = owner;
+        }
+        if let Some(settings) = self.settings.as_mut() {
+            settings.allow_remote_access = true;
+        }
+        self.info.remote_access = true;
+        self.toast(
+            Toast::success(crate::i18n::t(crate::i18n::CoreMsg::OwnerAccountDone))
+                .key("owner-account"),
+            cx,
+        );
+        cx.notify();
+    }
+
     /// Shows a toast at the bottom right of the window: `Toast::success(…)`,
     /// `Toast::error(…)`, with a key to replace an earlier one, or an action button.
     pub fn toast(&mut self, toast: Toast, cx: &mut Context<Self>) {

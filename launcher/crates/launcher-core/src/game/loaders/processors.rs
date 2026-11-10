@@ -364,6 +364,12 @@ mod tests {
     use super::*;
     use crate::game::loaders::tests::loader_fixture;
 
+    /// A path argument with `/` between its parts. The paths are joined onto the
+    /// libraries folder, so on Windows they have `\` after it; Java takes either.
+    fn slashes(arg: &str) -> String {
+        arg.replace('\\', "/")
+    }
+
     fn builtins<'a>(libraries: &'a Path) -> Builtins<'a> {
         Builtins {
             minecraft_jar: Path::new("/data/versions/1.20.1/1.20.1.jar"),
@@ -398,7 +404,7 @@ mod tests {
         );
         assert_eq!(mcp.classpath.len(), 8);
         assert_eq!(
-            mcp.args,
+            mcp.args.iter().map(|arg| slashes(arg)).collect::<Vec<_>>(),
             [
                 "--task",
                 "MCP_DATA",
@@ -412,7 +418,7 @@ mod tests {
         );
         assert_eq!(planned[1].args[5], "client", "{{SIDE}}");
         let split = &planned[3];
-        assert_eq!(split.args[1], "/data/versions/1.20.1/1.20.1.jar");
+        assert_eq!(slashes(&split.args[1]), "/data/versions/1.20.1/1.20.1.jar");
         assert_eq!(
             split.outputs,
             [
@@ -431,9 +437,9 @@ mod tests {
             ]
         );
         let patch = &planned[5];
-        assert_eq!(patch.args[5], "/tmp/work/data/client.lzma");
+        assert_eq!(slashes(&patch.args[5]), "/tmp/work/data/client.lzma");
         assert_eq!(
-            patch.args[3],
+            slashes(&patch.args[3]),
             "/data/libraries/net/minecraftforge/forge/1.20.1-47.4.28/forge-1.20.1-47.4.28-client.jar"
         );
         assert!(values.artifacts().iter().any(|p| {
@@ -472,7 +478,7 @@ mod tests {
         );
         assert_eq!(values.substitute("\\{KEY}", libraries).unwrap(), "{KEY}");
         assert_eq!(
-            values.substitute("{PATH}", libraries).unwrap(),
+            slashes(&values.substitute("{PATH}", libraries).unwrap()),
             "/l/a/b/c/1/c-1-d.txt"
         );
         assert_eq!(values.substitute("'{PATH}'", libraries).unwrap(), "{PATH}");

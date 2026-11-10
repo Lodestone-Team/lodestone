@@ -436,9 +436,13 @@ pub fn format_env(env: &BTreeMap<String, String>) -> String {
 }
 
 /// The groups the sidebar puts instances without a group of their own in, in the
-/// order they are listed (after the groups the user named).
+/// order they are listed: Servers before the groups the user named, the others
+/// after them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum AutoGroup {
+    /// Linked to a server: one on a Lodestone core, or a friend's shared server
+    /// ([`crate::cores::link`]), whatever its loader.
+    Servers,
     Fabric,
     Forge,
     NeoForge,
@@ -449,7 +453,8 @@ pub enum AutoGroup {
 }
 
 impl AutoGroup {
-    pub const ALL: [AutoGroup; 6] = [
+    pub const ALL: [AutoGroup; 7] = [
+        AutoGroup::Servers,
         AutoGroup::Fabric,
         AutoGroup::Forge,
         AutoGroup::NeoForge,
@@ -458,9 +463,12 @@ impl AutoGroup {
         AutoGroup::Imported,
     ];
 
-    /// The instance's automatic group: Imported for one imported from another
-    /// launcher, else its loader's.
-    pub fn of(instance: &Instance) -> Self {
+    /// The instance's automatic group: Servers for one `linked` to a server, then
+    /// Imported for one imported from another launcher, else its loader's.
+    pub fn of(instance: &Instance, linked: bool) -> Self {
+        if linked {
+            return AutoGroup::Servers;
+        }
         if instance.imported_from.is_some() {
             return AutoGroup::Imported;
         }
@@ -476,6 +484,7 @@ impl AutoGroup {
     /// The group's name, which is also its heading.
     pub fn name(self) -> &'static str {
         match self {
+            AutoGroup::Servers => "Servers",
             AutoGroup::Fabric => "Fabric (modded)",
             AutoGroup::Forge => "Forge (modded)",
             AutoGroup::NeoForge => "NeoForge (modded)",
@@ -489,11 +498,16 @@ impl AutoGroup {
 /// The instances by sidebar group, each group keeping the list's order: those
 /// without a group first (none when `automatic`), then the groups the user named in
 /// name order (ignoring case), then, when `automatic`, the [`AutoGroup`]s in their
-/// order for the instances without a group of their own.
+/// order for the instances without a group of their own. The Servers group, of the
+/// instances `linked` to a server, comes before the named groups.
 ///
 /// A group the user named like an automatic group ("vanilla") is that group: the
 /// instances it would get join it.
-pub fn grouped(instances: &[Instance], automatic: bool) -> Vec<(Option<String>, Vec<&Instance>)> {
+pub fn grouped(
+    instances: &[Instance],
+    automatic: bool,
+    linked: impl Fn(&Instance) -> bool,
+) -> Vec<(Option<String>, Vec<&Instance>)> {
     let mut groups: Vec<(Option<String>, Vec<&Instance>)> = Vec::new();
     if !automatic {
         let ungrouped: Vec<&Instance> = instances
@@ -508,6 +522,21 @@ pub fn grouped(instances: &[Instance], automatic: bool) -> Vec<(Option<String>, 
     names.sort_by_key(|name| name.to_lowercase());
     names.dedup();
     let named = |name: &str| names.iter().copied().find(|n| n.eq_ignore_ascii_case(name));
+    let auto_of = |i: &Instance| AutoGroup::of(i, linked(i));
+    // An automatic group, unless a group the user named takes its instances.
+    let auto_group = |auto: AutoGroup| -> Option<(Option<String>, Vec<&Instance>)> {
+        if named(auto.name()).is_some() {
+            return None;
+        }
+        let members: Vec<&Instance> = instances
+            .iter()
+            .filter(|i| group_name(i).is_none() && auto_of(i) == auto)
+            .collect();
+        (!members.is_empty()).then(|| (Some(auto.name().to_string()), members))
+    };
+    if automatic {
+        groups.extend(auto_group(AutoGroup::Servers));
+    }
     for name in &names {
         groups.push((
             Some(name.to_string()),
@@ -515,22 +544,15 @@ pub fn grouped(instances: &[Instance], automatic: bool) -> Vec<(Option<String>, 
                 .iter()
                 .filter(|i| match group_name(i) {
                     Some(group) => group == *name,
-                    None => automatic && named(AutoGroup::of(i).name()) == Some(*name),
+                    None => automatic && named(auto_of(i).name()) == Some(*name),
                 })
                 .collect(),
         ));
     }
     if automatic {
         for auto in AutoGroup::ALL {
-            if named(auto.name()).is_some() {
-                continue;
-            }
-            let members: Vec<&Instance> = instances
-                .iter()
-                .filter(|i| group_name(i).is_none() && AutoGroup::of(i) == auto)
-                .collect();
-            if !members.is_empty() {
-                groups.push((Some(auto.name().to_string()), members));
+            if auto != AutoGroup::Servers {
+                groups.extend(auto_group(auto));
             }
         }
     }
@@ -538,11 +560,11 @@ pub fn grouped(instances: &[Instance], automatic: bool) -> Vec<(Option<String>, 
 }
 
 /// The group the sidebar lists the instance in: its own, or its automatic one when
-/// `automatic`.
-pub fn group_of(instance: &Instance, automatic: bool) -> Option<String> {
+/// `automatic` (Servers when it is `linked` to a server).
+pub fn group_of(instance: &Instance, automatic: bool, linked: bool) -> Option<String> {
     match group_name(instance) {
         Some(name) => Some(name.to_string()),
-        None => automatic.then(|| AutoGroup::of(instance).name().to_string()),
+        None => automatic.then(|| AutoGroup::of(instance, linked).name().to_string()),
     }
 }
 
@@ -1732,7 +1754,7 @@ mod tests {
             instance("d", Some("survival")),
             instance("e", Some("  ")),
         ];
-        let groups: Vec<(Option<String>, Vec<&str>)> = grouped(&list, false)
+        let groups: Vec<(Option<String>, Vec<&str>)> = grouped(&list, false, |_| false)
             .into_iter()
             .map(|(name, items)| (name, items.iter().map(|i| i.id.as_str()).collect()))
             .collect();
@@ -1774,14 +1796,17 @@ mod tests {
             auto_instance("prism", Loader::Fabric, None, true),
             auto_instance("named", Loader::Fabric, Some("Survival"), true),
         ];
-        assert_eq!(AutoGroup::of(&list[0]), AutoGroup::Vanilla);
-        assert_eq!(AutoGroup::of(&list[5]), AutoGroup::Imported);
+        assert_eq!(AutoGroup::of(&list[0], false), AutoGroup::Vanilla);
+        assert_eq!(AutoGroup::of(&list[5], false), AutoGroup::Imported);
         // A group of its own wins over the automatic one.
-        assert_eq!(group_of(&list[6], true).as_deref(), Some("Survival"));
-        assert_eq!(group_of(&list[1], true).as_deref(), Some("Fabric (modded)"));
-        assert_eq!(group_of(&list[1], false), None);
+        assert_eq!(group_of(&list[6], true, false).as_deref(), Some("Survival"));
         assert_eq!(
-            ids(grouped(&list, true)),
+            group_of(&list[1], true, false).as_deref(),
+            Some("Fabric (modded)")
+        );
+        assert_eq!(group_of(&list[1], false, false), None);
+        assert_eq!(
+            ids(grouped(&list, true, |_| false)),
             [
                 (Some("Survival".into()), vec!["named"]),
                 (Some("Fabric (modded)".into()), vec!["fabric"]),
@@ -1794,7 +1819,7 @@ mod tests {
         );
         // Off, the instances without a group are listed loose, as before.
         assert_eq!(
-            ids(grouped(&list, false)),
+            ids(grouped(&list, false, |_| false)),
             [
                 (
                     None,
@@ -1815,7 +1840,7 @@ mod tests {
             auto_instance("q", Loader::Quilt, None, false),
         ];
         assert_eq!(
-            ids(grouped(&list, true)),
+            ids(grouped(&list, true, |_| false)),
             [
                 (Some("Alpha".into()), vec!["a"]),
                 (Some("beta".into()), vec!["b"]),
@@ -1834,10 +1859,104 @@ mod tests {
             auto_instance("fabric", Loader::Fabric, None, false),
         ];
         assert_eq!(
-            ids(grouped(&list, true)),
+            ids(grouped(&list, true, |_| false)),
             [
                 (Some("vanilla".into()), vec!["mine", "plain"]),
                 (Some("Fabric (modded)".into()), vec!["fabric"]),
+            ]
+        );
+    }
+
+    #[test]
+    fn linked_instances_are_grouped_first() {
+        let list = [
+            auto_instance("plain", Loader::None, None, false),
+            auto_instance("smp", Loader::Fabric, None, false),
+            auto_instance("fabric", Loader::Fabric, None, false),
+            auto_instance("pack", Loader::Forge, None, true),
+            auto_instance("named", Loader::Fabric, Some("Alpha"), false),
+        ];
+        let linked = |i: &Instance| ["smp", "pack", "named"].contains(&i.id.as_str());
+        // Linked instances leave their loader's (or Imported's) group for Servers,
+        // which comes before the groups the user named; a group of its own still wins.
+        assert_eq!(AutoGroup::of(&list[3], true), AutoGroup::Servers);
+        assert_eq!(group_of(&list[1], true, true).as_deref(), Some("Servers"));
+        assert_eq!(group_of(&list[4], true, true).as_deref(), Some("Alpha"));
+        assert_eq!(
+            ids(grouped(&list, true, linked)),
+            [
+                (Some("Servers".into()), vec!["smp", "pack"]),
+                (Some("Alpha".into()), vec!["named"]),
+                (Some("Fabric (modded)".into()), vec!["fabric"]),
+                (Some("Vanilla".into()), vec!["plain"]),
+            ]
+        );
+        // Without linked instances, nothing changes.
+        assert_eq!(
+            ids(grouped(&list, true, |_| false)),
+            [
+                (Some("Alpha".into()), vec!["named"]),
+                (Some("Fabric (modded)".into()), vec!["smp", "fabric"]),
+                (Some("Vanilla".into()), vec!["plain"]),
+                (Some("Imported".into()), vec!["pack"]),
+            ]
+        );
+        // Off, nothing moves: the links make no group.
+        assert_eq!(group_of(&list[1], false, true), None);
+        assert_eq!(
+            ids(grouped(&list, false, linked)),
+            ids(grouped(&list, false, |_| false))
+        );
+        // A group the user named "servers" takes them, in its name's place.
+        let mut list = list.to_vec();
+        list[2].group = Some("servers".into());
+        assert_eq!(
+            ids(grouped(&list, true, linked)),
+            [
+                (Some("Alpha".into()), vec!["named"]),
+                (Some("servers".into()), vec!["smp", "fabric", "pack"]),
+                (Some("Vanilla".into()), vec!["plain"]),
+            ]
+        );
+    }
+
+    /// The links on disk say which instances are linked: to a server on a core, or
+    /// to a friend's shared server.
+    #[test]
+    fn instances_linked_on_disk_and_to_friends_are_grouped_as_servers() {
+        use crate::cores::{friends, link};
+        let dir = tempfile::tempdir().unwrap();
+        let list = [
+            auto_instance("core-linked", Loader::Fabric, None, false),
+            auto_instance("friend-linked", Loader::None, None, false),
+            auto_instance("loose", Loader::None, None, false),
+        ];
+        let save = |id: &str, core: &str| {
+            let instance_dir = dir.path().join(id);
+            fs::create_dir_all(&instance_dir).unwrap();
+            let server = link::ServerLink {
+                core_uuid: core.into(),
+                core_url: "https://example.org:16662".into(),
+                server_uuid: "smp".into(),
+                server_name: "Survival SMP".into(),
+                pack_etag: None,
+            };
+            link::save_link(&instance_dir, &server).unwrap();
+        };
+        save("core-linked", "6f1c-core-uuid");
+        let friend = format!("{}connect.lodestone.cc/ABCDEFGH23", friends::ID_PREFIX);
+        assert!(friends::is_friend_id(&friend));
+        save("friend-linked", &friend);
+        fs::create_dir_all(dir.path().join("loose")).unwrap();
+        let linked: std::collections::HashSet<String> = link::linked_instances(dir.path())
+            .into_iter()
+            .map(|(id, _)| id)
+            .collect();
+        assert_eq!(
+            ids(grouped(&list, true, |i| linked.contains(&i.id))),
+            [
+                (Some("Servers".into()), vec!["core-linked", "friend-linked"]),
+                (Some("Vanilla".into()), vec!["loose"]),
             ]
         );
     }

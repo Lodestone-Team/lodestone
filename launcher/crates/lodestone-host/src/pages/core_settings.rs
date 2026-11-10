@@ -3,6 +3,11 @@
 //!
 //! Only the owner changes these; everyone else sees them read-only. Settings an older
 //! core doesn't have are hidden, as the dashboard does.
+//!
+//! "Allow access from other devices" is off for Lodestone Host's core until its owner
+//! shares it: turning it on (or anything else that only makes sense from other devices,
+//! such as the public listing) first asks for the owner account's username and password
+//! when the owner has none (`account_dialogs`).
 
 use gpui::{
     AnyElement, App, AppContext as _, Context, Entity, FocusHandle, IntoElement, KeyDownEvent,
@@ -24,11 +29,26 @@ use lodestone_ui::{
     theme::{colors, ink, text},
 };
 
-use super::parts::{self, Confirm, TextSetting, TextSettingEvent};
+use super::{
+    account_dialogs::{self, AccountDialog, AccountDialogEvent},
+    parts::{self, Confirm, TextSetting, TextSettingEvent},
+};
 use crate::{
     i18n::{CommonMsg, CoreMsg, t, tr},
     state::{HostEvent, HostState},
 };
+
+/// Whether turning `switch` on only makes sense from other devices, so an owner without
+/// a password sets one up first: remote access itself, the public listing (anyone who
+/// can reach the core sees it) and plain HTTP from the network.
+pub fn shares_the_core(switch: CoreSwitch) -> bool {
+    matches!(
+        switch,
+        CoreSwitch::AllowRemoteAccess
+            | CoreSwitch::ListInstancesPublicly
+            | CoreSwitch::AllowLanHttp
+    )
+}
 
 /// A switch that asks first.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -36,6 +56,7 @@ enum Asking {
     SafeModeOff,
     CodeExecutionOff,
     LanHttpOn,
+    RemoteAccessOff,
 }
 
 struct OpenPort {
@@ -58,6 +79,10 @@ pub struct CoreSettingsPage {
     switching: Option<CoreSwitch>,
     asking: DialogSlot<Self, (Asking, FocusHandle)>,
     open_port: DialogSlot<Self, OpenPort>,
+    /// The owner account to set up before the core is shared.
+    owner_account: DialogSlot<Self, Entity<AccountDialog>>,
+    /// The switch to flip once the owner account is set up.
+    after_owner_account: Option<(CoreSwitch, bool)>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -127,6 +152,8 @@ impl CoreSettingsPage {
             switching: None,
             asking: DialogSlot::new(|this: &mut Self| &mut this.asking),
             open_port: DialogSlot::new(|this: &mut Self| &mut this.open_port),
+            owner_account: DialogSlot::new(|this: &mut Self| &mut this.owner_account),
+            after_owner_account: None,
             _subscriptions: subscriptions,
         };
         this.follow(&this.state.clone(), cx);
@@ -229,12 +256,23 @@ impl CoreSettingsPage {
         );
     }
 
-    /// A switch was flipped: some ask first, as the dashboard does.
+    /// A switch was flipped: some ask first, as the dashboard does. Those that only make
+    /// sense from other devices ask for the owner account first, when there is none.
     fn flip(&mut self, switch: CoreSwitch, value: bool, cx: &mut Context<Self>) {
+        if value
+            && shares_the_core(switch)
+            && account_dialogs::needs_owner_account(self.state.read(cx))
+        {
+            // setting up the account turns remote access on by itself
+            let then = (switch != CoreSwitch::AllowRemoteAccess).then_some((switch, value));
+            self.open_owner_account(then, cx);
+            return;
+        }
         let ask = match (switch, value) {
             (CoreSwitch::SafeMode, false) => Some(Asking::SafeModeOff),
             (CoreSwitch::CodeExecution, false) => Some(Asking::CodeExecutionOff),
             (CoreSwitch::AllowLanHttp, true) => Some(Asking::LanHttpOn),
+            (CoreSwitch::AllowRemoteAccess, false) => Some(Asking::RemoteAccessOff),
             _ => None,
         };
         match ask {
@@ -244,6 +282,52 @@ impl CoreSettingsPage {
             }
             None => self.set_switch(switch, value, cx),
         }
+    }
+
+    /// Asks for the owner account's username and password, then flips `then`.
+    fn open_owner_account(&mut self, then: Option<(CoreSwitch, bool)>, cx: &mut Context<Self>) {
+        self.after_owner_account = then;
+        let state = self.state.clone();
+        let (dialog, subscription) = account_dialogs::open(
+            move |cx| AccountDialog::owner_account(state, cx),
+            |this: &mut Self, dialog, event, cx| {
+                if this.owner_account.current() != Some(dialog) {
+                    return;
+                }
+                this.owner_account.close(cx);
+                let then = this.after_owner_account.take();
+                if let (AccountDialogEvent::OwnerSetUp(_), Some((switch, value))) = (event, then) {
+                    this.flip(switch, value, cx);
+                }
+                cx.notify();
+            },
+            cx,
+        );
+        self._subscriptions.push(subscription);
+        self.owner_account.open(dialog, cx);
+    }
+
+    /// Flips "Allow access from other devices" on as a user would, and with `owner`
+    /// (a username and password) fills in and sends the owner account dialog it opens:
+    /// for the development screenshots (`--share-core`, `--owner`).
+    #[cfg(feature = "screenshot")]
+    pub fn share_core_for_screenshot(
+        &mut self,
+        owner: Option<(&str, &str)>,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if self.owner_account.current().is_none() {
+            self.flip(CoreSwitch::AllowRemoteAccess, true, cx);
+        }
+        let Some(dialog) = self.owner_account.current().cloned() else {
+            return false;
+        };
+        if let Some((username, password)) = owner {
+            dialog.update(cx, |dialog, cx| {
+                dialog.fill_and_submit(username, password, cx)
+            });
+        }
+        true
     }
 
     fn set_switch(&mut self, switch: CoreSwitch, value: bool, cx: &mut Context<Self>) {
@@ -487,6 +571,14 @@ impl CoreSettingsPage {
                 CoreMsg::LanHttpAllow,
                 true,
             ),
+            Asking::RemoteAccessOff => (
+                CoreSwitch::AllowRemoteAccess,
+                false,
+                CoreMsg::RemoteAccessOffTitle,
+                CoreMsg::RemoteAccessOffBody,
+                CoreMsg::TurnOff,
+                false,
+            ),
         };
         let this = cx.entity().downgrade();
         let close = cx.entity().downgrade();
@@ -575,12 +667,26 @@ impl Render for CoreSettingsPage {
         }
 
         // Core
+        let mut core_rows = vec![
+            self.name.clone().into_any_element(),
+            self.domain.clone().into_any_element(),
+        ];
+        if owner && self.supports("allow_remote_access") {
+            core_rows.push(self.switch_row(
+                CoreSwitch::AllowRemoteAccess,
+                CoreMsg::RemoteAccess,
+                t(if settings.allow_remote_access {
+                    CoreMsg::RemoteAccessHintOn
+                } else {
+                    CoreMsg::RemoteAccessHintOff
+                }),
+                owner,
+                cx,
+            ));
+        }
         sections.push(
             settings::section(t(CoreMsg::SectionCore), None)
-                .child(settings::card([
-                    self.name.clone().into_any_element(),
-                    self.domain.clone().into_any_element(),
-                ]))
+                .child(settings::card(core_rows))
                 .into_any_element(),
         );
 
@@ -674,11 +780,23 @@ impl Render for CoreSettingsPage {
                 ));
             }
             if self.supports("allow_local_claim") {
+                // without a password, the claim is the only way to sign in: the core
+                // refuses to turn it off
+                let no_password = account_dialogs::needs_owner_account(self.state.read(cx));
+                let hint = if no_password {
+                    format!(
+                        "{} {}",
+                        t(CoreMsg::LocalClaimHint),
+                        t(CoreMsg::LocalClaimNeedsPassword)
+                    )
+                } else {
+                    t(CoreMsg::LocalClaimHint).to_string()
+                };
                 danger.push(self.switch_row(
                     CoreSwitch::AllowLocalClaim,
                     CoreMsg::LocalClaim,
-                    t(CoreMsg::LocalClaimHint),
-                    owner,
+                    hint,
+                    owner && !no_password,
                     cx,
                 ));
             }
@@ -714,9 +832,28 @@ impl Render for CoreSettingsPage {
             self.open_port
                 .render(window, |dialog| Some(self.render_open_port(dialog, cx))),
         );
+        dialogs.extend(
+            self.owner_account
+                .render(window, |dialog| Some(dialog.clone().into_any_element())),
+        );
         parts::page(sections)
             .text_color(ink::text())
             .text_size(text::MEDIUM)
             .children(window_layer(window, dialogs))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_sharing_asks_for_the_owner_account() {
+        assert!(shares_the_core(CoreSwitch::AllowRemoteAccess));
+        assert!(shares_the_core(CoreSwitch::ListInstancesPublicly));
+        assert!(shares_the_core(CoreSwitch::AllowLanHttp));
+        assert!(!shares_the_core(CoreSwitch::SafeMode));
+        assert!(!shares_the_core(CoreSwitch::CodeExecution));
+        assert!(!shares_the_core(CoreSwitch::AllowLocalClaim));
     }
 }

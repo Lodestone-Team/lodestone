@@ -2095,6 +2095,7 @@ fn loader_label(instance: &Instance) -> String {
 fn auto_group_name(group: launcher_core::instances::AutoGroup) -> &'static str {
     use launcher_core::instances::AutoGroup;
     t(match group {
+        AutoGroup::Servers => M::AutoGroupServers,
         AutoGroup::Fabric => M::AutoGroupFabric,
         AutoGroup::Forge => M::AutoGroupForge,
         AutoGroup::NeoForge => M::AutoGroupNeoForge,
@@ -2139,7 +2140,8 @@ impl Render for InstanceSettings {
         // Without a group of its own, the instance is listed under its automatic group.
         let group_placeholder: Text = match instance.as_ref() {
             Some(instance) if self.instances.read(cx).auto_groups() => {
-                auto_group_name(launcher_core::instances::AutoGroup::of(instance)).into()
+                let linked = self.instances.read(cx).is_linked(&instance.id);
+                auto_group_name(launcher_core::instances::AutoGroup::of(instance, linked)).into()
             }
             _ => M::NoGroup.into(),
         };

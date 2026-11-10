@@ -705,6 +705,13 @@ impl Default for SidebarInks {
 }
 
 impl SidebarInks {
+    /// Whether the sidebar's text is dark, as drawn (the light theme included): the
+    /// sidebar is light.
+    pub fn dark_text(&self) -> bool {
+        let ink = gpui::Rgba::from(self.primary);
+        0.2126 * ink.r + 0.7152 * ink.g + 0.0722 * ink.b < 0.4
+    }
+
     fn of(palette: Option<Palette>) -> Self {
         let Some(palette) = palette else {
             return Self::default();

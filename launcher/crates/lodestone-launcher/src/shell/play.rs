@@ -271,7 +271,8 @@ fn linked_to(link: &InstanceLink) -> impl IntoElement + use<> {
                 .flex_none()
                 .size(px(6.))
                 .rounded_full()
-                .bg(crate::theme::accent::light()),
+                // Lodestone Host's green, as the instance's outline in the sidebar
+                .bg(crate::components::host_gradient(100, false)),
         )
         .child(
             div()

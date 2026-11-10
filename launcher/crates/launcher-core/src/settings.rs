@@ -40,8 +40,8 @@ pub struct Settings {
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub collapsed_groups: BTreeSet<String>,
     /// "Group instances automatically": the sidebar lists instances without a group
-    /// of their own by loader, or under Imported. On by default; left out of the file
-    /// while on.
+    /// of their own under Servers (linked to a server), by loader, or under Imported.
+    /// On by default; left out of the file while on.
     #[serde(default = "yes", skip_serializing_if = "is_true")]
     pub auto_groups: bool,
     /// Settings > Instance defaults > "Set up new instances automatically": a new
@@ -77,6 +77,11 @@ pub struct Settings {
     /// Developer can ask again). Left out of the file until then.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub narrator_offered: bool,
+    /// The Lodestone Host page's offer to download Lodestone Host, shown while no
+    /// Host or Core runs on this computer, was dismissed (Settings > Developer can
+    /// show it again). Left out of the file until then.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub host_offer_dismissed: bool,
     /// The interface's zoom, from Ctrl/⌘ + and −: 1.0 is 100%. Left out of the file
     /// at 100%.
     #[serde(default = "one", skip_serializing_if = "is_one")]
@@ -111,6 +116,7 @@ impl Default for Settings {
             after_launch: AfterLaunch::Minimize,
             main_instance_offered: false,
             narrator_offered: false,
+            host_offer_dismissed: false,
             zoom: 1.0,
             skin: None,
             sidebar_width: None,
@@ -233,6 +239,11 @@ pub struct DeveloperSettings {
     /// file while off.
     #[serde(default, skip_serializing_if = "is_false")]
     pub offline_accounts: bool,
+    /// Developer options this build doesn't know, kept so that a newer build's
+    /// options survive a save by this one (as [`Settings::other`] does for the whole
+    /// file).
+    #[serde(flatten)]
+    pub other: Map<String, Value>,
 }
 
 fn is_false(value: &bool) -> bool {
@@ -244,6 +255,7 @@ impl Default for DeveloperSettings {
         Self {
             sign_in_as_minecraft_launcher: true,
             offline_accounts: false,
+            other: Map::new(),
         }
     }
 }
@@ -529,6 +541,30 @@ mod tests {
         update(&path, |s| s.developer.offline_accounts = false).unwrap();
         let raw: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
         assert!(raw.get("developer").is_none(), "{raw}");
+    }
+
+    #[test]
+    fn developer_options_from_a_newer_build_are_kept() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        std::fs::write(
+            &path,
+            r#"{"version":1,"developer":{"offline_accounts":true,"from_a_newer_build":{"a":1}}}"#,
+        )
+        .unwrap();
+        update(&path, |s| s.zoom = 1.25).unwrap();
+        let raw: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(
+            raw["developer"],
+            json!({ "offline_accounts": true, "from_a_newer_build": { "a": 1 } })
+        );
+        // and with every known option at its default, the unknown one still is
+        update(&path, |s| s.developer.offline_accounts = false).unwrap();
+        let raw: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(
+            raw["developer"],
+            json!({ "from_a_newer_build": { "a": 1 } })
+        );
     }
 
     #[test]

@@ -18,7 +18,6 @@ use launcher_control::{ErrorObject, codes};
 use launcher_core::{
     Secret,
     cores::{ServerInstance, client::display_address, live::LauncherScope, store::SavedCore},
-    game::download::{CancelToken, Progress as Downloads},
     instances::Instance,
 };
 use serde::Deserialize;
@@ -27,7 +26,7 @@ use serde_json::{Value, json};
 use super::{
     ApiResult, Call, Control, Reply, api_error, core_error,
     instances::{failed, params, start_launch_job, tri},
-    jobs::{Cancel, JobSpec, Progress},
+    jobs::JobSpec,
     poll_until, ready,
 };
 use crate::servers::{
@@ -800,8 +799,12 @@ pub fn unlink(call: Call, cx: &mut App) -> Reply {
 
 #[derive(Deserialize)]
 struct HostParams {
-    username: String,
-    password: String,
+    /// Not needed on a core this computer is the owner of (`cores claim`).
+    #[serde(default)]
+    username: Option<String>,
+    /// Read from stdin by the CLI; dropped once signed in.
+    #[serde(default)]
+    password: Option<String>,
     #[serde(default)]
     name: Option<String>,
     /// MB: 2048, 4096, 6144 or 8192.
@@ -843,8 +846,10 @@ pub fn host(call: Call, cx: &mut App) -> Reply {
     let stage = Arc::new(Mutex::new(String::new()));
     let request = HostCore {
         core_uuid,
-        username: params.username.clone(),
-        password: Secret::new(params.password),
+        sign_in: params
+            .username
+            .filter(|u| !u.trim().is_empty())
+            .zip(params.password.map(Secret::new)),
         name: name.clone(),
         max_ram,
         // checked above: the user agreed
@@ -859,85 +864,6 @@ pub fn host(call: Call, cx: &mut App) -> Reply {
         JobSpec::new("host", format!("Hosting {} as {name}", instance.name))
             .instance(&instance)
             .stage(job_stage),
-        work,
-        cx,
-    );
-    control.reply_job(&call, job, cx)
-}
-
-pub fn resource_pack(call: Call, cx: &mut App) -> Reply {
-    let control = call.control.clone();
-    let instance = tri!(control.instance_param(&call, cx));
-    tri!(control.idle(&instance, cx));
-    let (core, server) = tri!(find_server(&call, control.servers.read(cx)));
-    let index = tri!(control.servers.read(cx).control_core(&core));
-    let id = instance.id.clone();
-    let task = control.servers.update(cx, |servers, cx| {
-        servers.control_download_pack(index, server, &id, cx)
-    });
-    cx.spawn(async move |_| {
-        let file = task.await?;
-        Ok(json!({ "instance": id, "file": file, "note": "Saved in the instance's resource packs; turn it on with `content enable`." }))
-    })
-}
-
-#[derive(Deserialize)]
-struct WorldParams {
-    username: String,
-    password: String,
-}
-
-pub fn download_world(call: Call, cx: &mut App) -> Reply {
-    let params: WorldParams = params!(call);
-    let control = call.control.clone();
-    let instance = tri!(control.instance_param(&call, cx));
-    tri!(control.idle(&instance, cx));
-    let (core, server) = tri!(find_server(&call, control.servers.read(cx)));
-    let index = tri!(control.servers.read(cx).control_core(&core));
-    let progress = Arc::new(Downloads::default());
-    let stage = Arc::new(Mutex::new(String::new()));
-    let cancel = CancelToken::new();
-    let id = instance.id.clone();
-    let server_name = server.name.clone();
-    let task = control.servers.update(cx, |servers, cx| {
-        servers.control_download_world(
-            index,
-            server,
-            &id,
-            params.username.clone(),
-            Secret::new(params.password),
-            progress.clone(),
-            stage.clone(),
-            cancel.clone(),
-            cx,
-        )
-    });
-    let refresh = control.clone();
-    let instance_name = instance.name.clone();
-    let work = cx.spawn(async move |cx| {
-        let folder = task.await?;
-        cx.update(|cx| {
-            if let Some(view) = refresh.worlds.clone()
-                && refresh.instances.read(cx).selected().is_some_and(|s| s.id == id)
-            {
-                view.update(cx, |view, cx| view.reload(cx));
-            }
-        });
-        Ok(json!({
-            "instance": id,
-            "world": folder,
-            "message": format!("Imported as the world \"{folder}\" in {instance_name}. It's a copy: changes don't go back to the server."),
-        }))
-    });
-    let job = control.start_job(
-        JobSpec::new(
-            "world_download",
-            format!("Downloading {server_name}'s world"),
-        )
-        .instance(&instance)
-        .progress(Progress::Files(progress))
-        .stage(stage)
-        .cancel(Cancel::Token(cancel)),
         work,
         cx,
     );

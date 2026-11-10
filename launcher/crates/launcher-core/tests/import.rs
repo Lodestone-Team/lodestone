@@ -655,7 +655,16 @@ fn request(found: &Found, game_version: &str, loader: Option<(LoaderKind, &str)>
 fn files_under(dir: &Path) -> Vec<String> {
     let mut list: Vec<String> = snapshot(dir)
         .keys()
-        .map(|p| p.strip_prefix(dir).unwrap().to_string_lossy().into_owned())
+        // with `/` between the parts on every system
+        .map(|p| {
+            let parts: Vec<_> = p
+                .strip_prefix(dir)
+                .unwrap()
+                .components()
+                .map(|part| part.as_os_str().to_string_lossy().into_owned())
+                .collect();
+            parts.join("/")
+        })
         .collect();
     list.sort();
     list

@@ -1,11 +1,11 @@
-//! A server's page (live state, console, chat, players, account link) and the sign-in
+//! A server's page (live state, console, chat, account link) and the sign-in
 //! dialog's console choices, with made-up contents, for the offscreen screenshots.
 //! Nothing is fetched and no key is read or written.
 
 use gpui::{AppContext as _, Context};
 use launcher_core::cores::{
     ServerInstance, ServerList, ServerLoader, ServerState,
-    live::{LauncherAccess, LauncherScope, MinecraftLink, Player},
+    live::{LauncherAccess, LauncherScope, MinecraftLink},
     store::SavedCore,
 };
 
@@ -62,16 +62,6 @@ fn console() -> Vec<String> {
         "[12:04:00] [Server thread/INFO]: Lodestoner joined the game".into(),
         "[12:04:03] [Server thread/INFO]: <Lodestoner> hello from the launcher".into(),
     ]
-}
-
-fn players() -> Vec<Player> {
-    ["Alex", "Lodestoner", "Steve"]
-        .into_iter()
-        .map(|name| Player {
-            name: name.into(),
-            uuid: None,
-        })
-        .collect()
 }
 
 fn core(servers: &mut crate::servers::Servers) {
@@ -147,7 +137,6 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
                 "peter",
                 smp(),
                 access,
-                players(),
                 &lines,
                 links,
                 accounts,

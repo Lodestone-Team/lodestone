@@ -107,12 +107,57 @@ const PROBE_TIMEOUT: Duration = Duration::from_millis(500);
 /// tunnel open in another launcher. Binding 127.0.0.1 can succeed next to a program
 /// that listens on all addresses, so binding alone doesn't tell.
 async fn answers(port: u16) -> bool {
-    let connect = tokio::net::TcpStream::connect((Ipv4Addr::LOCALHOST, port));
+    let connect = probe(SocketAddr::from((Ipv4Addr::LOCALHOST, port)));
     // no answer in time counts as taken, to be safe
     !matches!(
         tokio::time::timeout(PROBE_TIMEOUT, connect).await,
         Ok(Err(_))
     )
+}
+
+/// Connects to `at` on this computer, failing at once where nothing listens. Windows
+/// sends a refused connection's SYN again for about two seconds before it fails,
+/// longer than [`PROBE_TIMEOUT`], so every free port looked taken there; this socket
+/// sends it once.
+async fn probe(at: SocketAddr) -> std::io::Result<tokio::net::TcpStream> {
+    let socket = tokio::net::TcpSocket::new_v4()?;
+    #[cfg(windows)]
+    send_syn_once(&socket);
+    socket.connect(at).await
+}
+
+/// No SYN retransmissions on `socket` (`SIO_TCP_INITIAL_RTO`, Windows 8 and later).
+/// Best effort: if Windows refuses it, the probe only takes longer.
+#[cfg(windows)]
+fn send_syn_once(socket: &tokio::net::TcpSocket) {
+    use std::os::windows::io::AsRawSocket;
+    use windows_sys::Win32::Networking::WinSock::{
+        SIO_TCP_INITIAL_RTO, SOCKET, TCP_INITIAL_RTO_NO_SYN_RETRANSMISSIONS,
+        TCP_INITIAL_RTO_PARAMETERS, WSAIoctl,
+    };
+    let parameters = TCP_INITIAL_RTO_PARAMETERS {
+        // TCP_INITIAL_RTO_UNSPECIFIED_RTT: the system's own
+        Rtt: u16::MAX,
+        // The header's ((UCHAR)-2), which windows-sys gives as a u16.
+        MaxSynRetransmissions: TCP_INITIAL_RTO_NO_SYN_RETRANSMISSIONS as u8,
+    };
+    let mut returned = 0u32;
+    // SAFETY: the socket is open for the call, and the input is a live
+    // TCP_INITIAL_RTO_PARAMETERS of the size given; there is no output buffer and no
+    // overlapped I/O.
+    unsafe {
+        WSAIoctl(
+            socket.as_raw_socket() as SOCKET,
+            SIO_TCP_INITIAL_RTO,
+            std::ptr::from_ref(&parameters).cast(),
+            std::mem::size_of::<TCP_INITIAL_RTO_PARAMETERS>() as u32,
+            std::ptr::null_mut(),
+            0,
+            &mut returned,
+            std::ptr::null_mut(),
+            None,
+        );
+    }
 }
 
 /// Binds the game port with `bind`: the first port of `wanted` nothing listens on and
@@ -681,6 +726,23 @@ mod tests {
             // Check takes any free port
             let any = bind_game(&GamePort::Any, listen).await.unwrap();
             assert!(![busy, free, 0].contains(&port_of(&any)));
+        });
+    }
+
+    /// A free port is found free well within the probe's time, on Windows too.
+    #[test]
+    fn nothing_listening_answers_at_once() {
+        block_on(async {
+            let free = free_port();
+            let started = std::time::Instant::now();
+            assert!(!answers(free).await);
+            assert!(
+                started.elapsed() < PROBE_TIMEOUT,
+                "{:?} for a refused connection",
+                started.elapsed()
+            );
+            let listening = std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+            assert!(answers(listening.local_addr().unwrap().port()).await);
         });
     }
 

@@ -310,17 +310,6 @@ impl Servers {
             }
         }
 
-        if busy.is_none() {
-            let (c, s) = (core_uuid.clone(), server.clone());
-            actions.push(
-                Button::new(SharedString::from(format!("more-{row_id}")), t(M::More))
-                    .size(ButtonSize::Slim)
-                    .variant(ButtonVariant::Ghost)
-                    .on_click(cx.listener(move |this, _, _, cx| this.open_tools(&c, s.clone(), cx)))
-                    .into_any_element(),
-            );
-        }
-
         let status = status_label(server);
         let element_id = SharedString::from(format!("server-{row_id}"));
         let description: SharedString = if linked {
@@ -585,7 +574,7 @@ impl Servers {
                         .on_click(cx.listener(move |this, _, _, cx| this.remove(index, cx))),
                     ),
             )
-            .children(self.owner_row(index, core, cx))
+            .children(self.owner_row(index, core))
             .when(core.saved.launched_by == LaunchedBy::Direct, |this| {
                 this.child(direct_note(index))
             })
@@ -593,38 +582,14 @@ impl Servers {
             .into_any_element()
     }
 
-    /// What claiming the core here gave: the owner account the launcher made (its
-    /// password hidden until Show) and the owner key, to copy.
-    fn owner_row(
-        &self,
-        index: usize,
-        core: &CoreEntry,
-        cx: &mut Context<Self>,
-    ) -> Option<AnyElement> {
-        let credentials = self.local_credentials(&core.saved.uuid)?;
-        let account = credentials
-            .owner_username
-            .clone()
-            .zip(credentials.owner_password.clone());
-        let key = credentials.api_key.clone();
-        if account.is_none() && key.is_none() {
-            return None;
-        }
-        let uuid = core.saved.uuid.clone();
-        let shown = self.local.shown.contains(&uuid);
-        let copy = |id: String, label: &'static str, value: String| {
-            Button::new(SharedString::from(id), label)
-                .size(ButtonSize::Slim)
-                .icon(Icon::Copy)
-                .on_click(move |_, _, cx| {
-                    cx.write_to_clipboard(gpui::ClipboardItem::new_string(value.clone()))
-                })
-        };
+    /// The owner key claiming the core here gave, to copy. (An owner account the
+    /// launcher made is kept with it, and isn't shown.)
+    fn owner_row(&self, index: usize, core: &CoreEntry) -> Option<AnyElement> {
+        let key = self.local_credentials(&core.saved.uuid)?.api_key.clone()?;
         let row = div()
             .id(SharedString::from(format!("owner-sign-in-{index}")))
             .flex()
             .flex_row()
-            .flex_wrap()
             .items_center()
             .gap_2()
             .px_4()
@@ -632,69 +597,21 @@ impl Servers {
             .border_t_1()
             .border_color(crate::theme::ink::border())
             .child(
-                small(t(if account.is_some() {
-                    M::OwnerSignIn
-                } else {
-                    M::OwnerKey
-                }))
-                .font_weight(weights::BOLD.into())
-                .text_color(crate::theme::ink::text()),
-            )
-            .children(account.map(|(username, password)| {
-                div()
-                    .flex()
-                    .flex_row()
+                small(t(M::OwnerKey))
                     .flex_1()
-                    .min_w_0()
-                    .items_center()
-                    .gap_2()
-                    .child(
-                        small(username.clone())
-                            .font_family(fonts::mono())
-                            .text_color(crate::theme::ink::secondary()),
-                    )
-                    .child(
-                        small(if shown {
-                            password.clone()
-                        } else {
-                            "••••••••••••".to_string()
-                        })
-                        .font_family(fonts::mono())
-                        .text_color(crate::theme::ink::secondary()),
-                    )
-                    .child(
-                        Button::new(
-                            SharedString::from(format!("owner-show-{index}")),
-                            t(if shown {
-                                M::HidePassword
-                            } else {
-                                M::ShowPassword
-                            }),
-                        )
-                        .size(ButtonSize::Slim)
-                        .variant(ButtonVariant::Ghost)
-                        .on_click(cx.listener({
-                            let uuid = uuid.clone();
-                            move |this, _, _, cx| this.toggle_owner_password(&uuid, cx)
-                        })),
-                    )
-                    .child(copy(
-                        format!("owner-copy-user-{index}"),
-                        t(M::CopyUsername),
-                        username,
-                    ))
-                    .child(copy(
-                        format!("owner-copy-password-{index}"),
-                        t(M::CopyPassword),
-                        password,
-                    ))
-            }))
-            .when(
-                key.is_some() && credentials.owner_password.is_none(),
-                |this| this.child(div().flex_1()),
+                    .font_weight(weights::BOLD.into())
+                    .text_color(crate::theme::ink::text()),
             )
-            .children(
-                key.map(|key| copy(format!("owner-copy-key-{index}"), t(M::CopyApiKey), key)),
+            .child(
+                Button::new(
+                    SharedString::from(format!("owner-copy-key-{index}")),
+                    t(M::CopyApiKey),
+                )
+                .size(ButtonSize::Slim)
+                .icon(Icon::Copy)
+                .on_click(move |_, _, cx| {
+                    cx.write_to_clipboard(gpui::ClipboardItem::new_string(key.clone()))
+                }),
             );
         Some(row.into_any_element())
     }
@@ -749,7 +666,15 @@ impl Servers {
                             .flex_row()
                             .items_center()
                             .gap_3()
-                            .child(Icon::Cube.render(px(18.), crate::theme::ink::muted()))
+                            .child(match found.info.product {
+                                CoreProduct::Host => gpui::img(crate::images::mark(false, cx))
+                                    .size(px(18.))
+                                    .flex_none()
+                                    .into_any_element(),
+                                CoreProduct::Core => Icon::Cube
+                                    .render(px(18.), crate::theme::ink::muted())
+                                    .into_any_element(),
+                            })
                             .child(
                                 div()
                                     .flex()
@@ -830,6 +755,7 @@ impl Servers {
                     .into_any_element()
             })
             .collect();
+        let offer = self.offers_host(cx).then(|| self.render_host_offer(cx));
         let empty_text = if local.scanning || !local.scanned {
             Some(t(M::ScanningLocal))
         } else if local.found.is_empty() {
@@ -897,7 +823,8 @@ impl Servers {
                             .py_3()
                             .text_color(crate::theme::ink::muted())
                             .child(small(text))
-                    })),
+                    }))
+                    .children(offer),
             )
             .into_any_element()
     }
@@ -1111,16 +1038,15 @@ impl Render for ServersOverlay {
         let entity = &self.servers;
         let servers = entity.read(app);
         let extras = &servers.extras;
-        // One open dialog shows at a time, the first of: a server's tools, hosting, the
-        // LAN picker, the certificate, trust, the advisory, "Add server", the update
-        // prompt. Those closing fade out under it.
+        // One open dialog shows at a time, the first of: hosting, the LAN picker, the
+        // certificate, trust, the advisory, "Add server", the update prompt. Those
+        // closing fade out under it.
         let mut shown = false;
         let mut pick = |slot_open: bool| {
             let show = slot_open && !shown;
             shown |= show;
             show
         };
-        let tools = pick(extras.tools.is_open());
         let host = pick(extras.host.is_open());
         let lan = pick(extras.lan_picker.is_open());
         let cert = pick(servers.cert_prompt.is_open());
@@ -1164,9 +1090,6 @@ impl Render for ServersOverlay {
             Some(super::lan::render_picker(entity, picker, app))
         }));
         children.extend(slot_layers(&extras.host, host, window, |(dialog, _)| {
-            Some(dialog.clone().into_any_element())
-        }));
-        children.extend(slot_layers(&extras.tools, tools, window, |(dialog, _)| {
             Some(dialog.clone().into_any_element())
         }));
         div().absolute().inset_0().children(children)

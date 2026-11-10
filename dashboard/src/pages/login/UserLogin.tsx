@@ -132,6 +132,13 @@ const UserLogin = () => {
           {core_name} ({socket})
         </h2>
       </div>
+      {/* Lodestone Host's core before its owner shares it: only apps on its computer,
+          and an owner without a password, who signs in through Lodestone Host */}
+      {coreInfo?.remote_access === false && (
+        <WarningAlert>
+          <p>{t('shell.login.localOnly')}</p>
+        </WarningAlert>
+      )}
       {withApiKey ? (
         <Formik
           initialValues={{ apiKey: '' }}

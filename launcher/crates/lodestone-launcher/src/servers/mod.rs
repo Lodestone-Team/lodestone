@@ -24,9 +24,9 @@ mod friend_list_view;
 pub mod friends;
 mod friends_view;
 pub mod host;
+mod host_offer;
 pub mod lan;
 pub mod local;
-pub mod tools;
 pub mod view;
 // What the control API (`crate::control`) does with cores and servers.
 pub(crate) mod control;
@@ -485,7 +485,7 @@ pub struct Servers {
     preview: bool,
     tasks: Vec<Task<()>>,
     _poller: Option<Task<()>>,
-    /// World downloads, resource packs, hosting and LAN worlds.
+    /// Hosting and LAN worlds.
     extras: extras::Extras,
     /// "On this computer": cores found here, and what claiming them gave.
     pub local: local::LocalCores,
@@ -493,6 +493,8 @@ pub struct Servers {
     pub friends: friends::Friends,
     /// The friend list: people added once, and their servers.
     pub friend_list: friend_list::FriendList,
+    /// "Download Lodestone Host" is looking up the newest release.
+    host_download: Option<Task<()>>,
     /// Closes a friend's tunnel when its game exits.
     _instances_changed: Option<Subscription>,
 }
@@ -535,6 +537,7 @@ impl Servers {
             local: Default::default(),
             friends: friends::Friends::new(&data_root),
             friend_list: friend_list::FriendList::new(&data_root),
+            host_download: None,
             _instances_changed: None,
         };
         this._instances_changed =
@@ -2243,6 +2246,8 @@ impl Servers {
     ) {
         self.preview = true;
         self._poller = None;
+        // a read of the links on disk that started before would replace these
+        self.links_task = None;
         self.local.scanned = true;
         self.cores = cores
             .into_iter()

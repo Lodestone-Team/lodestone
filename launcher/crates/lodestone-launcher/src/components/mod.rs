@@ -8,3 +8,7 @@ pub use lodestone_ui::components::*;
 mod play_button;
 
 pub use play_button::{PlayButton, PlayButtonState};
+
+mod server_outline;
+
+pub use server_outline::host_gradient;

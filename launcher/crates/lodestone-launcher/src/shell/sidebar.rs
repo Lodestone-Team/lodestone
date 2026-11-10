@@ -226,14 +226,14 @@ fn rail(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoElem
                         .child(div().h_1())
                         .child(rail_button(
                             "new-instance",
-                            Icon::SquarePlus,
+                            Glyph::Icon(Icon::SquarePlus),
                             t(M::NewInstance),
                             false,
                             cx.listener(|this, _, window, cx| this.open_new_instance(window, cx)),
                         ))
                         .child(rail_button(
                             "import-instances",
-                            Icon::Download,
+                            Glyph::Icon(Icon::Download),
                             t(M::ImportInstances),
                             false,
                             cx.listener(|this, _, window, cx| this.open_import(window, cx)),
@@ -256,7 +256,7 @@ fn rail(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoElem
                 .border_color(crate::theme::ink::border())
                 .child(rail_button(
                     "servers",
-                    Icon::Cube,
+                    Glyph::HostMark(crate::images::mark(false, cx)),
                     t(M::Servers),
                     servers_open,
                     cx.listener(move |this, _, _, cx| {
@@ -272,7 +272,7 @@ fn rail(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoElem
                 ))
                 .child(rail_button(
                     "settings",
-                    Icon::Gear,
+                    Glyph::Icon(Icon::Gear),
                     t(M::Settings),
                     settings_open,
                     cx.listener(|this, _, window, cx| this.open_settings(None, Some(window), cx)),
@@ -280,10 +280,26 @@ fn rail(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoElem
         )
 }
 
+/// What a sidebar link shows beside (or, in the rail, instead of) its label: an icon
+/// in the sidebar's ink, or the green Lodestone mark, which stands for Lodestone Host.
+enum Glyph {
+    Icon(Icon),
+    HostMark(gpui::ImageSource),
+}
+
+impl Glyph {
+    fn render(self, size: gpui::Pixels, color: impl Into<gpui::Hsla>) -> AnyElement {
+        match self {
+            Glyph::Icon(icon) => icon.render(size, color).into_any_element(),
+            Glyph::HostMark(mark) => img(mark).size(size).flex_none().into_any_element(),
+        }
+    }
+}
+
 /// A square icon button of the rail, its label as a tooltip.
 fn rail_button(
     id: &'static str,
-    icon: Icon,
+    icon: Glyph,
     label: &'static str,
     open: bool,
     on_click: impl Fn(&gpui::ClickEvent, &mut gpui::Window, &mut gpui::App) + 'static,
@@ -343,10 +359,15 @@ fn rail_instance(
         RowPlace::LastPlayed => format!("last-played-{id}"),
     };
     let launching = instances.is_launching(&id);
-    let description: Option<SharedString> = match (running, active) {
-        (true, _) if launching => Some(t(M::Launching).into()),
-        (true, _) => Some(t(M::Playing).into()),
-        _ => played_summary(instance).map(Into::into),
+    let description: Option<String> = match (running, active) {
+        (true, _) if launching => Some(t(M::Launching).to_string()),
+        (true, _) => Some(t(M::Playing).to_string()),
+        _ => played_summary(instance),
+    };
+    let linked = linked_to(shell, &id, cx);
+    let description: Option<SharedString> = match (description, &linked) {
+        (Some(description), Some(linked)) => Some(format!("{description} · {linked}").into()),
+        (description, linked) => description.or_else(|| linked.clone()).map(Into::into),
     };
     let element_id = SharedString::from(element_id);
     div()
@@ -372,6 +393,9 @@ fn rail_instance(
                 .border_color(crate::theme::ink::border())
         })
         .child(icon)
+        .when(linked.is_some(), |this| {
+            this.child(linked_badge(px(10.), px(4.), cx))
+        })
         .when(active, |this| {
             this.child(
                 div()
@@ -631,13 +655,17 @@ fn instance_row(
         .then(|| instances.sidebar_banner(&id))
         .flatten();
     let banner_readability = crate::skin::look(cx).spec.banner.readability;
-    let description: SharedString = if instances.is_launching(&id) {
-        format!("{detail} · {}", t(M::Launching)).into()
+    let mut description: String = if instances.is_launching(&id) {
+        format!("{detail} · {}", t(M::Launching))
     } else if running {
-        format!("{detail} · {}", t(M::Playing)).into()
+        format!("{detail} · {}", t(M::Playing))
     } else {
-        detail.clone().into()
+        detail.clone()
     };
+    let linked = linked_to(shell, &id, cx);
+    if let Some(linked) = &linked {
+        description = format!("{description} · {linked}");
+    }
     let element_id = SharedString::from(element_id);
     let hovered = shell.sidebar_hover() == Some(&element_id);
     let overlay = icon_overlay(shell, instance, &element_id, hovered, ROW_ICON, cx);
@@ -648,7 +676,7 @@ fn instance_row(
         .debug_selector(move || selector.clone())
         .accessible(Role::ListItem, element_id, instance.name.clone())
         .aria_selected(is_selected)
-        .aria_description(description)
+        .aria_description(SharedString::from(description))
         .keyboard_focus()
         .on_hover(cx.listener(move |this, hovered: &bool, _, cx| {
             this.hover_sidebar_row(&hover_row, *hovered, cx)
@@ -693,7 +721,10 @@ fn instance_row(
                 .flex_none()
                 .size(px(ROW_ICON))
                 .child(icon)
-                .children(overlay),
+                .children(overlay)
+                .when(linked.is_some(), |this| {
+                    this.child(linked_badge(px(9.), px(-2.), cx))
+                }),
         )
         .child(
             div()
@@ -736,6 +767,39 @@ fn instance_row(
         .into_any_element()
 }
 
+/// "Linked to Survival SMP on Peter's core", for an instance linked to a server (one
+/// on a Lodestone core, or a friend's shared server). Its icon carries Lodestone
+/// Host's mark, and assistive technology reads this.
+fn linked_to(shell: &LauncherShell, id: &str, cx: &Context<LauncherShell>) -> Option<String> {
+    let link = shell.servers.read(cx).instance_link(id)?;
+    Some(tr!(
+        M::LinkedTo,
+        server = link.server_name,
+        core = link.core_name
+    ))
+}
+
+/// The Lodestone Host mark on the bottom right corner of a linked instance's icon,
+/// `size` wide, `inset` in from the corner (negative: out past it). A dark round
+/// backing keeps it readable over any icon.
+fn linked_badge(
+    size: gpui::Pixels,
+    inset: gpui::Pixels,
+    cx: &Context<LauncherShell>,
+) -> impl IntoElement + use<> {
+    div()
+        .absolute()
+        .right(inset)
+        .bottom(inset)
+        .size(size + px(3.))
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded_full()
+        .bg(colors::GRAY_900.opacity(90))
+        .child(img(crate::images::mark(false, cx)).size(size))
+}
+
 /// A group's name as the sidebar shows it: the automatic groups' names in the
 /// current language, the user's own as they are. The name itself stays the group's
 /// key (for folding it away).
@@ -744,6 +808,7 @@ fn group_label(name: &str) -> String {
         .into_iter()
         .find(|group| group.name() == name)
     {
+        Some(AutoGroup::Servers) => t(M::GroupServers).to_string(),
         Some(AutoGroup::Fabric) => tr!(M::GroupModded, loader = "Fabric"),
         Some(AutoGroup::Forge) => tr!(M::GroupModded, loader = "Forge"),
         Some(AutoGroup::NeoForge) => tr!(M::GroupModded, loader = "NeoForge"),
@@ -958,7 +1023,7 @@ fn section_label(label: &'static str) -> impl IntoElement {
 fn page_link(
     id: &'static str,
     label: &'static str,
-    icon: Icon,
+    icon: Glyph,
     page: Page,
     open: bool,
     cx: &mut Context<LauncherShell>,
@@ -1016,7 +1081,7 @@ fn footer(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoEl
         .child(page_link(
             "servers",
             t(M::Servers),
-            Icon::Cube,
+            Glyph::HostMark(crate::images::mark(false, cx)),
             Page::Servers,
             servers_open,
             cx,

@@ -2,8 +2,8 @@
 //!
 //! 1. The [`Supervisor`] starts the core and says when it answers.
 //! 2. The Host claims owner access to it ([`session::claim_owner`]). A core without an
-//!    owner asks for one first ([`OwnerForm`]) and then for its name
-//!    ([`CoreConfigForm`]); a core that refuses claims asks for a password
+//!    owner gets one without a password, so the first run asks nothing (sharing the
+//!    core asks for a password later); a core that refuses claims asks for a password
 //!    ([`PasswordForm`]).
 //! 3. The [`HostShell`] shows the dashboard. If the core restarts, or the session
 //!    ends, the Host signs in again.
@@ -18,7 +18,7 @@ use gpui::{
     AnyElement, App, AppContext as _, Context, Entity, FocusHandle, IntoElement, ParentElement,
     Render, Styled, Subscription, Task, Window, div, prelude::*,
 };
-use launcher_core::{Secret, cores::local_claim::OwnerCredentials, game::download::Sleep};
+use launcher_core::{Secret, game::download::Sleep};
 use lodestone_ui::{
     components::focus,
     theme::{self, colors, fonts},
@@ -26,10 +26,7 @@ use lodestone_ui::{
 
 use crate::{
     core_process::CoreConfig,
-    onboarding::{
-        self, CoreConfigForm, CoreConfigSubmitted, OwnerForm, OwnerSubmitted, PasswordForm,
-        PasswordSubmitted,
-    },
+    onboarding::{self, PasswordForm, PasswordSubmitted},
     session::{self, Session, SignInError},
     shell::HostShell,
     state::{HostEvent, HostState},
@@ -40,11 +37,6 @@ enum Phase {
     /// Waiting for the core (or showing why it couldn't start).
     Core,
     SigningIn,
-    Owner(Entity<OwnerForm>),
-    FirstConfig {
-        form: Entity<CoreConfigForm>,
-        session: Box<Session>,
-    },
     Password(Entity<PasswordForm>),
     Failed(String),
     Shell(Entity<HostShell>),
@@ -72,7 +64,7 @@ impl HostApp {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let supervisor = cx.new(Supervisor::new);
         let subscription = cx.subscribe(&supervisor, |this, _, event, cx| match event {
-            SupervisorEvent::Ready(config) => this.sign_in(config.clone(), None, cx),
+            SupervisorEvent::Ready(config) => this.sign_in(config.clone(), cx),
             SupervisorEvent::Status => {
                 // the core went away: back to its status, until it answers again
                 if !matches!(this.phase, Phase::Quitting)
@@ -121,17 +113,9 @@ impl HostApp {
         self.supervisor.read(cx).config().cloned()
     }
 
-    /// Claims owner access to the core, with `owner` to make on a core without one.
-    fn sign_in(
-        &mut self,
-        config: CoreConfig,
-        owner: Option<OwnerCredentials>,
-        cx: &mut Context<Self>,
-    ) {
-        let first_run = owner.is_some();
-        if !first_run {
-            self.phase = Phase::SigningIn;
-        }
+    /// Claims owner access to the core (making its owner, on the first run).
+    fn sign_in(&mut self, config: CoreConfig, cx: &mut Context<Self>) {
+        self.phase = Phase::SigningIn;
         cx.notify();
         let http = match launcher_core::http::default_client() {
             Ok(http) => http,
@@ -142,95 +126,22 @@ impl HostApp {
         };
         let sleep = gpui_sleep(cx);
         let work = cx.background_spawn(async move {
-            session::claim_owner(http, config.local_url(), &config.data_dir, owner, sleep).await
+            session::claim_owner(http, config.local_url(), &config.data_dir, None, sleep).await
         });
         self.task = Some(cx.spawn(async move |this, cx| {
             let result = work.await;
             this.update(cx, |this, cx| {
                 match result {
-                    Ok(session) if first_run => {
-                        let settings = session.info.core_name.clone();
-                        let form = cx.new(|cx| CoreConfigForm::new(&settings, "", cx));
-                        let subscription = cx.subscribe(&form, Self::save_core_config);
-                        this._subscriptions.push(subscription);
-                        this.phase = Phase::FirstConfig {
-                            form,
-                            session: Box::new(session),
-                        };
-                    }
                     Ok(session) => this.show_shell(session, cx),
-                    Err(SignInError::NeedsOwner) => {
-                        let form = cx.new(OwnerForm::new);
-                        let subscription = cx.subscribe(&form, Self::create_owner);
-                        this._subscriptions.push(subscription);
-                        this.phase = Phase::Owner(form);
-                    }
-                    Err(SignInError::Refused) if first_run => {
-                        // the core refused the account itself (a weak password)
-                        if let Phase::Owner(form) = &this.phase {
-                            form.update(cx, |form, cx| {
-                                form.set_error(Some(SignInError::Refused.message()), cx)
-                            });
-                        }
-                    }
                     Err(SignInError::Refused) => {
                         let form = cx.new(PasswordForm::new);
                         let subscription = cx.subscribe(&form, Self::sign_in_with_password);
                         this._subscriptions.push(subscription);
                         this.phase = Phase::Password(form);
                     }
-                    Err(SignInError::Failed(error)) => match &this.phase {
-                        Phase::Owner(form) => {
-                            form.update(cx, |form, cx| form.set_error(Some(error), cx))
-                        }
-                        _ => this.phase = Phase::Failed(error),
-                    },
+                    Err(SignInError::Failed(error)) => this.phase = Phase::Failed(error),
                 }
                 cx.notify();
-            })
-            .ok();
-        }));
-    }
-
-    fn create_owner(
-        &mut self,
-        _: Entity<OwnerForm>,
-        event: &OwnerSubmitted,
-        cx: &mut Context<Self>,
-    ) {
-        let Some(config) = self.config(cx) else {
-            return;
-        };
-        let owner = OwnerCredentials {
-            username: event.username.clone(),
-            password: Secret::new(event.password.clone()),
-        };
-        self.sign_in(config, Some(owner), cx);
-    }
-
-    fn save_core_config(
-        &mut self,
-        form: Entity<CoreConfigForm>,
-        event: &CoreConfigSubmitted,
-        cx: &mut Context<Self>,
-    ) {
-        let Phase::FirstConfig { session, .. } = &self.phase else {
-            return;
-        };
-        let session = (**session).clone();
-        let admin = session.admin.clone();
-        let (name, domain) = (event.name.clone(), event.domain.clone());
-        let work = cx.background_spawn(async move {
-            if !name.is_empty() {
-                admin.set_core_name(&name).await?;
-            }
-            admin.set_domain(&domain).await
-        });
-        self.task = Some(cx.spawn(async move |this, cx| {
-            let result = work.await;
-            this.update(cx, |this, cx| match result {
-                Ok(()) => this.show_shell(session, cx),
-                Err(err) => form.update(cx, |form, cx| form.set_error(Some(err.to_string()), cx)),
             })
             .ok();
         }));
@@ -297,7 +208,7 @@ impl HostApp {
                     ));
                 }
                 if let Some(config) = this.config(cx) {
-                    this.sign_in(config, None, cx);
+                    this.sign_in(config, cx);
                 }
             }
             // the Cores dialog: this computer's core, or another
@@ -308,7 +219,7 @@ impl HostApp {
                 }
                 None => {
                     if let Some(config) = this.config(cx) {
-                        this.sign_in(config, None, cx);
+                        this.sign_in(config, cx);
                     }
                 }
             },
@@ -354,30 +265,6 @@ impl HostApp {
         }
     }
 
-    /// The first run's forms, filled in and sent as a user would (`--owner`, development
-    /// screenshots): the owner account, then the core's name as suggested. Returns the
-    /// step it is on: "owner", "config", "shell" or "waiting".
-    #[cfg(feature = "screenshot")]
-    pub fn onboard_for_screenshot(
-        &mut self,
-        username: &str,
-        password: &str,
-        cx: &mut Context<Self>,
-    ) -> &'static str {
-        match &self.phase {
-            Phase::Owner(form) => {
-                form.update(cx, |form, cx| form.fill_and_submit(username, password, cx));
-                "owner"
-            }
-            Phase::FirstConfig { form, .. } => {
-                form.update(cx, |form, cx| form.submit_for_screenshot(cx));
-                "config"
-            }
-            Phase::Shell(_) => "shell",
-            _ => "waiting",
-        }
-    }
-
     /// Selects the first instance, for the development screenshots.
     pub fn select_first_instance(&mut self, cx: &mut Context<Self>) {
         if let Phase::Shell(shell) = &self.phase {
@@ -404,7 +291,7 @@ impl HostApp {
 
     fn retry_sign_in(&mut self, cx: &mut Context<Self>) {
         match self.config(cx) {
-            Some(config) => self.sign_in(config, None, cx),
+            Some(config) => self.sign_in(config, cx),
             None => self.retry_core(cx),
         }
     }
@@ -420,7 +307,6 @@ impl SignInError {
     /// The error, for people.
     pub fn message(&self) -> String {
         match self {
-            SignInError::NeedsOwner => "This core has no owner yet.".into(),
             SignInError::Refused => "The core refused.".into(),
             SignInError::Failed(error) => error.clone(),
         }
@@ -467,8 +353,6 @@ impl Render for HostApp {
                     this.update(cx, |this, cx| this.retry_sign_in(cx)).ok();
                 })
             }
-            Phase::Owner(form) => form.clone().into_any_element(),
-            Phase::FirstConfig { form, .. } => form.clone().into_any_element(),
             Phase::Password(form) => form.clone().into_any_element(),
             Phase::Shell(shell) => shell.clone().into_any_element(),
         };

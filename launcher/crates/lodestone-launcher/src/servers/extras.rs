@@ -1,7 +1,7 @@
-//! What the Servers page does beyond listing and joining (milestone 8b): a server's
-//! world and resource pack ([`super::tools`]), "Host this modpack" ([`super::host`])
-//! and LAN worlds ([`super::lan`]). Their state is one field of [`Servers`], and their
-//! dialogs are drawn by the Servers overlay (`ServersOverlay` in [`super::view`]).
+//! What the Servers page does beyond listing and joining: "Host on a Lodestone core"
+//! ([`super::host`]) and LAN worlds ([`super::lan`]). Their state is one field of
+//! [`Servers`], and their dialogs are drawn by the Servers overlay (`ServersOverlay`
+//! in [`super::view`]).
 
 use crate::components::RichText;
 use gpui::{App, Entity, IntoElement, SharedString, Subscription, div, prelude::*};
@@ -10,16 +10,14 @@ use super::{
     Servers,
     host::HostDialog,
     lan::{LanPicker, LanState},
-    tools::ServerTools,
 };
 use crate::{
     components::DialogSlot,
     theme::{self, colors, leading, text, weights},
 };
 
-/// The 8b state of the Servers page.
+/// Hosting's and LAN worlds' state on the Servers page.
 pub struct Extras {
-    pub(super) tools: DialogSlot<Servers, (Entity<ServerTools>, Subscription)>,
     pub(super) host: DialogSlot<Servers, (Entity<HostDialog>, Subscription)>,
     pub(super) lan: LanState,
     pub(super) lan_picker: DialogSlot<Servers, LanPicker>,
@@ -28,7 +26,6 @@ pub struct Extras {
 impl Default for Extras {
     fn default() -> Self {
         Self {
-            tools: DialogSlot::new(|this: &mut Servers| &mut this.extras.tools),
             host: DialogSlot::new(|this: &mut Servers| &mut this.extras.host),
             lan: LanState::default(),
             lan_picker: DialogSlot::new(|this: &mut Servers| &mut this.extras.lan_picker),
