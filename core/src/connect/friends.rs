@@ -36,6 +36,7 @@ use lodestone_connect::{
         },
         pair::clean_name,
     },
+    host::HostState,
     GatherOptions, Service, SharedServer, TunnelStream,
 };
 use serde::{Deserialize, Serialize};
@@ -197,6 +198,10 @@ struct Inner {
     friends: Vec<Friend>,
     loaded: bool,
     host: Option<FriendHost>,
+    /// Why the friend host couldn't start, while it's being tried again.
+    problem: Option<String>,
+    /// Trying to start the friend host again, every [`RETRY`].
+    retry: Option<tokio::task::JoinHandle<()>>,
 }
 
 /// The friend list and the friend host.
@@ -211,6 +216,11 @@ pub struct FriendShares {
     /// with the first friend host, so restarting the friend host doesn't leave one
     /// behind each time.
     info: std::sync::OnceLock<mpsc::Sender<(TunnelStream, PublicKey)>>,
+    /// How long to wait before trying to start the friend host again: [`RETRY`].
+    retry: Duration,
+    /// Starts to fail on purpose, as if offline.
+    #[cfg(test)]
+    fail_starts: std::sync::atomic::AtomicUsize,
 }
 
 impl FriendShares {
@@ -225,11 +235,24 @@ impl FriendShares {
                 friends: Vec::new(),
                 loaded: false,
                 host: None,
+                problem: None,
+                retry: None,
             }),
             access: Arc::default(),
             identity: Mutex::new(None),
             info: std::sync::OnceLock::new(),
+            retry: RETRY,
+            #[cfg(test)]
+            fail_starts: Default::default(),
         }
+    }
+
+    /// Fails the next `starts` friend host starts, and tries again after `retry`.
+    #[cfg(test)]
+    pub(crate) fn failing_for_tests(mut self, starts: usize, retry: Duration) -> Self {
+        self.fail_starts = starts.into();
+        self.retry = retry;
+        self
     }
 
     /// Where friends' info streams go, starting the server for them the first time.
@@ -352,7 +375,19 @@ impl FriendShares {
         let fingerprint = lodestone_connect_hex(&self.identity().await?.fingerprint());
         let mut inner = self.inner.lock().await;
         self.load(&mut inner).await;
-        let host = inner.host.as_ref().map(FriendHost::status);
+        let host = match (&inner.host, &inner.problem) {
+            (Some(host), _) => Some(host.status()),
+            // not started yet: being tried again
+            (None, Some(problem)) => Some(FriendHostStatus {
+                state: HostState::Reconnecting,
+                publishing: 0,
+                candidates: Vec::new(),
+                symmetric_nat: false,
+                connected: Vec::new(),
+                problem: Some(problem.clone()),
+            }),
+            (None, None) => None,
+        };
         let connected: HashSet<String> = host
             .iter()
             .flat_map(|status| status.connected.iter().map(|c| c.key.clone()))
@@ -382,7 +417,9 @@ impl FriendShares {
 
     /// Replaces the list with `list`, whose version must be higher than the current one,
     /// saves it, and applies it: friends no longer on it, or with less shared, are
-    /// disconnected at once.
+    /// disconnected at once. If the friend host can't start (offline, say), the list is
+    /// still saved and the host is tried again in the background; the view's host
+    /// status says why.
     pub async fn replace(
         self: &Arc<Self>,
         state: &AppState,
@@ -448,7 +485,7 @@ impl FriendShares {
             .await?;
             inner.version = list.version;
             inner.friends = friends;
-            self.apply(state, &mut inner).await?;
+            self.apply_or_retry(state, &mut inner).await;
         }
         self.view().await
     }
@@ -506,6 +543,21 @@ impl FriendShares {
                 }
             }
             None => {
+                #[cfg(test)]
+                if self
+                    .fail_starts
+                    .fetch_update(
+                        std::sync::atomic::Ordering::SeqCst,
+                        std::sync::atomic::Ordering::SeqCst,
+                        |n| n.checked_sub(1),
+                    )
+                    .is_ok()
+                {
+                    return Err(Error {
+                        kind: ErrorKind::External,
+                        source: eyre!("Couldn't start sharing with friends: offline (test)"),
+                    });
+                }
                 let identity = self.identity().await?;
                 let handler = CoreFriendStreams {
                     state: state.clone(),
@@ -533,35 +585,78 @@ impl FriendShares {
         Ok(())
     }
 
+    /// [`Self::apply`], and if that fails (the friend host can't start while this
+    /// computer is offline, say), notes why for the host status and tries again every
+    /// [`RETRY`] in the background until it works. A later apply that works stops
+    /// the retries.
+    async fn apply_or_retry(self: &Arc<Self>, state: &AppState, inner: &mut Inner) {
+        match self.apply(state, inner).await {
+            Ok(()) => {
+                inner.problem = None;
+                if let Some(retry) = inner.retry.take() {
+                    // it waits for the lock this holds, so it isn't in the middle of a start
+                    retry.abort();
+                }
+            }
+            Err(e) => {
+                warn!(
+                    "Couldn't start sharing with friends, trying again soon: {}",
+                    e.source
+                );
+                inner.problem = Some(e.source.to_string());
+                if inner.retry.as_ref().is_none_or(|retry| retry.is_finished()) {
+                    let shares = self.clone();
+                    let state = state.clone();
+                    inner.retry = Some(tokio::spawn(async move { shares.retry(state).await }));
+                }
+            }
+        }
+    }
+
+    async fn retry(self: Arc<Self>, state: AppState) {
+        loop {
+            tokio::time::sleep(self.retry).await;
+            let mut inner = self.inner.lock().await;
+            match self.apply(&state, &mut inner).await {
+                Ok(()) => {
+                    inner.problem = None;
+                    inner.retry = None;
+                    return;
+                }
+                Err(e) => {
+                    warn!(
+                        "Couldn't start sharing with friends, trying again soon: {}",
+                        e.source
+                    );
+                    inner.problem = Some(e.source.to_string());
+                }
+            }
+        }
+    }
+
     /// Starts sharing with friends as the core starts, if anything is shared, trying
     /// again in the background while this computer is offline.
     pub async fn resume(self: &Arc<Self>, state: &AppState) {
-        loop {
-            let result = {
-                let mut inner = self.inner.lock().await;
-                self.load(&mut inner).await;
-                self.apply(state, &mut inner).await
-            };
-            match result {
-                Ok(()) => return,
-                Err(e) => warn!("Couldn't start sharing with friends, trying again soon: {e}"),
-            }
-            tokio::time::sleep(RETRY).await;
-        }
+        let mut inner = self.inner.lock().await;
+        self.load(&mut inner).await;
+        self.apply_or_retry(state, &mut inner).await;
     }
 
     /// Applies the list again: after an instance was deleted, say.
     pub async fn refresh(self: &Arc<Self>, state: &AppState) {
         let mut inner = self.inner.lock().await;
         self.load(&mut inner).await;
-        if let Err(e) = self.apply(state, &mut inner).await {
-            warn!("Couldn't update sharing with friends: {e}");
-        }
+        self.apply_or_retry(state, &mut inner).await;
     }
 
     /// Stops the friend host as the core shuts down.
     pub async fn stop(&self) {
-        if let Some(host) = self.inner.lock().await.host.take() {
+        let mut inner = self.inner.lock().await;
+        if let Some(retry) = inner.retry.take() {
+            retry.abort();
+        }
+        inner.problem = None;
+        if let Some(host) = inner.host.take() {
             host.stop().await;
         }
     }

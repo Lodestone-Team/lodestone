@@ -797,3 +797,46 @@ async fn a_damaged_friend_certificate_is_kept_aside_and_an_unreadable_one_is_not
     );
     assert!(other.join("core.json").is_dir(), "left as it was");
 }
+
+#[tokio::test]
+async fn a_friend_host_that_cannot_start_is_saved_reported_and_tried_again() {
+    let core = core().await;
+    let dir = tempfile::tempdir().unwrap();
+    // the first two starts fail, as while offline
+    let shares = Arc::new(
+        offline_shares(&dir.path().join("friends"))
+            .failing_for_tests(2, Duration::from_millis(200)),
+    );
+    let secret = lodestone_connect::friend::Secret::random()
+        .unwrap()
+        .to_hex();
+    let list: friends::FriendList = serde_json::from_value(json!({
+        "version": 1,
+        "friends": [{"key": friend_key(), "name": "Ben", "secret": secret, "shared": [core.fabric.to_string()]}]
+    }))
+    .unwrap();
+
+    // saved, and the problem shows in the host status
+    let view = shares.replace(&core.state, list).await.unwrap();
+    assert_eq!(view.version, 1);
+    let host = view.host.expect("a status while it's tried again");
+    assert_eq!(host.state, lodestone_connect::host::HostState::Reconnecting);
+    assert!(host.problem.unwrap().contains("Couldn't start sharing"));
+    assert!(dir.path().join("friends").join("list.json").exists());
+
+    // tried again in the background until it starts
+    let started = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let view = shares.view().await.unwrap();
+            // the running host's own status (it can't reach the service here either)
+            let problem = view.host.expect("a status").problem.unwrap_or_default();
+            if !problem.contains("Couldn't start sharing") {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await;
+    assert!(started.is_ok(), "the friend host started on a retry");
+    shares.stop().await;
+}
