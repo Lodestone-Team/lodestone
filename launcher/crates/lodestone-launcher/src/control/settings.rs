@@ -516,17 +516,11 @@ pub fn developer_set(call: Call, cx: &mut App) -> Reply {
         });
     }
     let on = params.sign_in_as_minecraft_launcher;
-    control
+    let saved = control
         .accounts
         .update(cx, |accounts, cx| accounts.set_launcher_identity(on, cx));
-    if control.accounts.read(cx).launcher_identity_enabled() != on {
-        let notice = control
-            .accounts
-            .read(cx)
-            .notice()
-            .map(|n| n.to_string())
-            .unwrap_or_else(|| "Couldn't save the setting.".into());
-        return ready(Err(api_error(codes::FAILED, notice)));
+    if let Err(message) = saved {
+        return ready(Err(api_error(codes::FAILED, message.to_string())));
     }
     ready(Ok(json!({ "developer": developer_json(control, cx) })))
 }

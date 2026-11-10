@@ -239,6 +239,11 @@ pub struct DeveloperSettings {
     /// file while off.
     #[serde(default, skip_serializing_if = "is_false")]
     pub offline_accounts: bool,
+    /// Developer options this build doesn't know, kept so that a newer build's
+    /// options survive a save by this one (as [`Settings::other`] does for the whole
+    /// file).
+    #[serde(flatten)]
+    pub other: Map<String, Value>,
 }
 
 fn is_false(value: &bool) -> bool {
@@ -250,6 +255,7 @@ impl Default for DeveloperSettings {
         Self {
             sign_in_as_minecraft_launcher: true,
             offline_accounts: false,
+            other: Map::new(),
         }
     }
 }
@@ -535,6 +541,30 @@ mod tests {
         update(&path, |s| s.developer.offline_accounts = false).unwrap();
         let raw: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
         assert!(raw.get("developer").is_none(), "{raw}");
+    }
+
+    #[test]
+    fn developer_options_from_a_newer_build_are_kept() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        std::fs::write(
+            &path,
+            r#"{"version":1,"developer":{"offline_accounts":true,"from_a_newer_build":{"a":1}}}"#,
+        )
+        .unwrap();
+        update(&path, |s| s.zoom = 1.25).unwrap();
+        let raw: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(
+            raw["developer"],
+            json!({ "offline_accounts": true, "from_a_newer_build": { "a": 1 } })
+        );
+        // and with every known option at its default, the unknown one still is
+        update(&path, |s| s.developer.offline_accounts = false).unwrap();
+        let raw: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(
+            raw["developer"],
+            json!({ "from_a_newer_build": { "a": 1 } })
+        );
     }
 
     #[test]

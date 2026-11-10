@@ -289,7 +289,7 @@ Accounts:
 lodestone-launcher-cli accounts list            # never tokens
 lodestone-launcher-cli accounts switch Steve
 lodestone-launcher-cli accounts sign-in         # long; prints a code and URL for the USER
-lodestone-launcher-cli accounts add-offline Tester   # development builds or LODESTONE_LAUNCHER_OFFLINE=1
+lodestone-launcher-cli accounts add-offline Tester   # once the user turns on Settings › Developer › Offline accounts
 lodestone-launcher-cli accounts remove Steve --yes
 ```
 

@@ -77,8 +77,10 @@ pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl In
                 .disabled(offline_forced)
                 .on_change(cx.listener(|this, value: &bool, _, cx| {
                     let on = *value;
-                    this.accounts
+                    let saved = this
+                        .accounts
                         .update(cx, |accounts, cx| accounts.set_offline_accounts(on, cx));
+                    this.show_save_error(saved, cx);
                 })),
         )
         .into_any_element()]);
@@ -310,6 +312,18 @@ impl LauncherShell {
         }
     }
 
+    /// Says in the window's toast why a developer setting couldn't be saved.
+    fn show_save_error(&mut self, saved: Result<(), SharedString>, cx: &mut Context<Self>) {
+        if let Err(message) = saved {
+            self.undo_toast.show(
+                message,
+                true,
+                |this: &mut LauncherShell| &mut this.undo_toast,
+                cx,
+            );
+        }
+    }
+
     /// Turning the option on asks first; turning it off asks what to do with the
     /// accounts that used it, if there are any.
     fn request_launcher_identity(
@@ -332,8 +346,10 @@ impl LauncherShell {
                 .map(|account| account.username)
                 .collect();
             if usernames.is_empty() {
-                self.accounts
+                let saved = self
+                    .accounts
                     .update(cx, |accounts, cx| accounts.set_launcher_identity(false, cx));
+                self.show_save_error(saved, cx);
             } else {
                 window.focus(&focus, cx);
                 self.modal
@@ -389,9 +405,11 @@ impl LauncherShell {
             Button::new("confirm-launcher-identity", t(M::TurnItOn))
                 .variant(ButtonVariant::Primary)
                 .on_click(cx.listener(|this, _, _, cx| {
-                    this.accounts
+                    let saved = this
+                        .accounts
                         .update(cx, |accounts, cx| accounts.set_launcher_identity(true, cx));
                     this.close_modal(cx);
+                    this.show_save_error(saved, cx);
                 })),
         )
         .footer(
@@ -435,20 +453,24 @@ impl LauncherShell {
             Button::new("disable-and-sign-out", t(M::TurnOffAndSignOut))
                 .variant(ButtonVariant::Danger)
                 .on_click(cx.listener(|this, _, _, cx| {
-                    this.accounts.update(cx, |accounts, cx| {
-                        accounts.set_launcher_identity(false, cx);
+                    let saved = this.accounts.update(cx, |accounts, cx| {
+                        let saved = accounts.set_launcher_identity(false, cx);
                         accounts.sign_out_launcher_identity_accounts(cx);
+                        saved
                     });
                     this.close_modal(cx);
+                    this.show_save_error(saved, cx);
                 })),
         )
         .footer(
             Button::new("disable-keep-accounts", t(M::TurnOffOnly))
                 .variant(ButtonVariant::Secondary)
                 .on_click(cx.listener(|this, _, _, cx| {
-                    this.accounts
+                    let saved = this
+                        .accounts
                         .update(cx, |accounts, cx| accounts.set_launcher_identity(false, cx));
                     this.close_modal(cx);
+                    this.show_save_error(saved, cx);
                 })),
         )
         .footer(

@@ -300,11 +300,13 @@ normal data, after checking no launcher is running, and prints this checklist:
 - An instance launches to the title screen and quits cleanly. Prefer one the
   developer uses. Never print the game's command line; it holds their access token.
 - Whatever this release changes, if the developer said what's new.
-- **On Windows, the installer.** It installs for the current user under
-  `%LOCALAPPDATA%\Programs\Lodestone Launcher`, without an administrator prompt.
-  The Start Menu shortcut opens the launcher, Settings › Apps lists "Lodestone
-  Launcher" with the dry run's build, and uninstalling leaves
-  `%APPDATA%\Lodestone Launcher` alone.
+- **On Windows, the installer.** It installs for the current user, without an
+  administrator prompt. A first install shows the folder page, with
+  `%LOCALAPPDATA%\Programs\Lodestone Launcher` as the default, and Next refuses a
+  folder the user can't write to (Program Files); an upgrade skips the page and
+  keeps its folder. The Start Menu shortcut opens the launcher, Settings › Apps
+  lists "Lodestone Launcher" with the dry run's build, and uninstalling keeps
+  `%APPDATA%\Lodestone Launcher` unless the user chooses to delete it.
 - **On a Mac, the disk image:** its window shows the app, an arrow and
   Applications, and the app opens from it.
 
