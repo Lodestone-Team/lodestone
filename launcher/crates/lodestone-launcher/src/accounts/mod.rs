@@ -117,6 +117,9 @@ impl Accounts {
         });
         let developer = settings::load_or_default(&data_dir.settings_file()).developer;
         let launcher_identity = developer.sign_in_as_minecraft_launcher;
+        launcher_core::cores::connect_service::set_setting_text(
+            developer.connect_service.as_deref(),
+        );
         let mut this = Self {
             store,
             data_dir,
@@ -183,6 +186,28 @@ impl Accounts {
         let result = self.save_developer(|developer| developer.offline_accounts = enabled);
         if result.is_ok() {
             self.offline_setting = enabled;
+        }
+        cx.notify();
+        result
+    }
+
+    /// Sets Settings > Developer > "Connect service (relay)" and saves it in
+    /// `settings.json`: `None` (or connect.lodestone.cc) for the default. It applies at
+    /// once, to the next lookup ([`connect_service::service`]). The error says why it
+    /// couldn't be saved; the setting is then unchanged.
+    ///
+    /// [`connect_service::service`]: launcher_core::cores::connect_service::service
+    pub fn set_connect_service(
+        &mut self,
+        service: Option<launcher_core::cores::connect_service::Service>,
+        cx: &mut Context<Self>,
+    ) -> Result<(), SharedString> {
+        use launcher_core::cores::connect_service;
+        let service = service.filter(|s| *s != connect_service::Service::default());
+        let text = service.as_ref().map(|s| s.base_url());
+        let result = self.save_developer(|developer| developer.connect_service = text);
+        if result.is_ok() {
+            connect_service::set_setting(service);
         }
         cx.notify();
         result

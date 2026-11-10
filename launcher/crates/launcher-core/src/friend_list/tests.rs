@@ -559,6 +559,9 @@ fn nothing_secret_is_printed() {
 
 #[test]
 fn the_service_comes_from_the_environment_when_set() {
+    // the friend list reads the apps' one source ([`crate::cores::connect_service`])
+    use crate::cores::connect_service::resolve;
+    let service_from = |env: Option<&str>| resolve(env, None).service;
     assert_eq!(service_from(None), Service::default());
     assert_eq!(service_from(Some("  ")), Service::default());
     let local = service_from(Some("http://127.0.0.1:18790"));

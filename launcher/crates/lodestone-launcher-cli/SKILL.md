@@ -284,6 +284,7 @@ lodestone-launcher-cli settings defaults get
 lodestone-launcher-cli settings defaults set --max-memory 4G --jvm-args "-XX:+UseG1GC"
 lodestone-launcher-cli settings general set --auto-groups false
 lodestone-launcher-cli settings developer get
+lodestone-launcher-cli settings developer set --connect-service https://connect-dev.lodestone.cc  # or "default"
 lodestone-launcher-cli shared get                                 # shared game settings
 lodestone-launcher-cli shared set guiScale 3
 lodestone-launcher-cli shared category video --off

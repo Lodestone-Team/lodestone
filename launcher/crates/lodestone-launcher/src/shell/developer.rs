@@ -93,6 +93,8 @@ pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl In
             section(t(M::CommandLineSection), Some(t(M::CommandLineLead).into()))
                 .child(command_line(shell, cx)),
         )
+        // near the top: testers switch it often
+        .child(section(t(M::ConnectSection), None).child(shell.connect_service.clone()))
         .child(
             section(
                 t(M::CodingAgentsSection),

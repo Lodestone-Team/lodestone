@@ -262,6 +262,8 @@ fn the_host_keeps_its_core_in_step_with_the_friend_list() {
             .find(|&port| core_process::port_is_free(port))
             .expect("a free port"),
         log_file: root.path().join("core.log"),
+        // the service under test (LODESTONE_CONNECT_SERVICE), as the Host passes it
+        connect_service: CoreConfig::connect_service_now(),
     };
     let mut process = CoreProcess::spawn(&config).expect("the core starts");
     let http = launcher_core::http::default_client().unwrap();

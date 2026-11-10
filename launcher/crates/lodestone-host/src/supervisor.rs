@@ -62,6 +62,8 @@ pub struct Supervisor {
     /// The core's log, for the error page.
     pub log_file: std::path::PathBuf,
     stopping: bool,
+    /// Stopping to start again ([`Supervisor::restart`]); quitting cancels it.
+    restarting: bool,
     _task: Option<Task<()>>,
 }
 
@@ -74,6 +76,7 @@ impl Supervisor {
             process: Arc::new(Mutex::new(None)),
             log_file: core_process::host_dir().join("logs").join("core.log"),
             stopping: false,
+            restarting: false,
             _task: None,
         };
         this.start(cx);
@@ -224,10 +227,28 @@ impl Supervisor {
         }
     }
 
+    /// Stops the core (its servers first) and starts it again, with the settings as
+    /// they are now: after the Connect service changed, say.
+    pub fn restart(&mut self, cx: &mut Context<Self>) {
+        let stopped = self.shutdown(cx);
+        self.restarting = true;
+        cx.spawn(async move |this, cx| {
+            stopped.await;
+            this.update(cx, |this, cx| {
+                if std::mem::take(&mut this.restarting) {
+                    this.start(cx)
+                }
+            })
+            .ok();
+        })
+        .detach();
+    }
+
     /// Stops the core: its servers stop first. Resolves once it has exited (or was
     /// killed after [`core_process::STOP_TIMEOUT`]).
     pub fn shutdown(&mut self, cx: &mut Context<Self>) -> Task<()> {
         self.stopping = true;
+        self.restarting = false;
         self._task = None;
         self.set_status(CoreStatus::Stopping, cx);
         let process = self.process.clone();
@@ -254,6 +275,7 @@ fn prepare() -> Result<CoreConfig, String> {
         data_dir: core_process::data_dir(),
         port,
         log_file: Default::default(),
+        connect_service: CoreConfig::connect_service_now(),
     })
 }
 

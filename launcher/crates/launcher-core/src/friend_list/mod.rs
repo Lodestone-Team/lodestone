@@ -57,25 +57,12 @@ pub const MAX_FRIENDS: usize = 200;
 
 const FILE_VERSION: u32 = 1;
 
-/// The environment variable naming another introduction service (a local one, for
-/// development), as the core's. Invite links carry their own service.
-pub const SERVICE_ENV: &str = "LODESTONE_CONNECT_SERVICE";
-
-/// The service the friend list uses: [`SERVICE_ENV`], else connect.lodestone.cc.
+/// The service the friend list uses, read each time it is needed:
+/// `LODESTONE_CONNECT_SERVICE`, else the app's developer setting, else
+/// connect.lodestone.cc ([`crate::cores::connect_service`]). Invite links carry their
+/// own service.
 pub fn service() -> Service {
-    service_from(std::env::var(SERVICE_ENV).ok().as_deref())
-}
-
-/// The service in `value` (the environment's), else connect.lodestone.cc. A value that
-/// isn't a service address is reported on stderr, and the default is used.
-pub fn service_from(value: Option<&str>) -> Service {
-    match value.map(str::trim).filter(|v| !v.is_empty()) {
-        Some(text) => Service::parse(text).unwrap_or_else(|| {
-            eprintln!("{SERVICE_ENV} isn't a service address ({text}); using the default");
-            Service::default()
-        }),
-        None => Service::default(),
-    }
+    crate::cores::connect_service::service()
 }
 
 /// Seconds since 1970.

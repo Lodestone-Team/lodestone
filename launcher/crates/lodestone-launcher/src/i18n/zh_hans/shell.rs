@@ -305,6 +305,19 @@ pub fn text(message: M) -> &'static str {
         M::SignInSection => "Microsoft 登录",
         M::OfflineAccountsSetting => "离线账户",
         M::OfflineAccountsSettingHint => "在账户菜单中显示“{add}”。仅供测试。",
+        M::ConnectSection => "Lodestone Connect",
+        M::ConnectService => "Connect 服务（中继）",
+        M::ConnectServiceHint => "仅供测试。好友列表使用此服务。邀请链接始终使用链接中指定的服务。",
+        M::ConnectServiceInUse => "开发中继：{service}",
+        M::ConnectServiceEnv => {
+            "已设置 {var}，因此启动器使用 {service}。取消设置后，此设置才会生效。"
+        }
+        M::ConnectServiceScheme => "地址需以 https:// 开头。",
+        M::ConnectServiceInsecure => {
+            "请使用 https://。只有本机上的服务（127.0.0.1 或 localhost）可以使用 http://。"
+        }
+        M::ConnectServiceExtra => "只输入地址，不要包含路径、查询参数或用户名。",
+        M::ConnectServiceAddress => "这不是有效的地址。",
         M::OfflineAccountsAlwaysOn => {
             "在调试版本中以及设置 LODESTONE_LAUNCHER_OFFLINE=1 时始终开启。"
         }

@@ -317,6 +317,24 @@ pub fn text(message: M) -> &'static str {
             "重启 Lodestone Host 会先停止这些服务器。设为自动启动的服务器会在重启后再次启动。"
         }
         M::RestartUpdateConfirm => "停止服务器并重启",
+        M::DeveloperSection => "开发者",
+        M::ConnectService => "Connect 服务（中继）",
+        M::ConnectServiceHint => "仅供测试。邀请链接和好友列表使用此服务。更改后会重启核心。",
+        M::ConnectServiceInUse => "开发中继：{service}",
+        M::ConnectServiceEnv => {
+            "已设置 {var}，因此核心使用 {service}。取消设置后，此设置才会生效。"
+        }
+        M::ConnectServiceScheme => "地址需以 https:// 开头。",
+        M::ConnectServiceInsecure => {
+            "请使用 https://。只有本机上的服务（127.0.0.1 或 localhost）可以使用 http://。"
+        }
+        M::ConnectServiceExtra => "只输入地址，不要包含路径、查询参数或用户名。",
+        M::ConnectServiceAddress => "这不是有效的地址。",
+        M::SaveAndRestartCore => "保存并重启核心",
+        M::RestartCoreTitle => "重启核心？",
+        M::RestartCoreBody => {
+            "更改 Connect 服务会重启 Lodestone Core，它会先停止这些服务器。设为自动启动的服务器会在重启后再次启动。"
+        }
         M::UpdateFailed => "无法更新：{error}",
         M::CheckForUpdates => "立即检查",
         M::DownloadUpdate => "下载",

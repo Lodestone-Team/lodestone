@@ -283,6 +283,18 @@ impl HostApp {
         }
     }
 
+    /// Restarts this computer's core with the settings as they are now (the Connect
+    /// service changed): its servers stop first, then the Host signs in again.
+    pub fn restart_core(&mut self, cx: &mut Context<Self>) {
+        if matches!(self.phase, Phase::Quitting) {
+            return;
+        }
+        self.phase = Phase::Core;
+        cx.notify();
+        self.supervisor
+            .update(cx, |supervisor, cx| supervisor.restart(cx));
+    }
+
     fn retry_core(&mut self, cx: &mut Context<Self>) {
         self.phase = Phase::Core;
         self.supervisor

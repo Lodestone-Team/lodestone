@@ -16,11 +16,13 @@
 //! - [`local_claim`]: "Connect as owner" for a core on this computer;
 //! - [`connect`] and [`friends`]: servers friends share with Lodestone Connect invite
 //!   links, joined through a direct tunnel, and the ones the user joined;
+//! - [`connect_service`]: which Lodestone Connect introduction service the apps use;
 //! - [`admin`]: the core's full API, as the dashboard and Lodestone Host use it.
 
 pub mod admin;
 pub mod client;
 pub mod connect;
+pub mod connect_service;
 pub mod download;
 pub mod friends;
 pub mod hosting;

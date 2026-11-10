@@ -283,6 +283,26 @@ crate::i18n::messages! {
         RestartUpdateTitle = "Restart to update?",
         RestartUpdateBody = "Restarting Lodestone Host stops them first. Servers that start on their own start again after the restart.",
         RestartUpdateConfirm = "Stop servers and restart",
+        /// Settings › Updates: the section for developers' settings.
+        DeveloperSection = "Developer",
+        /// The Lodestone Connect introduction service the core shares through.
+        ConnectService = "Connect service (relay)",
+        ConnectServiceHint = "For testing. Invite links and the friend list use this service. Changing it restarts the core.",
+        /// While the service in use isn't connect.lodestone.cc: {service} is its address,
+        /// "connect-dev.lodestone.cc". Under the setting and on the Share card.
+        ConnectServiceInUse = "Dev relay: {service}",
+        /// While the environment variable {var} overrides the setting; {service} is its URL.
+        ConnectServiceEnv = "{var} is set, so the core uses {service}. The setting applies once it is unset.",
+        /// Errors for a typed service URL.
+        ConnectServiceScheme = "Start the address with https://.",
+        ConnectServiceInsecure = "Use https://. Only a service on this computer (127.0.0.1 or localhost) can use http://.",
+        ConnectServiceExtra = "Type only the address, without a path, query or user name.",
+        ConnectServiceAddress = "That isn't a valid address.",
+        /// The button that saves the service and restarts the core.
+        SaveAndRestartCore = "Save and restart core",
+        /// Asked before the change restarts the core while servers run.
+        RestartCoreTitle = "Restart the core?",
+        RestartCoreBody = "Changing the Connect service restarts Lodestone Core, which stops these servers first. Servers that start on their own start again after the restart.",
         UpdateFailed = "Couldn’t update: {error}",
         CheckForUpdates = "Check now",
         DownloadUpdate = "Download",

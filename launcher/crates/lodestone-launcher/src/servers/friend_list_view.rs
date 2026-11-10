@@ -172,7 +172,15 @@ impl Servers {
                             .text_color(crate::theme::ink::text())
                             .child(t(M::Title)),
                     )
-                    .child(note(t(M::Hint))),
+                    .child(note(t(M::Hint)))
+                    // the friend list uses the Connect service setting: say when it isn't
+                    // the default, so testers don't forget
+                    .children(crate::shell::connect_service::custom_note().map(|relay| {
+                        note(relay)
+                            .id("friend-list-dev-relay")
+                            .font_weight(weights::BOLD.into())
+                            .text_color(colors::YELLOW)
+                    })),
             )
             .when(list.refreshing, |this| this.child(LoadingDots))
             .when(list.opened, |this| {

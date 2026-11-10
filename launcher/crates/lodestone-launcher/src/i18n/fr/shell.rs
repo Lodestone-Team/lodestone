@@ -374,6 +374,23 @@ pub fn text(message: M) -> &'static str {
         M::OfflineAccountsAlwaysOn => {
             "Toujours activé dans les versions de débogage et avec LODESTONE_LAUNCHER_OFFLINE=1."
         }
+        M::ConnectSection => "Lodestone Connect",
+        M::ConnectService => "Service Connect (relais)",
+        M::ConnectServiceHint => {
+            "Pour les tests. La liste d’amis utilise ce service. Les liens d’invitation utilisent toujours le service qu’ils indiquent."
+        }
+        M::ConnectServiceInUse => "Relais de dév.\u{a0}: {service}",
+        M::ConnectServiceEnv => {
+            "{var} est défini, donc le lanceur utilise {service}. Le réglage s’appliquera une fois la variable retirée."
+        }
+        M::ConnectServiceScheme => "Commencez l’adresse par https://.",
+        M::ConnectServiceInsecure => {
+            "Utilisez https://. Seul un service sur cet ordinateur (127.0.0.1 ou localhost) peut utiliser http://."
+        }
+        M::ConnectServiceExtra => {
+            "Saisissez seulement l’adresse, sans chemin, requête ni nom d’utilisateur."
+        }
+        M::ConnectServiceAddress => "Cette adresse n’est pas valide.",
         M::CodingAgentsSection => "Agents de programmation",
         M::CodingAgentsLead => {
             "Claude Code, Codex et d’autres agents de programmation peuvent piloter le lanceur avec lodestone-launcher-cli. Le lanceur garde des guides pour eux dans son dossier de données."

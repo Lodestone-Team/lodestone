@@ -3,6 +3,7 @@
 //! selected instance with its tabs and a large Play button.
 
 mod account_box;
+pub(crate) mod connect_service;
 pub mod data_folder;
 pub(crate) mod developer;
 mod launcher_settings;
@@ -276,6 +277,8 @@ pub struct LauncherShell {
     slideshow: Entity<crate::instances::slideshow::Slideshow>,
     /// Settings > Shared game settings.
     shared_settings: Entity<SharedSettings>,
+    /// Settings > Developer > "Connect service (relay)".
+    connect_service: Entity<connect_service::ConnectServiceSetting>,
     /// Settings > Storage.
     storage: Entity<StorageSettings>,
     /// Settings > Skin.
@@ -461,6 +464,10 @@ impl LauncherShell {
             let instances = instances.clone();
             cx.new(|cx| SharedSettings::new(instances, cx))
         };
+        let connect_service = {
+            let accounts = accounts.clone();
+            cx.new(|cx| connect_service::ConnectServiceSetting::new(accounts, cx))
+        };
         // The Settings dialog draws their "Saved" notices.
         observe.push(cx.observe(&launcher_settings, |_, _, cx| cx.notify()));
         observe.push(cx.observe(&shared_settings, |_, _, cx| cx.notify()));
@@ -526,6 +533,7 @@ impl LauncherShell {
             servers,
             servers_overlay,
             shared_settings,
+            connect_service,
             storage,
             skin,
             updater,
@@ -1116,6 +1124,11 @@ impl LauncherShell {
 
     pub fn shared_settings(&self) -> &Entity<SharedSettings> {
         &self.shared_settings
+    }
+
+    /// Settings > Developer > "Connect service (relay)", for the offscreen screenshots.
+    pub fn connect_service_setting(&self) -> &Entity<connect_service::ConnectServiceSetting> {
+        &self.connect_service
     }
 
     pub fn settings_view(&self) -> Option<&Entity<InstanceSettings>> {

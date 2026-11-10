@@ -449,6 +449,25 @@ fn developer_json(control: &Control, cx: &App) -> Value {
             .iter()
             .map(|a| json!({ "id": a.id, "username": a.username }))
             .collect::<Vec<_>>(),
+        "connect_service": connect_service_json(),
+    })
+}
+
+/// "Connect service (relay)": the service in use, where it comes from, and the saved
+/// setting.
+pub(super) fn connect_service_json() -> Value {
+    use launcher_core::cores::connect_service::{self, Source};
+    let active = connect_service::active();
+    json!({
+        "url": active.url(),
+        "source": match active.source {
+            Source::Env => "env",
+            Source::Setting => "setting",
+            Source::Default => "default",
+        },
+        "setting": connect_service::setting().map(|s| s.base_url()),
+        "default": connect_service::DEFAULT_SERVICE,
+        "env": connect_service::ENV,
     })
 }
 
@@ -463,7 +482,12 @@ pub fn developer_get(call: Call, cx: &mut App) -> Reply {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct DeveloperParams {
-    sign_in_as_minecraft_launcher: bool,
+    #[serde(default)]
+    sign_in_as_minecraft_launcher: Option<bool>,
+    /// "Connect service (relay)": a URL, or `""` (or `"default"`) for
+    /// connect.lodestone.cc.
+    #[serde(default)]
+    connect_service: Option<String>,
     /// Turning it off: also sign out the accounts that used it.
     #[serde(default)]
     sign_out_accounts: bool,
@@ -490,8 +514,37 @@ pub fn developer_set(call: Call, cx: &mut App) -> Reply {
         }
     };
     let control = &call.control;
+    if params.sign_in_as_minecraft_launcher.is_none() && params.connect_service.is_none() {
+        return ready(Err(api_error(
+            codes::INVALID_PARAMS,
+            "Nothing to change: give sign_in_as_minecraft_launcher or connect_service.",
+        )));
+    }
+    if params.sign_out_accounts && params.sign_in_as_minecraft_launcher != Some(false) {
+        return ready(Err(api_error(
+            codes::INVALID_PARAMS,
+            "sign_out_accounts goes with turning the setting off.",
+        )));
+    }
+    // checked before anything changes
+    let connect = match params.connect_service.as_deref().map(connect_service_param) {
+        Some(Err(message)) => return ready(Err(api_error(codes::INVALID_PARAMS, message))),
+        Some(Ok(service)) => Some(service),
+        None => None,
+    };
+    if let Some(service) = connect {
+        let saved = control
+            .accounts
+            .update(cx, |accounts, cx| accounts.set_connect_service(service, cx));
+        if let Err(message) = saved {
+            return ready(Err(api_error(codes::FAILED, message.to_string())));
+        }
+    }
+    let Some(on) = params.sign_in_as_minecraft_launcher else {
+        return ready(Ok(json!({ "developer": developer_json(control, cx) })));
+    };
     let enabled = control.accounts.read(cx).launcher_identity_enabled();
-    if params.sign_in_as_minecraft_launcher && !enabled {
+    if on && !enabled {
         // the window shows its disclosure first
         if let Err(err) = call.confirm(
             "makes new Microsoft sign-ins tell Microsoft that Lodestone Launcher is Mojang's Minecraft Launcher",
@@ -504,7 +557,7 @@ pub fn developer_set(call: Call, cx: &mut App) -> Reply {
         }
     }
     if params.sign_out_accounts {
-        if params.sign_in_as_minecraft_launcher {
+        if on {
             return ready(Err(api_error(
                 codes::INVALID_PARAMS,
                 "sign_out_accounts goes with turning the setting off.",
@@ -515,7 +568,6 @@ pub fn developer_set(call: Call, cx: &mut App) -> Reply {
             accounts.sign_out_launcher_identity_accounts(cx)
         });
     }
-    let on = params.sign_in_as_minecraft_launcher;
     let saved = control
         .accounts
         .update(cx, |accounts, cx| accounts.set_launcher_identity(on, cx));
@@ -523,6 +575,22 @@ pub fn developer_set(call: Call, cx: &mut App) -> Reply {
         return ready(Err(api_error(codes::FAILED, message.to_string())));
     }
     ready(Ok(json!({ "developer": developer_json(control, cx) })))
+}
+
+/// `settings.developer.set`'s `connect_service`: a service URL, checked as the window
+/// checks it, or `""` / `"default"` for connect.lodestone.cc (`None`).
+pub(super) fn connect_service_param(
+    text: &str,
+) -> Result<Option<launcher_core::cores::connect_service::Service>, String> {
+    use launcher_core::cores::connect_service;
+    if text.trim().eq_ignore_ascii_case("default") {
+        return Ok(None);
+    }
+    connect_service::parse(text).map_err(|err| {
+        format!(
+            "connect_service isn't a service URL: {err}. Give https://name (or http://127.0.0.1:port for a service on this computer), or \"default\"."
+        )
+    })
 }
 
 fn category(name: &str) -> Result<Category, ErrorObject> {

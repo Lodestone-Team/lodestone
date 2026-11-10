@@ -531,17 +531,28 @@ pub enum DeveloperSettings {
     /// Developer settings, and the accounts signed in with the launcher identity.
     #[command(after_help = "Examples:\n  lodestone-launcher-cli settings developer get")]
     Get,
-    /// "Sign in as the Minecraft Launcher". Turning it on needs --yes after the user
-    /// read the disclosure (printed without --yes).
+    /// "Sign in as the Minecraft Launcher" and "Connect service (relay)". Turning the
+    /// first on needs --yes after the user read the disclosure (printed without --yes).
     #[command(
-        after_help = "Examples:\n  lodestone-launcher-cli settings developer set --sign-in-as-minecraft-launcher true --yes\n  lodestone-launcher-cli settings developer set --sign-in-as-minecraft-launcher false --sign-out-accounts --yes"
+        after_help = "Examples:\n  lodestone-launcher-cli settings developer set --sign-in-as-minecraft-launcher true --yes\n  lodestone-launcher-cli settings developer set --sign-in-as-minecraft-launcher false --sign-out-accounts --yes\n  lodestone-launcher-cli settings developer set --connect-service https://connect-dev.lodestone.cc\n  lodestone-launcher-cli settings developer set --connect-service default"
     )]
+    #[command(group(
+        clap::ArgGroup::new("change")
+            .required(true)
+            .multiple(true)
+            .args(["sign_in_as_minecraft_launcher", "connect_service"])
+    ))]
     Set {
         #[arg(long, action = clap::ArgAction::Set, value_name = "BOOL")]
-        sign_in_as_minecraft_launcher: bool,
+        sign_in_as_minecraft_launcher: Option<bool>,
         /// Turning it off: also sign out the accounts signed in with it.
         #[arg(long)]
         sign_out_accounts: bool,
+        /// The Lodestone Connect service the friend list uses, for testing:
+        /// https://name (or http://127.0.0.1:PORT for one on this computer), or
+        /// "default" for connect.lodestone.cc.
+        #[arg(long, value_name = "URL")]
+        connect_service: Option<String>,
     },
 }
 

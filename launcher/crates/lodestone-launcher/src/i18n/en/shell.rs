@@ -346,6 +346,21 @@ crate::i18n::messages! {
         OfflineAccountsSettingHint = "Shows “{add}” in the account menu. For testing only.",
         /// The hint while offline accounts are on whatever the setting says.
         OfflineAccountsAlwaysOn = "Always on in debug builds and with LODESTONE_LAUNCHER_OFFLINE=1.",
+        /// Settings > Developer: the section of the Lodestone Connect service setting.
+        ConnectSection = "Lodestone Connect",
+        /// Settings > Developer: the Lodestone Connect introduction service to use.
+        ConnectService = "Connect service (relay)",
+        ConnectServiceHint = "For testing. The friend list uses this service. Invite links always use the service they name.",
+        /// Under the setting, and next to Friends' servers, while the service in use isn't
+        /// connect.lodestone.cc: {service} is its address, "connect-dev.lodestone.cc".
+        ConnectServiceInUse = "Dev relay: {service}",
+        /// While the environment variable {var} overrides the setting; {service} is its URL.
+        ConnectServiceEnv = "{var} is set, so the launcher uses {service}. The setting applies once it is unset.",
+        /// Errors for a typed service URL.
+        ConnectServiceScheme = "Start the address with https://.",
+        ConnectServiceInsecure = "Use https://. Only a service on this computer (127.0.0.1 or localhost) can use http://.",
+        ConnectServiceExtra = "Type only the address, without a path, query or user name.",
+        ConnectServiceAddress = "That isn't a valid address.",
         /// Settings > Developer: what lodestone-launcher-cli may do.
         /// Settings > Developer > Coding agents.
         CodingAgentsSection = "Coding agents",

@@ -262,6 +262,14 @@ and meeting sessions. `test/friends.test.js` covers v2 and the friend link page,
 `test/slots.test.js` the new-slot budget, with its own Worker (`--var SLOTS_PER_HOUR:3`).
 `wrangler.jsonc` notes the production value of each limit it raises.
 
+To point the apps at another service (this local Worker, or a test deployment such
+as `https://connect-dev.lodestone.cc`), set "Connect service (relay)" in Lodestone
+Launcher's Settings › Developer, or in Lodestone Host's Settings › Updates ›
+Developer (shown in developer and debug builds). The Host passes it to its core as
+`LODESTONE_CONNECT_SERVICE` and restarts the core. Setting that variable yourself wins
+over both settings. The value must be `https://…`, or `http://` to this computer only
+(`http://127.0.0.1:8787`), with no path.
+
 ## Deploying
 
 Deploys go to Cloudflare under the account that owns lodestone.cc, with the `cf` CLI
