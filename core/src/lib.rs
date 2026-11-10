@@ -34,7 +34,6 @@ use axum::{
 };
 
 use clap::Parser;
-use color_eyre::eyre::Context;
 use color_eyre::Report;
 use dashmap::DashMap;
 use error::Error;
@@ -72,7 +71,7 @@ use tracing::{debug, error, info, warn};
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::{prelude::__tracing_subscriber_SubscriberExt, EnvFilter};
 use traits::{t_configurable::TConfigurable, t_server::MonitorReport, t_server::TServer};
-use types::{DotLodestoneConfig, InstanceUuid};
+use types::InstanceUuid;
 
 /// `#[test]`s that export the TypeScript bindings of types from `lodestone_minecraft` into
 /// `bindings/`, like the tests `#[ts(export)]` adds for the core's own types.
@@ -109,6 +108,7 @@ mod extension;
 pub mod global_settings;
 mod handlers;
 pub mod implementations;
+mod instance_identity;
 mod listen;
 pub mod local_claim;
 pub mod macro_executor;
@@ -186,6 +186,10 @@ pub(crate) mod test_util {
         crate::AppState {
             remote_access,
             instances: Arc::new(dashmap::DashMap::new()),
+            instance_folders: Arc::new(
+                crate::instance_identity::InstanceFolders::load(dir.join("instance_folders.json"))
+                    .await,
+            ),
             users_manager: Arc::new(RwLock::new(users_manager)),
             events_buffer: Arc::new(Mutex::new(ringbuffer::AllocRingBuffer::new(512))),
             console_out_buffer: Default::default(),
@@ -304,6 +308,9 @@ pub(crate) mod test_util {
 #[derive(Clone)]
 pub struct AppState {
     instances: Arc<DashMap<InstanceUuid, GameInstance>>,
+    /// The folder each instance UUID was last loaded or created in, see
+    /// [`instance_identity`].
+    instance_folders: Arc<instance_identity::InstanceFolders>,
     users_manager: Arc<RwLock<UsersManager>>,
     events_buffer: Arc<Mutex<AllocRingBuffer<Event>>>,
     console_out_buffer: Arc<Mutex<HashMap<InstanceUuid, AllocRingBuffer<Event>>>>,
@@ -488,39 +495,20 @@ fn snapshot_instances(
 
 async fn restore_instances(
     instances_path: &Path,
+    instance_folders: &instance_identity::InstanceFolders,
     event_broadcaster: EventBroadcaster,
     macro_executor: MacroExecutor,
 ) -> Result<DashMap<InstanceUuid, GameInstance>, Error> {
     let ret: DashMap<InstanceUuid, GameInstance> = DashMap::new();
 
-    for entry in instances_path
-        .read_dir()
-        .context("Failed to read instances directory")?
-    {
-        let path = match entry {
-            Ok(v) => v.path(),
-            Err(e) => {
-                error!("Error while restoring instance, failed to read instance directory : {e}");
-                continue;
-            }
-        };
-        let dot_lodestone_config_file = match std::fs::File::open(path.join(".lodestone_config")) {
-            Ok(v) => v,
-            Err(e) => {
-                error!("Error while restoring instance {}, failed to read .lodestone_config file : {e}", path.display());
-                continue;
-            }
-        };
-        let dot_lodestone_config: DotLodestoneConfig = match serde_json::from_reader(
-            dot_lodestone_config_file,
-        ) {
-            Ok(v) => v,
-            Err(e) => {
-                error!("Error while restoring instance {}, failed to parse .lodestone_config file : {e}", path.display());
-                continue;
-            }
-        };
-
+    let loaded =
+        instance_identity::load_unique_configs(instances_path, &instance_folders.snapshot().await)
+            .await?;
+    for conflict in &loaded.conflicts {
+        error!("{conflict}");
+    }
+    let mut restored_folders = Vec::new();
+    for (path, dot_lodestone_config) in loaded.ready {
         debug!("restoring instance: {}", path.display());
         let uuid_instance: (InstanceUuid, GameInstance) = match dot_lodestone_config.game_type() {
             GameType::MinecraftJava => {
@@ -593,12 +581,11 @@ async fn restore_instances(
                 continue;
             }
         };
-        let uuid = uuid_instance.0;
-        let instance = uuid_instance.1;
-        if ret.contains_key(&uuid) {
-            warn!("UUID {} is repeated.", uuid.to_string());
-        }
-        ret.insert(uuid, instance);
+        restored_folders.push((uuid_instance.0.clone(), path));
+        ret.insert(uuid_instance.0, uuid_instance.1);
+    }
+    if let Err(e) = instance_folders.record(restored_folders).await {
+        error!("Failed to record the folders of the restored instances: {e}");
     }
     Ok(ret)
 }
@@ -993,12 +980,21 @@ pub async fn run_with(
         tokio::runtime::Handle::current(),
         code_execution.clone(),
     );
-    let instances = restore_instances(&path_to_instances, tx.clone(), macro_executor.clone())
-        .await
-        .map_err(|_| Error {
-            kind: ErrorKind::Internal,
-            source: Report::msg("failed to restore instances"),
-        })?;
+    let instance_folders = Arc::new(
+        instance_identity::InstanceFolders::load(path_to_stores().join("instance_folders.json"))
+            .await,
+    );
+    let instances = restore_instances(
+        &path_to_instances,
+        &instance_folders,
+        tx.clone(),
+        macro_executor.clone(),
+    )
+    .await
+    .map_err(|_| Error {
+        kind: ErrorKind::Internal,
+        source: Report::msg("failed to restore instances"),
+    })?;
 
     let mut allocated_ports = HashSet::new();
     for (_, instance) in snapshot_instances(&instances) {
@@ -1018,6 +1014,7 @@ pub async fn run_with(
         product,
         launched_by,
         instances: Arc::new(instances),
+        instance_folders,
         users_manager: Arc::new(RwLock::new(users_manager)),
         events_buffer: Arc::new(Mutex::new(AllocRingBuffer::new(512))),
         console_out_buffer: Arc::new(Mutex::new(HashMap::new())),
@@ -1395,7 +1392,9 @@ mod restore_tests {
     use super::*;
     use crate::global_settings::CodeExecutionSwitch;
     use crate::implementations::minecraft::{Flavour, RestoreConfig};
+    use crate::instance_identity::InstanceFolders;
     use crate::traits::t_macro::TMacro;
+    use crate::types::DotLodestoneConfig;
 
     /// Every file under `dir` and its contents.
     fn snapshot_files(dir: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
@@ -1414,17 +1413,184 @@ mod restore_tests {
         std::fs::write(path, serde_json::to_string_pretty(value).unwrap()).unwrap();
     }
 
+    /// Restoring a Minecraft instance looks up the Lodestone paths, which no other test
+    /// sets. The folder is never dropped, so the paths stay valid for the whole test run.
+    fn init_lodestone_paths() {
+        static LODESTONE_DIR: std::sync::OnceLock<tempfile::TempDir> = std::sync::OnceLock::new();
+        LODESTONE_DIR.get_or_init(|| {
+            let dir = tempfile::tempdir().unwrap();
+            try_init_paths(dir.path().to_owned()).unwrap();
+            dir
+        });
+    }
+
+    fn write_minecraft_instance(dir: &Path, name: &str, config: &DotLodestoneConfig) {
+        std::fs::create_dir_all(dir).unwrap();
+        write_json(dir.join(".lodestone_config"), config);
+        write_json(
+            dir.join(".lodestone_minecraft_config.json"),
+            &RestoreConfig {
+                name: name.to_string(),
+                version: "1.20.1".to_string(),
+                flavour: Flavour::Vanilla,
+                description: String::new(),
+                cmd_args: Vec::new(),
+                java_cmd: Some("java".to_string()),
+                port: 25565,
+                min_ram: 1024,
+                max_ram: 2048,
+                auto_start: false,
+                restart_on_crash: false,
+                backup_period: None,
+                jre_major_version: 17,
+                has_started: false,
+                modpack: None,
+            },
+        );
+        std::fs::write(
+            dir.join("server.properties"),
+            "server-port=25565
+",
+        )
+        .unwrap();
+    }
+
+    fn test_executor() -> (EventBroadcaster, MacroExecutor) {
+        let (tx, _rx) = EventBroadcaster::new(16);
+        let executor = MacroExecutor::new(
+            tx.clone(),
+            tokio::runtime::Handle::current(),
+            CodeExecutionSwitch::new(false),
+        );
+        (tx, executor)
+    }
+
+    /// The original instance is recorded on its first start. A copy of its folder, with
+    /// the same creation time and listed first, gets a new UUID on the next start while the
+    /// recorded folder keeps its own, and the start after that changes nothing.
+    #[tokio::test]
+    async fn copied_instance_gets_a_new_uuid_and_the_recorded_folder_keeps_its_own() {
+        init_lodestone_paths();
+        let dir = tempfile::tempdir().unwrap();
+        let instances = dir.path().join("instances");
+        let record = dir.path().join("instance_folders.json");
+        let folders = InstanceFolders::load(record.clone()).await;
+        let uuid = InstanceUuid::default();
+        let config = DotLodestoneConfig::new(uuid.clone(), GameType::MinecraftJava);
+        write_minecraft_instance(&instances.join("b"), "original", &config);
+        let (tx, executor) = test_executor();
+        let restored = restore_instances(&instances, &folders, tx.clone(), executor.clone())
+            .await
+            .unwrap();
+        assert_eq!(restored.len(), 1);
+
+        // "a" is listed first, and has the same creation time
+        write_minecraft_instance(&instances.join("a"), "copy", &config);
+        let restored = restore_instances(&instances, &folders, tx.clone(), executor.clone())
+            .await
+            .unwrap();
+        assert_eq!(restored.len(), 2);
+        assert_eq!(restored.get(&uuid).unwrap().name().await, "original");
+        let saved: DotLodestoneConfig =
+            serde_json::from_slice(&std::fs::read(instances.join("a/.lodestone_config")).unwrap())
+                .unwrap();
+        assert_ne!(saved.uuid(), &uuid);
+        assert_eq!(saved.creation_time(), config.creation_time());
+        assert_eq!(saved.game_type(), config.game_type());
+        assert_eq!(restored.get(saved.uuid()).unwrap().name().await, "copy");
+        let recorded = InstanceFolders::load(record.clone()).await.snapshot().await;
+        assert_eq!(recorded.get(&uuid).map(String::as_str), Some("b"));
+        assert_eq!(recorded.get(saved.uuid()).map(String::as_str), Some("a"));
+
+        let files = snapshot_files(&instances);
+        let record_file = std::fs::read(&record).unwrap();
+        let restored_again = restore_instances(&instances, &folders, tx, executor)
+            .await
+            .unwrap();
+        assert_eq!(restored_again.len(), 2);
+        assert_eq!(restored_again.get(&uuid).unwrap().name().await, "original");
+        assert_eq!(
+            restored_again.get(saved.uuid()).unwrap().name().await,
+            "copy"
+        );
+        assert_eq!(snapshot_files(&instances), files);
+        assert_eq!(std::fs::read(&record).unwrap(), record_file);
+    }
+
+    /// Without a record of their UUID, as on a core from before the record, none of the
+    /// folders sharing it is restored and none is changed; other instances are restored.
+    #[tokio::test]
+    async fn copies_without_a_record_are_not_restored() {
+        init_lodestone_paths();
+        let dir = tempfile::tempdir().unwrap();
+        let instances = dir.path().join("instances");
+        let record = dir.path().join("instance_folders.json");
+        let folders = InstanceFolders::load(record.clone()).await;
+        let uuid = InstanceUuid::default();
+        let other = InstanceUuid::default();
+        let config = DotLodestoneConfig::new(uuid.clone(), GameType::MinecraftJava);
+        write_minecraft_instance(&instances.join("a"), "one", &config);
+        write_minecraft_instance(&instances.join("b"), "two", &config);
+        write_minecraft_instance(
+            &instances.join("c"),
+            "other",
+            &DotLodestoneConfig::new(other.clone(), GameType::MinecraftJava),
+        );
+        let files = snapshot_files(&instances);
+
+        #[derive(Clone, Default)]
+        struct Log(Arc<std::sync::Mutex<Vec<u8>>>);
+        impl std::io::Write for Log {
+            fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().unwrap().extend_from_slice(buf);
+                Ok(buf.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let log = Log::default();
+        let subscriber = tracing_subscriber::fmt()
+            .with_ansi(false)
+            .with_writer({
+                let log = log.clone();
+                move || log.clone()
+            })
+            .finish();
+        let guard = tracing::subscriber::set_default(subscriber);
+        let (tx, executor) = test_executor();
+        let restored = restore_instances(&instances, &folders, tx, executor)
+            .await
+            .unwrap();
+        drop(guard);
+        let log = String::from_utf8(log.0.lock().unwrap().clone()).unwrap();
+        let line = log
+            .lines()
+            .find(|line| line.contains(&format!("Instance UUID {uuid} is used by 2 folders")))
+            .unwrap_or_else(|| panic!("no conflict error in {log}"));
+        assert!(line.contains("ERROR"), "{line}");
+        for folder in ["a", "b"] {
+            assert!(
+                line.contains(&instances.join(folder).display().to_string()),
+                "{line}"
+            );
+        }
+        assert_eq!(restored.len(), 1);
+        assert_eq!(restored.get(&other).unwrap().name().await, "other");
+        assert!(restored.get(&uuid).is_none());
+        assert_eq!(snapshot_files(&instances), files);
+        let recorded = InstanceFolders::load(record).await.snapshot().await;
+        assert_eq!(recorded.len(), 1);
+        assert_eq!(recorded.get(&other).map(String::as_str), Some("c"));
+    }
+
     /// Instances written by a core built with `deno`: an atom instance, and a Minecraft
     /// instance with a macro and its stored config. A core without `deno` (or with code
     /// execution off) must start on them: it restores the Minecraft instance, skips the
     /// atom, and leaves every file as it was, so a core with `deno` brings them all back.
     #[tokio::test]
     async fn atoms_and_macros_on_disk_do_not_stop_startup() {
-        // restoring a Minecraft instance looks up the Lodestone paths, which no other test
-        // sets; never dropped, so the paths stay valid for the whole test run
-        static LODESTONE_DIR: std::sync::OnceLock<tempfile::TempDir> = std::sync::OnceLock::new();
-        let lodestone_dir = LODESTONE_DIR.get_or_init(|| tempfile::tempdir().unwrap());
-        try_init_paths(lodestone_dir.path().to_owned()).unwrap();
+        init_lodestone_paths();
 
         let dir = tempfile::tempdir().unwrap();
         let instances = dir.path().join("instances");
@@ -1488,7 +1654,10 @@ mod restore_tests {
             tokio::runtime::Handle::current(),
             CodeExecutionSwitch::new(false),
         );
-        let restored = restore_instances(&instances, tx, executor).await.unwrap();
+        let folders = InstanceFolders::load(dir.path().join("instance_folders.json")).await;
+        let restored = restore_instances(&instances, &folders, tx, executor)
+            .await
+            .unwrap();
 
         assert_eq!(restored.len(), 1);
         let server_instance = restored.get(&server_uuid).unwrap().value().clone();

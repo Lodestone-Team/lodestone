@@ -95,9 +95,11 @@ pub async fn create_generic_instance(
 
         // write dot lodestone config
         let written = match serde_json::to_string_pretty(&dot_lodestone_config) {
-            Ok(config) => tokio::fs::write(setup_path.join(".lodestone_config"), config)
-                .await
-                .context("Failed to write .lodestone_config file"),
+            Ok(config) => {
+                crate::persist::write_atomic(setup_path.join(".lodestone_config"), config, None)
+                    .await
+                    .context("Failed to write .lodestone_config file")
+            }
             Err(e) => Err(e).context("Failed to serialize .lodestone_config"),
         };
         if let Err(e) = written {
@@ -109,6 +111,13 @@ pub async fn create_generic_instance(
             return;
         }
 
+        if let Err(e) = state
+            .instance_folders
+            .record([(instance_uuid.clone(), setup_path)])
+            .await
+        {
+            error!("Failed to record the folder of instance {instance_uuid}: {e}");
+        }
         state
             .instances
             .insert(instance_uuid.clone(), instance.into());

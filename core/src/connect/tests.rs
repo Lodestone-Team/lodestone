@@ -111,9 +111,14 @@ async fn core() -> Core {
         tokio::runtime::Handle::current(),
         CodeExecutionSwitch::new(false),
     );
-    let restored = crate::restore_instances(&instances, state.event_broadcaster.clone(), executor)
-        .await
-        .unwrap();
+    let restored = crate::restore_instances(
+        &instances,
+        &state.instance_folders,
+        state.event_broadcaster.clone(),
+        executor,
+    )
+    .await
+    .unwrap();
     for (uuid, instance) in crate::snapshot_instances(&restored) {
         state.instances.insert(uuid, instance);
     }

@@ -177,6 +177,10 @@ impl DotLodestoneConfig {
         }
     }
 
+    pub(crate) fn regenerate_uuid(&mut self) {
+        self.uuid = InstanceUuid::default();
+    }
+
     pub fn uuid(&self) -> &InstanceUuid {
         &self.uuid
     }

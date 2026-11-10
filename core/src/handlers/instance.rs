@@ -188,10 +188,11 @@ pub(super) async fn spawn_minecraft_instance_creation(
 
     // write dot lodestone config
 
-    tokio::fs::write(
+    crate::persist::write_atomic(
         setup_path.join(".lodestone_config"),
         serde_json::to_string_pretty(&dot_lodestone_config)
             .context("Failed to serialize .lodestone_config")?,
+        None,
     )
     .await
     .context("Failed to write .lodestone_config file")?;
@@ -285,6 +286,13 @@ pub(super) async fn spawn_minecraft_instance_creation(
                 // the instance is still usable by the owner and admins
                 error!("Failed to update permissions: {:?}", e);
             }
+            if let Err(e) = state
+                .instance_folders
+                .record([(uuid.clone(), setup_path)])
+                .await
+            {
+                error!("Failed to record the folder of instance {uuid}: {e}");
+            }
             state
                 .instances
                 .insert(uuid.clone(), minecraft_instance.into());
@@ -351,6 +359,9 @@ pub async fn delete_instance(
                 i.destruct().await;
             };
             state.public_listing.forget(&uuid).await;
+            if let Err(e) = state.instance_folders.forget(&uuid).await {
+                error!("Failed to forget the folder of instance {uuid}: {e}");
+            }
             let res = crate::util::fs::remove_dir_all(instance_path).await;
             match &res {
                 Ok(_) => event_broadcaster.send(Event::new_progression_event_end(
