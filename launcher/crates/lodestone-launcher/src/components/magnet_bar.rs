@@ -58,6 +58,11 @@ const SHATTER: f32 = 0.28;
 const SPRING: f32 = 0.8;
 /// How long the filings take to draw back in.
 const GATHER: f32 = 0.45;
+/// No frame for this long and the window was away: minimized while the game ran, say.
+const AWAY: Duration = Duration::from_millis(250);
+/// Back from being away, the filings wait this long before drawing back in, for the
+/// window to finish coming back (Windows' restore, macOS's genie).
+const RETURNING: Duration = Duration::from_millis(300);
 /// The pointer's pull halves at about this distance; filings closest to it fade, and
 /// a ring around it brightens.
 const POINTER_REACH: f32 = 80.0;
@@ -510,6 +515,19 @@ impl Field {
         }
     }
 
+    /// A minimized window draws no frames, so the launcher, minimized while the game
+    /// ran, misses the filings drawing back in when it ends: the launch ends as the
+    /// window is brought back, and by the time it's on screen they nearly have. Back
+    /// from being away, they draw back in from the start, once the window is back.
+    fn hold_while_away(&mut self, now: Instant) {
+        let away = self
+            .last
+            .is_some_and(|last| now.saturating_duration_since(last) > AWAY);
+        if away && self.released.is_some() {
+            self.released = Some(now + RETURNING);
+        }
+    }
+
     /// Moves everything on and paints it. `bounds` is the filings' area in the
     /// window; `mouse` the pointer, in the window.
     fn paint(
@@ -527,6 +545,7 @@ impl Field {
         }
         self.lay_out(width, height);
         let now = Instant::now();
+        self.hold_while_away(now);
         let dt = self
             .last
             .map_or(0.0, |last| now.duration_since(last).as_secs_f32())
@@ -1093,5 +1112,23 @@ mod tests {
         let dim = look.dimmed();
         assert_eq!(dim.fill, look.fill.opacity(25));
         assert!(dim.gradient.is_none() && !dim.glow);
+    }
+
+    #[test]
+    fn draws_back_in_once_the_window_is_back() {
+        let look = MagnetLook::default();
+        let mut field = Field::new();
+        field.set_launch(Some(0.5), &look, false, false);
+        let shown = Instant::now();
+        field.last = Some(shown);
+        // the game ends while the window is still minimized
+        field.set_launch(None, &look, false, false);
+        let back = shown + Duration::from_secs(5);
+        field.hold_while_away(back);
+        assert_eq!(field.released, Some(back + RETURNING));
+        // frames drawn one after another leave it alone
+        field.last = Some(back);
+        field.hold_while_away(back + FRAME);
+        assert_eq!(field.released, Some(back + RETURNING));
     }
 }
