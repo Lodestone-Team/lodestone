@@ -74,6 +74,11 @@ export interface CoreInfo {
   product?: CoreProduct;
   /** What started the core. Missing on older cores: unknown. */
   launched_by?: LaunchedBy;
+  /**
+   * Whether other devices may use the core. Only apps on the core's computer see
+   * `false` (others are refused). Missing on older cores: `true`.
+   */
+  remote_access?: boolean;
 }
 
 /**

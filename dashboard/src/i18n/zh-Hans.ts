@@ -261,6 +261,11 @@ export const zhHans: Messages = {
   'shell.login.passwordRequired': '请输入密码',
   'shell.login.changeCore': '更换核心',
   'shell.login.signIn': '登录',
+  'common.localOnly':
+    '这个核心只允许它所在电脑上的应用使用。请在那台电脑上打开 Lodestone Host 来管理它，或在那里设置所有者账户（设置 › 常规 › 允许其他设备访问）以使用网页控制台。',
+  'shell.localOnly.title': '这个核心只允许它所在的电脑使用',
+  'shell.login.localOnly':
+    '这个核心只允许这台电脑上的应用使用。请打开 Lodestone Host 来管理它，或在那里设置所有者密码（设置 › 常规 › 允许其他设备访问）以使用网页控制台。',
 
   'shell.login.withApiKey': '使用 API 密钥登录',
   'shell.login.withPassword': '使用用户名和密码登录',
