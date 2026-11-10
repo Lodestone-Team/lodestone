@@ -763,6 +763,7 @@ impl ContentView {
                 },
             ))
             .child(chip)
+            .child(self.installed_chip(kind, cx))
             .into_any_element()
     }
 
@@ -819,6 +820,7 @@ impl ContentView {
         kind: ContentKind,
         index: usize,
         hit: &CfMod,
+        installed: bool,
         first: bool,
         cx: &mut Context<Self>,
     ) -> AnyElement {
@@ -897,18 +899,24 @@ impl ContentView {
                 .flex_none()
                 .text_color(crate::theme::ink::muted()),
             )
-            .child(
-                Button::new(("cf-install-hit", index), t(CommonMsg::Install))
-                    .variant(ButtonVariant::Primary)
-                    .size(ButtonSize::Slim)
-                    .loading(resolving)
-                    .disabled(busy || resolving)
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        // Not also the row's click, which opens the page.
-                        cx.stop_propagation();
-                        this.cf_install_hit(kind, id, cx)
-                    })),
-            )
+            .map(|this| {
+                if installed {
+                    this.child(super::view::installed_mark())
+                } else {
+                    this.child(
+                        Button::new(("cf-install-hit", index), t(CommonMsg::Install))
+                            .variant(ButtonVariant::Primary)
+                            .size(ButtonSize::Slim)
+                            .loading(resolving)
+                            .disabled(busy || resolving)
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                // Not also the row's click, which opens the page.
+                                cx.stop_propagation();
+                                this.cf_install_hit(kind, id, cx)
+                            })),
+                    )
+                }
+            })
             .into_any_element()
     }
 

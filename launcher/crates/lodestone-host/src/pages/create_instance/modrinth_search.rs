@@ -105,6 +105,7 @@ impl ModrinthSearchView {
         let input = cx.new(|cx| {
             TextInput::new(cx)
                 .with_leading_icon(Icon::MagnifyingGlass)
+                .with_clear_button()
                 .with_placeholder(placeholder)
         });
         let observe = cx.observe(&input, |this, _, cx| this.text_changed(cx));

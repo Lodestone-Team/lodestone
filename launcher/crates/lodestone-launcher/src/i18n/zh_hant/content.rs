@@ -16,6 +16,8 @@ pub fn text(message: M) -> &'static str {
         M::BrowseModrinth => "瀏覽 Modrinth",
         M::BrowseCurseForge => "瀏覽 CurseForge",
         M::BackToTop => "回到頂端",
+        M::AlreadyInstalled => "已安裝",
+        M::ShowInstalled => "顯示已安裝",
         M::InstalledCount => "已安裝 · {count}",
         M::EnabledCount => "已啟用 · {count} · 重疊時以最上面的包為準",
         M::AvailableCount => "可用 · {count}",

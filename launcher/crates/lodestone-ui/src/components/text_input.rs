@@ -167,6 +167,8 @@ pub struct TextInput {
     history: TextHistory,
     /// Shown before the text.
     leading_icon: Option<crate::components::Icon>,
+    /// A × after the text, while there is any, that empties the field.
+    clear_button: bool,
 }
 
 /// What a drag selects by, from how many clicks began it, as in GTK and browsers.
@@ -254,7 +256,15 @@ impl TextInput {
             autoscroll: None,
             history: TextHistory::default(),
             leading_icon: None,
+            clear_button: false,
         }
+    }
+
+    /// A × at the end of the field, shown while it has text, that empties it (as Escape
+    /// does in a search). For search fields.
+    pub fn with_clear_button(mut self) -> Self {
+        self.clear_button = true;
+        self
     }
 
     /// An icon at the start of the field, such as a magnifying glass for a search.
@@ -1161,6 +1171,8 @@ impl Render for TextInput {
         let automation_id = Some(self.automation_id.clone())
             .filter(|id| !id.is_empty())
             .unwrap_or_else(|| "text-input".into());
+        let clear_id = format!("{automation_id}-clear");
+        let clearable = self.clear_button && !self.content.is_empty() && !self.disabled;
         div()
             .id("text-input")
             .map(|this| {
@@ -1263,6 +1275,30 @@ impl Render for TextInput {
                 this.gap_2().child(icon.render(px(13.), colors::GRAY_500))
             })
             .child(TextElement { input: cx.entity() })
+            .when(clearable, |this| {
+                this.gap_2().child(
+                    div()
+                        .id("text-input-clear")
+                        .accessible(
+                            Role::Button,
+                            clear_id,
+                            crate::i18n::t(crate::i18n::CommonMsg::Clear),
+                        )
+                        .flex_none()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .size(px(20.))
+                        .rounded_full()
+                        .cursor(CursorStyle::PointingHand)
+                        .hover(|style| style.bg(colors::GRAY_700))
+                        .on_press(cx.listener(|this, _, window, cx| {
+                            this.set_text("", cx);
+                            this.focus_handle.focus(window, cx);
+                        }))
+                        .child(crate::components::Icon::Xmark.render(px(10.), colors::GRAY_400)),
+                )
+            })
     }
 }
 

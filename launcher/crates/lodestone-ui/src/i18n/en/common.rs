@@ -10,6 +10,8 @@ crate::i18n::messages! {
         Browse = "Browse…",
         Cancel = "Cancel",
         Change = "Change…",
+        /// The × at the end of a search field, which empties it.
+        Clear = "Clear",
         Close = "Close",
         Continue = "Continue",
         Copy = "Copy",
