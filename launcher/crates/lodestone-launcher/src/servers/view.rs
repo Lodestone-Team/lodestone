@@ -6,8 +6,8 @@ use crate::components::RichText;
 use crate::skin::Skinned;
 use crate::theme::px;
 use gpui::{
-    AnyElement, App, Context, Entity, IntoElement, Render, SharedString, Subscription, Window, div,
-    prelude::*,
+    AnimationExt as _, AnyElement, App, Context, Entity, IntoElement, Render, SharedString,
+    Subscription, Window, div, prelude::*,
 };
 use launcher_core::cores::{
     CoreError, CoreProduct, LaunchedBy, ServerInstance, ServerLoader, ServerState,
@@ -184,6 +184,72 @@ fn certificate_warning(
 }
 
 impl Servers {
+    /// Whether the row of server `server` on core `core` is the one the instance
+    /// page's link pointed at.
+    pub(super) fn highlighted(&self, core: &str, server: &str) -> bool {
+        self.highlight
+            .as_ref()
+            .is_some_and(|h| h.core == core && h.server == server)
+    }
+
+    /// Drawn first inside a highlighted row (which must be `relative`): a tint that
+    /// fades out, and, the first time it is laid out, a scroll that brings the row to
+    /// the middle of the page.
+    pub(super) fn highlight_overlay(&self) -> Option<AnyElement> {
+        let highlight = self.highlight.as_ref()?;
+        let (pending, scroll) = (highlight.scroll.clone(), self.page_scroll.clone());
+        let tint = theme::accent::light();
+        let fade = gpui::Animation::new(std::time::Duration::from_millis(2400))
+            .with_easing(gpui::ease_in_out);
+        let still = crate::components::prefers_reduced_motion();
+        Some(
+            div()
+                .absolute()
+                .inset_0()
+                .bg(tint.opacity(18))
+                .border_1()
+                .border_color(tint.opacity(60))
+                .child(
+                    gpui::canvas(
+                        move |row, window, _| {
+                            if !pending.get() {
+                                return;
+                            }
+                            let view = scroll.bounds();
+                            if view.size.height <= gpui::px(0.) {
+                                // the page isn't laid out yet: try on the next frame
+                                window.refresh();
+                                return;
+                            }
+                            pending.set(false);
+                            let offset = scroll.offset();
+                            let max = scroll.max_offset();
+                            let shift = row.center().y - view.center().y;
+                            let y = (offset.y - shift).clamp(-max.y, gpui::px(0.));
+                            scroll.set_offset(gpui::point(offset.x, y));
+                            window.refresh();
+                        },
+                        |_, _, _, _| {},
+                    )
+                    .size_full(),
+                )
+                .with_animation(
+                    ("server-highlight", highlight.generation as usize),
+                    fade,
+                    move |this, delta| {
+                        // full for the first half, then fading out
+                        let left = if still {
+                            1.0
+                        } else {
+                            (2.0 - 2.0 * delta).min(1.0)
+                        };
+                        this.opacity(left)
+                    },
+                )
+                .into_any_element(),
+        )
+    }
+
     fn server_row(
         &self,
         core: &CoreEntry,
@@ -340,10 +406,15 @@ impl Servers {
                 .child(name)
                 .into_any_element()
         };
+        let overlay = self
+            .highlighted(&core_uuid, &server.uuid)
+            .then(|| self.highlight_overlay())
+            .flatten();
         div()
             .id(element_id.clone())
             .accessible(Role::ListItem, element_id, server.name.clone())
             .aria_description(description)
+            .relative()
             .flex()
             .flex_row()
             .items_center()
@@ -352,6 +423,7 @@ impl Servers {
             .py_2p5()
             .border_t_1()
             .border_color(crate::theme::ink::border())
+            .children(overlay)
             .map(|this| match power {
                 Some(power) => this.child(power),
                 None if server.state != ServerState::Hidden => this.child(
@@ -1240,6 +1312,7 @@ impl Render for Servers {
             .flex_col()
             .size_full()
             .overflow_y_scroll()
+            .track_scroll(&self.page_scroll)
             .px_8()
             .py_6()
             .gap_4()

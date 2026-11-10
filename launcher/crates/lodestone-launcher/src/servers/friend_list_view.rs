@@ -844,9 +844,20 @@ impl Servers {
         );
         let (play_key, play_fp, play_server) =
             (key.to_string(), fingerprint.to_string(), server.clone());
+        // an instance page's link to this server: its link's core is the server's id
+        let link_id =
+            launcher_core::cores::friends::friend_list_id(fingerprint, &server.instance_uuid);
+        let overlay = self
+            .highlight
+            .as_ref()
+            .is_some_and(|h| h.core == link_id)
+            .then(|| self.highlight_overlay())
+            .flatten();
         div()
             .id(SharedString::from(id.clone()))
             .accessible(Role::ListItem, id.clone(), server.name.clone())
+            .relative()
+            .children(overlay)
             .flex()
             .flex_row()
             .items_center()

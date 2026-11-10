@@ -53,6 +53,8 @@ pub const SCENES: &[&str] = &[
     "servers-rows",
     "servers-open-title",
     "servers-history-back",
+    "servers-highlight",
+    "servers-highlight-friend",
     "servers-friends",
     "servers-friends-relay",
     "servers-join-paste",
@@ -494,7 +496,11 @@ fn apply_servers(scene: &str, servers: &mut Servers, cx: &mut Context<Servers>) 
             servers.preview(Vec::new(), Vec::new());
             super::friend_list::apply(scene, servers, cx);
         }
-        "servers-rows" | "servers-open-title" | "servers-history-back" => apply_rows(servers),
+        "servers-rows"
+        | "servers-open-title"
+        | "servers-history-back"
+        | "servers-highlight"
+        | "servers-highlight-friend" => apply_rows(servers),
         "servers-shared-local" | "servers-shared-local-gone" => {
             apply_shared_local(scene == "servers-shared-local", servers)
         }
@@ -829,6 +835,25 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
         });
         shell.note_place(cx);
         shell.go_back(cx);
+    }
+    // an instance page's "Linked to …" pressed: the server's row flashes
+    if scene == "servers-highlight" {
+        servers.update(cx, |servers, cx| {
+            servers.highlight_server("home", "creative", cx)
+        });
+    }
+    // the same for a friend's server further down: the page scrolls to it
+    if scene == "servers-highlight-friend" {
+        let invite = Invite::parse(&format!(
+            "https://connect.lodestone.cc/j/ABCDEFGH23#{}.{}",
+            "ab".repeat(32),
+            "01".repeat(16)
+        ))
+        .expect("a made-up invite");
+        let id = launcher_core::cores::friends::friend_id(&invite);
+        servers.update(cx, |servers, cx| {
+            servers.highlight_server(&id, "alex-s-smp", cx)
+        });
     }
     if scene == "servers-add" {
         servers.update(cx, |servers, cx| {
