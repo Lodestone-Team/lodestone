@@ -9,6 +9,7 @@ use gpui::{
     Window, div, prelude::FluentBuilder as _,
 };
 use launcher_core::settings::Language;
+use lodestone_ui::components::menu_toggle;
 use lodestone_ui::{
     components::{
         Button, ButtonSize, DialogSlot, ListRow, Toggle,
@@ -63,7 +64,7 @@ fn theme_name(theme: Theme) -> (&'static str, &'static str) {
 }
 
 /// The Appearance dropdown that is open, if any.
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum Menu {
     Language,
     Theme,
@@ -202,7 +203,11 @@ impl ProfilePage {
         .expandable(open, move |_, cx| {
             page.update(cx, |this, cx| this.toggle_menu(menu, cx)).ok();
         })
-        .on_press(cx.listener(move |this, _, _, cx| this.toggle_menu(menu, cx)));
+        .on_press(cx.listener(move |this, event, _, cx| {
+            if menu_toggle::toggles(&format!("{menu:?}"), event) {
+                this.toggle_menu(menu, cx)
+            }
+        }));
         div()
             .flex()
             .flex_col()
@@ -211,7 +216,10 @@ impl ProfilePage {
             .when(open, |this| {
                 let mut panel = popover_panel(SharedString::from(format!("{id}-list")))
                     .min_w(px(200.))
-                    .on_mouse_down_out(cx.listener(|this, _, _, cx| {
+                    .on_mouse_down_out(cx.listener(|this, event, _, cx| {
+                        if let Some(menu) = this.menu {
+                            menu_toggle::closed_by(format!("{menu:?}"), event);
+                        }
                         this.menu = None;
                         cx.notify();
                     }));

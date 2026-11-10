@@ -7,6 +7,7 @@
 //! below: one box for the server's game version and loader, the "Installed" tag, and
 //! whether players need a mod).
 
+use lodestone_ui::components::menu_toggle;
 use std::{collections::HashSet, time::Duration};
 
 use gpui::{
@@ -334,7 +335,10 @@ impl ModrinthSearchView {
                             .aria_label(t(M::SortLabel))
                             .min_w(px(176.))
                             .justify_between()
-                            .on_press(cx.listener(|this, _, _, cx| {
+                            .on_press(cx.listener(|this, event, _, cx| {
+                                if !menu_toggle::toggles("modrinth-sort", event) {
+                                    return;
+                                }
                                 this.sort_open = !this.sort_open;
                                 cx.notify();
                             })),
@@ -374,7 +378,8 @@ impl ModrinthSearchView {
                                 "modrinth-sort-popover",
                                 popover_panel("modrinth-sort-list")
                                     .min_w(px(176.))
-                                    .on_mouse_down_out(cx.listener(|this, _, _, cx| {
+                                    .on_mouse_down_out(cx.listener(|this, event, _, cx| {
+                                        menu_toggle::closed_by("modrinth-sort", event);
                                         this.sort_open = false;
                                         cx.notify();
                                     }))

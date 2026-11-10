@@ -10,6 +10,7 @@ use gpui::{
     uniform_list,
 };
 use lodestone_minecraft::versions::mojang::{MojangVersion, MojangVersionType};
+use lodestone_ui::components::menu_toggle;
 
 use launcher_core::content::{
     ContentKind,
@@ -1056,7 +1057,10 @@ impl NewInstanceDialog {
                     .expandable(self.versions_open, toggle)
                     .w(px(300.))
                     .justify_between()
-                    .on_press(cx.listener(|this, _, window, cx| {
+                    .on_press(cx.listener(|this, event, window, cx| {
+                        if !menu_toggle::toggles("game-version", event) {
+                            return;
+                        }
                         this.versions_open = !this.versions_open;
                         if this.versions_open {
                             // Type to search straight away.
@@ -1110,7 +1114,8 @@ impl NewInstanceDialog {
         popover_panel("game-version-list")
             .w(px(420.))
             .gap_2()
-            .on_mouse_down_out(cx.listener(|this, _, _, cx| {
+            .on_mouse_down_out(cx.listener(|this, event, _, cx| {
+                menu_toggle::closed_by("game-version", event);
                 this.versions_open = false;
                 cx.notify();
             }))

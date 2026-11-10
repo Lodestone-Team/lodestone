@@ -6,6 +6,7 @@
 //! their passwords and permissions, and sees their API keys and Minecraft accounts.
 //! Everyone else sees that only the owner manages users.
 
+use lodestone_ui::components::menu_toggle;
 use std::rc::Rc;
 
 use gpui::{
@@ -327,7 +328,10 @@ impl UsersPage {
                 SharedString::from(format!("user-menu-{uid}")),
                 settings::popover_panel(SharedString::from(format!("user-menu-panel-{uid}")))
                     .w(px(200.))
-                    .on_mouse_down_out(cx.listener(|this, _, _, cx| {
+                    .on_mouse_down_out(cx.listener(|this, event, _, cx| {
+                        if let Some(uid) = &this.menu {
+                            menu_toggle::closed_by(format!("user-menu-{uid}"), event);
+                        }
                         this.menu = None;
                         cx.notify();
                     }))
@@ -403,14 +407,19 @@ impl UsersPage {
                             Icon::Ellipsis,
                         )
                         .label(t(CommonMsg::MoreActions))
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.menu = if this.menu.as_deref() == Some(&menu_uid) {
-                                None
-                            } else {
-                                Some(menu_uid.clone())
-                            };
-                            cx.notify();
-                        })),
+                        .on_click(cx.listener(
+                            move |this, event, _, cx| {
+                                if !menu_toggle::toggles(&format!("user-menu-{menu_uid}"), event) {
+                                    return;
+                                }
+                                this.menu = if this.menu.as_deref() == Some(&menu_uid) {
+                                    None
+                                } else {
+                                    Some(menu_uid.clone())
+                                };
+                                cx.notify();
+                            },
+                        )),
                     )
                     .children(menu),
             )

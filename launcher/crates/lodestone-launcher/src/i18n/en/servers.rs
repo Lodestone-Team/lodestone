@@ -83,7 +83,7 @@ crate::i18n::messages! {
         // ===== A server's row =====
         CreateInstance = "Create instance",
         StartAndJoin = "Start and join",
-        Play = "Play",
+        Play = "Play and join",
         /// A tag next to a server's name: it is shared with friends through an invite
         /// link.
         SharedTag = "Shared",

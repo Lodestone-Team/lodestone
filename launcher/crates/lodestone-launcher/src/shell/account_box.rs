@@ -9,6 +9,7 @@ use gpui::{
 };
 use launcher_core::accounts::{Account, AccountKind};
 use launcher_core::ui_skin::SurfaceId;
+use lodestone_ui::components::menu_toggle;
 
 use super::LauncherShell;
 use crate::{
@@ -128,7 +129,11 @@ pub fn render_compact(shell: &LauncherShell, cx: &mut Context<LauncherShell>) ->
             }
         })
         .tooltip(crate::components::text_tooltip(name))
-        .on_press(cx.listener(move |this, _, _, cx| this.set_account_menu(!menu_open, cx)))
+        .on_press(cx.listener(move |this, event, _, cx| {
+            if menu_toggle::toggles("account", event) {
+                this.set_account_menu(!menu_open, cx)
+            }
+        }))
         .child(avatar(accounts, active.as_ref(), px(32.)));
     div()
         .child(button)
@@ -181,7 +186,11 @@ pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl In
                     .hover(|style| style.bg(crate::skin::sidebar_inks().fill))
             }
         })
-        .on_press(cx.listener(move |this, _, _, cx| this.set_account_menu(!menu_open, cx)))
+        .on_press(cx.listener(move |this, event, _, cx| {
+            if menu_toggle::toggles("account", event) {
+                this.set_account_menu(!menu_open, cx)
+            }
+        }))
         .child(avatar)
         .child(
             div()
@@ -380,7 +389,10 @@ fn menu(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoElem
             spread_radius: px(0.),
             inset: false,
         }])
-        .on_mouse_down_out(cx.listener(|this, _, _, cx| this.set_account_menu(false, cx)))
+        .on_mouse_down_out(cx.listener(|this, event, _, cx| {
+            menu_toggle::closed_by("account", event);
+            this.set_account_menu(false, cx)
+        }))
         .children(rows)
         .when(active_offline, |this| {
             this.child(
