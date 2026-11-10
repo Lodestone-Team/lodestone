@@ -19,22 +19,27 @@ authors = ["Lodestone Team"]
 publish = false
 
 [workspace.dependencies]
-# GPUI from Zed's latest stable release, v1.27.0, plus one fix on the fork's
-# `lodestone/idle-vsync-v1.27` branch: on Windows, the vsync thread only wakes windows
-# that need a frame, so an idle app uses no CPU (it redrew every window on every vblank).
-# Upstream: https://github.com/zed-industries/zed/pull/66796. When bumping, rebase that
-# branch onto the new tag, or go back to zed-industries/zed once the fix is upstream. Bump
-# `rev` together with the `[patch.crates-io]` entries below, which mirror Zed's own at the
-# same tag.
-gpui = { git = "https://github.com/3Nya3/zed", rev = "c0a82fc65581c18240c4273e4d5b094ff3622dac", default-features = false }
-gpui_platform = { git = "https://github.com/3Nya3/zed", rev = "c0a82fc65581c18240c4273e4d5b094ff3622dac", default-features = false }
+# GPUI from Zed's latest stable release, v1.27.0, plus two fixes on our fork's
+# `lodestone/idle-v1.27` branch, so an idle window uses no CPU on either platform
+# (otherwise about 1% of a core, woken on every vblank with nothing to draw):
+# - Windows: the vsync thread only wakes windows that need a frame (Sunny's commit from
+#   3Nya3/zed). Upstream: https://github.com/zed-industries/zed/pull/66796.
+# - macOS: a window's CVDisplayLink stops while GPUI wants no frames, and GPUI's frame
+#   waker starts it again. Upstream fixed this in v1.28 with a paused CAMetalDisplayLink:
+#   https://github.com/zed-industries/zed/pull/65472.
+# When bumping to v1.28 or later, drop the macOS commit (#65472 covers it), rebase the
+# Windows one onto the new tag, or go back to zed-industries/zed once both are upstream.
+# Bump `rev` together with the `[patch.crates-io]` entries below, which mirror Zed's own
+# at the same tag.
+gpui = { git = "https://github.com/Lodestone-Team/zed", rev = "5ca224b2fbf8d70e513e175791bd1158869e2c3c", default-features = false }
+gpui_platform = { git = "https://github.com/Lodestone-Team/zed", rev = "5ca224b2fbf8d70e513e175791bd1158869e2c3c", default-features = false }
 # Zed's HTTP client: the `HttpClient` trait and its reqwest implementation (rustls with
 # the platform verifier), from the same rev as GPUI.
-http_client = { git = "https://github.com/3Nya3/zed", rev = "c0a82fc65581c18240c4273e4d5b094ff3622dac" }
-reqwest_client = { git = "https://github.com/3Nya3/zed", rev = "c0a82fc65581c18240c4273e4d5b094ff3622dac" }
+http_client = { git = "https://github.com/Lodestone-Team/zed", rev = "5ca224b2fbf8d70e513e175791bd1158869e2c3c" }
+reqwest_client = { git = "https://github.com/Lodestone-Team/zed", rev = "5ca224b2fbf8d70e513e175791bd1158869e2c3c" }
 # The same TLS settings (rustls with the platform verifier) for a core's WebSocket
 # streams, which don't go through the HTTP client.
-http_client_tls = { git = "https://github.com/3Nya3/zed", rev = "c0a82fc65581c18240c4273e4d5b094ff3622dac" }
+http_client_tls = { git = "https://github.com/Lodestone-Team/zed", rev = "5ca224b2fbf8d70e513e175791bd1158869e2c3c" }
 
 launcher-core = { path = "crates/launcher-core" }
 # What Lodestone Launcher and Lodestone Host share on screen.
