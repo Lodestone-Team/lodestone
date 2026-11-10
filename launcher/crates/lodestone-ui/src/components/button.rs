@@ -2,8 +2,8 @@ use crate::theme::px;
 use std::time::Duration;
 
 use gpui::{
-    Animation, AnimationExt as _, App, ClickEvent, ElementId, Hsla, IntoElement, ParentElement,
-    RenderOnce, SharedString, Styled, Window, div, prelude::*,
+    App, ClickEvent, ElementId, Hsla, IntoElement, ParentElement, RenderOnce, SharedString, Styled,
+    Window, div, prelude::*,
 };
 
 use super::{
@@ -428,21 +428,86 @@ impl RenderOnce for LoadingDots {
 }
 
 /// [`LoadingDots`] in `color`, for over an image or a dark scrim.
-pub fn loading_dots(color: Color) -> impl IntoElement {
-    let dot = |index: usize| {
-        div().size(px(5.)).rounded_full().bg(color).with_animation(
-            ("loading-dot", index),
-            Animation::new(Duration::from_millis(700))
-                .repeat()
-                .with_easing(gpui::pulsating_between(0.2, 1.0)),
-            move |dot, delta| {
-                // Offset each dot's phase so the pulse travels across them.
-                let phase = (delta + index as f32 / 3.0) % 1.0;
-                dot.opacity(phase)
-            },
-        )
-    };
-    div().flex().gap(px(3.)).children((0..3).map(dot))
+pub fn loading_dots(color: Color) -> ColoredLoadingDots {
+    ColoredLoadingDots(color)
+}
+
+/// [`LoadingDots`] in a colour: see [`loading_dots`].
+#[derive(IntoElement)]
+pub struct ColoredLoadingDots(Color);
+
+/// One pulse of the dots.
+const DOTS_CYCLE: Duration = Duration::from_millis(700);
+/// How often the dots move. Each move redraws the whole window, so they step 20 times
+/// a second instead of animating at the display's rate: that kept the window drawing
+/// 60 to 240 frames a second for as long as anything showed them (a sign-in, a
+/// download), for three 5-pixel dots.
+const DOTS_STEP: Duration = Duration::from_millis(50);
+
+impl RenderOnce for ColoredLoadingDots {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let color = self.0;
+        // With reduced motion the dots stand still, as GPUI's repeating animations do.
+        let at = if cx.reduce_motion() {
+            0.0
+        } else {
+            dots_step(window, cx)
+        };
+        let delta = gpui::pulsating_between(0.2, 1.0)(at);
+        div().flex().gap(px(3.)).children((0..3).map(|index| {
+            // Offset each dot's phase so the pulse travels across them.
+            let phase = (delta + index as f32 / 3.0) % 1.0;
+            div().size(px(5.)).rounded_full().bg(color).opacity(phase)
+        }))
+    }
+}
+
+/// The views showing loading dots, all redrawn together at the next step.
+struct DotsTicker {
+    epoch: std::time::Instant,
+    views: std::collections::HashSet<gpui::EntityId>,
+    running: bool,
+}
+
+impl gpui::Global for DotsTicker {}
+
+/// Where the dots are in their pulse (0 to 1) at the current step, after asking for the
+/// view drawing them to be drawn again at the next one. One timer serves every view,
+/// and stops once a step finds none that drew dots since the last.
+fn dots_step(window: &Window, cx: &mut App) -> f32 {
+    let now = std::time::Instant::now();
+    if !cx.has_global::<DotsTicker>() {
+        cx.set_global(DotsTicker {
+            epoch: now,
+            views: Default::default(),
+            running: false,
+        });
+    }
+    let ticker = cx.global_mut::<DotsTicker>();
+    ticker.views.insert(window.current_view());
+    let step = now.saturating_duration_since(ticker.epoch).as_nanos() / DOTS_STEP.as_nanos();
+    let at = (step * DOTS_STEP.as_nanos()) % DOTS_CYCLE.as_nanos();
+    if !std::mem::replace(&mut ticker.running, true) {
+        cx.spawn(async move |cx| {
+            loop {
+                cx.background_executor().timer(DOTS_STEP).await;
+                let more = cx.update(|cx| {
+                    let ticker = cx.global_mut::<DotsTicker>();
+                    let views = std::mem::take(&mut ticker.views);
+                    ticker.running = !views.is_empty();
+                    for view in &views {
+                        cx.notify(*view);
+                    }
+                    !views.is_empty()
+                });
+                if !more {
+                    break;
+                }
+            }
+        })
+        .detach();
+    }
+    at as f32 / DOTS_CYCLE.as_nanos() as f32
 }
 
 /// A square button with only an icon, after the dashboard's `IconButton` atom.
