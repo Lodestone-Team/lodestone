@@ -10,7 +10,7 @@ use launcher_core::{
     cores::{
         ServerState,
         connect::{JoinError, Stage},
-        friends::InstanceMatch,
+        friends::{InstanceMatch, Placement},
     },
     ui_skin::SurfaceId,
 };
@@ -70,13 +70,16 @@ fn online_line(status: &FriendStatus) -> Option<String> {
 }
 
 impl Servers {
-    /// "Friends' servers": the ones joined before, and "Join a friend".
+    /// "Friends' servers": the ones joined before, and "Join a friend". Those shared
+    /// from a core on this computer show under it in "On this computer" instead.
     pub(super) fn render_friends(&self, cx: &mut Context<Self>) -> AnyElement {
+        let local = self.local_cores();
         let rows: Vec<AnyElement> = self
             .friends
             .list
             .iter()
-            .map(|entry| self.friend_row(entry, cx))
+            .filter(|entry| entry.saved.placement(&local) == Placement::Friends)
+            .map(|entry| self.friend_row(entry, false, cx))
             .collect();
         let empty = rows.is_empty();
         div()
@@ -138,9 +141,23 @@ impl Servers {
             .into_any_element()
     }
 
-    fn friend_row(&self, entry: &FriendEntry, cx: &mut Context<Self>) -> AnyElement {
+    /// A friend's server's row. `here`: it is shared from a core on this computer, and
+    /// shows under that core in "On this computer".
+    pub(super) fn friend_row(
+        &self,
+        entry: &FriendEntry,
+        here: bool,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let saved = &entry.saved;
         let id = saved.id.clone();
+        // shared from this computer: as the core's owner the launcher would join it
+        // directly (and the core's own list shows it, so it isn't here)
+        let not_owner = here
+            && !self
+                .local_cores()
+                .iter()
+                .any(|core| core.uuid == saved.core_uuid && core.owner);
         let row_id = format!("friend-{}", saved.id.replace([':', '/', '.'], "-"));
         let playing = self
             .friends
@@ -206,11 +223,19 @@ impl Servers {
                             .text_color(crate::theme::ink::text())
                             .child(saved.name.clone()),
                     )
-                    .child(note(format!(
-                        "{} · {}",
-                        server_detail(&as_server),
-                        tr!(M::SharedBy, name = saved.core_name)
-                    )))
+                    .child(note(if here {
+                        // under the core that shares it
+                        server_detail(&as_server)
+                    } else {
+                        format!(
+                            "{} · {}",
+                            server_detail(&as_server),
+                            tr!(M::SharedBy, name = saved.core_name)
+                        )
+                    }))
+                    .when(not_owner, |this| {
+                        this.child(note(t(M::ConnectToJoinDirectly)))
+                    })
                     .children(status.map(|(line, color)| note(line).text_color(color)))
                     // the same every session: for Minecraft's server list
                     .children(saved.game_port.map(|port| {
@@ -549,11 +574,15 @@ pub fn join_dialog(servers: &Entity<Servers>, prompt: &JoinPrompt, cx: &App) -> 
                 ))
                 .child(fact(
                     t(M::FactConnection),
-                    tr!(
-                        M::ConnectedVia,
-                        how = connection_label(session.kind()),
-                        ms = session.rtt().as_millis().to_string()
-                    ),
+                    if session.is_direct() {
+                        t(M::DirectConnection).to_string()
+                    } else {
+                        tr!(
+                            M::ConnectedVia,
+                            how = connection_label(session.kind()),
+                            ms = session.rtt().as_millis().to_string()
+                        )
+                    },
                 ))
                 .child(
                     fact(t(M::Address), session.address.clone())

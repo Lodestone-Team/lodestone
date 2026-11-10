@@ -354,6 +354,10 @@ pub fn text(message: M) -> &'static str {
             "好友在 Lodestone Host 中共享伺服器後，會得到一個邀請連結。開啟該連結，或點選「加入好友」將其貼上到這裡。"
         }
         M::SharedBy => "由 {name} 共享",
+        M::SharedWithFriends => "已與好友分享",
+        M::SharedWithFriendsHint => "你透過它們的邀請連結加入過這些伺服器。",
+        M::ConnectToJoinDirectly => "以擁有者身分連線後即可直接加入，無需通道。",
+        M::DirectConnection => "在這台電腦上直接連線，無需通道",
         M::FriendCheck => "檢查",
         M::FriendChecking => "正在檢查…",
         M::FriendPlayingNow => "正在遊戲中",
