@@ -269,6 +269,12 @@ pub fn text(message: M) -> &'static str {
         M::WatchFolderPrompt => "Surveiller ce dossier",
         M::CouldntAddDownload => "Impossible d’ajouter {name}\u{a0}: {error}",
         M::AddedDownloads => "{names} ajouté(s).",
+        M::DisableModTitle => "Désactiver {name} ?",
+        M::DisableModOnlyWarning => {
+            "Si seul {name} est désactivé, le jeu ne démarrera pas tant qu’ils ne sont pas désactivés aussi ou que {name} n’est pas réactivé."
+        }
+        M::DisableModAll => "Tout désactiver",
+        M::DisableModOnly => "Seulement {name}",
     }
 }
 
@@ -277,6 +283,10 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::Downloads => ["{count} téléchargement", "{count} téléchargements"],
         P::Follows => ["{count} abonné", "{count} abonnés"],
         P::Followers => ["{count} abonné", "{count} abonnés"],
+        P::NeededBy => [
+            "{count} mod a besoin de {name} et ne se chargera pas sans lui :",
+            "{count} mods ont besoin de {name} et ne se chargeront pas sans lui :",
+        ],
         P::MoreVersions => [
             "{count} autre version est sur Modrinth.",
             "{count} autres versions sont sur Modrinth.",

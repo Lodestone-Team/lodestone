@@ -279,6 +279,11 @@ crate::i18n::messages! {
         CouldntAddDownload = "Couldn't add {name}: {error}",
         /// {names} is the list of files the user downloaded.
         AddedDownloads = "Added {names}.",
+        /// Turning off a mod other enabled mods need: "Turn off Fabric API?"
+        DisableModTitle = "Turn off {name}?",
+        DisableModOnlyWarning = "With only {name} off, the game won't start until they're off too or {name} is back on.",
+        DisableModAll = "Turn them all off",
+        DisableModOnly = "Only {name}",
     }
 
     pub enum ContentPlural {
@@ -286,5 +291,7 @@ crate::i18n::messages! {
         Follows = ("{count} follow", "{count} follows"),
         Followers = ("{count} follower", "{count} followers"),
         MoreVersions = ("{count} more version is on Modrinth.", "{count} more versions are on Modrinth."),
+        /// Over the list of mods that need the one being turned off.
+        NeededBy = ("{count} mod needs {name} and won't load without it:", "{count} mods need {name} and won't load without it:"),
     }
 }

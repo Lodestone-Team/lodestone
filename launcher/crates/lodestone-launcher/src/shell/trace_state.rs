@@ -30,6 +30,7 @@ impl Modal {
             Modal::OfferMain { .. } => "offer_main",
             Modal::ConfirmMain { .. } => "confirm_main",
             Modal::DeleteInstance { .. } => "delete_instance",
+            Modal::DisableMod { .. } => "disable_mod",
             Modal::SignIn { .. } => "sign_in",
             Modal::Offline { .. } => "offline_account",
             Modal::RemoveAccount { .. } => "remove_account",

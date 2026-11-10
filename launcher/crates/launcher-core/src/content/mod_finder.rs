@@ -137,6 +137,49 @@ impl Mods {
     }
 }
 
+/// A mod that can't load without another.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Dependent {
+    /// Its file name (it is enabled, so without `.disabled`).
+    pub file_name: String,
+    pub name: String,
+}
+
+/// The enabled mods that couldn't load once `file_name` (an enabled mod's file name)
+/// is turned off: those that require an id only it gives, then those that need them,
+/// and so on, sorted by name. A mod that another enabled mod can stand in for (both
+/// give the id) is no one's only source, and ids no mod gives (`minecraft`, the
+/// loader's) don't count. Opens every enabled jar, so call it off the window's thread.
+pub fn dependents(dirs: &InstanceDirs, file_name: &str) -> Vec<Dependent> {
+    let file_name = enabled_name(file_name);
+    let enabled: Vec<String> = scan::scan(dirs, ContentKind::Mod)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|file| file.enabled_by_name() && !file.is_dir)
+        .map(|file| file.file_name)
+        .collect();
+    if !enabled.contains(&file_name) {
+        return Vec::new();
+    }
+    let mods = Mods::read(dirs, &enabled);
+    let off = mods.closure(&BTreeSet::from([file_name.clone()]));
+    let mut dependents: Vec<Dependent> = off
+        .into_iter()
+        .filter(|file| *file != file_name)
+        .map(|file| Dependent {
+            name: mods.name(&file),
+            file_name: file,
+        })
+        .collect();
+    dependents.sort_by(|a, b| {
+        a.name
+            .to_lowercase()
+            .cmp(&b.name.to_lowercase())
+            .then_with(|| a.file_name.cmp(&b.file_name))
+    });
+    dependents
+}
+
 /// The mod ids a jar gives and requires, from its metadata and its bundled jars'.
 fn read_ids(path: &std::path::Path) -> (Vec<String>, Vec<String>) {
     let Some(mut archive) = File::open(path)

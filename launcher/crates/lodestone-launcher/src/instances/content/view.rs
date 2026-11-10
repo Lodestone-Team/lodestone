@@ -946,7 +946,7 @@ impl ContentView {
                         this.child(
                             Toggle::new(("enabled", id_base), enabled)
                                 .label(row_name.clone())
-                                .disabled(busy)
+                                .disabled(busy || self.checking_dependents.as_ref() == Some(&name))
                                 .on_change(cx.listener(
                                     move |this, value: &bool, _, cx| match kind {
                                         ContentKind::Mod => {

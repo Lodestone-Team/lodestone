@@ -187,6 +187,11 @@ enum Modal {
         current: String,
         focus: FocusHandle,
     },
+    /// "Turn off Fabric API?": a mod other enabled mods need, from the Content tab.
+    DisableMod {
+        prompt: crate::instances::content::DisablePrompt,
+        focus: FocusHandle,
+    },
     DeleteInstance {
         id: String,
         name: String,
@@ -418,6 +423,13 @@ impl LauncherShell {
         let mut observe = observe;
         observe.push(cx.subscribe(&content, |this, _, event, cx| match event {
             ContentEvent::NewFabricInstance => this.open_new_instance_with_loader(cx),
+            ContentEvent::ConfirmDisable(prompt) => {
+                let modal = Modal::DisableMod {
+                    prompt: prompt.clone(),
+                    focus: cx.focus_handle(),
+                };
+                this.modal.open(modal, cx);
+            }
         }));
         let worlds = cx.new(|cx| WorldsView::new(instances.clone(), cx));
         observe.push(cx.subscribe(&worlds, |this, _, event, cx| {
@@ -1145,6 +1157,16 @@ impl LauncherShell {
 
     pub fn settings_view(&self) -> Option<&Entity<InstanceSettings>> {
         self.settings.as_ref().map(|(settings, _)| settings)
+    }
+
+    /// Shows "Turn off Fabric API?", for the offscreen screenshots.
+    pub fn preview_disable_mod(
+        &mut self,
+        prompt: crate::instances::content::DisablePrompt,
+        cx: &mut Context<Self>,
+    ) {
+        let focus = cx.focus_handle();
+        self.modal.open(Modal::DisableMod { prompt, focus }, cx);
     }
 
     /// Shows the launch error dialog, for the offscreen screenshots.
@@ -2101,6 +2123,83 @@ impl LauncherShell {
         self.set_account_menu(true, cx);
     }
 
+    /// "Turn off Fabric API?": lists the enabled mods that can't load without it, and
+    /// turns them off with it, or it alone.
+    fn render_disable_mod(
+        &self,
+        prompt: &crate::instances::content::DisablePrompt,
+        focus: FocusHandle,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        use crate::i18n::{ContentMsg as CM, ContentPlural as CP};
+        let name = prompt.name.clone();
+        let all: Vec<String> = std::iter::once(prompt.file_name.clone())
+            .chain(prompt.dependents.iter().map(|d| d.file_name.clone()))
+            .collect();
+        let only = vec![prompt.file_name.clone()];
+        let instance = prompt.instance_id.clone();
+        let entity = cx.entity();
+        let disable = |files: Vec<String>| {
+            let (entity, instance) = (entity.clone(), instance.clone());
+            move |_: &gpui::ClickEvent, _: &mut Window, cx: &mut gpui::App| {
+                entity.update(cx, |this, cx| {
+                    this.content.update(cx, |content, cx| {
+                        content.disable_mods(&instance, &files, cx)
+                    });
+                    this.close_modal(cx);
+                })
+            }
+        };
+        let list = div()
+            .flex()
+            .flex_col()
+            .gap_1()
+            .py_2()
+            .px_3()
+            .rounded(radius::LG)
+            .bg(colors::GRAY_900)
+            .text_color(crate::theme::ink::text())
+            .children(prompt.dependents.iter().map(|dependent| {
+                div()
+                    .flex()
+                    .flex_row()
+                    .gap_2()
+                    .child(div().text_color(crate::theme::ink::muted()).child("•"))
+                    .child(dependent.name.clone())
+            }));
+        Dialog::new("disable-mod", tr!(CM::DisableModTitle, name = name), focus)
+            .on_close({
+                let entity = entity.clone();
+                move |_, cx| entity.update(cx, |this, cx| this.close_modal(cx))
+            })
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_3()
+                    .text_color(crate::theme::ink::secondary())
+                    .child(trn!(CP::NeededBy, prompt.dependents.len(), name = name))
+                    .child(list)
+                    .child(
+                        div()
+                            .text_size(theme::text_size(text::SMALL))
+                            .text_color(crate::theme::ink::muted())
+                            .child(tr!(CM::DisableModOnlyWarning, name = name)),
+                    ),
+            )
+            .footer(
+                Button::new("disable-mod-all", t(CM::DisableModAll))
+                    .variant(ButtonVariant::Primary)
+                    .on_click(disable(all)),
+            )
+            .footer(
+                Button::new("disable-mod-only", tr!(CM::DisableModOnly, name = name))
+                    .variant(ButtonVariant::Secondary)
+                    .on_click(disable(only)),
+            )
+            .into_any_element()
+    }
+
     /// Renders a dialog from its state: the open one, or one fading out.
     fn render_modal(&self, modal: &Modal, cx: &mut Context<Self>) -> Option<AnyElement> {
         let close = |cx: &mut Context<Self>| {
@@ -2285,6 +2384,9 @@ impl LauncherShell {
             }
             Modal::LoaderChange { prompt, focus } => {
                 self.render_loader_change(prompt, focus.clone(), cx)
+            }
+            Modal::DisableMod { prompt, focus } => {
+                self.render_disable_mod(prompt, focus.clone(), cx)
             }
             Modal::StorageClean { what, bytes, focus } => {
                 self.render_storage_clean(*what, *bytes, focus.clone(), cx)
