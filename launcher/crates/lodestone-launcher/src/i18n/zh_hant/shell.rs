@@ -42,7 +42,7 @@ pub fn text(message: M) -> &'static str {
         M::GroupServers => "伺服器",
 
         M::NoInstanceSelected => "未選取實例",
-        M::NoInstanceSelectedHint => "建立實例，即可選擇 Minecraft 版本和載入器。",
+        M::NoInstanceSelectedHint => "在側邊欄中選擇一個實例即可開始。",
         M::MinecraftVersion => "Minecraft {version}",
         M::MinecraftWith => "Minecraft {version}，{loader}",
         M::HeroPlayed => "{game}。已遊玩 {time}。",
@@ -159,15 +159,12 @@ pub fn text(message: M) -> &'static str {
         M::GroupAutomatically => "自動將實例分組",
         M::GroupAutomaticallyHint => "依伺服器或載入器為未分組的實例分組。",
         M::AutoConfigure => "自動設定新實例",
-        M::AutoConfigureHint => {
-            "新實例首次遊戲前，依這台電腦和它的模組選擇記憶體、Java 參數和視訊設定；共用設定未涵蓋時，也會沿用你的滑鼠靈敏度和按鍵綁定。你自己變更的設定會保留。"
-        }
+        M::AutoConfigureHint => "讓 Lodestone 自動設定記憶體、滑鼠靈敏度和其他遊戲內設定。",
         M::WhenAGameStarts => "遊戲啟動後",
         M::AfterLaunchStay => "保持開啟",
         M::AfterLaunchMinimize => "最小化",
         M::AfterLaunchQuit => "結束",
         M::AfterLaunchStayHint => "啟動器在遊戲旁保持開啟。",
-        M::AfterLaunchMinimizeHint => "遊戲視窗開啟後啟動器最小化，遊戲關閉時恢復。",
         M::AfterLaunchQuitHint => {
             "遊戲視窗開啟後啟動器結束。遊戲會繼續執行，但不會記錄其記錄檔、當機報告和遊玩時間。"
         }
@@ -196,7 +193,7 @@ pub fn text(message: M) -> &'static str {
         M::EditHereOnly => "只在這裡編輯",
         M::Value => "值",
         M::SyncFrom => "主實例",
-        M::SyncFromHint => "你在主實例遊戲中變更的設定，會在其他實例啟動時複製過去。",
+        M::SyncFromHint => "你在主實例中變更的設定會自動複製到其他實例。",
         M::SyncFromNoneHint => "沒有主實例時，共用設定只在這裡變更。",
         M::MainOfferTitle => "將「{name}」設為主實例？",
         M::MainOfferBody => {
@@ -227,7 +224,7 @@ pub fn text(message: M) -> &'static str {
         M::ServerListHint => "即將推出。",
         M::Source => "來源",
         M::WhatsShared => "共用內容",
-        M::WhatsSharedLead => "關閉的類別仍由各實例個別設定。",
+        M::WhatsSharedLead => "關閉你不想共用的類別。",
         M::CategoryControls => "控制",
         M::CategoryVideo => "顯示",
         M::CategorySound => "音效",
@@ -335,7 +332,7 @@ pub fn text(message: M) -> &'static str {
         M::CopyPrompt => "複製提示",
         M::CommandLineSection => "命令列",
         M::CommandLineLead => {
-            "lodestone-launcher-cli 和你執行的其他程式透過啟動器資料夾中的通訊端與它溝通。只有你的使用者帳號可以連線。這些設定只能在這裡變更，無法透過命令列變更。"
+            "lodestone-launcher-cli 和你執行的其他程式透過啟動器資料夾中的通訊端與它溝通。只有你的使用者帳號可以連線。"
         }
         M::AllowCli => "允許命令列連線",
         M::AllowCliHint => "關閉後，通訊端會關閉，已連線的程式會被中斷。",
@@ -521,13 +518,9 @@ pub fn text(message: M) -> &'static str {
         M::UpdateAutomatically => "自動更新",
         M::UpdateAutomaticallyHint => "在背景從 GitHub 下載新組建。",
         M::BetaBuilds => "測試版組建",
-        M::BetaBuildsHint => {
-            "搶先體驗新功能。測試版組建可能有錯誤。關閉後會保留目前的組建，直到有更新的穩定版組建。"
-        }
+        M::BetaBuildsHint => "測試版組建可能有錯誤。",
         M::DeveloperBuilds => "開發者組建",
-        M::DeveloperBuildsHint => {
-            "供 Lodestone 開發者使用：更新到開發中的組建，可能無法正常運作。關閉後會保留目前的組建，直到有更新的正式發行。"
-        }
+        M::DeveloperBuildsHint => "供 Lodestone 開發者使用：更新到開發版組建，可能有錯誤。",
         M::BuildNumber => "組建 {build}",
         M::BuildNumberCommit => "組建 {build} · {commit}",
         M::DevelopmentBuild => "開發組建",
@@ -650,9 +643,6 @@ pub fn text(message: M) -> &'static str {
         M::SkinBannerMissing => "此橫幅所屬的外觀主題已不存在，正在顯示預設橫幅。",
         M::SkinEditorTitle => "外觀主題編輯器",
         M::SkinPopOut => "開啟編輯器視窗",
-        M::SkinEditorLead => {
-            "在編輯器中修改每個介面區域、字型和橫幅。修改會立即顯示在視窗中，可以用復原還原。"
-        }
         M::SkinSummary => "已設定 {surfaces} 個區域 · {fonts} 種字型 · {banners} 個橫幅",
         M::SkinSurfaces => "介面區域",
         M::SkinTokens => "文字顏色",
@@ -722,9 +712,7 @@ pub fn text(message: M) -> &'static str {
         M::StorageOther => "設定和其他檔案",
         M::StorageCacheAndLogs => "快取和日誌",
         M::StorageDataFolder => "資料夾",
-        M::StorageDataFolderHint => {
-            "你的實例和世界、帳號、設定和遊戲檔案。移動它可以把它們放到另一個磁碟上。"
-        }
+        M::StorageDataFolderHint => "Lodestone 存放你的實例和世界、帳號、設定和遊戲檔案的位置。",
         M::StorageMoveEllipsis => "移動…",
         M::StorageMoveBackEllipsis => "移回…",
         M::StorageMoveHere => "移到這裡",

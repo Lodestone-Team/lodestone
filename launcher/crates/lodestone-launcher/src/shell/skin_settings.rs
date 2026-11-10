@@ -487,7 +487,7 @@ impl Render for SkinSettings {
                 .to_string(),
             banners = spec.banners.len().to_string()
         );
-        let editor = section(t(M::SkinEditorTitle), Some(t(M::SkinEditorLead).into())).child(
+        let editor = section(t(M::SkinEditorTitle), None).child(
             div()
                 .flex()
                 .flex_row()

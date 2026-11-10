@@ -293,13 +293,9 @@ pub fn text(message: M) -> &'static str {
         M::UpdateAutomatically => "自动更新",
         M::UpdateAutomaticallyHint => "在后台下载新构建。",
         M::BetaBuilds => "测试版构建",
-        M::BetaBuildsHint => {
-            "抢先体验新功能。测试版构建可能有错误。关闭后会保留当前构建，直到有更新的稳定版构建。"
-        }
+        M::BetaBuildsHint => "测试版构建可能有错误。",
         M::DeveloperBuilds => "开发者构建",
-        M::DeveloperBuildsHint => {
-            "供 Lodestone 开发者使用：更新到开发中的构建，可能无法正常工作。关闭后会保留当前构建，直到有更新的正式发布。"
-        }
+        M::DeveloperBuildsHint => "供 Lodestone 开发者使用：更新到开发版构建，可能有错误。",
         M::BuildNumber => "构建 {build}",
         M::BuildNumberCommit => "构建 {build} · {commit}",
         M::DevelopmentBuild => "开发构建",

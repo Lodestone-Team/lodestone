@@ -72,7 +72,7 @@ crate::i18n::messages! {
 
         // The Play tab.
         NoInstanceSelected = "No instance selected",
-        NoInstanceSelectedHint = "Create an instance to choose a Minecraft version and loader.",
+        NoInstanceSelectedHint = "Select an instance in the sidebar to get started.",
         MinecraftVersion = "Minecraft {version}",
         /// {loader} is the loader with its version: "Fabric 0.16.14".
         MinecraftWith = "Minecraft {version} with {loader}",
@@ -191,14 +191,13 @@ crate::i18n::messages! {
         GroupAutomaticallyHint = "Sorts ungrouped instances by server or loader.",
         /// Settings > Instance defaults: a toggle, on by default.
         AutoConfigure = "Set up new instances automatically",
-        AutoConfigureHint = "Before a new instance's first game, chooses its memory, Java arguments and video settings for this computer and its mods, and copies your mouse sensitivity and key bindings when shared settings don't. Anything you change yourself is kept.",
+        AutoConfigureHint = "Let Lodestone set things such as RAM, mouse sensitivity and other in-game settings automatically.",
         /// Settings > General: what the launcher does once a game's window opens.
         WhenAGameStarts = "When a game starts",
         AfterLaunchStay = "Stay open",
         AfterLaunchMinimize = "Minimize",
         AfterLaunchQuit = "Quit",
         AfterLaunchStayHint = "The launcher stays open beside the game.",
-        AfterLaunchMinimizeHint = "The launcher minimizes once the game's window opens, and comes back when the game closes.",
         AfterLaunchQuitHint = "The launcher quits once the game's window opens. The game keeps running, but its log, crash report and play time aren't recorded.",
         OfflineAccount = "Offline account",
         MicrosoftAccount = "Microsoft account",
@@ -237,7 +236,7 @@ crate::i18n::messages! {
         /// The placeholder of a shared value being edited.
         Value = "Value",
         SyncFrom = "Main instance",
-        SyncFromHint = "Settings you change in-game in your main instance are copied to your other instances when they start.",
+        SyncFromHint = "Settings you change in the main instance are copied to your other instances automatically.",
         SyncFromNoneHint = "Without a main instance, the shared settings change only here.",
         /// The offer to make a new instance the main one; also asked before another
         /// instance takes over as main.
@@ -266,7 +265,7 @@ crate::i18n::messages! {
         /// A section of Shared game settings: where the values come from.
         Source = "Source",
         WhatsShared = "What's shared",
-        WhatsSharedLead = "Categories that are off stay per instance.",
+        WhatsSharedLead = "Turn off each category you don't want to share.",
         CategoryControls = "Controls",
         CategoryVideo = "Video",
         CategorySound = "Sound",
@@ -370,7 +369,7 @@ crate::i18n::messages! {
         AgentPromptHint = "Paste this into your agent. It installs lodestone-launcher-cli, reads the skills, checks the connection and starts debugging with you.",
         CopyPrompt = "Copy prompt",
         CommandLineSection = "Command line",
-        CommandLineLead = "lodestone-launcher-cli and other programs you run reach the launcher through a socket in its data folder. Only your user account can connect. These settings change only here, never from the command line.",
+        CommandLineLead = "lodestone-launcher-cli and other programs you run reach the launcher through a socket in its data folder. Only your user account can connect.",
         AllowCli = "Allow command-line connections",
         AllowCliHint = "Off, the socket is closed and connected programs are dropped.",
         /// What command-line programs may do.
@@ -561,9 +560,9 @@ crate::i18n::messages! {
         UpdateAutomaticallyHint = "Downloads new builds from GitHub in the background.",
         /// Settings > General > Updates: update to beta builds too.
         BetaBuilds = "Beta builds",
-        BetaBuildsHint = "Get new features before everyone else. Beta builds can have bugs. Turning this off keeps your build until a stable one is newer.",
+        BetaBuildsHint = "Beta builds can have bugs.",
         DeveloperBuilds = "Developer builds",
-        DeveloperBuildsHint = "For Lodestone's developers: updates to builds of work in progress, which may not work. Turning this off keeps your build until a release is newer.",
+        DeveloperBuildsHint = "For Lodestone's developers: updates to dev builds, which can have bugs.",
         /// The running build: the number of commits it was built from.
         BuildNumber = "Build {build}",
         /// {commit} is the first seven characters of the commit.
@@ -714,7 +713,6 @@ crate::i18n::messages! {
         /// The pop-out window for editing a skin.
         SkinEditorTitle = "Skin editor",
         SkinPopOut = "Pop out editor",
-        SkinEditorLead = "Edit every surface, font and banner in the editor. Changes show in the window as you make them, and Undo takes them back.",
         /// Each placeholder is a number.
         SkinSummary = "{surfaces} surfaces painted · {fonts} fonts · {banners} banners",
         SkinSurfaces = "Surfaces",
@@ -785,7 +783,7 @@ crate::i18n::messages! {
         StorageCacheAndLogs = "Cache and logs",
         /// Settings > Storage: the section with the data folder's path.
         StorageDataFolder = "Data folder",
-        StorageDataFolderHint = "Your instances and worlds, accounts, settings and game files. Move it to keep them on another drive.",
+        StorageDataFolderHint = "Where Lodestone stores your instances and worlds, accounts, settings and game files.",
         StorageMoveEllipsis = "Move…",
         /// Moves the data folder back to the default folder.
         StorageMoveBackEllipsis = "Move back…",

@@ -367,12 +367,10 @@ pub fn text(message: M) -> &'static str {
         M::UpdateAutomatically => "Mettre à jour automatiquement",
         M::UpdateAutomaticallyHint => "Télécharge les nouveaux builds en arrière-plan.",
         M::BetaBuilds => "Builds bêta",
-        M::BetaBuildsHint => {
-            "Profitez des nouveautés avant tout le monde. Les builds bêta peuvent comporter des bugs. Si vous désactivez cette option, vous gardez votre build jusqu’à ce qu’un build stable plus récent sorte."
-        }
+        M::BetaBuildsHint => "Les builds bêta peuvent comporter des bugs.",
         M::DeveloperBuilds => "Builds de développeur",
         M::DeveloperBuildsHint => {
-            "Pour les développeurs de Lodestone : met à jour vers des builds de travaux en cours, qui peuvent ne pas fonctionner. Si vous désactivez cette option, vous gardez votre build jusqu’à ce qu’une version plus récente sorte."
+            "Pour les développeurs de Lodestone : met à jour vers des builds de développement, qui peuvent comporter des bugs."
         }
         M::BuildNumber => "Build {build}",
         M::BuildNumberCommit => "Build {build} · {commit}",
