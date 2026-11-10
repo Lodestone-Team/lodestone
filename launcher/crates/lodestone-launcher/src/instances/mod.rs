@@ -59,6 +59,7 @@ use launcher_core::{
 use lodestone_minecraft::versions::mojang::MojangVersion;
 
 use crate::accounts::Accounts;
+use crate::components::LaunchStep;
 use crate::i18n::{InstancesMsg as M, InstancesPlural as P, t, tr, trn};
 
 /// The console keeps this many rows; older ones are dropped.
@@ -138,6 +139,21 @@ impl GameLog {
         self.revision += 1;
     }
 
+    /// The game's last line worth showing under "Launching Minecraft": its first
+    /// line, without the launcher's own notes, warnings about the JVM or blank lines.
+    pub fn latest_game_line(&self) -> Option<SharedString> {
+        self.recent.iter().rev().take(40).find_map(|line| {
+            if line.stream == Stream::Launcher || !matches!(line.level, Level::Info) {
+                return None;
+            }
+            let text = line.message.lines().next()?.trim();
+            (text.chars().filter(|c| c.is_alphabetic()).count() >= 3).then(|| {
+                let short: String = text.chars().take(120).collect();
+                SharedString::from(short)
+            })
+        })
+    }
+
     /// A line from the launcher itself.
     pub fn note(&mut self, level: Level, text: impl Into<String>) {
         let mut line = LogLine::plain(Stream::Launcher, &text.into());
@@ -203,6 +219,7 @@ pub enum PlayState {
         detail: Option<SharedString>,
         /// 0 to 1, when the size is known.
         fraction: Option<f32>,
+        step: LaunchStep,
     },
     Playing,
 }
@@ -390,6 +407,9 @@ pub struct Instances {
     exports: Vec<Task<()>>,
     /// Replaces the Play button's state, for the offscreen screenshots.
     preview_state: Option<PlayState>,
+    /// What Play switches the Play button to instead of playing, for the offscreen
+    /// screenshots of its transition.
+    preview_press: Option<PlayState>,
     /// The Modrinth client the Content tab shares, with its cache. `None` keeps the
     /// offscreen screenshots offline.
     modrinth: Option<Arc<Modrinth>>,
@@ -521,6 +541,7 @@ impl Instances {
             loader_tasks: HashMap::new(),
             exports: Vec::new(),
             preview_state: None,
+            preview_press: None,
             shared_revision: 0,
             modrinth: Some(modrinth),
             curseforge,
@@ -1423,12 +1444,14 @@ impl Instances {
         }
         match self.runs.get(id).map(|run| &run.state) {
             None | Some(RunState::Idle) => PlayState::Ready,
-            // Java has started, but until the game's window opens there's nothing to see.
+            // Java has started, but until the game's window opens there's nothing to
+            // see: what the game last logged shows what it's doing.
             Some(RunState::Running { .. }) if !self.runs[id].window_opened => {
                 PlayState::Preparing {
                     label: t(M::StageLaunching).into(),
-                    detail: None,
+                    detail: self.runs[id].log.latest_game_line(),
                     fraction: None,
+                    step: LaunchStep::Launching,
                 }
             }
             Some(RunState::Running { .. }) => PlayState::Playing,
@@ -1453,6 +1476,12 @@ impl Instances {
         self.preview_state = Some(state);
     }
 
+    /// Makes Play switch the Play button to `state` instead of playing, for the
+    /// offscreen screenshots of its transition (`--click` on Play).
+    pub fn preview_press(&mut self, state: PlayState) {
+        self.preview_press = Some(state);
+    }
+
     /// Adds lines to an instance's console, for the offscreen screenshots.
     pub fn preview_log(&mut self, id: &str, lines: impl IntoIterator<Item = LogLine>) {
         let run = self.runs.entry(id.to_string()).or_default();
@@ -1473,6 +1502,11 @@ impl Instances {
         join: Option<launch::JoinServer>,
         cx: &mut Context<Self>,
     ) {
+        if let Some(state) = self.preview_press.take() {
+            self.preview_state = Some(state);
+            cx.notify();
+            return;
+        }
         if self.is_active(id) {
             return;
         }
@@ -2063,11 +2097,19 @@ pub fn progress_state(stage: Stage, snapshot: ProgressSnapshot) -> PlayState {
         stage,
         Stage::Java | Stage::Libraries | Stage::Loader | Stage::Assets
     );
+    let step = match stage {
+        Stage::Preparing => LaunchStep::Checking,
+        Stage::Java | Stage::Libraries | Stage::Loader | Stage::Processors | Stage::Assets => {
+            LaunchStep::Downloading
+        }
+        Stage::Natives | Stage::Starting => LaunchStep::Starting,
+    };
     if !downloading || snapshot.files_total == 0 {
         return PlayState::Preparing {
             label: stage_label(stage).into(),
             detail: None,
             fraction: None,
+            step,
         };
     }
     let mb = |bytes: u64| (bytes as f64 / (1024.0 * 1024.0)).round() as u64;
@@ -2087,6 +2129,7 @@ pub fn progress_state(stage: Stage, snapshot: ProgressSnapshot) -> PlayState {
         label: stage_label(stage).into(),
         detail: Some(detail.into()),
         fraction: Some(fraction.clamp(0.0, 1.0)),
+        step,
     }
 }
 
@@ -2289,6 +2332,7 @@ mod tests {
                 label: "Downloading assets".into(),
                 detail: Some("1,234/4,567 · 210 MB/380 MB".into()),
                 fraction: Some(210.0 / 380.0),
+                step: LaunchStep::Downloading,
             }
         );
         assert_eq!(
@@ -2296,7 +2340,8 @@ mod tests {
             PlayState::Preparing {
                 label: "Starting Java".into(),
                 detail: None,
-                fraction: None
+                fraction: None,
+                step: LaunchStep::Starting,
             }
         );
         assert_eq!(thousands(0), "0");

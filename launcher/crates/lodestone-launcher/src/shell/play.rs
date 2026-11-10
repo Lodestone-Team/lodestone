@@ -10,7 +10,8 @@ use launcher_core::ui_skin::SurfaceId;
 use super::{InstanceTab, LauncherShell, loader_label};
 use crate::{
     components::{
-        Align, Button, ButtonSize, ButtonVariant, Icon, PlayButton, PlayButtonState, Tabs,
+        Align, Button, ButtonSize, ButtonVariant, Icon, MagnetBar, MagnetLook, PlayButton,
+        PlayButtonState, Tabs,
         a11y::{Accessible, Role},
     },
     i18n::{ShellMsg as M, t, tr},
@@ -348,10 +349,12 @@ impl LauncherShell {
                 label,
                 detail,
                 fraction,
+                step,
             } => PlayButtonState::Preparing {
                 label,
                 detail,
                 fraction,
+                step,
             },
         };
         let servers = self.servers.read(cx);
@@ -384,6 +387,72 @@ impl LauncherShell {
     }
 }
 
+/// How Play melts into filings, in the skin's colours: the button as the skin (or the
+/// instance) colours and shapes it, and filings in the instance's Play colour, else
+/// the skin's progress colours (all of a gradient's), else its Play colours, else the
+/// gem's, made to read on the bar as the skin paints it.
+fn magnet_look(
+    skin: &crate::skin::Look,
+    resolved: &crate::skin::Resolved,
+    instance: Option<&Instance>,
+) -> MagnetLook {
+    use launcher_core::ui_skin::{Fill, Rgb, Shape, readable};
+    let spec = &skin.spec;
+    let play = &resolved.play;
+    // an image or rich gradient on the button: melt from what it looks like on average
+    let fill_rgb = play.color.or_else(|| {
+        resolved
+            .play_layer
+            .then(|| skin.backdrops.get(&SurfaceId::PlayButton).map(|b| b.mean))
+            .flatten()
+    });
+    let (fill, edge) = match fill_rgb {
+        Some(c) => (
+            crate::theme::Color::rgb(c.0),
+            crate::theme::Color::rgb(c.mix(Rgb::WHITE, 0.2).0),
+        ),
+        None => (colors::GREEN_400, colors::GREEN_300),
+    };
+    let sample = |stops: &dyn Fn(f32) -> Rgb| (0..5).map(|i| stops(i as f32 / 4.0)).collect();
+    let progress_fill = spec
+        .surfaces
+        .get(&SurfaceId::Progress)
+        .and_then(|s| s.fill.as_ref());
+    let palette = if let Some(color) = instance.and_then(|i| i.play_color) {
+        MagnetLook::shades(color)
+    } else if let Some(Fill::Gradient(gradient)) = progress_fill {
+        sample(&|t| gradient.at(t))
+    } else if let Some(color) = resolved.progress {
+        MagnetLook::shades(color)
+    } else if let (Some(from), Some(to)) = (play.color, play.gradient) {
+        sample(&|t| from.mix(to, t))
+    } else if let Some(color) = play.color {
+        MagnetLook::shades(color)
+    } else {
+        crate::components::MAGNET_GEM.to_vec()
+    };
+    // the bar the filings are drawn on: the skin's paint, or the launcher's own
+    let backdrop = match spec.surface(SurfaceId::PlayBar) {
+        Some(_) => readable::surface_backdrop(spec, SurfaceId::PlayBar, &|surface| {
+            skin.backdrops.get(&surface).copied()
+        }),
+        None => readable::Backdrop::solid(Rgb(crate::theme::palette::map(colors::GRAY_850).0 >> 8)),
+    };
+    MagnetLook {
+        palette,
+        backdrop,
+        fill,
+        gradient: play.gradient.map(|c| crate::theme::Color::rgb(c.0)),
+        edge,
+        corner: match play.shape {
+            Shape::Rounded => Some(8.0),
+            Shape::Pill => None,
+            Shape::Pixel => Some(0.0),
+        },
+        glow: play.glow,
+    }
+}
+
 /// The bar under the tabs: Play.
 fn play_bar(
     shell: &LauncherShell,
@@ -406,7 +475,22 @@ fn play_bar(
     let stop_id = id.clone();
     // "Play without joining" is the plain Play.
     let single_id = id.clone();
-    let resolved = crate::skin::resolve(&crate::skin::look(cx).spec, instance);
+    let skin = crate::skin::look(cx);
+    let resolved = crate::skin::resolve(&skin.spec, instance);
+    let magnet = magnet_look(&skin, &resolved, instance);
+    // the line under the step, in the filings' colour, made to read on the bar
+    let progress = instance
+        .and_then(|i| i.play_color)
+        .or(resolved.progress)
+        .or(resolved.play.color)
+        .map(|c| launcher_core::ui_skin::readable::suggest(c, magnet.backdrop, 3.0));
+    // how far a launch has come, for the filings around Play
+    let launch = match &state {
+        PlayButtonState::Preparing { step, fraction, .. } => Some(step.overall(*fraction)),
+        _ => None,
+    };
+    let magnet_id =
+        SharedString::from(format!("play-magnet-{}", id.as_deref().unwrap_or_default()));
     div()
         .flex()
         .flex_row()
@@ -424,41 +508,48 @@ fn play_bar(
         .bg(colors::GRAY_850)
         .surface(SurfaceId::PlayBar)
         .child(
-            div()
-                .flex()
-                .flex_col()
-                .flex_none()
-                .items_center()
-                .gap_1()
-                .child(
-                    PlayButton::new("play")
-                        .state(state)
-                        .look(resolved.play, resolved.progress)
-                        .layer(resolved.play_layer)
-                        .when_some(caption, |button, caption| button.caption(caption))
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            if let Some(id) = &id {
-                                this.press_play(id, joins, cx);
-                            }
-                        }))
-                        .on_stop(cx.listener(move |this, _, _, cx| {
-                            if let Some(id) = &stop_id {
-                                this.instances
-                                    .update(cx, |instances, cx| instances.stop(id, cx));
-                            }
-                        })),
-                )
-                .when(joins, |this| {
-                    this.child(
-                        Button::new("play-without-joining", t(M::PlayWithoutJoining))
-                            .size(ButtonSize::Slim)
-                            .variant(ButtonVariant::Ghost)
+            MagnetBar::new(
+                magnet_id,
+                div()
+                    .flex()
+                    .flex_col()
+                    .flex_none()
+                    .items_center()
+                    .gap_1()
+                    .child(
+                        PlayButton::new("play")
+                            .state(state)
+                            .look(resolved.play, progress)
+                            .layer(resolved.play_layer)
+                            .when_some(caption, |button, caption| button.caption(caption))
                             .on_click(cx.listener(move |this, _, _, cx| {
-                                if let Some(id) = &single_id {
-                                    this.press_play(id, false, cx);
+                                if let Some(id) = &id {
+                                    this.press_play(id, joins, cx);
+                                }
+                            }))
+                            .on_stop(cx.listener(move |this, _, _, cx| {
+                                if let Some(id) = &stop_id {
+                                    this.instances
+                                        .update(cx, |instances, cx| instances.stop(id, cx));
                                 }
                             })),
                     )
-                }),
+                    .when(joins, |this| {
+                        this.child(
+                            Button::new("play-without-joining", t(M::PlayWithoutJoining))
+                                .size(ButtonSize::Slim)
+                                .variant(ButtonVariant::Ghost)
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    if let Some(id) = &single_id {
+                                        this.press_play(id, false, cx);
+                                    }
+                                })),
+                        )
+                    }),
+            )
+            .launch(launch)
+            .look(magnet)
+            // to the bar's edges, past its padding
+            .bleed(40., 12.),
         )
 }

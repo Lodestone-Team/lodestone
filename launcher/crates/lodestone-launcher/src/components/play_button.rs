@@ -1,7 +1,7 @@
 use crate::theme::px;
 use gpui::{
-    App, ClickEvent, ElementId, IntoElement, RenderOnce, SharedString, Window, div, prelude::*,
-    relative,
+    AnimationExt as _, App, ClickEvent, ElementId, IntoElement, RenderOnce, SharedString, Window,
+    div, prelude::*, relative,
 };
 use launcher_core::ui_skin::SurfaceId;
 
@@ -27,9 +27,44 @@ pub enum PlayButtonState {
         detail: Option<SharedString>,
         /// 0 to 1; `None` while the size is unknown.
         fraction: Option<f32>,
+        step: LaunchStep,
     },
     /// The game is running, with Stop.
     Playing,
+}
+
+/// How far a launch has come, for the steps along the bottom of the Play button.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum LaunchStep {
+    /// Signing in and checking the game's files.
+    #[default]
+    Checking,
+    /// Downloading and installing what's missing.
+    Downloading,
+    /// Unpacking the natives and starting Java.
+    Starting,
+    /// Java runs; the game's window hasn't opened yet.
+    Launching,
+}
+
+impl LaunchStep {
+    pub const ALL: [LaunchStep; 4] = [
+        LaunchStep::Checking,
+        LaunchStep::Downloading,
+        LaunchStep::Starting,
+        LaunchStep::Launching,
+    ];
+
+    fn index(self) -> usize {
+        Self::ALL.iter().position(|s| *s == self).unwrap_or(0)
+    }
+
+    /// How far the whole launch has come, 0 to 1: the steps done, and `fraction` of
+    /// this one (some of it while its size is unknown).
+    pub fn overall(self, fraction: Option<f32>) -> f32 {
+        let within = fraction.unwrap_or(0.4).clamp(0.0, 1.0);
+        (self.index() as f32 + within) / Self::ALL.len() as f32
+    }
 }
 
 /// The large Play button in the bottom bar, in the dashboard's green.
@@ -48,6 +83,8 @@ pub struct PlayButton {
 }
 
 const WIDTH: f32 = 260.;
+/// Wider while preparing, so the step and its progress fit beside Cancel.
+const PREPARING_WIDTH: f32 = 380.;
 const HEIGHT: f32 = 60.;
 
 impl PlayButton {
@@ -116,7 +153,12 @@ impl PlayButton {
 }
 
 /// The button's frame, named `label` for assistive technology and automation.
-fn shell(id: ElementId, shape: Shape, label: SharedString) -> gpui::Stateful<gpui::Div> {
+fn shell(
+    id: ElementId,
+    width: f32,
+    shape: Shape,
+    label: SharedString,
+) -> gpui::Stateful<gpui::Div> {
     div()
         .id(id.clone())
         .accessible_id(Role::Button, &id, label)
@@ -124,7 +166,7 @@ fn shell(id: ElementId, shape: Shape, label: SharedString) -> gpui::Stateful<gpu
         .flex()
         .flex_none()
         .items_center()
-        .w(px(WIDTH))
+        .w(px(width))
         .h(px(HEIGHT))
         .map(|this| match shape {
             Shape::Rounded => this.rounded(radius::LG),
@@ -188,7 +230,18 @@ fn side_button(
 }
 
 impl RenderOnce for PlayButton {
-    fn render(self, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        // It widens as a launch starts and narrows again as the game opens.
+        let width = super::motion::tween(
+            (self.id.clone(), "width"),
+            match self.state {
+                PlayButtonState::Preparing { .. } => PREPARING_WIDTH,
+                _ => WIDTH,
+            },
+            std::time::Duration::from_millis(280),
+            window,
+            cx,
+        );
         let look = self.look;
         let label = look
             .label
@@ -215,6 +268,13 @@ impl RenderOnce for PlayButton {
         });
         let gradient = look.gradient.map(color);
         let progress = self.progress.map_or(colors::GREEN_400, color);
+        // while preparing the text sits on the Play bar: in the colours the skin
+        // gives it there
+        let bar = crate::skin::painted(SurfaceId::PlayBar);
+        let bar_text = bar.as_ref().and_then(|p| p.text);
+        let bar_muted = bar
+            .as_ref()
+            .and_then(|p| p.muted.or(p.text.map(|t| t.opacity(70))));
         match self.state {
             PlayButtonState::Disabled | PlayButtonState::Ready => {
                 let disabled = self.state == PlayButtonState::Disabled;
@@ -222,7 +282,7 @@ impl RenderOnce for PlayButton {
                     Some(caption) => format!("{} {caption}", t(ShellMsg::Play)).into(),
                     None => t(ShellMsg::Play).into(),
                 };
-                shell(self.id, shape, name)
+                shell(self.id, width, shape, name)
                     .justify_center()
                     .font_family(fonts::title())
                     .text_size(theme::text_size(text::H1))
@@ -306,8 +366,10 @@ impl RenderOnce for PlayButton {
                 label,
                 detail,
                 fraction,
+                step: _,
             } => shell(
-                self.id,
+                self.id.clone(),
+                width,
                 shape,
                 match &detail {
                     Some(detail) => format!("{label}, {detail}").into(),
@@ -320,18 +382,9 @@ impl RenderOnce for PlayButton {
                     .aria_min_numeric_value(0.)
                     .aria_max_numeric_value(100.)
             })
-            .bg(colors::GRAY_800)
-            .border_color(progress.opacity(50))
-            .child(
-                // The progress fill, behind the text.
-                div()
-                    .absolute()
-                    .top_0()
-                    .left_0()
-                    .h_full()
-                    .w(relative(fraction.unwrap_or(0.0)))
-                    .bg(progress.opacity(35)),
-            )
+            // The button has dissolved into the filings around it (see
+            // `MagnetBar`): what's left is the step, its progress and Cancel.
+            .border_color(gpui::transparent_black())
             .child(
                 div()
                     .relative()
@@ -344,7 +397,7 @@ impl RenderOnce for PlayButton {
                         div()
                             .truncate()
                             .font_weight(weights::BOLD.into())
-                            .text_color(colors::WHITE)
+                            .text_color(bar_text.unwrap_or_else(crate::theme::ink::text))
                             .child(label),
                     )
                     .when_some(detail, |this, detail| {
@@ -353,10 +406,34 @@ impl RenderOnce for PlayButton {
                                 .truncate()
                                 .text_size(theme::text_size(text::SMALL))
                                 .font_weight(weights::MEDIUM.into())
-                                .text_color(crate::theme::ink::text())
+                                .text_color(bar_muted.unwrap_or_else(crate::theme::ink::muted))
                                 .child(detail),
                         )
-                    }),
+                    })
+                    // a thin line under the text while the size is known
+                    .when_some(fraction, |this, fraction| {
+                        this.child(
+                            div()
+                                .mt_1()
+                                .h(px(2.))
+                                .w_full()
+                                .rounded_full()
+                                .bg(crate::theme::ink::border())
+                                .child(
+                                    div()
+                                        .h_full()
+                                        .w(relative(fraction))
+                                        .rounded_full()
+                                        .bg(progress),
+                                ),
+                        )
+                    })
+                    .with_animation(
+                        "play-preparing-in",
+                        gpui::Animation::new(std::time::Duration::from_millis(450))
+                            .with_easing(gpui::ease_out_quint()),
+                        |this, t| this.opacity(((t - 0.25) / 0.75).clamp(0., 1.)),
+                    ),
             )
             .child(div().relative().child(side_button(
                 "play-cancel",
@@ -364,7 +441,7 @@ impl RenderOnce for PlayButton {
                 self.on_stop,
             )))
             .into_any_element(),
-            PlayButtonState::Playing => shell(self.id, shape, t(ShellMsg::Playing).into())
+            PlayButtonState::Playing => shell(self.id, width, shape, t(ShellMsg::Playing).into())
                 .role(Role::Status)
                 .bg(colors::GRAY_800)
                 .border_color(colors::GREEN_400)

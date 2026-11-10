@@ -76,6 +76,12 @@ pub const SCENES: &[&str] = &[
     "new-instance-versions",
     "new-instance-versions-failed",
     "play-progress",
+    "play-press",
+    "play-press-grassblock",
+    "play-press-glass",
+    "play-press-neon",
+    "play-press-bright",
+    "play-press-overrides",
     "playing",
     "launching",
     "logs",
@@ -491,6 +497,12 @@ fn has_instances(scene: &str) -> bool {
     matches!(
         scene,
         "play-progress"
+            | "play-press"
+            | "play-press-grassblock"
+            | "play-press-glass"
+            | "play-press-neon"
+            | "play-press-bright"
+            | "play-press-overrides"
             | "playing"
             | "launching"
             | "offer-main"
@@ -805,9 +817,20 @@ pub fn instances(scene: &str, accounts: &Entity<Accounts>, cx: &mut App) -> Enti
             "playing" => instances.preview_play_state(crate::instances::PlayState::Playing),
             "launching" => instances.preview_play_state(crate::instances::PlayState::Preparing {
                 label: crate::i18n::t(crate::i18n::InstancesMsg::StageLaunching).into(),
-                detail: None,
+                detail: Some("Loading 143 mods: fabric-api, sodium, iris, lithium".into()),
                 fraction: None,
+                step: crate::components::LaunchStep::Launching,
             }),
+            // Play, pressed with `--click 710,706`, melts into the filings; with a
+            // skin's name after it, in that skin's colours.
+            scene if scene.starts_with("play-press") => {
+                instances.preview_press(crate::instances::PlayState::Preparing {
+                    label: crate::i18n::t(crate::i18n::InstancesMsg::StageAssets).into(),
+                    detail: Some("1,234/4,567 · 210 MB/380 MB".into()),
+                    fraction: Some(0.55),
+                    step: crate::components::LaunchStep::Downloading,
+                });
+            }
             "modpack-importing" => modpacks::importing(&mut instances, cx),
             _ => {}
         }
@@ -1212,6 +1235,32 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
                 .connect_service_setting()
                 .update(cx, |setting, cx| setting.preview_type(typed, cx));
             shell.open_settings(Some(crate::shell::SettingsPage::Developer), None, cx);
+        }
+        "play-press-bright" => use_bright_skin(shell, cx),
+        "play-press-grassblock"
+        | "play-press-glass"
+        | "play-press-neon"
+        | "play-press-overrides" => {
+            let id = match scene {
+                "play-press-grassblock" => "grassblock",
+                "play-press-glass" => "glass",
+                _ => "neon",
+            };
+            let instances = shell.instances().clone();
+            instances.update(cx, |instances, cx| {
+                instances.set_skin(Some(id.into()), cx);
+                // the instance's own Play colour, over the skin's
+                if scene == "play-press-overrides"
+                    && let Some(selected) = instances.selected().map(|i| i.id.clone())
+                {
+                    let _ = instances.set_instance_colors(
+                        &selected,
+                        Some(launcher_core::ui_skin::Rgb(0xEFB440)),
+                        Some(launcher_core::ui_skin::Rgb(0xE5484D)),
+                        cx,
+                    );
+                }
+            });
         }
         "skin-bright" | "settings-skin-bright" | "skin-bright-host" => {
             use_bright_skin(shell, cx);

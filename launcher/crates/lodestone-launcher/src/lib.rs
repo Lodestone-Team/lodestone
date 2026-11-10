@@ -320,6 +320,54 @@ mod screenshot {
         );
     }
 
+    /// `--bench-frames N`: draws the window `N` times, a frame (33 ms) apart so
+    /// animations move on as they would, and prints how long each draw took. With
+    /// `--bench-at X,Y` the pointer rests there first.
+    async fn bench_frames(window: AnyWindowHandle, count: usize, cx: &mut gpui::AsyncApp) {
+        use gpui::{MouseMoveEvent, PlatformInput, point, px};
+        if let Some(at) = arg_after("--bench-at").and_then(|text| {
+            let (x, y) = text.split_once(',')?;
+            Some(point(px(x.parse().ok()?), px(y.parse().ok()?)))
+        }) {
+            window
+                .update(cx, |_, window, cx| {
+                    let event = MouseMoveEvent {
+                        position: at,
+                        ..Default::default()
+                    };
+                    window.dispatch_event(PlatformInput::MouseMove(event), cx);
+                })
+                .ok();
+        }
+        let mut frames = Vec::with_capacity(count);
+        for _ in 0..count {
+            window
+                .update(cx, |_, window, cx| {
+                    window.refresh();
+                    let start = std::time::Instant::now();
+                    window.draw(cx).clear(cx);
+                    frames.push(start.elapsed().as_secs_f64() * 1000.0);
+                })
+                .ok();
+            cx.background_executor()
+                .timer(Duration::from_millis(33))
+                .await;
+        }
+        frames.sort_by(f64::total_cmp);
+        if frames.is_empty() {
+            return;
+        }
+        let pick = |q: f64| frames[((frames.len() - 1) as f64 * q) as usize];
+        let mean = frames.iter().sum::<f64>() / frames.len() as f64;
+        eprintln!(
+            "bench-frames: {} frames, mean {mean:.2} ms, p50 {:.2} ms, p95 {:.2} ms, max {:.2} ms",
+            frames.len(),
+            pick(0.5),
+            pick(0.95),
+            pick(1.0)
+        );
+    }
+
     pub fn requested_path() -> Option<PathBuf> {
         let mut args = std::env::args().skip_while(|arg| arg != "--screenshot");
         args.next()?;
@@ -368,7 +416,11 @@ mod screenshot {
                     .await;
             }
             // `--click X,Y` (repeatable as X,Y;X,Y): left clicks at window points, each
-            // followed by a short wait, to check how a control responds.
+            // followed by a short wait (`--click-wait MS`, 600 by default), to check how
+            // a control responds, or to catch an animation partway.
+            let click_wait = arg_after("--click-wait")
+                .and_then(|ms| ms.parse().ok())
+                .unwrap_or(600);
             if let Some(clicks) = arg_after("--click") {
                 for at in clicks.split(';') {
                     let Some((x, y)) = at.split_once(',') else {
@@ -411,7 +463,7 @@ mod screenshot {
                         })
                         .ok();
                     cx.background_executor()
-                        .timer(Duration::from_millis(600))
+                        .timer(Duration::from_millis(click_wait))
                         .await;
                 }
             }
@@ -544,6 +596,9 @@ mod screenshot {
             }
             if let Some(steps) = arg_after("--bench-scroll").and_then(|n| n.parse().ok()) {
                 bench_scroll(window, steps, cx);
+            }
+            if let Some(frames) = arg_after("--bench-frames").and_then(|n| n.parse().ok()) {
+                bench_frames(window, frames, cx).await;
             }
             let result = window.update(cx, |_, window, _| {
                 window.refresh();
