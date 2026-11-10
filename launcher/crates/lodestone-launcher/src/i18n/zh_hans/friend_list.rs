@@ -43,6 +43,40 @@ pub fn text(message: M) -> &'static str {
         M::NoServersShared => "这台电脑上没有与你共享的内容。",
         M::ServersFailed => "无法列出服务器：{error}",
         M::ShowServers => "显示服务器",
+        M::StepsTitle => "如何添加好友",
+        M::StepsProgress => "已完成 {done}/{total}",
+        M::HideSteps => "隐藏步骤",
+        M::ShowSteps => "显示步骤",
+        M::StepDone => "已完成",
+        M::StepNext => "下一步",
+        M::StepLater => "尚未开始",
+        M::StepName => "选择你的名字",
+        M::StepNameDetail => "好友会看到这个名字。",
+        M::StepLink => "发送好友链接，或打开对方的链接",
+        M::StepLinkDetail => {
+            "选择“添加好友”生成链接，然后用任何方式发给好友。如果好友给你发了链接，打开它，或粘贴到“添加好友”中。"
+        }
+        M::StepLinkWaiting => {
+            "你的链接已准备好，只能使用一次，24 小时内有效。把它发给好友，然后等对方打开。"
+        }
+        M::StepAccept => "互相接受",
+        M::StepAcceptReply => "{name} 回应了你的链接。如果确实是对方，请在下方选择“接受”。",
+        M::StepAcceptPending => "还在等 {name} 接受。对方接受后会出现在这里。",
+        M::StepCompare => "核对安全码",
+        M::StepCompareDetail => {
+            "通过通话或当面互相读出安全码。如果一致，你联系的就是真正的 {name}。"
+        }
+        M::StepShare => "让好友共享服务器",
+        M::StepShareDetail => {
+            "请 {name} 共享一个服务器：在 Lodestone Host 中打开服务器，进入“设置 › 好友”，勾选你的名字。你也可以用同样的方式共享自己的服务器。"
+        }
+        M::StepPlay => "开始游戏",
+        M::StepPlayDetail => {
+            "当 {name} 在线时，在下方列表中打开对方，然后在对方的服务器上选择“开始游戏”。"
+        }
+        M::StepPlayOnline => {
+            "{name} 在线。在下方列表中打开对方，然后在对方的服务器上选择“开始游戏”。"
+        }
         M::AddTitle => "添加好友",
         M::SendLinkTitle => "给对方发送好友链接",
         M::SendLinkBody => {

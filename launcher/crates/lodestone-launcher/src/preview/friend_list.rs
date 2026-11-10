@@ -177,6 +177,50 @@ pub fn apply(scene: &str, servers: &mut Servers, cx: &mut Context<Servers>) {
                 _ => {}
             }
         }
+        // "How to add a friend" at each step (the first is servers-friend-list-empty)
+        "servers-friend-steps-link" => {
+            let mut list = base("Peter", Vec::new());
+            list.snapshot.book.links = vec![link("7KQ2M9XD4T")];
+            servers.preview_friend_list(list);
+        }
+        "servers-friend-steps-accept" => {
+            let mut list = base("Peter", Vec::new());
+            list.snapshot.book.links = vec![link("7KQ2M9XD4T")];
+            list.replies = vec![LinkReply {
+                code: "7KQ2M9XD4T".into(),
+                key: key(0x66),
+                name: "Robin".into(),
+                safety_code: "Q8WE-4RTY-7UIO-P2AS".into(),
+                answers: 1,
+                same_name_as: Vec::new(),
+            }];
+            servers.preview_friend_list(list);
+        }
+        "servers-friend-steps-pending" => {
+            servers.preview_friend_list(base(
+                "Peter",
+                vec![friend(0x33, "Jo", FriendStatus::Pending, false)],
+            ));
+        }
+        "servers-friend-steps-compare" => {
+            servers.preview_friend_list(base(
+                "Peter",
+                vec![friend(0x22, "Sam", FriendStatus::Active, false)],
+            ));
+        }
+        "servers-friend-steps-share" => {
+            servers.preview_friend_list(base(
+                "Peter",
+                vec![friend(0x11, "Alex", FriendStatus::Active, true)],
+            ));
+        }
+        "servers-friend-steps-play" => {
+            let mut alex = friend(0x11, "Alex", FriendStatus::Active, true);
+            alex.state = Some(core(0xa1, "Alex's PC"));
+            let mut list = base("Peter", vec![alex]);
+            list.presence = vec![((key(0x11), hex(&[0xa1; 32])), true)];
+            servers.preview_friend_list(list);
+        }
         "servers-friend-list-reply" => {
             let mut list = base(
                 "Peter",

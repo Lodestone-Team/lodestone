@@ -43,6 +43,40 @@ pub fn text(message: M) -> &'static str {
         M::NoServersShared => "這台電腦上沒有與你分享的內容。",
         M::ServersFailed => "無法列出伺服器：{error}",
         M::ShowServers => "顯示伺服器",
+        M::StepsTitle => "如何新增好友",
+        M::StepsProgress => "已完成 {done}/{total}",
+        M::HideSteps => "隱藏步驟",
+        M::ShowSteps => "顯示步驟",
+        M::StepDone => "已完成",
+        M::StepNext => "下一步",
+        M::StepLater => "尚未開始",
+        M::StepName => "選擇你的名字",
+        M::StepNameDetail => "好友會看到這個名字。",
+        M::StepLink => "傳送好友連結，或開啟對方的連結",
+        M::StepLinkDetail => {
+            "選擇「新增好友」產生連結，然後用任何方式傳給好友。如果好友傳了連結給你，開啟它，或貼到「新增好友」中。"
+        }
+        M::StepLinkWaiting => {
+            "你的連結已準備好，只能使用一次，24 小時內有效。把它傳給好友，然後等對方開啟。"
+        }
+        M::StepAccept => "互相接受",
+        M::StepAcceptReply => "{name} 回應了你的連結。如果確實是對方，請在下方選擇「接受」。",
+        M::StepAcceptPending => "還在等 {name} 接受。對方接受後會出現在這裡。",
+        M::StepCompare => "核對安全碼",
+        M::StepCompareDetail => {
+            "透過通話或當面互相念出安全碼。如果一致，你聯絡的就是真正的 {name}。"
+        }
+        M::StepShare => "讓好友分享伺服器",
+        M::StepShareDetail => {
+            "請 {name} 分享一個伺服器：在 Lodestone Host 中開啟伺服器，進入「設定 › 好友」，勾選你的名字。你也可以用同樣的方式分享自己的伺服器。"
+        }
+        M::StepPlay => "開始遊戲",
+        M::StepPlayDetail => {
+            "當 {name} 上線時，在下方清單中開啟對方，然後在對方的伺服器上選擇「開始遊戲」。"
+        }
+        M::StepPlayOnline => {
+            "{name} 已上線。在下方清單中開啟對方，然後在對方的伺服器上選擇「開始遊戲」。"
+        }
         M::AddTitle => "新增好友",
         M::SendLinkTitle => "傳送好友連結給對方",
         M::SendLinkBody => {

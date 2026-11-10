@@ -583,6 +583,14 @@ impl Instances {
         }
     }
 
+    /// Hides or shows the Friends section's "How to add a friend" steps.
+    pub fn set_friend_steps_hidden(&mut self, hidden: bool, cx: &mut Context<Self>) {
+        if let Err(err) = self.update_settings(|settings| settings.friend_steps_hidden = hidden, cx)
+        {
+            self.notice = Some(err.into());
+        }
+    }
+
     /// Changes the settings file: read as it is now (the accounts save their own
     /// section of it), changed, and written back.
     fn update_settings(
