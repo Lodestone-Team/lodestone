@@ -1,8 +1,8 @@
 use crate::components::RichText;
 use crate::theme::px;
 use gpui::{
-    AnyElement, Context, ExternalPaths, IntoElement, ObjectFit, SharedString, Transformation, div,
-    img, prelude::*, radians,
+    AnyElement, Context, ElementId, ExternalPaths, IntoElement, ObjectFit, SharedString,
+    Transformation, div, img, prelude::*, radians,
 };
 use launcher_core::instances::{AutoGroup, Instance, last_played};
 use launcher_core::ui_skin::{FontPart, SurfaceId};
@@ -10,11 +10,11 @@ use launcher_core::ui_skin::{FontPart, SurfaceId};
 use super::{LauncherShell, Page, account_box};
 use crate::components::{
     KeyboardFocus,
-    a11y::{Accessible, Role},
+    a11y::{Accessible, AccessibleAction, Role},
 };
 use crate::skin::Skinned;
 use crate::{
-    components::{Align, Button, ButtonVariant, Icon},
+    components::{Align, Button, ButtonVariant, Icon, PlayButtonState},
     i18n::{ShellMsg as M, format, t, tr},
     instances::{Ago, play_time},
     theme::{self, colors, layout, leading, radius, text, weights},
@@ -497,8 +497,105 @@ fn played_summary(instance: &Instance) -> Option<String> {
     })
 }
 
+/// The size of an instance's icon in its sidebar row, in logical pixels.
+const ROW_ICON: f32 = 26.;
+
+/// How dark the scrim over an instance's icon is, in percent: dark enough that the
+/// white Play icon reads over a white icon too.
+const SCRIM: u32 = 60;
+const SCRIM_INK: theme::Color = theme::Color::rgb(0x000000);
+
+/// What shows over an instance's icon while the pointer is on its row, as the Play
+/// bar would show for it: Play, which starts the instance as the bar's Play does
+/// (and doesn't open the row); loading dots while it gets ready or starts; nothing
+/// while it runs (Stop stays on the Play bar, away from a stray click) or while
+/// Play waits.
+///
+/// Play is drawn on every row, invisible until the pointer is on it, so assistive
+/// technology finds it as a button named "Play {name}". It isn't a tab stop: Up and
+/// Down still step one row at a time, and the Play bar is one Tab away.
+fn icon_overlay(
+    shell: &LauncherShell,
+    instance: &Instance,
+    row: &SharedString,
+    hovered: bool,
+    size: f32,
+    cx: &mut Context<LauncherShell>,
+) -> Option<AnyElement> {
+    let target = shell.play_target(&instance.id, cx);
+    let scrim = |id: SharedString| {
+        div()
+            .id(id)
+            .absolute()
+            .inset_0()
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded(px(size * 0.2))
+            .bg(SCRIM_INK.opacity(SCRIM))
+    };
+    match target.state {
+        PlayButtonState::Ready => {
+            let button_id = SharedString::from(format!("play-{row}"));
+            let id = instance.id.clone();
+            let joins = target.joins;
+            let selector = button_id.to_string();
+            let button = scrim(button_id.clone())
+                .debug_selector(move || selector.clone())
+                .accessible(
+                    Role::Button,
+                    button_id.clone(),
+                    tr!(M::PlayNamed, name = instance.name),
+                )
+                .when_some(target.caption, |this, caption| {
+                    this.aria_description(caption)
+                })
+                .child(Icon::Play.render(px(size * 0.5), colors::WHITE))
+                // assistive technology's Click, whether Play shows or not
+                .on_a11y_action(AccessibleAction::Click, {
+                    let (id, shell) = (id.clone(), cx.entity().downgrade());
+                    move |_, _, cx| {
+                        shell
+                            .update(cx, |this, cx| this.press_play(&id, joins, cx))
+                            .ok();
+                    }
+                })
+                // A click plays only once Play shows: until the shell has seen the
+                // pointer on the row (after a scroll, say), it opens the row.
+                .when(hovered, |this| {
+                    this.cursor_pointer()
+                        .hover(|style| style.bg(SCRIM_INK.opacity(SCRIM + 15)))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            // Play, not the row's own click, which opens the instance.
+                            cx.stop_propagation();
+                            this.press_play(&id, joins, cx);
+                        }))
+                });
+            // Fades in and out with the pointer.
+            Some(
+                crate::components::motion::Animated::new(
+                    ElementId::Name(format!("{button_id}-shown").into()),
+                    hovered,
+                    button,
+                    |this, t| this.opacity(t),
+                )
+                .into_any_element(),
+            )
+        }
+        // A click on the dots opens the instance, where its progress shows.
+        PlayButtonState::Preparing { .. } if hovered => Some(
+            scrim(format!("preparing-{row}").into())
+                .child(crate::components::loading_dots(colors::WHITE))
+                .into_any_element(),
+        ),
+        PlayButtonState::Preparing { .. }
+        | PlayButtonState::Playing
+        | PlayButtonState::Disabled => None,
+    }
+}
+
 /// One instance: its icon, name, version and loader (or when it was played), and a
-/// dot while it runs. When it was played shows on hover.
+/// dot while it runs. When it was played shows on hover; so does Play, over its icon.
 fn instance_row(
     shell: &LauncherShell,
     instance: &Instance,
@@ -512,7 +609,7 @@ fn instance_row(
     let active = instances.is_active(&id);
     let running = instances.is_running(&id);
     let is_selected = on_instance_page && selected.as_deref() == Some(id.as_str());
-    let icon = crate::instances::appearance::instance_icon(instances, instance, px(26.));
+    let icon = crate::instances::appearance::instance_icon(instances, instance, px(ROW_ICON));
     let detail = match (place, instance.last_played) {
         (RowPlace::LastPlayed, Some(when)) => Ago::since(when).label(),
         _ => match instance.loader.kind() {
@@ -542,12 +639,20 @@ fn instance_row(
         detail.clone().into()
     };
     let element_id = SharedString::from(element_id);
+    let hovered = shell.sidebar_hover() == Some(&element_id);
+    let overlay = icon_overlay(shell, instance, &element_id, hovered, ROW_ICON, cx);
+    let hover_row = element_id.clone();
+    let selector = element_id.to_string();
     div()
         .id(element_id.clone())
+        .debug_selector(move || selector.clone())
         .accessible(Role::ListItem, element_id, instance.name.clone())
         .aria_selected(is_selected)
         .aria_description(description)
         .keyboard_focus()
+        .on_hover(cx.listener(move |this, hovered: &bool, _, cx| {
+            this.hover_sidebar_row(&hover_row, *hovered, cx)
+        }))
         .relative()
         .overflow_hidden()
         .flex()
@@ -582,7 +687,14 @@ fn instance_row(
                 banner_readability,
             )))
         })
-        .child(icon)
+        .child(
+            div()
+                .relative()
+                .flex_none()
+                .size(px(ROW_ICON))
+                .child(icon)
+                .children(overlay),
+        )
         .child(
             div()
                 .flex()
@@ -955,4 +1067,109 @@ fn footer(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoEl
                     version = env!("CARGO_PKG_VERSION")
                 ))),
         )
+}
+
+#[cfg(all(test, feature = "screenshot"))]
+mod tests {
+    use gpui::{Entity, Modifiers, TestAppContext, VisualTestContext};
+
+    use super::*;
+
+    /// The launcher's window with the sidebar's sample instances, signed out, so a
+    /// Play stops at "add an account first" and nothing is downloaded or started.
+    fn open(cx: &mut TestAppContext) -> (Entity<LauncherShell>, &mut VisualTestContext) {
+        cx.update(crate::components::init);
+        let (shell, cx) = cx.add_window_view(|_, cx| {
+            let accounts = crate::preview::accounts("signed-out", cx);
+            let instances = crate::preview::instances("sidebar-groups", &accounts, cx);
+            LauncherShell::new(accounts, instances, cx)
+        });
+        cx.run_until_parked();
+        (shell, cx)
+    }
+
+    fn id_of(shell: &Entity<LauncherShell>, name: &str, cx: &mut VisualTestContext) -> String {
+        shell.read_with(cx, |shell, cx| {
+            let instances = shell.instances.read(cx);
+            let instance = instances.list().iter().find(|i| i.name == name);
+            instance.expect("a sample instance").id.clone()
+        })
+    }
+
+    fn selected(shell: &Entity<LauncherShell>, cx: &mut VisualTestContext) -> Option<String> {
+        shell.read_with(cx, |shell, cx| {
+            shell.instances.read(cx).selected().map(|i| i.id.clone())
+        })
+    }
+
+    /// Whether the instance was asked to play: Play starts its log.
+    fn asked_to_play(shell: &Entity<LauncherShell>, id: &str, cx: &mut VisualTestContext) -> bool {
+        shell.read_with(cx, |shell, cx| {
+            let instances = shell.instances.read(cx);
+            instances.log(id).is_some_and(|log| !log.rows().is_empty())
+        })
+    }
+
+    fn hovered(shell: &Entity<LauncherShell>, cx: &mut VisualTestContext) -> Option<String> {
+        shell.read_with(cx, |shell, _| {
+            shell.sidebar_hover().map(|row| row.to_string())
+        })
+    }
+
+    /// Where the element with the debug selector `selector` was drawn.
+    fn bounds_of(selector: &str, cx: &mut VisualTestContext) -> gpui::Bounds<gpui::Pixels> {
+        // GPUI looks selectors up by a `&'static str`; a test leaks a few.
+        let selector: &'static str = Box::leak(selector.to_string().into_boxed_str());
+        cx.debug_bounds(selector)
+            .unwrap_or_else(|| panic!("{selector} drawn"))
+    }
+
+    /// A point on the row's name, away from its icon.
+    fn on_name(bounds: gpui::Bounds<gpui::Pixels>) -> gpui::Point<gpui::Pixels> {
+        gpui::point(bounds.right() - px(40.), bounds.center().y)
+    }
+
+    #[test]
+    fn play_over_the_icon_plays_without_opening_the_row() {
+        let mut cx = TestAppContext::single();
+        let (shell, cx) = open(&mut cx);
+
+        // The rest of a row opens it, as before, without playing.
+        let opened = id_of(&shell, "All the mods", cx);
+        let bounds = bounds_of(&format!("instance-{opened}"), cx);
+        cx.simulate_click(on_name(bounds), Modifiers::none());
+        assert_eq!(selected(&shell, cx).as_deref(), Some(opened.as_str()));
+        assert!(!asked_to_play(&shell, &opened, cx), "the row only opens");
+
+        // The pointer on another row shows Play over its icon.
+        let id = id_of(&shell, "Fabulously Optimized", cx);
+        let row = format!("instance-{id}");
+        let bounds = bounds_of(&row, cx);
+        cx.simulate_mouse_move(on_name(bounds), None, Modifiers::none());
+        cx.run_until_parked();
+        assert_eq!(hovered(&shell, cx).as_deref(), Some(row.as_str()));
+
+        // Play plays that instance, and its row stays closed.
+        let play = bounds_of(&format!("play-{row}"), cx);
+        assert!(bounds.contains(&play.center()), "over the row's icon");
+        cx.simulate_click(play.center(), Modifiers::none());
+        assert!(asked_to_play(&shell, &id, cx), "Play plays the instance");
+        assert_eq!(selected(&shell, cx).as_deref(), Some(opened.as_str()));
+    }
+
+    #[test]
+    fn play_hides_when_the_pointer_leaves_the_row() {
+        let mut cx = TestAppContext::single();
+        let (shell, cx) = open(&mut cx);
+        let id = id_of(&shell, "Fabulously Optimized", cx);
+        let row = format!("instance-{id}");
+        let bounds = bounds_of(&row, cx);
+        cx.simulate_mouse_move(on_name(bounds), None, Modifiers::none());
+        cx.run_until_parked();
+        assert_eq!(hovered(&shell, cx).as_deref(), Some(row.as_str()));
+        // over the main area
+        cx.simulate_mouse_move(gpui::point(px(900.), px(400.)), None, Modifiers::none());
+        cx.run_until_parked();
+        assert_eq!(hovered(&shell, cx), None);
+    }
 }

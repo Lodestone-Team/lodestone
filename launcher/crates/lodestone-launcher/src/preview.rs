@@ -544,8 +544,14 @@ fn microsoft_account() -> Account {
 }
 
 pub fn accounts(scene: &str, cx: &mut App) -> Entity<Accounts> {
-    let dir =
-        std::env::temp_dir().join(format!("lodestone-launcher-preview-{}", std::process::id()));
+    // A folder of its own each time, so tests running side by side don't remove
+    // each other's.
+    static MADE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let made = MADE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let dir = std::env::temp_dir().join(format!(
+        "lodestone-launcher-preview-{}-{made}",
+        std::process::id()
+    ));
     let _ = std::fs::remove_dir_all(&dir);
     // Remove the made-up data when the screenshot has been taken.
     cx.on_app_quit({
@@ -947,6 +953,7 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
             console.update(cx, |console, cx| console.preview_select(cx));
         }
         "sidebar-groups-settings" => shell.select_tab(InstanceTab::Settings, cx),
+        scene if scene.starts_with("sidebar-play-") => groups::apply(scene, shell, cx),
         "instance-settings" => {
             shell.select_tab(InstanceTab::Settings, cx);
             if let Some(settings) = shell.settings_view() {

@@ -297,6 +297,13 @@ pub struct LauncherShell {
     /// While the sidebar's edge is dragged: its width and whether it is folded, as
     /// drawn. Saved when the drag ends.
     sidebar_drag: Option<(f32, bool)>,
+    /// The sidebar's instance row under the pointer (its element id), which shows
+    /// Play over its icon.
+    sidebar_hover: Option<SharedString>,
+    /// The offscreen screenshots' row stays "under the pointer", whatever the real
+    /// pointer does over the window.
+    #[cfg(feature = "screenshot")]
+    sidebar_hover_pinned: bool,
     /// Settings > General: the Language list is open.
     language_menu_open: bool,
     /// Set by a mouse down on the top bar; the next mouse move starts a window drag.
@@ -503,6 +510,9 @@ impl LauncherShell {
             window: None,
             minimized_for_game: false,
             sidebar_drag: None,
+            sidebar_hover: None,
+            #[cfg(feature = "screenshot")]
+            sidebar_hover_pinned: false,
             language_menu_open: false,
             top_bar_drag_pending: false,
             root_focus: cx.focus_handle(),
@@ -533,6 +543,45 @@ impl LauncherShell {
     pub(crate) fn sidebar_state(&self, cx: &App) -> (f32, bool) {
         self.sidebar_drag
             .unwrap_or_else(|| self.instances.read(cx).sidebar())
+    }
+
+    /// The sidebar's instance row under the pointer, by its element id.
+    pub(crate) fn sidebar_hover(&self) -> Option<&SharedString> {
+        self.sidebar_hover.as_ref()
+    }
+
+    /// The pointer went onto (or off) the sidebar's instance row `row`.
+    pub(crate) fn hover_sidebar_row(
+        &mut self,
+        row: &SharedString,
+        hovered: bool,
+        cx: &mut Context<Self>,
+    ) {
+        #[cfg(feature = "screenshot")]
+        if self.sidebar_hover_pinned {
+            return;
+        }
+        let next = if hovered {
+            Some(row.clone())
+        } else if self.sidebar_hover.as_ref() == Some(row) {
+            None
+        } else {
+            // the pointer has already moved on to another row
+            return;
+        };
+        if self.sidebar_hover != next {
+            self.sidebar_hover = next;
+            cx.notify();
+        }
+    }
+
+    /// Shows the sidebar's row `row` as under the pointer, for the offscreen
+    /// screenshots, whatever the real pointer does.
+    #[cfg(feature = "screenshot")]
+    pub(crate) fn preview_sidebar_hover(&mut self, row: SharedString, cx: &mut Context<Self>) {
+        self.sidebar_hover = Some(row);
+        self.sidebar_hover_pinned = true;
+        cx.notify();
     }
 
     /// Whether the sidebar's edge is being dragged.

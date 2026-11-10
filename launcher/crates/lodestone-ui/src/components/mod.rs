@@ -28,7 +28,7 @@ pub mod window_frame;
 mod window_layer;
 
 pub use a11y::Accessible;
-pub use button::{Align, Button, ButtonSize, ButtonVariant, IconButton, LoadingDots};
+pub use button::{Align, Button, ButtonSize, ButtonVariant, IconButton, LoadingDots, loading_dots};
 pub use dialog::prefers_reduced_motion;
 pub use dialog::{Dialog, UnderDialogs};
 pub use dialog_slot::{DialogSlot, EXIT, EXIT_REDUCED, Presence};
