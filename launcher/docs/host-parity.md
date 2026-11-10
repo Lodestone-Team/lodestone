@@ -32,11 +32,28 @@ be built in parallel with little file overlap. Tick items (`[x]`) as you build t
   owner sign-in token (a JWT, as `POST /user/login` gives) into the claim's private
   folder. The token is tied to the core's HTTPS certificate (pinned, strict client) and
   never saved: the Host claims again at each start (`session.rs`,
-  `launcher_core::cores::local_claim::claim_session`). On the first run (a core without
-  an owner) the Host asks for the owner's username and password, which the claim uses
-  to make the account (no setup key needed), then for the core's name and public
-  address. If the owner turned off "Let apps on this computer claim owner access", the
+  `launcher_core::cores::local_claim::claim_session`). **The first run asks nothing**: on
+  a core without an owner the claim makes the owner without a password, named after this
+  computer's user (`session::default_owner_name`, else "owner"; changed in Settings ›
+  Profile), and the Host goes straight to the app. If the owner turned off "Let apps on this computer claim owner access", the
   Host asks for a username and password (`POST /user/login` over loopback).
+- **Local-only until shared** (`core/src/remote_access.rs`). The core's global setting
+  `allow_remote_access` ("Allow access from other devices", saved) is off for a new
+  `--is-host` core without an owner and after a claim makes an owner without a password;
+  every existing install (no field in its settings) keeps it on, and so does any owner
+  made with a password. While it is off, the core answers every API request from an
+  address that isn't this computer's with `403 {"kind":"LocalOnly"}` (a middleware inside
+  the CORS layer, before every route, WebSockets and the public listing included), and
+  connections from other devices opened while it was on stop when it is turned off.
+  Lodestone Connect is not affected (friends come through the tunnel). Anything that
+  only makes sense from other devices first asks for the owner's username and password
+  (`pages/account_dialogs.rs`, `AccountDialog::owner_account`, `PUT
+  /user/owner_account`, which also turns remote access on): Settings › General's "Allow
+  access from other devices", "List servers publicly" and plain HTTP from the network,
+  Settings › Users' new user, a new API key, and Profile's "Set a password". Turning it
+  off again asks first and is only allowed from this computer. While the owner has no
+  password, "Let apps on this computer claim owner access" can't be turned off (the
+  claim is then the only way in).
 - **Shared code.** `launcher/crates/lodestone-ui`: components, theme, fonts and icons,
   the i18n plumbing and the Common/Format words, undo, file dialogs, the skin paint
   layer, toasts (`components::toast`: `HostState::toast(Toast::success(…), cx)`, drawn
@@ -92,8 +109,10 @@ python3 scripts/host_dev_bundle.py --open             # "Lodestone Host Dev.app"
   on the Console, Files and Overview), `--select-lines` (a selection across the
   Console's lines, with `--tab console --demo`), `--find <text>` (the editor's find bar, with
   `--tab files --demo`), `--degraded` (the "live updates stopped" banner), `--height <px>`.
-  For a run that acts as a user would: `--owner <name>` fills in the first run's forms
-  (the password comes from `LODESTONE_E2E_PASSWORD`), `--share` presses the sidebar's
+  For a run that acts as a user would: `--share-core` flips Settings › General's "Allow
+  access from other devices" (the owner account dialog opens), `--owner <name>` also
+  fills that dialog in and sends it (the password comes from `LODESTONE_E2E_PASSWORD`),
+  `--share` presses the sidebar's
   Share on the first instance, and `--control <folder>` keeps the Host running, saving
   the screenshot every 3 s, until a file named `quit` appears in the folder (a file
   named `stop-share` presses the Overview's Stop sharing).
@@ -111,8 +130,8 @@ for the game port.
    --features screenshot -p lodestone-launcher -p lodestone-launcher-cli`.
 2. **Host, first run.** With `LODESTONE_PATH`, `LODESTONE_HOST_DATA_DIR` and
    `LODESTONE_HOST_CORE` (`../target/debug/lodestone_core`) set to a new temp folder,
-   run the Host. It asks for the owner account, then the core's name. (Offscreen:
-   `--screenshot first.png --owner alex` with `LODESTONE_E2E_PASSWORD` set.)
+   run the Host. It goes straight to the app: no account to make. Sharing a server with
+   friends needs none either. (Offscreen: `--screenshot first.png`.)
 3. **New server.** "New server" › Minecraft › the Server Settings step starts on the
    newest *release* (not a snapshot) › the last step shows "I agree to the Minecraft
    EULA", and Create stays off until the user ticks it. A test may not tick it: create
@@ -189,9 +208,11 @@ shows for a core with the `macros` capability and then says scripting is unavail
 
 - [x] The core as a child process: find, port, start, wait, restart, stop; log file
   (`core_process.rs`, `supervisor.rs`; core: `--port`, `--stop-with-stdin`).
-- [x] Owner sign-in without a password (local claim session), first-run owner account
-  and core name/address, password sign-in when claims are off (`session.rs`,
-  `onboarding.rs`, `app.rs`; core: `"session": true` claims).
+- [x] Owner sign-in without a password (local claim session), password sign-in when
+  claims are off (`session.rs`, `onboarding.rs`, `app.rs`; core: `"session": true`
+  claims). The first run asks nothing: the owner is made without a password and the core
+  stays local-only until the owner sets one up to share it (`account_dialogs.rs`; core:
+  `remote_access.rs`).
 - [x] The shell: top bar with logo and DEV badge, sidebar with the selected instance
   (state, players, power buttons by state and permission), its tabs by the dashboard's
   visibility rules, every instance with a live status dot, instances being made, "New
@@ -480,7 +501,7 @@ Conventions in the code that every area relies on:
   - *Host:* The Host's own core: the supervisor's status screen, which restarts it and shows its log.
 - [x] **Setup required dialog** (`/info.is_setup === false` while in dashboard): **Set up** (→ first_setup)
   / **Change core**.
-  - *Host:* The Host's own core: the first run's owner form (onboarding.rs).
+  - *Host:* The Host's own core: the claim makes the owner, without a password (session.rs); nothing is asked.
 - [x] **Version mismatch** (`DASHBOARD_VERSION` vs `/info.version`, semver): different major or minor, or
   core 0.4.x with patch < 4 → danger dialog (core/dashboard versions, "incompatible", wiki Updating link,
   "Continue anyway"); patch-only difference → warning toast top-centre 10 s (id `patchVersionMismatch`).

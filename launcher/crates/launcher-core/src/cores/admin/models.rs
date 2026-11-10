@@ -241,6 +241,14 @@ pub struct PublicUser {
     pub is_admin: bool,
     #[serde(default)]
     pub permissions: UserPermission,
+    /// Whether they can sign in with a password. Only Lodestone Host's owner has none,
+    /// until they set one to share the core. Older cores don't say: everyone has one.
+    #[serde(default = "yes")]
+    pub has_password: bool,
+}
+
+fn yes() -> bool {
+    true
 }
 
 impl PublicUser {
@@ -293,6 +301,11 @@ pub struct GlobalSettingsData {
     pub allow_lan_http: bool,
     pub list_instances_publicly: bool,
     pub allow_local_claim: bool,
+    /// Whether other devices may use the core ("Allow access from other devices"). Off
+    /// for Lodestone Host's core until its owner sets up a password to share it. Older
+    /// cores don't say: they always allow it.
+    #[serde(default = "yes")]
+    pub allow_remote_access: bool,
 }
 
 /// Where the core's HTTPS certificate comes from (`TlsMode`).
@@ -357,6 +370,10 @@ pub struct FullCoreInfo {
     pub capabilities: CoreCapabilities,
     pub product: CoreProduct,
     pub launched_by: LaunchedBy,
+    /// Whether other devices may use the core. Older cores don't say: they always allow
+    /// it.
+    #[serde(default = "yes")]
+    pub remote_access: bool,
 }
 
 /// `POST /user/login` and `POST /setup/{key}` (`LoginReply`). No `Debug`: it holds
@@ -370,6 +387,29 @@ pub struct LoginReply {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Older cores don't say whether other devices may use them, or who has a password:
+    /// they always allow it, and everyone has one.
+    #[test]
+    fn older_cores_allow_remote_access() {
+        let info: FullCoreInfo =
+            serde_json::from_value(serde_json::json!({ "uuid": "c" })).unwrap();
+        assert!(info.remote_access);
+        let settings: GlobalSettingsData =
+            serde_json::from_value(serde_json::json!({ "core_name": "Home" })).unwrap();
+        assert!(settings.allow_remote_access);
+        let user: PublicUser =
+            serde_json::from_value(serde_json::json!({ "uid": "1", "username": "u" })).unwrap();
+        assert!(user.has_password);
+        let local: FullCoreInfo =
+            serde_json::from_value(serde_json::json!({ "remote_access": false })).unwrap();
+        assert!(!local.remote_access);
+        let owner: PublicUser = serde_json::from_value(
+            serde_json::json!({ "uid": "1", "username": "u", "has_password": false }),
+        )
+        .unwrap();
+        assert!(!owner.has_password);
+    }
 
     #[test]
     fn reads_an_instance_from_the_list() {
@@ -435,6 +475,7 @@ mod tests {
                 can_start_instance: vec!["a".into()],
                 ..Default::default()
             },
+            has_password: true,
         };
         assert!(user.may(InstancePermission::Start, "a"));
         assert!(!user.may(InstancePermission::Start, "b"));

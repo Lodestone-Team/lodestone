@@ -81,7 +81,9 @@ fn main() {
 /// selected (on its `--tab`: `console`, `files`, …), sample toasts shown and the page
 /// filled with sample data (`--demo`, for the pages that have some), saves it
 /// and quits, stopping the core. `--restart-to-update` then restarts into a downloaded
-/// update, as Settings › Updates' Restart does.
+/// update, as Settings › Updates' Restart does. `--share-core` flips Settings › General's
+/// "Allow access from other devices" (the owner account dialog opens); `--owner <name>`
+/// also fills it in with LODESTONE_E2E_PASSWORD and sends it.
 #[cfg(feature = "screenshot")]
 mod screenshot {
     use std::time::Duration;
@@ -112,24 +114,12 @@ mod screenshot {
         let demo = std::env::args().any(|arg| arg == "--demo");
         let share = std::env::args().any(|arg| arg == "--share");
         let select_first = select_first || share;
+        // `--owner <username>`: set up the owner account to share the core, as a user
+        // would (the password from LODESTONE_E2E_PASSWORD); `--share-core` stops at its
+        // dialog. Both on Settings › General.
+        let owner = arg_after("--owner");
+        let share_core = owner.is_some() || std::env::args().any(|arg| arg == "--share-core");
         cx.spawn(async move |cx| {
-            // `--owner <username>`: on a first run, fill in the owner account (password
-            // from LODESTONE_E2E_PASSWORD) and the core's name, as a user would
-            if let Some(username) = arg_after("--owner") {
-                let password = std::env::var("LODESTONE_E2E_PASSWORD").unwrap_or_default();
-                for _ in 0..120 {
-                    let step = window
-                        .update(cx, |app, _, cx| {
-                            app.onboard_for_screenshot(&username, &password, cx)
-                        })
-                        .unwrap_or("waiting");
-                    eprintln!("first run: {step}");
-                    if step == "shell" {
-                        break;
-                    }
-                    cx.background_executor().timer(Duration::from_secs(1)).await;
-                }
-            }
             cx.background_executor()
                 .timer(Duration::from_secs(wait))
                 .await;
@@ -184,11 +174,14 @@ mod screenshot {
             }
             // `--settings general|users|profile|updates`: the Settings dialog on a page,
             // over the page shown
-            if let Some(page) = arg_after("--settings").and_then(|name| {
-                lodestone_host::routes::SettingsPage::ALL
-                    .into_iter()
-                    .find(|page| format!("{page:?}").eq_ignore_ascii_case(&name))
-            }) {
+            if let Some(page) = arg_after("--settings")
+                .and_then(|name| {
+                    lodestone_host::routes::SettingsPage::ALL
+                        .into_iter()
+                        .find(|page| format!("{page:?}").eq_ignore_ascii_case(&name))
+                })
+                .or(share_core.then_some(lodestone_host::routes::SettingsPage::General))
+            {
                 window
                     .update(cx, |app, _, cx| {
                         app.shell()?
@@ -196,6 +189,32 @@ mod screenshot {
                         Some(())
                     })
                     .ok();
+                cx.background_executor()
+                    .timer(Duration::from_millis(2500))
+                    .await;
+            }
+            if share_core {
+                let password = std::env::var("LODESTONE_E2E_PASSWORD").unwrap_or_default();
+                let opened = window
+                    .update(cx, |app, _, cx| {
+                        let view = app.shell()?.read(cx).settings_view()?;
+                        let owner = owner.as_deref().map(|name| (name, password.as_str()));
+                        Some(lodestone_host::pages::share_core_for_screenshot(
+                            &view, owner, cx,
+                        ))
+                    })
+                    .ok()
+                    .flatten()
+                    .unwrap_or(false);
+                eprintln!(
+                    "share the core: {}",
+                    if opened {
+                        "the owner account dialog"
+                    } else {
+                        "no dialog (the owner has a password)"
+                    }
+                );
+                // the dialog opens, or the account is set up and the dialog closes
                 cx.background_executor()
                     .timer(Duration::from_millis(2500))
                     .await;

@@ -123,6 +123,21 @@ pub fn select_for_screenshot(view: &AnyView, cx: &mut App) {
     }
 }
 
+/// On Settings › General, flips "Allow access from other devices" as a user would, and
+/// with `owner` (a username and password) fills in and sends the owner account dialog
+/// it opens (development screenshots' `--share-core` and `--owner`). Whether the dialog
+/// was there.
+#[cfg(feature = "screenshot")]
+pub fn share_core_for_screenshot(
+    view: &AnyView,
+    owner: Option<(&str, &str)>,
+    cx: &mut App,
+) -> bool {
+    view.clone()
+        .downcast::<core_settings::CoreSettingsPage>()
+        .is_ok_and(|page| page.update(cx, |page, cx| page.share_core_for_screenshot(owner, cx)))
+}
+
 /// Opens the Files tab's find bar on `query` (development screenshots).
 pub fn find_for_screenshot(view: &AnyView, query: &str, cx: &mut App) {
     if let Ok(page) = view.clone().downcast::<files::FilesPage>() {

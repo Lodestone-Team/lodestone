@@ -367,6 +367,7 @@ mod tests {
                 is_owner: true,
                 is_admin: false,
                 permissions: UserPermission::default(),
+                has_password: true,
             },
         };
         let (shell, cx) = cx.add_window_view(|_, cx| {

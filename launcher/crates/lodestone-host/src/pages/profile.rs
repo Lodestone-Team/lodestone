@@ -143,11 +143,20 @@ impl ProfilePage {
         );
     }
 
+    /// Changes the password, or for an owner without one, sets up the owner account
+    /// (which also lets other devices use the core).
     fn change_password(&mut self, cx: &mut Context<Self>) {
         let state = self.state.clone();
         let uid = state.read(cx).me.uid.clone();
+        let set_up = account_dialogs::needs_owner_account(state.read(cx));
         let (dialog, subscription) = account_dialogs::open(
-            move |cx| AccountDialog::change_password(state, uid, cx),
+            move |cx| {
+                if set_up {
+                    AccountDialog::owner_account(state, cx)
+                } else {
+                    AccountDialog::change_password(state, uid, cx)
+                }
+            },
             |this: &mut Self, dialog, event, cx| {
                 if this.dialog.current() != Some(dialog) {
                     return;
@@ -342,13 +351,22 @@ impl ProfilePage {
 
 impl Render for ProfilePage {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let no_password = account_dialogs::needs_owner_account(self.state.read(cx));
         let account = settings::section(t(CoreMsg::Account), None)
             .child(settings::card([
                 self.username.clone().into_any_element(),
                 SettingRow::new(t(CoreMsg::ProfilePassword))
+                    .hint_opt(no_password.then(|| t(CoreMsg::NoPasswordYet)))
                     .child(
-                        Button::new("change-password", t(CoreMsg::ChangePassword))
-                            .on_click(cx.listener(|this, _, _, cx| this.change_password(cx))),
+                        Button::new(
+                            "change-password",
+                            t(if no_password {
+                                CoreMsg::SetPassword
+                            } else {
+                                CoreMsg::ChangePassword
+                            }),
+                        )
+                        .on_click(cx.listener(|this, _, _, cx| this.change_password(cx))),
                     )
                     .into_any_element(),
             ]))

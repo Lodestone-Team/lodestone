@@ -11,21 +11,10 @@ crate::i18n::messages! {
         /// While quitting: the servers stop first.
         StoppingCore = "Stopping your servers…",
         SigningIn = "Signing in…",
-        /// The first run: the owner account.
-        SetupTitle = "Set up Lodestone Core",
-        SetupIntro = "Create the owner account. You sign in with it from the web dashboard and your other devices.",
         Username = "Username",
         Password = "Password",
-        ConfirmPassword = "Confirm password",
-        CreateOwner = "Create owner account",
         NoUsername = "Enter a username.",
         NoPassword = "Enter a password.",
-        PasswordsDiffer = "The passwords don’t match.",
-        /// The first run, after the owner account.
-        FirstConfigTitle = "Name your core",
-        CoreName = "Core name",
-        PublicAddress = "Public domain or IP address",
-        PublicAddressHint = "Players join your servers with this address. You can leave it empty.",
         SignInTitle = "Sign in",
         SignInIntro = "This core doesn’t let apps on this computer claim owner access. Sign in with your Lodestone account.",
         /// The sidebar.
