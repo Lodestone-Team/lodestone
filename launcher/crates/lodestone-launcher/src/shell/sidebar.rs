@@ -394,7 +394,7 @@ fn rail_instance(
         })
         .child(icon)
         .when(linked.is_some(), |this| {
-            this.child(linked_badge(px(14.), px(3.), cx))
+            this.child(linked_badge(px(10.), px(4.), cx))
         })
         .when(active, |this| {
             this.child(
@@ -723,7 +723,7 @@ fn instance_row(
                 .child(icon)
                 .children(overlay)
                 .when(linked.is_some(), |this| {
-                    this.child(linked_badge(px(13.), px(-4.), cx))
+                    this.child(linked_badge(px(9.), px(-2.), cx))
                 }),
         )
         .child(
@@ -791,7 +791,7 @@ fn linked_badge(
         .absolute()
         .right(inset)
         .bottom(inset)
-        .size(size + px(4.))
+        .size(size + px(3.))
         .flex()
         .items_center()
         .justify_center()
