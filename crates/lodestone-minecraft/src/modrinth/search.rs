@@ -193,6 +193,19 @@ impl ClientProjectType {
     }
 }
 
+/// Where a client mod or modpack has to be installed, as a search filter. Every client
+/// search already asks for projects that run on the client.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum ClientEnvironment {
+    /// Anything that runs on the client.
+    #[default]
+    Any,
+    /// Only on the client: the server doesn't need it, so it works on any server.
+    ClientOnly,
+    /// The server needs it too.
+    ServerToo,
+}
+
 /// A checked search for content that runs on a game client. Unlike [`SearchParams`], it
 /// has no server-side facet; mod searches hide mods that don't run on the client instead.
 #[derive(Debug, Clone, PartialEq)]
@@ -202,6 +215,13 @@ pub struct ClientSearchParams {
     pub game_version: Option<String>,
     /// Any of these Modrinth loaders (categories). Empty for no loader filter.
     pub loaders: Vec<String>,
+    /// Modrinth categories (also features, resolutions and performance impacts): a
+    /// project must have one of each inner list. See [`Self::with_filters`].
+    pub categories: Vec<Vec<String>>,
+    /// For mods and modpacks; ignored for resource and shader packs.
+    pub environment: ClientEnvironment,
+    /// Only projects with an open source license.
+    pub open_source: bool,
     pub index: ModrinthSearchIndex,
     pub offset: u32,
     pub limit: u32,
@@ -232,6 +252,9 @@ impl ClientSearchParams {
             project_type,
             game_version: optional_filter(game_version, "game version")?,
             loaders: checked,
+            categories: Vec::new(),
+            environment: ClientEnvironment::Any,
+            open_source: false,
             index: index.unwrap_or_default(),
             offset: check_offset(offset)?,
             limit: limit
@@ -240,8 +263,37 @@ impl ClientSearchParams {
         })
     }
 
+    /// Adds the filters a browser picked: `categories` are Modrinth category names, a
+    /// project having one of each inner list (`[["magic"], ["16x", "32x"]]` is magic
+    /// and 16x or 32x); empty lists are left out.
+    pub fn with_filters(
+        mut self,
+        categories: Vec<Vec<String>>,
+        environment: ClientEnvironment,
+        open_source: bool,
+    ) -> Result<Self, Error> {
+        for group in categories {
+            let mut checked = Vec::new();
+            for category in group {
+                if let Some(category) = optional_filter(Some(category), "category")? {
+                    let category = category.to_lowercase();
+                    if !checked.contains(&category) {
+                        checked.push(category);
+                    }
+                }
+            }
+            if !checked.is_empty() {
+                self.categories.push(checked);
+            }
+        }
+        self.environment = environment;
+        self.open_source = open_source;
+        Ok(self)
+    }
+
     /// The Modrinth facets: the project type, the loaders (any of them), the game version,
-    /// and for mods and modpacks a client-side facet so server-only ones are hidden.
+    /// and for mods and modpacks a client-side facet so server-only ones are hidden; then
+    /// the filters of [`Self::with_filters`].
     pub fn facets(&self) -> Vec<Vec<String>> {
         let mut facets = vec![vec![format!("project_type:{}", self.project_type.as_str())]];
         if !self.loaders.is_empty() {
@@ -255,14 +307,30 @@ impl ClientSearchParams {
         if let Some(game_version) = &self.game_version {
             facets.push(vec![format!("versions:{game_version}")]);
         }
-        if matches!(
+        let mods = matches!(
             self.project_type,
             ClientProjectType::Mod | ClientProjectType::Modpack
-        ) {
+        );
+        if mods {
             facets.push(vec![
                 "client_side:required".to_string(),
                 "client_side:optional".to_string(),
             ]);
+        }
+        for group in &self.categories {
+            facets.push(group.iter().map(|c| format!("categories:{c}")).collect());
+        }
+        match self.environment {
+            _ if !mods => {}
+            ClientEnvironment::Any => {}
+            ClientEnvironment::ClientOnly => facets.push(vec![
+                "server_side:optional".to_string(),
+                "server_side:unsupported".to_string(),
+            ]),
+            ClientEnvironment::ServerToo => facets.push(vec!["server_side:required".to_string()]),
+        }
+        if self.open_source {
+            facets.push(vec!["open_source:true".to_string()]);
         }
         facets
     }
@@ -464,6 +532,70 @@ mod tests {
                 ],
             ]
         );
+    }
+
+    #[test]
+    fn client_search_filters() {
+        let new = |project_type| {
+            ClientSearchParams::new(None, project_type, None, Vec::new(), None, None, None).unwrap()
+        };
+        let client = vec![
+            "client_side:required".to_string(),
+            "client_side:optional".to_string(),
+        ];
+        let mods = new(ClientProjectType::Mod)
+            .with_filters(
+                vec![
+                    vec!["Magic".into()],
+                    vec![],
+                    vec!["technology".into(), "storage".into(), "storage".into()],
+                ],
+                ClientEnvironment::ClientOnly,
+                true,
+            )
+            .unwrap()
+            .facets();
+        assert_eq!(
+            mods,
+            vec![
+                vec!["project_type:mod".to_string()],
+                client.clone(),
+                vec!["categories:magic".to_string()],
+                vec![
+                    "categories:technology".to_string(),
+                    "categories:storage".to_string()
+                ],
+                vec![
+                    "server_side:optional".to_string(),
+                    "server_side:unsupported".to_string()
+                ],
+                vec!["open_source:true".to_string()],
+            ]
+        );
+        let server = new(ClientProjectType::Mod)
+            .with_filters(Vec::new(), ClientEnvironment::ServerToo, false)
+            .unwrap()
+            .facets();
+        assert_eq!(server.last().unwrap(), &vec!["server_side:required"]);
+        // packs have no environment
+        let packs = new(ClientProjectType::ResourcePack)
+            .with_filters(
+                vec![vec!["8x-".into(), "512x+".into()]],
+                ClientEnvironment::ServerToo,
+                false,
+            )
+            .unwrap()
+            .facets();
+        assert_eq!(
+            packs,
+            vec![
+                vec!["project_type:resourcepack".to_string()],
+                vec!["categories:8x-".to_string(), "categories:512x+".to_string()],
+            ]
+        );
+        assert!(new(ClientProjectType::Mod)
+            .with_filters(vec![vec!["a\"]".into()]], ClientEnvironment::Any, false)
+            .is_err());
     }
 
     #[test]

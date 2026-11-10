@@ -72,8 +72,11 @@ pub fn window_height(scene: &str) -> Option<f32> {
         "shared-settings" => Some(1700.),
         "instance-shared-settings" => Some(2100.),
         "sidebar-groups" | "sidebar-groups-off" => Some(1000.),
-        // Tall enough for the Modrinth section's placeholder under six mods.
+        // Tall enough for the Modrinth section under six mods.
         "content-mods" => Some(1100.),
+        // The installed mods, then Modrinth's results to browse (and its filters).
+        "content-browse-idle" => Some(1500.),
+        "content-filters" | "content-filters-packs" | "content-filters-shaders" => Some(1700.),
         // Down to "Other cores", under the friends sections.
         "servers-local" => Some(2500.),
         "servers"

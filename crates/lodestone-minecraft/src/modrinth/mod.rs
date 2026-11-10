@@ -5,7 +5,7 @@ pub mod links;
 pub mod search;
 pub mod types;
 
-pub use search::{ClientProjectType, ClientSearchParams, SearchParams};
+pub use search::{ClientEnvironment, ClientProjectType, ClientSearchParams, SearchParams};
 pub use types::*;
 
 /// The only host that version files (mods, plugins and modpacks) are downloaded from.
