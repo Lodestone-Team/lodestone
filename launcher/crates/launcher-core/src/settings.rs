@@ -82,6 +82,10 @@ pub struct Settings {
     /// show it again). Left out of the file until then.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub host_offer_dismissed: bool,
+    /// The Friends section's "How to add a friend" steps were hidden ("Show steps"
+    /// brings them back). Left out of the file until then.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub friend_steps_hidden: bool,
     /// The interface's zoom, from Ctrl/⌘ + and −: 1.0 is 100%. Left out of the file
     /// at 100%.
     #[serde(default = "one", skip_serializing_if = "is_one")]
@@ -117,6 +121,7 @@ impl Default for Settings {
             main_instance_offered: false,
             narrator_offered: false,
             host_offer_dismissed: false,
+            friend_steps_hidden: false,
             zoom: 1.0,
             skin: None,
             sidebar_width: None,

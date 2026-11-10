@@ -193,6 +193,7 @@ impl Servers {
                         .on_click(cx.listener(|this, _, _, cx| this.start_friend_refresh(cx))),
                 )
             })
+            .children(self.friend_steps_show_button(cx))
             .child(
                 Button::new("friend-list-add", t(M::AddFriend))
                     .size(ButtonSize::Slim)
@@ -262,7 +263,14 @@ impl Servers {
                 )
         };
 
-        let mut body: Vec<AnyElement> = vec![you.into_any_element()];
+        // "How to add a friend", until every step is done
+        let steps = self.render_friend_steps(cx);
+        // while the steps show, they say how to choose a name and add a friend
+        let guiding = steps.is_some();
+        let mut body: Vec<AnyElement> = steps.into_iter().collect();
+        if !(guiding && book.name.is_empty()) {
+            body.push(you.into_any_element());
+        }
         // the cores friends see this person share from, each with Retire (a lost or
         // stolen computer)
         for core in &book.my_cores {
@@ -333,7 +341,7 @@ impl Servers {
             body.push(self.render_links(cx));
         }
         let friends = list.sorted();
-        if friends.is_empty() && list.open_error.is_none() {
+        if friends.is_empty() && list.open_error.is_none() && !guiding {
             body.push(
                 note(t(M::NoFriendsYet))
                     .px_4()

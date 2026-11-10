@@ -63,6 +63,12 @@ pub const SCENES: &[&str] = &[
     "servers-friend-list-remove",
     "servers-friend-list-retire",
     "servers-friend-list-retire-core",
+    "servers-friend-steps-link",
+    "servers-friend-steps-accept",
+    "servers-friend-steps-pending",
+    "servers-friend-steps-compare",
+    "servers-friend-steps-share",
+    "servers-friend-steps-play",
 ];
 
 /// Made-up fingerprints.
@@ -423,7 +429,10 @@ fn apply_servers(scene: &str, servers: &mut Servers, cx: &mut Context<Servers>) 
                 cx,
             );
         }
-        scene if scene.starts_with("servers-friend-list") => {
+        scene
+            if scene.starts_with("servers-friend-list")
+                || scene.starts_with("servers-friend-steps") =>
+        {
             servers.preview(Vec::new(), Vec::new());
             super::friend_list::apply(scene, servers, cx);
         }

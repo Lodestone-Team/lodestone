@@ -26,6 +26,38 @@ crate::i18n::messages! {
         /// Problems while checking on friends: {error} is what went wrong.
         RefreshProblem = "Some friends couldn't be checked: {error}",
 
+        // ===== How to add a friend: the steps, ticked as they're done =====
+        StepsTitle = "How to add a friend",
+        /// {done} and {total} are numbers of steps.
+        StepsProgress = "{done} of {total} done",
+        HideSteps = "Hide steps",
+        ShowSteps = "Show steps",
+        /// For screen readers, after a step's title.
+        StepDone = "done",
+        StepNext = "next",
+        StepLater = "not yet",
+        StepName = "Choose your name",
+        StepNameDetail = "Your friends see this name.",
+        StepLink = "Send a friend link, or open theirs",
+        StepLinkDetail = "Choose Add friend to make a link and send it to your friend any way you like. If they sent you a link, open it, or paste it under Add friend.",
+        StepLinkWaiting = "Your link is ready and works once, for 24 hours. Send it to your friend, then wait for them to open it.",
+        StepAccept = "Accept each other",
+        /// {name} is the name of the person who answered.
+        StepAcceptReply = "{name} answered your link. If it's really them, choose Accept below.",
+        /// {name} is the friend whose link this person answered.
+        StepAcceptPending = "{name} still needs to accept. They show up here once they do.",
+        StepCompare = "Compare safety codes",
+        /// {name} is a friend's name.
+        StepCompareDetail = "Read your codes to each other on a call or in person. If they match, you're talking to the real {name}.",
+        StepShare = "Get a server shared with you",
+        /// {name} is a friend's name.
+        StepShareDetail = "Ask {name} to share a server. In Lodestone Host, they open the server, go to Settings › Friends and tick your name. You can share yours the same way.",
+        StepPlay = "Play",
+        /// {name} is a friend's name.
+        StepPlayDetail = "When {name} is online, open them in the list below and choose Play on their server.",
+        /// {name} is a friend who is online now.
+        StepPlayOnline = "{name} is online. Open them in the list below and choose Play on their server.",
+
         // ===== Friend links and their answers =====
         LinksTitle = "Your friend links",
         /// {time} is when the link stops working, such as "Tomorrow at 14:05".
