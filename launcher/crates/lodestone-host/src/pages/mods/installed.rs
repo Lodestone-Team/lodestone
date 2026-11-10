@@ -2,9 +2,11 @@
 //! of a Fabric server, the toolbar (update all, check for updates, upload), and a row
 //! per mod with its update, Modrinth link, switch and delete.
 
+use std::path::PathBuf;
+
 use gpui::{
-    AnyElement, AppContext as _, Context, IntoElement, ParentElement, PathPromptOptions,
-    SharedString, Styled, div, img, prelude::*,
+    AnyElement, AppContext as _, Context, ExternalPaths, IntoElement, ParentElement,
+    PathPromptOptions, SharedString, Styled, div, img, prelude::*,
 };
 use launcher_core::cores::admin::mods::{
     ClientRequirement, InstalledMod, InstalledModLoader, ModInstallRequest, ModInstallResult,
@@ -263,6 +265,19 @@ impl ModsPage {
                 }
                 _ => return,
             };
+            this.update(cx, |this, cx| this.upload_paths(paths, cx))
+                .ok();
+        });
+        self.push(task);
+    }
+
+    /// Uploads `.jar` files picked in the dialog or dropped on the tab; anything else
+    /// is refused, by name, before a byte is sent.
+    fn upload_paths(&mut self, paths: Vec<PathBuf>, cx: &mut Context<Self>) {
+        if paths.is_empty() || self.uploading {
+            return;
+        }
+        let task = cx.spawn(async move |this, cx| {
             let not_jars: Vec<String> = paths
                 .iter()
                 .filter(|p| !p.extension().is_some_and(|e| e.eq_ignore_ascii_case("jar")))
@@ -817,7 +832,11 @@ impl ModsPage {
                 .into_any_element()])
             .into_any_element()
         };
+        let can_drop = can_write && self.list.is_some() && !self.uploading;
         div()
+            .relative()
+            .group("mods-drop")
+            .min_h(px(360.))
             .flex()
             .flex_col()
             .gap(px(16.))
@@ -826,6 +845,44 @@ impl ModsPage {
             })
             .child(toolbar)
             .child(list)
+            .when(can_drop, |this| {
+                this.on_drop(cx.listener(|this, paths: &ExternalPaths, _, cx| {
+                    this.upload_paths(paths.paths().to_vec(), cx)
+                }))
+                // "Release to upload", while files are dragged over the tab
+                .child(
+                    div()
+                        .absolute()
+                        .inset_0()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .invisible()
+                        .group_drag_over::<ExternalPaths>("mods-drop", |style| style.visible())
+                        .rounded(radius::XL_2)
+                        .bg(colors::GRAY_900.opacity(70))
+                        .child(
+                            div()
+                                .flex()
+                                .flex_col()
+                                .items_center()
+                                .gap(px(16.))
+                                .w(px(240.))
+                                .pt(px(48.))
+                                .pb(px(32.))
+                                .rounded(radius::XL_2)
+                                .border_2()
+                                .border_dashed()
+                                .border_color(colors::GRAY_FADED.opacity(30))
+                                .bg(colors::GRAY_800.opacity(50))
+                                .text_color(colors::WHITE.opacity(50))
+                                .child(
+                                    Icon::Download.render(px(40.), colors::GRAY_FADED.opacity(80)),
+                                )
+                                .child(t(M::ModsDropToUpload)),
+                        ),
+                )
+            })
             .into_any_element()
     }
 }
