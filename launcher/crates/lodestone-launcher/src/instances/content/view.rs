@@ -328,10 +328,12 @@ pub(super) enum Entry {
     /// No network: Modrinth can't be searched.
     ModrinthOffline,
     ModrinthNothing,
-    /// A Modrinth result, by its index in the results.
+    /// A Modrinth result, by its index in the results; `installed` when the instance
+    /// has it already.
     Hit {
         index: usize,
         id: String,
+        installed: bool,
         first: bool,
         last: bool,
     },
@@ -340,10 +342,12 @@ pub(super) enum Entry {
     CurseForgeLoading,
     CurseForgeFailed(SharedString),
     CurseForgeNothing,
-    /// A CurseForge result, by its index in the results.
+    /// A CurseForge result, by its index in the results; `installed` when the
+    /// instance has it already.
     CfHit {
         index: usize,
         id: u64,
+        installed: bool,
         first: bool,
         last: bool,
     },
@@ -374,6 +378,21 @@ fn item_matches(item: &Item, query: &str) -> bool {
             .modrinth
             .as_ref()
             .is_some_and(|m| m.title.to_lowercase().contains(&query))
+}
+
+/// In place of Install on a result the instance has already: "✓ Installed".
+pub(super) fn installed_mark() -> gpui::Div {
+    div()
+        .flex()
+        .flex_row()
+        .flex_none()
+        .items_center()
+        .gap_1()
+        .text_size(theme::text_size(text::SMALL))
+        .font_weight(weights::BOLD.into())
+        .text_color(crate::theme::ink::muted())
+        .child(Icon::Check.render(px(12.), crate::theme::ink::muted()))
+        .child(t(M::AlreadyInstalled))
 }
 
 /// A row drawn as part of a `list_box`: the box's sides, and its top or bottom edge
@@ -1637,6 +1656,8 @@ impl ContentView {
             .child(
                 div()
                     .id((id, kind as usize))
+                    // The row under it doesn't take the press (the wheel still scrolls).
+                    .block_mouse_except_scroll()
                     .accessible(Role::Button, automation, t(M::BackToTop))
                     .keyboard_focus()
                     .flex()
@@ -1681,21 +1702,26 @@ impl ContentView {
             Load::NotLoaded | Load::Loading => plan.push(Entry::ModrinthLoading),
             Load::Failed(err) => plan.push(Entry::ModrinthFailed(err.clone())),
             Load::Ready(results) => {
+                // What's installed stays in the results, marked (hiding it left the
+                // first pages, where the popular projects are, nearly empty).
                 let installed = self.section(kind).installed_projects();
-                let hits: Vec<(usize, &ModrinthSearchHit)> = results
+                let show_installed = self.section(kind).browse.show_installed;
+                let hits: Vec<(usize, &ModrinthSearchHit, bool)> = results
                     .hits
                     .iter()
                     .enumerate()
-                    .filter(|(_, hit)| !installed.contains_key(&hit.project_id))
+                    .map(|(index, hit)| (index, hit, installed.contains_key(&hit.project_id)))
+                    .filter(|(_, _, installed)| show_installed || !installed)
                     .collect();
                 if hits.is_empty() {
                     plan.push(Entry::ModrinthNothing);
                 }
                 let count = hits.len();
-                for (position, (index, hit)) in hits.into_iter().enumerate() {
+                for (position, (index, hit, installed)) in hits.into_iter().enumerate() {
                     plan.push(Entry::Hit {
                         index,
                         id: hit.project_id.clone(),
+                        installed,
                         first: position == 0,
                         last: position + 1 == count,
                     });
@@ -1707,8 +1733,8 @@ impl ContentView {
         }
     }
 
-    /// The CurseForge part of the list, after Modrinth's: its heading, then the results
-    /// not installed yet. Only in builds with Lodestone's CurseForge key.
+    /// The CurseForge view's list: its results, those installed marked. Only in builds
+    /// with Lodestone's CurseForge key.
     fn curseforge_plan(&self, kind: ContentKind, cx: &gpui::App, plan: &mut Vec<Entry>) {
         if self.curseforge(cx).is_none() {
             return;
@@ -1723,21 +1749,23 @@ impl ContentView {
                     .iter()
                     .filter_map(|i| i.curseforge.as_ref().map(|c| c.project_id))
                     .collect();
-                let hits: Vec<(usize, u64)> = results
+                let show_installed = self.section(kind).browse.show_installed;
+                let hits: Vec<(usize, u64, bool)> = results
                     .hits
                     .iter()
                     .enumerate()
-                    .filter(|(_, hit)| !installed.contains(&hit.id))
-                    .map(|(index, hit)| (index, hit.id))
+                    .map(|(index, hit)| (index, hit.id, installed.contains(&hit.id)))
+                    .filter(|(_, _, installed)| show_installed || !installed)
                     .collect();
                 if hits.is_empty() {
                     plan.push(Entry::CurseForgeNothing);
                 }
                 let count = hits.len();
-                for (position, (index, id)) in hits.into_iter().enumerate() {
+                for (position, (index, id, installed)) in hits.into_iter().enumerate() {
                     plan.push(Entry::CfHit {
                         index,
                         id,
+                        installed,
                         first: position == 0,
                         last: position + 1 == count,
                     });
@@ -1843,7 +1871,11 @@ impl ContentView {
             Entry::ModrinthNothing => muted(t(M::NothingMatches)).into_any_element(),
             Entry::ModrinthFilters(_) => self.render_modrinth_filters(kind, cx),
             Entry::Hit {
-                index, first, last, ..
+                index,
+                installed,
+                first,
+                last,
+                ..
             } => {
                 let hit = match &self.section(kind).browse.results {
                     Load::Ready(results) => results.hits.get(*index).cloned(),
@@ -1852,7 +1884,7 @@ impl ContentView {
                 let Some(hit) = hit else {
                     return div().into_any_element();
                 };
-                let row = self.render_hit(kind, *index, &hit, *first, cx);
+                let row = self.render_hit(kind, *index, &hit, *installed, *first, cx);
                 in_box(row, *first, *last)
             }
             Entry::Pager => self.render_pager(kind, cx),
@@ -1872,7 +1904,11 @@ impl ContentView {
                 .into_any_element(),
             Entry::CurseForgeNothing => muted(t(M::NothingOnCurseForge)).into_any_element(),
             Entry::CfHit {
-                index, first, last, ..
+                index,
+                installed,
+                first,
+                last,
+                ..
             } => {
                 let hit = match &self.section(kind).cf.results {
                     Load::Ready(results) => results.hits.get(*index).cloned(),
@@ -1881,7 +1917,7 @@ impl ContentView {
                 let Some(hit) = hit else {
                     return div().into_any_element();
                 };
-                let row = self.render_cf_hit(kind, *index, &hit, *first, cx);
+                let row = self.render_cf_hit(kind, *index, &hit, *installed, *first, cx);
                 in_box(row, *first, *last)
             }
             Entry::CfPager => self.render_cf_pager(kind, cx),
@@ -2143,7 +2179,26 @@ impl ContentView {
             .child(sort)
             .child(filters_button)
             .child(chip)
+            .child(self.installed_chip(kind, cx))
             .into_any_element()
+    }
+
+    /// "Show installed": whether results the instance has already stay in the list.
+    pub(super) fn installed_chip(
+        &mut self,
+        kind: ContentKind,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let on = self.section(kind).browse.show_installed;
+        filter_chip(
+            ("show-installed", kind as usize),
+            format!("{}-show-installed", kind.dir()),
+            t(M::ShowInstalled).into(),
+            None,
+            on,
+        )
+        .on_press(cx.listener(move |this, _, _, cx| this.set_show_installed(kind, !on, cx)))
+        .into_any_element()
     }
 
     /// "1.20.1 / Fabric only", shared by Modrinth's and CurseForge's views.
@@ -2355,6 +2410,7 @@ impl ContentView {
         kind: ContentKind,
         index: usize,
         hit: &ModrinthSearchHit,
+        installed: bool,
         first: bool,
         cx: &mut Context<Self>,
     ) -> AnyElement {
@@ -2432,18 +2488,24 @@ impl ContentView {
                     .flex_none()
                     .text_color(crate::theme::ink::muted()),
             )
-            .child(
-                Button::new(("install-hit", index), t(CommonMsg::Install))
-                    .variant(ButtonVariant::Primary)
-                    .size(ButtonSize::Slim)
-                    .loading(resolving)
-                    .disabled(busy || resolving)
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        // Not also the row's click, which opens the page.
-                        cx.stop_propagation();
-                        this.install_hit(kind, install_id.clone(), cx)
-                    })),
-            )
+            .map(|this| {
+                if installed {
+                    this.child(installed_mark())
+                } else {
+                    this.child(
+                        Button::new(("install-hit", index), t(CommonMsg::Install))
+                            .variant(ButtonVariant::Primary)
+                            .size(ButtonSize::Slim)
+                            .loading(resolving)
+                            .disabled(busy || resolving)
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                // Not also the row's click, which opens the page.
+                                cx.stop_propagation();
+                                this.install_hit(kind, install_id.clone(), cx)
+                            })),
+                    )
+                }
+            })
             .into_any_element()
     }
 

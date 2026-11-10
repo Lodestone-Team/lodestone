@@ -367,6 +367,7 @@ impl ConsolePage {
                 .with_placeholder(M::ConsoleSearch)
                 .with_automation_id("console-search")
                 .with_leading_icon(Icon::MagnifyingGlass)
+                .with_clear_button()
         });
         let command = cx.new(|cx| {
             TextInput::new(cx)

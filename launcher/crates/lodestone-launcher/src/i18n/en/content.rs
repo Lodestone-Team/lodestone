@@ -23,6 +23,10 @@ crate::i18n::messages! {
         BrowseCurseForge = "Browse CurseForge",
         /// The button that scrolls the list back to its top.
         BackToTop = "Back to top",
+        /// In place of Install on a search result the instance already has.
+        AlreadyInstalled = "Installed",
+        /// The filter beside a platform's view that keeps installed results listed.
+        ShowInstalled = "Show installed",
         /// Headings over the list, with how many rows follow.
         InstalledCount = "Installed · {count}",
         /// Resource packs in use; the top one wins where they overlap.

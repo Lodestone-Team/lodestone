@@ -8,6 +8,7 @@ pub fn text(message: M) -> &'static str {
         M::Browse => "Parcourir…",
         M::Cancel => "Annuler",
         M::Change => "Modifier…",
+        M::Clear => "Effacer",
         M::Close => "Fermer",
         M::Continue => "Continuer",
         M::Copy => "Copier",

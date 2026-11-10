@@ -16,6 +16,8 @@ pub fn text(message: M) -> &'static str {
         M::BrowseModrinth => "Parcourir Modrinth",
         M::BrowseCurseForge => "Parcourir CurseForge",
         M::BackToTop => "Revenir en haut",
+        M::AlreadyInstalled => "Installé",
+        M::ShowInstalled => "Afficher les installés",
         M::InstalledCount => "Installés · {count}",
         M::EnabledCount => "Activés · {count} · le pack du haut l’emporte en cas de chevauchement",
         M::AvailableCount => "Disponibles · {count}",

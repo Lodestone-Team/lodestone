@@ -141,6 +141,9 @@ pub struct Browse {
     /// The text the current results are for.
     text: String,
     pub only_compatible: bool,
+    /// Whether results the instance has already stay in the Modrinth and CurseForge
+    /// views, marked Installed.
+    pub show_installed: bool,
     /// Modrinth's categories, where a mod runs and open source.
     pub filters: filters::Filters,
     /// The filter panel is open.
@@ -186,6 +189,7 @@ impl Section {
             TextInput::new(cx)
                 .with_placeholder(ListView::default().placeholder())
                 .with_leading_icon(Icon::MagnifyingGlass)
+                .with_clear_button()
                 .with_automation_id(format!("{}-search", kind.dir()))
         });
         Self {
@@ -203,6 +207,7 @@ impl Section {
                 search,
                 text: String::new(),
                 only_compatible: true,
+                show_installed: true,
                 filters: filters::Filters::default(),
                 filters_open: false,
                 index: ModrinthSearchIndex::Relevance,
@@ -1452,8 +1457,18 @@ impl ContentView {
     }
 
     pub fn toggle_filters_open(&mut self, kind: ContentKind, cx: &mut Context<Self>) {
-        let browse = &mut self.section_mut(kind).browse;
-        browse.filters_open = !browse.filters_open;
+        let section = self.section_mut(kind);
+        section.browse.filters_open = !section.browse.filters_open;
+        // The panel opens at the top of the list: brought into sight from further down.
+        if section.browse.filters_open {
+            section.rows.scroll_to(gpui::ListOffset::default());
+        }
+        cx.notify();
+    }
+
+    /// Shows or hides the results the instance has already.
+    pub fn set_show_installed(&mut self, kind: ContentKind, value: bool, cx: &mut Context<Self>) {
+        self.section_mut(kind).browse.show_installed = value;
         cx.notify();
     }
 

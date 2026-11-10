@@ -8,6 +8,7 @@ pub fn text(message: M) -> &'static str {
         M::Browse => "瀏覽…",
         M::Cancel => "取消",
         M::Change => "變更…",
+        M::Clear => "清除",
         M::Close => "關閉",
         M::Continue => "繼續",
         M::Copy => "複製",
