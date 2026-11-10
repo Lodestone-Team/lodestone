@@ -3001,6 +3001,7 @@ dependencies = [
  "http_client",
  "http_client_tls",
  "image",
+ "launcher-control",
  "libc",
  "lodestone_connect",
  "lodestone_minecraft",

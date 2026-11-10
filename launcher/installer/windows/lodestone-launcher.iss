@@ -138,10 +138,65 @@ function CredDelete(TargetName: String; CredType: DWORD; Flags: DWORD): BOOL;
 const
   CRED_TYPE_GENERIC = 1;
 
+{ launcher-control/src/paths.rs: LODESTONE_LAUNCHER_DATA_DIR replaces the default
+  folder, else %APPDATA%. }
+function DefaultDataFolder: String;
+begin
+  Result := EnvOr('LODESTONE_LAUNCHER_DATA_DIR', ExpandConstant('{userappdata}\{#AppName}'));
+end;
+
+{ The folder the data was moved to (Settings > Storage), which the default folder's
+  data-location.json names, or '' when it wasn't moved. The file is JSON, written by
+  launcher-control/src/paths.rs: "path": "D:\\Games\\Lodestone Launcher". }
+function MovedDataFolder: String;
+var
+  Lines: TArrayOfString;
+  Text, Rest, Path, C: String;
+  I, At: Integer;
+begin
+  Result := '';
+  { UTF-8, so a path with accents reads right. }
+  if not LoadStringsFromFile(AddBackslash(DefaultDataFolder) + 'data-location.json', Lines) then
+    Exit;
+  Text := '';
+  for I := 0 to GetArrayLength(Lines) - 1 do
+    Text := Text + Lines[I];
+  At := Pos('"path"', Text);
+  if At = 0 then
+    Exit;
+  Rest := Copy(Text, At + Length('"path"'), Length(Text));
+  At := Pos('"', Rest);
+  if At = 0 then
+    Exit;
+  Rest := Copy(Rest, At + 1, Length(Rest));
+  Path := '';
+  I := 1;
+  while I <= Length(Rest) do
+  begin
+    C := Copy(Rest, I, 1);
+    if C = '"' then
+    begin
+      { Only a full path, as the launcher reads it. }
+      if ((Length(Path) >= 3) and (Copy(Path, 2, 1) = ':')) or (Copy(Path, 1, 2) = '\\') then
+        Result := Path;
+      Exit;
+    end;
+    if (C = '\') and (I < Length(Rest)) then
+    begin
+      I := I + 1;
+      C := Copy(Rest, I, 1);
+    end;
+    Path := Path + C;
+    I := I + 1;
+  end;
+end;
+
+{ Where the person moved the data, else the default folder. }
 function DataFolder: String;
 begin
-  { launcher-control/src/paths.rs: LODESTONE_LAUNCHER_DATA_DIR, else %APPDATA%. }
-  Result := EnvOr('LODESTONE_LAUNCHER_DATA_DIR', ExpandConstant('{userappdata}\{#AppName}'));
+  Result := MovedDataFolder;
+  if Result = '' then
+    Result := DefaultDataFolder;
 end;
 
 procedure InitializeWizard;
@@ -176,13 +231,21 @@ end;
 { The Microsoft accounts' tokens are in Windows' Credential Manager, not the data
   folder: one generic credential per account, "zed:url=lodestone-launcher:<id>"
   (launcher-core/src/accounts.rs's secret_key, as GPUI's write_credentials names
-  it). The ids come from accounts.json, before it is deleted. }
+  it). The ids come from accounts.json, before it is deleted.
+  A moved data folder's location file goes too, so a later install doesn't look
+  for a folder that is gone. }
 procedure BeforeDeletingKeptData(Index: Integer);
 var
   Json: AnsiString;
   Rest, Id: String;
   At, Stop: Integer;
 begin
+  if (MovedDataFolder <> '') and (CompareText(KeptFolders[Index], MovedDataFolder) = 0) then
+  begin
+    DeleteFile(AddBackslash(DefaultDataFolder) + 'data-location.json');
+    DeleteFile(AddBackslash(DefaultDataFolder) + 'data-move-cleanup.json');
+    RemoveDir(DefaultDataFolder);
+  end;
   if not LoadStringFromFile(AddBackslash(KeptFolders[Index]) + 'accounts.json', Json) then
     Exit;
   Rest := String(Json);

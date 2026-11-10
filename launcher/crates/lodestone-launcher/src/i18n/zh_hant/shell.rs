@@ -709,6 +709,37 @@ pub fn text(message: M) -> &'static str {
         }
         M::StorageOther => "設定和其他檔案",
         M::StorageCacheAndLogs => "快取和日誌",
+        M::StorageDataFolder => "資料夾",
+        M::StorageDataFolderHint => {
+            "你的實例和世界、帳號、設定和遊戲檔案。移動它可以把它們放到另一個磁碟上。"
+        }
+        M::StorageMoveEllipsis => "移動…",
+        M::StorageMoveBackEllipsis => "移回…",
+        M::StorageMoveHere => "移到這裡",
+        M::StorageMoveCantUse => "無法把資料移到那裡：{error}",
+        M::StorageMoveStopGame => "請先停止遊戲，再移動資料夾。",
+        M::StorageMoveTitle => "移動你的資料？",
+        M::StorageMoveBody => {
+            "資料夾中的所有內容都會移到 {to}：你的實例和世界、帳號、設定和遊戲檔案。完成後啟動器會重新啟動。"
+        }
+        M::StorageMoveBackTitle => "把資料移回去？",
+        M::StorageMoveBackBody => "所有內容都會移回預設資料夾 {to}。完成後啟動器會重新啟動。",
+        M::StorageMoveSize => "共 {size}。",
+        M::StorageMoveConfirm => "移動並重新啟動",
+        M::StorageMoving => "正在移動你的資料…",
+        M::StorageMovingTo => "移到 {to}",
+        M::StorageMovingPreparing => "正在準備…",
+        M::StorageMovingProgress => "{done} / {total}",
+        M::StorageMovingNote => "取消後資料會留在原處。",
+        M::StorageMoveFailedTitle => "無法移動你的資料",
+        M::StorageMoveFailedBody => "你的資料仍在 {from}。{error}",
+        M::StorageMoveRestartFailed => "資料已移動。請結束啟動器並重新開啟，以使用新資料夾。",
+        M::DataFolderMissingTitle => "找不到你的資料夾",
+        M::DataFolderMissingBody => {
+            "你的實例和世界在 {path}，但它不存在。如果它在未連接的磁碟上，請連接後重試。預設資料夾是空的，你的資料會留在原處。"
+        }
+        M::DataFolderUseDefault => "使用預設資料夾",
+        M::DataFolderQuit => "結束",
         M::StorageLogs => "日誌和當機報告",
         M::StorageOldLogs => "{size} 超過 30 天",
         M::StorageVersions => "版本",

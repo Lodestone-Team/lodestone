@@ -14,6 +14,7 @@ pub mod auth;
 pub mod configurator;
 pub mod content;
 pub mod cores;
+pub mod data_move;
 pub mod disk;
 pub mod export;
 pub mod fsx;
