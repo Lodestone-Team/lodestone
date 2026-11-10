@@ -137,12 +137,22 @@ impl Mods {
     }
 }
 
-/// A mod that can't load without another.
+/// A mod named in a prompt about the mods another needs, or that need it.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Dependent {
-    /// Its file name (it is enabled, so without `.disabled`).
+pub struct LinkedMod {
+    /// Its file name as it is now (with `.disabled` for a mod that is off).
     pub file_name: String,
     pub name: String,
+}
+
+fn sorted(mut mods: Vec<LinkedMod>) -> Vec<LinkedMod> {
+    mods.sort_by(|a, b| {
+        a.name
+            .to_lowercase()
+            .cmp(&b.name.to_lowercase())
+            .then_with(|| a.file_name.cmp(&b.file_name))
+    });
+    mods
 }
 
 /// The enabled mods that couldn't load once `file_name` (an enabled mod's file name)
@@ -150,7 +160,7 @@ pub struct Dependent {
 /// and so on, sorted by name. A mod that another enabled mod can stand in for (both
 /// give the id) is no one's only source, and ids no mod gives (`minecraft`, the
 /// loader's) don't count. Opens every enabled jar, so call it off the window's thread.
-pub fn dependents(dirs: &InstanceDirs, file_name: &str) -> Vec<Dependent> {
+pub fn dependents(dirs: &InstanceDirs, file_name: &str) -> Vec<LinkedMod> {
     let file_name = enabled_name(file_name);
     let enabled: Vec<String> = scan::scan(dirs, ContentKind::Mod)
         .unwrap_or_default()
@@ -163,21 +173,76 @@ pub fn dependents(dirs: &InstanceDirs, file_name: &str) -> Vec<Dependent> {
     }
     let mods = Mods::read(dirs, &enabled);
     let off = mods.closure(&BTreeSet::from([file_name.clone()]));
-    let mut dependents: Vec<Dependent> = off
+    sorted(
+        off.into_iter()
+            .filter(|file| *file != file_name)
+            .map(|file| LinkedMod {
+                name: mods.name(&file),
+                file_name: file,
+            })
+            .collect(),
+    )
+}
+
+/// The mods that are off and must be turned on too for `file_name` (a mod that is
+/// off, with or without `.disabled`) to load: for each id it requires that no enabled
+/// mod gives, a mod that is off and gives it, then what those require, and so on,
+/// sorted by name. Only what `file_name` leads to counts, not other enabled mods'
+/// missing ones. Ids no mod in the folder gives (`minecraft`, the loader's, a mod
+/// that isn't there) don't count; where several mods that are off give an id, the one
+/// first by file name is picked. Opens every jar, so call it off the window's thread.
+pub fn requirements(dirs: &InstanceDirs, file_name: &str) -> Vec<LinkedMod> {
+    let target = enabled_name(file_name);
+    let files: Vec<(String, bool)> = scan::scan(dirs, ContentKind::Mod)
+        .unwrap_or_default()
         .into_iter()
-        .filter(|file| *file != file_name)
-        .map(|file| Dependent {
-            name: mods.name(&file),
-            file_name: file,
-        })
+        .filter(|file| !file.is_dir)
+        .map(|file| (file.enabled_name(), file.enabled_by_name()))
         .collect();
-    dependents.sort_by(|a, b| {
-        a.name
-            .to_lowercase()
-            .cmp(&b.name.to_lowercase())
-            .then_with(|| a.file_name.cmp(&b.file_name))
-    });
-    dependents
+    if !files.iter().any(|(name, on)| *name == target && !on) {
+        return Vec::new();
+    }
+    let mut names: Vec<String> = files.iter().map(|(name, _)| name.clone()).collect();
+    names.sort();
+    names.dedup();
+    let mods = Mods::read(dirs, &names);
+    let node = |file: &str| mods.nodes.iter().find(|n| n.file_name == file);
+    // The mods that will be on: those on now, the target, and what is added.
+    let mut on: BTreeSet<String> = files
+        .iter()
+        .filter(|(_, on)| *on)
+        .map(|(name, _)| name.clone())
+        .collect();
+    on.insert(target.clone());
+    let gives =
+        |file: &str, id: &str| node(file).is_some_and(|n| n.provides.iter().any(|p| p == id));
+    let mut added = Vec::new();
+    let mut queue = vec![target.clone()];
+    while let Some(file) = queue.pop() {
+        let Some(needs) = node(&file).map(|n| n.requires.clone()) else {
+            continue;
+        };
+        for id in needs {
+            if on.iter().any(|f| gives(f, &id)) {
+                continue;
+            }
+            // `names` is in file name order, so the first giver is picked.
+            if let Some(giver) = names.iter().find(|f| !on.contains(*f) && gives(f, &id)) {
+                on.insert(giver.clone());
+                added.push(giver.clone());
+                queue.push(giver.clone());
+            }
+        }
+    }
+    sorted(
+        added
+            .into_iter()
+            .map(|file| LinkedMod {
+                name: mods.name(&file),
+                file_name: disabled_name(&file),
+            })
+            .collect(),
+    )
 }
 
 /// The mod ids a jar gives and requires, from its metadata and its bundled jars'.
