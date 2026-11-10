@@ -148,6 +148,9 @@ impl ModsPage {
         cx.notify();
         let admin = self.state.read(cx).admin.clone();
         let uuid = self.uuid.clone();
+        // this tab says how the update went; the core's event needn't
+        self.state
+            .update(cx, |state, _| state.expect_own_file_toast(&uuid));
         let task = cx.spawn(async move |this, cx| {
             let request = ModInstallRequest {
                 version_id: update.version_id.clone(),
@@ -194,6 +197,12 @@ impl ModsPage {
         cx.notify();
         let admin = self.state.read(cx).admin.clone();
         let uuid = self.uuid.clone();
+        // one toast for them all, not one per mod from the core's events
+        self.state.update(cx, |state, _| {
+            for _ in 0..updates.len() {
+                state.expect_own_file_toast(&uuid);
+            }
+        });
         let task = cx.spawn(async move |this, cx| {
             let (total, failures) = cx
                 .background_spawn(async move {
