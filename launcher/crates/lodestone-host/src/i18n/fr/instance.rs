@@ -245,6 +245,19 @@ pub fn text(message: M) -> &'static str {
         M::FriendsRetry => "Réessayer",
         M::FriendsRetrying => "Lodestone Host réessaie chaque minute.",
         M::FriendsSynced => "Liste d’amis synchronisée",
+        M::FriendsRetired => "Votre identité d’ami a été retirée",
+        M::FriendsRetiredHint => {
+            "Ce core ne partage plus avec personne. Pour recommencer, choisissez un nouveau nom dans la section Amis de Lodestone Launcher, puis ajoutez de nouveau vos amis."
+        }
+        M::FriendsOff => "Le partage avec des amis est désactivé dans cette copie de test",
+        M::FriendsOffHint => {
+            "Son core ou sa liste d’amis est dans un dossier de test, et l’autre non : vos vrais amis n’atteignent donc jamais un core de test. Pour tester le partage, définissez LODESTONE_PATH et LODESTONE_LAUNCHER_DATA_DIR sur des dossiers de test."
+        }
+        M::FriendsConfirmUnverified => {
+            "Vous n’avez pas encore comparé les codes de sécurité avec {name} : vous ne pouvez pas être sûr que c’est bien cette personne, quelqu’un d’autre a pu répondre à votre lien d’ami. Comparez d’abord les codes dans Lodestone Launcher, ou partagez quand même."
+        }
+        M::FriendsShareAnyway => "Partager quand même",
+        M::FriendsCancel => "Annuler",
     }
 }
 

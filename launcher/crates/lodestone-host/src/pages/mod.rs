@@ -116,7 +116,7 @@ pub fn demo(view: &AnyView, cx: &mut App) {
 }
 
 /// Puts sample friends on the Settings tab's Friends section (development
-/// screenshots' `--friends none|loading|shared|error`, with `--tab settings`).
+/// screenshots' `--friends none|loading|off|retired|shared|confirm|error`, with `--tab settings`).
 #[cfg(feature = "screenshot")]
 pub fn friends_demo(view: &AnyView, scene: &str, cx: &mut App) {
     if let Ok(page) = view
@@ -130,6 +130,10 @@ pub fn friends_demo(view: &AnyView, scene: &str, cx: &mut App) {
         if let Some(sharing) = state.read(cx).friends.clone() {
             sharing.update(cx, |sharing, cx| sharing.demo(scene, &uuid, cx));
         }
+        page.update(cx, |page, cx| {
+            page.show_section = Some(crate::i18n::t(crate::i18n::InstanceMsg::FriendsTitle).into());
+            cx.notify();
+        });
     }
 }
 

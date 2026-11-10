@@ -203,6 +203,19 @@ pub fn text(message: M) -> &'static str {
         M::FriendsRetry => "重试",
         M::FriendsRetrying => "Lodestone Host 每分钟会自动重试。",
         M::FriendsSynced => "好友列表已同步",
+        M::FriendsRetired => "你的好友身份已停用",
+        M::FriendsRetiredHint => {
+            "此核心不再与任何人共享。要重新开始，请在 Lodestone Launcher 的好友部分选择一个新名字，然后重新添加好友。"
+        }
+        M::FriendsOff => "此测试副本已关闭与好友共享",
+        M::FriendsOffHint => {
+            "它的核心或好友列表在测试文件夹中，而另一个不在，因此你真正的好友永远不会进入测试核心。要测试共享，请将 LODESTONE_PATH 和 LODESTONE_LAUNCHER_DATA_DIR 都设为测试文件夹。"
+        }
+        M::FriendsConfirmUnverified => {
+            "你还没有和 {name} 核对安全码，所以无法确定真的是对方：别人也可能回应了你的好友链接。请先在 Lodestone Launcher 中核对安全码，或仍然共享。"
+        }
+        M::FriendsShareAnyway => "仍然共享",
+        M::FriendsCancel => "取消",
     }
 }
 

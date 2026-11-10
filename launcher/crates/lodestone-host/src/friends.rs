@@ -2,65 +2,81 @@
 //!
 //! The friend list is Lodestone Launcher's: `friend_list.json` in the launcher's data
 //! folder, sealed with a key from the Keychain ([`crate::keychain`]), so this person is
-//! one friend whichever app they use. The Host adds friends nowhere; it only keeps its
-//! own core in step with the list ([`core_sync`]): each friend who is active gets
-//! their core secret for this core, the core keeps what's shared with each, and this
-//! person's state lists the core so friends find it.
+//! one friend whichever app they use. The Host adds friends nowhere and never makes a
+//! friend identity: it opens the list that is there ([`Friends::open_existing`]) and
+//! keeps its own core in step with it ([`core_sync`]): each friend who is active gets
+//! their core secret for this core, the core keeps what's shared with each (hidden
+//! friends too, serving them nothing), and this person's state lists the core so
+//! friends find it.
 //!
-//! - At the start (once the core is running and signed in as its owner), whenever the
-//!   friend file changes (its modification time, checked every 60 s) and after the
-//!   person ticks or unticks a friend, the Host syncs the core, then publishes the
-//!   state to friends who don't have it yet.
+//! - At the start (once the core is running and signed in as its owner), after the
+//!   person ticks or unticks a friend, and whenever the friend list changes (it's read
+//!   every 60 s and compared with what was last synced, [`SyncView`]), the Host syncs
+//!   the core, then publishes the state to friends who don't have it yet. A sync that
+//!   failed is tried again every minute; opening the list (the Keychain) only on Try
+//!   again or when the file changes.
 //! - Without a friend file, or with no name or no active friends, it does nothing and
-//!   the instance's Settings say "Add friends in Lodestone Launcher". It doesn't even
-//!   read the Keychain then, so it never makes a friend identity the launcher didn't.
+//!   the instance's Settings say "Add friends in Lodestone Launcher".
+//! - **A missing file stops it, never empties the core.** When the file goes (the data
+//!   folder moved, say) or can't be opened any more, the Host drops the list, looks
+//!   for the data folder again and opens what it finds. Only a list whose identity was
+//!   retired empties the core, on purpose.
 //! - **Nothing is shared by default.** A friend sees an instance only once it's ticked
-//!   for them.
+//!   for them, and the first tick for a friend whose safety code wasn't compared asks
+//!   first.
+//! - A test copy (its core's data folder isn't the usual one, or the launcher's is
+//!   `LODESTONE_LAUNCHER_DATA_DIR` while the core's is the usual one) has sharing off
+//!   ([`sharing_allowed`]), so it never syncs a real friend list into a test core, or a
+//!   test one into the real core.
 //!
 //! Failures are kept in [`FriendSharing::error`], in plain words, beside the last list
 //! that worked.
 
-use std::{
-    collections::HashMap,
-    path::Path,
-    sync::Arc,
-    time::{Duration, SystemTime},
-};
+use std::{collections::HashMap, path::Path, sync::Arc, time::Duration};
 
 use futures::lock::Mutex;
 use gpui::{AppContext as _, Context, Task, WeakEntity};
 use launcher_core::{
     cores::admin::AdminClient,
     friend_list::{
-        Book, FILE_NAME, FriendStatus, Friends,
-        core_sync::{self, CoreFriends},
+        self, Book, FriendStatus, Friends, FriendsError, Opened,
+        core_sync::{self, CoreFriends, SyncError},
     },
     paths::DataDir,
 };
 use lodestone_connect::Service;
 
 use crate::{
+    core_process,
     i18n::{InstanceMsg as M, tr},
     keychain::KeychainStore,
     state::HostState,
 };
 
-/// The environment variable naming another introduction service (a local one, for
-/// development), as the core's.
-pub const SERVICE_ENV: &str = "LODESTONE_CONNECT_SERVICE";
-
-/// How often the friend file's modification time is checked.
+/// How often the friend list is read and compared with what was synced.
 pub const CHECK_EVERY: Duration = Duration::from_secs(60);
 
-/// The service in `value` (the environment's), else connect.lodestone.cc.
-pub fn service_from(value: Option<&str>) -> Service {
-    match value.map(str::trim).filter(|v| !v.is_empty()) {
-        Some(text) => Service::parse(text).unwrap_or_else(|| {
-            eprintln!("{SERVICE_ENV} isn't a service address ({text}); using the default");
-            Service::default()
-        }),
-        None => Service::default(),
-    }
+/// Whether this Host may share from its core with the friend list it would find: only
+/// when both are real (the core in `~/.lodestone`, the launcher's usual data folder) or
+/// both are test ones (`LODESTONE_PATH` elsewhere and `LODESTONE_LAUNCHER_DATA_DIR`
+/// set). A test core never gets the real friend list (a dev bundle would otherwise
+/// share from the person's real identity), and the real core never gets a test one
+/// (which would replace its friends).
+pub fn sharing_allowed(core_data: &Path, home: Option<&Path>, launcher_overridden: bool) -> bool {
+    let real_core = home.is_some_and(|home| core_data == home.join(".lodestone"));
+    real_core != launcher_overridden
+}
+
+fn launcher_overridden() -> bool {
+    std::env::var_os("LODESTONE_LAUNCHER_DATA_DIR").is_some_and(|dir| !dir.is_empty())
+}
+
+/// Which core this is, for the person's state ([`friend_list::MyCore::source`]): its
+/// data folder. When this core comes back with another friend certificate (its data
+/// was reset, say), the old one leaves the state; cores added elsewhere stay.
+pub fn core_source(core_data: &Path) -> String {
+    let digest = lodestone_connect::friend::crypto::sha256(core_data.to_string_lossy().as_bytes());
+    format!("host:{}", friend_list::hex(&digest[..8]))
 }
 
 /// A friend the instance's Settings list.
@@ -72,10 +88,12 @@ pub struct FriendRow {
     pub name: String,
     /// The two compared safety codes.
     pub verified: bool,
+    /// Their safety code, so a friend named like another can be told apart.
+    pub safety_code: String,
 }
 
-/// The friends things can be shared with: active and not hidden (the core never gets
-/// hidden friends, so sharing with them would do nothing), by name.
+/// The friends things can be shared with: active and not hidden (a hidden friend is
+/// served nothing, so sharing with them would do nothing yet), by name.
 pub fn listed(book: &Book) -> Vec<FriendRow> {
     let mut rows: Vec<FriendRow> = book
         .friends
@@ -85,6 +103,7 @@ pub fn listed(book: &Book) -> Vec<FriendRow> {
             key: f.key.clone(),
             name: f.display_name().to_string(),
             verified: f.verified,
+            safety_code: f.safety_code(),
         })
         .collect();
     rows.sort_by(|a, b| {
@@ -100,6 +119,40 @@ pub fn listed(book: &Book) -> Vec<FriendRow> {
 /// no one to share with.
 pub fn needs_launcher(book: &Book) -> bool {
     book.name.trim().is_empty() || listed(book).is_empty()
+}
+
+/// What of the friend list a core's sync depends on (and the rows the Settings show).
+/// The Host syncs again when it changes, and only then: its own writes to the file
+/// (state numbers) don't count, and a change the other app made in the same second is
+/// still seen.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SyncView {
+    name: String,
+    /// Each friend's key, name shown, status, hidden and verified.
+    friends: Vec<(String, String, FriendStatus, bool, bool)>,
+    retired_cores: Vec<String>,
+}
+
+impl SyncView {
+    pub fn of(book: &Book) -> Self {
+        Self {
+            name: book.name.clone(),
+            friends: book
+                .friends
+                .iter()
+                .map(|f| {
+                    (
+                        f.key.clone(),
+                        f.display_name().to_string(),
+                        f.status,
+                        f.hidden,
+                        f.verified,
+                    )
+                })
+                .collect(),
+            retired_cores: book.retired_cores.clone(),
+        }
+    }
 }
 
 /// What the friend `key` should have shared on this core once `instance` is shared
@@ -124,14 +177,16 @@ pub fn is_shared(core: Option<&CoreFriends>, key: &str, instance: &str) -> bool 
         .is_some_and(|f| f.shared.iter().any(|uuid| uuid == instance))
 }
 
+/// Whether anything is shared with the friend `key` on this core, as the core said last.
+pub fn shares_anything(core: Option<&CoreFriends>, key: &str) -> bool {
+    core.and_then(|core| core.friends.iter().find(|f| f.key == key))
+        .is_some_and(|f| !f.shared.is_empty())
+}
+
 /// Whether the friend `key` is connected to the core now.
 pub fn is_connected(core: Option<&CoreFriends>, key: &str) -> bool {
     core.and_then(|core| core.friends.iter().find(|f| f.key == key))
         .is_some_and(|f| f.connected)
-}
-
-fn modified(path: &Path) -> Option<SystemTime> {
-    std::fs::metadata(path).and_then(|m| m.modified()).ok()
 }
 
 /// Where sharing with friends stands.
@@ -142,18 +197,25 @@ pub enum Phase {
     /// No friend file, no name or no active friends: "Add friends in Lodestone
     /// Launcher".
     NeedsLauncher,
+    /// The friend identity was retired: the core was emptied, and nothing is shared
+    /// until the person starts again in the Launcher.
+    Retired,
+    /// A test copy whose core and friend list don't belong together
+    /// ([`sharing_allowed`]): sharing is off.
+    Off,
     /// The friends are listed, with what's shared with each.
     Ready,
-    /// The friend list couldn't be opened ([`FriendSharing::error`] says why).
+    /// The friend list couldn't be opened ([`FriendSharing::error`] says why). Tried
+    /// again on Try again, or when the file changes.
     Failed,
 }
 
 /// What a background run does.
 #[derive(Clone, Debug)]
 enum Job {
-    /// Puts the current friends on the core, reading the friend file first when
-    /// `reload`.
-    Sync { reload: bool },
+    /// Reads the friend list and syncs the core when it changed since `last` (always
+    /// when `force`).
+    Check { last: Option<SyncView>, force: bool },
     /// Shares `instance` with the friend `key`, or stops.
     Share {
         key: String,
@@ -163,15 +225,24 @@ enum Job {
 }
 
 /// What a background run found.
+#[derive(Default)]
 struct Outcome {
     rows: Vec<FriendRow>,
     needs_launcher: bool,
     /// The core's list, or why it couldn't be read or changed.
     core: Option<Result<CoreFriends, String>>,
+    /// The friend list as synced, when a sync worked.
+    view: Option<SyncView>,
+    /// Nothing changed since the last sync: nothing was done.
+    unchanged: bool,
     /// Why some friends couldn't be told about the core.
     problems: Vec<(String, String)>,
     /// Why the friend file couldn't be read again.
     reload_error: Option<String>,
+    /// The file is gone or needs other keys: drop the list and open it again.
+    lost: bool,
+    /// The identity was retired (and the core emptied, unless that failed: `core`).
+    retired: bool,
 }
 
 /// Sharing with friends, for the Host's own core while signed in as its owner. Pages
@@ -180,13 +251,14 @@ pub struct FriendSharing {
     state: WeakEntity<HostState>,
     data: Option<DataDir>,
     service: Service,
+    /// Which core this is, for the person's state ([`core_source`]).
+    source: String,
     friends: Option<Arc<Mutex<Friends>>>,
     pub phase: Phase,
     pub rows: Vec<FriendRow>,
     /// The core's list, as it was last read or set.
     pub core: Option<CoreFriends>,
-    /// The last failure, in plain words. Syncing is tried again every minute while
-    /// there's one.
+    /// The last failure, in plain words.
     pub error: Option<String>,
     /// The core has the friend list as it is now: the last sync worked and every
     /// friend has this person's state. Removals reach the core only this way, so the
@@ -194,9 +266,17 @@ pub struct FriendSharing {
     pub synced: bool,
     /// Ticks being saved, by (friend, instance), with the value shown meanwhile.
     pub pending: HashMap<(String, String), bool>,
+    /// A first share with a friend whose safety code wasn't compared, waiting for the
+    /// person to confirm: (friend, instance).
+    pub confirm: Option<(String, String)>,
     in_flight: usize,
-    /// The friend file's modification time when it was last read.
-    file_modified: Option<SystemTime>,
+    /// The friend list as last synced: a sync runs again when it changes.
+    synced_view: Option<SyncView>,
+    /// The last sync failed: try again at the next check.
+    sync_failed: bool,
+    /// The friend file's stamp ([`friend_list::file_stamp`]) when it was last opened,
+    /// or seen missing: opened again only when it changes (or on Try again).
+    opened_stamp: Option<Option<[u8; 32]>>,
     /// The core's name at the last sync, to sync again when it's renamed.
     synced_name: Option<String>,
     /// Sample data for the screenshots: nothing runs.
@@ -206,24 +286,36 @@ pub struct FriendSharing {
 
 impl FriendSharing {
     pub fn new(state: WeakEntity<HostState>, cx: &mut Context<Self>) -> Self {
-        let service = service_from(std::env::var(SERVICE_ENV).ok().as_deref());
+        let core_data = core_process::data_dir();
+        let allowed = sharing_allowed(
+            &core_data,
+            dirs::home_dir().as_deref(),
+            launcher_overridden(),
+        );
         let mut this = Self {
             state,
             data: DataDir::locate(),
-            service,
+            service: friend_list::service(),
+            source: core_source(&core_data),
             friends: None,
-            phase: Phase::Opening,
+            phase: if allowed { Phase::Opening } else { Phase::Off },
             rows: Vec::new(),
             core: None,
             error: None,
             synced: false,
             pending: HashMap::new(),
+            confirm: None,
             in_flight: 0,
-            file_modified: None,
+            synced_view: None,
+            sync_failed: false,
+            opened_stamp: None,
             synced_name: None,
             demo: false,
             _tasks: Vec::new(),
         };
+        if !allowed {
+            return this;
+        }
         this.check(cx);
         let poll = cx.spawn(async move |this, cx| {
             loop {
@@ -237,54 +329,53 @@ impl FriendSharing {
         this
     }
 
-    fn file(&self) -> Option<std::path::PathBuf> {
-        Some(self.data.as_ref()?.root().join(FILE_NAME))
+    fn file_stamp(&self) -> Option<[u8; 32]> {
+        friend_list::file_stamp(self.data.as_ref()?)
     }
 
     fn core_name(&self, cx: &Context<Self>) -> Option<String> {
         Some(self.state.upgrade()?.read(cx).info.core_name.clone())
     }
 
-    /// Opens or syncs when something changed: the friend file, the core's name, or a
-    /// last attempt that failed.
+    /// Opens the list when it's there and changed since the last try, or syncs when the
+    /// list, the core's name or a failed sync calls for it.
     pub fn check(&mut self, cx: &mut Context<Self>) {
-        if self.demo || self.in_flight > 0 {
+        if self.demo || self.in_flight > 0 || self.phase == Phase::Off {
             return;
         }
-        let Some(file) = self.file() else {
-            // no home folder: nowhere the launcher could keep friends
-            self.phase = Phase::NeedsLauncher;
-            cx.notify();
+        if self.friends.is_some() {
+            let renamed = self.phase == Phase::Ready && self.synced_name != self.core_name(cx);
+            let job = Job::Check {
+                last: self.synced_view.clone(),
+                force: renamed || self.sync_failed,
+            };
+            self.run(job, cx);
             return;
-        };
-        let modified = modified(&file);
-        let changed = modified != self.file_modified;
-        if self.friends.is_none() {
-            if modified.is_none() {
-                self.file_modified = None;
-                if self.phase != Phase::NeedsLauncher {
-                    self.phase = Phase::NeedsLauncher;
-                    cx.notify();
-                }
-                return;
+        }
+        let mut stamp = self.file_stamp();
+        if stamp.is_none() {
+            // the data folder may have moved (Settings › Storage): look again
+            self.data = DataDir::locate();
+            stamp = self.file_stamp();
+        }
+        if self.opened_stamp == Some(stamp) {
+            // nothing changed since the last try: wait for a change or Try again
+            return;
+        }
+        self.opened_stamp = Some(stamp);
+        if stamp.is_none() {
+            if self.phase != Phase::NeedsLauncher {
+                self.phase = Phase::NeedsLauncher;
+                self.error = None;
+                cx.notify();
             }
-            if changed || self.phase == Phase::Failed {
-                self.file_modified = modified;
-                self.open(cx);
-            }
             return;
         }
-        let renamed = self.phase == Phase::Ready && self.synced_name != self.core_name(cx);
-        if changed || renamed || self.error.is_some() {
-            self.file_modified = modified;
-            // after a failure, read the file again too: it may be what failed
-            let reload = changed || self.error.is_some();
-            self.run(Job::Sync { reload }, cx);
-        }
+        self.open(cx);
     }
 
-    /// Opens the friend list (the Keychain is read on GPUI's thread: the store's
-    /// futures aren't `Send`), then syncs.
+    /// Opens the friend list, without making anything (the Keychain is read on GPUI's
+    /// thread: the store's futures aren't `Send`; the file off it), then syncs.
     fn open(&mut self, cx: &mut Context<Self>) {
         let Some(data) = self.data.clone() else {
             return;
@@ -297,14 +388,34 @@ impl FriendSharing {
         cx.notify();
         let task = cx.spawn(async move |this, cx| {
             let store = KeychainStore::new(cx.clone());
-            let opened = Friends::open(&data, &store, service).await;
+            let keys = friend_list::read_keys(&data, &store).await;
+            let opened = match keys {
+                Ok(keys) => {
+                    cx.background_spawn(async move { Friends::open_with(&data, &keys, service) })
+                        .await
+                }
+                Err(err) => Err(err),
+            };
             this.update(cx, |this, cx| {
                 this.in_flight -= 1;
                 match opened {
-                    Ok(friends) => {
-                        this.friends = Some(Arc::new(Mutex::new(friends)));
-                        this.run(Job::Sync { reload: false }, cx);
+                    Ok(Opened::Ready(friends)) => {
+                        this.error = None;
+                        this.friends = Some(Arc::new(Mutex::new(*friends)));
+                        this.synced_view = None;
+                        this.run(
+                            Job::Check {
+                                last: None,
+                                force: true,
+                            },
+                            cx,
+                        );
                     }
+                    Ok(Opened::None) => {
+                        this.error = None;
+                        this.phase = Phase::NeedsLauncher;
+                    }
+                    Ok(Opened::Retired) => this.clear_retired(cx),
                     Err(err) => {
                         this.phase = Phase::Failed;
                         this.synced = false;
@@ -318,9 +429,66 @@ impl FriendSharing {
         self.push(task);
     }
 
+    /// The friend identity was retired: empties the core's friend list (its
+    /// friendships are over on both sides).
+    fn clear_retired(&mut self, cx: &mut Context<Self>) {
+        let Some(state) = self.state.upgrade() else {
+            return;
+        };
+        let admin = state.read(cx).admin.clone();
+        self.friends = None;
+        self.synced_view = None;
+        self.rows.clear();
+        self.phase = Phase::Retired;
+        self.in_flight += 1;
+        let task = cx.spawn(async move |this, cx| {
+            let cleared = cx
+                .background_spawn(async move { core_sync::clear(&admin).await })
+                .await;
+            this.update(cx, |this, cx| {
+                this.in_flight -= 1;
+                match cleared {
+                    Ok(core) => {
+                        this.core = Some(core);
+                        this.error = None;
+                    }
+                    Err(err) => this.error = Some(tr!(M::FriendsSyncFailed, error = err)),
+                }
+                cx.notify();
+            })
+            .ok();
+        });
+        self.push(task);
+    }
+
     /// Shares `instance` with the friend `key`, or stops (a tick in the instance's
-    /// Settings).
+    /// Settings). The first share with a friend whose safety code wasn't compared waits
+    /// for the person to confirm ([`Self::confirm`]).
     pub fn set_shared(&mut self, key: &str, instance: &str, share: bool, cx: &mut Context<Self>) {
+        let unverified = self.rows.iter().any(|r| r.key == key && !r.verified);
+        if share && unverified && !shares_anything(self.core.as_ref(), key) {
+            self.confirm = Some((key.to_string(), instance.to_string()));
+            cx.notify();
+            return;
+        }
+        self.share_now(key, instance, share, cx);
+    }
+
+    /// "Share anyway" on the confirmation.
+    pub fn confirm_share(&mut self, cx: &mut Context<Self>) {
+        if let Some((key, instance)) = self.confirm.take() {
+            self.share_now(&key, &instance, true, cx);
+        }
+        cx.notify();
+    }
+
+    /// "Cancel" on the confirmation.
+    pub fn cancel_share(&mut self, cx: &mut Context<Self>) {
+        self.confirm = None;
+        cx.notify();
+    }
+
+    fn share_now(&mut self, key: &str, instance: &str, share: bool, cx: &mut Context<Self>) {
         if self.demo {
             if let Some(core) = &mut self.core {
                 let list = shared_after(core, key, instance, share);
@@ -343,18 +511,24 @@ impl FriendSharing {
         );
     }
 
-    /// Syncs again now: the Try again button.
+    /// Opens or syncs again now: the Try again button.
     pub fn retry(&mut self, cx: &mut Context<Self>) {
-        if self.demo {
+        if self.demo || self.phase == Phase::Off {
             return;
         }
         self.error = None;
         if self.friends.is_none() {
-            self.file_modified = None;
+            self.opened_stamp = None;
             self.phase = Phase::Opening;
             self.check(cx);
         } else {
-            self.run(Job::Sync { reload: true }, cx);
+            self.run(
+                Job::Check {
+                    last: None,
+                    force: true,
+                },
+                cx,
+            );
         }
         cx.notify();
     }
@@ -371,15 +545,16 @@ impl FriendSharing {
             let state = state.read(cx);
             (state.admin.clone(), state.info.core_name.clone())
         };
+        let source = self.source.clone();
         self.in_flight += 1;
         cx.notify();
         let pending = match &job {
             Job::Share { key, instance, .. } => Some((key.clone(), instance.clone())),
-            Job::Sync { .. } => None,
+            Job::Check { .. } => None,
         };
         let task = cx.spawn(async move |this, cx| {
             let outcome = cx
-                .background_spawn(run(friends, admin, name.clone(), job))
+                .background_spawn(run(friends, admin, name.clone(), source, job))
                 .await;
             this.update(cx, |this, cx| {
                 this.in_flight -= 1;
@@ -394,13 +569,43 @@ impl FriendSharing {
         self.push(task);
     }
 
-    fn finish(&mut self, outcome: Outcome, name: String, _cx: &mut Context<Self>) {
+    fn finish(&mut self, outcome: Outcome, name: String, cx: &mut Context<Self>) {
+        if outcome.lost {
+            // the file went (or needs other keys): never sync from the old copy. Look
+            // for it again now.
+            self.friends = None;
+            self.synced_view = None;
+            self.synced = false;
+            self.opened_stamp = None;
+            self.check(cx);
+            return;
+        }
+        if outcome.retired {
+            self.friends = None;
+            self.synced_view = None;
+            self.synced = false;
+            self.rows.clear();
+            self.phase = Phase::Retired;
+            self.opened_stamp = Some(self.file_stamp());
+            self.error = match outcome.core {
+                Some(Err(why)) => Some(tr!(M::FriendsSyncFailed, error = why)),
+                Some(Ok(core)) => {
+                    self.core = Some(core);
+                    None
+                }
+                None => None,
+            };
+            return;
+        }
         self.rows = outcome.rows;
         self.phase = if outcome.needs_launcher {
             Phase::NeedsLauncher
         } else {
             Phase::Ready
         };
+        if outcome.unchanged {
+            return;
+        }
         let mut error = outcome.reload_error;
         let mut synced = false;
         match outcome.core {
@@ -408,6 +613,9 @@ impl FriendSharing {
                 self.core = Some(core);
                 self.synced_name = Some(name);
                 synced = true;
+                if outcome.view.is_some() {
+                    self.synced_view = outcome.view;
+                }
             }
             Some(Err(why)) => error = Some(tr!(M::FriendsSyncFailed, error = why)),
             None => {}
@@ -422,7 +630,15 @@ impl FriendSharing {
             });
         }
         self.synced = synced && error.is_none();
+        self.sync_failed = error.is_some();
         self.error = error;
+    }
+
+    /// Whether the Host tries again by itself after the current error: after a failed
+    /// sync, yes (every minute); after the list failed to open, only on Try again or
+    /// when the file changes.
+    pub fn retries_by_itself(&self) -> bool {
+        self.phase != Phase::Failed
     }
 
     fn push(&mut self, task: Task<()>) {
@@ -430,20 +646,23 @@ impl FriendSharing {
         self._tasks.retain(|task| !task.is_ready());
     }
 
-    /// Sample states for the development screenshots: `none`, `loading`, `shared`
-    /// (three friends, one not verified, one connected, `instance` shared with two)
-    /// or `error` (the same, after a sync that failed).
+    /// Sample states for the development screenshots: `none`, `loading`, `off`,
+    /// `retired`, `shared` (three friends, one not verified, one connected, `instance`
+    /// shared with two), `confirm` (the same, asking before sharing with the friend
+    /// not verified) or `error` (the same, after a sync that failed).
     pub fn demo(&mut self, scene: &str, instance: &str, cx: &mut Context<Self>) {
         use core_sync::CoreFriend;
         self.demo = true;
         self.pending.clear();
+        self.confirm = None;
         self.error = None;
         self.synced = false;
         let key = |c: char| c.to_string().repeat(64);
-        let row = |c: char, name: &str, verified: bool| FriendRow {
+        let row = |c: char, name: &str, verified: bool, code: &str| FriendRow {
             key: key(c),
             name: name.into(),
             verified,
+            safety_code: code.into(),
         };
         let friend = |c: char, name: &str, shared: bool, connected: bool| CoreFriend {
             key: key(c),
@@ -454,24 +673,25 @@ impl FriendSharing {
                 Vec::new()
             },
             connected,
+            hidden: false,
         };
         match scene {
-            "none" => {
-                self.phase = Phase::NeedsLauncher;
-                self.rows.clear();
-                self.core = None;
-            }
-            "loading" => {
-                self.phase = Phase::Opening;
+            "none" | "loading" | "off" | "retired" => {
+                self.phase = match scene {
+                    "none" => Phase::NeedsLauncher,
+                    "loading" => Phase::Opening,
+                    "off" => Phase::Off,
+                    _ => Phase::Retired,
+                };
                 self.rows.clear();
                 self.core = None;
             }
             _ => {
                 self.phase = Phase::Ready;
                 self.rows = vec![
-                    row('a', "Alex", true),
-                    row('b', "Jordan", true),
-                    row('c', "Sam", false),
+                    row('a', "Alex", true, "K7Q2-M9XD-4TRW-H3BE"),
+                    row('b', "Jordan", true, "P3VA-8NQE-2WZT-K5MC"),
+                    row('c', "Sam", false, "D6HR-T1XB-9QJE-W4NA"),
                 ];
                 self.core = Some(CoreFriends {
                     fingerprint: "0".repeat(64),
@@ -479,7 +699,7 @@ impl FriendSharing {
                     friends: vec![
                         friend('a', "Alex", true, true),
                         friend('b', "Jordan", false, false),
-                        friend('c', "Sam", true, false),
+                        friend('c', "Sam", false, false),
                     ],
                     host: None,
                 });
@@ -490,6 +710,9 @@ impl FriendSharing {
                         error = "Lodestone Core didn’t answer"
                     ));
                 }
+                if scene == "confirm" {
+                    self.confirm = Some((key('c'), instance.to_string()));
+                }
             }
         }
         cx.notify();
@@ -497,28 +720,43 @@ impl FriendSharing {
 }
 
 /// A background run: holds the friend list's lock throughout, so runs never overlap.
-async fn run(friends: Arc<Mutex<Friends>>, admin: AdminClient, name: String, job: Job) -> Outcome {
+async fn run(
+    friends: Arc<Mutex<Friends>>,
+    admin: AdminClient,
+    name: String,
+    source: String,
+    job: Job,
+) -> Outcome {
     let mut friends = friends.lock().await;
-    let mut outcome = Outcome {
-        rows: Vec::new(),
-        needs_launcher: false,
-        core: None,
-        problems: Vec::new(),
-        reload_error: None,
-    };
-    if matches!(job, Job::Sync { reload: true })
-        && let Err(err) = friends.reload()
-    {
-        // keep the friends read last
-        outcome.reload_error = Some(tr!(M::FriendsOpenFailed, error = err));
+    let mut outcome = Outcome::default();
+    match friends.reload() {
+        Ok(()) => {}
+        Err(FriendsError::Retired) => {
+            outcome.retired = true;
+            outcome.core = Some(core_sync::clear(&admin).await.map_err(|e| e.to_string()));
+            return outcome;
+        }
+        Err(err) if err.is_stale() => {
+            outcome.lost = true;
+            return outcome;
+        }
+        Err(err) => {
+            // keep the friends read last
+            outcome.rows = listed(&friends.book);
+            outcome.needs_launcher = needs_launcher(&friends.book);
+            outcome.reload_error = Some(tr!(M::FriendsOpenFailed, error = err));
+            return outcome;
+        }
     }
     outcome.rows = listed(&friends.book);
     outcome.needs_launcher = needs_launcher(&friends.book);
-    if outcome.reload_error.is_some() {
-        return outcome;
-    }
+    let view = SyncView::of(&friends.book);
     let synced = match job {
-        Job::Sync { .. } => {
+        Job::Check { last, force } => {
+            if !force && last.as_ref() == Some(&view) {
+                outcome.unchanged = true;
+                return outcome;
+            }
             // nothing to set up, unless the core still has friends from before (who
             // were removed since): then the sync drops them
             let current = match core_sync::read(&admin).await {
@@ -530,9 +768,10 @@ async fn run(friends: Arc<Mutex<Friends>>, admin: AdminClient, name: String, job
             };
             if outcome.needs_launcher && current.friends.is_empty() {
                 outcome.core = Some(Ok(current));
+                outcome.view = Some(view);
                 return outcome;
             }
-            core_sync::sync(&mut friends, &admin, &name).await
+            core_sync::sync(&mut friends, &admin, &name, Some(&source)).await
         }
         Job::Share {
             key,
@@ -541,7 +780,7 @@ async fn run(friends: Arc<Mutex<Friends>>, admin: AdminClient, name: String, job
         } => match core_sync::read(&admin).await {
             Ok(current) => {
                 let list = shared_after(&current, &key, &instance, share);
-                core_sync::share(&mut friends, &admin, &name, &key, list).await
+                core_sync::share(&mut friends, &admin, &name, Some(&source), &key, list).await
             }
             Err(err) => Err(err.into()),
         },
@@ -549,10 +788,21 @@ async fn run(friends: Arc<Mutex<Friends>>, admin: AdminClient, name: String, job
     match synced {
         Ok(core) => {
             outcome.core = Some(Ok(core));
+            // what the core got: the book as the sync read it
+            outcome.view = Some(SyncView::of(&friends.book));
             match friends.publish_states().await {
                 Ok(problems) => outcome.problems = problems,
                 Err(err) => outcome.problems = vec![(String::new(), err.to_string())],
             }
+        }
+        Err(SyncError::Friends(FriendsError::Retired)) => {
+            outcome.retired = true;
+            outcome.core = Some(core_sync::clear(&admin).await.map_err(|e| e.to_string()));
+            return outcome;
+        }
+        Err(SyncError::Friends(err)) if err.is_stale() => {
+            outcome.lost = true;
+            return outcome;
         }
         Err(err) => outcome.core = Some(Err(err.to_string())),
     }

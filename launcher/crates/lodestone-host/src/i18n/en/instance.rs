@@ -221,6 +221,16 @@ crate::i18n::messages! {
         FriendsRetrying = "Lodestone Host tries again every minute.",
         /// This core has the friend list as it is now.
         FriendsSynced = "Friend list synced",
+        /// The person retired their friend identity in Lodestone Launcher.
+        FriendsRetired = "Your friend identity was retired",
+        FriendsRetiredHint = "This core no longer shares with anyone. To start again, choose a new name in Lodestone Launcher's Friends section, then add your friends again.",
+        /// A test copy of the Host (a developer's), whose core or friend list is a test one.
+        FriendsOff = "Sharing with friends is off in this test copy",
+        FriendsOffHint = "Its core or its friend list is in a test folder, and the other isn't, so your real friends never reach a test core. To test sharing, set both LODESTONE_PATH and LODESTONE_LAUNCHER_DATA_DIR to test folders.",
+        /// Before the first share with a friend whose safety code wasn't compared; {name} is their name.
+        FriendsConfirmUnverified = "You haven’t compared safety codes with {name} yet, so you can’t be sure it’s really them: someone else could have answered your friend link. Compare codes in Lodestone Launcher first, or share anyway.",
+        FriendsShareAnyway = "Share anyway",
+        FriendsCancel = "Cancel",
     }
 
     pub enum InstancePlural {
