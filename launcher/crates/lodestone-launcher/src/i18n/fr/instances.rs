@@ -52,6 +52,9 @@ pub fn text(message: M) -> &'static str {
         M::AutoControlsLauncherNote => {
             "Configuration automatique\u{a0}: sensibilité de la souris, touches et langue reprises du Minecraft Launcher"
         }
+        M::AutoControlsOtherLauncherNote => {
+            "Configuration automatique\u{a0}: sensibilité de la souris, touches et langue reprises de {instance} dans {launcher}"
+        }
         M::StoppedNote => "Arrêté",
         M::ExitedWithCode => "Minecraft s’est fermé avec le code {code}",
         M::EndedBySignal => "Minecraft a été arrêté par un signal",

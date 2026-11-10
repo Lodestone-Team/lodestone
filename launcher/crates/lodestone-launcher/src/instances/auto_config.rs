@@ -83,8 +83,14 @@ impl Instances {
 
     /// Before Java starts, once the client jar is there: a new instance's first
     /// `options.txt`, with video settings for this computer and the controls of the
-    /// instance played last. Runs before the shared settings are merged, which win.
-    pub(super) fn auto_configure_options(&mut self, id: &str, cx: &mut Context<Self>) {
+    /// game played last, here or in another launcher (`outside`, found while the game
+    /// prepared). Runs before the shared settings are merged, which win.
+    pub(super) fn auto_configure_options(
+        &mut self,
+        id: &str,
+        outside: Vec<configurator::Outside>,
+        cx: &mut Context<Self>,
+    ) {
         if !self.settings.auto_configure {
             return;
         }
@@ -106,7 +112,7 @@ impl Instances {
             .iter()
             .map(|i| (i.clone(), self.store.dir(&i.id)))
             .collect();
-        let candidates = configurator::candidates(preferred.as_deref(), &others, id);
+        let candidates = configurator::candidates(preferred.as_deref(), &others, id, outside);
         let jar = self.client_jar(&instance.game_version);
         let result = configurator::configure_options(
             &self.data_dir,
@@ -136,6 +142,9 @@ impl Instances {
                 "controls": outcome.controls_from.as_ref().map(|s| match s {
                     ControlsSource::Instance(name) => name.clone(),
                     ControlsSource::MinecraftLauncher => "minecraft_launcher".into(),
+                    ControlsSource::OtherLauncher { launcher, instance } => {
+                        format!("{launcher}: {instance}")
+                    }
                 }),
                 "written": outcome.written,
             })
@@ -154,6 +163,15 @@ impl Instances {
             Some(ControlsSource::MinecraftLauncher) => {
                 self.note(id, Level::Info, t(M::AutoControlsLauncherNote).to_string())
             }
+            Some(ControlsSource::OtherLauncher { launcher, instance }) => self.note(
+                id,
+                Level::Info,
+                tr!(
+                    M::AutoControlsOtherLauncherNote,
+                    instance = instance,
+                    launcher = launcher
+                ),
+            ),
             None => {}
         }
     }

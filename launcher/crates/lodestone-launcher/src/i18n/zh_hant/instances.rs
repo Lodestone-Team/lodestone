@@ -40,6 +40,9 @@ pub fn text(message: M) -> &'static str {
         M::AutoControlsLauncherNote => {
             "自動設定：已從 Minecraft 啟動器沿用滑鼠靈敏度、按鍵綁定和語言"
         }
+        M::AutoControlsOtherLauncherNote => {
+            "自動設定：已從 {launcher} 的 {instance} 沿用滑鼠靈敏度、按鍵綁定和語言"
+        }
         M::StoppedNote => "已停止",
         M::ExitedWithCode => "Minecraft 已結束，結束代碼為 {code}",
         M::EndedBySignal => "Minecraft 因訊號而終止",
