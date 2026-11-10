@@ -7,11 +7,11 @@ use gpui::{AnyElement, Context, IntoElement, ObjectFit, SharedString, div, img, 
 use launcher_core::instances::{BackgroundMode, Instance};
 use launcher_core::ui_skin::SurfaceId;
 
-use super::{InstanceTab, LauncherShell, loader_label};
+use super::{InstanceTab, LauncherShell, Page, loader_label};
 use crate::{
     components::{
-        Align, Button, ButtonSize, ButtonVariant, Icon, MagnetBar, MagnetLook, PlayButton,
-        PlayButtonState, Tabs,
+        Align, Button, ButtonSize, ButtonVariant, Icon, KeyboardFocus, MagnetBar, MagnetLook,
+        PlayButton, PlayButtonState, Tabs,
         a11y::{Accessible, Role},
     },
     i18n::{ShellMsg as M, t, tr},
@@ -83,7 +83,7 @@ pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl In
                                 .font_weight(weights::BOLD.into())
                                 .child(subtitle),
                         )
-                        .children(link.as_ref().map(linked_to)),
+                        .children(link.as_ref().map(|link| linked_to(link, cx))),
                 )
                 .child(
                     Tabs::new("instance-tabs", InstanceTab::ALL.map(InstanceTab::label))
@@ -259,8 +259,20 @@ fn hero(
         )
 }
 
-/// "Linked to Survival SMP on Peter's core", under the instance's name.
-fn linked_to(link: &InstanceLink) -> impl IntoElement + use<> {
+/// "Linked to Survival SMP on Peter's core", under the instance's name. Pressing it
+/// opens the Lodestone Host page with that server's row scrolled into sight and
+/// flashed.
+fn linked_to(link: &InstanceLink, cx: &mut Context<LauncherShell>) -> impl IntoElement + use<> {
+    let label = tr!(
+        if link.core_known {
+            M::LinkedTo
+        } else {
+            M::LinkedToRemoved
+        },
+        server = link.server_name,
+        core = link.core_name
+    );
+    let (core, server) = (link.core_uuid.clone(), link.server_uuid.clone());
     div()
         .flex()
         .flex_row()
@@ -277,19 +289,24 @@ fn linked_to(link: &InstanceLink) -> impl IntoElement + use<> {
         )
         .child(
             div()
+                .id("linked-server")
+                .accessible(Role::Link, "linked-server", label.clone())
+                .keyboard_focus()
+                .min_w_0()
                 .truncate()
+                .rounded(radius::DEFAULT)
                 .text_size(theme::text_size(text::SMALL))
                 .font_weight(weights::BOLD.into())
                 .text_color(crate::theme::accent::light())
-                .child(tr!(
-                    if link.core_known {
-                        M::LinkedTo
-                    } else {
-                        M::LinkedToRemoved
-                    },
-                    server = link.server_name,
-                    core = link.core_name
-                )),
+                .cursor_pointer()
+                .hover(|style| style.underline())
+                .on_press(cx.listener(move |this, _, _, cx| {
+                    this.show(Page::Servers, cx);
+                    this.servers.update(cx, |servers, cx| {
+                        servers.highlight_server(&core, &server, cx)
+                    });
+                }))
+                .child(label),
         )
 }
 

@@ -198,9 +198,17 @@ impl Servers {
         );
         let (play_id, check_id, remove_id, untrust_id) =
             (id.clone(), id.clone(), id.clone(), id.clone());
+        // an instance page's link to this server (its id is the server link's core)
+        let overlay = self
+            .highlight
+            .as_ref()
+            .is_some_and(|h| h.core == saved.id)
+            .then(|| self.highlight_overlay())
+            .flatten();
         div()
             .id(SharedString::from(row_id.clone()))
             .accessible(Role::ListItem, row_id.clone(), saved.name.clone())
+            .relative()
             .flex()
             .flex_row()
             .items_center()
@@ -209,6 +217,7 @@ impl Servers {
             .py_2p5()
             .border_t_1()
             .border_color(crate::theme::ink::border())
+            .children(overlay)
             .child(div().flex_none().size(px(8.)).rounded_full().bg(dot))
             .child(
                 div()

@@ -460,7 +460,24 @@ pub struct InstanceLink {
     pub core_name: String,
     /// The core is still in the launcher.
     pub core_known: bool,
+    /// The core and server, to find the server's row on the Lodestone Host page.
+    pub core_uuid: String,
+    pub server_uuid: String,
 }
+
+/// The server row the instance page's link pointed at: the Lodestone Host page
+/// scrolls it into sight and flashes it once.
+pub(super) struct Highlight {
+    pub core: String,
+    pub server: String,
+    /// Still to scroll to; the row clears it once it has.
+    pub scroll: Rc<std::cell::Cell<bool>>,
+    /// Tells one flash from the next, so a second click flashes again.
+    pub generation: u64,
+}
+
+/// How long a highlighted row stays highlighted.
+const HIGHLIGHT_FOR: Duration = Duration::from_millis(2600);
 
 /// How long the poll goes without reading the instances' server links again while
 /// the instances stay the same.
@@ -476,6 +493,10 @@ pub struct Servers {
     links: HashMap<RowKey, String>,
     /// The same links by instance.
     instance_links: HashMap<String, ServerLink>,
+    /// The row the instance page's link pointed at, while it flashes.
+    highlight: Option<Highlight>,
+    /// The Lodestone Host page's scroll, to bring a highlighted row into sight.
+    page_scroll: gpui::ScrollHandle,
     /// Reads every instance folder for its link, off the window's thread.
     links_task: Option<Task<()>>,
     /// The instance list's generation the links were last read at, and when: the
@@ -539,6 +560,8 @@ impl Servers {
             cores: Vec::new(),
             links: HashMap::new(),
             instance_links: HashMap::new(),
+            highlight: None,
+            page_scroll: gpui::ScrollHandle::new(),
             links_task: None,
             links_read: None,
             links_revision: 0,
@@ -1530,6 +1553,8 @@ impl Servers {
                 .flatten();
             return Some(InstanceLink {
                 server_name: link.server_name.clone(),
+                core_uuid: link.core_uuid.clone(),
+                server_uuid: link.server_uuid.clone(),
                 core_known: friend.is_some() || owner.is_some(),
                 core_name: owner.unwrap_or_else(|| {
                     friend.map_or_else(|| link.core_url.clone(), |f| f.saved.core_name.clone())
@@ -1541,7 +1566,40 @@ impl Servers {
             server_name: link.server_name.clone(),
             core_name: core.map_or_else(|| link.core_url.clone(), |c| c.saved.name.clone()),
             core_known: core.is_some(),
+            core_uuid: link.core_uuid.clone(),
+            server_uuid: link.server_uuid.clone(),
         })
+    }
+
+    /// Shows the list (closing a server's page) with the row of server `server` on
+    /// core `core` scrolled into sight and flashed.
+    pub fn highlight_server(&mut self, core: &str, server: &str, cx: &mut Context<Self>) {
+        if self.detail.is_some() {
+            self.close_detail(cx);
+        }
+        let generation = self.highlight.as_ref().map_or(0, |h| h.generation + 1);
+        self.highlight = Some(Highlight {
+            core: core.to_string(),
+            server: server.to_string(),
+            scroll: Rc::new(std::cell::Cell::new(true)),
+            generation,
+        });
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(HIGHLIGHT_FOR).await;
+            this.update(cx, |this, cx| {
+                if this
+                    .highlight
+                    .as_ref()
+                    .is_some_and(|h| h.generation == generation)
+                {
+                    this.highlight = None;
+                    cx.notify();
+                }
+            })
+            .ok();
+        })
+        .detach();
     }
 
     /// Whose server the instance was made for, when it's a friend's: the friend's name
