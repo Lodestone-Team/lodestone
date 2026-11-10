@@ -207,7 +207,7 @@ fn dependents_are_the_enabled_mods_that_need_it() {
         r#"{"id": "off", "depends": {"fabric-api": "*"}}"#,
     );
 
-    let names = |list: Vec<Dependent>| -> Vec<(String, String)> {
+    let names = |list: Vec<LinkedMod>| -> Vec<(String, String)> {
         list.into_iter().map(|d| (d.file_name, d.name)).collect()
     };
     assert_eq!(
@@ -232,6 +232,63 @@ fn dependents_are_the_enabled_mods_that_need_it() {
         r#"{"id": "other", "provides": ["fabric-api"]}"#,
     );
     assert!(dependents(&dirs, "api.jar").is_empty());
+}
+
+#[test]
+fn requirements_are_the_mods_that_are_off_and_needed() {
+    let dir = tempfile::tempdir().unwrap();
+    let dirs = InstanceDirs::new(dir.path());
+    let mods_dir = dirs.content_dir(ContentKind::Mod);
+    fs::create_dir_all(&mods_dir).unwrap();
+    jar(
+        &mods_dir.join("api.jar.disabled"),
+        r#"{"id": "fabric-api", "name": "Fabric API"}"#,
+    );
+    jar(
+        &mods_dir.join("sodium.jar.disabled"),
+        r#"{"id": "sodium", "name": "Sodium", "depends": {"fabric-api": "*", "minecraft": "*"}}"#,
+    );
+    // Needs Sodium, and through it Fabric API.
+    jar(
+        &mods_dir.join("extra.jar.disabled"),
+        r#"{"id": "sodium-extra", "name": "Sodium Extra", "depends": {"sodium": "*"}}"#,
+    );
+    // On, and stranded without Fabric API: not this prompt's business.
+    jar(
+        &mods_dir.join("culling.jar"),
+        r#"{"id": "entityculling", "depends": {"fabric-api": "*"}}"#,
+    );
+    jar(
+        &mods_dir.join("lonely.jar.disabled"),
+        r#"{"id": "lonely", "depends": {"not-here": "*"}}"#,
+    );
+
+    let names = |list: Vec<LinkedMod>| -> Vec<(String, String)> {
+        list.into_iter().map(|d| (d.file_name, d.name)).collect()
+    };
+    assert_eq!(
+        names(requirements(&dirs, "extra.jar.disabled")),
+        [
+            ("api.jar.disabled".to_string(), "Fabric API".to_string()),
+            ("sodium.jar.disabled".to_string(), "Sodium".to_string()),
+        ]
+    );
+    assert_eq!(
+        names(requirements(&dirs, "sodium.jar")),
+        [("api.jar.disabled".to_string(), "Fabric API".to_string())]
+    );
+    // Nothing off that it needs; a mod that isn't in the folder doesn't count.
+    assert!(requirements(&dirs, "api.jar.disabled").is_empty());
+    assert!(requirements(&dirs, "lonely.jar.disabled").is_empty());
+    // A mod that is on already needs nothing turned on.
+    assert!(requirements(&dirs, "culling.jar").is_empty());
+
+    // An enabled mod that gives the id is enough.
+    jar(
+        &mods_dir.join("api-copy.jar"),
+        r#"{"id": "other", "provides": ["fabric-api"]}"#,
+    );
+    assert!(requirements(&dirs, "sodium.jar.disabled").is_empty());
 }
 
 #[test]

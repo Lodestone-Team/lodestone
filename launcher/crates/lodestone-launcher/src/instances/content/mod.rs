@@ -229,18 +229,24 @@ pub enum RemoteIcon {
 pub enum ContentEvent {
     /// Open "New instance" with Fabric chosen.
     NewFabricInstance,
-    /// A mod being turned off has mods that can't load without it: ask whether to
-    /// turn those off too (then [`ContentView::disable_mods`]).
-    ConfirmDisable(DisablePrompt),
+    /// A mod being turned off has enabled mods that can't load without it, or one being
+    /// turned on needs mods that are off: ask whether to turn those off or on too (then
+    /// [`ContentView::set_mods_enabled`]).
+    ConfirmToggle(TogglePrompt),
 }
 
-/// "Turn off Fabric API?": a mod and the enabled mods that need it.
+/// "Turn off Fabric API?" or "Turn on Sodium?": a mod being turned off or on, and the
+/// mods to turn off or on with it.
 #[derive(Clone, Debug, PartialEq)]
-pub struct DisablePrompt {
+pub struct TogglePrompt {
     pub instance_id: String,
     pub file_name: String,
     pub name: String,
-    pub dependents: Vec<launcher_core::content::mod_finder::Dependent>,
+    /// Whether the mod is being turned on.
+    pub enable: bool,
+    /// Turning off: the enabled mods that need it. Turning on: the mods that are off
+    /// that it needs.
+    pub others: Vec<launcher_core::content::mod_finder::LinkedMod>,
 }
 
 pub struct ContentView {
@@ -270,8 +276,8 @@ pub struct ContentView {
     pub confirm_delete: Option<(ContentKind, String)>,
     /// The file being moved to the Trash, off the window's thread, and its instance.
     pub deleting: Option<(String, ContentKind, String)>,
-    /// The mod whose toggle was turned off, while the mods that need it are looked
-    /// for (every enabled jar is read).
+    /// The mod whose toggle was pressed, while the mods that need it (or that it
+    /// needs) are looked for: every jar is read.
     pub checking_dependents: Option<String>,
     _dependents: Option<Task<()>>,
     _delete: Option<Task<()>>,
@@ -982,13 +988,10 @@ impl ContentView {
     }
 
     /// A mod's toggle. Turning one off first looks for the enabled mods that can't
-    /// load without it; when there are some, the window asks whether to turn them off
-    /// too ([`ContentEvent::ConfirmDisable`]) instead.
+    /// load without it, and turning one on for the mods that are off that it needs;
+    /// when there are some, the window asks whether to turn them off or on too
+    /// ([`ContentEvent::ConfirmToggle`]) instead.
     pub fn set_mod_enabled(&mut self, file_name: String, enabled: bool, cx: &mut Context<Self>) {
-        if enabled {
-            self.apply_mods_enabled(&[file_name], true, cx);
-            return;
-        }
         if self.checking_dependents.is_some() || !self.can_change(cx) {
             return;
         }
@@ -1005,25 +1008,31 @@ impl ContentView {
         let work = {
             let file_name = file_name.clone();
             cx.background_spawn(async move {
-                launcher_core::content::mod_finder::dependents(&dirs, &file_name)
+                use launcher_core::content::mod_finder;
+                if enabled {
+                    mod_finder::requirements(&dirs, &file_name)
+                } else {
+                    mod_finder::dependents(&dirs, &file_name)
+                }
             })
         };
         self._dependents = Some(cx.spawn(async move |this, cx| {
-            let dependents = work.await;
+            let others = work.await;
             this.update(cx, |this, cx| {
                 this.checking_dependents = None;
                 if this.instance_id.as_deref() != Some(id.as_str()) {
                     cx.notify();
                     return;
                 }
-                if dependents.is_empty() {
-                    this.apply_mods_enabled(&[file_name], false, cx);
+                if others.is_empty() {
+                    this.apply_mods_enabled(&[file_name], enabled, cx);
                 } else {
-                    cx.emit(ContentEvent::ConfirmDisable(DisablePrompt {
+                    cx.emit(ContentEvent::ConfirmToggle(TogglePrompt {
                         instance_id: id,
                         file_name,
                         name,
-                        dependents,
+                        enable: enabled,
+                        others,
                     }));
                     cx.notify();
                 }
@@ -1033,16 +1042,17 @@ impl ContentView {
         cx.notify();
     }
 
-    /// Turns off mods of `instance_id`, from the prompt that asked about the mods
-    /// needing one: that mod alone, or with them.
-    pub fn disable_mods(
+    /// Turns mods of `instance_id` off or on, from the prompt that asked about the
+    /// mods linked to one: that mod alone, or with them.
+    pub fn set_mods_enabled(
         &mut self,
         instance_id: &str,
         file_names: &[String],
+        enabled: bool,
         cx: &mut Context<Self>,
     ) {
         if self.instance_id.as_deref() == Some(instance_id) {
-            self.apply_mods_enabled(file_names, false, cx);
+            self.apply_mods_enabled(file_names, enabled, cx);
         }
     }
 

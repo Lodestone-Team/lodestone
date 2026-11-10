@@ -64,6 +64,7 @@ pub const SCENES: &[&str] = &[
     "sign-in-code",
     "offer-main",
     "disable-mod",
+    "enable-mod",
     "confirm-main",
     "sign-in-stop",
     "sign-in-not-approved",
@@ -1495,25 +1496,37 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
             shell.preview_ask_to_stop_signing_in(cx);
         }
         "offer-main" => shell.preview_main_dialog(false, cx),
-        "disable-mod" => {
-            use launcher_core::content::mod_finder::Dependent;
-            let dependent = |file: &str, name: &str| Dependent {
+        "disable-mod" | "enable-mod" => {
+            use launcher_core::content::mod_finder::LinkedMod;
+            let linked = |file: &str, name: &str| LinkedMod {
                 file_name: file.into(),
                 name: name.into(),
             };
-            shell.preview_disable_mod(
-                crate::instances::content::DisablePrompt {
+            let prompt = if scene == "enable-mod" {
+                crate::instances::content::TogglePrompt {
+                    instance_id: String::new(),
+                    file_name: "sodium-extra-0.7.0+mc26.3.jar.disabled".into(),
+                    name: "Sodium Extra".into(),
+                    enable: true,
+                    others: vec![
+                        linked("fabric-api-0.166.0+26.3.jar.disabled", "Fabric API"),
+                        linked("sodium-fabric-0.9.2+mc26.3.jar.disabled", "Sodium"),
+                    ],
+                }
+            } else {
+                crate::instances::content::TogglePrompt {
                     instance_id: String::new(),
                     file_name: "fabric-api-0.166.0+26.3.jar".into(),
                     name: "Fabric API".into(),
-                    dependents: vec![
-                        dependent("entityculling-fabric-1.11.3-mc26.3.jar", "Entity Culling"),
-                        dependent("modmenu-17.0.0.jar", "Mod Menu"),
-                        dependent("sodium-extra-0.7.0+mc26.3.jar", "Sodium Extra"),
+                    enable: false,
+                    others: vec![
+                        linked("entityculling-fabric-1.11.3-mc26.3.jar", "Entity Culling"),
+                        linked("modmenu-17.0.0.jar", "Mod Menu"),
+                        linked("sodium-extra-0.7.0+mc26.3.jar", "Sodium Extra"),
                     ],
-                },
-                cx,
-            );
+                }
+            };
+            shell.preview_toggle_mod(prompt, cx);
         }
         "confirm-main" => shell.preview_main_dialog(true, cx),
         "sign-in-code" => shell.open_sign_in_at(

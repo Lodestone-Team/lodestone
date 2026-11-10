@@ -253,6 +253,12 @@ pub fn text(message: M) -> &'static str {
         }
         M::DisableModAll => "全部关闭",
         M::DisableModOnly => "仅关闭 {name}",
+        M::EnableModTitle => "要开启 {name} 吗？",
+        M::EnableModOnlyWarning => {
+            "如果只开启 {name}，在它们也开启或再次关闭 {name} 之前，游戏将无法启动。"
+        }
+        M::EnableModAll => "全部开启",
+        M::EnableModOnly => "仅开启 {name}",
     }
 }
 
@@ -261,6 +267,7 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::Downloads => ["{count} 次下载"; 2],
         P::Follows => ["{count} 人关注"; 2],
         P::Followers => ["{count} 位关注者"; 2],
+        P::Needs => ["{name} 需要以下 {count} 个已关闭的模组："; 2],
         P::NeededBy => ["以下 {count} 个模组需要 {name}，没有它将无法加载："; 2],
         P::MoreVersions => ["Modrinth 上还有 {count} 个版本。"; 2],
     }

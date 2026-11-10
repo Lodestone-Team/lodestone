@@ -275,6 +275,12 @@ pub fn text(message: M) -> &'static str {
         }
         M::DisableModAll => "Tout désactiver",
         M::DisableModOnly => "Seulement {name}",
+        M::EnableModTitle => "Activer {name} ?",
+        M::EnableModOnlyWarning => {
+            "Si seul {name} est activé, le jeu ne démarrera pas tant qu’ils ne sont pas activés aussi ou que {name} n’est pas désactivé."
+        }
+        M::EnableModAll => "Tout activer",
+        M::EnableModOnly => "Seulement {name}",
     }
 }
 
@@ -283,6 +289,10 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::Downloads => ["{count} téléchargement", "{count} téléchargements"],
         P::Follows => ["{count} abonné", "{count} abonnés"],
         P::Followers => ["{count} abonné", "{count} abonnés"],
+        P::Needs => [
+            "{name} a besoin de {count} mod désactivé :",
+            "{name} a besoin de {count} mods désactivés :",
+        ],
         P::NeededBy => [
             "{count} mod a besoin de {name} et ne se chargera pas sans lui :",
             "{count} mods ont besoin de {name} et ne se chargeront pas sans lui :",

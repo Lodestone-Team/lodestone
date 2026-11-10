@@ -257,6 +257,12 @@ pub fn text(message: M) -> &'static str {
         }
         M::DisableModAll => "全部關閉",
         M::DisableModOnly => "僅關閉 {name}",
+        M::EnableModTitle => "要開啟 {name} 嗎？",
+        M::EnableModOnlyWarning => {
+            "如果只開啟 {name}，在它們也開啟或再次關閉 {name} 之前，遊戲將無法啟動。"
+        }
+        M::EnableModAll => "全部開啟",
+        M::EnableModOnly => "僅開啟 {name}",
     }
 }
 
@@ -265,6 +271,7 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::Downloads => ["{count} 次下載"; 2],
         P::Follows => ["{count} 人追蹤"; 2],
         P::Followers => ["{count} 位追蹤者"; 2],
+        P::Needs => ["{name} 需要以下 {count} 個已關閉的模組："; 2],
         P::NeededBy => ["以下 {count} 個模組需要 {name}，沒有它將無法載入："; 2],
         P::MoreVersions => ["Modrinth 上還有 {count} 個版本。"; 2],
     }

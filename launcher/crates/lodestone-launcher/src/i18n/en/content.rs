@@ -284,6 +284,11 @@ crate::i18n::messages! {
         DisableModOnlyWarning = "With only {name} off, the game won't start until they're off too or {name} is back on.",
         DisableModAll = "Turn them all off",
         DisableModOnly = "Only {name}",
+        /// Turning on a mod that needs mods that are off: "Turn on Sodium?"
+        EnableModTitle = "Turn on {name}?",
+        EnableModOnlyWarning = "With only {name} on, the game won't start until they're on too or {name} is off again.",
+        EnableModAll = "Turn them all on",
+        EnableModOnly = "Only {name}",
     }
 
     pub enum ContentPlural {
@@ -293,5 +298,7 @@ crate::i18n::messages! {
         MoreVersions = ("{count} more version is on Modrinth.", "{count} more versions are on Modrinth."),
         /// Over the list of mods that need the one being turned off.
         NeededBy = ("{count} mod needs {name} and won't load without it:", "{count} mods need {name} and won't load without it:"),
+        /// Over the list of mods that are off that the one being turned on needs.
+        Needs = ("{name} needs {count} mod that is off:", "{name} needs {count} mods that are off:"),
     }
 }
