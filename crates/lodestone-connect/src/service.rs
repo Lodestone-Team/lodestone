@@ -260,6 +260,9 @@ mod host {
     pub const CLOSE_ENDED: u16 = 4000;
     /// The close code for "the invite was renewed": wait on it again from join 0.
     pub const CLOSE_RENEWED: u16 = 4001;
+    /// The largest WebSocket message or frame taken from the service. Its messages (a
+    /// knock, a few joins) are a few KiB at most; tungstenite's own limit is 64 MiB.
+    pub(crate) const MAX_SERVICE_MESSAGE: usize = 64 * 1024;
 
     /// An invite the service holds for this host.
     #[derive(Clone, Debug, PartialEq, Eq)]
@@ -349,7 +352,15 @@ mod host {
             let stream = connect(self).await?;
             match tokio::time::timeout(
                 ANSWER_TIMEOUT,
-                tokio_tungstenite::client_async(request, stream),
+                tokio_tungstenite::client_async_with_config(
+                    request,
+                    stream,
+                    Some(
+                        tungstenite::protocol::WebSocketConfig::default()
+                            .max_message_size(Some(MAX_SERVICE_MESSAGE))
+                            .max_frame_size(Some(MAX_SERVICE_MESSAGE)),
+                    ),
+                ),
             )
             .await
             .map_err(|_| unreachable("no answer".into()))?
