@@ -1354,6 +1354,12 @@ export const en = {
   // FileList: the list of files and folders
   /** for screen readers, while a folder loads */
   'files.list.loading': 'Loading files',
+  'files.list.name': 'Name',
+  'files.list.dateModified': 'Date modified',
+  'files.list.size': 'Size',
+  'files.list.sortBy': 'Sort by {field}',
+  'files.list.sortedAscending': 'Sorted by {field}, ascending',
+  'files.list.sortedDescending': 'Sorted by {field}, descending',
   'files.list.empty': 'No files here…',
   /** in the modification time column */
   'files.list.unknownTime': 'Unknown Creation Time',

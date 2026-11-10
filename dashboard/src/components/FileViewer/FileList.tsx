@@ -1,4 +1,8 @@
-import { faClipboardQuestion } from '@fortawesome/free-solid-svg-icons';
+import {
+  faCaretDown,
+  faCaretUp,
+  faClipboardQuestion,
+} from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { ClientFile } from 'bindings/ClientFile';
 import clsx from 'clsx';
@@ -17,6 +21,7 @@ import { useFileViewer } from './FileViewerContext';
 import { SkeletonGroup, SkeletonRows } from 'components/Atoms/Skeleton';
 import { useT } from 'i18n';
 import { asset } from 'utils/basePath';
+import { FileSort, FileSortKey, nextSort, sortFiles } from './sortFiles';
 
 // a map from file extension to icon
 const iconMap: { [key: string]: string } = {
@@ -64,6 +69,24 @@ const iconMap: { [key: string]: string } = {
   mcfunction: '/icons/minecraft.svg',
 };
 
+const sortHeaders: {
+  key: FileSortKey;
+  label: 'files.list.name' | 'files.list.dateModified' | 'files.list.size';
+  layout: string;
+}[] = [
+  { key: 'name', label: 'files.list.name', layout: 'pl-[4.75rem] grow' },
+  {
+    key: 'date_modified',
+    label: 'files.list.dateModified',
+    layout: 'min-w-[8ch] justify-end',
+  },
+  {
+    key: 'size',
+    label: 'files.list.size',
+    layout: 'min-w-[8ch] justify-end pr-4',
+  },
+];
+
 export default function FileList({
   fileList,
   loading,
@@ -98,6 +121,7 @@ export default function FileList({
 
   const boundingDivRef = useRef<HTMLDivElement>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
+  const [sort, setSort] = useState<FileSort | null>(null);
   const [showContextMenu, setShowContextMenu] = useState(false);
   // where the menu was opened, relative to boundingDivRef
   const [contextMenuPointer, setContextMenuPointer] = useState({ x: 0, y: 0 });
@@ -106,6 +130,12 @@ export default function FileList({
 
   useOnClickOutside(contextMenuRef as RefObject<HTMLDivElement>, () =>
     setShowContextMenu(false)
+  );
+
+  // a sorted copy: fileList belongs to the query cache and is not ours to reorder
+  const sortedFiles = useMemo(
+    () => (fileList ? sortFiles(fileList, sort) : undefined),
+    [fileList, sort]
   );
 
   function fileToIcon(file: ClientFile) {
@@ -262,7 +292,43 @@ export default function FileList({
             </p>
           </div>
         )}
-        {fileList?.map((file: ClientFile) => {
+        {fileList && fileList.length > 0 && (
+          <div className="flex w-full flex-row text-medium font-medium text-gray-400">
+            {sortHeaders.map(({ key, label, layout }) => {
+              const active = sort?.key === key;
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  className={clsx(
+                    'flex items-center gap-1 py-2 hover:cursor-pointer hover:text-gray-300',
+                    active && 'text-gray-300',
+                    layout
+                  )}
+                  aria-label={
+                    active
+                      ? t(
+                          sort.direction === 'asc'
+                            ? 'files.list.sortedAscending'
+                            : 'files.list.sortedDescending',
+                          { field: t(label) }
+                        )
+                      : t('files.list.sortBy', { field: t(label) })
+                  }
+                  onClick={() => setSort(nextSort(sort, key))}
+                >
+                  {t(label)}
+                  {active && (
+                    <FontAwesomeIcon
+                      icon={sort.direction === 'asc' ? faCaretUp : faCaretDown}
+                    />
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        )}
+        {sortedFiles?.map((file: ClientFile) => {
           // compare paths: the objects are replaced on every refetch
           const isOpened = openedFile?.path === file.path;
           const isTicked = fileTicked(file);
@@ -302,7 +368,7 @@ export default function FileList({
               <div className="grow"></div>
 
               <p className="hidden min-w-[8ch] text-right text-gray-500 @xs:inline">
-                {file.modification_time || file.creation_time
+                {(file.modification_time ?? file.creation_time) != null
                   ? formatTimeAgo(
                       Number(file.modification_time ?? file.creation_time) *
                         1000
@@ -313,7 +379,7 @@ export default function FileList({
               <p className="hidden min-w-[8ch] text-right text-gray-500 @sm:inline">
                 {file.file_type === 'Directory'
                   ? ''
-                  : file.size
+                  : file.size != null
                     ? formatBytes(file.size, 1)
                     : ''}
               </p>
