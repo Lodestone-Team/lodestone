@@ -297,9 +297,13 @@ A core registers one **session** with all its records, and waits on one WebSocke
   which could read it. Compare safety codes, or paste links straight into the launcher.
 - **Clocks.** A core or launcher whose clock is more than 10 minutes off can't meet its
   friends; it shows as a failed join, not as a clock problem yet.
-- **Local reverse proxies.** The friend list routes treat loopback as safe; a request a
-  reverse proxy on the same computer passes on with `Forwarded`, `X-Forwarded-For` or
-  `X-Real-IP` isn't counted as loopback, but one that strips them would be.
+- **Local reverse proxies and tunnels.** The friend list routes treat loopback as safe.
+  A request that a reverse proxy on the same computer passes on with a header that says
+  so (`Forwarded`, `X-Forwarded-For`, `X-Forwarded-Host`, `X-Forwarded-Proto`,
+  `X-Real-IP`, `X-Client-IP`, `Cf-Connecting-Ip`, `True-Client-IP`, `Via` and a few
+  more) isn't counted as loopback. A proxy that sends none of them, or a raw TCP tunnel
+  (`ssh -L`, a TCP tunnel service), still looks like loopback. Don't expose the core's
+  port to others through such a tunnel without HTTPS.
 - **Windows file permissions.** The core's friend certificate and list are only as
   private as its data folder: fine in the user's profile, not in a folder others can read
   (as for the core's other secrets).

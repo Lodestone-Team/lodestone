@@ -623,15 +623,28 @@ async fn friends_reach_only_what_is_shared_with_them() {
 #[tokio::test]
 async fn the_friend_list_refuses_forwarded_requests_and_too_many_sharing_friends() {
     let core = core().await;
-    // a reverse proxy on this computer may have passed it on from anywhere
-    let response = reqwest::Client::new()
-        .get(format!("{}/connect/friends", core.base))
-        .bearer_auth(&core.owner_jwt)
-        .header("x-forwarded-for", "203.0.113.9")
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    // a reverse proxy or tunnel on this computer may have passed it on from anywhere
+    for header in [
+        "x-forwarded-for",
+        "forwarded",
+        "x-real-ip",
+        "cf-connecting-ip",
+        "true-client-ip",
+    ] {
+        let response = reqwest::Client::new()
+            .get(format!("{}/connect/friends", core.base))
+            .bearer_auth(&core.owner_jwt)
+            .header(header, "203.0.113.9")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN, "{header}");
+    }
+    // without them, loopback is let in
+    let (status, _) = core
+        .call(Method::GET, "/connect/friends", &core.owner_jwt)
+        .await;
+    assert_eq!(status, StatusCode::OK);
 
     let secret = lodestone_connect::friend::Secret::random()
         .unwrap()

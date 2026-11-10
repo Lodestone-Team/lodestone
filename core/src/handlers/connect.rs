@@ -85,6 +85,28 @@ async fn stop_share(
 /// so outside those cases a request from another device came over HTTPS. A request a
 /// reverse proxy on this computer passed on (it says who it forwarded) isn't counted as
 /// loopback: it may have come from anywhere, over anything.
+///
+/// This can't catch every local proxy: one that sends none of [`FORWARDED_HEADERS`],
+/// or a raw TCP tunnel (`ssh -L`, a TCP tunnel service), still looks like loopback.
+/// launcher/docs/friends.md says so.
+/// Headers that reverse proxies and tunnels commonly add to say who they passed a
+/// request on from (or that they passed it on at all).
+const FORWARDED_HEADERS: &[&str] = &[
+    "forwarded",
+    "x-forwarded-for",
+    "x-forwarded-host",
+    "x-forwarded-proto",
+    "x-real-ip",
+    "x-client-ip",
+    "x-cluster-client-ip",
+    "x-original-forwarded-for",
+    "cf-connecting-ip",
+    "cf-connecting-ipv6",
+    "true-client-ip",
+    "fastly-client-ip",
+    "via",
+];
+
 async fn friends_allowed(
     state: &AppState,
     requester: &AuthedUser,
@@ -93,7 +115,7 @@ async fn friends_allowed(
 ) -> Result<(), Error> {
     requester.require_session()?;
     requester.require_owner()?;
-    let forwarded = ["forwarded", "x-forwarded-for", "x-real-ip"]
+    let forwarded = FORWARDED_HEADERS
         .iter()
         .any(|name| headers.contains_key(*name));
     let loopback = !forwarded && peer.is_some_and(is_loopback);
