@@ -115,7 +115,8 @@ LODESTONE_PATH=$(mktemp -d) LODESTONE_HOST_DATA_DIR=$(mktemp -d) \
   <test dir>/lodestone-host-<build>-<platform>-standalone
 ```
 
-A first run asks for an owner account; that is a fresh core in the temporary folder.
+A first run goes straight to the app (the owner is made without a password, and the core
+serves only this computer); that is a fresh core in the temporary folder.
 
 ## Updating, and testing it without GitHub
 

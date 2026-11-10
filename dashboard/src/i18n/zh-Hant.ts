@@ -263,6 +263,11 @@ export const zhHant: Messages = {
   'shell.login.passwordRequired': '請輸入密碼',
   'shell.login.changeCore': '更換核心',
   'shell.login.signIn': '登入',
+  'common.localOnly':
+    '這個核心只允許它所在電腦上的應用程式使用。請在那台電腦上開啟 Lodestone Host 來管理它，或在那裡設定擁有者帳戶（設定 › 一般 › 允許其他裝置存取）以使用網頁控制台。',
+  'shell.localOnly.title': '這個核心只允許它所在的電腦使用',
+  'shell.login.localOnly':
+    '這個核心只允許這台電腦上的應用程式使用。請開啟 Lodestone Host 來管理它，或在那裡設定擁有者密碼（設定 › 一般 › 允許其他裝置存取）以使用網頁控制台。',
 
   'shell.login.withApiKey': '使用 API 金鑰登入',
   'shell.login.withPassword': '使用使用者名稱和密碼登入',

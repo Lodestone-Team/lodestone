@@ -1,6 +1,8 @@
 //! "Host on a Lodestone core": a launcher instance becomes a new server, from the
 //! instance's Settings tab. See [`launcher_core::cores::hosting`] for the steps. The
-//! server is created stopped and never started here.
+//! server is created stopped and never started here. On a core this computer is the
+//! owner of ("Connect as owner"), the owner key creates it, so no password is asked;
+//! on any other core the user signs in once with their password.
 
 use crate::theme::px;
 use gpui::{
@@ -10,7 +12,7 @@ use gpui::{
 use launcher_core::{
     Secret,
     cores::{
-        CoreError,
+        CoreClient, CoreError,
         client::display_address,
         hosting::{self, HostSettings},
         link,
@@ -35,12 +37,31 @@ pub const EULA_URL: &str = "https://aka.ms/MinecraftEULA";
 #[derive(Clone)]
 pub struct HostRequest {
     pub core_uuid: String,
-    pub username: String,
-    pub password: Secret,
+    /// The username and password, for a core this computer isn't its owner of.
+    pub sign_in: Option<(String, Secret)>,
     pub name: String,
     pub max_ram: u32,
     /// The user ticked "I agree to the Minecraft EULA".
     pub accept_eula: bool,
+}
+
+/// How hosting may create a server on a core: with the owner key claimed on this
+/// computer ("Connect as owner"), or with a session from the user's password, since
+/// the key a password sign-in makes may only view, start and stop servers.
+pub(super) enum HostAuth {
+    OwnerKey(Secret),
+    Password(String, Secret),
+}
+
+impl HostAuth {
+    /// The token the hosting requests send: the owner key, or a new session, which
+    /// the caller drops when done. The password is dropped here.
+    pub(super) async fn token(self, client: &CoreClient) -> Result<Secret, CoreError> {
+        match self {
+            HostAuth::OwnerKey(key) => Ok(key),
+            HostAuth::Password(username, password) => client.session(&username, &password).await,
+        }
+    }
 }
 
 /// What hosting is doing.
@@ -108,11 +129,21 @@ pub enum HostEvent {
     ShowServers,
 }
 
+/// A core the dialog offers.
+#[derive(Clone, Debug)]
+pub struct HostTarget {
+    pub uuid: String,
+    pub name: String,
+    /// The username this computer signed in with, to fill in.
+    pub username: Option<String>,
+    /// This computer has the core's owner key, so no password is asked.
+    pub owner: bool,
+}
+
 pub struct HostDialog {
     pub instance_id: String,
     instance_name: String,
-    /// `(uuid, name, username)` of each core.
-    cores: Vec<(String, String, Option<String>)>,
+    cores: Vec<HostTarget>,
     core: String,
     username: Entity<TextInput>,
     password: Entity<TextInput>,
@@ -140,12 +171,12 @@ impl HostDialog {
     pub fn new(
         instance_id: String,
         instance_name: String,
-        cores: Vec<(String, String, Option<String>)>,
+        cores: Vec<HostTarget>,
         blocked: Option<Text>,
         cx: &mut Context<Self>,
     ) -> Self {
-        let core = cores.first().map(|c| c.0.clone()).unwrap_or_default();
-        let username = cores.first().and_then(|c| c.2.clone());
+        let core = cores.first().map(|c| c.uuid.clone()).unwrap_or_default();
+        let username = cores.first().and_then(|c| c.username.clone());
         Self {
             instance_id,
             name: cx.new(|cx| {
@@ -205,13 +236,22 @@ impl HostDialog {
         if self.stage.is_some() {
             return;
         }
-        if let Some((_, _, Some(username))) = self.cores.iter().find(|c| c.0 == uuid) {
-            let username = username.clone();
+        if let Some(username) = self
+            .cores
+            .iter()
+            .find(|c| c.uuid == uuid)
+            .and_then(|c| c.username.clone())
+        {
             self.username
                 .update(cx, |input, cx| input.set_text(username, cx));
         }
         self.core = uuid;
         cx.notify();
+    }
+
+    /// Whether this computer has the chosen core's owner key, so no password is asked.
+    fn owner_of_core(&self) -> bool {
+        self.cores.iter().any(|c| c.uuid == self.core && c.owner)
     }
 
     fn submit(&mut self, cx: &mut Context<Self>) {
@@ -224,7 +264,8 @@ impl HostDialog {
         if name.is_empty() {
             return self.fail(t(M::NameTheServer), cx);
         }
-        if username.is_empty() || password.is_empty() {
+        let owner = self.owner_of_core();
+        if !owner && (username.is_empty() || password.is_empty()) {
             return self.fail(
                 tr!(M::HostNeedsPassword, computer = t(CommonMsg::ThisComputer)),
                 cx,
@@ -239,8 +280,7 @@ impl HostDialog {
         self.stage = Some(HostStage::Exporting);
         cx.emit(HostEvent::Submit(HostRequest {
             core_uuid: self.core.clone(),
-            username,
-            password: Secret::new(password),
+            sign_in: (!owner).then(|| (username, Secret::new(password))),
             name,
             max_ram: self.max_ram,
             accept_eula: self.eula,
@@ -277,8 +317,9 @@ impl Render for HostDialog {
         let core_choices: Vec<(String, SharedString)> = self
             .cores
             .iter()
-            .map(|(uuid, name, _)| (uuid.clone(), name.clone().into()))
+            .map(|c| (c.uuid.clone(), c.name.clone().into()))
             .collect();
+        let owner = self.owner_of_core();
         let pick_core = {
             let entity = entity.clone();
             move |uuid: String, cx: &mut App| entity.update(cx, |this, cx| this.pick_core(uuid, cx))
@@ -312,9 +353,11 @@ impl Render for HostDialog {
                     .when(self.blocked.is_none(), |this| {
                         this.child(label(t(M::CoreLabel)))
                             .child(pills("host-core", core_choices, &self.core, pick_core))
-                            .child(self.username.clone())
-                            .child(self.password.clone())
-                            .child(note(t(M::PasswordNotKept)))
+                            .when(!owner, |this| {
+                                this.child(self.username.clone())
+                                    .child(self.password.clone())
+                                    .child(note(t(M::PasswordNotKept)))
+                            })
                             .child(label(t(M::ServerName)))
                             .child(self.name.clone())
                             .child(label(t(M::Memory)))
@@ -388,15 +431,14 @@ impl Servers {
         let Some(instance) = instance else {
             return;
         };
-        let cores: Vec<(String, String, Option<String>)> = self
+        let cores: Vec<HostTarget> = self
             .cores
             .iter()
-            .map(|c| {
-                (
-                    c.saved.uuid.clone(),
-                    c.saved.name.clone(),
-                    c.saved.username.clone(),
-                )
+            .map(|c| HostTarget {
+                uuid: c.saved.uuid.clone(),
+                name: c.saved.name.clone(),
+                username: c.saved.username.clone(),
+                owner: self.owner_key(&c.saved.uuid).is_some(),
             })
             .collect();
         let blocked = hosting::check_hostable(&instance)
@@ -431,10 +473,40 @@ impl Servers {
         self.extras.host.open((dialog, subscription), cx);
     }
 
+    /// The owner key claimed on this computer for core `uuid`, which may create servers.
+    pub(crate) fn owner_key(&self, uuid: &str) -> Option<Secret> {
+        self.cores
+            .iter()
+            .find(|c| c.saved.uuid == uuid && c.saved.local_claim)?
+            .key
+            .clone()
+    }
+
+    /// How hosting on core `uuid` signs in: its owner key, else `sign_in`.
+    pub(super) fn host_auth(
+        &self,
+        uuid: &str,
+        sign_in: Option<(String, Secret)>,
+    ) -> Option<HostAuth> {
+        match self.owner_key(uuid) {
+            Some(key) => Some(HostAuth::OwnerKey(key)),
+            None => sign_in.map(|(username, password)| HostAuth::Password(username, password)),
+        }
+    }
+
     fn host(&mut self, dialog: &Entity<HostDialog>, request: HostRequest, cx: &mut Context<Self>) {
         let Some(index) = self.core_index(&request.core_uuid) else {
             return dialog.update(cx, |d, cx| d.fail(t(M::CoreGone), cx));
         };
+        let Some(auth) = self.host_auth(&request.core_uuid, request.sign_in.clone()) else {
+            return dialog.update(cx, |d, cx| {
+                d.fail(
+                    tr!(M::HostNeedsPassword, computer = t(CommonMsg::ThisComputer)),
+                    cx,
+                )
+            });
+        };
+        let signs_in = matches!(auth, HostAuth::Password(..));
         let instance_id = dialog.read(cx).instance_id.clone();
         let store = self.instances.read(cx).store();
         let Ok(instance) = store.get(&instance_id) else {
@@ -460,9 +532,10 @@ impl Servers {
                 .and_then(|()| hosting::read_pack_file(&file));
             let _ = std::fs::remove_file(&file);
             let bytes = written.map_err(HostError::Other)?;
-            let _ = stage_tx.unbounded_send(HostStage::SigningIn);
-            let session = client.session(&request.username, &request.password).await?;
-            drop(request.password);
+            if signs_in {
+                let _ = stage_tx.unbounded_send(HostStage::SigningIn);
+            }
+            let session = auth.token(&client).await?;
             let port = client.free_port(&session, hosting::FIRST_PORT).await?;
             let _ = stage_tx.unbounded_send(HostStage::Uploading(bytes.len() as u64));
             let file_name = format!("{}.mrpack", request.name.replace(['/', '\\', ':'], "-"));

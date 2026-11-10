@@ -361,6 +361,25 @@ pub fn text(message: M) -> &'static str {
         M::SignIn => "登入",
         M::RemoveCore => "移除",
         M::RemoteSignedOut => "你已從 {name} 登出。Lodestone Host 已回到這台電腦的核心。",
+        M::RemoteAccess => "允許其他裝置存取",
+        M::RemoteAccessHintOff => {
+            "關閉：只有這台電腦上的應用程式可以使用這個核心（Lodestone Host、Lodestone Launcher 和 Lodestone CLI）。開啟後可以在其他裝置上使用網頁控制台、新增使用者或建立 API 金鑰。無論開關如何，都可以和朋友分享伺服器。"
+        }
+        M::RemoteAccessHintOn => "其他裝置可以透過 HTTPS 用使用者名稱和密碼登入這個核心。",
+        M::RemoteAccessOffTitle => "關閉其他裝置的存取？",
+        M::RemoteAccessOffBody => {
+            "只有這台電腦上的應用程式可以使用這個核心。其他裝置、其他使用者和在別處使用的 API 金鑰將無法使用，直到你重新開啟。和朋友分享伺服器仍然可用。"
+        }
+        M::LocalClaimNeedsPassword => "請先設定擁有者帳戶：沒有密碼時，這是唯一的登入方式。",
+        M::OwnerAccountTitle => "設定擁有者帳戶以分享這個核心",
+        M::OwnerAccountLead => {
+            "其他裝置使用使用者名稱和密碼登入。請選擇你將在網頁控制台和其他裝置上使用的使用者名稱和密碼。這台電腦上的應用程式無需它們也能繼續登入。"
+        }
+        M::OwnerAccountButton => "設定並允許存取",
+        M::OwnerAccountDone => "擁有者帳戶已設定。其他裝置現在可以登入這個核心。",
+        M::PasswordTooShort => "密碼至少需要 12 個字元。",
+        M::SetPassword => "設定密碼",
+        M::NoPasswordYet => "還沒有密碼。只有這台電腦上的應用程式可以使用這個核心。",
     }
 }
 

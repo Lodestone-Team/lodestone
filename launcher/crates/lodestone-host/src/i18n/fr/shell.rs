@@ -9,23 +9,10 @@ pub fn text(message: M) -> &'static str {
         M::OpenLogFolder => "Ouvrir le dossier du journal",
         M::StoppingCore => "Arrêt de vos serveurs…",
         M::SigningIn => "Connexion…",
-        M::SetupTitle => "Configurer Lodestone Core",
-        M::SetupIntro => {
-            "Créez le compte propriétaire. Vous vous connectez avec lui depuis le tableau de bord web et vos autres appareils."
-        }
         M::Username => "Nom d’utilisateur",
         M::Password => "Mot de passe",
-        M::ConfirmPassword => "Confirmer le mot de passe",
-        M::CreateOwner => "Créer le compte propriétaire",
         M::NoUsername => "Saisissez un nom d’utilisateur.",
         M::NoPassword => "Saisissez un mot de passe.",
-        M::PasswordsDiffer => "Les mots de passe ne correspondent pas.",
-        M::FirstConfigTitle => "Nommez votre core",
-        M::CoreName => "Nom du core",
-        M::PublicAddress => "Domaine ou adresse IP publique",
-        M::PublicAddressHint => {
-            "Les joueurs rejoignent vos serveurs avec cette adresse. Vous pouvez la laisser vide."
-        }
         M::SignInTitle => "Se connecter",
         M::SignInIntro => {
             "Ce core ne laisse pas les applications de cet ordinateur obtenir l’accès propriétaire. Connectez-vous avec votre compte Lodestone."

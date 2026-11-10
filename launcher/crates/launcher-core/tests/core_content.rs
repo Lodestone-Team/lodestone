@@ -1,12 +1,9 @@
-//! A server's world, "Host this modpack" and the server resource pack, against a mock
-//! core on a loopback port. Each test starts its own mock.
+//! "Host this modpack" against a mock core on a loopback port. Each test starts its
+//! own mock.
 
 use std::{
-    collections::HashMap,
     fs,
-    io::{Cursor, Write as _},
     net::{Ipv4Addr, SocketAddr, TcpListener},
-    path::Path,
     str::FromStr as _,
     sync::{Arc, Mutex},
 };
@@ -14,31 +11,21 @@ use std::{
 use futures::executor::block_on;
 use launcher_core::{
     Secret,
-    content::InstanceDirs,
     cores::{
-        CoreClient, CoreError,
+        CoreClient,
         hosting::{self, HostSettings},
-        resource_pack::{self, ServerResourcePack},
-        worlds::{self as server_worlds, WorldDownload},
     },
     export,
-    game::{
-        download::{CancelToken, Progress, sha1_hex},
-        loaders::{LoaderChoice, LoaderKind},
-    },
+    game::loaders::{LoaderChoice, LoaderKind},
     http,
     instances::InstanceStore,
-    worlds,
 };
-use lodestone_minecraft::level;
 use serde_json::{Value, json};
 
-const LEVEL_DAT: &[u8] =
-    include_bytes!("../../../../crates/lodestone-minecraft/testdata/level/1.21.11.dat");
 const PASSWORD: &str = "hunter2-PASSWORD";
 const SESSION: &str = "session-jwt-SECRET";
-const KEY: &str = "lsk_abcdefghijkl_KEY-SECRET";
-const DOWNLOAD_KEY: &str = "AbCdEf0123456789AbCdEf0123456789";
+/// The owner key "Connect as owner" gives, which may create servers too.
+const OWNER_KEY: &str = "lsk_abcdefghijkl_KEY-SECRET";
 
 #[derive(Clone, Debug)]
 struct Recorded {
@@ -52,11 +39,6 @@ struct Recorded {
 #[derive(Default)]
 struct State {
     requests: Vec<Recorded>,
-    running: bool,
-    world_zip: Vec<u8>,
-    /// Files served at `/files/<name>`.
-    files: HashMap<String, Vec<u8>>,
-    pack: Option<Value>,
     /// Ports in use and allocated.
     in_use: Vec<u16>,
     allocated: Vec<u16>,
@@ -81,17 +63,11 @@ fn base64_encode(bytes: &[u8]) -> String {
 
 fn route(state: &mut State, request: &Recorded) -> (u16, Vec<u8>) {
     let json_reply = |status: u16, value: Value| (status, value.to_string().into_bytes());
-    let session = request.authorization.as_deref() == Some(&format!("Bearer {SESSION}"));
-    let key = request.authorization.as_deref() == Some(&format!("Bearer {KEY}"));
+    let bearer = |token: &str| request.authorization.as_deref() == Some(&format!("Bearer {token}"));
+    let allowed = bearer(SESSION) || bearer(OWNER_KEY);
     let path = request.path.as_str();
-    if let Some(name) = path.strip_prefix("/files/") {
-        return match state.files.get(name) {
-            Some(data) => (200, data.clone()),
-            None => (404, vec![]),
-        };
-    }
     if let Some(port) = path.strip_prefix("/api/v1/check/port/") {
-        if !session {
+        if !allowed {
             return json_reply(401, json!({ "causes": ["Unauthorized"] }));
         }
         let port: u16 = port.parse().unwrap();
@@ -112,39 +88,13 @@ fn route(state: &mut State, request: &Recorded) -> (u16, Vec<u8>) {
                 json_reply(401, json!({ "causes": ["Credential mismatch"] }))
             }
         }
-        ("GET", "/api/v1/instance/inst-1/world/download") if session => {
-            if state.running {
-                return json_reply(
-                    409,
-                    json!({ "kind": "Conflict", "causes": ["Stop the server before downloading its world"] }),
-                );
-            }
-            json_reply(
-                200,
-                json!({ "key": DOWNLOAD_KEY, "file_name": "SMP-world.zip", "folder": "world",
-                        "dimension_folders": ["world_nether", "world_the_end"], "size": state.world_zip.len() }),
-            )
-        }
-        // the device key can't read files
-        ("GET", "/api/v1/instance/inst-1/world/download") if key => json_reply(
-            403,
-            json!({ "kind": "PermissionDenied", "causes": ["You don't have permission to read this server's files"] }),
-        ),
-        ("GET", p) if p == format!("/api/v1/file/{DOWNLOAD_KEY}") => (200, state.world_zip.clone()),
-        ("GET", "/api/v1/instance/inst-1/resource_pack") if key => match &state.pack {
-            Some(pack) => json_reply(200, pack.clone()),
-            None => json_reply(
-                200,
-                json!({"url": "", "sha1": "", "required": false, "prompt": ""}),
-            ),
-        },
-        ("POST", "/api/v1/modpack/upload") if session => json_reply(
+        ("POST", "/api/v1/modpack/upload") if allowed => json_reply(
             200,
             json!({ "name": "My Pack", "version_number": null, "summary": null, "game_version": "1.20.1",
                     "loader": "fabric", "loader_version": "0.16.14", "server_file_count": 1,
                     "server_download_size": 10, "unsupported_reason": null, "upload_id": "upload-1" }),
         ),
-        ("POST", "/api/v1/instance/create_modpack") if session => {
+        ("POST", "/api/v1/instance/create_modpack") if allowed => {
             json_reply(200, json!("new-server-uuid"))
         }
         _ if request.authorization.is_some() => {
@@ -209,240 +159,6 @@ impl MockCore {
     fn requests(&self) -> Vec<Recorded> {
         self.state.lock().unwrap().requests.clone()
     }
-}
-
-fn zip(entries: &[(&str, &[u8])]) -> Vec<u8> {
-    let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
-    let options = zip::write::SimpleFileOptions::default();
-    for (name, content) in entries {
-        if name.ends_with('/') {
-            writer.add_directory(*name, options).unwrap();
-        } else {
-            writer.start_file(*name, options).unwrap();
-            writer.write_all(content).unwrap();
-        }
-    }
-    writer.finish().unwrap().into_inner()
-}
-
-/// A Bukkit-style server world, as the core zips it.
-fn server_world_zip() -> Vec<u8> {
-    zip(&[
-        ("world/", b""),
-        ("world/level.dat", LEVEL_DAT),
-        ("world/region/r.0.0.mca", b"overworld"),
-        ("world/playerdata/p.dat", b"player"),
-        ("world/session.lock", b"lock"),
-        ("world_nether/", b""),
-        ("world_nether/level.dat", LEVEL_DAT),
-        ("world_nether/uid.dat", b"uid"),
-        ("world_nether/DIM-1/region/r.0.0.mca", b"nether"),
-        ("world_the_end/level.dat", LEVEL_DAT),
-        ("world_the_end/DIM1/region/r.0.0.mca", b"end"),
-    ])
-}
-
-fn tree(dir: &Path) -> Vec<String> {
-    let mut out = Vec::new();
-    fn walk(root: &Path, dir: &Path, out: &mut Vec<String>) {
-        for entry in fs::read_dir(dir).into_iter().flatten().flatten() {
-            let path = entry.path();
-            if path.is_dir() {
-                walk(root, &path, out);
-            } else {
-                out.push(
-                    path.strip_prefix(root)
-                        .unwrap()
-                        .to_string_lossy()
-                        .into_owned(),
-                );
-            }
-        }
-    }
-    walk(dir, dir, &mut out);
-    out.sort();
-    out
-}
-
-fn instance_dirs() -> (tempfile::TempDir, InstanceDirs) {
-    let temp = tempfile::tempdir().unwrap();
-    let dirs = InstanceDirs::new(temp.path().join("instance"));
-    fs::create_dir_all(&dirs.game).unwrap();
-    (temp, dirs)
-}
-
-#[test]
-fn a_servers_world_becomes_a_singleplayer_world() {
-    let mock = MockCore::start();
-    mock.state.lock().unwrap().world_zip = server_world_zip();
-    let client = mock.client();
-    let (temp, dirs) = instance_dirs();
-
-    let (download, zip_path) = block_on(async {
-        // the device key can't download worlds; a session can
-        let refused = client
-            .world_download(&Secret::new(KEY), "inst-1")
-            .await
-            .unwrap_err();
-        assert!(matches!(refused, CoreError::Forbidden(_)), "{refused:?}");
-        let session = client
-            .session("steve", &Secret::new(PASSWORD))
-            .await
-            .unwrap();
-        let download = client.world_download(&session, "inst-1").await.unwrap();
-        let out = temp.path().join("world.zip");
-        let size = client
-            .download_file(
-                &download.key,
-                &out,
-                1 << 30,
-                &Progress::default(),
-                &CancelToken::new(),
-            )
-            .await
-            .unwrap();
-        assert_eq!(size, download.size);
-        (download, out)
-    });
-    assert_eq!(download.folder, "world");
-
-    // a world called "SMP" exists already: the import gets its own folder
-    fs::create_dir_all(worlds::saves_dir(&dirs).join("SMP")).unwrap();
-    let folder = server_worlds::import(
-        &dirs,
-        &zip_path,
-        &download,
-        "SMP",
-        &Progress::default(),
-        &CancelToken::new(),
-    )
-    .unwrap();
-    assert_eq!(folder, "SMP (2)");
-    let dir = worlds::saves_dir(&dirs).join(&folder);
-    assert_eq!(
-        tree(&dir),
-        [
-            "DIM-1/region/r.0.0.mca",
-            "DIM1/region/r.0.0.mca",
-            "level.dat",
-            "playerdata/p.dat",
-            "region/r.0.0.mca",
-            "session.lock",
-        ]
-    );
-    assert_eq!(
-        fs::read(dir.join("DIM-1/region/r.0.0.mca")).unwrap(),
-        b"nether"
-    );
-    // it shows the server's name in singleplayer
-    let summary = level::summarize(&fs::read(dir.join("level.dat")).unwrap()).unwrap();
-    assert_eq!(summary.name.as_deref(), Some("SMP"));
-    // nothing is left behind in saves/
-    let names: Vec<String> = fs::read_dir(worlds::saves_dir(&dirs))
-        .unwrap()
-        .flatten()
-        .map(|e| e.file_name().to_string_lossy().into_owned())
-        .collect();
-    assert_eq!(names.len(), 2, "{names:?}");
-
-    // the download itself never sent a token
-    let file_request = mock
-        .requests()
-        .into_iter()
-        .find(|r| r.path.starts_with("/api/v1/file/"))
-        .unwrap();
-    assert_eq!(file_request.authorization, None);
-}
-
-#[test]
-fn world_downloads_are_refused_while_running() {
-    let mock = MockCore::start();
-    mock.state.lock().unwrap().running = true;
-    let client = mock.client();
-    let err = block_on(async {
-        let session = client
-            .session("steve", &Secret::new(PASSWORD))
-            .await
-            .unwrap();
-        client.world_download(&session, "inst-1").await.unwrap_err()
-    });
-    match err {
-        CoreError::Server { status, message } => {
-            assert_eq!(status, 409);
-            assert!(message.contains("Stop the server"), "{message}");
-        }
-        err => panic!("{err:?}"),
-    }
-    // a wrong password is not a revoked key
-    let err = block_on(client.session("steve", &Secret::new("nope"))).unwrap_err();
-    assert_eq!(err, CoreError::BadCredentials);
-}
-
-#[test]
-fn unsafe_world_zips_are_refused() {
-    let (temp, dirs) = instance_dirs();
-    let download = |folder: &str| WorldDownload {
-        key: "k".into(),
-        file_name: "w.zip".into(),
-        folder: folder.into(),
-        dimension_folders: vec![format!("{folder}_nether")],
-        size: 0,
-    };
-    let import = |bytes: Vec<u8>, folder: &str| {
-        let path = temp.path().join("w.zip");
-        fs::write(&path, bytes).unwrap();
-        server_worlds::import(
-            &dirs,
-            &path,
-            &download(folder),
-            "World",
-            &Progress::default(),
-            &CancelToken::new(),
-        )
-    };
-    // the core names a folder that isn't plain
-    for folder in ["../world", "", ".hidden", "a/b"] {
-        let err = import(server_world_zip(), folder).unwrap_err();
-        assert!(err.to_string().contains("plain name"), "{folder}: {err}");
-    }
-    // no level.dat in the named folder
-    let err = import(zip(&[("other/level.dat", LEVEL_DAT)]), "world").unwrap_err();
-    assert!(err.to_string().contains("no world/level.dat"), "{err}");
-    // a path that climbs out of the world
-    let err = import(
-        zip(&[
-            ("world/level.dat", LEVEL_DAT),
-            ("world/../../escape.txt", b"x"),
-        ]),
-        "world",
-    )
-    .unwrap_err();
-    assert!(err.to_string().contains("unsafe"), "{err}");
-    assert!(!temp.path().join("escape.txt").exists());
-    // not a zip
-    assert!(import(b"not a zip".to_vec(), "world").is_err());
-    // nothing was imported, and no staging folder is left
-    let saves = worlds::saves_dir(&dirs);
-    assert!(
-        !saves.exists() || fs::read_dir(&saves).unwrap().next().is_none(),
-        "{:?}",
-        tree(&saves)
-    );
-
-    // a world that has its nether inside keeps it, and the sibling is left out
-    let folder = import(
-        zip(&[
-            ("world/level.dat", LEVEL_DAT),
-            ("world/DIM-1/region/r.0.0.mca", b"inside"),
-            ("world_nether/DIM-1/region/r.0.0.mca", b"sibling"),
-        ]),
-        "world",
-    )
-    .unwrap();
-    assert_eq!(
-        fs::read(saves.join(folder).join("DIM-1/region/r.0.0.mca")).unwrap(),
-        b"inside"
-    );
 }
 
 #[test]
@@ -536,6 +252,43 @@ fn hosting_finds_a_port_uploads_and_creates_a_stopped_server() {
     assert!(requests.iter().all(|r| !r.path.ends_with("/start")));
 }
 
+/// On a core claimed on this computer, the owner key makes the server: no sign-in.
+#[test]
+fn hosting_with_the_owner_key_needs_no_password() {
+    let mock = MockCore::start();
+    let client = mock.client();
+    let key = Secret::new(OWNER_KEY);
+    let uuid = block_on(async {
+        let port = client.free_port(&key, hosting::FIRST_PORT).await.unwrap();
+        let uploaded = client
+            .upload_pack(&key, "Pack.mrpack", b"PK")
+            .await
+            .unwrap();
+        client
+            .create_server(
+                &key,
+                uploaded.upload_id.as_deref().unwrap(),
+                &HostSettings {
+                    name: "My Pack".into(),
+                    port,
+                    min_ram: 1024,
+                    max_ram: 4096,
+                    accept_eula: true,
+                },
+            )
+            .await
+            .unwrap()
+    });
+    assert_eq!(uuid, "new-server-uuid");
+    let requests = mock.requests();
+    assert!(requests.iter().all(|r| r.path != "/api/v1/user/login"));
+    assert!(
+        requests.iter().all(|r| {
+            r.authorization.as_deref() == Some(format!("Bearer {OWNER_KEY}").as_str())
+        })
+    );
+}
+
 #[test]
 fn the_hosted_instance_is_linked_with_its_server_mods() {
     let temp = tempfile::tempdir().unwrap();
@@ -571,116 +324,4 @@ fn the_hosted_instance_is_linked_with_its_server_mods() {
     let dir = store.dir(&instance.id);
     launcher_core::cores::link::save_link(&dir, &link).unwrap();
     assert_eq!(launcher_core::cores::link::load_link(&dir), Some(link));
-}
-
-fn resource_pack_zip(marker: &[u8]) -> Vec<u8> {
-    zip(&[
-        (
-            "pack.mcmeta",
-            br#"{"pack":{"pack_format":15,"description":"x"}}"#,
-        ),
-        ("assets/minecraft/x.txt", marker),
-    ])
-}
-
-#[test]
-fn the_server_resource_pack_downloads_into_the_instance() {
-    let mock = MockCore::start();
-    let pack_bytes = resource_pack_zip(b"one");
-    let sha1 = sha1_hex(&pack_bytes);
-    {
-        let mut state = mock.state.lock().unwrap();
-        state.files.insert("pack.zip".into(), pack_bytes.clone());
-        state
-            .files
-            .insert("other.zip".into(), resource_pack_zip(b"two"));
-        state
-            .files
-            .insert("notapack.zip".into(), zip(&[("x.txt", b"x")]));
-        state.pack = Some(json!({
-            "url": format!("{}files/pack.zip", mock.base), "sha1": sha1, "required": true, "prompt": "Please"
-        }));
-    }
-    let client = mock.client();
-    let pack: ServerResourcePack = block_on(client.resource_pack(&Secret::new(KEY), "inst-1"))
-        .unwrap()
-        .unwrap();
-    assert!(pack.required);
-    assert_eq!(pack.label(), "127.0.0.1 · pack.zip");
-
-    let temp = tempfile::tempdir().unwrap();
-    let packs = temp.path().join("resourcepacks");
-    let http = http::default_client().unwrap();
-    let saved = block_on(resource_pack::download(
-        http.clone(),
-        &pack,
-        "My/SMP",
-        &packs,
-    ))
-    .unwrap();
-    assert_eq!(saved.file_name().unwrap(), "My_SMP (server).zip");
-    assert_eq!(fs::read(&saved).unwrap(), pack_bytes);
-    // again: the file is kept, nothing is downloaded
-    let before = mock.requests().len();
-    block_on(resource_pack::download(
-        http.clone(),
-        &pack,
-        "My/SMP",
-        &packs,
-    ))
-    .unwrap();
-    assert_eq!(mock.requests().len(), before);
-
-    // a pack whose hash doesn't match isn't saved
-    let mut wrong = pack.clone();
-    wrong.url = format!("{}files/other.zip", mock.base);
-    let err = block_on(resource_pack::download(
-        http.clone(),
-        &wrong,
-        "Other",
-        &packs,
-    ))
-    .unwrap_err();
-    assert!(err.contains("doesn't match"), "{err}");
-    // a zip that isn't a resource pack isn't saved
-    let not_pack = ServerResourcePack {
-        url: format!("{}files/notapack.zip", mock.base),
-        ..Default::default()
-    };
-    let err = block_on(resource_pack::download(
-        http.clone(),
-        &not_pack,
-        "Other",
-        &packs,
-    ))
-    .unwrap_err();
-    assert!(err.contains("pack.mcmeta"), "{err}");
-    for url in [
-        "file:///etc/passwd",
-        "ftp://example.com/p.zip",
-        "http://u:p@example.com/p.zip",
-    ] {
-        let bad = ServerResourcePack {
-            url: url.into(),
-            ..Default::default()
-        };
-        assert!(
-            block_on(resource_pack::download(http.clone(), &bad, "X", &packs)).is_err(),
-            "{url}"
-        );
-    }
-    // only the saved pack is left
-    let names: Vec<String> = fs::read_dir(&packs)
-        .unwrap()
-        .flatten()
-        .map(|e| e.file_name().to_string_lossy().into_owned())
-        .collect();
-    assert_eq!(names, ["My_SMP (server).zip"]);
-
-    // a server without a pack
-    mock.state.lock().unwrap().pack = None;
-    assert_eq!(
-        block_on(client.resource_pack(&Secret::new(KEY), "inst-1")).unwrap(),
-        None
-    );
 }

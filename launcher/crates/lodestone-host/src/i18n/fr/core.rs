@@ -24,7 +24,7 @@ pub fn text(message: M) -> &'static str {
             "Autoriser les applications de cet ordinateur à obtenir l’accès propriétaire"
         }
         M::LocalClaimHint => {
-            "Lodestone Launcher peut devenir propriétaire en prouvant qu’il peut écrire dans le dossier de données de ce core. Tout ce qui peut y écrire peut déjà modifier chaque utilisateur et réglageu00a0: cela ne compte que sur un ordinateur partagé."
+            "Lodestone Launcher peut devenir propriétaire en prouvant qu’il peut écrire dans le dossier de données de ce core. Tout ce qui peut y écrire peut déjà modifier chaque utilisateur et réglage\u{a0}: cela ne compte que sur un ordinateur partagé."
         }
         M::SafeMode => "Mode sécurisé",
         M::SafeModeHint => "Réserve l’accès administrateur de cette machine au propriétaire.",
@@ -432,6 +432,33 @@ pub fn text(message: M) -> &'static str {
         M::RemoveCore => "Retirer",
         M::RemoteSignedOut => {
             "Vous avez été déconnecté de {name}. Lodestone Host est revenu au core de cet ordinateur."
+        }
+        M::RemoteAccess => "Autoriser l’accès depuis d’autres appareils",
+        M::RemoteAccessHintOff => {
+            "Désactivé : seules les applications de cet ordinateur peuvent utiliser ce core (Lodestone Host, Lodestone Launcher et Lodestone CLI). Activez-le pour utiliser le tableau de bord web depuis d’autres appareils, ajouter des utilisateurs ou créer des clés API. Le partage de serveurs avec des amis fonctionne dans les deux cas."
+        }
+        M::RemoteAccessHintOn => {
+            "D’autres appareils peuvent se connecter à ce core avec un nom d’utilisateur et un mot de passe, en HTTPS."
+        }
+        M::RemoteAccessOffTitle => "Désactiver l’accès depuis d’autres appareils ?",
+        M::RemoteAccessOffBody => {
+            "Seules les applications de cet ordinateur pourront utiliser ce core. Les autres appareils, les autres utilisateurs et les clés API utilisées ailleurs cesseront de fonctionner jusqu’à ce que vous le réactiviez. Le partage de serveurs avec des amis continue de fonctionner."
+        }
+        M::LocalClaimNeedsPassword => {
+            "Configurez d’abord le compte propriétaire : sans mot de passe, c’est le seul moyen de se connecter."
+        }
+        M::OwnerAccountTitle => "Configurer un compte propriétaire pour partager ce core",
+        M::OwnerAccountLead => {
+            "Les autres appareils se connectent avec un nom d’utilisateur et un mot de passe. Choisissez ceux que vous utiliserez sur le tableau de bord web et vos autres appareils. Les applications de cet ordinateur continuent de se connecter sans eux."
+        }
+        M::OwnerAccountButton => "Configurer et autoriser l’accès",
+        M::OwnerAccountDone => {
+            "Compte propriétaire configuré. D’autres appareils peuvent maintenant se connecter à ce core."
+        }
+        M::PasswordTooShort => "Le mot de passe doit comporter au moins 12 caractères.",
+        M::SetPassword => "Définir un mot de passe",
+        M::NoPasswordYet => {
+            "Pas encore de mot de passe. Seules les applications de cet ordinateur peuvent utiliser ce core."
         }
     }
 }

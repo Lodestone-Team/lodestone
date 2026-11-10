@@ -1,9 +1,9 @@
 //! What the control API does with cores and servers that the Servers page does in its
-//! dialogs: adding a core (with the certificate check), hosting an instance, and a
-//! server's world and resource pack. The steps are the dialogs' own, with the answers
-//! given as parameters instead of typed into a dialog, and the outcome returned instead
-//! of shown in it. Starting, stopping, joining and "Create matching instance" need no
-//! dialog, so the API calls the page's own methods for those.
+//! dialogs: adding a core (with the certificate check) and hosting an instance. The
+//! steps are the dialogs' own, with the answers given as parameters instead of typed
+//! into a dialog, and the outcome returned instead of shown in it. Starting, stopping,
+//! joining and "Create matching instance" need no dialog, so the API calls the page's
+//! own methods for those.
 
 use std::sync::{Arc, Mutex};
 
@@ -17,13 +17,10 @@ use launcher_core::{
         hosting::{self, HostSettings},
         link,
         live::LauncherScope,
-        resource_pack,
         store::{self, SavedCore},
         tls::CertificatePin,
-        worlds as server_worlds,
     },
     export,
-    game::download::{CancelToken, Progress},
 };
 use serde_json::json;
 
@@ -31,7 +28,7 @@ use crate::i18n::{ServersMsg as M, t, tr};
 
 use super::{
     AddFailure, CoreEntry, CoreStatus, FINGERPRINT_HELP, Notice, Servers, certificate_outcome,
-    pinned_http,
+    host::HostAuth, pinned_http,
 };
 use crate::control::{api_error, core_error};
 
@@ -59,8 +56,8 @@ pub struct Added {
 /// "Host on a Lodestone core", with the answers as parameters.
 pub struct HostCore {
     pub core_uuid: String,
-    pub username: String,
-    pub password: Secret,
+    /// The username and password, unless this computer has the core's owner key.
+    pub sign_in: Option<(String, Secret)>,
     pub name: String,
     pub max_ram: u32,
     /// The user agreed to the Minecraft EULA.
@@ -110,13 +107,6 @@ impl Servers {
                 "matches": matches.iter().map(|i| &self.cores[*i].saved.uuid).collect::<Vec<_>>()
             }))),
         }
-    }
-
-    /// The client for core `index` (accepting its pinned certificate), and its key. The
-    /// key never leaves the launcher.
-    pub(crate) fn control_client(&self, index: usize) -> (CoreClient, Option<Secret>) {
-        let core = &self.cores[index];
-        (self.client(core), core.key.clone())
     }
 
     /// Whether a core's list is being fetched.
@@ -390,6 +380,13 @@ impl Servers {
         let Some(index) = self.core_index(&request.core_uuid) else {
             return Task::ready(Err(api_error(codes::NOT_FOUND, "That core is gone.")));
         };
+        let Some(auth) = self.host_auth(&request.core_uuid, request.sign_in.clone()) else {
+            return Task::ready(Err(api_error(
+                codes::INVALID_PARAMS,
+                "Creating a server on this core needs a username and a password (the password from stdin), or this computer connected to it as its owner (`cores claim`).",
+            )));
+        };
+        let signs_in = matches!(auth, HostAuth::Password(..));
         let store = self.instances.read(cx).store();
         let Ok(instance) = store.get(instance_id) else {
             return Task::ready(Err(api_error(codes::NOT_FOUND, "The instance is gone.")));
@@ -421,12 +418,10 @@ impl Servers {
                 .and_then(|()| hosting::read_pack_file(&file));
             let _ = std::fs::remove_file(&file);
             let bytes = written.map_err(|e| api_error(codes::FAILED, e))?;
-            set_stage("Signing in…");
-            let session = client
-                .session(&request.username, &request.password)
-                .await
-                .map_err(core_error)?;
-            drop(request.password);
+            if signs_in {
+                set_stage("Signing in…");
+            }
+            let session = auth.token(&client).await.map_err(core_error)?;
             let port = client
                 .free_port(&session, hosting::FIRST_PORT)
                 .await
@@ -485,101 +480,6 @@ impl Servers {
                 "relinked_from": previous.map(|link| link.server_name),
                 "message": format!("{name} is on {core_name}, on port {port}. The core is setting it up now; the server is stopped until you start it. This instance is linked to it."),
             }))
-        })
-    }
-
-    /// A server's world, zipped by the core and imported into `instance_id` as a
-    /// singleplayer copy. Signs in with the password once; the session is dropped after.
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn control_download_world(
-        &mut self,
-        index: usize,
-        server: ServerInstance,
-        instance_id: &str,
-        username: String,
-        password: Secret,
-        progress: Arc<Progress>,
-        stage: Arc<Mutex<String>>,
-        cancel: CancelToken,
-        cx: &mut Context<Self>,
-    ) -> Task<Result<String, ErrorObject>> {
-        let client = self.client(&self.cores[index]);
-        let dirs = self.instances.read(cx).content_dirs(instance_id);
-        let set_stage = move |text: &str| {
-            if let Ok(mut stage) = stage.lock() {
-                *stage = text.to_string();
-            }
-        };
-        cx.background_spawn(async move {
-            set_stage("Signing in…");
-            let session = client
-                .session(&username, &password)
-                .await
-                .map_err(core_error)?;
-            drop(password);
-            set_stage("The core is zipping the world…");
-            let download = client
-                .world_download(&session, &server.uuid)
-                .await
-                .map_err(core_error)?;
-            drop(session);
-            set_stage("Downloading");
-            std::fs::create_dir_all(&dirs.instance)
-                .map_err(|e| api_error(codes::FAILED, e.to_string()))?;
-            let zip = dirs.instance.join(format!(
-                ".lodestone-server-world-{}.zip",
-                std::process::id()
-            ));
-            let result = async {
-                client
-                    .download_file(&download.key, &zip, 64 << 30, &progress, &cancel)
-                    .await
-                    .map_err(core_error)?;
-                set_stage("Importing…");
-                server_worlds::import(&dirs, &zip, &download, &server.name, &progress, &cancel)
-                    .map_err(|e| api_error(codes::FAILED, e.to_string()))
-            }
-            .await;
-            let _ = std::fs::remove_file(&zip);
-            result
-        })
-    }
-
-    /// The server's resource pack, saved in the instance's `resourcepacks/`.
-    pub(crate) fn control_download_pack(
-        &mut self,
-        index: usize,
-        server: ServerInstance,
-        instance_id: &str,
-        cx: &mut Context<Self>,
-    ) -> Task<Result<String, ErrorObject>> {
-        let (client, key) = self.control_client(index);
-        let Some(key) = key else {
-            return Task::ready(Err(api_error(
-                codes::NOT_SIGNED_IN,
-                "Sign in to this core to get the server's resource pack: `cores add <address> --username <name>`.",
-            )));
-        };
-        let packs = self
-            .instances
-            .read(cx)
-            .game_dir(instance_id)
-            .join("resourcepacks");
-        let http = self.http.clone();
-        cx.background_spawn(async move {
-            let pack = client
-                .resource_pack(&key, &server.uuid)
-                .await
-                .map_err(core_error)?
-                .ok_or_else(|| api_error(codes::NOT_FOUND, "The server has no resource pack."))?;
-            let path = resource_pack::download(http, &pack, &server.name, &packs)
-                .await
-                .map_err(|e| api_error(codes::FAILED, e))?;
-            Ok(path
-                .file_name()
-                .unwrap_or_default()
-                .to_string_lossy()
-                .into_owned())
         })
     }
 }

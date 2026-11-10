@@ -3,8 +3,10 @@
 //! 1. The instance is exported as a `.mrpack` ([`crate::export`]), with its Modrinth
 //!    files by URL and their `env` from Modrinth, so the core leaves out client-only
 //!    mods (`env.server: unsupported`).
-//! 2. The user signs in once: the device key can only view, start and stop servers, so
-//!    these calls use a session token from `POST /user/login`, which is dropped after.
+//! 2. On a core claimed on this computer ("Connect as owner"), the owner key makes
+//!    these calls. Otherwise the user signs in once: the key a password sign-in makes
+//!    can only view, start and stop servers, so these calls use a session token from
+//!    `POST /user/login`, which is dropped after.
 //! 3. A free game port is found with the core's port manager (`/check/port/{port}`).
 //! 4. The pack goes to `POST /modpack/upload`, then `POST /instance/create_modpack`
 //!    makes the server, with `auto_start: false`. The server is never started here.
