@@ -32,7 +32,7 @@ use lodestone_connect::{
         crypto::{PublicKey, Secret},
         host::{
             CoreIdentity, FriendAccess, FriendHandler, FriendHost, FriendHostConfig,
-            FriendHostStatus,
+            FriendHostStatus, KnockMemory,
         },
         pair::clean_name,
     },
@@ -221,6 +221,9 @@ pub struct FriendShares {
     /// Starts to fail on purpose, as if offline.
     #[cfg(test)]
     fail_starts: std::sync::Mutex<usize>,
+    /// The knocks the friend host let in, kept while the core runs: the host stops when
+    /// nothing is shared and starts again later, and must still refuse old knocks.
+    knocks: KnockMemory,
 }
 
 impl FriendShares {
@@ -244,6 +247,7 @@ impl FriendShares {
             retry: RETRY,
             #[cfg(test)]
             fail_starts: Default::default(),
+            knocks: KnockMemory::default(),
         }
     }
 
@@ -571,6 +575,7 @@ impl FriendShares {
                     FriendHostConfig {
                         service: self.service.clone(),
                         gather: self.gather,
+                        knocks: self.knocks.clone(),
                     },
                     handler,
                 )

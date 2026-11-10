@@ -218,6 +218,10 @@ impl std::fmt::Debug for MeetSession {
     }
 }
 
+/// The most knocks taken from one message of the service: it sends one per message.
+#[cfg(feature = "host")]
+pub const MAX_KNOCKS_PER_MESSAGE: usize = 16;
+
 /// A knock as the service passes it on.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DeliveredKnock {
@@ -335,6 +339,7 @@ mod meet_host {
                                 .as_array()
                                 .ok_or_else(|| lost("a garbled message from the service".into()))?
                                 .iter()
+                                .take(MAX_KNOCKS_PER_MESSAGE)
                                 .filter_map(|knock| {
                                     Some(DeliveredKnock {
                                         lookup: unhex(knock["lookup"].as_str()?)?.try_into().ok()?,
@@ -356,5 +361,58 @@ mod meet_host {
                 }
             }
         }
+    }
+}
+
+#[cfg(all(test, feature = "host"))]
+mod tests {
+    use futures_util::SinkExt as _;
+    use tokio::net::TcpListener;
+    use tokio_tungstenite::tungstenite::Message;
+
+    use super::*;
+
+    /// A service whose knock WebSocket sends `messages`, then waits.
+    async fn service_sending(messages: Vec<String>) -> Service {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut ws = tokio_tungstenite::accept_async(stream).await.unwrap();
+            for message in messages {
+                if ws.send(Message::text(message)).await.is_err() {
+                    return;
+                }
+            }
+            std::future::pending::<()>().await;
+        });
+        Service::parse(&format!("http://{addr}")).unwrap()
+    }
+
+    fn session() -> MeetSession {
+        MeetSession {
+            session: "s".into(),
+            secret: "0".repeat(32),
+        }
+    }
+
+    #[tokio::test]
+    async fn a_message_gives_at_most_a_few_knocks() {
+        let knock = json!({ "lookup": hex(&[1u8; ID_LEN]), "sealed": "00", "seen": "127.0.0.1" });
+        let many = json!({ "knocks": vec![knock; 100] }).to_string();
+        let service = service_sending(vec![many]).await;
+        let mut watch = service.meet_watch(&session()).await.unwrap().unwrap();
+        match watch.next().await.unwrap() {
+            MeetEvent::Knocks(knocks) => assert_eq!(knocks.len(), MAX_KNOCKS_PER_MESSAGE),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn a_huge_message_from_the_service_is_refused() {
+        let huge = format!(r#"{{"knocks": [], "pad": "{}"}}"#, "x".repeat(100 * 1024));
+        let service = service_sending(vec![huge]).await;
+        let mut watch = service.meet_watch(&session()).await.unwrap().unwrap();
+        assert!(watch.next().await.is_err());
     }
 }

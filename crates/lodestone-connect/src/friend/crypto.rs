@@ -515,7 +515,10 @@ mod tests {
         );
         assert_eq!(crockford(&[0xff, 0xff], 3), "ZZZ");
         assert_eq!(crockford(&[0x00, 0x00], 3), "000");
-        assert_eq!(crockford(&[0b00001_000, 0b01_000000], 2), "11");
+        // grouped as the 5-bit digits they hold
+        #[allow(clippy::unusual_byte_groupings)]
+        let bits = [0b00001_000, 0b01_000000];
+        assert_eq!(crockford(&bits, 2), "11");
     }
 
     #[test]
@@ -578,7 +581,7 @@ mod tests {
         let a = Secret::random().unwrap();
         let start = 1_800_000_000;
         let next = secs_to_next_period(&a, start);
-        assert!(next >= 1 && next <= PERIOD_SECS);
+        assert!((1..=PERIOD_SECS).contains(&next));
         assert_eq!(period(&a, start + next), period(&a, start) + 1);
         assert_eq!(period(&a, start + next - 1), period(&a, start));
     }

@@ -5,8 +5,10 @@
 //! - It has its own certificate ([`CoreIdentity`]), socket and QUIC protocol
 //!   ([`FRIEND_ALPN`]), apart from every invite host.
 //! - It answers QUIC only from addresses in a knock it accepted in the last
-//!   [`ALLOW_FOR`]; everyone else gets silence, so a removed friend who remembers the
-//!   core's address learns nothing.
+//!   [`ALLOW_FOR`], or on a connection now; everyone else gets silence, so a removed
+//!   friend who remembers the core's address learns nothing. Their datagrams never
+//!   reach QUIC ([`Gate`]), so not even a version negotiation or a stateless reset
+//!   answers them.
 //! - The first stream of a connection must be the friend hello: the friend's key and a
 //!   signature over this connection's TLS exporter. Until then nothing else is read.
 //! - Every later stream is checked against the friend list as it is then.
@@ -14,9 +16,9 @@
 use std::{
     collections::{HashMap, VecDeque},
     fmt,
-    net::{IpAddr, SocketAddr, UdpSocket},
+    net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket},
     sync::{
-        atomic::{AtomicU64, AtomicUsize, Ordering},
+        atomic::{AtomicU64, Ordering},
         Arc, Mutex,
     },
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
@@ -28,17 +30,18 @@ use tokio::{sync::watch, task::JoinHandle};
 use super::{
     client::{DeliveredKnock, MeetEvent, MeetSession},
     crypto::{probe_tag, PublicKey, Secret, ID_LEN, SIGNATURE_LEN},
+    gate::Gate,
     meet::{self, ReplayGuard},
     protocol::{hello_message, FriendStreamKind, HELLO_CONTEXT, HELLO_LABEL, MAX_INSTANCE_LEN},
 };
 use crate::{
-    addr::{canonical, ConnectionKind},
-    gather::{self, Candidate, GatherOptions},
+    addr::{canonical, is_probe_target, ConnectionKind},
+    gather::{self, Candidate, CandidateKind, GatherOptions},
     hex,
-    host::{HostState, UnprovenSlot, MAX_FRIENDS, MAX_SPRAYS},
+    host::{HostState, MAX_FRIENDS, MAX_SPRAYS, MAX_UNPROVEN},
     portmap, probe,
     service::Service,
-    tunnel::{self, TunnelStream, FRIEND_ALPN, HELLO_ANSWER, PROVE_WITHIN},
+    tunnel::{self, TunnelStream, FRIEND_ALPN, HELLO_ANSWER},
     unhex, Error, Result,
 };
 
@@ -48,13 +51,27 @@ pub const ALLOW_FOR: Duration = Duration::from_secs(120);
 const SPRAY_FOR: Duration = Duration::from_secs(60);
 /// Records are renewed at least this often, well within [`meet::RECORD_MAX_AGE_SECS`].
 const RENEW_AT_MOST: Duration = Duration::from_secs(6 * 60 * 60);
-/// How often the router's forwarding is renewed (it lasts an hour).
-const PORTMAP_EVERY: Duration = Duration::from_secs(20 * 60);
-/// How long a stream has to send its header.
+/// How often the host collects its addresses again (publishing them if they changed)
+/// and renews the router's forwarding (which lasts an hour).
+const REFRESH_EVERY: Duration = Duration::from_secs(10 * 60);
+/// How long a stream has to send its whole header.
 const HEADER_WITHIN: Duration = Duration::from_secs(10);
-/// The most addresses one friend's latest knock opens (its candidates).
-const MAX_ALLOWED_PER_FRIEND: usize = meet::MAX_CANDIDATES;
+/// The most streams of one connection whose header is still being read. More wait in
+/// QUIC until one is done.
+const MAX_PENDING_STREAMS: usize = 8;
+/// How long a new connection has to finish its handshake and say hello. Until then it
+/// holds a place counted against the friend whose knock let its address in.
+const HELLO_WITHIN: Duration = Duration::from_secs(10);
+/// The most addresses one knock opens (its candidates).
+const MAX_ALLOWED_PER_KNOCK: usize = meet::MAX_CANDIDATES;
+/// How many of a friend's latest knocks count at once: each lets its addresses connect
+/// and gets its own spray, so two joins at once from one friend (two launchers, or two
+/// servers on this core) don't cancel each other. An older knock's go when a newer one
+/// comes, so one friend never holds more than this.
+const KNOCKS_PER_FRIEND: usize = 2;
 /// The most connections one friend may hold at once, so no friend can take every place.
+/// Connections still in their handshake or hello count too, against the friend whose
+/// knock let their address in.
 pub const MAX_CONNECTIONS_PER_FRIEND: usize = 4;
 
 // ---------------------------------------------------------------------------
@@ -185,6 +202,40 @@ pub struct FriendHostStatus {
 pub struct FriendHostConfig {
     pub service: Service,
     pub gather: GatherOptions,
+    /// The knocks already let in. Give every friend host a core starts the same one, so
+    /// a knock can't be replayed after the host stops and starts again.
+    pub knocks: KnockMemory,
+}
+
+/// The knock ids a core has let in, for each friend ([`ReplayGuard`]). Keep one for as
+/// long as the core runs, and give it to each friend host it starts: the core stops its
+/// friend host when it shares nothing and starts it again later, and a new memory would
+/// let a knock from before in again. It's lost when the core itself restarts.
+#[derive(Clone, Default)]
+pub struct KnockMemory(Arc<Mutex<HashMap<PublicKey, ReplayGuard>>>);
+
+impl fmt::Debug for KnockMemory {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("KnockMemory")
+            .field("friends", &self.0.lock().expect("not poisoned").len())
+            .finish()
+    }
+}
+
+impl KnockMemory {
+    /// Whether `knock` from `friend` is new and fresh ([`ReplayGuard::admit`]). Forgets
+    /// the knocks of anyone `is_friend` says no to.
+    fn admit(
+        &self,
+        friend: PublicKey,
+        knock: &meet::Knock,
+        is_friend: impl Fn(&PublicKey) -> bool,
+    ) -> bool {
+        let mut guards = self.0.lock().expect("not poisoned");
+        // one guard per friend: a friend filling theirs only stops their own knocks
+        guards.retain(|friend, _| is_friend(friend));
+        guards.entry(friend).or_default().admit(knock, now_secs())
+    }
 }
 
 struct Connected {
@@ -193,22 +244,113 @@ struct Connected {
     connected_at: SystemTime,
 }
 
+/// The friend host's connections: those that said hello, and the places held by those
+/// that haven't yet. Behind one lock, so a check and the insert after it can't race.
+#[derive(Default)]
+struct Connections {
+    live: HashMap<u64, Connected>,
+    /// For each friend, how many connections from addresses their knocks let in are
+    /// still in their handshake or hello.
+    unproven: HashMap<PublicKey, usize>,
+}
+
+impl Connections {
+    fn unproven_total(&self) -> usize {
+        self.unproven.values().sum()
+    }
+
+    /// The places `friend` holds: their connections, and the unproven ones counted
+    /// against them.
+    fn held_by(&self, friend: &PublicKey) -> usize {
+        self.live.values().filter(|c| &c.key == friend).count()
+            + self.unproven.get(friend).copied().unwrap_or(0)
+    }
+
+    fn release(&mut self, friend: &PublicKey) {
+        if let Some(count) = self.unproven.get_mut(friend) {
+            *count -= 1;
+            if *count == 0 {
+                self.unproven.remove(friend);
+            }
+        }
+    }
+}
+
+/// Why a new connection isn't let in.
+#[derive(Debug, PartialEq, Eq)]
+enum Refusal {
+    /// No accepted knock lists its address: say nothing.
+    Stranger,
+    /// Its friend, or the host, has no place left.
+    Full,
+}
+
+/// A place held by a connection that hasn't said hello yet, counted against the friend
+/// whose knock let its address in. Dropping it frees the place.
+struct Unproven {
+    shared: Arc<Shared>,
+    friend: Option<PublicKey>,
+}
+
+impl Drop for Unproven {
+    fn drop(&mut self) {
+        if let Some(friend) = self.friend.take() {
+            self.shared
+                .connections
+                .lock()
+                .expect("not poisoned")
+                .release(&friend);
+        }
+    }
+}
+
+/// An address on a connection now (or a connection still saying hello): its datagrams
+/// pass the [`Gate`] after its knock's [`ALLOW_FOR`] ends. Dropping it lets that go.
+struct PeerHold {
+    shared: Arc<Shared>,
+    ip: IpAddr,
+}
+
+impl Drop for PeerHold {
+    fn drop(&mut self) {
+        let mut peers = self.shared.peers.lock().expect("not poisoned");
+        if let Some(count) = peers.get_mut(&self.ip) {
+            *count -= 1;
+            if *count == 0 {
+                peers.remove(&self.ip);
+            }
+        }
+    }
+}
+
+/// For each friend, the addresses of their latest accepted knocks, and until when each
+/// knock's may connect.
+type Allowed = HashMap<PublicKey, VecDeque<(Vec<IpAddr>, Instant)>>;
+
 struct Shared {
     fingerprint: [u8; 32],
     service: Service,
     friends: Mutex<HashMap<PublicKey, Secret>>,
     /// Bumped whenever the friend list changes, so the records are published again.
     generation: watch::Sender<u64>,
-    /// For each friend, the addresses of their latest accepted knock and until when
-    /// they may connect. A new knock replaces the friend's addresses, so one friend can
-    /// never crowd out another.
-    allowed: Mutex<HashMap<PublicKey, (Vec<IpAddr>, Instant)>>,
-    connections: Mutex<HashMap<u64, Connected>>,
+    /// For each friend, the addresses of their latest accepted knocks (at most
+    /// [`KNOCKS_PER_FRIEND`]) and until when they may connect. A new knock replaces the
+    /// friend's oldest, so one friend can never crowd out another.
+    allowed: Mutex<Allowed>,
+    connections: Mutex<Connections>,
+    /// The addresses on connections now, and how many connections each has. The
+    /// [`Gate`] reads this for every datagram, inside QUIC: never call QUIC while
+    /// holding it (nor `allowed`).
+    peers: Mutex<HashMap<IpAddr, usize>>,
     next_connection: AtomicU64,
     status: Mutex<FriendHostStatus>,
     changed: watch::Sender<u64>,
     mapping: Mutex<Option<portmap::Mapping>>,
-    candidates: Vec<SocketAddr>,
+    /// The addresses the records carry. Collected again every [`REFRESH_EVERY`].
+    candidates: Mutex<Vec<SocketAddr>>,
+    /// Both sides on this computer (tests): knocks may name loopback addresses.
+    loopback: bool,
+    knocks: KnockMemory,
 }
 
 impl Shared {
@@ -221,28 +363,121 @@ impl Shared {
         self.friends.lock().expect("not poisoned").contains_key(key)
     }
 
-    fn is_allowed(&self, ip: IpAddr) -> bool {
-        let mut allowed = self.allowed.lock().expect("not poisoned");
+    /// Whether datagrams from `ip` may reach QUIC: an accepted knock lets it connect, or
+    /// it's on a connection now. For the [`Gate`], so it allocates nothing.
+    fn may_reach(&self, ip: IpAddr) -> bool {
+        if self.peers.lock().expect("not poisoned").contains_key(&ip) {
+            return true;
+        }
         let now = Instant::now();
-        allowed.retain(|_, (_, until)| *until > now);
-        allowed.values().any(|(ips, _)| ips.contains(&ip))
+        self.allowed
+            .lock()
+            .expect("not poisoned")
+            .values()
+            .flatten()
+            .any(|(ips, until)| *until > now && ips.contains(&ip))
     }
 
-    /// Lets `friend` connect from `ips` (their knock's candidates) for [`ALLOW_FOR`],
-    /// replacing what their previous knock allowed. The address the service says it
-    /// saw isn't used: the service could name any address.
+    /// Lets `ip`'s datagrams through for as long as the hold lasts.
+    fn hold_peer(self: &Arc<Self>, ip: IpAddr) -> PeerHold {
+        *self
+            .peers
+            .lock()
+            .expect("not poisoned")
+            .entry(ip)
+            .or_default() += 1;
+        PeerHold {
+            shared: self.clone(),
+            ip,
+        }
+    }
+
+    /// The friends whose accepted knocks let `ip` connect now.
+    fn allowed_by(&self, ip: IpAddr) -> Vec<PublicKey> {
+        let mut allowed = self.allowed.lock().expect("not poisoned");
+        forget_expired(&mut allowed);
+        allowed
+            .iter()
+            .filter(|(_, knocks)| knocks.iter().any(|(ips, _)| ips.contains(&ip)))
+            .map(|(friend, _)| *friend)
+            .collect()
+    }
+
+    /// Takes a place for a new connection from `ip`, counted against a friend whose
+    /// knock let `ip` in and who has a place left. Anyone at an address a friend's
+    /// knock names can connect, so these places are that friend's: they can't fill the
+    /// host's.
+    fn reserve(self: &Arc<Self>, ip: IpAddr) -> Result<Unproven, Refusal> {
+        let friends = self.allowed_by(ip);
+        if friends.is_empty() {
+            return Err(Refusal::Stranger);
+        }
+        let mut connections = self.connections.lock().expect("not poisoned");
+        if connections.live.len() >= MAX_FRIENDS || connections.unproven_total() >= MAX_UNPROVEN {
+            return Err(Refusal::Full);
+        }
+        let friend = friends
+            .into_iter()
+            .map(|friend| (connections.held_by(&friend), friend))
+            .filter(|(held, _)| *held < MAX_CONNECTIONS_PER_FRIEND)
+            .min_by_key(|(held, _)| *held)
+            .map(|(_, friend)| friend)
+            .ok_or(Refusal::Full)?;
+        *connections.unproven.entry(friend).or_default() += 1;
+        Ok(Unproven {
+            shared: self.clone(),
+            friend: Some(friend),
+        })
+    }
+
+    /// Lets in a connection that said hello as `key`, if `key` has a place left: frees
+    /// its unproven place, then checks and inserts under the same lock. Returns its id.
+    fn admit(
+        &self,
+        mut unproven: Unproven,
+        key: PublicKey,
+        connection: &quinn::Connection,
+    ) -> Option<u64> {
+        let mut connections = self.connections.lock().expect("not poisoned");
+        if let Some(friend) = unproven.friend.take() {
+            connections.release(&friend);
+        }
+        if connections.held_by(&key) >= MAX_CONNECTIONS_PER_FRIEND
+            || connections.live.len() >= MAX_FRIENDS
+        {
+            return None;
+        }
+        let id = self.next_connection.fetch_add(1, Ordering::Relaxed);
+        connections.live.insert(
+            id,
+            Connected {
+                key,
+                connection: connection.clone(),
+                connected_at: SystemTime::now(),
+            },
+        );
+        Some(id)
+    }
+
+    /// Lets `friend` connect from `ips` (a knock's candidates) for [`ALLOW_FOR`],
+    /// replacing what their oldest knock allowed once they have [`KNOCKS_PER_FRIEND`].
+    /// The address the service says it saw isn't used: the service could name any
+    /// address.
     fn allow(&self, friend: PublicKey, ips: impl IntoIterator<Item = IpAddr>) {
         let mut list: Vec<IpAddr> = Vec::new();
         for ip in ips {
             let ip = canonical(SocketAddr::new(ip, 0)).ip();
-            if !list.contains(&ip) && list.len() < MAX_ALLOWED_PER_FRIEND {
+            if !list.contains(&ip) && list.len() < MAX_ALLOWED_PER_KNOCK {
                 list.push(ip);
             }
         }
         let mut allowed = self.allowed.lock().expect("not poisoned");
-        let now = Instant::now();
-        allowed.retain(|_, (_, until)| *until > now);
-        allowed.insert(friend, (list, now + ALLOW_FOR));
+        forget_expired(&mut allowed);
+        let knocks = allowed.entry(friend).or_default();
+        while knocks.len() >= KNOCKS_PER_FRIEND {
+            knocks.pop_front();
+        }
+        knocks.push_back((list, Instant::now() + ALLOW_FOR));
     }
 
     /// Forgets what a friend's knocks allowed (they were removed).
@@ -250,22 +485,22 @@ impl Shared {
         self.allowed.lock().expect("not poisoned").remove(friend);
     }
 
-    fn connections_of(&self, friend: &PublicKey) -> usize {
-        self.connections
-            .lock()
-            .expect("not poisoned")
-            .values()
-            .filter(|c| &c.key == friend)
-            .count()
-    }
-
     /// Closes every connection of `key`.
     fn disconnect(&self, key: &PublicKey, why: &'static [u8]) {
         let connections = self.connections.lock().expect("not poisoned");
-        for connected in connections.values().filter(|c| &c.key == key) {
+        for connected in connections.live.values().filter(|c| &c.key == key) {
             connected.connection.close(2u32.into(), why);
         }
     }
+}
+
+/// Drops the knocks whose time to connect is over.
+fn forget_expired(allowed: &mut Allowed) {
+    let now = Instant::now();
+    allowed.retain(|_, knocks| {
+        knocks.retain(|(_, until)| *until > now);
+        !knocks.is_empty()
+    });
 }
 
 fn now_secs() -> u64 {
@@ -297,13 +532,22 @@ impl FriendHost {
         let gathered = gather::gather_async(config.gather).await?;
         let candidates = gathered.addrs();
         let sprayer = gathered.socket.try_clone()?;
+        let stunner = gathered.socket.try_clone()?;
+        let lan_v4 = gathered.candidates.iter().find_map(|c| match c {
+            Candidate {
+                kind: CandidateKind::LocalNetwork,
+                addr: SocketAddr::V4(addr),
+            } => Some(*addr.ip()),
+            _ => None,
+        });
         let shared = Arc::new(Shared {
             fingerprint: identity.fingerprint(),
             service: config.service,
             friends: Mutex::new(friends.into_iter().map(|f| (f.key, f.secret)).collect()),
             generation: watch::channel(0).0,
             allowed: Mutex::new(HashMap::new()),
-            connections: Mutex::new(HashMap::new()),
+            connections: Mutex::new(Connections::default()),
+            peers: Mutex::new(HashMap::new()),
             next_connection: AtomicU64::new(1),
             status: Mutex::new(FriendHostStatus {
                 state: HostState::Reconnecting,
@@ -315,15 +559,28 @@ impl FriendHost {
             }),
             changed: watch::channel(0).0,
             mapping: Mutex::new(gathered.mapping),
-            candidates,
+            candidates: Mutex::new(candidates),
+            loopback: config.gather.loopback_only,
+            knocks: config.knocks,
         });
-        let endpoint = tunnel::endpoint(gathered.socket, Some(server))?;
+        let admit = {
+            let shared = shared.clone();
+            Arc::new(move |ip| shared.may_reach(ip))
+        };
+        let (endpoint, gate) = Gate::endpoint(gathered.socket, server, admit)?;
         let (stop, stop_rx) = watch::channel(false);
         let handler: Arc<dyn FriendHandler> = Arc::new(handler);
         let tasks = vec![
             tokio::spawn(accept_loop(endpoint.clone(), shared.clone(), handler)),
             tokio::spawn(service_loop(shared.clone(), sprayer, stop_rx.clone())),
-            tokio::spawn(portmap_loop(shared.clone(), stop_rx)),
+            tokio::spawn(refresh_loop(
+                shared.clone(),
+                gate,
+                stunner,
+                config.gather,
+                lan_v4,
+                stop_rx,
+            )),
         ];
         Ok(FriendHost {
             shared,
@@ -371,6 +628,7 @@ impl FriendHost {
         let mut status = self.shared.status.lock().expect("not poisoned").clone();
         let connections = self.shared.connections.lock().expect("not poisoned");
         let mut connected: Vec<ConnectedFriend> = connections
+            .live
             .values()
             .map(|c| {
                 let address = canonical(c.connection.remote_address());
@@ -403,7 +661,7 @@ impl FriendHost {
         let _ = self.stop.send(true);
         self.endpoint.close(0u32.into(), b"stopped");
         // The service task ends the session when it sees the stop; give it a moment.
-        let mut tasks: Vec<JoinHandle<()>> = self.tasks.drain(..).collect();
+        let mut tasks = std::mem::take(&mut self.tasks);
         let service = tasks.remove(1);
         for task in tasks {
             task.abort();
@@ -423,6 +681,7 @@ impl FriendHost {
             .connections
             .lock()
             .expect("not poisoned")
+            .live
             .clear();
         self.shared
             .update(|status| status.state = HostState::Stopped);
@@ -445,22 +704,20 @@ impl Drop for FriendHost {
 // ---------------------------------------------------------------------------
 // The service
 
-/// Each friend's records for now, and which friend each lookup id belongs to.
-fn records(
-    shared: &Shared,
-    now: u64,
-) -> (
-    Vec<([u8; ID_LEN], Vec<u8>)>,
-    HashMap<[u8; ID_LEN], PublicKey>,
-    Duration,
-) {
+/// Records to publish: each a lookup id and a sealed record.
+type Records = Vec<([u8; ID_LEN], Vec<u8>)>;
+
+/// Each friend's records for now, which friend each lookup id belongs to, and when to
+/// renew them.
+fn records(shared: &Shared, now: u64) -> (Records, HashMap<[u8; ID_LEN], PublicKey>, Duration) {
+    let candidates = shared.candidates.lock().expect("not poisoned").clone();
     let friends = shared.friends.lock().expect("not poisoned");
     let mut records = Vec::new();
     let mut index = HashMap::new();
     let mut renew = RENEW_AT_MOST;
     for (key, secret) in friends.iter() {
         for lookup in meet::publish_lookups(secret, now) {
-            match meet::seal_record(secret, &lookup, &shared.candidates, now) {
+            match meet::seal_record(secret, &lookup, &candidates, now) {
                 Ok(sealed) => {
                     index.insert(lookup, *key);
                     records.push((lookup, sealed));
@@ -481,7 +738,6 @@ async fn service_loop(shared: Arc<Shared>, sprayer: UdpSocket, mut stop: watch::
     let mut generation = shared.generation.subscribe();
     let mut session: Option<MeetSession> = None;
     let mut watch = None;
-    let mut guards: HashMap<PublicKey, ReplayGuard> = HashMap::new();
     let mut sprays: VecDeque<(PublicKey, JoinHandle<()>)> = VecDeque::new();
     let mut backoff = Duration::from_secs(2);
     loop {
@@ -590,7 +846,7 @@ async fn service_loop(shared: Arc<Shared>, sprayer: UdpSocket, mut stop: watch::
                 event = listening.next() => match event {
                     Ok(MeetEvent::Knocks(knocks)) => {
                         for knock in knocks {
-                            on_knock(&shared, &index, knock, &mut guards, &mut sprays, &sprayer, &stop);
+                            on_knock(&shared, &index, knock, &mut sprays, &sprayer, &stop);
                         }
                     }
                     Ok(MeetEvent::Ended) => {
@@ -613,12 +869,12 @@ async fn service_loop(shared: Arc<Shared>, sprayer: UdpSocket, mut stop: watch::
 }
 
 /// Opens a knock, and if it's a friend's and fresh, lets its addresses connect for a
-/// while and punches towards them: one spray per friend, at most [`MAX_SPRAYS`].
+/// while and punches towards them: a spray for each of a friend's latest
+/// [`KNOCKS_PER_FRIEND`] knocks, at most [`MAX_SPRAYS`] in all.
 fn on_knock(
     shared: &Shared,
     index: &HashMap<[u8; ID_LEN], PublicKey>,
     delivered: DeliveredKnock,
-    guards: &mut HashMap<PublicKey, ReplayGuard>,
     sprays: &mut VecDeque<(PublicKey, JoinHandle<()>)>,
     sprayer: &UdpSocket,
     stop: &watch::Receiver<bool>,
@@ -638,19 +894,35 @@ fn on_knock(
     let Some(knock) = meet::open_knock(&secret, &delivered.lookup, &delivered.sealed) else {
         return;
     };
-    // one guard per friend: a friend filling theirs only stops their own knocks
-    guards.retain(|friend, _| shared.is_friend(friend));
-    if !guards.entry(*key).or_default().admit(&knock, now_secs()) {
+    if !shared
+        .knocks
+        .admit(*key, &knock, |friend| shared.is_friend(friend))
+    {
         return;
     }
-    shared.allow(*key, knock.candidates.iter().map(|addr| addr.ip()));
-    // one spray per friend: a new knock replaces their last one
-    for (friend, spray) in sprays.iter() {
-        if friend == key {
+    // Only addresses someone else can be at: a friend can't make the core probe its
+    // own loopback, or broadcast or multicast addresses.
+    let candidates: Vec<SocketAddr> = knock
+        .candidates
+        .into_iter()
+        .map(canonical)
+        .filter(|addr| is_probe_target(*addr, shared.loopback))
+        .collect();
+    if candidates.is_empty() {
+        return;
+    }
+    shared.allow(*key, candidates.iter().map(|addr| addr.ip()));
+    // a few sprays per friend: a new knock replaces their oldest
+    sprays.retain(|(_, spray)| !spray.is_finished());
+    while sprays.iter().filter(|(friend, _)| friend == key).count() >= KNOCKS_PER_FRIEND {
+        let oldest = sprays
+            .iter()
+            .position(|(friend, _)| friend == key)
+            .expect("counted above");
+        if let Some((_, spray)) = sprays.remove(oldest) {
             spray.abort();
         }
     }
-    sprays.retain(|(friend, spray)| !spray.is_finished() && friend != key);
     while sprays.len() >= MAX_SPRAYS {
         if let Some((_, oldest)) = sprays.pop_front() {
             oldest.abort();
@@ -662,7 +934,7 @@ fn on_knock(
             *key,
             tokio::spawn(probe::spray(
                 socket,
-                knock.candidates,
+                candidates,
                 tag,
                 SPRAY_FOR,
                 stop.clone(),
@@ -689,22 +961,116 @@ async fn wait_or_stop(
     *backoff = (*backoff * 2).min(Duration::from_secs(60));
 }
 
-async fn portmap_loop(shared: Arc<Shared>, mut stop: watch::Receiver<bool>) {
+/// Every [`REFRESH_EVERY`], collects this computer's addresses again and renews the
+/// router's forwarding ([`refresh`]).
+async fn refresh_loop(
+    shared: Arc<Shared>,
+    gate: Arc<Gate>,
+    socket: UdpSocket,
+    options: GatherOptions,
+    mut lan_v4: Option<Ipv4Addr>,
+    mut stop: watch::Receiver<bool>,
+) {
+    if options.loopback_only {
+        return;
+    }
+    let socket = Arc::new(socket);
     loop {
         tokio::select! {
-            _ = tokio::time::sleep(PORTMAP_EVERY) => {}
+            _ = tokio::time::sleep(REFRESH_EVERY) => {}
             _ = stop.changed() => return,
         }
-        let shared = shared.clone();
-        let _ = tokio::task::spawn_blocking(move || {
-            if let Some(mapping) = shared.mapping.lock().expect("not poisoned").as_ref() {
-                if let Err(err) = mapping.renew() {
-                    tracing::debug!("friends: couldn't renew the router's forwarding: {err}");
-                }
-            }
+        let (shared, gate, socket, stop) =
+            (shared.clone(), gate.clone(), socket.clone(), stop.clone());
+        match tokio::task::spawn_blocking(move || {
+            refresh(&shared, &gate, &socket, options, lan_v4, &stop)
         })
-        .await;
+        .await
+        {
+            Ok(now) => lan_v4 = now,
+            Err(_) => return,
+        }
     }
+}
+
+/// Collects this computer's addresses again: its network or public address may have
+/// changed since the host started. Renews the router's forwarding, or asks for it again
+/// when renewing fails or this computer is on another network now (`lan_v4` was its
+/// address on the local network). Publishes the records again if the addresses changed.
+/// Returns the address on the local network now. Blocking.
+fn refresh(
+    shared: &Shared,
+    gate: &Gate,
+    socket: &UdpSocket,
+    options: GatherOptions,
+    lan_v4: Option<Ipv4Addr>,
+    stop: &watch::Receiver<bool>,
+) -> Option<Ipv4Addr> {
+    let Ok(port) = socket.local_addr().map(|addr| addr.port()) else {
+        return lan_v4;
+    };
+    let found = gather::addresses(port, |server, v6| gate.mapped_address(socket, server, v6));
+    let old = shared.mapping.lock().expect("not poisoned").take();
+    let mapping = match (old, found.lan_v4) {
+        (Some(old), Some(lan)) if old.local_ip() == lan => match old.renew() {
+            Ok(()) => Some(old),
+            Err(err) => {
+                tracing::debug!("friends: couldn't renew the router's forwarding: {err}");
+                old.remove();
+                gather::forward(port, lan)
+            }
+        },
+        // on another network now
+        (Some(old), lan) => {
+            old.remove();
+            lan.and_then(|lan| gather::forward(port, lan))
+        }
+        (None, Some(lan)) if options.portmap && found.lan_v4 != lan_v4 => {
+            gather::forward(port, lan)
+        }
+        (None, _) => None,
+    };
+    let mut candidates = found.candidates;
+    if let Some(mapping) = &mapping {
+        gather::add(
+            &mut candidates,
+            mapping.external,
+            CandidateKind::RouterForwarded,
+        );
+    }
+    {
+        // `stop` says so before the host takes the mapping to remove it: if it hasn't,
+        // the host will find this one.
+        let mut slot = shared.mapping.lock().expect("not poisoned");
+        if *stop.borrow() {
+            drop(slot);
+            if let Some(mapping) = mapping {
+                mapping.remove();
+            }
+            return found.lan_v4;
+        }
+        *slot = mapping;
+    }
+    // offline for now: keep the old addresses
+    if candidates.is_empty() {
+        return found.lan_v4;
+    }
+    let addrs: Vec<SocketAddr> = candidates.iter().map(|c| c.addr).collect();
+    let changed = {
+        let mut current = shared.candidates.lock().expect("not poisoned");
+        let changed = *current != addrs;
+        *current = addrs;
+        changed
+    };
+    shared.update(|status| {
+        status.candidates = candidates;
+        status.symmetric_nat = found.symmetric;
+    });
+    if changed {
+        tracing::debug!("friends: this computer's addresses changed; publishing them again");
+        shared.generation.send_modify(|n| *n += 1);
+    }
+    found.lan_v4
 }
 
 // ---------------------------------------------------------------------------
@@ -715,36 +1081,59 @@ async fn accept_loop(
     shared: Arc<Shared>,
     handler: Arc<dyn FriendHandler>,
 ) {
-    let unproven = Arc::new(AtomicUsize::new(0));
     while let Some(incoming) = endpoint.accept().await {
-        // Silence for anyone without an accepted knock: not even a retry or a refusal,
-        // which would show a server is here.
-        if !shared.is_allowed(canonical(incoming.remote_address()).ip()) {
-            incoming.ignore();
-            continue;
-        }
+        let ip = canonical(incoming.remote_address()).ip();
         if !incoming.remote_address_validated() {
-            if let Err(err) = incoming.retry() {
+            // Silence for anyone without an accepted knock: not even a retry, which
+            // would show a server is here.
+            if shared.allowed_by(ip).is_empty() {
+                incoming.ignore();
+            } else if let Err(err) = incoming.retry() {
                 err.into_incoming().ignore();
             }
             continue;
         }
-        if shared.connections.lock().expect("not poisoned").len() >= MAX_FRIENDS {
-            incoming.refuse();
-            continue;
-        }
-        let Some(slot) = UnprovenSlot::take(&unproven) else {
-            incoming.refuse();
-            continue;
+        let unproven = match shared.reserve(ip) {
+            Ok(unproven) => unproven,
+            Err(Refusal::Stranger) => {
+                incoming.ignore();
+                continue;
+            }
+            Err(Refusal::Full) => {
+                incoming.refuse();
+                continue;
+            }
         };
+        let peer = shared.hold_peer(ip);
         let shared = shared.clone();
         let handler = handler.clone();
         tokio::spawn(async move {
-            let connection = match incoming.await {
-                Ok(connection) => connection,
-                Err(err) => return tracing::debug!("friends: a connection attempt failed: {err}"),
+            // kept for as long as the connection is
+            let _peer = peer;
+            // The handshake and the hello together, so an unproven place is held only
+            // briefly.
+            let proven = tokio::time::timeout(HELLO_WITHIN, async {
+                let connection = match incoming.await {
+                    Ok(connection) => connection,
+                    Err(err) => {
+                        tracing::debug!("friends: a connection attempt failed: {err}");
+                        return None;
+                    }
+                };
+                let key = hello(&connection, &shared).await;
+                Some((connection, key))
+            })
+            .await;
+            let (connection, key) = match proven {
+                Ok(Some((connection, Some(key)))) => (connection, key),
+                Ok(Some((connection, None))) => {
+                    connection.close(1u32.into(), b"not a friend");
+                    return;
+                }
+                // A connection still in its handshake or hello closes as it drops.
+                Ok(None) | Err(_) => return,
             };
-            serve_connection(connection, slot, shared, handler).await;
+            serve_connection(connection, key, unproven, shared, handler).await;
         });
     }
 }
@@ -754,10 +1143,7 @@ async fn accept_loop(
 async fn hello(connection: &quinn::Connection, shared: &Shared) -> Option<PublicKey> {
     let (mut send, mut recv) = connection.accept_bi().await.ok()?;
     let mut message = [0u8; 1 + 32 + SIGNATURE_LEN];
-    tokio::time::timeout(HEADER_WITHIN, recv.read_exact(&mut message))
-        .await
-        .ok()?
-        .ok()?;
+    recv.read_exact(&mut message).await.ok()?;
     if message[0] != FriendStreamKind::Hello as u8 {
         return None;
     }
@@ -779,39 +1165,59 @@ async fn hello(connection: &quinn::Connection, shared: &Shared) -> Option<Public
     Some(key)
 }
 
+/// What a stream after the hello carries.
+enum Header {
+    Info,
+    Game(String),
+}
+
+/// Reads a stream's header. The error says why it's refused.
+async fn read_header(recv: &mut quinn::RecvStream) -> std::result::Result<Header, &'static [u8]> {
+    let mut kind = [0u8; 1];
+    recv.read_exact(&mut kind)
+        .await
+        .map_err(|_| &b"no header"[..])?;
+    match kind[0] {
+        k if k == FriendStreamKind::Info as u8 => Ok(Header::Info),
+        k if k == FriendStreamKind::Game as u8 => {
+            let bad = |_| &b"bad header"[..];
+            let mut len = [0u8; 1];
+            recv.read_exact(&mut len).await.map_err(bad)?;
+            if len[0] == 0 || usize::from(len[0]) > MAX_INSTANCE_LEN {
+                return Err(b"bad header");
+            }
+            let mut name = vec![0u8; usize::from(len[0])];
+            recv.read_exact(&mut name).await.map_err(bad)?;
+            String::from_utf8(name)
+                .map(Header::Game)
+                .map_err(|_| &b"bad header"[..])
+        }
+        // invite kinds (0-2), a second hello, or anything else
+        _ => Err(b"bad kind"),
+    }
+}
+
 async fn serve_connection(
     connection: quinn::Connection,
-    slot: UnprovenSlot,
+    key: PublicKey,
+    unproven: Unproven,
     shared: Arc<Shared>,
     handler: Arc<dyn FriendHandler>,
 ) {
-    let key = match tokio::time::timeout(PROVE_WITHIN, hello(&connection, &shared)).await {
-        Ok(Some(key)) => key,
-        _ => {
-            connection.close(1u32.into(), b"not a friend");
-            return;
-        }
-    };
-    if shared.connections_of(&key) >= MAX_CONNECTIONS_PER_FRIEND {
+    let Some(id) = shared.admit(unproven, key, &connection) else {
         connection.close(3u32.into(), b"too many connections");
         return;
-    }
-    drop(slot);
-    let id = shared.next_connection.fetch_add(1, Ordering::Relaxed);
-    shared.connections.lock().expect("not poisoned").insert(
-        id,
-        Connected {
-            key,
-            connection: connection.clone(),
-            connected_at: SystemTime::now(),
-        },
-    );
+    };
     shared.changed.send_modify(|n| *n += 1);
     // removed between the hello and now
     if !shared.is_friend(&key) {
         connection.close(2u32.into(), b"removed");
     }
+    let pending = Arc::new(tokio::sync::Semaphore::new(MAX_PENDING_STREAMS));
     loop {
+        let Ok(permit) = pending.clone().acquire_owned().await else {
+            break;
+        };
         let (send, mut recv) = match connection.accept_bi().await {
             Ok(streams) => streams,
             Err(_) => break,
@@ -820,40 +1226,20 @@ async fn serve_connection(
         let shared = shared.clone();
         let handler = handler.clone();
         tokio::spawn(async move {
+            let header = tokio::time::timeout(HEADER_WITHIN, read_header(&mut recv)).await;
+            drop(permit);
             let close = |why: &'static [u8]| connection.close(1u32.into(), why);
-            let mut kind = [0u8; 1];
-            if !matches!(
-                tokio::time::timeout(HEADER_WITHIN, recv.read_exact(&mut kind)).await,
-                Ok(Ok(()))
-            ) {
-                return close(b"no header");
-            }
+            let header = match header {
+                Ok(Ok(header)) => header,
+                Ok(Err(why)) => return close(why),
+                Err(_) => return close(b"no header"),
+            };
             if !shared.is_friend(&key) {
                 return close(b"removed");
             }
-            match kind[0] {
-                k if k == FriendStreamKind::Info as u8 => {
-                    handler.info(tokio::io::join(recv, send), key);
-                }
-                k if k == FriendStreamKind::Game as u8 => {
-                    let mut len = [0u8; 1];
-                    if recv.read_exact(&mut len).await.is_err()
-                        || len[0] == 0
-                        || usize::from(len[0]) > MAX_INSTANCE_LEN
-                    {
-                        return close(b"bad header");
-                    }
-                    let mut name = vec![0u8; usize::from(len[0])];
-                    if recv.read_exact(&mut name).await.is_err() {
-                        return close(b"bad header");
-                    }
-                    let Ok(instance) = String::from_utf8(name) else {
-                        return close(b"bad header");
-                    };
-                    handler.game(tokio::io::join(recv, send), key, instance);
-                }
-                // invite kinds (0-2), a second hello, or anything else
-                _ => close(b"bad kind"),
+            match header {
+                Header::Info => handler.info(tokio::io::join(recv, send), key),
+                Header::Game(instance) => handler.game(tokio::io::join(recv, send), key, instance),
             }
         });
     }
@@ -861,6 +1247,7 @@ async fn serve_connection(
         .connections
         .lock()
         .expect("not poisoned")
+        .live
         .remove(&id)
         .is_some()
     {
@@ -871,6 +1258,193 @@ async fn serve_connection(
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+
+    fn key(byte: u8) -> PublicKey {
+        PublicKey([byte; 32])
+    }
+
+    /// A friend host's shared state with these friends, and no sockets, for both sides on
+    /// this computer.
+    fn shared_with(friends: &[PublicKey]) -> Arc<Shared> {
+        shared_for(friends, true)
+    }
+
+    /// [`shared_with`], with `loopback` saying whether both sides are on this computer.
+    fn shared_for(friends: &[PublicKey], loopback: bool) -> Arc<Shared> {
+        Arc::new(Shared {
+            fingerprint: [0; 32],
+            service: Service::default(),
+            friends: Mutex::new(
+                friends
+                    .iter()
+                    .map(|key| (*key, Secret::random().unwrap()))
+                    .collect(),
+            ),
+            generation: watch::channel(0).0,
+            allowed: Mutex::new(HashMap::new()),
+            connections: Mutex::new(Connections::default()),
+            peers: Mutex::new(HashMap::new()),
+            next_connection: AtomicU64::new(1),
+            status: Mutex::new(FriendHostStatus {
+                state: HostState::Sharing,
+                publishing: 0,
+                candidates: Vec::new(),
+                symmetric_nat: false,
+                connected: Vec::new(),
+                problem: None,
+            }),
+            changed: watch::channel(0).0,
+            mapping: Mutex::new(None),
+            candidates: Mutex::new(Vec::new()),
+            loopback,
+            knocks: KnockMemory::default(),
+        })
+    }
+
+    #[test]
+    fn a_friends_addresses_take_only_that_friends_places() {
+        let (dee, ben) = (key(1), key(2));
+        let shared = shared_with(&[dee, ben]);
+        let crowd: IpAddr = "198.18.0.7".parse().unwrap();
+        let bens: IpAddr = "198.18.0.8".parse().unwrap();
+        assert_eq!(shared.reserve(crowd).err(), Some(Refusal::Stranger));
+        // Dee's knock names an address anyone there can connect from
+        shared.allow(dee, [crowd]);
+        let held: Vec<Unproven> = (0..MAX_CONNECTIONS_PER_FRIEND)
+            .map(|_| shared.reserve(crowd).unwrap())
+            .collect();
+        assert_eq!(shared.reserve(crowd).err(), Some(Refusal::Full));
+        // ... which leaves Ben's places alone
+        shared.allow(ben, [bens]);
+        let bens_place = shared.reserve(bens).unwrap();
+        assert_eq!(bens_place.friend, Some(ben));
+        // an address both knocks name goes to whoever has a place left
+        shared.allow(ben, [bens, crowd]);
+        assert_eq!(shared.reserve(crowd).unwrap().friend, Some(ben));
+        // dropping a place frees it
+        drop(held);
+        assert_eq!(shared.connections.lock().unwrap().held_by(&dee), 0);
+        assert_eq!(shared.reserve(crowd).unwrap().friend, Some(dee));
+        drop(bens_place);
+        assert_eq!(shared.connections.lock().unwrap().unproven_total(), 0);
+    }
+
+    /// A knock from `friend` (on `shared`) with these addresses, as the service delivers
+    /// it, and the lookup index it needs.
+    fn knock_from(
+        shared: &Shared,
+        friend: PublicKey,
+        candidates: &[SocketAddr],
+    ) -> (DeliveredKnock, HashMap<[u8; ID_LEN], PublicKey>) {
+        let secret = shared.friends.lock().unwrap()[&friend].clone();
+        let lookup = meet::publish_lookups(&secret, now_secs())[0];
+        let (_, sealed) = meet::seal_knock(&secret, &lookup, candidates, now_secs()).unwrap();
+        let delivered = DeliveredKnock {
+            lookup,
+            sealed,
+            seen: None,
+        };
+        (delivered, HashMap::from([(lookup, friend)]))
+    }
+
+    #[tokio::test]
+    async fn a_friends_latest_knocks_each_get_a_spray_and_their_addresses() {
+        let dee = key(1);
+        let shared = shared_with(&[dee]);
+        let sprayer = UdpSocket::bind("127.0.0.1:0").unwrap();
+        sprayer.set_nonblocking(true).unwrap();
+        let (_stop, stop) = watch::channel(false);
+        let mut sprays = VecDeque::new();
+        // nothing listens on these ports
+        let joins: Vec<SocketAddr> = (1..=3)
+            .map(|n| SocketAddr::from(([127, 0, 0, n], 9)))
+            .collect();
+        for (n, join) in joins.iter().enumerate() {
+            let (knock, index) = knock_from(&shared, dee, &[*join]);
+            on_knock(&shared, &index, knock, &mut sprays, &sprayer, &stop);
+            assert_eq!(sprays.len(), (n + 1).min(KNOCKS_PER_FRIEND));
+        }
+        // the two latest joins both keep their spray and their addresses
+        assert!(sprays.iter().all(|(_, spray)| !spray.is_finished()));
+        assert!(shared.may_reach(joins[1].ip()));
+        assert!(shared.may_reach(joins[2].ip()));
+        assert!(!shared.may_reach(joins[0].ip()), "the oldest knock's went");
+        for (_, spray) in sprays {
+            spray.abort();
+        }
+    }
+
+    #[tokio::test]
+    async fn knocks_cant_make_the_core_probe_its_own_network_or_broadcast() {
+        let dee = key(1);
+        let shared = shared_for(&[dee], false);
+        let sprayer = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let (_stop, stop) = watch::channel(false);
+        let mut sprays = VecDeque::new();
+        let bad: Vec<SocketAddr> = [
+            "127.0.0.1:25565",
+            "[::1]:25565",
+            "0.0.0.0:25565",
+            "255.255.255.255:25565",
+            "224.0.0.251:5353",
+            "169.254.1.1:25565",
+        ]
+        .iter()
+        .map(|text| text.parse().unwrap())
+        .collect();
+        let (knock, index) = knock_from(&shared, dee, &bad);
+        on_knock(&shared, &index, knock, &mut sprays, &sprayer, &stop);
+        assert!(sprays.is_empty());
+        assert!(bad.iter().all(|addr| !shared.may_reach(addr.ip())));
+        // a knock with one good address among them gets a spray towards it alone
+        let good: SocketAddr = "192.168.1.4:9".parse().unwrap();
+        let mut mixed = bad.clone();
+        mixed.push(good);
+        let (knock, index) = knock_from(&shared, dee, &mixed);
+        on_knock(&shared, &index, knock, &mut sprays, &sprayer, &stop);
+        assert_eq!(sprays.len(), 1);
+        assert!(shared.may_reach(good.ip()));
+        assert!(!shared.may_reach(bad[0].ip()));
+        for (_, spray) in sprays {
+            spray.abort();
+        }
+    }
+
+    #[test]
+    fn only_allowed_addresses_and_connections_reach_quic() {
+        let dee = key(1);
+        let shared = shared_with(&[dee]);
+        let knocked: IpAddr = "198.18.0.7".parse().unwrap();
+        let stranger: IpAddr = "198.18.0.9".parse().unwrap();
+        assert!(!shared.may_reach(knocked));
+        shared.allow(dee, [knocked]);
+        assert!(shared.may_reach(knocked));
+        assert!(!shared.may_reach(stranger));
+        // a connection outlasts its knock
+        let hold = shared.hold_peer(knocked);
+        let second = shared.hold_peer(knocked);
+        shared.disallow(&dee);
+        assert!(shared.may_reach(knocked));
+        drop(hold);
+        assert!(shared.may_reach(knocked));
+        drop(second);
+        assert!(!shared.may_reach(knocked));
+    }
+
+    #[test]
+    fn unproven_places_are_capped_for_the_whole_host() {
+        let friends: Vec<PublicKey> = (0..10).map(key).collect();
+        let shared = shared_with(&friends);
+        let mut held = Vec::new();
+        for (n, friend) in friends.iter().enumerate() {
+            let ip = IpAddr::from([198, 18, 1, n as u8]);
+            shared.allow(*friend, [ip]);
+            while let Ok(place) = shared.reserve(ip) {
+                held.push(place);
+            }
+        }
+        assert_eq!(held.len(), MAX_UNPROVEN);
+    }
 
     #[test]
     fn identities_round_trip() {
