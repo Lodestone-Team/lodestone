@@ -378,6 +378,8 @@ mod tests {
                 "overrides/options.txt"
             ]
         );
+        // the link is made only on Unix (Windows needs a privilege for it)
+        #[cfg(unix)]
         assert!(plan.skipped.iter().any(|(path, _)| path == "config/link"));
 
         let out = dir.path().join("Pack.mrpack");

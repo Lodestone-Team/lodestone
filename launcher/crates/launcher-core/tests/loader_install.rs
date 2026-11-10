@@ -418,6 +418,7 @@ fn runs(fixture: &Fixture) -> Vec<String> {
 }
 
 #[test]
+#[cfg_attr(windows, ignore = "the made-up java is a shell script")]
 fn installs_forge_and_runs_its_processor_once() {
     let fixture = Fixture::new();
     serve_forge(&fixture);
@@ -541,6 +542,7 @@ fn installs_forge_and_runs_its_processor_once() {
 }
 
 #[test]
+#[cfg_attr(windows, ignore = "the made-up java is a shell script")]
 fn a_processor_output_with_the_wrong_sha1_fails() {
     let fixture = Fixture::new();
     serve_forge(&fixture);
