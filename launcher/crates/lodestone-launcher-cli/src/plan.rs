@@ -864,6 +864,9 @@ pub fn plan(
                 vec![("friend", json!(friend)), ("core", json!(core))],
             ),
             FriendList::Retire => call("friend_list.retire", vec![]),
+            FriendList::RetireCore { core } => {
+                call("friend_list.retire_core", vec![("core", json!(core))])
+            }
         },
         Command::Prompts(c) => match c {
             Prompts::List => call("prompts.list", vec![]),
@@ -1281,6 +1284,9 @@ mod tests {
             "friend_list.replies"
         );
         assert_eq!(call_of(&["friend-list", "retire"]).0, "friend_list.retire");
+        let (method, params, _) = call_of(&["friend-list", "retire-core", "Peter's PC"]);
+        assert_eq!(method, "friend_list.retire_core");
+        assert_eq!(params["core"], "Peter's PC");
     }
 
     #[test]

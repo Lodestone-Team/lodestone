@@ -1182,10 +1182,10 @@ pub enum FriendList {
     /// now, and answers to your links.
     #[command(after_help = "Examples:\n  lodestone-launcher-cli friend-list refresh")]
     Refresh,
-    /// Ticks "Codes match" for a friend, once you compared safety codes by voice or in
-    /// person.
+    /// Ticks "Codes match" for a friend, once the user compared safety codes with them
+    /// by voice or in person. Only the user can say they match: it needs --yes.
     #[command(
-        after_help = "Examples:\n  lodestone-launcher-cli friend-list verify Alex\n  lodestone-launcher-cli friend-list verify Alex --undo"
+        after_help = "Examples:\n  lodestone-launcher-cli friend-list verify Alex --yes\n  lodestone-launcher-cli friend-list verify Alex --undo"
     )]
     Verify {
         /// Their name, nickname, or key (or its first 8+ hex digits).
@@ -1233,6 +1233,16 @@ pub enum FriendList {
     /// and friend list are deleted from this computer. It can't be undone.
     #[command(after_help = "Examples:\n  lodestone-launcher-cli friend-list retire --yes")]
     Retire,
+    /// Retires one of your cores (a lost or stolen computer, or one you no longer share
+    /// from): friends drop it and stop trusting its servers' mods, and it's never shown
+    /// to them again. `me` lists your cores. It can't be undone.
+    #[command(
+        after_help = "Examples:\n  lodestone-launcher-cli friend-list retire-core \"Peter's PC\" --yes\n  lodestone-launcher-cli friend-list retire-core 3f9a0c11 --yes"
+    )]
+    RetireCore {
+        /// The core's name, or its fingerprint (or its first 8+ hex digits).
+        core: String,
+    },
 }
 
 #[derive(Subcommand, Debug)]
