@@ -100,6 +100,10 @@ pub struct FriendEntry {
     /// The instances shared with the friend.
     #[serde(default)]
     pub shared: Vec<InstanceUuid>,
+    /// Hidden from: the core keeps what's shared with them, but publishes nothing for
+    /// them, refuses their connections and serves them nothing.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub hidden: bool,
 }
 
 impl std::fmt::Debug for FriendEntry {
@@ -109,6 +113,7 @@ impl std::fmt::Debug for FriendEntry {
             .field("key", &self.key)
             .field("name", &self.name)
             .field("shared", &self.shared)
+            .field("hidden", &self.hidden)
             .finish_non_exhaustive()
     }
 }
@@ -127,6 +132,8 @@ pub struct FriendView {
     pub key: String,
     pub name: String,
     pub shared: Vec<InstanceUuid>,
+    /// Hidden from (see [`FriendEntry::hidden`]).
+    pub hidden: bool,
     /// Connected now.
     pub connected: bool,
 }
@@ -138,7 +145,9 @@ pub struct FriendsView {
     pub fingerprint: String,
     pub version: u64,
     pub friends: Vec<FriendView>,
-    /// The friend host, while it runs (something is shared with someone).
+    /// The friend host, while it runs (something is shared with someone), or while
+    /// it's being started again after it couldn't start (offline, say): then its state
+    /// is `reconnecting` and `problem` says why.
     pub host: Option<FriendHostStatus>,
 }
 
@@ -149,6 +158,7 @@ struct Friend {
     name: String,
     secret: Secret,
     shared: HashSet<InstanceUuid>,
+    hidden: bool,
 }
 
 impl Friend {
@@ -171,6 +181,7 @@ impl Friend {
             name,
             secret,
             shared: entry.shared.iter().cloned().collect(),
+            hidden: entry.hidden,
         })
     }
 }
@@ -337,10 +348,11 @@ impl FriendShares {
                     let mut shared: Vec<InstanceUuid> = friend.shared.iter().cloned().collect();
                     shared.sort_by(|a, b| a.to_string().cmp(&b.to_string()));
                     FriendView {
-                        connected: connected.contains(&key),
+                        connected: !friend.hidden && connected.contains(&key),
                         key,
                         name: friend.name.clone(),
                         shared,
+                        hidden: friend.hidden,
                     }
                 })
                 .collect(),
@@ -370,7 +382,12 @@ impl FriendShares {
         if keys.len() != friends.len() {
             return Err(bad_request("A friend is in the list twice"));
         }
-        if friends.iter().filter(|f| !f.shared.is_empty()).count() > MAX_SHARING_FRIENDS {
+        if friends
+            .iter()
+            .filter(|f| !f.hidden && !f.shared.is_empty())
+            .count()
+            > MAX_SHARING_FRIENDS
+        {
             return Err(bad_request(format!(
                 "A core can share with at most {MAX_SHARING_FRIENDS} friends"
             )));
@@ -398,6 +415,7 @@ impl FriendShares {
                         name: f.name.clone(),
                         secret: f.secret.to_hex(),
                         shared: f.shared.iter().cloned().collect(),
+                        hidden: f.hidden,
                     })
                     .collect(),
             };
@@ -418,9 +436,10 @@ impl FriendShares {
     /// Makes the friend host match the list: started while anyone has something shared,
     /// stopped otherwise.
     async fn apply(self: &Arc<Self>, state: &AppState, inner: &mut Inner) -> Result<(), Error> {
-        // only instances that exist and are Minecraft Java servers
+        // only instances that exist and are Minecraft Java servers, and nothing for
+        // hidden friends: no records, no connections, nothing served
         let mut access: HashMap<PublicKey, HashSet<InstanceUuid>> = HashMap::new();
-        for friend in &inner.friends {
+        for friend in inner.friends.iter().filter(|f| !f.hidden) {
             let mut shared = HashSet::new();
             for uuid in &friend.shared {
                 if let Ok(instance) = get_instance(state, uuid) {
@@ -521,6 +540,12 @@ impl FriendShares {
         if let Some(host) = self.inner.lock().await.host.take() {
             host.stop().await;
         }
+    }
+
+    /// Which instances each friend may reach now.
+    #[cfg(test)]
+    pub(crate) fn access_for_tests(&self) -> Access {
+        self.access.clone()
     }
 }
 

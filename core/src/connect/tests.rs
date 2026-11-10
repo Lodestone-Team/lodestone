@@ -640,8 +640,96 @@ fn friend_entries_never_print_their_secret() {
         name: "Ben".into(),
         secret: "cd".repeat(32),
         shared: Vec::new(),
+        hidden: false,
     };
     assert!(!format!("{entry:?}").contains(&"cd".repeat(32)));
+}
+
+#[tokio::test]
+async fn hidden_friends_keep_their_shares_but_get_nothing() {
+    let core = core().await;
+    let secret = lodestone_connect::friend::Secret::random()
+        .unwrap()
+        .to_hex();
+    let fabric = core.fabric.to_string();
+    let (ben, carl) = (friend_key(), friend_key());
+    let list = json!({"version": 1, "friends": [
+        {"key": ben, "name": "Ben", "secret": secret, "shared": [fabric]},
+        {"key": carl, "name": "Carl", "secret": secret, "shared": [fabric], "hidden": true}
+    ]});
+    let (status, body) = core
+        .call_json(Method::PUT, "/connect/friends", &core.owner_jwt, list)
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["friends"][0]["hidden"], false);
+    assert_eq!(body["friends"][1]["hidden"], true);
+    assert_eq!(
+        body["friends"][1]["shared"],
+        json!([fabric]),
+        "shares are kept"
+    );
+    assert!(body["host"].is_object(), "Ben has something shared");
+    let carl_key = lodestone_connect::friend::PublicKey::from_hex(&carl).unwrap();
+    let ben_key = lodestone_connect::friend::PublicKey::from_hex(&ben).unwrap();
+    {
+        let access = core.state.connect.friends.access_for_tests();
+        let access = access.read().unwrap();
+        assert!(access.contains_key(&ben_key));
+        assert!(
+            !access.contains_key(&carl_key),
+            "no access, so no records or connections"
+        );
+    }
+
+    // the info routes serve Carl nothing
+    let (tx, rx) = mpsc::channel(4);
+    tokio::spawn(friends::serve_friend_info(
+        core.state.clone(),
+        core.state.connect.friends.access_for_tests(),
+        rx,
+    ));
+    let (status, body) = friend_get(&tx, carl_key, "/api/v1/friend/servers").await;
+    assert_eq!(status, 200);
+    assert_eq!(body, b"[]");
+    let pack = format!("/api/v1/public/instances/{fabric}/client-pack");
+    assert_eq!(friend_get(&tx, carl_key, &pack).await.0, 404);
+    assert_eq!(friend_get(&tx, ben_key, &pack).await.0, 200);
+
+    // only a hidden friend has anything shared: the friend host stops, the shares stay
+    let list = json!({"version": 2, "friends": [
+        {"key": ben, "name": "Ben", "secret": secret, "shared": []},
+        {"key": carl, "name": "Carl", "secret": secret, "shared": [fabric], "hidden": true}
+    ]});
+    let (status, body) = core
+        .call_json(Method::PUT, "/connect/friends", &core.owner_jwt, list)
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["host"], Value::Null);
+    assert_eq!(body["friends"][1]["shared"], json!([fabric]));
+
+    // kept across a restart
+    let again = offline_shares(&core.dir.path().join("connect").join("friends"));
+    let view = again.view().await.unwrap();
+    assert!(view.friends[1].hidden);
+    assert_eq!(view.friends[1].shared, vec![core.fabric.clone()]);
+
+    // hidden friends don't count towards the friends a core shares with
+    let mut many: Vec<Value> = (0..friends::MAX_SHARING_FRIENDS)
+        .map(|_| json!({"key": friend_key(), "name": "x", "secret": secret, "shared": [fabric]}))
+        .collect();
+    many.push(
+        json!({"key": carl, "name": "Carl", "secret": secret, "shared": [fabric], "hidden": true}),
+    );
+    let (status, body) = core
+        .call_json(
+            Method::PUT,
+            "/connect/friends",
+            &core.owner_jwt,
+            json!({"version": 3, "friends": many}),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    core.state.connect.stop_all().await;
 }
 
 fn offline_shares(dir: &Path) -> friends::FriendShares {
