@@ -18,7 +18,6 @@ pub fn text(message: M) -> &'static str {
         M::HostOfferDownload => "Télécharger Lodestone Host",
         M::HostOfferCoreOnly => "Télécharger Lodestone Core seul",
         M::ConnectAsOwner => "Se connecter en tant que propriétaire",
-        M::Connected => "Connecté",
         M::ChooseDataFolder => "Choisir le dossier…",
         M::ChooseDataFolderPrompt => "Choisir",
         M::ProductHostHint => "l’application de bureau, avec le tableau de bord dans une fenêtre",
@@ -62,7 +61,11 @@ pub fn text(message: M) -> &'static str {
         }
         M::AddServer => "Ajouter un serveur",
         M::Dismiss => "Masquer",
-        M::NoServersYet => "Aucun serveur pour l’instant",
+        M::OtherCoresTitle => "Autres cores",
+        M::OtherCoresHint => {
+            "Les cores d’autres ordinateurs que vous avez ajoutés par leur adresse\u{202F}: les vôtres, ou ceux d’un ami."
+        }
+        M::NoOtherCores => "Aucun autre core pour l’instant",
         M::NoServersHint => {
             "Ajoutez un Lodestone Core par son adresse. Sans vous connecter, vous voyez les serveurs que son propriétaire liste publiquement."
         }

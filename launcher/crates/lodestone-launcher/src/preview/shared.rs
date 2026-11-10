@@ -74,6 +74,13 @@ pub fn window_height(scene: &str) -> Option<f32> {
         "sidebar-groups" | "sidebar-groups-off" => Some(1000.),
         // Tall enough for the Modrinth section's placeholder under six mods.
         "content-mods" => Some(1100.),
+        // Down to "Other cores", under the friends sections.
+        "servers-local" => Some(2500.),
+        "servers"
+        | "servers-local-none"
+        | "servers-local-unclaimed"
+        | "servers-shared-local"
+        | "servers-shared-local-gone" => Some(2000.),
         _ => None,
     }
 }

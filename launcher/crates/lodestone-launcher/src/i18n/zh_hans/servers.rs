@@ -16,7 +16,6 @@ pub fn text(message: M) -> &'static str {
         M::HostOfferDownload => "下载 Lodestone Host",
         M::HostOfferCoreOnly => "仅下载 Lodestone Core",
         M::ConnectAsOwner => "以所有者身份连接",
-        M::Connected => "已连接",
         M::ChooseDataFolder => "选择文件夹…",
         M::ChooseDataFolderPrompt => "选择",
         M::ProductHostHint => "桌面应用，控制面板在窗口中",
@@ -52,7 +51,9 @@ pub fn text(message: M) -> &'static str {
         M::ClaimInvalid => "核心发送了 Lodestone Launcher 无法理解的内容：{error}",
         M::AddServer => "添加服务器",
         M::Dismiss => "关闭",
-        M::NoServersYet => "还没有服务器",
+        M::OtherCoresTitle => "其他核心",
+        M::OtherCoresHint => "你按地址添加的其他电脑上的核心：你自己的，或朋友的。",
+        M::NoOtherCores => "还没有其他核心",
         M::NoServersHint => {
             "按地址添加一个 Lodestone 核心。不登录时，你能看到其所有者公开列出的服务器。"
         }

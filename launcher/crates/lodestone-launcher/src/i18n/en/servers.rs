@@ -22,7 +22,6 @@ crate::i18n::messages! {
         /// A small link under the download button: the core without the desktop app.
         HostOfferCoreOnly = "Download Lodestone Core only",
         ConnectAsOwner = "Connect as owner",
-        Connected = "Connected",
         ChooseDataFolder = "Choose folder…",
         ChooseDataFolderPrompt = "Choose",
         ProductHostHint = "the desktop app, with the dashboard in a window",
@@ -50,7 +49,10 @@ crate::i18n::messages! {
         AddServer = "Add server",
         /// Closes the message at the top of the page.
         Dismiss = "Dismiss",
-        NoServersYet = "No servers yet",
+        /// "Other cores": cores added by address, on other computers.
+        OtherCoresTitle = "Other cores",
+        OtherCoresHint = "Cores on other computers that you added by their address: your own, or a friend's.",
+        NoOtherCores = "No other cores yet",
         NoServersHint = "Add a Lodestone core by its address. Without signing in you see the servers its owner lists publicly.",
 
         // ===== A core's card =====

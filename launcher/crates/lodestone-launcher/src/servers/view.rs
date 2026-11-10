@@ -18,7 +18,8 @@ use launcher_core::wording;
 
 use super::{
     AdvisoryAnswer, AdvisoryPrompt, CertPrompt, CoreEntry, CoreStatus, NoticeKind, Servers,
-    TrustPrompt, UpdatePrompt, core_error, loader_label, status_label, trust_explanation,
+    TrustPrompt, UpdatePrompt, core_error, loader_label, local::FoundCore, status_label,
+    trust_explanation,
 };
 use crate::{
     components::{
@@ -431,9 +432,46 @@ impl Servers {
             .into_any_element()
     }
 
-    fn core_card(&self, index: usize, core: &CoreEntry, cx: &mut Context<Self>) -> AnyElement {
+    /// Core `index`'s card, with its servers. In "On this computer" (`place`) it wears
+    /// Lodestone Host's green, and takes the place of the scan's row for its core:
+    /// "Connect as owner", why claiming failed, and the servers shared from it.
+    fn core_card(
+        &self,
+        index: usize,
+        core: &CoreEntry,
+        place: Place<'_>,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let signed_in = core.signed_in();
         let trusted = core.saved.is_trusted();
+        let local = matches!(place, Place::Local { .. });
+        let found = match place {
+            Place::Local { found } => found,
+            Place::Other => None,
+        };
+        // not the owner here yet (signed out, or signed in some other way)
+        let connect = found.map(|(found_index, found)| {
+            let uuid = found.info.uuid.clone();
+            (
+                found_index,
+                uuid.clone(),
+                !self.is_connected(&uuid, &found.url),
+            )
+        });
+        let claim_error = connect
+            .as_ref()
+            .and_then(|(found_index, uuid, _)| self.claim_error_row(*found_index, uuid, cx));
+        let shared = found.and_then(|(found_index, found)| {
+            let rows: Vec<AnyElement> = self
+                .friends_shared_from(&found.info.uuid)
+                .into_iter()
+                .map(|entry| self.friend_row(entry, true, cx))
+                .collect();
+            (!rows.is_empty()).then(|| shared_from_here(found_index, px(0.), rows))
+        });
+        let connect_button = connect
+            .filter(|(_, _, needed)| *needed)
+            .map(|(found_index, uuid, _)| self.connect_button(found_index, uuid, cx));
         let account = match (&core.saved.username, signed_in) {
             (Some(username), true) => tr!(M::SignedInAs, username = username),
             (None, true) => t(M::SignedIn).to_string(),
@@ -497,32 +535,42 @@ impl Servers {
         let card_id = SharedString::from(format!("core-{}", core.saved.uuid));
         let card_description: SharedString =
             format!("{} · {account}", display_address(&core.url)).into();
-        div()
-            .id(card_id.clone())
+        let sign_button = if signed_in {
+            Some(
+                Button::new(
+                    SharedString::from(format!("sign-out-{index}")),
+                    t(CommonMsg::SignOut),
+                )
+                .size(ButtonSize::Slim)
+                .variant(ButtonVariant::Ghost)
+                .on_click(cx.listener(move |this, _, _, cx| this.sign_out(index, cx))),
+            )
+        } else if connect_button.is_none() {
+            Some(
+                Button::new(
+                    SharedString::from(format!("sign-in-{index}")),
+                    t(CommonMsg::SignIn),
+                )
+                .size(ButtonSize::Slim)
+                .icon(Icon::User)
+                .on_click(cx.listener(move |this, _, _, cx| this.open_add(Some(index), cx))),
+            )
+        } else {
+            None
+        };
+        card_frame(card_id.clone(), local)
             .accessible(Role::Group, card_id, core.saved.name.clone())
             .aria_description(card_description)
-            .flex()
-            .flex_col()
-            .w_full()
-            .rounded(radius::XL)
-            .border_1()
-            .border_color(crate::theme::ink::border())
-            .bg(colors::GRAY_850)
-            .surface(SurfaceId::Card)
             .child(
-                div()
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .gap_3()
-                    .px_4()
-                    .py_3()
+                card_header(local)
+                    .child(core_icon(local, core.saved.product, cx))
                     .child(
                         div()
                             .flex()
                             .flex_col()
                             .flex_1()
                             .min_w_0()
+                            .when(local, |this| this.child(this_computer_label()))
                             .child(
                                 div()
                                     .flex()
@@ -584,23 +632,8 @@ impl Servers {
                                     })),
                             ),
                     )
-                    .child(if signed_in {
-                        Button::new(
-                            SharedString::from(format!("sign-out-{index}")),
-                            t(CommonMsg::SignOut),
-                        )
-                        .size(ButtonSize::Slim)
-                        .variant(ButtonVariant::Ghost)
-                        .on_click(cx.listener(move |this, _, _, cx| this.sign_out(index, cx)))
-                    } else {
-                        Button::new(
-                            SharedString::from(format!("sign-in-{index}")),
-                            t(CommonMsg::SignIn),
-                        )
-                        .size(ButtonSize::Slim)
-                        .icon(Icon::User)
-                        .on_click(cx.listener(move |this, _, _, cx| this.open_add(Some(index), cx)))
-                    })
+                    .children(connect_button)
+                    .children(sign_button)
                     .child(
                         Button::new(
                             SharedString::from(format!("remove-core-{index}")),
@@ -611,11 +644,18 @@ impl Servers {
                         .on_click(cx.listener(move |this, _, _, cx| this.remove(index, cx))),
                     ),
             )
+            .children(claim_error.map(|row| {
+                row.px_4()
+                    .py_3()
+                    .border_t_1()
+                    .border_color(crate::theme::ink::border())
+            }))
             .children(self.owner_row(index, core))
             .when(core.saved.launched_by == LaunchedBy::Direct, |this| {
                 this.child(direct_note(index))
             })
             .child(body)
+            .children(shared)
             .into_any_element()
     }
 
@@ -653,73 +693,108 @@ impl Servers {
         Some(row.into_any_element())
     }
 
-    /// "On this computer": the cores found here, with "Connect as owner".
-    fn render_local(&self, cx: &mut Context<Self>) -> AnyElement {
-        let local = &self.local;
-        let busy = local.claiming.is_some();
-        let rows: Vec<AnyElement> = local
-            .found
-            .iter()
-            .enumerate()
-            .map(|(index, found)| {
-                let uuid = found.info.uuid.clone();
-                let connected = self.is_connected(&uuid, &found.url);
-                let claiming = local.claiming.as_deref() == Some(uuid.as_str());
-                let error = local
-                    .error
-                    .as_ref()
-                    .filter(|(failed, _)| *failed == uuid || failed.is_empty())
-                    .map(|(_, err)| err.clone());
-                let shared: Vec<AnyElement> = self
-                    .friends_shared_from(&uuid)
-                    .into_iter()
-                    .map(|entry| self.friend_row(entry, true, cx))
-                    .collect();
-                let action: AnyElement = if connected {
-                    badge(t(M::Connected), colors::GREEN_300).into_any_element()
-                } else {
-                    Button::new(
-                        SharedString::from(format!("connect-local-{index}")),
-                        t(M::ConnectAsOwner),
+    /// "Connect as owner" for the core the scan found as row `found_index`.
+    fn connect_button(&self, found_index: usize, uuid: String, cx: &mut Context<Self>) -> Button {
+        let claiming = self.local.claiming.as_deref() == Some(uuid.as_str());
+        Button::new(
+            SharedString::from(format!("connect-local-{found_index}")),
+            t(M::ConnectAsOwner),
+        )
+        .size(ButtonSize::Slim)
+        .variant(ButtonVariant::Primary)
+        .loading(claiming)
+        .disabled(self.local.claiming.is_some())
+        .on_click(cx.listener(move |this, _, _, cx| this.connect_local(&uuid, None, cx)))
+    }
+
+    /// Why claiming core `uuid` (the scan's row `found_index`) failed, with "Choose
+    /// folder…" when its data folder wasn't found.
+    fn claim_error_row(
+        &self,
+        found_index: usize,
+        uuid: &str,
+        cx: &mut Context<Self>,
+    ) -> Option<gpui::Div> {
+        let err = self
+            .local
+            .error
+            .as_ref()
+            .filter(|(failed, _)| failed == uuid || failed.is_empty())
+            .map(|(_, err)| err.clone())?;
+        let busy = self.local.claiming.is_some();
+        let folder = matches!(err, ClaimError::FolderNotFound);
+        let uuid = uuid.to_string();
+        Some(
+            div()
+                .flex()
+                .flex_row()
+                .items_start()
+                .gap_2()
+                .child(Icon::TriangleExclamation.render(px(14.), colors::YELLOW))
+                .child(
+                    small(super::local::claim_error(&err))
+                        .flex_1()
+                        .min_w_0()
+                        .whitespace_normal()
+                        .text_color(colors::RED_200),
+                )
+                .when(folder, |this| {
+                    this.child(
+                        div().flex_none().child(
+                            Button::new(
+                                SharedString::from(format!("choose-folder-{found_index}")),
+                                t(M::ChooseDataFolder),
+                            )
+                            .size(ButtonSize::Slim)
+                            .icon(Icon::HardDrive)
+                            .disabled(busy)
+                            .on_click(cx.listener(
+                                move |this, _, _, cx| this.choose_local_folder(uuid.clone(), cx),
+                            )),
+                        ),
                     )
-                    .size(ButtonSize::Slim)
-                    .variant(ButtonVariant::Primary)
-                    .loading(claiming)
-                    .disabled(busy)
-                    .on_click(cx.listener({
-                        let uuid = uuid.clone();
-                        move |this, _, _, cx| this.connect_local(&uuid, None, cx)
-                    }))
-                    .into_any_element()
-                };
-                let row = div()
-                    .id(SharedString::from(format!("local-core-{index}")))
-                    .flex()
+                }),
+        )
+    }
+
+    /// A core the scan found here that has no card yet: what it is, and "Connect as
+    /// owner".
+    fn found_card(
+        &self,
+        found_index: usize,
+        found: &FoundCore,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let uuid = found.info.uuid.clone();
+        let shared: Vec<AnyElement> = self
+            .friends_shared_from(&uuid)
+            .into_iter()
+            .map(|entry| self.friend_row(entry, true, cx))
+            .collect();
+        let error = self.claim_error_row(found_index, &uuid, cx);
+        let connect = self.connect_button(found_index, uuid, cx);
+        let id = SharedString::from(format!("local-core-{found_index}"));
+        card_frame(id.clone(), true)
+            .accessible(Role::Group, id, found.info.core_name.clone())
+            .child(
+                card_header(true)
                     .flex_col()
+                    .items_stretch()
                     .gap_2()
-                    .px_4()
-                    .py_3()
                     .child(
                         div()
                             .flex()
                             .flex_row()
                             .items_center()
                             .gap_3()
-                            .child(match found.info.product {
-                                CoreProduct::Host => gpui::img(crate::images::mark(false, cx))
-                                    .size(px(18.))
-                                    .flex_none()
-                                    .into_any_element(),
-                                CoreProduct::Core => Icon::Cube
-                                    .render(px(18.), crate::theme::ink::muted())
-                                    .into_any_element(),
-                            })
+                            .child(core_icon(true, found.info.product, cx))
                             .child(
                                 div()
                                     .flex()
                                     .flex_col()
                                     .flex_1()
                                     .min_w_0()
+                                    .child(this_computer_label())
                                     .child(
                                         div()
                                             .flex()
@@ -729,6 +804,8 @@ impl Servers {
                                             .child(
                                                 div()
                                                     .truncate()
+                                                    .font_family(fonts::heading())
+                                                    .text_size(theme::text_size(text::H3))
                                                     .font_weight(weights::BOLD.into())
                                                     .text_color(crate::theme::ink::text())
                                                     .child(RichText::new(
@@ -752,63 +829,31 @@ impl Servers {
                                         .text_color(crate::theme::ink::muted()),
                                     ),
                             )
-                            .child(action),
+                            .child(connect),
                     )
-                    .children(error.map(|err| {
-                        let folder = matches!(err, ClaimError::FolderNotFound);
-                        div()
-                            .flex()
-                            .flex_row()
-                            .items_start()
-                            .gap_2()
-                            .child(Icon::TriangleExclamation.render(px(14.), colors::YELLOW))
-                            .child(
-                                small(super::local::claim_error(&err))
-                                    .flex_1()
-                                    .min_w_0()
-                                    .whitespace_normal()
-                                    .text_color(colors::RED_200),
-                            )
-                            .when(folder, |this| {
-                                this.child(
-                                    div().flex_none().child(
-                                        Button::new(
-                                            SharedString::from(format!("choose-folder-{index}")),
-                                            t(M::ChooseDataFolder),
-                                        )
-                                        .size(ButtonSize::Slim)
-                                        .icon(Icon::HardDrive)
-                                        .disabled(busy)
-                                        .on_click(
-                                            cx.listener({
-                                                let uuid = uuid.clone();
-                                                move |this, _, _, cx| {
-                                                    this.choose_local_folder(uuid.clone(), cx)
-                                                }
-                                            }),
-                                        ),
-                                    ),
-                                )
-                            })
-                    }));
-                div()
-                    .flex()
-                    .flex_col()
-                    .when(index > 0, |this| {
-                        this.border_t_1().border_color(crate::theme::ink::border())
-                    })
-                    .child(row)
-                    .children((!shared.is_empty()).then(|| shared_from_here(index, shared)))
-                    .into_any_element()
-            })
-            .collect();
-        let offer = self.offers_host(cx).then(|| self.render_host_offer(cx));
-        let empty_text = if local.scanning || !local.scanned {
-            Some(t(M::ScanningLocal))
-        } else if local.found.is_empty() {
-            Some(t(M::NoLocalCores))
-        } else {
+                    .children(error),
+            )
+            .children(
+                (!shared.is_empty())
+                    .then(|| shared_from_here(found_index, px(SHARED_INDENT), shared)),
+            )
+            .into_any_element()
+    }
+
+    /// "On this computer": the cores here, each as a card in Lodestone Host's green.
+    /// Those connected show in full (their servers, the owner key, and the servers
+    /// shared from them), the others with "Connect as owner". While nothing runs here,
+    /// it says so, and offers Lodestone Host.
+    fn render_local(&self, cards: Vec<AnyElement>, cx: &mut Context<Self>) -> AnyElement {
+        let local = &self.local;
+        let empty = cards.is_empty();
+        let offer = (empty && self.offers_host(cx)).then(|| self.render_host_offer(cx));
+        let empty_text = if !empty {
             None
+        } else if local.scanning || !local.scanned {
+            Some(t(M::ScanningLocal))
+        } else {
+            Some(t(M::NoLocalCores))
         };
         div()
             .id("local-cores")
@@ -816,71 +861,211 @@ impl Servers {
             .flex_col()
             .gap_2()
             .child(
-                div()
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .gap_3()
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .flex_1()
-                            .min_w_0()
-                            .child(
-                                div()
-                                    .id("local-cores-title")
-                                    .role(Role::Heading)
-                                    .aria_level(2)
-                                    .aria_label(t(M::OnThisComputer))
-                                    .font_family(fonts::heading())
-                                    .text_size(theme::text_size(text::H3))
-                                    .font_weight(weights::BOLD.into())
-                                    .text_color(crate::theme::ink::text())
-                                    .child(t(M::OnThisComputer)),
-                            )
-                            .child(
-                                small(t(M::OnThisComputerHint))
-                                    .text_color(crate::theme::ink::muted()),
-                            ),
-                    )
-                    .child(
-                        Button::new("rescan-local", t(M::Rescan))
-                            .size(ButtonSize::Slim)
-                            .variant(ButtonVariant::Ghost)
-                            .loading(local.scanning)
-                            .disabled(local.scanning)
-                            .on_click(cx.listener(|this, _, _, cx| this.scan_local(true, cx))),
-                    ),
+                section_header(
+                    "local-cores-title",
+                    t(M::OnThisComputer),
+                    t(M::OnThisComputerHint),
+                )
+                .child(
+                    Button::new("rescan-local", t(M::Rescan))
+                        .size(ButtonSize::Slim)
+                        .variant(ButtonVariant::Ghost)
+                        .loading(local.scanning)
+                        .disabled(local.scanning)
+                        .on_click(cx.listener(|this, _, _, cx| this.scan_local(true, cx))),
+                ),
             )
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .w_full()
-                    .rounded(radius::XL)
-                    .border_1()
-                    .border_color(crate::theme::ink::border())
-                    .bg(colors::GRAY_850)
-                    .surface(SurfaceId::Card)
-                    .children(rows)
-                    .children(empty_text.map(|text| {
-                        div()
-                            .px_4()
-                            .py_3()
-                            .text_color(crate::theme::ink::muted())
-                            .child(small(text))
-                    }))
-                    .children(offer),
-            )
+            .children(cards)
+            .when(empty, |this| {
+                this.child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .w_full()
+                        .rounded(radius::XL)
+                        .border_1()
+                        .border_color(crate::theme::ink::border())
+                        .bg(colors::GRAY_850)
+                        .surface(SurfaceId::Card)
+                        .children(empty_text.map(|text| {
+                            div()
+                                .px_4()
+                                .py_3()
+                                .text_color(crate::theme::ink::muted())
+                                .child(small(text))
+                        }))
+                        .children(offer),
+                )
+            })
+            .into_any_element()
+    }
+
+    /// "Other cores": those added by address, on other computers, with a neutral look.
+    fn render_other(&self, cards: Vec<AnyElement>) -> AnyElement {
+        let empty = cards.is_empty();
+        div()
+            .id("other-cores")
+            .flex()
+            .flex_col()
+            .gap_2()
+            .child(section_header(
+                "other-cores-title",
+                t(M::OtherCoresTitle),
+                t(M::OtherCoresHint),
+            ))
+            .when(empty, |this| {
+                this.child(
+                    div()
+                        .id("other-cores-empty")
+                        .flex()
+                        .flex_col()
+                        .items_center()
+                        .gap_1()
+                        .py_6()
+                        .px_6()
+                        .rounded(radius::XL)
+                        .border_2()
+                        .border_dashed()
+                        .border_color(colors::GRAY_FADED.opacity(10))
+                        .child(
+                            div()
+                                .font_weight(weights::BOLD.into())
+                                .text_color(colors::GRAY_FADED.opacity(50))
+                                .child(t(M::NoOtherCores)),
+                        )
+                        .child(small(t(M::NoServersHint)).text_color(crate::theme::ink::muted())),
+                )
+            })
+            .children(cards)
             .into_any_element()
     }
 }
 
+/// How far the servers shared from a core with no card yet are set in: their dots line
+/// up with the core's name (16 + 32 + 12 px in, less the rows' own 16).
+const SHARED_INDENT: f32 = 44.;
+
+/// Where a core's card is on the page.
+#[derive(Clone, Copy)]
+enum Place<'a> {
+    /// "On this computer". `found`: what the scan found here for it (its row and the
+    /// core), unless it didn't answer.
+    Local {
+        found: Option<(usize, &'a FoundCore)>,
+    },
+    /// "Other cores".
+    Other,
+}
+
+/// A section's title, its hint under it, and room on the right for buttons.
+fn section_header(id: &'static str, title: &'static str, hint: &'static str) -> gpui::Div {
+    div().flex().flex_row().items_center().gap_3().child(
+        div()
+            .flex()
+            .flex_col()
+            .flex_1()
+            .min_w_0()
+            .child(
+                div()
+                    .id(id)
+                    .role(Role::Heading)
+                    .aria_level(2)
+                    .aria_label(title)
+                    .font_family(fonts::heading())
+                    .text_size(theme::text_size(text::H3))
+                    .font_weight(weights::BOLD.into())
+                    .text_color(crate::theme::ink::text())
+                    .child(title),
+            )
+            .child(small(hint).text_color(crate::theme::ink::muted())),
+    )
+}
+
+/// A core's card. On this computer (`local`) its edge is Lodestone Host's green.
+fn card_frame(id: SharedString, local: bool) -> gpui::Stateful<gpui::Div> {
+    let light = theme::palette::is_light();
+    div()
+        .id(id)
+        .flex()
+        .flex_col()
+        .w_full()
+        .rounded(radius::XL)
+        .border_1()
+        .border_color(if local {
+            crate::components::host_green(35, light)
+        } else {
+            crate::theme::ink::border()
+        })
+        .bg(colors::GRAY_850)
+        .surface(SurfaceId::Card)
+}
+
+/// The top of a core's card: its icon, name and buttons in a row. On this computer
+/// (`local`) it has a faint wash of Lodestone Host's gradient.
+fn card_header(local: bool) -> gpui::Div {
+    let light = theme::palette::is_light();
+    div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_3()
+        .px_4()
+        .py_3()
+        .when(local, |this| {
+            this.rounded_t(radius::XL)
+                .bg(crate::components::host_gradient(
+                    if light { 8 } else { 5 },
+                    light,
+                ))
+        })
+}
+
+/// The icon at the left of a core's card: Lodestone Host's mark for a Host on this
+/// computer, a green cube for a Core here, and a plain server for the others.
+fn core_icon(local: bool, product: CoreProduct, cx: &App) -> AnyElement {
+    let light = theme::palette::is_light();
+    let tile = div()
+        .flex_none()
+        .size(px(32.))
+        .flex()
+        .items_center()
+        .justify_center();
+    match (local, product) {
+        (true, CoreProduct::Host) => gpui::img(crate::images::mark(true, cx))
+            .size(px(32.))
+            .flex_none()
+            .into_any_element(),
+        (true, CoreProduct::Core) => tile
+            .child(Icon::Cube.render(px(22.), crate::components::host_green(100, light)))
+            .into_any_element(),
+        (false, _) => tile
+            .rounded(radius::LG)
+            .bg(colors::GRAY_FADED.opacity(8))
+            .child(Icon::Server.render(px(16.), colors::GRAY_400))
+            .into_any_element(),
+    }
+}
+
+/// "This Mac" (or PC, or computer), in green above the name of a core on this computer.
+fn this_computer_label() -> gpui::Div {
+    div()
+        .text_size(theme::text_size(text::CAPTION))
+        .line_height(theme::line_height(text::CAPTION, leading::NORMAL))
+        .font_weight(weights::BOLD.into())
+        .text_color(crate::components::host_green(
+            100,
+            theme::palette::is_light(),
+        ))
+        .child(t(CommonMsg::ThisComputerStart))
+}
+
 /// Under a core in "On this computer": the servers it shares that the user joined here
-/// with their invite links (`rows`), set in under the core's name.
-fn shared_from_here(index: usize, rows: Vec<AnyElement>) -> gpui::Stateful<gpui::Div> {
-    // the rows' dots line up with the core's name (16 + 18 + 12 px in)
+/// with their invite links (`rows`), set in by `indent`.
+fn shared_from_here(
+    index: usize,
+    indent: gpui::Pixels,
+    rows: Vec<AnyElement>,
+) -> gpui::Stateful<gpui::Div> {
     div()
         .id(SharedString::from(format!("local-shared-{index}")))
         .accessible(
@@ -890,7 +1075,7 @@ fn shared_from_here(index: usize, rows: Vec<AnyElement>) -> gpui::Stateful<gpui:
         )
         .flex()
         .flex_col()
-        .ml(px(30.))
+        .ml(indent)
         .child(
             div()
                 .flex()
@@ -978,14 +1163,40 @@ impl Render for Servers {
         if let Some(detail) = self.detail().cloned() {
             return div().size_full().child(detail).into_any_element();
         }
-        let cards: Vec<AnyElement> = (0..self.cores.len())
-            .map(|index| {
-                // the cards borrow `self` while their buttons need `cx`
-                let core = &self.cores[index];
-                self.core_card(index, core, cx)
-            })
-            .collect();
-        let empty = self.cores.is_empty();
+        // the cards borrow `self` while their buttons need `cx`
+        let mut local_cards: Vec<AnyElement> = Vec::new();
+        // each core found here, as its card when it has one
+        for (found_index, found) in self.local.found.iter().enumerate() {
+            local_cards.push(match self.core_index(&found.info.uuid) {
+                Some(index) => self.core_card(
+                    index,
+                    &self.cores[index],
+                    Place::Local {
+                        found: Some((found_index, found)),
+                    },
+                    cx,
+                ),
+                None => self.found_card(found_index, found, cx),
+            });
+        }
+        // then those claimed here that didn't answer (stopped, say), or at this
+        // computer's address on another port
+        let mut other_cards: Vec<AnyElement> = Vec::new();
+        for (index, core) in self.cores.iter().enumerate() {
+            let found = self
+                .local
+                .found
+                .iter()
+                .any(|found| found.info.uuid == core.saved.uuid);
+            if found {
+                continue;
+            }
+            if self.is_local_card(index) {
+                local_cards.push(self.core_card(index, core, Place::Local { found: None }, cx));
+            } else {
+                other_cards.push(self.core_card(index, core, Place::Other, cx));
+            }
+        }
         div()
             .id("servers-page")
             .flex()
@@ -1071,33 +1282,10 @@ impl Render for Servers {
                             .on_click(cx.listener(|this, _, _, cx| this.dismiss_notice(cx))),
                     )
             }))
-            .child(self.render_local(cx))
+            .child(self.render_local(local_cards, cx))
             .child(self.render_friend_list(cx))
             .child(self.render_friends(cx))
-            .when(empty, |this| {
-                this.child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .items_center()
-                        .gap_3()
-                        .py_10()
-                        .px_6()
-                        .rounded(radius::XL)
-                        .border_2()
-                        .border_dashed()
-                        .border_color(colors::GRAY_FADED.opacity(10))
-                        .child(Icon::Cube.render(px(28.), colors::GRAY_FADED.opacity(30)))
-                        .child(
-                            div()
-                                .font_weight(weights::BOLD.into())
-                                .text_color(colors::GRAY_FADED.opacity(50))
-                                .child(t(M::NoServersYet)),
-                        )
-                        .child(small(t(M::NoServersHint)).text_color(crate::theme::ink::muted())),
-                )
-            })
-            .children(cards)
+            .child(self.render_other(other_cards))
             .child(self.render_lan(cx))
             .into_any_element()
     }
