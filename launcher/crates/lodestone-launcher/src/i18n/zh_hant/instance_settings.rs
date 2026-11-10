@@ -27,6 +27,12 @@ pub fn text(message: M) -> &'static str {
         M::WindowDefaultSize => "遊戲預設大小",
         M::WindowFullscreen => "{size}，全螢幕",
         M::WindowSizeInvalid => "視窗大小需要以像素為單位的寬度和高度。",
+        M::WindowSize => "視窗大小",
+        M::WindowSizeGameDefault => "遊戲預設",
+        M::WindowSizeThisScreen => "此螢幕",
+        M::WindowSizeCustom => "自訂",
+        M::WindowWidth => "視窗寬度",
+        M::WindowHeight => "視窗高度",
         M::EnvInvalid => "環境變數：{error}",
         M::EnvPlaceholder => "名稱=值",
 

@@ -148,6 +148,13 @@ impl LauncherShell {
             .update(cx, |settings, cx| settings.preview_change(cx));
     }
 
+    /// Instance defaults' window size list open, or a size of no name, for the
+    /// offscreen screenshots.
+    pub fn preview_window_size(&mut self, open: bool, cx: &mut Context<Self>) {
+        self.launcher_settings
+            .update(cx, |settings, cx| settings.preview_window_size(open, cx));
+    }
+
     /// Opens the pages over the page in a narrow window, for the offscreen screenshots.
     pub fn preview_settings_nav_open(&mut self) {
         self.settings_nav_open = true;
