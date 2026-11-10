@@ -3,7 +3,8 @@
 
 use gpui::Context;
 use launcher_core::cores::{
-    CoreError, ServerInstance, ServerList, ServerLoader, ServerState,
+    CoreError, CoreProduct, LaunchedBy, ServerInstance, ServerList, ServerLoader, ServerState,
+    local_claim::{ClaimError, LocalCredentials},
     store::SavedCore,
     sync::PackChanges,
     tls::{CertificatePin, format_fingerprint},
@@ -43,6 +44,8 @@ pub const SCENES: &[&str] = &[
     "servers-trust",
     "servers-advisory",
     "servers-local",
+    "servers-local-none",
+    "servers-local-unclaimed",
     "servers-shared-local",
     "servers-shared-local-gone",
     "servers-friends",
@@ -216,12 +219,71 @@ fn friend() -> (SavedCore, CoreStatus, bool) {
     )
 }
 
+/// Peter's own Lodestone Host, on this computer and claimed here: "Connect as owner"
+/// saved it signed in as the owner account it made.
+fn local_home() -> (SavedCore, CoreStatus, bool) {
+    let (mut host, status, signed_in) = home(true);
+    host.url = "https://127.0.0.1:16662".into();
+    host.product = CoreProduct::Host;
+    host.launched_by = LaunchedBy::Host;
+    host.local_claim = true;
+    host.username = Some("owner_k3m9x".into());
+    host.pin_certificate(CertificatePin::new("127.0.0.1", FINGERPRINT));
+    // trust follows the certificate, so it is given again
+    host.set_trusted(true);
+    (host, status, signed_in)
+}
+
+/// What claiming `local_home` kept: its owner key, to copy.
+fn home_credentials() -> (&'static str, LocalCredentials) {
+    (
+        "home",
+        LocalCredentials {
+            url: "https://127.0.0.1:16662".into(),
+            api_key: Some("lsk_preview_key".into()),
+            owner_username: Some("owner_k3m9x".into()),
+            owner_password: Some("preview-password".into()),
+            ..Default::default()
+        },
+    )
+}
+
+/// The scan found `local_home` running here.
+fn found_home(servers: &mut Servers) {
+    servers.preview_local(
+        vec![(
+            "home",
+            "Peter's Lodestone Core",
+            CoreProduct::Host,
+            LaunchedBy::Host,
+        )],
+        vec![home_credentials()],
+        None,
+    );
+}
+
 fn apply_servers(scene: &str, servers: &mut Servers, cx: &mut Context<Servers>) {
     match scene {
+        "servers-local-none" | "servers-local-unclaimed" => {
+            // nothing runs here (the offer shows), or a Host the user isn't the owner
+            // of here yet; Alex's core, added by address, is under "Other cores"
+            servers.preview(vec![friend()], Vec::new());
+            let found = if scene == "servers-local-unclaimed" {
+                vec![(
+                    "home",
+                    "Peter's Lodestone Core",
+                    CoreProduct::Host,
+                    LaunchedBy::Host,
+                )]
+            } else {
+                Vec::new()
+            };
+            servers.preview_local(found, Vec::new(), None);
+        }
         "servers" | "servers-ready" => {
             servers.preview(
                 vec![
-                    home(true),
+                    local_home(),
                     friend(),
                     (
                         saved(
@@ -237,6 +299,7 @@ fn apply_servers(scene: &str, servers: &mut Servers, cx: &mut Context<Servers>) 
                 vec![("home".into(), "smp".into(), "survival-smp".into())],
             );
             servers.preview_busy("home", "atm", Busy::Starting);
+            found_home(servers);
             if scene == "servers-ready" {
                 servers.preview_ready("Cobblemon Official Modpack [Fabric]");
             }
@@ -262,19 +325,13 @@ fn apply_servers(scene: &str, servers: &mut Servers, cx: &mut Context<Servers>) 
             }
         }
         "servers-local" => {
-            use launcher_core::cores::{
-                CoreProduct, LaunchedBy,
-                local_claim::{ClaimError, LocalCredentials},
-            };
-            let (mut host, status, _) = home(true);
-            host.product = CoreProduct::Host;
-            host.launched_by = LaunchedBy::Host;
-            host.username = Some("owner_k3m9x".into());
+            // a Test core started directly on another port: the scan only looks on the
+            // default one, but its address is this computer's
             let mut direct = saved("lab", "http://127.0.0.1:16700", "Test core", None);
             direct.launched_by = LaunchedBy::Direct;
             servers.preview(
                 vec![
-                    (host, status, true),
+                    local_home(),
                     (
                         direct,
                         CoreStatus::Online(ServerList {
@@ -285,6 +342,7 @@ fn apply_servers(scene: &str, servers: &mut Servers, cx: &mut Context<Servers>) 
                         }),
                         false,
                     ),
+                    friend(),
                 ],
                 Vec::new(),
             );
@@ -303,16 +361,7 @@ fn apply_servers(scene: &str, servers: &mut Servers, cx: &mut Context<Servers>) 
                         LaunchedBy::Docker,
                     ),
                 ],
-                vec![(
-                    "home",
-                    LocalCredentials {
-                        url: "https://127.0.0.1:16662".into(),
-                        api_key: Some("lsk_preview_key".into()),
-                        owner_username: Some("owner_k3m9x".into()),
-                        owner_password: Some("preview-password".into()),
-                        ..Default::default()
-                    },
-                )],
+                vec![home_credentials()],
                 Some(("docker", ClaimError::FolderNotFound)),
             );
         }
@@ -500,16 +549,7 @@ fn friend_entry(
 /// as owner, so its card lists the server, which shows once there), a second Host they
 /// aren't the owner of here (under it in "On this computer"), and a friend's server.
 fn apply_shared_local(here: bool, servers: &mut Servers) {
-    use launcher_core::cores::{
-        CoreProduct, LaunchedBy,
-        local_claim::{ClaimError, LocalCredentials},
-    };
-    let (mut host, status, _) = home(true);
-    host.url = "https://127.0.0.1:16662".into();
-    host.product = CoreProduct::Host;
-    host.launched_by = LaunchedBy::Host;
-    host.local_claim = true;
-    host.username = Some("owner_k3m9x".into());
+    let (host, status, _) = local_home();
     let status = if here {
         status
     } else {
@@ -565,16 +605,7 @@ fn apply_shared_local(here: bool, servers: &mut Servers) {
             ),
             ("lab", "Lab Host", CoreProduct::Host, LaunchedBy::Host),
         ],
-        vec![(
-            "home",
-            LocalCredentials {
-                url: "https://127.0.0.1:16662".into(),
-                api_key: Some("lsk_preview_key".into()),
-                owner_username: Some("owner_k3m9x".into()),
-                owner_password: Some("preview-password".into()),
-                ..Default::default()
-            },
-        )],
+        vec![home_credentials()],
         None::<(&str, ClaimError)>,
     );
 }
