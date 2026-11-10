@@ -35,7 +35,6 @@ crate::i18n::messages! {
         /// The command line's name for screen readers.
         ConsoleCommand = "Command",
         /// Over the tab while files are dragged onto it.
-        FilesDropToUpload = "Release to upload files",
         /// The toolbar's menu.
         FilesAddRemove = "Add/Remove",
         FilesSelectAll = "Select all",

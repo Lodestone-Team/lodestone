@@ -2,9 +2,11 @@
 //! of a Fabric server, the toolbar (update all, check for updates, upload), and a row
 //! per mod with its update, Modrinth link, switch and delete.
 
+use std::path::PathBuf;
+
 use gpui::{
-    AnyElement, AppContext as _, Context, IntoElement, ParentElement, PathPromptOptions,
-    SharedString, Styled, div, img, prelude::*,
+    AnyElement, AppContext as _, Context, ExternalPaths, IntoElement, ParentElement,
+    PathPromptOptions, SharedString, Styled, div, img, prelude::*,
 };
 use launcher_core::cores::admin::mods::{
     ClientRequirement, InstalledMod, InstalledModLoader, ModInstallRequest, ModInstallResult,
@@ -263,6 +265,19 @@ impl ModsPage {
                 }
                 _ => return,
             };
+            this.update(cx, |this, cx| this.upload_paths(paths, cx))
+                .ok();
+        });
+        self.push(task);
+    }
+
+    /// Uploads `.jar` files picked in the dialog or dropped on the tab; anything else
+    /// is refused, by name, before a byte is sent.
+    fn upload_paths(&mut self, paths: Vec<PathBuf>, cx: &mut Context<Self>) {
+        if paths.is_empty() || self.uploading {
+            return;
+        }
+        let task = cx.spawn(async move |this, cx| {
             let not_jars: Vec<String> = paths
                 .iter()
                 .filter(|p| !p.extension().is_some_and(|e| e.eq_ignore_ascii_case("jar")))
@@ -817,7 +832,15 @@ impl ModsPage {
                 .into_any_element()])
             .into_any_element()
         };
+        let can_drop = can_write && self.list.is_some() && !self.uploading;
         div()
+            .id("mods-installed")
+            .min_h(px(360.))
+            // while files are dragged over the view, its edge and a tint say they can be
+            // dropped (as the launcher's Content tab does)
+            .rounded(radius::LG)
+            .border_2()
+            .border_color(colors::TRANSPARENT)
             .flex()
             .flex_col()
             .gap(px(16.))
@@ -826,6 +849,16 @@ impl ModsPage {
             })
             .child(toolbar)
             .child(list)
+            .when(can_drop, |this| {
+                this.drag_over::<ExternalPaths>(|style, _, _, _| {
+                    style
+                        .border_color(lodestone_ui::theme::accent::light().opacity(60))
+                        .bg(lodestone_ui::theme::accent::base().opacity(8))
+                })
+                .on_drop(cx.listener(|this, paths: &ExternalPaths, _, cx| {
+                    this.upload_paths(paths.paths().to_vec(), cx)
+                }))
+            })
             .into_any_element()
     }
 }

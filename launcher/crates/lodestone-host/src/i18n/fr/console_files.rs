@@ -24,7 +24,6 @@ pub fn text(message: M) -> &'static str {
         M::ConsoleOwnerOnlyAtom => "Seul le propriétaire peut contrôler les serveurs atom",
         M::ConsoleJumpToLatest => "Aller à la fin",
         M::Console => "Console",
-        M::FilesDropToUpload => "Relâchez pour importer les fichiers",
         M::FilesAddRemove => "Ajouter/Retirer",
         M::FilesSelectAll => "Tout sélectionner",
         M::FilesDeselectAll => "Tout désélectionner",

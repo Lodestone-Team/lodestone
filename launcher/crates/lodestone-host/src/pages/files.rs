@@ -2262,7 +2262,6 @@ impl Render for FilesPage {
             .on_action(cx.listener(Self::on_save))
             .on_action(cx.listener(|this, _: &FindInFile, _, cx| this.open_find(cx)))
             .on_action(cx.listener(Self::close_menu))
-            .group("files-drop")
             .relative()
             .size_full()
             .min_h(px(360.))
@@ -2293,49 +2292,24 @@ impl Render for FilesPage {
                     }
                 }),
             )
+            // while files are dragged over the tab, its edge and a tint say they can be
+            // dropped (as the launcher's Content tab does)
+            .rounded(radius::LG)
+            .border_2()
+            .border_color(colors::TRANSPARENT)
             .when(can_write, |this| {
-                this.on_drop(cx.listener(|this, paths: &ExternalPaths, _, cx| {
+                this.drag_over::<ExternalPaths>(|style, _, _, _| {
+                    style
+                        .border_color(lodestone_ui::theme::accent::light().opacity(60))
+                        .bg(lodestone_ui::theme::accent::base().opacity(8))
+                })
+                .on_drop(cx.listener(|this, paths: &ExternalPaths, _, cx| {
                     this.upload(paths.paths().to_vec(), cx)
                 }))
             })
             .child(toolbar)
             .child(panel)
             .child(status)
-            .when(can_write, |this| {
-                // "Release to upload", while files are dragged over the tab
-                this.child(
-                    div()
-                        .absolute()
-                        .inset_0()
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .invisible()
-                        .group_drag_over::<ExternalPaths>("files-drop", |style| style.visible())
-                        .rounded(radius::XL_2)
-                        .bg(colors::GRAY_900.opacity(70))
-                        .child(
-                            div()
-                                .flex()
-                                .flex_col()
-                                .items_center()
-                                .gap(px(16.))
-                                .w(px(220.))
-                                .pt(px(48.))
-                                .pb(px(32.))
-                                .rounded(radius::XL_2)
-                                .border_2()
-                                .border_dashed()
-                                .border_color(colors::GRAY_FADED.opacity(30))
-                                .bg(colors::GRAY_800.opacity(50))
-                                .text_color(colors::WHITE.opacity(50))
-                                .child(
-                                    Icon::Download.render(px(40.), colors::GRAY_FADED.opacity(80)),
-                                )
-                                .child(t(M::FilesDropToUpload)),
-                        ),
-                )
-            })
             .children(menu)
             .children(window_layer(window, dialogs))
             .font_family(fonts::body())
