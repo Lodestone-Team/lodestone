@@ -59,7 +59,10 @@ impl Default for CfBrowse {
 /// A CurseForge project opened from Browse.
 pub struct CfProjectView {
     pub project_id: u64,
+    pub tab: super::ProjectTab,
     pub project: Load<CfMod>,
+    /// The description, as HTML.
+    pub description: Load<String>,
     pub files: Load<Vec<CfFile>>,
     pub show_all: bool,
     pub with_dependencies: bool,
@@ -143,15 +146,22 @@ impl ContentView {
         };
         let work = cx.background_spawn(async move {
             let project = cf.project(project_id).await;
+            let description = cf.description(project_id).await;
             let files = cf.files(project_id, None, None).await;
-            (project, files)
+            (project, description, files)
         });
         let task = cx.spawn(async move |this, cx| {
-            let (project, files) = work.await;
+            let (project, description, files) = work.await;
             this.update(cx, |this, cx| {
-                if let Some(view) = &mut this.section_mut(kind).cf.project {
+                if let Some(view) = &mut this.section_mut(kind).cf.project
+                    && view.project_id == project_id
+                {
                     view.project = match project {
                         Ok(project) => Load::Ready(project),
+                        Err(err) => Load::Failed(err.to_string().into()),
+                    };
+                    view.description = match description {
+                        Ok(description) => Load::Ready(description),
                         Err(err) => Load::Failed(err.to_string().into()),
                     };
                     view.files = match files {
@@ -164,9 +174,13 @@ impl ContentView {
             .ok();
         });
         let _ = target;
+        self.panel_closing = None;
+        self.section_mut(kind).browse.project = None;
         self.section_mut(kind).cf.project = Some(CfProjectView {
             project_id,
+            tab: super::ProjectTab::default(),
             project: Load::Loading,
+            description: Load::Loading,
             files: Load::Loading,
             show_all: false,
             with_dependencies: true,
@@ -177,6 +191,12 @@ impl ContentView {
     }
 
     pub fn close_cf_project(&mut self, kind: ContentKind, cx: &mut Context<Self>) {
+        // The panel beside the list slides shut first.
+        if self.panel_width.is_some() && self.panel_closing.is_none() {
+            self.panel_closing = Some(kind);
+            cx.notify();
+            return;
+        }
         self.section_mut(kind).cf.project = None;
         if matches!(self.section(kind).cf.results, Load::NotLoaded) {
             self.cf_search(kind, cx);
@@ -186,6 +206,43 @@ impl ContentView {
 
     fn cf_project_mut(&mut self, kind: ContentKind) -> Option<&mut CfProjectView> {
         self.section_mut(kind).cf.project.as_mut()
+    }
+
+    /// Shows a prepared CurseForge project, for the offscreen screenshots.
+    pub fn preview_cf_project(
+        &mut self,
+        kind: ContentKind,
+        project: CfMod,
+        description: String,
+        files: Vec<CfFile>,
+        cx: &mut Context<Self>,
+    ) {
+        self.kind = kind;
+        self.section_mut(kind).browse.project = None;
+        self.section_mut(kind).cf.project = Some(CfProjectView {
+            project_id: project.id,
+            tab: super::ProjectTab::default(),
+            project: Load::Ready(project),
+            description: Load::Ready(description),
+            files: Load::Ready(files),
+            show_all: false,
+            with_dependencies: true,
+            confirm_force: None,
+            _task: None,
+        });
+        cx.notify();
+    }
+
+    pub fn set_cf_project_tab(
+        &mut self,
+        kind: ContentKind,
+        tab: super::ProjectTab,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(view) = self.cf_project_mut(kind) {
+            view.tab = tab;
+        }
+        cx.notify();
     }
 
     // ---- Installing ----
@@ -786,6 +843,13 @@ impl ContentView {
             .first()
             .map(|a| a.name.clone())
             .unwrap_or_default();
+        let open = self
+            .section(kind)
+            .cf
+            .project
+            .as_ref()
+            .is_some_and(|p| p.project_id == id)
+            && self.panel_closing != Some(kind);
         row_base(("cf-hit", index), first)
             .accessible(
                 Role::ListItem,
@@ -793,9 +857,13 @@ impl ContentView {
                 hit.name.clone(),
             )
             .aria_description(hit.summary.clone())
+            .aria_selected(open)
             .keyboard_focus()
             .cursor_pointer()
             .hover(|style| style.bg(colors::GRAY_750))
+            .when(open, |this| {
+                this.bg(crate::theme::accent::base().opacity(18))
+            })
             .on_press(cx.listener(move |this, _, _, cx| this.open_cf_project(kind, id, cx)))
             .child(icon_box(icon, 36.))
             .child(
@@ -869,11 +937,9 @@ impl ContentView {
         let show_all = view.show_all;
         let with_dependencies = view.with_dependencies;
         let confirm_force = view.confirm_force;
-        let back = Button::new(("cf-back", kind as usize), t(CommonMsg::Back))
-            .variant(ButtonVariant::Ghost)
-            .icon(Icon::ArrowLeft)
-            .size(ButtonSize::Slim)
-            .on_click(cx.listener(move |this, _, _, cx| this.close_cf_project(kind, cx)));
+        let tab = view.tab;
+        let description = view.description.clone();
+        let back = self.page_bar(kind, "cf-back", None, Self::close_cf_project, cx);
         let project = match project {
             Load::Ready(project) => project,
             Load::Failed(err) => {
@@ -881,7 +947,7 @@ impl ContentView {
                     .flex()
                     .flex_col()
                     .gap_3()
-                    .child(div().flex().child(back))
+                    .child(back)
                     .child(small(err).text_color(colors::RED_200))
                     .into_any_element();
             }
@@ -890,7 +956,7 @@ impl ContentView {
                     .flex()
                     .flex_col()
                     .gap_3()
-                    .child(div().flex().child(back))
+                    .child(back)
                     .child(
                         div()
                             .flex()
@@ -910,70 +976,129 @@ impl ContentView {
             .first()
             .map(|a| a.name.clone())
             .unwrap_or_default();
-        let mut column = div()
-            .flex()
-            .flex_col()
-            .gap_4()
-            .child(div().flex().child(back))
-            .child(
-                div()
-                    .flex()
-                    .flex_row()
-                    .items_start()
-                    .gap_4()
-                    .child(icon_box(icon, 72.))
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .flex_1()
-                            .min_w_0()
-                            .gap_1()
-                            .child(
-                                div()
-                                    .font_family(fonts::display())
-                                    .text_size(theme::text_size(text::H2))
-                                    .font_weight(weights::BOLD.into())
-                                    .text_color(crate::theme::ink::text())
-                                    .child(project.name.clone()),
-                            )
-                            .child(
-                                div()
-                                    .text_color(crate::theme::ink::secondary())
-                                    .whitespace_normal()
-                                    .child(project.summary.clone()),
-                            )
-                            .child(
-                                small(if author.is_empty() {
+        let bar = self.page_bar(
+            kind,
+            "cf-back",
+            Some(("open-curseforge", t(M::ViewOnCurseForge).into(), page)),
+            Self::close_cf_project,
+            cx,
+        );
+        let icon_size = if self.panel_width.is_some() { 56. } else { 72. };
+        let mut column = div().flex().flex_col().gap_4().child(bar).child(
+            div()
+                .flex()
+                .flex_row()
+                .items_start()
+                .gap_4()
+                .child(icon_box(icon, icon_size))
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .flex_1()
+                        .min_w_0()
+                        .gap_1()
+                        .child(
+                            div()
+                                .font_family(fonts::display())
+                                .text_size(theme::text_size(text::H2))
+                                .font_weight(weights::BOLD.into())
+                                .text_color(crate::theme::ink::text())
+                                .whitespace_normal()
+                                .child(project.name.clone()),
+                        )
+                        .child(
+                            div()
+                                .text_color(crate::theme::ink::secondary())
+                                .whitespace_normal()
+                                .child(project.summary.clone()),
+                        )
+                        .child(
+                            small(if author.is_empty() {
+                                counted(
+                                    project.download_count.max(0.0) as u64,
+                                    P::Downloads,
+                                    M::DownloadsCompact,
+                                )
+                            } else {
+                                format!(
+                                    "{} · {}",
+                                    tr!(M::ByAuthor, author = author),
                                     counted(
                                         project.download_count.max(0.0) as u64,
                                         P::Downloads,
-                                        M::DownloadsCompact,
+                                        M::DownloadsCompact
                                     )
-                                } else {
-                                    format!(
-                                        "{} · {}",
-                                        tr!(M::ByAuthor, author = author),
-                                        counted(
-                                            project.download_count.max(0.0) as u64,
-                                            P::Downloads,
-                                            M::DownloadsCompact
-                                        )
-                                    )
-                                })
-                                .text_color(crate::theme::ink::muted()),
-                            ),
-                    )
-                    .child(
-                        Button::new(("open-curseforge", kind as usize), t(M::ViewOnCurseForge))
-                            .variant(ButtonVariant::Secondary)
-                            .icon(Icon::ArrowUpRightFromSquare)
-                            .size(ButtonSize::Slim)
-                            .on_click(move |_, _, cx| cx.open_url(&page)),
-                    ),
-            );
+                                )
+                            })
+                            .text_color(crate::theme::ink::muted()),
+                        ),
+                ),
+        );
         if kind == ContentKind::ShaderPack && self.shaders.loader.is_none() {
             column = column.child(self.render_shader_mod(cx));
+        }
+        let screenshots: Vec<(String, Option<String>)> = project
+            .screenshots
+            .iter()
+            .filter_map(|s| Some((s.url.clone()?, s.title.clone())))
+            .collect();
+        let mut tabs: Vec<(super::ProjectTab, SharedString)> =
+            vec![(super::ProjectTab::Description, t(M::Description).into())];
+        if !screenshots.is_empty() {
+            tabs.push((super::ProjectTab::Gallery, t(M::Gallery).into()));
+        }
+        tabs.push((super::ProjectTab::Versions, t(M::Files).into()));
+        let tab = if tabs.iter().any(|(t, _)| *t == tab) {
+            tab
+        } else {
+            super::ProjectTab::Versions
+        };
+        column = column.child(self.page_tabs(
+            kind,
+            "cf-project-tabs",
+            &tabs,
+            tab,
+            Self::set_cf_project_tab,
+            cx,
+        ));
+        match tab {
+            super::ProjectTab::Description => {
+                let body = match description {
+                    Load::Ready(html) if html.trim().is_empty() => {
+                        muted(t(M::NoDescription)).into_any_element()
+                    }
+                    Load::Ready(html) => {
+                        let blocks = self.parsed_description(&format!("cf-{}", project.id), &html);
+                        self.description_box(
+                            format!("cf-description-{}", project.id),
+                            &blocks,
+                            t(M::RestOnCurseForge).into(),
+                            cx,
+                        )
+                    }
+                    Load::Failed(err) => small(err).text_color(colors::RED_200).into_any_element(),
+                    _ => div()
+                        .flex()
+                        .flex_row()
+                        .gap_2()
+                        .text_color(crate::theme::ink::muted())
+                        .child(LoadingDots)
+                        .child(t(M::LoadingDescription))
+                        .into_any_element(),
+                };
+                return column.child(body).into_any_element();
+            }
+            super::ProjectTab::Gallery => {
+                return column
+                    .child(self.render_gallery(
+                        format!("cf-gallery-{}", project.id),
+                        screenshots,
+                        cx,
+                    ))
+                    .into_any_element();
+            }
+            super::ProjectTab::Versions => {}
         }
         let files = match files {
             Load::Ready(files) => files,

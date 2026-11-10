@@ -89,12 +89,14 @@ impl<T> Load<T> {
     }
 }
 
-/// The parts of a project's page.
+/// The parts of a project's page. A page without a description or gallery skips
+/// those tabs.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ProjectTab {
     #[default]
-    Versions,
     Description,
+    Gallery,
+    Versions,
 }
 
 /// A Modrinth project opened from Browse or a link.
@@ -282,8 +284,13 @@ pub struct ContentView {
     _dependents: Option<Task<()>>,
     _delete: Option<Task<()>>,
     remote_icons: HashMap<String, RemoteIcon>,
-    /// Images of project descriptions, by URL.
+    /// Images of project descriptions and galleries, by URL.
     description_images: HashMap<String, RemoteIcon>,
+    /// The width of the project panel beside the list, or `None` when a project's page
+    /// takes the whole area (a narrow window). Set on each frame.
+    pub panel_width: Option<f32>,
+    /// The panel of this section is sliding shut; its project is let go once it has.
+    pub panel_closing: Option<ContentKind>,
     /// Parsed project descriptions, by project id.
     descriptions: HashMap<String, Arc<Vec<launcher_core::markdown::Block>>>,
     /// Whether the game was running at the last check, to reload when it stops.
@@ -355,6 +362,8 @@ impl ContentView {
             _delete: None,
             remote_icons: HashMap::new(),
             description_images: HashMap::new(),
+            panel_width: None,
+            panel_closing: None,
             descriptions: HashMap::new(),
             was_active: false,
             prerelease: false,
@@ -1327,9 +1336,12 @@ impl ContentView {
         }
         self.section_mut(kind).browse.text = text.clone();
         self.section_mut(kind).browse.offset = 0;
-        // Typing leaves a project's page for the list it filters.
-        self.section_mut(kind).browse.project = None;
-        self.section_mut(kind).cf.project = None;
+        // Typing leaves a project's page for the list it filters (unless the page is
+        // beside the list).
+        if self.panel_width.is_none() {
+            self.section_mut(kind).browse.project = None;
+            self.section_mut(kind).cf.project = None;
+        }
         self.section_mut(kind).cf.offset = 0;
         if text.trim().is_empty() {
             // Back to the whole installed list, with the platforms browsed below it
@@ -1519,6 +1531,7 @@ impl ContentView {
             return;
         };
         let id = project_id.clone();
+        let opened = project_id.clone();
         let work = cx.background_spawn(async move {
             let project = api.project(&id).await;
             let versions = api.versions(&id, &[], &[]).await;
@@ -1527,7 +1540,9 @@ impl ContentView {
         let task = cx.spawn(async move |this, cx| {
             let (project, versions) = work.await;
             this.update(cx, |this, cx| {
-                if let Some(view) = &mut this.section_mut(kind).browse.project {
+                if let Some(view) = &mut this.section_mut(kind).browse.project
+                    && view.project_id == opened
+                {
                     view.project = match project {
                         Ok(project) => Load::Ready(project),
                         Err(err) => Load::Failed(err.to_string().into()),
@@ -1541,9 +1556,17 @@ impl ContentView {
             })
             .ok();
         });
+        self.panel_closing = None;
+        // A link to a version opens on the versions.
+        let tab = if linked_version.is_some() {
+            ProjectTab::Versions
+        } else {
+            ProjectTab::default()
+        };
+        self.section_mut(kind).cf.project = None;
         self.section_mut(kind).browse.project = Some(ProjectView {
             project_id,
-            tab: ProjectTab::default(),
+            tab,
             project: Load::Loading,
             versions: Load::Loading,
             linked_version,
@@ -1562,9 +1585,30 @@ impl ContentView {
     }
 
     pub fn close_project(&mut self, kind: ContentKind, cx: &mut Context<Self>) {
+        // The panel beside the list slides shut first (see `finish_closing`).
+        if self.panel_width.is_some() && self.panel_closing.is_none() {
+            self.panel_closing = Some(kind);
+            cx.notify();
+            return;
+        }
         self.section_mut(kind).browse.project = None;
         if matches!(self.section(kind).browse.results, Load::NotLoaded) {
             self.search(kind, cx);
+        }
+        cx.notify();
+    }
+
+    /// Lets go of the project whose panel has slid shut.
+    pub(super) fn finish_closing(&mut self, kind: ContentKind, cx: &mut Context<Self>) {
+        self.panel_closing = None;
+        let section = self.section_mut(kind);
+        section.browse.project = None;
+        section.cf.project = None;
+        if matches!(self.section(kind).browse.results, Load::NotLoaded) {
+            self.search(kind, cx);
+        }
+        if matches!(self.section(kind).cf.results, Load::NotLoaded) {
+            self.cf_search(kind, cx);
         }
         cx.notify();
     }
@@ -1626,10 +1670,75 @@ impl ContentView {
         &mut self,
         project: &ModrinthProject,
     ) -> Arc<Vec<launcher_core::markdown::Block>> {
+        self.parsed_description(&project.id, &project.body)
+    }
+
+    /// A description (Markdown or HTML) parsed once, by a key naming its project.
+    pub fn parsed_description(
+        &mut self,
+        key: &str,
+        body: &str,
+    ) -> Arc<Vec<launcher_core::markdown::Block>> {
         self.descriptions
-            .entry(project.id.clone())
-            .or_insert_with(|| Arc::new(launcher_core::markdown::parse(&project.body)))
+            .entry(key.to_string())
+            .or_insert_with(|| Arc::new(launcher_core::markdown::parse(body)))
             .clone()
+    }
+
+    /// Opens an installed file's page beside the list: its Modrinth project, else its
+    /// CurseForge one, else (with neither platform reachable) its page in the browser.
+    pub fn open_item_page(&mut self, kind: ContentKind, file_name: &str, cx: &mut Context<Self>) {
+        let Some(item) = self
+            .section(kind)
+            .items()
+            .iter()
+            .find(|i| i.file.file_name == file_name)
+            .cloned()
+        else {
+            return;
+        };
+        if let Some(source) = item.modrinth.as_ref().filter(|m| !m.project_id.is_empty())
+            && self.modrinth(cx).is_some()
+        {
+            self.open_project(kind, source.project_id.clone(), None, cx);
+        } else if let Some(source) = &item.curseforge
+            && self.curseforge(cx).is_some()
+            && self.context(cx).is_some()
+        {
+            self.open_cf_project(kind, source.project_id, cx);
+        } else if let Some(page) = item
+            .modrinth
+            .as_ref()
+            .filter(|m| !m.slug.is_empty())
+            .map(|m| view::modrinth_page(view::page_type(kind), &m.slug))
+            .or_else(|| {
+                item.curseforge
+                    .as_ref()
+                    .map(|c| c.page_url.clone())
+                    .filter(|p| !p.is_empty())
+            })
+        {
+            cx.open_url(&page);
+        }
+    }
+
+    /// Whether the open project is the one `file_name` came from, to mark its row.
+    pub fn is_open_page(&self, kind: ContentKind, item: &Item) -> bool {
+        if self.panel_closing == Some(kind) {
+            return false;
+        }
+        let section = self.section(kind);
+        let modrinth = section.browse.project.as_ref().is_some_and(|p| {
+            item.modrinth
+                .as_ref()
+                .is_some_and(|m| m.project_id == p.project_id)
+        });
+        let curseforge = section.cf.project.as_ref().is_some_and(|p| {
+            item.curseforge
+                .as_ref()
+                .is_some_and(|c| c.project_id == p.project_id)
+        });
+        modrinth || curseforge
     }
 
     /// The loaded images among `urls` (from Modrinth's CDN), fetching the others the

@@ -502,11 +502,27 @@ impl Modrinth {
         })
     }
 
-    /// The bytes of an image on Modrinth's CDN (project icons), at most
-    /// [`MAX_IMAGE_BYTES`].
+    /// The bytes of an image: one on Modrinth's CDN, at most [`MAX_IMAGE_BYTES`] for an
+    /// icon and more for uploaded screenshots, or one a project page names on another
+    /// allowed host ([`page_images`](super::page_images)), at most
+    /// [`MAX_PAGE_IMAGE_BYTES`](super::page_images::MAX_PAGE_IMAGE_BYTES).
     pub async fn image(&self, url: &str) -> Result<Vec<u8>, ModrinthError> {
-        let url = self.cdn_url(url)?;
-        self.send(Method::GET, &url, None, MAX_IMAGE_BYTES).await
+        if let Ok(cdn) = self.cdn_url(url) {
+            // Gallery and description uploads are bigger than icons.
+            let limit = if url.contains("images/") {
+                super::page_images::MAX_PAGE_IMAGE_BYTES
+            } else {
+                MAX_IMAGE_BYTES
+            };
+            return self.send(Method::GET, &cdn, None, limit).await;
+        }
+        let http = self.http.clone();
+        let mirror = self.cdn_mirror.clone();
+        crate::http::in_http_runtime(async move {
+            super::page_images::fetch(http, url, USER_AGENT, mirror.as_ref()).await
+        })
+        .await
+        .map_err(ModrinthError::Unreachable)
     }
 }
 
