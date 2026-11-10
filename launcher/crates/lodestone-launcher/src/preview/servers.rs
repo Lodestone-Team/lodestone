@@ -60,6 +60,14 @@ pub const SCENES: &[&str] = &[
     "servers-join-ready-mods",
     "servers-join-failed",
     "servers-join-no-path",
+    "servers-friend-list-empty",
+    "servers-friend-list",
+    "servers-friend-list-reply",
+    "servers-friend-list-add",
+    "servers-friend-list-add-link",
+    "servers-friend-list-verify",
+    "servers-friend-list-remove",
+    "servers-friend-list-retire",
 ];
 
 /// Made-up fingerprints.
@@ -421,6 +429,10 @@ fn apply_servers(scene: &str, servers: &mut Servers, cx: &mut Context<Servers>) 
                 },
                 cx,
             );
+        }
+        scene if scene.starts_with("servers-friend-list") => {
+            servers.preview(Vec::new(), Vec::new());
+            super::friend_list::apply(scene, servers, cx);
         }
         scene if scene == "servers-friends" || scene.starts_with("servers-join") => {
             servers.preview(vec![home(true)], Vec::new());

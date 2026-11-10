@@ -15,6 +15,9 @@ use crate::{Error, Result};
 
 /// The QUIC application protocol. Both sides must speak the same version.
 pub const ALPN: &[u8] = b"lodestone-connect-1";
+/// The protocol between a friend and a core's friend host: a different ALPN, so a
+/// friend connection can never be mistaken for an invite connection, or the reverse.
+pub const FRIEND_ALPN: &[u8] = b"lodestone-friend-1";
 /// The name in the host's certificate (checked by fingerprint, not by name).
 pub const SERVER_NAME: &str = "lodestone-connect";
 /// The invite token's length in bytes.
@@ -116,6 +119,11 @@ pub(crate) fn endpoint(socket: UdpSocket, server: Option<quinn::ServerConfig>) -
 /// The friend's QUIC settings: TLS 1.3, accepting only the certificate whose SHA-256
 /// is `fingerprint`.
 pub(crate) fn client_config(fingerprint: [u8; 32]) -> Result<quinn::ClientConfig> {
+    client_config_for(fingerprint, ALPN)
+}
+
+/// [`client_config`] for the protocol `alpn`.
+pub(crate) fn client_config_for(fingerprint: [u8; 32], alpn: &[u8]) -> Result<quinn::ClientConfig> {
     let tls_error = |err: rustls::Error| Error::Other(err.to_string());
     let mut crypto = rustls::ClientConfig::builder_with_provider(provider())
         .with_protocol_versions(&[&rustls::version::TLS13])
@@ -126,7 +134,9 @@ pub(crate) fn client_config(fingerprint: [u8; 32]) -> Result<quinn::ClientConfig
             provider: provider(),
         }))
         .with_no_client_auth();
-    crypto.alpn_protocols = vec![ALPN.to_vec()];
+    crypto.alpn_protocols = vec![alpn.to_vec()];
+    // no 0-RTT: nothing may be sent before the handshake proves who the host is
+    crypto.enable_early_data = false;
     let mut client = quinn::ClientConfig::new(Arc::new(
         quinn::crypto::rustls::QuicClientConfig::try_from(crypto)
             .map_err(|err| Error::Other(err.to_string()))?,
@@ -138,6 +148,16 @@ pub(crate) fn client_config(fingerprint: [u8; 32]) -> Result<quinn::ClientConfig
 /// The host's QUIC settings, with its certificate and PKCS#8 key.
 #[cfg(feature = "host")]
 pub(crate) fn server_config(cert_der: &[u8], key_der: &[u8]) -> Result<quinn::ServerConfig> {
+    server_config_for(cert_der, key_der, ALPN)
+}
+
+/// [`server_config`] for the protocol `alpn`.
+#[cfg(feature = "host")]
+pub(crate) fn server_config_for(
+    cert_der: &[u8],
+    key_der: &[u8],
+    alpn: &[u8],
+) -> Result<quinn::ServerConfig> {
     use rustls::pki_types::{PrivateKeyDer, PrivatePkcs8KeyDer};
     let tls_error = |err: rustls::Error| Error::Other(err.to_string());
     let mut crypto = rustls::ServerConfig::builder_with_provider(provider())
@@ -149,7 +169,9 @@ pub(crate) fn server_config(cert_der: &[u8], key_der: &[u8]) -> Result<quinn::Se
             PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(key_der.to_vec())),
         )
         .map_err(tls_error)?;
-    crypto.alpn_protocols = vec![ALPN.to_vec()];
+    crypto.alpn_protocols = vec![alpn.to_vec()];
+    // no 0-RTT (rustls's default, said here so it stays that way)
+    crypto.max_early_data_size = 0;
     let mut server = quinn::ServerConfig::with_crypto(Arc::new(
         quinn::crypto::rustls::QuicServerConfig::try_from(crypto)
             .map_err(|err| Error::Other(err.to_string()))?,

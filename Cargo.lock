@@ -6710,6 +6710,7 @@ dependencies = [
 name = "lodestone_connect"
 version = "0.5.1"
 dependencies = [
+ "aws-lc-rs",
  "futures-util",
  "quinn",
  "rcgen",
@@ -6727,6 +6728,7 @@ dependencies = [
  "tracing",
  "url",
  "webpki-roots",
+ "zeroize",
 ]
 
 [[package]]

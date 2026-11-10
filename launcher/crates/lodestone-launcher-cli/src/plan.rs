@@ -140,6 +140,24 @@ fn looks_like_link(text: &str) -> bool {
         .any(|scheme| text.starts_with(scheme))
 }
 
+/// A friend link argument: the link, or "-" for stdin's first line (keeps it out of
+/// the shell's history).
+fn friend_link(
+    link: &str,
+    read_stdin: &mut dyn FnMut() -> std::io::Result<String>,
+) -> Result<String, ErrorObject> {
+    if link != "-" {
+        return Ok(link.trim().to_string());
+    }
+    let line = read_stdin()
+        .map_err(|err| usage(format!("Couldn't read the friend link from stdin: {err}")))?;
+    let link = line.trim().to_string();
+    if link.is_empty() {
+        return Err(usage("The friend link on stdin is empty."));
+    }
+    Ok(link)
+}
+
 fn update_mods(update: bool, skip: bool) -> Value {
     match (update, skip) {
         (true, _) => json!(true),
@@ -808,6 +826,63 @@ pub fn plan(
             }
             Friends::Remove { friend } => call("friends.remove", vec![("friend", json!(friend))]),
         },
+        Command::FriendList(c) => match c {
+            FriendList::Me => call("friend_list.me", vec![]),
+            FriendList::SetName { name } => call("friend_list.set_name", vec![("name", json!(name))]),
+            FriendList::MakeLink => call("friend_list.create_link", vec![]),
+            FriendList::Links => call("friend_list.links", vec![]),
+            FriendList::CancelLink { code } => {
+                call("friend_list.cancel_link", vec![("code", json!(code))])
+            }
+            FriendList::Preview { link } => call(
+                "friend_list.preview_link",
+                vec![("link", json!(friend_link(link, read_stdin)?))],
+            ),
+            FriendList::Answer { link, safety_code } => call(
+                "friend_list.answer_link",
+                vec![
+                    ("link", json!(friend_link(link, read_stdin)?)),
+                    ("safety_code", json!(safety_code)),
+                ],
+            ),
+            FriendList::Replies => call("friend_list.replies", vec![]),
+            FriendList::Accept { code, key } => call(
+                "friend_list.accept",
+                vec![("code", json!(code)), ("key", json!(key))],
+            ),
+            FriendList::List => call("friend_list.list", vec![]),
+            FriendList::Refresh => call("friend_list.refresh", vec![]),
+            FriendList::Verify { friend, undo } => call(
+                "friend_list.verify",
+                vec![("friend", json!(friend)), ("value", json!(!undo))],
+            ),
+            FriendList::Nickname {
+                friend,
+                nickname,
+                clear,
+            } => call(
+                "friend_list.nickname",
+                vec![
+                    ("friend", json!(friend)),
+                    (
+                        "nickname",
+                        if *clear { Value::Null } else { json!(nickname) },
+                    ),
+                ],
+            ),
+            FriendList::Hide { friend, undo } => call(
+                "friend_list.hide",
+                vec![("friend", json!(friend)), ("value", json!(!undo))],
+            ),
+            FriendList::Remove { friend } => {
+                call("friend_list.remove", vec![("friend", json!(friend))])
+            }
+            FriendList::Servers { friend, core } => call(
+                "friend_list.servers",
+                vec![("friend", json!(friend)), ("core", json!(core))],
+            ),
+            FriendList::Retire => call("friend_list.retire", vec![]),
+        },
         Command::Prompts(c) => match c {
             Prompts::List => call("prompts.list", vec![]),
             Prompts::Answer {
@@ -1144,6 +1219,55 @@ mod tests {
         let (method, params, _) = call_of(&["friends", "remove", "Alex's SMP"]);
         assert_eq!(method, "friends.remove");
         assert_eq!(params["friend"], "Alex's SMP");
+    }
+
+    #[test]
+    fn friend_list_commands_make_their_calls() {
+        assert_eq!(call_of(&["friend-list", "me"]).0, "friend_list.me");
+        let (method, params, long) = call_of(&["friend-list", "set-name", "Peter"]);
+        assert_eq!((method, long), ("friend_list.set_name", false));
+        assert_eq!(params["name"], "Peter");
+        assert_eq!(call_of(&["friend-list", "make-link"]).0, "friend_list.create_link");
+        assert_eq!(call_of(&["friend-list", "links"]).0, "friend_list.links");
+        let link = "https://connect.lodestone.cc/f/7KQ2M9XD4T#ab.cd";
+        let (method, params, _) = call_of(&["friend-list", "preview", link]);
+        assert_eq!(method, "friend_list.preview_link");
+        assert_eq!(params["link"], link);
+        let (method, params, _) =
+            call_of(&["friend-list", "answer", link, "--safety-code", "K7Q2-M9XD-4TRW-H3BE"]);
+        assert_eq!(method, "friend_list.answer_link");
+        assert_eq!(params["safety_code"], "K7Q2-M9XD-4TRW-H3BE");
+        // "-": the link from stdin
+        let cli =
+            Cli::try_parse_from(["lodestone-launcher-cli", "friend-list", "answer", "-"]).unwrap();
+        let mut stdin = || Ok(format!("  {link}\n"));
+        match plan(&cli.command, &mut stdin).unwrap() {
+            Plan::Call { params, .. } => assert_eq!(params["link"], link),
+            other => panic!("not a call: {other:?}"),
+        }
+        let mut empty = || Ok("\n".to_string());
+        assert!(plan(&cli.command, &mut empty).is_err());
+        let (method, params, _) = call_of(&["friend-list", "accept", "7KQ2M9XD4T", "abcd"]);
+        assert_eq!(method, "friend_list.accept");
+        assert_eq!((params["code"].as_str(), params["key"].as_str()), (Some("7KQ2M9XD4T"), Some("abcd")));
+        let (method, params, _) = call_of(&["friend-list", "verify", "Alex"]);
+        assert_eq!(method, "friend_list.verify");
+        assert_eq!(params["value"], true);
+        assert_eq!(call_of(&["friend-list", "verify", "Alex", "--undo"]).1["value"], false);
+        assert_eq!(call_of(&["friend-list", "hide", "Kim"]).1["value"], true);
+        assert_eq!(call_of(&["friend-list", "nickname", "Samantha", "Sam"]).1["nickname"], "Sam");
+        assert!(call_of(&["friend-list", "nickname", "Sam", "--clear"]).1.get("nickname").is_none_or(Value::is_null));
+        assert!(
+            Cli::try_parse_from(["lodestone-launcher-cli", "friend-list", "nickname", "Sam"])
+                .is_err()
+        );
+        assert_eq!(call_of(&["friend-list", "remove", "Kim"]).0, "friend_list.remove");
+        let (method, params, _) = call_of(&["friend-list", "servers", "Alex", "--core", "PC"]);
+        assert_eq!(method, "friend_list.servers");
+        assert_eq!(params["core"], "PC");
+        assert_eq!(call_of(&["friend-list", "refresh"]).0, "friend_list.refresh");
+        assert_eq!(call_of(&["friend-list", "replies"]).0, "friend_list.replies");
+        assert_eq!(call_of(&["friend-list", "retire"]).0, "friend_list.retire");
     }
 
     #[test]

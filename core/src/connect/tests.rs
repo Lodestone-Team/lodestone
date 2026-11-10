@@ -341,3 +341,256 @@ fn game_streams_reach_the_port_only_while_the_server_runs() {
         assert!(!game_port_open(state), "{state:?}");
     }
 }
+
+// ---------------------------------------------------------------------------
+// The friend list
+
+impl Core {
+    async fn call_json(
+        &self,
+        method: Method,
+        path: &str,
+        token: &str,
+        body: Value,
+    ) -> (StatusCode, Value) {
+        let response = reqwest::Client::new()
+            .request(method, format!("{}{path}", self.base))
+            .bearer_auth(token)
+            .json(&body)
+            .send()
+            .await
+            .unwrap();
+        let status = response.status();
+        let text = response.text().await.unwrap();
+        (
+            status,
+            serde_json::from_str(&text).unwrap_or(Value::String(text)),
+        )
+    }
+}
+
+fn friend_key() -> String {
+    lodestone_connect::friend::PersonKey::generate()
+        .unwrap()
+        .public()
+        .to_hex()
+}
+
+#[tokio::test]
+async fn the_friend_list_is_the_owners_and_only_moves_forward() {
+    let core = core().await;
+    let (status, body) = core.call(Method::GET, "/connect/friends", &core.owner_jwt).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["fingerprint"].as_str().unwrap().len(), 64);
+    assert_eq!(body["version"], 0);
+    assert_eq!(body["friends"], json!([]));
+    assert_eq!(body["host"], Value::Null);
+
+    let ben = friend_key();
+    let secret = lodestone_connect::friend::Secret::random().unwrap().to_hex();
+    let list = json!({
+        "version": 1,
+        "friends": [{"key": ben, "name": "Ben\u{202E}", "secret": secret, "shared": [core.fabric.to_string()]}]
+    });
+    let (status, body) = core
+        .call_json(Method::PUT, "/connect/friends", &core.owner_jwt, list.clone())
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["version"], 1);
+    assert_eq!(body["friends"][0]["key"], ben);
+    assert_eq!(body["friends"][0]["name"], "Ben", "names are cleaned");
+    assert_eq!(body["friends"][0]["shared"], json!([core.fabric.to_string()]));
+    assert!(body["host"].is_object(), "something is shared: the friend host runs");
+    assert!(!body.to_string().contains(&secret), "secrets never come back");
+
+    // the same version again, or an older one
+    let (status, _) = core
+        .call_json(Method::PUT, "/connect/friends", &core.owner_jwt, list.clone())
+        .await;
+    assert_eq!(status, StatusCode::CONFLICT);
+
+    // someone who isn't the owner, even with every permission on the instance
+    let mut lots = UserPermission::default();
+    lots.can_view_instance.insert(core.fabric.clone());
+    lots.can_access_instance_setting.insert(core.fabric.clone());
+    let admin = add_user(&core.state, "helper", false, lots).await;
+    let admin = admin.create_jwt().unwrap().to_string();
+    let (status, _) = core.call(Method::GET, "/connect/friends", &admin).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let mut newer = list.clone();
+    newer["version"] = json!(9);
+    let (status, _) = core
+        .call_json(Method::PUT, "/connect/friends", &admin, newer.clone())
+        .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+
+    // bad entries
+    for bad in [
+        json!({"version": 5, "friends": [{"key": "zz", "name": "x", "secret": secret, "shared": []}]}),
+        json!({"version": 5, "friends": [{"key": ben, "name": "x", "secret": "00", "shared": []}]}),
+        json!({"version": 5, "friends": [{"key": ben, "name": "\u{200B}", "secret": secret, "shared": []}]}),
+        json!({"version": 5, "friends": [
+            {"key": ben, "name": "a", "secret": secret, "shared": []},
+            {"key": ben, "name": "b", "secret": secret, "shared": []}
+        ]}),
+    ] {
+        let (status, body) = core
+            .call_json(Method::PUT, "/connect/friends", &core.owner_jwt, bad)
+            .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    }
+
+    // saved for the core's user only, and read again after a restart
+    let file = core.dir.path().join("connect").join("friends").join("list.json");
+    assert!(file.exists());
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = |path: &Path| std::fs::metadata(path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode(&file), 0o600);
+        assert_eq!(mode(&file.parent().unwrap().join("core.json")), 0o600);
+    }
+    let again = friends::FriendShares::new(
+        core.dir.path().join("connect").join("friends"),
+        lodestone_connect::Service::parse("http://127.0.0.1:9").unwrap(),
+        lodestone_connect::GatherOptions { portmap: false, loopback_only: true },
+    );
+    let view = again.view().await.unwrap();
+    assert_eq!(view.version, 1);
+    assert_eq!(view.friends.len(), 1);
+    assert_eq!(view.fingerprint, body_fingerprint(&core).await);
+
+    // nothing shared with anyone: the friend host stops
+    let none = json!({"version": 2, "friends": [{"key": ben, "name": "Ben", "secret": secret, "shared": []}]});
+    let (status, body) = core
+        .call_json(Method::PUT, "/connect/friends", &core.owner_jwt, none)
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["host"], Value::Null);
+    core.state.connect.stop_all().await;
+}
+
+async fn body_fingerprint(core: &Core) -> String {
+    let (_, body) = core.call(Method::GET, "/connect/friends", &core.owner_jwt).await;
+    body["fingerprint"].as_str().unwrap().to_string()
+}
+
+#[tokio::test]
+async fn api_keys_cannot_reach_the_friend_list() {
+    let core = core().await;
+    let (status, body) = core
+        .call_json(
+            Method::POST,
+            "/user/api_keys",
+            &core.owner_jwt,
+            json!({ "name": "script", "expires_at": null, "scope": { "type": "full" } }),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let key = body["key"].as_str().unwrap().to_string();
+    let (status, _) = core.call(Method::GET, "/connect/friends", &key).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+}
+
+/// `GET path` through `friend`'s info stream.
+async fn friend_get(
+    tx: &mpsc::Sender<(tokio::io::DuplexStream, lodestone_connect::friend::PublicKey)>,
+    friend: lodestone_connect::friend::PublicKey,
+    path: &str,
+) -> (u16, Vec<u8>) {
+    let (mut near, far) = tokio::io::duplex(1 << 20);
+    tx.send((far, friend)).await.unwrap();
+    near.write_all(format!("GET {path} HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n").as_bytes())
+        .await
+        .unwrap();
+    let mut answer = Vec::new();
+    tokio::time::timeout(Duration::from_secs(30), near.read_to_end(&mut answer))
+        .await
+        .unwrap()
+        .unwrap();
+    lodestone_connect::info::parse_response(&answer).unwrap()
+}
+
+#[tokio::test]
+async fn friends_reach_only_what_is_shared_with_them() {
+    let core = core().await;
+    let ben = lodestone_connect::friend::PublicKey([1; 32]);
+    let carl = lodestone_connect::friend::PublicKey([2; 32]);
+    let access: friends::Access = Default::default();
+    access
+        .write()
+        .unwrap()
+        .insert(ben, [core.fabric.clone()].into_iter().collect());
+    let (tx, rx) = mpsc::channel(4);
+    tokio::spawn(friends::serve_friend_info(core.state.clone(), access.clone(), rx));
+
+    let (status, body) = friend_get(&tx, ben, "/api/v1/friend/servers").await;
+    assert_eq!(status, 200);
+    let servers: Vec<SharedServer> = serde_json::from_slice(&body).unwrap();
+    assert_eq!(servers.len(), 1);
+    assert_eq!(servers[0].instance_uuid, core.fabric.to_string());
+
+    let (status, body) = friend_get(&tx, ben, "/api/v1/public/instances").await;
+    assert_eq!(status, 200);
+    let list: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(list["instances"].as_array().unwrap().len(), 1);
+    assert!(list["instances"][0].get("port").is_none());
+
+    let pack = format!("/api/v1/public/instances/{}/client-pack", core.fabric);
+    assert_eq!(friend_get(&tx, ben, &pack).await.0, 200);
+
+    // Carl has nothing shared with him
+    let (status, body) = friend_get(&tx, carl, "/api/v1/friend/servers").await;
+    assert_eq!(status, 200);
+    assert_eq!(body, b"[]");
+    assert_eq!(friend_get(&tx, carl, &pack).await.0, 404);
+
+    // nothing unshared, and nothing else of the API
+    for path in [
+        format!("/api/v1/public/instances/{}/client-pack", core.vanilla),
+        "/api/v1/connect/info".to_string(),
+        "/api/v1/info".to_string(),
+        "/api/v1/connect/friends".to_string(),
+        format!("/api/v1/instance/{}/info", core.fabric),
+    ] {
+        assert_eq!(friend_get(&tx, ben, &path).await.0, 404, "{path}");
+    }
+
+    // unsharing takes effect on the next request
+    access.write().unwrap().clear();
+    assert_eq!(friend_get(&tx, ben, &pack).await.0, 404);
+}
+
+#[tokio::test]
+async fn the_friend_list_refuses_forwarded_requests_and_too_many_sharing_friends() {
+    let core = core().await;
+    // a reverse proxy on this computer may have passed it on from anywhere
+    let response = reqwest::Client::new()
+        .get(format!("{}/connect/friends", core.base))
+        .bearer_auth(&core.owner_jwt)
+        .header("x-forwarded-for", "203.0.113.9")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+
+    let secret = lodestone_connect::friend::Secret::random().unwrap().to_hex();
+    let friends: Vec<Value> = (0..=friends::MAX_SHARING_FRIENDS)
+        .map(|_| json!({"key": friend_key(), "name": "x", "secret": secret, "shared": [core.fabric.to_string()]}))
+        .collect();
+    let (status, body) = core
+        .call_json(Method::PUT, "/connect/friends", &core.owner_jwt, json!({"version": 1, "friends": friends}))
+        .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+}
+
+#[test]
+fn friend_entries_never_print_their_secret() {
+    let entry = friends::FriendEntry {
+        key: "ab".repeat(32),
+        name: "Ben".into(),
+        secret: "cd".repeat(32),
+        shared: Vec::new(),
+    };
+    assert!(!format!("{entry:?}").contains(&"cd".repeat(32)));
+}

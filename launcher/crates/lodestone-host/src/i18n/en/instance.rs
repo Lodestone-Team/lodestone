@@ -201,6 +201,26 @@ crate::i18n::messages! {
         ModsIncompatibleTitle = "Install a version made for something else?",
         ModsInstallAnyway = "Install anyway",
         ModsIncompatibleBody = "{title} {version} is made for {loaders} {gameVersions}, not {loader} {gameVersion}. It may crash the server.",
+        /// The Settings tab's Friends section (launcher/docs/friends.md).
+        FriendsTitle = "Friends",
+        FriendsLead = "Friends you added in Lodestone Launcher see the servers you share with them, and join without a link. Nothing is shared until you tick a friend.",
+        FriendsAddInLauncher = "Add friends in Lodestone Launcher",
+        FriendsAddInLauncherHint = "Your friend list is kept by Lodestone Launcher on this computer. Once you have friends there, you can share this server with them here.",
+        FriendsLoading = "Loading your friends…",
+        /// A checkbox; {name} is the friend's name.
+        FriendsShareWith = "Share this server with {name}",
+        /// The two haven't compared safety codes in Lodestone Launcher.
+        FriendsNotVerified = "Not verified",
+        FriendsConnected = "Connected now",
+        FriendsSyncFailed = "Couldn’t sync your friend list to this core: {error}",
+        FriendsOpenFailed = "Couldn’t open your friend list: {error}",
+        FriendsPublishFailed = "Couldn’t tell {name} about this core: {error}",
+        FriendsPublishFailedAll = "Couldn’t tell your friends about this core: {error}",
+        FriendsRetry = "Try again",
+        /// Under a failure: the Host tries again by itself.
+        FriendsRetrying = "Lodestone Host tries again every minute.",
+        /// This core has the friend list as it is now.
+        FriendsSynced = "Friend list synced",
     }
 
     pub enum InstancePlural {
@@ -212,5 +232,6 @@ crate::i18n::messages! {
         ModsImportHintJars = ("Import it into Prism Launcher, the Modrinth App or ATLauncher to get everything at the right versions. {count} mod isn’t on Modrinth, so its file is in the pack.", "Import it into Prism Launcher, the Modrinth App or ATLauncher to get everything at the right versions. {count} mods aren’t on Modrinth, so their files are in the pack."),
         ModsShowMore = ("Show more ({count} left)", "Show more ({count} left)"),
         ModsMoreGameVersions = ("+{count} more", "+{count} more"),
+        FriendsConnectedCount = ("{count} friend connected now", "{count} friends connected now"),
     }
 }

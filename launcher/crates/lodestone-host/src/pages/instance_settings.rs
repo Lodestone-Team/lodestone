@@ -1,6 +1,7 @@
 //! An instance's Settings tab (`InstanceSettings.tsx`): the core's settings manifest,
 //! rendered setting by setting as the dashboard's `SettingField` does, then
-//! automation, the resource pack, the Minecraft EULA and the danger zone.
+//! automation, public listing, sharing with friends, the resource pack, the Minecraft
+//! EULA and the danger zone.
 //!
 //! Each setting saves on its own: a switch or a list as soon as it changes, a text
 //! field on Enter or its save button (Escape puts the saved value back). The resource
@@ -141,7 +142,10 @@ pub struct InstanceSettingsPage {
 
 impl InstanceSettingsPage {
     pub fn new(state: Entity<HostState>, uuid: String, cx: &mut Context<Self>) -> Self {
-        let subscriptions = vec![cx.observe(&state, |_, _, cx| cx.notify())];
+        let mut subscriptions = vec![cx.observe(&state, |_, _, cx| cx.notify())];
+        if let Some(friends) = state.read(cx).friends.clone() {
+            subscriptions.push(cx.observe(&friends, |_, _, cx| cx.notify()));
+        }
         let mut this = Self {
             state,
             uuid,
@@ -1179,6 +1183,13 @@ impl Render for InstanceSettingsPage {
         }
         if let Some(sharing) = self.sharing_section(cx) {
             sections.push((t(CoreMsg::ListingTitle).into(), sharing));
+        }
+        // friends: this computer's core, as its owner (`crate::friends`)
+        if let Some(friends) = self.state.read(cx).friends.clone() {
+            sections.push((
+                t(M::FriendsTitle).into(),
+                crate::pages::friend_sharing::section_for(&friends, &self.uuid, cx),
+            ));
         }
         if let Some(pack) = self.pack_section(cx) {
             sections.push((t(M::ResourcePack).into(), pack));

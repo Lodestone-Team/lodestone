@@ -1,290 +1,383 @@
 # Friends: joining a friend's server without a link
 
-Status: proposal. Nothing here is built yet.
+Status: built (protocol, service, core, launcher library; Launcher and Host UI in
+progress). Revised after a security review of the design (see "Security review" at
+the end).
 
 Today a friend joins a server through an invite link that the host sends them, one link
-per shared instance (Lodestone Connect, `crates/lodestone-connect`). This plan adds a
-**friend list**: you add a person once, and from then on the launcher shows which of
-their servers are online and joins them with one click. No link changes hands after
-that, and no Lodestone server learns who is friends with whom or can impersonate
-anyone.
+per shared instance (Lodestone Connect, `crates/lodestone-connect`). The friend list
+adds a person once; from then on the launcher shows which of their servers are online
+and joins them with one click.
 
-This file covers the design, what it protects against and what it doesn't, what
-changes where, and the work in phases.
+connect.lodestone.cc stays, as a mailbox and introducer that can't read what passes
+through it, forge anyone's key, or join a server. It does still see which addresses look
+each other up (see "What this doesn't protect against").
 
 ## Goals
 
 - Add a friend once, then see and join the servers they share with you, without links.
-- Keep the game traffic direct and end-to-end encrypted, as Connect does today.
-- Make the introduction service (connect.lodestone.cc) something nobody has to trust:
-  if it is compromised it can stop introductions, but it can't read them, impersonate a
-  host or a friend, or join a server itself.
-- Let the host remove one friend without breaking anyone else's access.
-- Keep invite links working as they do now, for people who aren't friends.
+- Keep game traffic direct and end-to-end encrypted, as Connect does today.
+- Nothing the service stores lets it, or anyone who later gets a friend link, read
+  addresses or impersonate anyone.
+- Remove a friend, retire a core or retire your own key without breaking anyone else.
+- Keep invite links working as they do now.
 
 ## Not goals
 
-- **Running with no service at all.** Two computers behind home routers need a third
-  party to swap addresses before they can punch through. The service stays, but as a
-  blind mailbox. A DHT fallback (phase 4) can cover the case where it is down.
-- **Hiding IP addresses from friends.** A direct connection shows each side's address
-  to the other. That's the price of having no relay.
-- **Remote control of a friend's core.** Friends can see and join. Starting, stopping,
-  the console and files stay with the owner (see "What friends can do").
-- **Trusting a friend's mods.** Being friends doesn't mean the launcher installs
-  whatever a friend's server sends (see "Mods").
+- **No service at all.** Two computers behind home routers need a third party to swap
+  addresses. A DHT fallback is listed under "Later".
+- **Hiding IP addresses from friends.** A direct connection shows them.
+- **Remote control.** Friends can see and join servers shared with them, nothing else.
+- **Trusting a friend's mods.** Friendship never trusts a server's mods.
 
-## What Connect does today
+## Pieces
 
-See `crates/lodestone-connect/README.md` and `services/connect/README.md`. In short:
-
-- Each shared instance has its own identity, in the core's
-  `stores/connect/<uuid>.json`: an ECDSA P-256 certificate and key, a 16-byte token,
-  and a stable code at the service.
-- The link is `https://connect.lodestone.cc/j/<code>#<fingerprint>.<token>`. The part
-  after `#` never reaches the service.
-- The service swaps candidate addresses between the host and the friend. Both sides
-  probe, then the friend opens QUIC, accepting only the certificate in the link. Every
-  stream starts with the token.
-- The launcher keeps the servers it joined in `<data>/friends.json`, with the link's
-  secret part in the Keychain (`launcher_core::cores::friends`). Mod trust is kept per
-  server and tied to the certificate (`trusted_as`).
-
-So the cryptography for "the service can't impersonate the host" already exists. What's
-missing is identity for **people**, a way for the host to recognise a friend without a
-shared token, and a way to find a friend's host without a code.
-
-## The design
-
-### 1. Identities
-
-- **A person** has a **launcher identity**: an Ed25519 key pair, made on first use and
-  kept in the Keychain (`SecretStore`). The Launcher and the GPUI Host on the same
-  computer share it, so a person is one friend whichever app they use. Its public key
-  is the person's id. Shown to people, it's a short **safety code** (the first 40 bits
-  of its SHA-256 as 8 Crockford base32 characters).
-- **A core** gets a **core identity**: one certificate and key for the whole core
-  (`stores/connect/core.json`), apart from the per-instance identities that invite links
-  keep using. Friends pin this certificate.
-- **A person's cores** are vouched for by that person: the owner's launcher reads the
-  core's certificate fingerprint over the admin API and signs
-  `("lodestone friend core", core fingerprint, core name)` with the launcher key. A
-  friend accepts a core only with that signature from a key they already pin.
-
-All of this needs only `ring` (Ed25519 signing, HKDF, HMAC, ChaCha20-Poly1305), which is
-already in the launcher's lockfile. There's no static Diffie–Hellman (`ring` only offers
-ephemeral key agreement), so the secret two friends share is made at pairing time and
-stored, not derived from their keys.
-
-### 2. Becoming friends
-
-Pairing goes through the service as a blind, one-time mailbox, so the two people don't
-have to be online at the same time and never connect directly to pair.
-
-1. Ana clicks **Add friend** and gets a **friend link**:
-   `https://connect.lodestone.cc/f/<code>#<one-time secret>`. She sends it to Ben any
-   way she likes. It expires after 24 hours and can be used once.
-2. Ana's launcher posts her **card** to the mailbox `<code>`, sealed with a key derived
-   from the one-time secret (HKDF, then ChaCha20-Poly1305). The card holds her display
-   name, launcher public key, her vouched cores, and a random 32-byte **pair secret**,
-   all signed with her launcher key.
-3. Ben opens the link. His launcher fetches and opens Ana's card, checks the signature,
-   and shows "Add Ana (safety code `K7Q2-M9XD`)?". If he accepts, it posts his own
-   signed card (name, key, vouched cores) to the same mailbox, sealed the same way.
-4. The next time Ana's launcher is online it collects Ben's card and asks Ana to confirm
-   "Ben (safety code `…`) accepted your friend link." Only then is the friendship saved
-   on her side, and the mailbox is deleted.
-
-Both launchers end up with the other's public key, vouched cores and the pair secret.
-The pair secret goes in the Keychain. The rest goes in a new `<data>/friend_list.json`
-(`launcher_core::friends`), apart from today's `friends.json`, which keeps the servers
-joined.
-
-The one-time secret is the only thing standing between the link and a stranger, so:
-the link works once and expires, Ana confirms the person who answered, and both sides
-see a safety code they can compare out of band if they care to.
-
-Each launcher then tells **its own** cores about the new friend (admin API, owner
-only): the friend's public key and the pair secret. A core keeps them in
-`stores/connect/friends.json`, readable only by the core's user, like the other files in
-`stores/`.
-
-### 3. Finding a friend's core
-
-A core that shares with friends publishes one blind record at the service for each
-friend:
-
-- **Lookup id**: `HMAC-SHA256(pair secret, "lookup" | core fingerprint | UTC day)`,
-  first 16 bytes. It changes every day, so the service can't link one day's records to
-  the next or to a person. Around midnight both sides also try the previous day's id.
-- **Record**: the core's candidate addresses, sealed with
-  `HKDF(pair secret, "seal" | lookup id)` and the lookup id as associated data, so a
-  record can't be moved to another id.
-
-To join, the friend's launcher computes the lookup id for each of the friend's vouched
-cores and **knocks**: it posts its own candidates, sealed the same way, and gets the
-core's sealed record back. Then both sides probe exactly as today. Only the two friends
-can compute the id or open either side's addresses. The service sees random ids and
-opaque bytes.
-
-**Presence** uses the same records: whether a lookup id is live tells the friend whether
-that core is sharing with them now. The launcher checks while the Servers page is open
-(every 2 minutes, and when the page opens), not in the background. A core shares with
-friends only when its owner turned it on, and the owner can hide from chosen friends,
-which simply stops their records.
-
-New service routes (v2), next to the v1 invite routes:
-
-| Request | Body / headers | Answer |
+| Piece | What it is | Where it lives |
 |---|---|---|
-| `PUT /v2/meet` | `{"records": [{"lookup", "sealed"}]}` (up to 128) | `200 {"secret", "expires_at"}` |
-| `GET /v2/meet/knocks` as a WebSocket | `Authorization: Bearer <secret>` | knocks for any of the host's lookups as they come |
-| `POST /v2/meet/<lookup>/knocks` | `{"sealed"}` | `200 {"sealed"}`, or `404 not_found` (offline or no such friend, which look the same) |
-| `HEAD /v2/meet/<lookup>` | | `200` live, `404` otherwise |
-| `POST /v2/pair` | `{"sealed"}` | `201 {"code", "secret"}` |
-| `GET /v2/pair/<code>` / `POST /v2/pair/<code>/reply` / `GET /v2/pair/<code>/reply` | `Authorization` for the owner's calls | the sealed cards |
-| `DELETE /v2/pair/<code>` | `Authorization: Bearer <secret>` | `200` |
+| Person key | Ed25519 key pair; the person's id | Keychain (`SecretStore`), shared by Launcher and Host on one computer |
+| Safety code | 80 bits of SHA-256(key), `XXXX-XXXX-XXXX-XXXX` | shown, compared out of band |
+| Core certificate | One ECDSA certificate per core for friends (apart from invite identities) | core `stores/connect/friends/core.json` |
+| Pair secret | 32 bytes two friends share, from an X25519 exchange at pairing | both launchers (encrypted friend file) |
+| Core secret | `HKDF(pair, "core", owner key, friend key, core fp)`: one per core, per friend, per direction | the core, and the friend's launcher |
+| State | The person's signed, versioned list of their cores | a slot at the service, for each friend |
 
-A core registers all its friends' records in one call and waits on one WebSocket, so
-100 friends cost about what one invite costs today. Records expire like invites (2
-minutes without a ping, 24 hours at most). Sealed blobs are at most 1 KiB. The rate
-limits are per client address, as in v1.
+A core only ever holds core secrets, never pair secrets: a compromised core exposes its
+own lookups and nothing about the friendship's other cores.
 
-### 4. Joining
+## Becoming friends
 
-Once probing finds a path, the friend opens QUIC to the core, accepting only the
-**core certificate** they pinned from the vouched card. Then it proves who it is:
+1. **Ana creates a friend link.** Her launcher makes a 32-byte link secret `s`, an X25519
+   key pair `eA` (kept, encrypted, until the link is used or expires), and a code
+   `c = crockford(HKDF(s, "pair-code"))[..10]`. It posts her **card** to the mailbox `c`:
+   sealed with `s` (role Card, context `c`), signed with her person key over
+   `("card", key, eA pub, name, c, expires, SHA-256(s))`. Signing `SHA-256(s)` ties the
+   card to this link, so it can't be replayed under another.
 
-- A new stream kind, **friend hello** (`3`), carries the friend's launcher public key
-  and an Ed25519 signature over 32 bytes of the TLS exporter
-  (`export_keying_material`, label `"lodestone-connect friend"`). The signature is tied
-  to this connection, so it can't be replayed on another one, and the launcher needs no
-  certificate of its own.
-- The core checks the key against its friends and answers with a 16-byte session token
-  for this connection. Later streams start with that token, so the 17-byte stream header
-  stays as it is.
-- Two more kinds work only on a friend connection: **friend info** (`4`), HTTP for the
-  instances shared with this friend (a list, plus each one's info and client pack, as
-  `info_router` serves for one), and **friend game** (`5`), followed by the 16-byte
-  instance uuid, passed to that instance's game port if it is shared with this friend.
+   The link is `https://connect.lodestone.cc/f/<c>#<h>.<s>`, where `h` is the first 16
+   bytes of SHA-256(Ana's key). The part after `#` never reaches the service in a request.
+   It expires after 24 hours.
+2. **Ben opens it**, by pasting it into the launcher (Friends › Add friend) or through
+   the page's "Open in Lodestone Launcher". His launcher fetches the card, proving it has
+   the link with `HKDF(s, "pair-access", c)`. It checks the card's key against `h`, the
+   signature, the code and the expiry, then shows Ana's name and safety code. If Ben
+   accepts, it makes `eB`, posts a **reply** signed over
+   `("reply", SHA-256(card), key, eB pub, name)`, and computes the pair secret:
+   `pair = HKDF(X25519(eB, eA) ‖ s, "pair", SHA-256(card), SHA-256(reply))`.
+   Ben's side of the friendship stays **pending**: nothing is shared, and no core of his
+   accepts Ana, until Ana's first signed state arrives.
+3. **Ana's launcher collects the replies.** The mailbox takes up to 4. More than one
+   means someone else saw the link, and the launcher says so. For each reply it checks
+   the signature and shows Ben's name and safety code. If Ana accepts, it computes the
+   same pair secret, deletes `eA` and the mailbox, and writes her first **state** to her
+   slot for Ben. That state is her signed confirmation.
+4. Both launchers mark the friend **Not verified** until their people compare safety
+   codes, by voice or in person, and tick "Codes match". That comparison is the only
+   check against someone who saw the link first, including whoever served the link page.
 
-The core closes a connection whose hello is unknown or wrong, as it does for a wrong
-token today, and keeps the same limits (32 friends connected, 16 unauthenticated
-connections, the same buffer caps).
+Once `eA` and `eB` are deleted, the link secret and everything the service stored no
+longer reveal the pair secret (forward secrecy).
 
-In the launcher a server joined this way is a `FriendServer` with the id
-`friend:<core fingerprint>/<instance uuid>`, so instances link to it as they link to a
-server joined by invite (`cores::link`).
+**Names.** Display names are at most 32 characters, with control and bidirectional
+formatting characters removed. The list shows a local nickname the owner can change, and
+warns when a new friend's name matches an existing friend's.
 
-### 5. Removing a friend
+**Nothing is shared by default.** A new friend sees no servers until the owner shares an
+instance with them by name.
 
-- **The host removes Ben**: Ana's launcher tells her cores to drop his key and pair
-  secret. They stop his records and close his connections. To Ben, Ana's servers just
-  look offline. He isn't told he was removed, and nobody else is affected.
-- **Ben loses his computer**: his launcher key is in the Keychain, so a stolen disk
-  alone doesn't give it away. If he thinks the key is out, he resets his identity and
-  sends new friend links; his friends remove the old entry. A friend whose key changes
-  is a new friend: the launcher never accepts a changed key for an existing one.
+## States and slots
 
-### 6. What friends can do
+Each person keeps one **slot** at the service for each friend, holding their latest
+signed state:
 
-Version one: see a friend's online servers that are shared with them (name, version,
-loader, players), and join. Sharing with friends is chosen per instance, for all friends
-or chosen ones, in the Launcher's hosting screen and the GPUI Host's instance Settings.
+- slot id `= HKDF(pair, "slot", sender key, receiver key)[..16]`;
+- write proof `= HKDF(pair, "slot-write", sender key, receiver key)`; the service keeps
+  only its SHA-256, from the first write;
+- the state is sealed with `pair` (role State, context the slot id) and signed over
+  `("state", receiver key, seq, issued, expires, name, cores, retired)`.
 
-Later, as an explicit permission per friend that the owner grants: **ask to start** a
-stopped server. The core shows the owner the request, or starts it at once if the owner
-allowed that friend to start it. A friend never gets the console, files, settings or
-the rest of the admin API: friend streams reach only the routes listed above, as invite
-streams do today.
+`cores` lists `(core fingerprint, core name)` for each core the person shares from.
+Receivers keep the highest `seq` seen and refuse lower ones. A state expires 90 days after
+it was issued; launchers issue a new one weekly while they run. A friend's cores in an
+expired state aren't joined.
 
-### 7. Mods
+States are how a person:
 
-Joining installs the server's client pack, and that's the biggest risk here: a friend
-whose computer or core is compromised could hand out a malicious jar. So nothing about
-mod trust changes:
+- **adds or retires a core.** A retired core is dropped, and trust in its servers' mods
+  is cleared;
+- **confirms a new friendship** (the first state);
+- **retires their key** (`retired: true`, signed by the old key). Friends' launchers mark
+  the friend retired and remove them from their own cores.
 
-- Trust stays per server and tied to the certificate (`trusted_as`): until the user
-  picks "Trust and install", pulling code from a server shows the advisory
-  (`cores::trust::needs_advisory`). Adding a friend doesn't trust any of their servers,
-  and a server joined through the friend list starts untrusted like any other.
-- Worth adding alongside (not required by this plan): today a trusted server's new pack
-  installs without asking again. Listing the mods a pack update adds or changes before
-  installing it would limit the damage a compromised friend can do.
+## Finding a friend's core
+
+Each core shares with friends through one more `lodestone_connect` host, with the core
+certificate, a separate QUIC protocol (ALPN `lodestone-friend-1`) and its own socket.
+For each friend with at least one instance shared with them, it publishes a record:
+
+- **period** `= (now + offset) / 86400`, where `offset = HKDF(core secret, "offset") mod
+  86400`: each pair's ids change at a different time of day;
+- **lookup id** `= HKDF(core secret, "lookup", period)[..16]`;
+- **record**: `{issued, candidates}`, sealed with the core secret (role Record, context
+  the lookup id).
+
+Within an hour of a period's end, the core publishes the next period's ids as well. The
+friend tries the current period's id, then the previous and next ones (clock skew).
+
+To join, the friend's launcher **knocks** on the lookup id with
+`{id: 16 random bytes, issued, candidates}`, sealed with the core secret (role Knock).
+The service passes the knock to the core with the address it saw it from, and hands back
+the record. The core refuses a knock issued more than 10 minutes away from its own clock,
+or whose id it has seen in the last 20 minutes.
+
+Presence: `HEAD` on a lookup id says whether that core is publishing for you now. The
+launcher checks every 5 minutes while the friend list is open, and never in the
+background. Owners can hide from chosen friends, which stops their records.
+
+## Joining
+
+1. The core probes towards the knock's addresses: at most 8, one spray per friend at a
+   time, and at most 8 sprays at once. The probe tag is derived per knock:
+   `HKDF(core secret, "probe", knock id)[..8]`.
+2. The core answers QUIC only from IP addresses in a knock it accepted in the last 2
+   minutes (its candidates; the address the service says it saw isn't used, since the
+   service could name any), after the usual QUIC retry. Each friend's latest knock
+   replaces their addresses, and knock ids are remembered per friend, so one friend can't
+   crowd out another; each friend may hold at most 4 connections. A
+   removed or hidden friend who remembers the core's address gets no answer.
+3. The friend opens QUIC, accepting only the core certificate in Ana's current state.
+4. **Friend hello** must be the first stream: kind `3`, the friend's public key, and a
+   signature over `("friend hello", exporter, core fingerprint, friend key)`, where
+   `exporter` is 32 bytes of the TLS exporter (label `lodestone-friend hello`). It's tied
+   to this connection. The core checks the key is a friend's and answers `0x4c`. Any
+   other first stream, a bad signature or an unknown key closes the connection. Auth
+   state lives on the connection: there's no token. No 0-RTT.
+5. Later streams start with one byte: `4` friend info (HTTP), or `5` game, followed by a
+   length byte and the instance uuid. Kinds `0`–`2` (invite streams) are refused here,
+   and the invite hosts refuse `3`–`5`.
+6. The core checks on every stream that the friend is still on its list and the instance
+   is still shared with them. Removing a friend or unsharing an instance with them
+   closes their connection.
+
+Friend info routes, for the instances shared with this friend only:
+
+- `GET /api/v1/friend/servers`: their `SharedServer`s;
+- `GET /api/v1/public/instances`: those instances, as the public list shows them;
+- `GET /api/v1/public/instances/{uuid}/client-pack`: a shared instance's client pack.
+
+In the launcher, a server joined this way is a `FriendServer` with the id
+`friend:<core fingerprint>/<instance uuid>`.
+
+## The core's friend list
+
+The owner's launcher keeps each of the owner's cores up to date:
+`PUT /connect/friends` with `{version, friends: [{key, name, secret, shared}]}`, where
+`secret` is that friend's core secret for this core. The core refuses a version lower
+than the one it has. These routes:
+
+- need the **owner**, not just an instance's settings permission;
+- are refused unless the request arrived over the core's HTTPS or from loopback, since
+  they carry secrets. The launcher sends them only to a core whose certificate it has
+  pinned, or over loopback.
+
+Lodestone Host keeps its core in step: it syncs at start, whenever the friend file
+changes and after sharing changes, and shows whether the last sync worked. A removal
+reaches a core only through that sync, so a core whose Host isn't running keeps its old
+list until it next starts (and syncs) or is reached.
+
+A core shares with at most 120 friends: each gets one or two records, and the service
+takes at most 256 from a core.
+
+The core keeps its list in `stores/connect/friends/list.json` (0600 on Unix; on Windows, the
+user's profile folder already limits it to that user).
+
+## Mods
+
+- Trust stays per server, tied to its certificate (`trusted_as`). A friend's server
+  starts untrusted.
+- For servers joined from the friend list, trust is also tied to the client pack: when
+  the pack changes, the launcher asks again before installing it, listing the mods it
+  adds or changes. Whoever changed the pack (the owner or another user of their core),
+  nothing new runs without asking.
+- Retiring a core clears trust in its servers.
+
+## Launcher storage
+
+- Person key: Keychain.
+- Friend file `<data>/friend_list.json`: sealed with a key kept in the Keychain. It holds
+  friends (key, names, pair secret, verified, pending, last state), pending links (`s`,
+  `eA`, the mailbox secret) and own state numbers. The friend graph isn't readable from
+  the disk alone.
+- Keychain items can be read by any program running as the same user (on Windows, DPAPI
+  protects them with the user's sign-in). That's the boundary.
+
+## Service protocol (v2)
+
+JSON over HTTPS. Binary values are lower-case hex. Sealed blobs are `nonce | ciphertext
+| tag` (ChaCha20-Poly1305). Errors are `{"error", "message"}` as in v1. All `POST`/`PUT`
+bodies are `application/json`. Rate limits are per client address.
+
+### Pairing mailboxes (one Durable Object per code)
+
+| Request | Auth | Body | Answer |
+|---|---|---|---|
+| `PUT /v2/pairs/<code>` | | `{"access": SHA-256(access), "card"}` | `201 {"secret", "expires_at"}`; `409 taken` |
+| `GET /v2/pairs/<code>` | `Bearer <access>` | | `200 {"card"}` |
+| `POST /v2/pairs/<code>/replies` | `Bearer <access>` | `{"reply"}` | `200 {"count"}`; `429 full` after 4 |
+| `GET /v2/pairs/<code>/replies` | `Bearer <secret>` | | `200 {"replies": [...]}` |
+| `DELETE /v2/pairs/<code>` | `Bearer <secret>` | | `200 {"ok": true}` |
+
+`access` is 64 hex digits, `secret` 32. A mailbox lasts 24 hours. A card or reply is at
+most 2 KiB (4096 hex digits).
+
+### Slots (one Durable Object per slot id)
+
+| Request | Auth | Body | Answer |
+|---|---|---|---|
+| `PUT /v2/slots/<id>` | `Bearer <write proof>` | `{"sealed"}` | `200 {"ok": true}`; `403` wrong proof |
+| `GET /v2/slots/<id>` | | | `200 {"sealed"}`; `404` |
+| `DELETE /v2/slots/<id>` | `Bearer <write proof>` | | `200 {"ok": true}` |
+
+A slot keeps the SHA-256 of the first write's proof and lasts 90 days after its last
+write. A sealed state is at most 4 KiB (8192 hex digits).
+
+### Meeting
+
+A core registers one **session** with all its records, and waits on one WebSocket.
+
+| Request | Auth | Body | Answer |
+|---|---|---|---|
+| `PUT /v2/meet` | | `{"records": [{"lookup", "sealed"}]}` | `201 {"session", "secret", "expires_at"}` |
+| `PUT /v2/meet/<session>` | `Bearer <secret>` | `{"records": [...]}` | `200 {"expires_at"}`: replaces the records |
+| `GET /v2/meet/<session>/knocks` (WebSocket) | `Bearer <secret>` | | `{"knocks": [{"lookup", "sealed", "seen"}]}` per knock |
+| `DELETE /v2/meet/<session>` | `Bearer <secret>` | | `200 {"ok": true}` |
+| `POST /v2/lookups/<lookup>/knocks` | | `{"sealed"}` | `200 {"sealed": <record>}`; `404 not_found` |
+| `HEAD /v2/lookups/<lookup>` | | | `200` publishing now, `404` otherwise |
+
+- A session has at most 256 records; a sealed record or knock is at most 1 KiB.
+- `seen` is the address the knock came from (`cf-connecting-ip`).
+- A lookup id belongs to the session that registered it last. A record is live while its
+  session is (pinged within 2 minutes, at most 24 hours old).
+- Sessions use `ping`/`pong` and close codes 4000 (ended) as invites do.
+- Session updates register only the lookups added and unregister only those dropped;
+  each 16 changes cost one unit of a per-address budget (40 units a minute), so records
+  can't be churned to burn Durable Object calls.
+- Slot reads and presence checks need `X-Lodestone-Client: 1`, a header a web page
+  elsewhere can't send without a CORS preflight (never answered), so pages can't spend a
+  visitor's budget.
+- Rate limits count an IPv4 address, or an IPv6 address's /64.
+- Per address, a minute: 10 mailboxes or sessions made, 30 knocks, 120 presence checks,
+  600 slot reads and 60 other requests.
 
 ## What this protects against
 
 | Attack | What happens |
 |---|---|
-| The service, or someone who controls it, pretends to be a friend's core | Refused: the friend accepts only the core certificate vouched for by a key they pinned when pairing. |
-| The service pretends to be a friend joining | Refused: the core needs a signature from a friend's key, tied to the TLS session. |
-| The service reads addresses or learns who's friends with whom | It sees daily-changing random ids and sealed bytes. It can still see two addresses meet (see below). |
-| Someone squats a lookup id or replays an old record | They can't compute the id without the pair secret. A replayed record carries yesterday's addresses under yesterday's id, so it gets no answer. |
-| Someone grabs a friend link before the friend opens it | They get one try in 24 hours, and the sender sees their name and safety code before confirming. |
-| Someone floods a core with knocks | The service rate-limits per address, and the core probes towards at most 8 knocks at once, as it does for invites. |
-| A friend of a friend tries to join | No access is passed on: a core accepts only keys its owner added. |
-| A removed friend keeps trying | Their records are gone and the core refuses their key. |
+| The service pretends to be a friend's core | Refused: the friend accepts only the certificate in the friend's signed state. |
+| The service pretends to be a friend joining | Refused: the hello is signed with the friend's key and tied to the TLS session. |
+| The service, or a later leak of a link, reveals pair secrets | The pair secret comes from an X25519 exchange whose keys are deleted after pairing. |
+| Someone uses the link before Ben | The mailbox takes up to 4 replies and Ana sees them all; comparing safety codes catches the rest. Whoever serves the link page could also see the link. |
+| A card or state is replayed elsewhere | Cards sign the link's hash; states sign the receiver's key; seals bind role and context. |
+| A knock is replayed | Refused when more than 10 minutes from the core's clock, or once seen (ids are remembered for 25 minutes, longer than the window, but only while the core runs: just after a restart a replay can open the knocker's addresses for 2 minutes, and the hello still needs the friend's key). Records carry their issue time. |
+| A stolen core | Its owner retires it in a new state; friends drop it and clear mod trust. It never held pair secrets. |
+| A stolen launcher key | A final retired state, signed with it, tells friends to drop it. |
+| A removed friend keeps trying | Their records stop, cores that got the new list refuse their key and forget their knocks, and cores don't answer QUIC without an accepted knock. Someone sharing an address with a friend who knocked does get a handshake, but not past the hello. |
+| A friend floods a core | One spray, one set of allowed addresses, 256 remembered knocks and 4 connections per friend; the service rate-limits per address. |
+| The Launcher and the Host change the friend file at once | Every change reloads the file under a lock first; state numbers never go back. |
+| Name tricks | Names are cleaned and shown beside local nicknames; duplicates are flagged. |
 
 ## What this doesn't protect against
 
 - **IP addresses.** Friends see each other's addresses, as with invite links.
-- **The meeting itself.** When Ben knocks on Ana's lookup, the service sees Ben's
-  address talk to Ana's. Nothing can hide that from the party introducing them. The
-  service keeps no logs of it, as v1 doesn't.
-- **Presence.** Friends can tell when your core is sharing. That's opt-in, and you can
-  hide from chosen friends.
-- **A friend who turns bad.** They can join what you share with them and see your
-  address. Remove them.
-- **Networks that can't punch through.** `NoPath` still fails, as it does today (see
-  phase 4).
+- **Who meets whom.** The service sees which addresses register and knock on which
+  lookup ids. A core's ids all sit in one session, so they're linked across periods by
+  that session and its address, and presence checks link a friend's address to a core.
+  Our Worker logs none of this (invocation logs are off), but Cloudflare's platform sees
+  request metadata.
+- **Who served the page.** A friend link opened in a browser runs the service's page,
+  which could read it. Compare safety codes, or paste links straight into the launcher.
+- **Clocks.** A core or launcher whose clock is more than 10 minutes off can't meet its
+  friends; it shows as a failed join, not as a clock problem yet.
+- **Local reverse proxies.** The friend list routes treat loopback as safe; a request a
+  reverse proxy on the same computer passes on with `Forwarded`, `X-Forwarded-For` or
+  `X-Real-IP` isn't counted as loopback, but one that strips them would be.
+- **Windows file permissions.** The core's friend certificate and list are only as
+  private as its data folder: fine in the user's profile, not in a folder others can read
+  (as for the core's other secrets).
+- **Offline cores.** A core that hasn't received a removal yet still accepts that
+  friend, but only after an accepted knock, and the launcher shows it's pending.
+- **A friend who turns bad** can join what you shared with them and sees your address.
+- **Networks that can't punch through** still fail (`NoPath`).
 
-## What changes where
+## Code
 
-- `crates/lodestone-connect`: pairing (cards, sealing, the friend link), lookup ids,
-  the v2 service client, the friend stream kinds, and friend authentication in `host`
-  and `join`.
-- `services/connect`: the v2 `meet` and `pair` routes. One Durable Object per core
-  session holding its lookups, plus an index from lookup to session that expires with
-  the records.
-- `core/src/connect.rs` and `core/src/handlers/connect.rs`: the core identity, the
-  friends file, publishing records, friend connections, and owner-only routes to add or
-  remove friends and to choose which instances are shared with which friends.
-- `launcher/crates/launcher-core`: the launcher identity, `friends` (the friend list and
-  pairing), and joining by friend (next to `cores::connect`).
-- `launcher/crates/lodestone-launcher`: a Friends section on the Servers page (friends,
-  their online servers, Join, Add friend, Remove), the friend link in `deep_link.rs`,
-  and the CLI commands in `lodestone-launcher-cli` that tests use.
-- `launcher/crates/lodestone-host`: sharing an instance with friends, and the list of
-  friends the core accepts.
+- `crates/lodestone-connect/src/friend/`: `crypto` (keys, derivation, sealing, lookups,
+  X25519), `pair` (links, cards, replies), `state` (states and slots), `meet` (records,
+  knocks), `host` (the core's friend host) and `join` (joining a friend's core). The
+  service client's v2 calls are in `service.rs`.
+- `services/connect`: the v2 routes.
+- `core/src/connect/friends.rs`: the core certificate, the friend list, the friend host
+  and the friend info routes; `core/src/handlers/connect.rs`: the owner-only routes.
+- `launcher/crates/launcher-core/src/friend_list/`: the person key, the sealed friend
+  file, pairing, states, presence and joining (`ops.rs`), and `core_sync.rs`, which
+  puts the friend list on a core for the app with an owner session to it.
+- Launcher: the Friends section of the Servers page, the friend deep link, and CLI
+  commands. Host: sharing an instance with chosen friends, and syncing its core.
 
-## Phases
+The Launcher and the Host share one friend list: the file in the Launcher's data folder
+and the Keychain items `friend-identity` and `friend-list-key` (account "Lodestone
+Launcher"). The Host syncs its core whenever the file changes. When the data folder
+isn't the default one (`LODESTONE_LAUNCHER_DATA_DIR`, tests, dev bundles), the items
+are `friend-identity@<8 hex digits>` and so on, so development never makes or uses a
+person's real identity.
 
-1. **Identity and pairing.** Launcher identity, friend links, the `pair` routes, the
-   friend list file, and the Add friend / Remove flows. Testable alone: two launchers
-   become friends against a local test service.
-2. **Finding and joining.** Core identity, the core's friends file and owner-only
-   routes, the `meet` routes, friend streams, and Join from the friend list. Invite
-   links stay as they are.
-3. **The interface.** The Friends section in the Launcher, sharing with friends in the
-   Host, presence, and hiding from chosen friends.
-4. **Later.**
-   - **A DHT fallback** for when connect.lodestone.cc is down: publish the same sealed
-     records as BEP 44 mutable items in the BitTorrent DHT, under a signing key derived
-     from the lookup id. Off by default: lookups take seconds and it needs another
-     crate outside Zed's lockfile.
-   - **A relay through a mutual friend** for networks that can't punch through: a
-     friend's core that both sides already trust forwards the QUIC packets, which it
-     can't read.
-   - **Ask to start**, as a permission per friend.
-   - **Friend request from an invite**: after joining by link, offer to send the host a
-     friend request through the tunnel, for the owner to accept.
+Tests: `crates/lodestone-connect/tests/friends.rs` pairs, publishes and joins through an
+in-process service (or the real Worker with `CONNECT_TEST_SERVICE`);
+`services/connect/test/friends.test.js` checks the v2 routes; the core's
+`connect::tests` check the owner-only routes and the friend info routes; and
+launcher-core's `friend_list::tests` check the sealed file and, with
+`CONNECT_TEST_SERVICE`, the whole flow between two people.
 
-## Open questions
+## Later
 
-- Should the friend list sync between a person's computers? With a Launcher on two
-  machines, either both share one identity (an export and import of the key) or each is
-  its own friend. Version one keeps one identity per computer.
-- How many friends? 100 per person keeps one `PUT /v2/meet` call per core and the
-  presence checks cheap.
-- Does a friend see servers that are stopped but shared with them, so they can ask to
-  start them? That depends on "ask to start".
+- A DHT fallback (BEP 44) for when the service is down.
+- A relay through a mutual friend's core for networks that can't punch through.
+- Friends asking to start a stopped server, as a permission per friend.
+
+## Security review
+
+The design was reviewed before building, and the code again after. The second review
+found: one address could make the service churn Durable Object calls (now diffed and
+budgeted, with IPv6 counted per /64); one friend could crowd others out of a core's
+allowed addresses, replay memory or connections (now per friend); the Launcher and Host
+could overwrite each other's changes to the friend file (now locked reload-modify-write);
+the service-supplied `seen` address was trusted (no longer used); plus a replay-window
+edge, missing invisible characters and look-alikes in names, secrets in `Debug` output,
+friend links to any host over plain HTTP (now only the configured service), a record cap
+mismatch, cross-site use of unauthenticated reads, forwarded requests counted as
+loopback, and a missing "retire my identity". All are fixed or described above.
+
+What the first review changed:
+
+1. A malicious page server could stand in for either side at pairing → the link carries
+   a hash of the sender's key, comparing safety codes is part of the flow, and friends
+   stay "Not verified" until they do.
+2. The pair secret had no forward secrecy and was copied to every core → X25519 at
+   pairing (`aws-lc-rs`, already in both lockfiles); cores get only per-direction core
+   secrets; friend routes need the owner and HTTPS or loopback.
+3. Cores couldn't be retired, and a trusted pack updated silently → signed, versioned
+   states with expiry; mod trust is tied to the pack for friends' servers.
+4. Metadata → described plainly above; ids rotate at a different time for each pair.
+5. A removed friend could still reach the core → QUIC only after an accepted knock.
+6. Cards could be replayed → cards sign the link's hash; the pair secret comes from DH.
+7. Sealing gaps → roles and contexts in keys and associated data, per-direction core
+   secrets, random nonces, knock ids and times.
+8. The accepting side switched on early; names could be spoofed → pending until the
+   first state; names cleaned; nothing shared by default; several replies shown.
+9. Removal didn't reach offline cores; keys couldn't be retired → versioned lists with
+   retries and "pending"; retired states.
+10. One friend could crowd out others → a spray per friend.
+11. A 40-bit safety code could be ground → 80 bits.
+12. Stream separation → its own ALPN and socket, hello first, auth on the connection,
+    checks on every stream, no token, no 0-RTT.
+13. Probe tags per knock, clock skew, Windows file permissions, and the friend file
+    sealed on disk.

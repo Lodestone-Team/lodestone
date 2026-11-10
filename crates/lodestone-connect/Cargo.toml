@@ -14,6 +14,9 @@ license.workspace = true
 # Cargo.lock, so the requirements below are the lowest versions both lockfiles have, and
 # the crates only a host needs (rcgen, tokio-tungstenite) are behind `host`.
 [dependencies]
+# Static X25519 for pairing (ring only has ephemeral keys). Already built into both the
+# launcher (through rustls) and the core, at these versions.
+aws-lc-rs = { version = "1.18.1", default-features = false, features = ["aws-lc-sys", "prebuilt-nasm"] }
 quinn = { version = "0.11.9", default-features = false, features = ["runtime-tokio", "rustls-ring"] }
 ring = "0.17.14"
 rustls = { version = "0.23.46", default-features = false, features = ["ring", "std"] }
@@ -28,6 +31,7 @@ tokio-rustls = { version = "0.26.4", default-features = false, features = ["ring
 tracing = { version = "0.1.44", default-features = false, features = ["std"] }
 url = "2.5.7"
 webpki-roots = "1.0.10"
+zeroize = "1.8.2"
 
 # Host only.
 futures-util = { version = "0.3.34", default-features = false, features = ["sink", "std"], optional = true }
@@ -50,4 +54,8 @@ required-features = ["host", "join"]
 
 [[test]]
 name = "loopback"
+required-features = ["host", "join"]
+
+[[test]]
+name = "friends"
 required-features = ["host", "join"]

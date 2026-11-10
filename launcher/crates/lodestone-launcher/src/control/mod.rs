@@ -23,6 +23,7 @@
 mod accounts;
 mod content;
 mod events;
+mod friend_list;
 mod friends;
 mod import;
 mod instances;
@@ -671,7 +672,7 @@ pub const METHODS: &[Method] = &[
     ),
     method(
         "friends.open",
-        "Opens the join dialog for an invite link, as opening the link does.",
+        "Opens the join dialog for an invite link (or Add friend for a friend link), as opening the link does.",
         friends::open,
     ),
     method(
@@ -683,6 +684,92 @@ pub const METHODS: &[Method] = &[
         "friends.remove",
         "Forgets a friend's server and its invite link. Instances made for it stay.",
         friends::remove,
+    ),
+    // the friend list
+    method(
+        "friend_list.me",
+        "Your name and safety code on the friend list (makes your friend key on first use).",
+        friend_list::me,
+    ),
+    method(
+        "friend_list.set_name",
+        "Sets the name your friends see.",
+        friend_list::set_name,
+    ),
+    method(
+        "friend_list.create_link",
+        "Makes a friend link to send (works once, for 24 hours).",
+        friend_list::create_link,
+    ),
+    method(
+        "friend_list.links",
+        "Your open friend links.",
+        friend_list::links,
+    ),
+    method(
+        "friend_list.cancel_link",
+        "Cancels one of your friend links.",
+        friend_list::cancel_link,
+    ),
+    method(
+        "friend_list.preview_link",
+        "Who a friend link is from (name and safety code), without answering it.",
+        friend_list::preview_link,
+    ),
+    destructive(
+        "friend_list.answer_link",
+        "Answers a friend link, adding its sender as a pending friend (after the user saw their name and safety code).",
+        friend_list::answer_link,
+    ),
+    method(
+        "friend_list.replies",
+        "Answers to your friend links, waiting for you to accept.",
+        friend_list::replies,
+    ),
+    destructive(
+        "friend_list.accept",
+        "Accepts an answer to one of your friend links: they become your friend.",
+        friend_list::accept,
+    ),
+    method(
+        "friend_list.list",
+        "Your friends: status, verified, hidden, cores and whether they're online (as last checked).",
+        friend_list::list,
+    ),
+    method(
+        "friend_list.refresh",
+        "Checks on friends: their states, which cores share now, and answers to your links.",
+        friend_list::refresh,
+    ),
+    method(
+        "friend_list.verify",
+        "Ticks \"Codes match\" for a friend after comparing safety codes (value: false unticks).",
+        friend_list::verify,
+    ),
+    method(
+        "friend_list.nickname",
+        "Gives a friend a name only you see (none: their own).",
+        friend_list::nickname,
+    ),
+    method(
+        "friend_list.hide",
+        "Hides your cores from a friend (value: false shows them again).",
+        friend_list::hide,
+    ),
+    destructive(
+        "friend_list.remove",
+        "Removes a friend.",
+        friend_list::remove,
+    ),
+    method(
+        "friend_list.servers",
+        "The servers a friend's cores share with you.",
+        friend_list::servers,
+    ),
+    destructive(
+        "friend_list.retire",
+        "Retires your friend identity: friends are told, then your key and friend list are deleted.",
+        friend_list::retire,
     ),
     // jobs and events
     method(
@@ -1521,6 +1608,10 @@ pub const READ_METHODS: &[&str] = &[
     "servers.list",
     "prompts.list",
     "friends.list",
+    "friend_list.links",
+    "friend_list.list",
+    "friend_list.preview_link",
+    "friend_list.servers",
     "jobs.list",
     "jobs.get",
     "jobs.wait",
@@ -1727,6 +1818,19 @@ mod tests {
         "friends.open",
         "friends.join",
         "friends.remove",
+        "friend_list.me",
+        "friend_list.set_name",
+        "friend_list.create_link",
+        "friend_list.cancel_link",
+        "friend_list.answer_link",
+        "friend_list.replies",
+        "friend_list.accept",
+        "friend_list.refresh",
+        "friend_list.verify",
+        "friend_list.nickname",
+        "friend_list.hide",
+        "friend_list.remove",
+        "friend_list.retire",
         "jobs.cancel",
     ];
 

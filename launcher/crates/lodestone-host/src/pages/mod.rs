@@ -29,6 +29,7 @@ pub mod create_instance;
 pub mod eula_prompt;
 pub mod event_logs;
 pub mod files;
+pub mod friend_sharing;
 pub mod home;
 pub mod instance_settings;
 pub mod macros;
@@ -111,6 +112,24 @@ pub fn demo(view: &AnyView, cx: &mut App) {
     }
     if let Ok(page) = view.clone().downcast::<overview::OverviewPage>() {
         page.update(cx, |page, cx| page.demo(cx));
+    }
+}
+
+/// Puts sample friends on the Settings tab's Friends section (development
+/// screenshots' `--friends none|loading|shared|error`, with `--tab settings`).
+#[cfg(feature = "screenshot")]
+pub fn friends_demo(view: &AnyView, scene: &str, cx: &mut App) {
+    if let Ok(page) = view
+        .clone()
+        .downcast::<instance_settings::InstanceSettingsPage>()
+    {
+        let (state, uuid) = {
+            let page = page.read(cx);
+            (page.state.clone(), page.uuid.clone())
+        };
+        if let Some(sharing) = state.read(cx).friends.clone() {
+            sharing.update(cx, |sharing, cx| sharing.demo(scene, &uuid, cx));
+        }
     }
 }
 

@@ -1409,6 +1409,12 @@ impl LauncherShell {
     /// Opens a friend's invite link (`lodestone://join?…` or the https link) in the
     /// join dialog.
     pub fn open_invite(&mut self, link: String, cx: &mut Context<Self>) {
+        // a friend link opens Add friend, with the link's card; nothing is added yet
+        if crate::deep_link::is_friend_link(&link) {
+            self.servers
+                .update(cx, |servers, cx| servers.open_add_friend(Some(link), cx));
+            return;
+        }
         self.servers
             .update(cx, |servers, cx| servers.open_join(Some(link), cx));
     }
@@ -1419,7 +1425,9 @@ impl LauncherShell {
         let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) else {
             return;
         };
-        if launcher_core::cores::connect::Invite::parse(&text).is_ok() {
+        if launcher_core::cores::connect::Invite::parse(&text).is_ok()
+            || crate::deep_link::is_friend_link(&text)
+        {
             self.open_invite(text, cx);
         }
     }

@@ -6,6 +6,8 @@
 //! - [`state`]: what the Host knows about the core, kept live by its event stream;
 //! - [`app`]: the window, from starting the core to the shell;
 //! - [`shell`], [`routes`] and [`pages`]: the dashboard's layout, navigation and pages;
+//! - [`friends`] and [`keychain`]: sharing servers with the friends added in
+//!   Lodestone Launcher;
 //! - [`tray`] and [`single_instance`]: the menu bar icon and one Host at a time.
 //!
 //! The components, theme, fonts and the translations' plumbing are shared with
@@ -14,8 +16,10 @@
 
 pub mod app;
 pub mod core_process;
+pub mod friends;
 pub mod i18n;
 pub mod instance_icons;
+pub mod keychain;
 pub mod notifications;
 pub mod onboarding;
 pub mod pages;

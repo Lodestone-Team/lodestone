@@ -184,6 +184,21 @@ pub fn text(message: M) -> &'static str {
         M::ModsIncompatibleBody => {
             "{title} {version} 適用於 {loaders} {gameVersions}，而非 {loader} {gameVersion}。它可能導致伺服器當機。"
         }
+        M::FriendsTitle => "好友",
+        M::FriendsLead => "你在 Lodestone Launcher 中加入的好友可以看到你與他們分享的伺服器，不需要連結即可加入。在你勾選好友之前，不會分享任何內容。",
+        M::FriendsAddInLauncher => "在 Lodestone Launcher 中加入好友",
+        M::FriendsAddInLauncherHint => "你的好友名單由這台電腦上的 Lodestone Launcher 保存。在那裡加入好友後，即可在這裡與他們分享此伺服器。",
+        M::FriendsLoading => "正在載入好友…",
+        M::FriendsShareWith => "與 {name} 分享此伺服器",
+        M::FriendsNotVerified => "未驗證",
+        M::FriendsConnected => "已連線",
+        M::FriendsSyncFailed => "無法將好友名單同步到此核心：{error}",
+        M::FriendsOpenFailed => "無法開啟你的好友名單：{error}",
+        M::FriendsPublishFailed => "無法通知 {name} 此核心：{error}",
+        M::FriendsPublishFailedAll => "無法通知好友此核心：{error}",
+        M::FriendsRetry => "重試",
+        M::FriendsRetrying => "Lodestone Host 每分鐘會自動重試。",
+        M::FriendsSynced => "好友名單已同步",
     }
 }
 
@@ -209,5 +224,6 @@ pub fn plural(message: P) -> [&'static str; 2] {
         ],
         P::ModsShowMore => ["顯示更多（還有 {count} 個）", "顯示更多（還有 {count} 個）"],
         P::ModsMoreGameVersions => ["還有 {count} 個", "還有 {count} 個"],
+        P::FriendsConnectedCount => ["{count} 位好友已連線", "{count} 位好友已連線"],
     }
 }

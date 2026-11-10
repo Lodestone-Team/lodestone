@@ -1,5 +1,6 @@
 //! An in-process stand-in for connect.lodestone.cc, over plain HTTP on 127.0.0.1: the
-//! same protocol (v1 with stable links) as `services/connect`, without its limits.
+//! same protocol (v1 with stable links, and v2 for friends) as `services/connect`,
+//! without its limits.
 
 use std::{
     collections::HashMap,
@@ -33,9 +34,38 @@ struct Invite {
 }
 
 #[derive(Default)]
+struct Pair {
+    access_hash: String,
+    card: String,
+    secret: String,
+    replies: Vec<String>,
+}
+
+#[derive(Default)]
+struct Session {
+    secret: String,
+    records: HashMap<String, String>,
+    live: bool,
+}
+
+#[derive(Default)]
 pub struct State {
     invites: HashMap<String, Invite>,
     next: u32,
+    pairs: HashMap<String, Pair>,
+    /// slot id -> (SHA-256 of the write proof, sealed state)
+    slots: HashMap<String, (String, String)>,
+    sessions: HashMap<String, Session>,
+    /// lookup id -> session
+    lookups: HashMap<String, String>,
+}
+
+fn sha256_hex(text: &str) -> String {
+    use sha2::{Digest as _, Sha256};
+    Sha256::digest(text.as_bytes())
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
 }
 
 #[derive(Clone)]
@@ -44,6 +74,8 @@ pub struct FakeService {
     state: Arc<Mutex<State>>,
     /// (code, what): "join" for a new join, "ended" or "renewed".
     news: broadcast::Sender<(String, &'static str)>,
+    /// (session, message) for meeting sessions' sockets; a null message ends it.
+    knocks: broadcast::Sender<(String, Value)>,
 }
 
 impl FakeService {
@@ -53,6 +85,7 @@ impl FakeService {
             addr: listener.local_addr().unwrap(),
             state: Arc::default(),
             news: broadcast::channel(64).0,
+            knocks: broadcast::channel(64).0,
         };
         let serving = service.clone();
         tokio::spawn(async move {
@@ -77,6 +110,25 @@ impl FakeService {
             invite.live = false;
         }
         let _ = self.news.send((code.to_string(), "ended"));
+    }
+
+    /// Ends a meeting session, as one whose core went quiet.
+    pub fn end_session(&self, session: &str) {
+        if let Some(open) = self.state.lock().unwrap().sessions.get_mut(session) {
+            open.live = false;
+        }
+        let _ = self.knocks.send((session.to_string(), Value::Null));
+    }
+
+    /// The live meeting sessions.
+    pub fn sessions(&self) -> Vec<String> {
+        let state = self.state.lock().unwrap();
+        state
+            .sessions
+            .iter()
+            .filter(|(_, s)| s.live)
+            .map(|(id, _)| id.clone())
+            .collect()
     }
 
     pub fn joins(&self, code: &str) -> usize {
@@ -152,6 +204,9 @@ impl FakeService {
             .get("upgrade")
             .is_some_and(|u| u.eq_ignore_ascii_case("websocket"))
         {
+            if let ["v2", "meet", session, "knocks"] = parts.as_slice() {
+                return self.meet_socket(stream, session, bearer, &headers).await;
+            }
             let ["v1", "invites", code, "joins"] = parts.as_slice() else {
                 return respond(&mut stream, 404, json!({"error": "unknown"})).await;
             };
@@ -222,11 +277,221 @@ impl FakeService {
                     Some(_) => (403, json!({"error": "forbidden"})),
                     None => (404, json!({"error": "not_found"})),
                 },
-                _ => (404, json!({"error": "unknown"})),
+                _ => self.v2(&mut state, &method, &parts, bearer.as_deref(), &body),
             }
         };
         respond(&mut stream, status, answer).await
     }
+
+    fn v2(
+        &self,
+        state: &mut State,
+        method: &str,
+        parts: &[&str],
+        bearer: Option<&str>,
+        body: &Value,
+    ) -> (u16, Value) {
+        let text = |name: &str| body[name].as_str().unwrap_or_default().to_string();
+        let forbidden = (403, json!({"error": "forbidden"}));
+        let not_found = (404, json!({"error": "not_found"}));
+        match (method, parts) {
+            ("PUT", ["v2", "pairs", code]) => {
+                if state.pairs.contains_key(*code) {
+                    return (409, json!({"error": "taken"}));
+                }
+                state.next += 1;
+                let secret = format!("{:032x}", state.next as u128 * 104729);
+                state.pairs.insert(
+                    code.to_string(),
+                    Pair {
+                        access_hash: text("access"),
+                        card: text("card"),
+                        secret: secret.clone(),
+                        replies: Vec::new(),
+                    },
+                );
+                (201, json!({"secret": secret, "expires_at": null}))
+            }
+            ("GET", ["v2", "pairs", code]) => match state.pairs.get(*code) {
+                Some(pair) if bearer.map(sha256_hex) == Some(pair.access_hash.clone()) => {
+                    (200, json!({"card": pair.card}))
+                }
+                Some(_) => forbidden,
+                None => not_found,
+            },
+            ("POST", ["v2", "pairs", code, "replies"]) => match state.pairs.get_mut(*code) {
+                Some(pair) if bearer.map(sha256_hex) == Some(pair.access_hash.clone()) => {
+                    if pair.replies.len() >= 4 {
+                        return (429, json!({"error": "full"}));
+                    }
+                    pair.replies.push(text("reply"));
+                    (200, json!({"count": pair.replies.len()}))
+                }
+                Some(_) => forbidden,
+                None => not_found,
+            },
+            ("GET", ["v2", "pairs", code, "replies"]) => match state.pairs.get(*code) {
+                Some(pair) if bearer == Some(pair.secret.as_str()) => {
+                    (200, json!({"replies": pair.replies}))
+                }
+                Some(_) => forbidden,
+                None => not_found,
+            },
+            ("DELETE", ["v2", "pairs", code]) => match state.pairs.get(*code) {
+                Some(pair) if bearer == Some(pair.secret.as_str()) => {
+                    state.pairs.remove(*code);
+                    (200, json!({"ok": true}))
+                }
+                Some(_) => forbidden,
+                None => not_found,
+            },
+            ("PUT", ["v2", "slots", id]) => {
+                let Some(proof) = bearer else {
+                    return (401, json!({"error": "unauthorized"}));
+                };
+                let hash = sha256_hex(proof);
+                match state.slots.get(*id) {
+                    Some((owner, _)) if owner != &hash => forbidden,
+                    _ => {
+                        state.slots.insert(id.to_string(), (hash, text("sealed")));
+                        (200, json!({"ok": true}))
+                    }
+                }
+            }
+            ("GET", ["v2", "slots", id]) => match state.slots.get(*id) {
+                Some((_, sealed)) => (200, json!({"sealed": sealed})),
+                None => not_found,
+            },
+            ("PUT", ["v2", "meet"]) if records_of(body).len() > 256 => {
+                (400, json!({"error": "bad_body", "message": "At most 256 records."}))
+            }
+            ("PUT", ["v2", "meet"]) => {
+                state.next += 1;
+                let session = format!("{:032x}", state.next as u128 * 15485863);
+                let secret = format!("{:032x}", state.next as u128 * 32452843);
+                let records = records_of(body);
+                for lookup in records.keys() {
+                    state.lookups.insert(lookup.clone(), session.clone());
+                }
+                state.sessions.insert(
+                    session.clone(),
+                    Session {
+                        secret: secret.clone(),
+                        records,
+                        live: true,
+                    },
+                );
+                (201, json!({"session": session, "secret": secret, "expires_at": null}))
+            }
+            ("PUT", ["v2", "meet", session]) => {
+                let records = records_of(body);
+                match state.sessions.get_mut(*session) {
+                    Some(open) if open.live && bearer == Some(open.secret.as_str()) => {
+                        open.records = records.clone();
+                        state.lookups.retain(|_, owner| owner != session);
+                        for lookup in records.keys() {
+                            state.lookups.insert(lookup.clone(), session.to_string());
+                        }
+                        (200, json!({"expires_at": null}))
+                    }
+                    Some(open) if open.live => forbidden,
+                    _ => not_found,
+                }
+            }
+            ("DELETE", ["v2", "meet", session]) => match state.sessions.get_mut(*session) {
+                Some(open) if bearer == Some(open.secret.as_str()) => {
+                    open.live = false;
+                    let _ = self.knocks.send((session.to_string(), Value::Null));
+                    (200, json!({"ok": true}))
+                }
+                Some(_) => forbidden,
+                None => not_found,
+            },
+            ("POST", ["v2", "lookups", lookup, "knocks"]) => {
+                let Some(session) = state.lookups.get(*lookup).cloned() else {
+                    return not_found;
+                };
+                match state.sessions.get(&session) {
+                    Some(open) if open.live => {
+                        let record = open.records.get(*lookup).cloned().unwrap_or_default();
+                        let _ = self.knocks.send((
+                            session,
+                            json!({"knocks": [{"lookup": lookup, "sealed": text("sealed"), "seen": "127.0.0.1"}]}),
+                        ));
+                        (200, json!({"sealed": record}))
+                    }
+                    _ => not_found,
+                }
+            }
+            ("HEAD", ["v2", "lookups", lookup]) => {
+                let live = state
+                    .lookups
+                    .get(*lookup)
+                    .and_then(|session| state.sessions.get(session))
+                    .is_some_and(|open| open.live);
+                if live {
+                    (200, Value::Null)
+                } else {
+                    not_found
+                }
+            }
+            _ => (404, json!({"error": "unknown"})),
+        }
+    }
+
+    async fn meet_socket(
+        &self,
+        mut stream: TcpStream,
+        session: &str,
+        bearer: Option<String>,
+        headers: &HashMap<String, String>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut knocks = self.knocks.subscribe();
+        let allowed = {
+            let state = self.state.lock().unwrap();
+            match state.sessions.get(session) {
+                Some(open) if open.live && bearer.as_deref() == Some(open.secret.as_str()) => Ok(()),
+                Some(open) if open.live => Err(403),
+                _ => Err(404),
+            }
+        };
+        match allowed {
+            Ok(()) => {}
+            Err(403) => return respond(&mut stream, 403, json!({"error": "forbidden"})).await,
+            Err(_) => return respond(&mut stream, 404, json!({"error": "not_found"})).await,
+        }
+        let key = headers.get("sec-websocket-key").ok_or("no key")?;
+        let accept = tungstenite::handshake::derive_accept_key(key.as_bytes());
+        let crlf = "\r\n";
+        stream
+            .write_all(
+                format!("HTTP/1.1 101 Switching Protocols{crlf}Upgrade: websocket{crlf}Connection: Upgrade{crlf}Sec-WebSocket-Accept: {accept}{crlf}{crlf}")
+                    .as_bytes(),
+            )
+            .await?;
+        let mut ws = WebSocketStream::from_raw_socket(stream, Role::Server, None).await;
+        loop {
+            tokio::select! {
+                message = ws.next() => match message {
+                    Some(Ok(Message::Text(text))) if text.as_str() == "ping" => ws.send(Message::text("pong")).await?,
+                    Some(Ok(_)) => {}
+                    _ => return Ok(()),
+                },
+                knock = knocks.recv() => {
+                    let Ok((about, message)) = knock else { continue };
+                    if about != session {
+                        continue;
+                    }
+                    if message.is_null() {
+                        let _ = ws.send(Message::Close(Some(CloseFrame { code: CloseCode::from(4000), reason: "".into() }))).await;
+                        return Ok(());
+                    }
+                    ws.send(Message::text(message.to_string())).await?;
+                }
+            }
+        }
+    }
+
 
     async fn socket(
         &self,
@@ -297,6 +562,17 @@ impl FakeService {
             }
         }
     }
+}
+
+fn records_of(body: &Value) -> HashMap<String, String> {
+    body["records"]
+        .as_array()
+        .map(|list| {
+            list.iter()
+                .filter_map(|r| Some((r["lookup"].as_str()?.to_string(), r["sealed"].as_str()?.to_string())))
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 fn joins_after(invite: &Invite, after: usize) -> Value {

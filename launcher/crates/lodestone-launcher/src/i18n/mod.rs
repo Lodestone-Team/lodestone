@@ -44,6 +44,7 @@ pub use lodestone_ui::i18n::{
 
 pub use en::{
     content::{ContentMsg, ContentPlural},
+    friend_list::{FriendListMsg, FriendListPlural},
     instance_settings::{InstanceSettingsMsg, InstanceSettingsPlural},
     instances::{InstancesMsg, InstancesPlural},
     servers::{ServersMsg, ServersPlural},
@@ -238,5 +239,6 @@ areas! {
     content => ContentMsg, ContentPlural;
     worlds => WorldsMsg, WorldsPlural;
     servers => ServersMsg, ServersPlural;
+    friend_list => FriendListMsg, FriendListPlural;
     shared_options => SharedOptionsMsg, SharedOptionsPlural;
 }

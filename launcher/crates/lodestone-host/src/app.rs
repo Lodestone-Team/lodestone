@@ -274,6 +274,14 @@ impl HostApp {
     fn show_shell_on(&mut self, session: Session, remote: Option<String>, cx: &mut Context<Self>) {
         let on_local = remote.is_none();
         let state = cx.new(|cx| HostState::new(session, cx));
+        // sharing with friends: this computer's core, as its owner (another core's
+        // friends are its owner's, set up from their own Host)
+        if on_local && state.read(cx).me.is_owner {
+            state.update(cx, |state, cx| {
+                let weak = cx.entity().downgrade();
+                state.friends = Some(cx.new(|cx| crate::friends::FriendSharing::new(weak, cx)));
+            });
+        }
         // after being signed out of another core
         if let Some(notice) = self.notice.take() {
             state.update(cx, |state, cx| {

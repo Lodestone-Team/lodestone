@@ -5,6 +5,8 @@
 //! Product names (Lodestone, Minecraft, Modrinth, Fabric, Forge, NeoForge, Quilt,
 //! Microsoft, Mojang) are never translated.
 
+/// The friend list on the Servers page: friend links, friends and their servers.
+pub mod friend_list;
 /// The Content tab: mods, resource packs and shader packs, and Modrinth's pages.
 pub mod content;
 /// An instance's Settings tab, the new-instance dialog and their fields.
