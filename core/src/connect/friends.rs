@@ -30,7 +30,10 @@ use axum::{
 use lodestone_connect::{
     friend::{
         crypto::{PublicKey, Secret},
-        host::{CoreIdentity, FriendAccess, FriendHandler, FriendHost, FriendHostConfig, FriendHostStatus},
+        host::{
+            CoreIdentity, FriendAccess, FriendHandler, FriendHost, FriendHostConfig,
+            FriendHostStatus, KnockMemory,
+        },
         pair::clean_name,
     },
     GatherOptions, Service, SharedServer, TunnelStream,
@@ -190,6 +193,9 @@ pub struct FriendShares {
     inner: Mutex<Inner>,
     access: Access,
     identity: Mutex<Option<CoreIdentity>>,
+    /// The knocks the friend host let in, kept while the core runs: the host stops when
+    /// nothing is shared and starts again later, and must still refuse old knocks.
+    knocks: KnockMemory,
 }
 
 impl FriendShares {
@@ -207,6 +213,7 @@ impl FriendShares {
             }),
             access: Arc::default(),
             identity: Mutex::new(None),
+            knocks: KnockMemory::default(),
         }
     }
 
@@ -438,6 +445,7 @@ impl FriendShares {
                     FriendHostConfig {
                         service: self.service.clone(),
                         gather: self.gather,
+                        knocks: self.knocks.clone(),
                     },
                     handler,
                 )

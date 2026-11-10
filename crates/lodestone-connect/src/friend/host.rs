@@ -199,6 +199,40 @@ pub struct FriendHostStatus {
 pub struct FriendHostConfig {
     pub service: Service,
     pub gather: GatherOptions,
+    /// The knocks already let in. Give every friend host a core starts the same one, so
+    /// a knock can't be replayed after the host stops and starts again.
+    pub knocks: KnockMemory,
+}
+
+/// The knock ids a core has let in, for each friend ([`ReplayGuard`]). Keep one for as
+/// long as the core runs, and give it to each friend host it starts: the core stops its
+/// friend host when it shares nothing and starts it again later, and a new memory would
+/// let a knock from before in again. It's lost when the core itself restarts.
+#[derive(Clone, Default)]
+pub struct KnockMemory(Arc<Mutex<HashMap<PublicKey, ReplayGuard>>>);
+
+impl fmt::Debug for KnockMemory {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("KnockMemory")
+            .field("friends", &self.0.lock().expect("not poisoned").len())
+            .finish()
+    }
+}
+
+impl KnockMemory {
+    /// Whether `knock` from `friend` is new and fresh ([`ReplayGuard::admit`]). Forgets
+    /// the knocks of anyone `is_friend` says no to.
+    fn admit(
+        &self,
+        friend: PublicKey,
+        knock: &meet::Knock,
+        is_friend: impl Fn(&PublicKey) -> bool,
+    ) -> bool {
+        let mut guards = self.0.lock().expect("not poisoned");
+        // one guard per friend: a friend filling theirs only stops their own knocks
+        guards.retain(|friend, _| is_friend(friend));
+        guards.entry(friend).or_default().admit(knock, now_secs())
+    }
 }
 
 struct Connected {
@@ -309,6 +343,7 @@ struct Shared {
     candidates: Mutex<Vec<SocketAddr>>,
     /// Both sides on this computer (tests): knocks may name loopback addresses.
     loopback: bool,
+    knocks: KnockMemory,
 }
 
 impl Shared {
@@ -519,6 +554,7 @@ impl FriendHost {
             mapping: Mutex::new(gathered.mapping),
             candidates: Mutex::new(candidates),
             loopback: config.gather.loopback_only,
+            knocks: config.knocks,
         });
         let admit = {
             let shared = shared.clone();
@@ -698,7 +734,6 @@ async fn service_loop(shared: Arc<Shared>, sprayer: UdpSocket, mut stop: watch::
     let mut generation = shared.generation.subscribe();
     let mut session: Option<MeetSession> = None;
     let mut watch = None;
-    let mut guards: HashMap<PublicKey, ReplayGuard> = HashMap::new();
     let mut sprays: VecDeque<(PublicKey, JoinHandle<()>)> = VecDeque::new();
     let mut backoff = Duration::from_secs(2);
     loop {
@@ -807,7 +842,7 @@ async fn service_loop(shared: Arc<Shared>, sprayer: UdpSocket, mut stop: watch::
                 event = listening.next() => match event {
                     Ok(MeetEvent::Knocks(knocks)) => {
                         for knock in knocks {
-                            on_knock(&shared, &index, knock, &mut guards, &mut sprays, &sprayer, &stop);
+                            on_knock(&shared, &index, knock, &mut sprays, &sprayer, &stop);
                         }
                     }
                     Ok(MeetEvent::Ended) => {
@@ -836,7 +871,6 @@ fn on_knock(
     shared: &Shared,
     index: &HashMap<[u8; ID_LEN], PublicKey>,
     delivered: DeliveredKnock,
-    guards: &mut HashMap<PublicKey, ReplayGuard>,
     sprays: &mut VecDeque<(PublicKey, JoinHandle<()>)>,
     sprayer: &UdpSocket,
     stop: &watch::Receiver<bool>,
@@ -856,9 +890,10 @@ fn on_knock(
     let Some(knock) = meet::open_knock(&secret, &delivered.lookup, &delivered.sealed) else {
         return;
     };
-    // one guard per friend: a friend filling theirs only stops their own knocks
-    guards.retain(|friend, _| shared.is_friend(friend));
-    if !guards.entry(*key).or_default().admit(&knock, now_secs()) {
+    if !shared
+        .knocks
+        .admit(*key, &knock, |friend| shared.is_friend(friend))
+    {
         return;
     }
     // Only addresses someone else can be at: a friend can't make the core probe its
@@ -1242,6 +1277,7 @@ pub(crate) mod tests {
             mapping: Mutex::new(None),
             candidates: Mutex::new(Vec::new()),
             loopback,
+            knocks: KnockMemory::default(),
         })
     }
 
@@ -1298,7 +1334,6 @@ pub(crate) mod tests {
         let sprayer = UdpSocket::bind("127.0.0.1:0").unwrap();
         sprayer.set_nonblocking(true).unwrap();
         let (_stop, stop) = watch::channel(false);
-        let mut guards = HashMap::new();
         let mut sprays = VecDeque::new();
         // nothing listens on these ports
         let joins: Vec<SocketAddr> = (1..=3)
@@ -1306,15 +1341,7 @@ pub(crate) mod tests {
             .collect();
         for (n, join) in joins.iter().enumerate() {
             let (knock, index) = knock_from(&shared, dee, &[*join]);
-            on_knock(
-                &shared,
-                &index,
-                knock,
-                &mut guards,
-                &mut sprays,
-                &sprayer,
-                &stop,
-            );
+            on_knock(&shared, &index, knock, &mut sprays, &sprayer, &stop);
             assert_eq!(sprays.len(), (n + 1).min(KNOCKS_PER_FRIEND));
         }
         // the two latest joins both keep their spray and their addresses
@@ -1333,7 +1360,7 @@ pub(crate) mod tests {
         let shared = shared_for(&[dee], false);
         let sprayer = UdpSocket::bind("127.0.0.1:0").unwrap();
         let (_stop, stop) = watch::channel(false);
-        let (mut guards, mut sprays) = (HashMap::new(), VecDeque::new());
+        let mut sprays = VecDeque::new();
         let bad: Vec<SocketAddr> = [
             "127.0.0.1:25565",
             "[::1]:25565",
@@ -1346,15 +1373,7 @@ pub(crate) mod tests {
         .map(|text| text.parse().unwrap())
         .collect();
         let (knock, index) = knock_from(&shared, dee, &bad);
-        on_knock(
-            &shared,
-            &index,
-            knock,
-            &mut guards,
-            &mut sprays,
-            &sprayer,
-            &stop,
-        );
+        on_knock(&shared, &index, knock, &mut sprays, &sprayer, &stop);
         assert!(sprays.is_empty());
         assert!(bad.iter().all(|addr| !shared.may_reach(addr.ip())));
         // a knock with one good address among them gets a spray towards it alone
@@ -1362,15 +1381,7 @@ pub(crate) mod tests {
         let mut mixed = bad.clone();
         mixed.push(good);
         let (knock, index) = knock_from(&shared, dee, &mixed);
-        on_knock(
-            &shared,
-            &index,
-            knock,
-            &mut guards,
-            &mut sprays,
-            &sprayer,
-            &stop,
-        );
+        on_knock(&shared, &index, knock, &mut sprays, &sprayer, &stop);
         assert_eq!(sprays.len(), 1);
         assert!(shared.may_reach(good.ip()));
         assert!(!shared.may_reach(bad[0].ip()));

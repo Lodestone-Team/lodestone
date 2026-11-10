@@ -17,8 +17,11 @@ use std::{
 use lodestone_connect::{
     friend::{
         crypto::{core_secret, PersonKey, PublicKey},
-        host::{CoreIdentity, FriendAccess, FriendHandler, FriendHost, FriendHostConfig},
+        host::{
+            CoreIdentity, FriendAccess, FriendHandler, FriendHost, FriendHostConfig, KnockMemory,
+        },
         join::{is_online, join_friend, FriendCore},
+        meet,
         pair::{answer, open_card, FriendLink, Invitation},
         state::{
             open_state, seal_state, slot_id, slot_proof, slot_proof_hash, State, StateCore,
@@ -236,6 +239,7 @@ async fn friends_pair_and_join_without_links() {
         FriendHostConfig {
             service: service.clone(),
             gather: LOOPBACK,
+            ..Default::default()
         },
         Streams {
             friend: ben.public(),
@@ -328,6 +332,7 @@ async fn a_core_publishes_again_after_its_session_ends() {
         FriendHostConfig {
             service: service.clone(),
             gather: LOOPBACK,
+            ..Default::default()
         },
         Streams {
             friend: ben.public(),
@@ -504,6 +509,7 @@ async fn one_friends_removal_and_misbehaviour_leave_the_others_alone() {
         FriendHostConfig {
             service: service.clone(),
             gather: LOOPBACK,
+            ..Default::default()
         },
         Streams {
             friend: dee.public(),
@@ -621,6 +627,7 @@ async fn connections_without_a_hello_count_against_the_friend_who_knocked() {
         FriendHostConfig {
             service: service.clone(),
             gather: LOOPBACK,
+            ..Default::default()
         },
         Streams {
             friend: ben.public(),
@@ -667,5 +674,94 @@ async fn connections_without_a_hello_count_against_the_friend_who_knocked() {
         .unwrap();
     assert_eq!(echo_through(&ben_joined).await, b"hello\n");
     assert_eq!(host.status().connected.len(), 2);
+    host.stop().await;
+}
+
+/// The core stops its friend host when it shares nothing, and starts it again later. A
+/// knock it let in before is still refused after that: it keeps one knock memory.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_knock_cant_be_replayed_after_the_friend_host_restarts() {
+    let fake = FakeService::start().await;
+    let service = Service::parse(&fake.url()).unwrap();
+    let ana = PersonKey::generate().unwrap();
+    let ben = PersonKey::generate().unwrap();
+    let identity = CoreIdentity::generate().unwrap();
+    let pair = lodestone_connect::friend::Secret::random().unwrap();
+    let secret = core_secret(&pair, &ana.public(), &ben.public(), &identity.fingerprint());
+    let core = FriendCore {
+        fingerprint: identity.fingerprint(),
+        secret: secret.clone(),
+    };
+    let knocks = KnockMemory::default();
+    let start = || async {
+        let host = FriendHost::start(
+            &identity,
+            vec![FriendAccess {
+                key: ben.public(),
+                secret: secret.clone(),
+            }],
+            FriendHostConfig {
+                service: service.clone(),
+                gather: LOOPBACK,
+                knocks: knocks.clone(),
+            },
+            Streams {
+                friend: ben.public(),
+                game: echo_server().await,
+            },
+        )
+        .await
+        .unwrap();
+        for _ in 0..50 {
+            if is_online(&service, &core).await.unwrap() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        host
+    };
+    // Addresses Ben knocks with: the core probes them when it lets a knock in.
+    let socket = || {
+        let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
+        socket
+            .set_read_timeout(Some(Duration::from_millis(1500)))
+            .unwrap();
+        socket
+    };
+    let probed = |socket: &UdpSocket| socket.recv_from(&mut [0u8; 64]).is_ok();
+    let knock = |socket: &UdpSocket| {
+        let lookup = meet::knock_lookups(&secret, now())[0];
+        let (_, sealed) =
+            meet::seal_knock(&secret, &lookup, &[socket.local_addr().unwrap()], now()).unwrap();
+        (lookup, sealed)
+    };
+    // knocks with a new address until the core probes it: the core hears knocks now
+    let hears_knocks = || async {
+        for _ in 0..20 {
+            let fresh = socket();
+            let (lookup, sealed) = knock(&fresh);
+            assert!(service.knock(&lookup, &sealed).await.unwrap().is_some());
+            if probed(&fresh) {
+                return;
+            }
+        }
+        panic!("the core never let a knock in");
+    };
+
+    let host = start().await;
+    hears_knocks().await;
+    let first = socket();
+    let (lookup, sealed) = knock(&first);
+    assert!(service.knock(&lookup, &sealed).await.unwrap().is_some());
+    assert!(probed(&first), "the core let the knock in");
+    host.stop().await;
+    // what its spray sent before it stopped
+    while probed(&first) {}
+
+    // the host starts again: the same knock is refused
+    let host = start().await;
+    hears_knocks().await;
+    assert!(service.knock(&lookup, &sealed).await.unwrap().is_some());
+    assert!(!probed(&first), "the core let a replayed knock in");
     host.stop().await;
 }
