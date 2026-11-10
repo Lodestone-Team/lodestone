@@ -52,14 +52,17 @@ crate::i18n::messages! {
         TheirName = "Their name: {name}",
         /// {cores} is a list of the friend's computers (core names).
         OnlineOn = "Online: {cores}",
-        Offline = "Offline",
+        /// A friend whose cores don't answer: off, or sharing nothing with this person
+        /// (a core only answers friends it shares something with).
+        NotSharingNow = "Not sharing with you right now",
         SharesNothing = "Not sharing any server with you yet",
         Servers = "Servers",
         CompareCodes = "Compare codes",
         HideFromThem = "Hide from them",
         StopHiding = "Stop hiding",
         CoreOnline = "Online",
-        CoreOffline = "Offline",
+        /// One of a friend's cores that doesn't answer (see NotSharingNow).
+        CoreOffline = "Not sharing now",
         LoadingServers = "Asking for the servers…",
         NoServersShared = "Nothing on this computer is shared with you.",
         /// {error} is what went wrong.
