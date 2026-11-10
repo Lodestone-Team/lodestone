@@ -165,6 +165,7 @@ pub fn text(message: M) -> &'static str {
         M::ModsUpdateAll => "Tout mettre à jour ({count})",
         M::ModsCheckUpdates => "Rechercher des mises à jour",
         M::ModsUpload => "Importer",
+        M::ModsDropToUpload => "Relâchez pour envoyer les fichiers .jar",
         M::ModsUploadPrompt => "Importer",
         M::ModsLoadFailedMod => "Impossible de charger les mods : {error}",
         M::ModsLoadFailedPlugin => "Impossible de charger les plugins : {error}",
