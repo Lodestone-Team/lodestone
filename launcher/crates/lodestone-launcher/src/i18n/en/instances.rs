@@ -53,6 +53,9 @@ crate::i18n::messages! {
         /// {source} is the name of the instance they were copied from.
         AutoControlsNote = "Automatic setup: mouse sensitivity, key bindings and language copied from {source}",
         AutoControlsLauncherNote = "Automatic setup: mouse sensitivity, key bindings and language copied from the Minecraft Launcher",
+        /// {instance} is the name of an instance in another launcher; {launcher} is that
+        /// launcher's name ("Prism Launcher", "Modrinth App").
+        AutoControlsOtherLauncherNote = "Automatic setup: mouse sensitivity, key bindings and language copied from {instance} in {launcher}",
         StoppedNote = "Stopped",
         ExitedWithCode = "Minecraft exited with code {code}",
         EndedBySignal = "Minecraft was ended by a signal",

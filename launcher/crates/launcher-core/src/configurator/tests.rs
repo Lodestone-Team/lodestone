@@ -585,16 +585,143 @@ fn candidates_put_the_main_instance_first() {
         make("never", None),
         make("this", Some(20)),
     ];
-    let names: Vec<ControlsSource> = candidates(Some("main"), &list, "this")
-        .into_iter()
-        .map(|c| c.source)
-        .filter(|s| *s != ControlsSource::MinecraftLauncher)
-        .collect();
+    let prism = ControlsSource::OtherLauncher {
+        launcher: "Prism Launcher".into(),
+        instance: "Pack".into(),
+    };
+    let outside = |source: ControlsSource, played: u64| Outside {
+        candidate: Candidate {
+            source,
+            game_dir: PathBuf::from("outside"),
+            game_version: String::new(),
+        },
+        played,
+    };
+    let names: Vec<ControlsSource> = candidates(
+        Some("main"),
+        &list,
+        "this",
+        vec![
+            outside(ControlsSource::MinecraftLauncher, 2),
+            outside(prism.clone(), 7),
+        ],
+    )
+    .into_iter()
+    .map(|c| c.source)
+    .collect();
+    // The main instance, then by when each was played, here or elsewhere.
+    let instance = |n: &str| ControlsSource::Instance(n.into());
     assert_eq!(
         names,
-        ["MAIN", "B", "A"]
-            .map(|n| ControlsSource::Instance(n.into()))
-            .to_vec()
+        [
+            instance("MAIN"),
+            instance("B"),
+            prism,
+            instance("A"),
+            ControlsSource::MinecraftLauncher,
+        ]
+    );
+}
+
+/// The first instance on a computer with only other launchers' games: the one played
+/// last in another launcher gives its sensitivity.
+#[test]
+fn another_launchers_last_game_gives_the_controls() {
+    use crate::{game::platform::Os, import::Locations};
+    use std::time::{Duration, SystemTime};
+
+    let home = tempfile::tempdir().unwrap();
+    let roaming = home.path().join("AppData").join("Roaming");
+    let prism = roaming.join("PrismLauncher");
+    std::fs::create_dir_all(&prism).unwrap();
+    std::fs::write(prism.join("prismlauncher.cfg"), "[General]\n").unwrap();
+    let at = |secs: u64| SystemTime::UNIX_EPOCH + Duration::from_secs(secs);
+    let prism_instance = |folder: &str, name: &str, options: Option<(&str, u64)>| {
+        let dir = prism.join("instances").join(folder);
+        std::fs::create_dir_all(dir.join("minecraft")).unwrap();
+        std::fs::write(
+            dir.join("instance.cfg"),
+            format!("[General]\nname={name}\nMinecraftVersion=1.21.1\n"),
+        )
+        .unwrap();
+        if let Some((text, played)) = options {
+            let path = dir.join("minecraft").join("options.txt");
+            std::fs::write(&path, text).unwrap();
+            let file = std::fs::File::options().write(true).open(&path).unwrap();
+            file.set_modified(at(played)).unwrap();
+        }
+    };
+    prism_instance(
+        "ftb",
+        "FTB Evolution 2",
+        Some(("version:3955\nmouseSensitivity:0.2558\n", 2_000_000)),
+    );
+    prism_instance(
+        "old",
+        "Old Pack",
+        Some(("version:3955\nmouseSensitivity:0.5\n", 1_000_000)),
+    );
+    prism_instance("fresh", "Never Played", None);
+    // The official launcher's folder, played longer ago.
+    let vanilla = roaming.join(".minecraft");
+    std::fs::create_dir_all(&vanilla).unwrap();
+    std::fs::write(
+        vanilla.join("options.txt"),
+        "version:3955\nmouseSensitivity:0.9\n",
+    )
+    .unwrap();
+    std::fs::File::options()
+        .write(true)
+        .open(vanilla.join("options.txt"))
+        .unwrap()
+        .set_modified(at(500_000))
+        .unwrap();
+
+    let outside = outside_candidates_in(&Locations {
+        os: Os::Windows,
+        home: home.path().to_path_buf(),
+        app_data: roaming.clone(),
+        config: roaming,
+        documents: home.path().join("Documents"),
+        applications: Vec::new(),
+    });
+    let mut found: Vec<(ControlsSource, u64)> = outside
+        .iter()
+        .map(|o| (o.candidate.source.clone(), o.played))
+        .collect();
+    found.sort_by_key(|(_, played)| *played);
+    let ftb = ControlsSource::OtherLauncher {
+        launcher: "Prism Launcher".into(),
+        instance: "FTB Evolution 2".into(),
+    };
+    assert_eq!(
+        found,
+        [
+            (ControlsSource::MinecraftLauncher, 500_000),
+            (
+                ControlsSource::OtherLauncher {
+                    launcher: "Prism Launcher".into(),
+                    instance: "Old Pack".into(),
+                },
+                1_000_000
+            ),
+            (ftb.clone(), 2_000_000),
+        ],
+        "a game never played has no options to copy"
+    );
+
+    let data = Data::new();
+    let dir = data.instance_dir("first", None);
+    // 1.12.2, whose format is known without its client jar.
+    let mut instance = new_instance(Loader::None, "1.12.2");
+    set_up(&mut instance);
+    let list = candidates(None, &[], "first", outside);
+    let outcome =
+        configure_options(&data.data, &mut instance, &dir, None, &gaming_pc(), &list).unwrap();
+    assert_eq!(outcome.controls_from, Some(ftb));
+    assert_eq!(
+        line(&data.options("first"), "mouseSensitivity"),
+        Some("0.2558")
     );
 }
 

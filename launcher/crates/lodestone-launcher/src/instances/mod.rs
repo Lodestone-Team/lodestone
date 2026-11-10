@@ -1571,6 +1571,13 @@ impl Instances {
         let game_dir = self.store.game_dir(id);
         let natives_dir = self.store.natives_dir(id);
         let settings = instance.game_settings(self.defaults(), self.total_memory);
+        // Other launchers' games to copy controls from, looked for while the game
+        // prepares, only for an instance automatic setup hasn't given options yet.
+        let find_outside = self.settings.auto_configure
+            && instance
+                .auto_config
+                .as_ref()
+                .is_some_and(|state| !state.options);
         let id = id.to_string();
         let run_id = id.clone();
         let task = cx.spawn(async move |this, cx| {
@@ -1622,11 +1629,16 @@ impl Instances {
                         join.as_ref(),
                     )
                     .map_err(|err| InstallError::Invalid(err.to_string()))?;
-                    Ok::<_, InstallError>((command, prepared.rosetta))
+                    let outside = if find_outside {
+                        launcher_core::configurator::outside_candidates()
+                    } else {
+                        Vec::new()
+                    };
+                    Ok::<_, InstallError>((command, prepared.rosetta, outside))
                 })
                 .await;
             this.update(cx, |this, cx| match prepared {
-                Ok((command, rosetta)) => {
+                Ok((command, rosetta, outside)) => {
                     this.take_notes(&id);
                     if let Some(run) = this.runs.get_mut(&id) {
                         run.log.note(
@@ -1634,7 +1646,7 @@ impl Instances {
                             check_summary(&stats_progress, check_started.elapsed()),
                         );
                     }
-                    this.start(&id, command, rosetta, cx)
+                    this.start(&id, command, rosetta, outside, cx)
                 }
                 Err(InstallError::Cancelled) => {
                     if let Some(run) = this.runs.get_mut(&id) {
@@ -1794,10 +1806,17 @@ impl Instances {
         cx.emit(InstancesEvent::LaunchFailed { title, message });
     }
 
-    fn start(&mut self, id: &str, command: LaunchCommand, rosetta: bool, cx: &mut Context<Self>) {
+    fn start(
+        &mut self,
+        id: &str,
+        command: LaunchCommand,
+        rosetta: bool,
+        outside: Vec<launcher_core::configurator::Outside>,
+        cx: &mut Context<Self>,
+    ) {
         let game_dir = self.store.game_dir(id);
         let before = crash::crash_reports(&game_dir);
-        self.auto_configure_options(id, cx);
+        self.auto_configure_options(id, outside, cx);
         self.merge_shared_settings(id);
         let Some(run) = self.runs.get_mut(id) else {
             return;
