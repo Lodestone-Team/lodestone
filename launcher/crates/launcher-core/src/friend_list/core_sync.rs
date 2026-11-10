@@ -154,6 +154,40 @@ pub async fn clear(admin: &AdminClient) -> Result<CoreFriends, SyncError> {
         .await?)
 }
 
+/// `POST /connect/friends/certificate`'s answer.
+#[derive(Deserialize)]
+struct NewCertificate {
+    fingerprint: String,
+}
+
+/// Has the core make a new friend certificate (owner only), for when its current one
+/// was retired: friends then find it under the new one, once a sync lists it in the
+/// person's state. Returns the new fingerprint. [`SyncError::NoCertificateRoute`] from
+/// a core too old for it: then deleting `stores/connect/friends/core.json` in the
+/// core's data folder (while it's stopped) makes a new one.
+pub async fn new_certificate(admin: &AdminClient) -> Result<String, SyncError> {
+    if !is_local(admin) {
+        return Err(SyncError::NotLocal);
+    }
+    match admin
+        .json::<NewCertificate>(
+            Method::POST,
+            "connect/friends/certificate",
+            None::<serde_json::Value>,
+        )
+        .await
+    {
+        Ok(made) if unhex32(&made.fingerprint).is_some() => Ok(made.fingerprint),
+        Ok(_) => Err(SyncError::Core(CoreError::Invalid(
+            "the new certificate's fingerprint".into(),
+        ))),
+        Err(CoreError::NotFound(_) | CoreError::Server { status: 405, .. }) => {
+            Err(SyncError::NoCertificateRoute)
+        }
+        Err(err) => Err(err.into()),
+    }
+}
+
 /// Whether `admin` talks to a core on this computer. Only such a core is synced: the
 /// friend certificate's fingerprint comes from the core itself, and a core elsewhere
 /// that lied about it could be handed the secrets meant for another of this person's
@@ -196,6 +230,18 @@ pub enum SyncError {
     Friends(#[from] super::FriendsError),
     #[error("Only a core on this computer can share with friends for now.")]
     NotLocal,
+    /// The core can't make a new friend certificate (it's older than that route).
+    #[error(
+        "This core can't make a new friend certificate. Stop it, delete stores/connect/friends/core.json in its data folder, and start it again to get a new one."
+    )]
+    NoCertificateRoute,
+}
+
+impl SyncError {
+    /// The core's friend certificate was retired: sharing needs a new one.
+    pub fn is_core_retired(&self) -> bool {
+        matches!(self, SyncError::Friends(super::FriendsError::CoreRetired))
+    }
 }
 
 #[cfg(test)]

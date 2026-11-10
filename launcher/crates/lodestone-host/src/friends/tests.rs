@@ -380,6 +380,75 @@ fn the_host_keeps_its_core_in_step_with_the_friend_list() {
     assert_eq!(core.friends.len(), 1);
     assert!(!is_shared(Some(&core), &ben_key, instance));
 
+    // retiring this core's certificate from the Host: friends drop the old one, and
+    // the core gets a new one they find instead
+    let renewed = block_on(run(
+        ana.clone(),
+        admin.clone(),
+        "Ana's core".into(),
+        source.clone(),
+        Job::Renew {
+            retire_current: true,
+        },
+    ));
+    if renewed.no_certificate_route {
+        // a core from before POST /connect/friends/certificate: the Settings say how
+        // to get one by hand, and the rest of this test needs the core shared
+        assert!(renewed.core_retired);
+        eprintln!("this core can't make a new friend certificate: stopping here");
+        let _ = process.stop(Duration::from_secs(30));
+        return;
+    }
+    let core = renewed.core.unwrap().expect("renewed");
+    assert_ne!(core.fingerprint, fingerprint, "a new certificate");
+    assert_eq!(core.friends.len(), 1, "the list stays");
+    let refreshed = block_on(ben.refresh()).unwrap();
+    assert_eq!(refreshed.dropped_cores, vec![fingerprint.clone()]);
+    let cores = ben.book.friend(&ana_key).unwrap().joinable_cores(now());
+    let hexes: Vec<String> = cores
+        .iter()
+        .map(|c| c.fingerprint.iter().map(|b| format!("{b:02x}")).collect())
+        .collect();
+    assert_eq!(hexes, vec![core.fingerprint.clone()]);
+    {
+        let book = &block_on(ana.lock()).book;
+        assert!(book.retired_cores.contains(&fingerprint));
+        assert_eq!(book.my_cores.len(), 1, "only the new certificate is listed");
+    }
+
+    // hiding Ben keeps him on the core with what's shared with him (the core serves him
+    // nothing meanwhile), and showing him again gives it back
+    let share = |share: bool| Job::Share {
+        key: ben_key.clone(),
+        instance: instance.into(),
+        share,
+    };
+    let sync = |job: Job| {
+        block_on(run(
+            ana.clone(),
+            admin.clone(),
+            "Ana's core".into(),
+            source.clone(),
+            job,
+        ))
+    };
+    sync(share(true)).core.unwrap().expect("shared");
+    block_on(async { ana.lock().await.set_hidden(&ben_key, true) }).unwrap();
+    let hidden = sync(check()).core.unwrap().expect("synced while hidden");
+    let entry = hidden.friends.iter().find(|f| f.key == ben_key).unwrap();
+    assert!(
+        entry.hidden && entry.shared == [instance.to_string()],
+        "{entry:?}"
+    );
+    block_on(async { ana.lock().await.set_hidden(&ben_key, false) }).unwrap();
+    let shown = sync(check()).core.unwrap().expect("synced when shown");
+    let entry = shown.friends.iter().find(|f| f.key == ben_key).unwrap();
+    assert!(
+        !entry.hidden && entry.shared == [instance.to_string()],
+        "{entry:?}"
+    );
+    let renewed = sync(share(false));
+
     // nothing changed: the next check does nothing
     let again = block_on(run(
         ana.clone(),
@@ -387,7 +456,7 @@ fn the_host_keeps_its_core_in_step_with_the_friend_list() {
         "Ana's core".into(),
         source.clone(),
         Job::Check {
-            last: unshared.view.clone(),
+            last: renewed.view.clone(),
             force: false,
         },
     ));

@@ -124,7 +124,15 @@ States are how a person:
   fingerprint is kept in `retired_cores`). When Lodestone Host syncs its core and the
   core has another friend certificate than the one this Host added before (its data
   was reset, say), the old one leaves the state by itself; cores added another way
-  stay (`MyCore::source`, the core's data folder);
+  stay (`MyCore::source`, the core's data folder). To go on sharing from a computer
+  whose core was retired, the core needs a new friend certificate. Lodestone Host
+  offers it in a server's Settings › Friends: "Retire certificate…" (retire and get a
+  new one in one step, for a computer whose data may have been copied), or, once the
+  core was retired in the Launcher, "Get a new certificate". Both call
+  `POST /connect/friends/certificate` (`core_sync::new_certificate`), then sync, which
+  lists the new fingerprint and publishes the state. A core too old for that route
+  shows how to do it by hand instead: quit the Host, delete
+  `stores/connect/friends/core.json` in the core's data folder, and open it again;
 - **confirms a new friendship** (the first state);
 - **retires their key** (`retired: true`, signed by the old key). Friends' launchers mark
   the friend retired and remove them from their own cores.

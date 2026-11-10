@@ -370,6 +370,12 @@ pub enum FriendsError {
     /// The identity was retired: nothing uses it again.
     #[error("Your friend identity was retired. Start again with a new name.")]
     Retired,
+    /// A core's friend certificate was retired: it's never listed again. The core
+    /// needs a new certificate ([`core_sync::new_certificate`]) to share.
+    #[error(
+        "This core's friend certificate was retired, so friends can't be shown it again. Give the core a new friend certificate to share from it."
+    )]
+    CoreRetired,
     #[error(transparent)]
     Io(#[from] io::Error),
     #[error("{0}")]
@@ -865,11 +871,7 @@ impl Friends {
         let name = clean_name(name);
         self.modify(|book| {
             if book.retired_cores.iter().any(|c| c == fingerprint) {
-                return Err(FriendsError::Refused(
-                    "This core's friend certificate was retired, so friends can't be shown it \
-                     again. Give the core a new friend certificate to share from it."
-                        .into(),
-                ));
+                return Err(FriendsError::CoreRetired);
             }
             let before = book.my_cores.len();
             // the same core with another certificate (its data was reset, say): the old

@@ -116,7 +116,7 @@ pub fn demo(view: &AnyView, cx: &mut App) {
 }
 
 /// Puts sample friends on the Settings tab's Friends section (development
-/// screenshots' `--friends none|loading|off|retired|shared|confirm|error`, with `--tab settings`).
+/// screenshots' `--friends none|loading|off|retired|shared|confirm|renew|certificate|certificate-manual|error`, with `--tab settings`).
 #[cfg(feature = "screenshot")]
 pub fn friends_demo(view: &AnyView, scene: &str, cx: &mut App) {
     if let Ok(page) = view

@@ -14,7 +14,7 @@ use lodestone_ui::{
 };
 
 use crate::{
-    friends::{FriendSharing, Phase, is_connected, is_shared},
+    friends::{FriendSharing, Phase, Renew, is_connected, is_shared},
     i18n::{InstanceMsg as M, InstancePlural as P, t, tr, trn},
 };
 
@@ -124,6 +124,9 @@ pub fn section_for(sharing: &Entity<FriendSharing>, instance: &str, cx: &App) ->
             }
         }
     }
+    if matches!(model.phase, Phase::Ready | Phase::NeedsLauncher) {
+        rows.extend(certificate_rows(sharing, model));
+    }
     let connected = model
         .rows
         .iter()
@@ -161,6 +164,106 @@ pub fn section_for(sharing: &Entity<FriendSharing>, instance: &str, cx: &App) ->
             )
         })
         .into_any_element()
+}
+
+/// The core's friend certificate: once retired (here or in the Launcher), "Get a new
+/// certificate", or how to by hand on a core too old for it; otherwise "Retire this
+/// core's certificate", confirmed first (for a computer whose data may have been
+/// copied).
+fn certificate_rows(sharing: &Entity<FriendSharing>, model: &FriendSharing) -> Vec<AnyElement> {
+    let working = model.renew == Renew::Working;
+    if model.certificate_retired {
+        let row = if model.renew == Renew::Unsupported {
+            SettingRow::new(t(M::FriendsCertificateRetired))
+                .key("friends-certificate-retired")
+                .hint(tr!(
+                    M::FriendsCertificateManual,
+                    path = model.certificate_file().display().to_string()
+                ))
+                .into_any_element()
+        } else {
+            let renew = sharing.clone();
+            SettingRow::new(t(M::FriendsCertificateRetired))
+                .key("friends-certificate-retired")
+                .hint(t(M::FriendsCertificateRetiredHint))
+                .child(
+                    Button::new("friends-certificate-new", t(M::FriendsCertificateNew))
+                        .size(ButtonSize::Slim)
+                        .loading(working)
+                        .disabled(working)
+                        .on_click(move |_, _, cx| {
+                            renew.update(cx, |sharing, cx| sharing.renew_certificate(cx));
+                        }),
+                )
+                .into_any_element()
+        };
+        return vec![row];
+    }
+    if model.renew == Renew::Confirming || working {
+        let (renew, cancel) = (sharing.clone(), sharing.clone());
+        return vec![
+            div()
+                .id("friends-certificate-confirm")
+                .flex()
+                .flex_row()
+                .flex_wrap()
+                .items_center()
+                .gap(px(12.))
+                .px(px(16.))
+                .py(px(12.))
+                .bg(colors::YELLOW.opacity(8))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w(px(240.))
+                        .text_size(text::SMALL)
+                        .line_height(lodestone_ui::theme::line_height(
+                            text::SMALL,
+                            leading::NORMAL,
+                        ))
+                        .text_color(ink::text())
+                        .child(t(M::FriendsCertificateRetireBody)),
+                )
+                .child(
+                    Button::new(
+                        "friends-certificate-retire",
+                        t(M::FriendsCertificateRetireConfirm),
+                    )
+                    .size(ButtonSize::Slim)
+                    .loading(working)
+                    .disabled(working)
+                    .on_click(move |_, _, cx| {
+                        renew.update(cx, |sharing, cx| sharing.renew_certificate(cx));
+                    }),
+                )
+                .child(
+                    Button::new("friends-certificate-cancel", t(M::FriendsCancel))
+                        .size(ButtonSize::Slim)
+                        .disabled(working)
+                        .on_click(move |_, _, cx| {
+                            cancel.update(cx, |sharing, cx| sharing.cancel_renew(cx));
+                        }),
+                )
+                .into_any_element(),
+        ];
+    }
+    if model.phase != Phase::Ready || model.core.is_none() {
+        return Vec::new();
+    }
+    let ask = sharing.clone();
+    vec![
+        SettingRow::new(t(M::FriendsCertificate))
+            .key("friends-certificate")
+            .hint(t(M::FriendsCertificateHint))
+            .child(
+                Button::new("friends-certificate-ask", t(M::FriendsCertificateRetire))
+                    .size(ButtonSize::Slim)
+                    .on_click(move |_, _, cx| {
+                        ask.update(cx, |sharing, cx| sharing.ask_renew(cx));
+                    }),
+            )
+            .into_any_element(),
+    ]
 }
 
 /// Before the first share with a friend whose safety code wasn't compared: a warning,

@@ -123,7 +123,7 @@ crate::i18n::messages! {
         /// {name} is the core's name.
         RetireCoreTitle = "Retire {name}?",
         RetireCoreBody = "Your friends are told to drop {name}: they stop seeing its servers and stop trusting their mods. Do this for a computer that was lost or stolen, or that you no longer share from.",
-        RetireCoreWarning = "This can't be undone. Friends are never shown this core again, even if it syncs. To share from that computer again, it needs a new friend certificate.",
+        RetireCoreWarning = "This can't be undone. Friends are never shown this core again, even if it syncs. To share from that computer again, it needs a new friend certificate: Lodestone Host on that computer offers one in a server's Settings, under Friends.",
         RetireCoreConfirm = "Retire core",
         /// Under a friend whose name looks like another friend's; {names} is one or more names.
         NameLike = "Same name as {names}: make sure you know who this is",

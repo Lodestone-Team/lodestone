@@ -243,7 +243,7 @@ fn a_retired_core_is_never_listed_again_and_a_new_certificate_replaces_the_old()
     assert!(friends.book.my_cores.iter().all(|c| c.fingerprint != new));
     assert!(matches!(
         friends.add_my_core(&new, "PC", Some("host:a")),
-        Err(FriendsError::Refused(_))
+        Err(FriendsError::CoreRetired)
     ));
     assert_eq!(friends.book.my_cores.len(), 1);
 }

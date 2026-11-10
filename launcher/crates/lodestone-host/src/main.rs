@@ -271,7 +271,7 @@ mod screenshot {
                     .timer(Duration::from_millis(500))
                     .await;
             }
-            // `--friends none|loading|off|retired|shared|confirm|error`: sample friends on the Settings
+            // `--friends none|loading|off|retired|shared|confirm|renew|certificate|certificate-manual|error`: sample friends on the Settings
             // tab's Friends section (with `--tab settings`)
             if let Some(scene) = arg_after("--friends") {
                 // a hidden window may not have drawn the tab yet, and its page is made

@@ -222,6 +222,22 @@ enum Job {
         instance: String,
         share: bool,
     },
+    /// Gets the core a new friend certificate and syncs, retiring its current one
+    /// first when `retire_current` (from the Host; the Launcher may have retired it
+    /// already).
+    Renew { retire_current: bool },
+}
+
+/// Where giving the core a new friend certificate stands.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Renew {
+    #[default]
+    Idle,
+    /// "Retire this core's certificate" was pressed: waiting for the person to confirm.
+    Confirming,
+    Working,
+    /// The core is too old to make one: the Settings say how to by hand.
+    Unsupported,
 }
 
 /// What a background run found.
@@ -243,6 +259,10 @@ struct Outcome {
     lost: bool,
     /// The identity was retired (and the core emptied, unless that failed: `core`).
     retired: bool,
+    /// The core's friend certificate is retired: it needs a new one to share.
+    core_retired: bool,
+    /// The core can't make a new certificate (an older core).
+    no_certificate_route: bool,
 }
 
 /// Sharing with friends, for the Host's own core while signed in as its owner. Pages
@@ -269,6 +289,11 @@ pub struct FriendSharing {
     /// A first share with a friend whose safety code wasn't compared, waiting for the
     /// person to confirm: (friend, instance).
     pub confirm: Option<(String, String)>,
+    /// This core's friend certificate was retired (here or in the Launcher): friends
+    /// don't see it until it has a new one.
+    pub certificate_retired: bool,
+    /// Giving the core a new friend certificate.
+    pub renew: Renew,
     in_flight: usize,
     /// The friend list as last synced: a sync runs again when it changes.
     synced_view: Option<SyncView>,
@@ -305,6 +330,8 @@ impl FriendSharing {
             synced: false,
             pending: HashMap::new(),
             confirm: None,
+            certificate_retired: false,
+            renew: Renew::Idle,
             in_flight: 0,
             synced_view: None,
             sync_failed: false,
@@ -511,6 +538,50 @@ impl FriendSharing {
         );
     }
 
+    /// "Retire this core's certificate": asks to confirm first.
+    pub fn ask_renew(&mut self, cx: &mut Context<Self>) {
+        if self.renew == Renew::Idle {
+            self.renew = Renew::Confirming;
+        }
+        cx.notify();
+    }
+
+    /// "Cancel" on that confirmation.
+    pub fn cancel_renew(&mut self, cx: &mut Context<Self>) {
+        if self.renew == Renew::Confirming {
+            self.renew = Renew::Idle;
+        }
+        cx.notify();
+    }
+
+    /// Gives the core a new friend certificate, so sharing from this computer goes on:
+    /// "Retire and get a new one" (retiring the current one first), or "Get a new
+    /// certificate" once it was retired (in the Launcher, say). Friends drop the old
+    /// one and find the core under the new one.
+    pub fn renew_certificate(&mut self, cx: &mut Context<Self>) {
+        if self.demo
+            || self.friends.is_none()
+            || matches!(self.renew, Renew::Working | Renew::Unsupported)
+        {
+            return;
+        }
+        let retire_current = !self.certificate_retired;
+        self.renew = Renew::Working;
+        self.error = None;
+        self.run(Job::Renew { retire_current }, cx);
+        cx.notify();
+    }
+
+    /// Where the core's friend certificate is, to delete by hand when the core can't
+    /// make a new one.
+    pub fn certificate_file(&self) -> std::path::PathBuf {
+        core_process::data_dir()
+            .join("stores")
+            .join("connect")
+            .join("friends")
+            .join("core.json")
+    }
+
     /// Opens or syncs again now: the Try again button.
     pub fn retry(&mut self, cx: &mut Context<Self>) {
         if self.demo || self.phase == Phase::Off {
@@ -550,7 +621,7 @@ impl FriendSharing {
         cx.notify();
         let pending = match &job {
             Job::Share { key, instance, .. } => Some((key.clone(), instance.clone())),
-            Job::Check { .. } => None,
+            Job::Check { .. } | Job::Renew { .. } => None,
         };
         let task = cx.spawn(async move |this, cx| {
             let outcome = cx
@@ -606,6 +677,23 @@ impl FriendSharing {
         if outcome.unchanged {
             return;
         }
+        if self.renew == Renew::Working {
+            self.renew = Renew::Idle;
+        }
+        if outcome.no_certificate_route {
+            self.renew = Renew::Unsupported;
+        }
+        if outcome.core_retired {
+            // not a failure to retry every minute: it waits for a new certificate
+            self.certificate_retired = true;
+            self.synced = false;
+            self.sync_failed = false;
+            self.error = None;
+            return;
+        }
+        if matches!(outcome.core, Some(Ok(_))) {
+            self.certificate_retired = false;
+        }
         let mut error = outcome.reload_error;
         let mut synced = false;
         match outcome.core {
@@ -649,12 +737,17 @@ impl FriendSharing {
     /// Sample states for the development screenshots: `none`, `loading`, `off`,
     /// `retired`, `shared` (three friends, one not verified, one connected, `instance`
     /// shared with two), `confirm` (the same, asking before sharing with the friend
-    /// not verified) or `error` (the same, after a sync that failed).
+    /// not verified), `renew` (the same, confirming "Retire this core's certificate"),
+    /// `certificate` (its certificate retired, a new one offered), `certificate-manual`
+    /// (the same, from a core too old to make one) or `error` (the same, after a sync
+    /// that failed).
     pub fn demo(&mut self, scene: &str, instance: &str, cx: &mut Context<Self>) {
         use core_sync::CoreFriend;
         self.demo = true;
         self.pending.clear();
         self.confirm = None;
+        self.renew = Renew::Idle;
+        self.certificate_retired = false;
         self.error = None;
         self.synced = false;
         let key = |c: char| c.to_string().repeat(64);
@@ -710,8 +803,18 @@ impl FriendSharing {
                         error = "Lodestone Core didn’t answer"
                     ));
                 }
-                if scene == "confirm" {
-                    self.confirm = Some((key('c'), instance.to_string()));
+                match scene {
+                    "confirm" => self.confirm = Some((key('c'), instance.to_string())),
+                    "renew" => self.renew = Renew::Confirming,
+                    "certificate" => self.certificate_retired = true,
+                    "certificate-manual" => {
+                        self.certificate_retired = true;
+                        self.renew = Renew::Unsupported;
+                    }
+                    _ => {}
+                }
+                if scene.starts_with("certificate") {
+                    self.synced = false;
                 }
             }
         }
@@ -784,6 +887,22 @@ async fn run(
             }
             Err(err) => Err(err.into()),
         },
+        Job::Renew { retire_current } => {
+            match renew(&mut friends, &admin, retire_current).await {
+                Ok(()) => core_sync::sync(&mut friends, &admin, &name, Some(&source)).await,
+                Err(SyncError::NoCertificateRoute) => {
+                    outcome.no_certificate_route = true;
+                    outcome.core_retired = true;
+                    return outcome;
+                }
+                Err(err) => {
+                    // shown, and tried again with the next sync, which finds the
+                    // certificate retired (if it was) and offers a new one again
+                    outcome.core = Some(Err(err.to_string()));
+                    return outcome;
+                }
+            }
+        }
     };
     match synced {
         Ok(core) => {
@@ -800,6 +919,11 @@ async fn run(
             outcome.core = Some(core_sync::clear(&admin).await.map_err(|e| e.to_string()));
             return outcome;
         }
+        Err(err) if err.is_core_retired() => {
+            // retired (in the Launcher, say): offered a new certificate
+            outcome.core_retired = true;
+            return outcome;
+        }
         Err(SyncError::Friends(err)) if err.is_stale() => {
             outcome.lost = true;
             return outcome;
@@ -810,6 +934,26 @@ async fn run(
     outcome.rows = listed(&friends.book);
     outcome.needs_launcher = needs_launcher(&friends.book);
     outcome
+}
+
+/// Retires the core's current friend certificate (when `retire_current`, and it isn't
+/// already) and tells friends, then has the core make a new one. The sync that follows
+/// lists the new one.
+async fn renew(
+    friends: &mut Friends,
+    admin: &AdminClient,
+    retire_current: bool,
+) -> Result<(), SyncError> {
+    if retire_current {
+        let current = core_sync::read(admin).await?;
+        if !friends.book.retired_cores.contains(&current.fingerprint) {
+            friends.retire_my_core(&current.fingerprint)?;
+        }
+        // friends drop the old certificate whatever happens next (a problem reaching
+        // one is retried with later syncs)
+        let _ = friends.publish_states().await;
+    }
+    core_sync::new_certificate(admin).await.map(|_| ())
 }
 
 #[cfg(test)]
