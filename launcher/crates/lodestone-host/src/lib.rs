@@ -32,6 +32,7 @@ pub mod state;
 pub mod supervisor;
 pub mod tray;
 pub mod updater;
+pub mod whitelist;
 
 use gpui::{
     App, Bounds, KeyBinding, Menu, MenuItem, SharedString, WindowBounds, WindowOptions, actions,

@@ -172,7 +172,17 @@ pub fn text(message: M) -> &'static str {
         M::PlayersLinkedUser => "L’utilisateur Lodestone qui a associé ce compte Minecraft",
         M::PlayersNone => "Aucun joueur en ligne",
         M::ShareTitle => "Partager avec des amis",
-        M::ShareLead => "Vos amis rejoignent depuis Lodestone Launcher avec un lien",
+        M::ShareLead => {
+            "Choisissez des amis dans votre liste d’amis, ou envoyez un lien à n’importe qui"
+        }
+        M::ShareFriendsHeading => "Vos amis",
+        M::ShareFriendsNote => {
+            "Pas besoin de lien. Ils voient ce serveur dans Lodestone Launcher, sous votre nom, tant qu’il tourne."
+        }
+        M::ShareFriendsNone => {
+            "Ajoutez des amis dans Lodestone Launcher (page Lodestone Host, Amis) pour partager avec eux sans lien."
+        }
+        M::ShareLinkHeading => "Ou envoyez un lien d’invitation",
         M::ShareOff => {
             "Envoyez un lien à vos amis. Ils l'ouvrent dans Lodestone Launcher, et leur jeu se connecte directement à cet ordinateur. Aucune redirection de port nécessaire."
         }

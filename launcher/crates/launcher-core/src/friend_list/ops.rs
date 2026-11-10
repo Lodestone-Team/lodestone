@@ -409,6 +409,11 @@ impl Friends {
                 self.book.state_cores()
             },
             retired,
+            players: if retired {
+                Vec::new()
+            } else {
+                self.book.players.clone()
+            },
         }
     }
 
@@ -621,6 +626,11 @@ impl Friends {
                 entry.state = Some(FriendState {
                     seq: state.seq.max(known),
                     expires: state.expires,
+                    players: if state.retired {
+                        Vec::new()
+                    } else {
+                        state.players
+                    },
                     cores: if state.retired {
                         Vec::new()
                     } else {

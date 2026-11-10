@@ -39,6 +39,8 @@ lodestone-ui.workspace = true
 regex.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+# the whitelist's UUIDs (`whitelist.rs`)
+uuid.workspace = true
 url.workspace = true
 
 [target.'cfg(any(target_os = "linux", target_os = "freebsd"))'.dependencies]

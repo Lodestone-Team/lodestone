@@ -1423,11 +1423,16 @@ impl Servers {
         let link = self.instance_links.get(instance_id)?;
         if cores::friends::is_friend_id(&link.core_uuid) {
             let friend = self.friends.get(&link.core_uuid);
+            // from the friend list: the friend's name, whatever their core is called
+            let owner = cores::friends::is_friend_list_id(&link.core_uuid)
+                .then(|| self.instance_owner(instance_id))
+                .flatten();
             return Some(InstanceLink {
                 server_name: link.server_name.clone(),
-                core_name: friend
-                    .map_or_else(|| link.core_url.clone(), |f| f.saved.core_name.clone()),
-                core_known: friend.is_some(),
+                core_known: friend.is_some() || owner.is_some(),
+                core_name: owner.unwrap_or_else(|| {
+                    friend.map_or_else(|| link.core_url.clone(), |f| f.saved.core_name.clone())
+                }),
             });
         }
         let core = self.cores.iter().find(|c| c.saved.uuid == link.core_uuid);
@@ -1436,6 +1441,39 @@ impl Servers {
             core_name: core.map_or_else(|| link.core_url.clone(), |c| c.saved.name.clone()),
             core_known: core.is_some(),
         })
+    }
+
+    /// Whose server the instance was made for, when it's a friend's: the friend's name
+    /// for one joined from the friend list (the friend whose state lists its core), or
+    /// the core's name for one joined with an invite link. `None` for other servers.
+    pub fn instance_owner(&self, instance_id: &str) -> Option<String> {
+        let link = self.instance_links.get(instance_id)?;
+        if !cores::friends::is_friend_id(&link.core_uuid) {
+            return None;
+        }
+        let saved = || {
+            self.friends
+                .get(&link.core_uuid)
+                .map(|f| f.saved.core_name.clone())
+                .filter(|name| !name.is_empty())
+        };
+        let Some((fingerprint, _)) = cores::friends::parse_friend_list_id(&link.core_uuid) else {
+            return saved();
+        };
+        self.friend_list
+            .snapshot
+            .book
+            .friends
+            .iter()
+            .find(|friend| {
+                friend.state.as_ref().is_some_and(|state| {
+                    state.cores.iter().any(|core| {
+                        friend_list::hex(&core.fingerprint).eq_ignore_ascii_case(fingerprint)
+                    })
+                })
+            })
+            .map(|friend| friend.display_name().to_string())
+            .or_else(saved)
     }
 
     /// Forgets which server the instance was made for, so Play no longer joins it or
@@ -2309,6 +2347,19 @@ impl Servers {
         self.instance_links = links
             .iter()
             .filter_map(|(core, server, instance)| {
+                // a server joined from the friend list: no saved core
+                if cores::friends::is_friend_list_id(core) {
+                    return Some((
+                        instance.clone(),
+                        ServerLink {
+                            core_uuid: core.clone(),
+                            core_url: String::new(),
+                            server_uuid: server.clone(),
+                            server_name: server.clone(),
+                            pack_etag: None,
+                        },
+                    ));
+                }
                 let entry = self.cores.iter().find(|c| &c.saved.uuid == core)?;
                 let name = entry
                     .servers()

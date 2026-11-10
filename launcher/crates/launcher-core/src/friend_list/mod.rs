@@ -22,6 +22,8 @@
 //! never reads as an empty list, and [`Friends::modify`] never writes a new one.
 
 pub mod core_sync;
+/// A Minecraft account in a person's state, for friends' whitelists.
+pub use lodestone_connect::friend::state::StatePlayer;
 pub mod ops;
 
 use std::{
@@ -39,7 +41,7 @@ use lodestone_connect::{
         Secret as FriendSecret,
         crypto::{self, PersonKey, PublicKey, Role},
         pair::{clean_name, name_skeleton},
-        state::StateCore,
+        state::{MAX_PLAYERS, StateCore},
     },
 };
 use serde::{Deserialize, Serialize};
@@ -92,6 +94,10 @@ pub struct FriendState {
     pub seq: u64,
     pub expires: u64,
     pub cores: Vec<StateCore>,
+    /// Their Minecraft accounts, for a server's whitelist (from Launchers that send
+    /// them).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub players: Vec<StatePlayer>,
 }
 
 /// A friend.
@@ -217,6 +223,10 @@ pub struct Book {
     pub links: Vec<PendingLink>,
     #[serde(default)]
     pub my_cores: Vec<MyCore>,
+    /// This person's Minecraft accounts, sent to friends so their Hosts can whitelist
+    /// them (see [`Friends::set_players`]).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub players: Vec<StatePlayer>,
     /// The number of this person's current state.
     #[serde(default)]
     pub state_seq: u64,
@@ -809,6 +819,30 @@ impl Friends {
             }
             Ok(())
         })
+    }
+
+    /// Sets the Minecraft accounts friends see (for their servers' whitelists): the
+    /// first [`MAX_PLAYERS`] with a name a player can have. Returns whether they changed;
+    /// a change makes a new state, which goes out at the next publish.
+    pub fn set_players(&mut self, players: Vec<StatePlayer>) -> Result<bool, FriendsError> {
+        let players: Vec<StatePlayer> = players
+            .into_iter()
+            .filter(|p| StatePlayer::is_name(&p.name))
+            .take(MAX_PLAYERS)
+            .collect();
+        if players == self.book.players {
+            return Ok(false);
+        }
+        let mut changed = false;
+        self.modify(|book| {
+            if players != book.players {
+                book.players = players;
+                book.new_state();
+                changed = true;
+            }
+            Ok(())
+        })?;
+        Ok(changed)
     }
 
     /// Ticks or unticks "Codes match" for a friend.

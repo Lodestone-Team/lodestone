@@ -23,6 +23,7 @@ fn key(byte: u8) -> String {
 
 fn core(byte: u8, name: &str) -> launcher_core::friend_list::FriendState {
     FriendState {
+        players: Vec::new(),
         seq: 3,
         expires: now() + 30 * 86_400,
         cores: vec![
@@ -81,6 +82,7 @@ fn friends() -> Vec<Friend> {
     kim.nickname = Some("Kim".into());
     kim.hidden = true;
     kim.state = Some(FriendState {
+        players: Vec::new(),
         seq: 1,
         expires: now() + 86_400,
         cores: Vec::new(),
