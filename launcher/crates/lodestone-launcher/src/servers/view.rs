@@ -200,6 +200,19 @@ impl Servers {
         let core_uuid = core.saved.uuid.clone();
         let row_id = format!("{}-{}", core_uuid, server.uuid);
         let linked = self.linked_instance(&core_uuid, &server.uuid).is_some();
+        // the same server, saved from its invite link, shows here and not again
+        let shared = self.friend_on_core_row(&core_uuid, &server.uuid);
+        // an instance made (or last played) for it from its invite link plays it here
+        let friend_play = shared
+            .filter(|friend| {
+                !linked
+                    && (self
+                        .linked_instance(&friend.saved.id, &server.uuid)
+                        .is_some()
+                        || friend.saved.instance_id.is_some())
+            })
+            .map(|friend| friend.saved.id.clone());
+        let shared = shared.is_some();
         let busy = self.busy.get(&(core_uuid.clone(), server.uuid.clone()));
         let running = server.state == ServerState::Running;
         let stopped = matches!(server.state, ServerState::Stopped | ServerState::Error);
@@ -259,7 +272,18 @@ impl Servers {
                     .into_any_element(),
                 );
             }
-            if !linked {
+            if let Some(friend) = friend_play.clone() {
+                let joinable =
+                    server.address_shown() && (running || server.state == ServerState::Hidden);
+                actions.push(
+                    Button::new(SharedString::from(format!("play-{row_id}")), t(M::Play))
+                        .size(ButtonSize::Slim)
+                        .variant(ButtonVariant::Primary)
+                        .disabled(!joinable)
+                        .on_click(cx.listener(move |this, _, _, cx| this.play_friend(&friend, cx)))
+                        .into_any_element(),
+                );
+            } else if !linked {
                 let (c, s) = (core_uuid.clone(), server.clone());
                 actions.push(
                     Button::new(
@@ -312,16 +336,15 @@ impl Servers {
 
         let status = status_label(server);
         let element_id = SharedString::from(format!("server-{row_id}"));
-        let description: SharedString = if linked {
-            format!(
-                "{status} · {} · {}",
-                server_detail(server),
-                t(M::InstanceReady)
-            )
-            .into()
-        } else {
-            format!("{status} · {}", server_detail(server)).into()
-        };
+        let ready = linked || friend_play.is_some();
+        let mut description = format!("{status} · {}", server_detail(server));
+        if ready {
+            description = format!("{description} · {}", t(M::InstanceReady));
+        }
+        if shared {
+            description = format!("{description} · {}", t(M::SharedWithFriends));
+        }
+        let description: SharedString = description.into();
         div()
             .id(element_id.clone())
             .accessible(Role::ListItem, element_id, server.name.clone())
@@ -362,7 +385,7 @@ impl Servers {
                                     .text_color(crate::theme::ink::text())
                                     .child(RichText::minecraft(server.name.clone())),
                             )
-                            .when(linked, |this| {
+                            .when(ready, |this| {
                                 this.child(
                                     div()
                                         .flex_none()
@@ -373,6 +396,20 @@ impl Servers {
                                         .text_size(theme::text_size(text::CAPTION))
                                         .font_weight(weights::BOLD.into())
                                         .child(t(M::InstanceReady)),
+                                )
+                            })
+                            .when(shared, |this| {
+                                this.child(
+                                    div()
+                                        .id(SharedString::from(format!("shared-{row_id}")))
+                                        .flex_none()
+                                        .px_1p5()
+                                        .rounded(radius::DEFAULT)
+                                        .bg(colors::GREEN_300.opacity(12))
+                                        .text_color(colors::GREEN_300)
+                                        .text_size(theme::text_size(text::CAPTION))
+                                        .font_weight(weights::BOLD.into())
+                                        .child(t(M::SharedWithFriends)),
                                 )
                             }),
                     )
@@ -633,6 +670,11 @@ impl Servers {
                     .as_ref()
                     .filter(|(failed, _)| *failed == uuid || failed.is_empty())
                     .map(|(_, err)| err.clone());
+                let shared: Vec<AnyElement> = self
+                    .friends_shared_from(&uuid)
+                    .into_iter()
+                    .map(|entry| self.friend_row(entry, true, cx))
+                    .collect();
                 let action: AnyElement = if connected {
                     badge(t(M::Connected), colors::GREEN_300).into_any_element()
                 } else {
@@ -650,16 +692,13 @@ impl Servers {
                     }))
                     .into_any_element()
                 };
-                div()
+                let row = div()
                     .id(SharedString::from(format!("local-core-{index}")))
                     .flex()
                     .flex_col()
                     .gap_2()
                     .px_4()
                     .py_3()
-                    .when(index > 0, |this| {
-                        this.border_t_1().border_color(crate::theme::ink::border())
-                    })
                     .child(
                         div()
                             .flex()
@@ -751,7 +790,15 @@ impl Servers {
                                     ),
                                 )
                             })
-                    }))
+                    }));
+                div()
+                    .flex()
+                    .flex_col()
+                    .when(index > 0, |this| {
+                        this.border_t_1().border_color(crate::theme::ink::border())
+                    })
+                    .child(row)
+                    .children((!shared.is_empty()).then(|| shared_from_here(index, shared)))
                     .into_any_element()
             })
             .collect();
@@ -828,6 +875,46 @@ impl Servers {
             )
             .into_any_element()
     }
+}
+
+/// Under a core in "On this computer": the servers it shares that the user joined here
+/// with their invite links (`rows`), set in under the core's name.
+fn shared_from_here(index: usize, rows: Vec<AnyElement>) -> gpui::Stateful<gpui::Div> {
+    // the rows' dots line up with the core's name (16 + 18 + 12 px in)
+    div()
+        .id(SharedString::from(format!("local-shared-{index}")))
+        .accessible(
+            Role::Group,
+            SharedString::from(format!("local-shared-{index}")),
+            t(M::SharedWithFriends),
+        )
+        .flex()
+        .flex_col()
+        .ml(px(30.))
+        .child(
+            div()
+                .flex()
+                .flex_row()
+                .items_baseline()
+                .gap_2()
+                .px_4()
+                .py_2()
+                .border_t_1()
+                .border_color(crate::theme::ink::border())
+                .child(
+                    small(t(M::SharedWithFriends))
+                        .flex_none()
+                        .font_weight(weights::BOLD.into())
+                        .text_color(crate::theme::ink::secondary()),
+                )
+                .child(
+                    small(t(M::SharedWithFriendsHint))
+                        .min_w_0()
+                        .truncate()
+                        .text_color(crate::theme::ink::muted()),
+                ),
+        )
+        .children(rows)
 }
 
 /// Where lodestone_cli, which runs Lodestone Core and keeps it updated, is downloaded.

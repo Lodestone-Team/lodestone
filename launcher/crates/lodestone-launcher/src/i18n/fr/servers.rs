@@ -416,6 +416,12 @@ pub fn text(message: M) -> &'static str {
             "Quand un ami partage un serveur depuis Lodestone Host, il obtient un lien d’invitation. Ouvrez-le, ou collez-le ici avec Rejoindre un ami."
         }
         M::SharedBy => "Partagé par {name}",
+        M::SharedWithFriends => "Partagé avec des amis",
+        M::SharedWithFriendsHint => "Vous les avez rejoints avec leur lien d’invitation.",
+        M::ConnectToJoinDirectly => {
+            "Connectez-vous en tant que propriétaire pour le rejoindre directement, sans tunnel."
+        }
+        M::DirectConnection => "Directement sur cet ordinateur, sans tunnel",
         M::FriendCheck => "Vérifier",
         M::FriendChecking => "Vérification…",
         M::FriendPlayingNow => "En jeu",

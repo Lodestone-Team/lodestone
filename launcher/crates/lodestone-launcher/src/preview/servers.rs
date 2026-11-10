@@ -43,6 +43,8 @@ pub const SCENES: &[&str] = &[
     "servers-trust",
     "servers-advisory",
     "servers-local",
+    "servers-shared-local",
+    "servers-shared-local-gone",
     "servers-friends",
     "servers-join-paste",
     "servers-join-connecting",
@@ -411,6 +413,9 @@ fn apply_servers(scene: &str, servers: &mut Servers, cx: &mut Context<Servers>) 
                 cx,
             );
         }
+        "servers-shared-local" | "servers-shared-local-gone" => {
+            apply_shared_local(scene == "servers-shared-local", servers)
+        }
         scene if scene == "servers-friends" || scene.starts_with("servers-join") => {
             servers.preview(vec![home(true)], Vec::new());
             servers.preview_friends(made_up_friends());
@@ -439,20 +444,112 @@ fn shared(name: &str, loader: &str, version: Option<&str>, modpack: bool) -> Sha
     }
 }
 
+/// A made-up saved friend's server, joined with the invite link `code`.
+fn friend_entry(
+    code: &str,
+    server: &SharedServer,
+    trusted: bool,
+    port: Option<u16>,
+) -> FriendServer {
+    let invite = Invite::parse(&format!(
+        "https://connect.lodestone.cc/j/{code}#{}.{}",
+        "ab".repeat(32),
+        "01".repeat(16)
+    ))
+    .expect("a made-up invite");
+    let mut saved = FriendServer::new(&invite, server, 1_700_000_000);
+    saved.set_trusted(trusted);
+    saved.game_port = port;
+    saved
+}
+
+/// Servers the user joined with invite links shared from cores on this computer (with
+/// `here`), or the same once those cores stopped: their own Lodestone Host (connected
+/// as owner, so its card lists the server, which shows once there), a second Host they
+/// aren't the owner of here (under it in "On this computer"), and a friend's server.
+fn apply_shared_local(here: bool, servers: &mut Servers) {
+    use launcher_core::cores::{
+        CoreProduct, LaunchedBy,
+        local_claim::{ClaimError, LocalCredentials},
+    };
+    let (mut host, status, _) = home(true);
+    host.url = "https://127.0.0.1:16662".into();
+    host.product = CoreProduct::Host;
+    host.launched_by = LaunchedBy::Host;
+    host.local_claim = true;
+    host.username = Some("owner_k3m9x".into());
+    let status = if here {
+        status
+    } else {
+        CoreStatus::Failed(CoreError::Unreachable("connection refused".into()))
+    };
+    // the user's own server, joined with its invite link: an instance was made for it
+    let mut creative = shared("Creative world", "vanilla", None, false);
+    creative.core_name = "Peter's Lodestone Core".into();
+    creative.core_uuid = "home".into();
+    creative.instance_uuid = "creative".into();
+    let creative = friend_entry("HMCRTV2345", &creative, true, Some(34711));
+    let mut lab = shared("Modded test", "fabric", Some("0.16.14"), true);
+    lab.core_name = "Lab Host".into();
+    lab.core_uuid = "lab".into();
+    lab.instance_uuid = "modded-test".into();
+    let lab = friend_entry("LBMDTS6789", &lab, false, Some(38250));
+    let alex = shared("Alex's SMP", "fabric", Some("0.16.14"), true);
+    let alex = friend_entry("ABCDEFGH23", &alex, true, Some(31234));
+    servers.preview(
+        vec![(host, status, true)],
+        vec![
+            ("home".into(), "smp".into(), "survival-smp".into()),
+            (
+                creative.id.clone(),
+                "creative".into(),
+                "creative-world".into(),
+            ),
+        ],
+    );
+    servers.preview_friends(vec![
+        (creative, FriendStatus::Unknown),
+        (lab, FriendStatus::Unknown),
+        (
+            alex.clone(),
+            FriendStatus::Online {
+                server: Box::new(shared("Alex's SMP", "fabric", Some("0.16.14"), true)),
+                kind: ConnectionKind::Internet,
+                rtt: std::time::Duration::from_millis(34),
+            },
+        ),
+    ]);
+    if !here {
+        servers.preview_local(Vec::new(), Vec::new(), None);
+        return;
+    }
+    servers.preview_local(
+        vec![
+            (
+                "home",
+                "Peter's Lodestone Core",
+                CoreProduct::Host,
+                LaunchedBy::Host,
+            ),
+            ("lab", "Lab Host", CoreProduct::Host, LaunchedBy::Host),
+        ],
+        vec![(
+            "home",
+            LocalCredentials {
+                url: "https://127.0.0.1:16662".into(),
+                api_key: Some("lsk_preview_key".into()),
+                owner_username: Some("owner_k3m9x".into()),
+                owner_password: Some("preview-password".into()),
+                ..Default::default()
+            },
+        )],
+        None::<(&str, ClaimError)>,
+    );
+}
+
 /// Made-up friends' servers: one checked and online, one offline, one not asked yet.
 fn made_up_friends() -> Vec<(FriendServer, FriendStatus)> {
-    let entry = |code: &str, server: &SharedServer, trusted: bool, port: Option<u16>| {
-        let invite = Invite::parse(&format!(
-            "https://connect.lodestone.cc/j/{code}#{}.{}",
-            "ab".repeat(32),
-            "01".repeat(16)
-        ))
-        .expect("a made-up invite");
-        let mut saved = FriendServer::new(&invite, server, 1_700_000_000);
-        saved.set_trusted(trusted);
-        saved.game_port = port;
-        saved
-    };
+    let entry = friend_entry;
     let smp = shared("Alex's SMP", "fabric", Some("0.16.14"), true);
     let creative = shared("Creative build", "vanilla", None, false);
     let mut sky = shared("Sam's Skyblock", "paper", Some("196"), false);
