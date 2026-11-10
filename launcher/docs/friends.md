@@ -237,8 +237,11 @@ most 2 KiB (4096 hex digits).
 | `GET /v2/slots/<id>` | | | `200 {"sealed"}`; `404` |
 | `DELETE /v2/slots/<id>` | `Bearer <write proof>` | | `200 {"ok": true}` |
 
-A slot keeps the SHA-256 of the first write's proof and lasts 90 days after its last
-write. A sealed state is at most 4 KiB (8192 hex digits).
+A slot keeps the SHA-256 of the first write's proof and lasts 21 days after its last
+write (launchers write weekly while they run; a friend whose slot is gone keeps the last
+state they read). A sealed state is at most 4 KiB (8192 hex digits). Reads are cached
+at the edge for 30 seconds under the slot id; a write or delete clears its data center's
+copy.
 
 ### Meeting
 
@@ -268,8 +271,9 @@ A core registers one **session** with all its records, and waits on one WebSocke
   elsewhere can't send without a CORS preflight (never answered), so pages can't spend a
   visitor's budget.
 - Rate limits count an IPv4 address, or an IPv6 address's /64.
-- Per address, a minute: 10 mailboxes or sessions made, 30 knocks, 120 presence checks,
-  600 slot reads and 60 other requests.
+- Per address, a minute: 10 mailboxes or sessions made, 20 knocks, 60 presence checks,
+  120 slot reads that miss the cache and 60 other requests. New slots: 20 an hour and
+  100 a day per address (rewrites don't count).
 
 ## What this protects against
 

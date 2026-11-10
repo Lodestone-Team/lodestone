@@ -117,7 +117,13 @@ One Durable Object (`Slot`) per slot id (32 hex digits).
 The write proof is 64 hex digits. An empty slot keeps the SHA-256 of the first write's
 proof (computed as for `access`), and later writes and deletes must bring the same proof
 (trust on first write). A sealed state is at most 8192 hex digits (4 KiB). A slot is
-deleted 90 days after its last write.
+deleted 21 days after its last write: launchers write a new state weekly while they run,
+and a friend whose slot is gone keeps the last state they read.
+
+A read is kept in Cloudflare's cache for 30 seconds, in the data center that served it,
+under the slot id alone (no query or headers), so only someone who knows the id finds it.
+States are numbered and readers keep the highest number, so a stale read only delays news
+by 30 seconds. A write or delete clears that data center's copy.
 
 ### Meeting
 
@@ -166,13 +172,19 @@ Error codes, beyond v1's: `bad_body` (400: a field missing or malformed), `forbi
   `Authorization` header count, so a web page elsewhere can't use up a visitor's limits.
 - **A client address** is an IPv4 address, or an IPv6 address's /64 (one home or server
   usually has a whole /64).
-- **v2, per client address, a minute:** 10 mailboxes, sessions or new slots made
-  (`FRIEND_CREATE_LIMIT`), 30 knocks (`KNOCK_LIMIT`), 120 presence checks
-  (`LOOKUP_LIMIT`), 600 slot reads (`SLOT_READ_LIMIT`), 60 other requests
-  (`FRIEND_LIMIT`: mailbox reads and replies, slot writes and deletes, session updates,
-  WebSockets and deletes), and 40 units of lookup registrations (`REGISTER_LIMIT`, one
-  per 16 lookups a session adds or drops). A first write to a slot counts against both
-  the other-requests and the creation limits.
+- **v2, per client address, a minute:** 10 mailboxes or sessions made
+  (`FRIEND_CREATE_LIMIT`), 20 knocks (`KNOCK_LIMIT`; a join knocks up to 3 times), 60
+  presence checks (`LOOKUP_LIMIT`), 120 slot reads that miss the cache
+  (`SLOT_READ_LIMIT`), 60 other requests (`FRIEND_LIMIT`: mailbox reads and replies,
+  slot writes and deletes, session updates, WebSockets and deletes), and 40 units of
+  lookup registrations (`REGISTER_LIMIT`, one per 16 lookups a session adds or drops).
+  A friend list refreshes every 5 minutes while it's shown: one slot read per friend,
+  and one or two presence checks per friend's core.
+- **New slots, per client address:** 20 an hour and 100 a day, counted by a `Quota`
+  Durable Object per address (Cloudflare's rate limiters only count up to a minute).
+  Rewriting a slot doesn't count. With slots lasting 21 days, one address can keep at
+  most about 2,100 slots (about 17 MB) alive without rewriting them. A person makes one
+  slot per friend, when they pair, or again after three weeks away.
 - **Sessions** register only the lookups added and unregister only those dropped, so
   resending the same records costs no Durable Object calls, and churning them is
   budgeted.
@@ -221,7 +233,9 @@ Worker logs only unexpected errors. The secret travels in a header, never the UR
 
 For v2 it stores, sealed or hashed so that it can't read or forge them: cards and
 replies (for 24 hours), the SHA-256 of mailbox accesses and slot write proofs, sealed
-states (90 days after their last write), and sessions' sealed records (while they last).
+states (21 days after their last write, and cached reads of them for 30 seconds),
+sessions' sealed records (while they last), and, per address, how many slots it made in
+the last hour and day.
 It can't read addresses, names or keys from any of these, and never sees a friend link's
 part after `#`.
 
@@ -244,7 +258,9 @@ npm test             # the tests, against a local Worker
 Locally, loopback candidates are allowed (`ALLOW_LOOPBACK`) and the join, host and v2
 limits are higher, so the tests fit in a minute. `test/idle.test.js` runs a second
 local Worker with the idle time cut to 2 seconds (`--var IDLE_MS:2000`), for invites
-and meeting sessions. `test/friends.test.js` covers v2 and the friend link page.
+and meeting sessions. `test/friends.test.js` covers v2 and the friend link page, and
+`test/slots.test.js` the new-slot budget, with its own Worker (`--var SLOTS_PER_HOUR:3`).
+`wrangler.jsonc` notes the production value of each limit it raises.
 
 ## Deploying
 
