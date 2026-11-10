@@ -226,14 +226,14 @@ fn rail(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoElem
                         .child(div().h_1())
                         .child(rail_button(
                             "new-instance",
-                            Icon::SquarePlus,
+                            Glyph::Icon(Icon::SquarePlus),
                             t(M::NewInstance),
                             false,
                             cx.listener(|this, _, window, cx| this.open_new_instance(window, cx)),
                         ))
                         .child(rail_button(
                             "import-instances",
-                            Icon::Download,
+                            Glyph::Icon(Icon::Download),
                             t(M::ImportInstances),
                             false,
                             cx.listener(|this, _, window, cx| this.open_import(window, cx)),
@@ -256,7 +256,7 @@ fn rail(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoElem
                 .border_color(crate::theme::ink::border())
                 .child(rail_button(
                     "servers",
-                    Icon::Cube,
+                    Glyph::HostMark(crate::images::mark(false, cx)),
                     t(M::Servers),
                     servers_open,
                     cx.listener(move |this, _, _, cx| {
@@ -272,7 +272,7 @@ fn rail(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoElem
                 ))
                 .child(rail_button(
                     "settings",
-                    Icon::Gear,
+                    Glyph::Icon(Icon::Gear),
                     t(M::Settings),
                     settings_open,
                     cx.listener(|this, _, window, cx| this.open_settings(None, Some(window), cx)),
@@ -280,10 +280,26 @@ fn rail(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoElem
         )
 }
 
+/// What a sidebar link shows beside (or, in the rail, instead of) its label: an icon
+/// in the sidebar's ink, or the green Lodestone mark, which stands for Lodestone Host.
+enum Glyph {
+    Icon(Icon),
+    HostMark(gpui::ImageSource),
+}
+
+impl Glyph {
+    fn render(self, size: gpui::Pixels, color: impl Into<gpui::Hsla>) -> AnyElement {
+        match self {
+            Glyph::Icon(icon) => icon.render(size, color).into_any_element(),
+            Glyph::HostMark(mark) => img(mark).size(size).flex_none().into_any_element(),
+        }
+    }
+}
+
 /// A square icon button of the rail, its label as a tooltip.
 fn rail_button(
     id: &'static str,
-    icon: Icon,
+    icon: Glyph,
     label: &'static str,
     open: bool,
     on_click: impl Fn(&gpui::ClickEvent, &mut gpui::Window, &mut gpui::App) + 'static,
@@ -958,7 +974,7 @@ fn section_label(label: &'static str) -> impl IntoElement {
 fn page_link(
     id: &'static str,
     label: &'static str,
-    icon: Icon,
+    icon: Glyph,
     page: Page,
     open: bool,
     cx: &mut Context<LauncherShell>,
@@ -1016,7 +1032,7 @@ fn footer(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoEl
         .child(page_link(
             "servers",
             t(M::Servers),
-            Icon::Cube,
+            Glyph::HostMark(crate::images::mark(false, cx)),
             Page::Servers,
             servers_open,
             cx,

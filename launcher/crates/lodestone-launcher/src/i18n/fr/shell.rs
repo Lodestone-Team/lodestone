@@ -254,7 +254,7 @@ pub fn text(message: M) -> &'static str {
         M::FirstTimeSetupSection => "Première configuration",
         M::ResetFirstTimeSetup => "Réinitialiser la première configuration",
         M::ResetFirstTimeSetupHint => {
-            "La prochaine nouvelle instance sera de nouveau proposée comme instance principale, et la désactivation du narrateur sera proposée au prochain démarrage. L’instance principale actuelle est retirée\u{a0}; les valeurs partagées restent."
+            "La prochaine nouvelle instance sera de nouveau proposée comme instance principale, et la désactivation du narrateur sera proposée au prochain démarrage, et la page Lodestone Host propose de nouveau Lodestone Host. L’instance principale actuelle est retirée\u{a0}; les valeurs partagées restent."
         }
         M::FirstTimeSetupReset => {
             "La première configuration est réinitialisée. Créez une instance pour la voir."

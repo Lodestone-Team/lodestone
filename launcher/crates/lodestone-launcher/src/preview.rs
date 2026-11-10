@@ -54,6 +54,8 @@ pub const SCENES: &[&str] = &[
     "sidebar-resized",
     "sidebar-rail",
     "sidebar-rail-skin",
+    "sidebar-rail-host",
+    "skin-bright-host",
     "settings-skin",
     "account-menu",
     "needs-sign-in",
@@ -416,6 +418,16 @@ fn materials_skin() -> launcher_core::ui_skin::SkinSpec {
     spec
 }
 
+/// The Lodestone Host page with no cores, and nothing found on this computer: the
+/// sidebar's Lodestone Host selected, and the page offering Lodestone Host.
+fn show_empty_host_page(shell: &mut LauncherShell, cx: &mut gpui::Context<LauncherShell>) {
+    shell
+        .servers()
+        .clone()
+        .update(cx, |servers, _| servers.preview(Vec::new(), Vec::new()));
+    shell.show(crate::shell::Page::Servers, cx);
+}
+
 /// Scenes that show instance icons and Play backgrounds.
 fn is_appearance_scene(scene: &str) -> bool {
     scene.starts_with("play-background")
@@ -487,7 +499,7 @@ fn has_instances(scene: &str) -> bool {
         || scene.starts_with("skin-")
         || matches!(
             scene,
-            "sidebar-resized" | "sidebar-rail" | "sidebar-rail-skin"
+            "sidebar-resized" | "sidebar-rail" | "sidebar-rail-skin" | "sidebar-rail-host"
         )
 }
 
@@ -1155,7 +1167,7 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
             }
             shell.open_settings(Some(page), None, cx);
         }
-        "skin-bright" | "settings-skin-bright" => {
+        "skin-bright" | "settings-skin-bright" | "skin-bright-host" => {
             // a pack with a bright sky behind the sidebar and no tint: the launcher
             // leaves its text alone, and the editor suggests fixes
             let instances = shell.instances().clone();
@@ -1170,6 +1182,9 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
             }
             if scene == "settings-skin-bright" {
                 shell.open_settings(Some(crate::shell::SettingsPage::Skin), None, cx);
+            }
+            if scene == "skin-bright-host" {
+                show_empty_host_page(shell, cx);
             }
         }
         "skin-showcase" | "settings-skin-showcase" => {
@@ -1288,7 +1303,7 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
                 }
             }
         }
-        "sidebar-resized" | "sidebar-rail" | "sidebar-rail-skin" => {
+        "sidebar-resized" | "sidebar-rail" | "sidebar-rail-skin" | "sidebar-rail-host" => {
             let instances = shell.instances().clone();
             instances.update(cx, |instances, cx| {
                 if scene == "sidebar-resized" {
@@ -1300,6 +1315,9 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
                     instances.set_skin(Some("grassblock".into()), cx);
                 }
             });
+            if scene == "sidebar-rail-host" {
+                show_empty_host_page(shell, cx);
+            }
         }
         "skin-grassblock" | "skin-glass" | "skin-neon" | "skin-overrides" | "settings-skin" => {
             let id = match scene {

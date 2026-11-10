@@ -569,6 +569,16 @@ impl Instances {
         &self.settings.instance_defaults
     }
 
+    /// The Lodestone Host page's offer to download Lodestone Host was dismissed: it
+    /// doesn't come back (Settings > Developer > "Reset first-time setup" shows it
+    /// again).
+    pub fn dismiss_host_offer(&mut self, cx: &mut Context<Self>) {
+        if let Err(err) = self.update_settings(|settings| settings.host_offer_dismissed = true, cx)
+        {
+            self.notice = Some(err.into());
+        }
+    }
+
     /// Changes the settings file: read as it is now (the accounts save their own
     /// section of it), changed, and written back.
     fn update_settings(

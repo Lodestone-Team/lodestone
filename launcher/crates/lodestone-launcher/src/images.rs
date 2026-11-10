@@ -16,6 +16,10 @@ use crate::assets::Assets;
 pub struct BundledImages {
     pub logo: Arc<RenderImage>,
     pub hero: Arc<RenderImage>,
+    /// The green Lodestone mark at icon size, for the sidebar's Lodestone Host.
+    pub mark_small: Arc<RenderImage>,
+    /// The mark larger, for the Lodestone Host page's offer.
+    pub mark_large: Arc<RenderImage>,
 }
 
 impl Global for BundledImages {}
@@ -25,6 +29,8 @@ pub fn tally(tally: &mut crate::perf::ImageTally, cx: &App) {
     if let Some(images) = cx.try_global::<BundledImages>() {
         tally.add(&images.logo);
         tally.add(&images.hero);
+        tally.add(&images.mark_small);
+        tally.add(&images.mark_large);
     }
 }
 
@@ -35,6 +41,11 @@ const SVG_SCALE: f32 = 1.0;
 /// 2× in the banner of a typical window (about 1000 points wide) while taking half
 /// the memory of 3200×1280.
 const HERO_SCALE: f32 = 0.75;
+/// The mark's scales: its 184-point square is rasterized at 64 pixels for icons (14 to
+/// 18 points) and 160 for the offer (40 points), so neither is shrunk much on screen.
+/// A picture drawn far smaller than it was rasterized looks jagged.
+const MARK_SMALL_SCALE: f32 = 64. / 368.;
+const MARK_LARGE_SCALE: f32 = 160. / 368.;
 
 /// Starts decoding the bundled images on the background executor, in parallel.
 pub fn decode(cx: &App) -> Task<anyhow::Result<BundledImages>> {
@@ -50,16 +61,21 @@ pub fn decode(cx: &App) -> Task<anyhow::Result<BundledImages>> {
     };
     let logo = render(LOGO_PATH, SVG_SCALE);
     let hero = render(HERO_PATH, HERO_SCALE);
+    let mark_small = render(MARK_PATH, MARK_SMALL_SCALE);
+    let mark_large = render(MARK_PATH, MARK_LARGE_SCALE);
     cx.background_spawn(async move {
         Ok(BundledImages {
             logo: logo.await?,
             hero: hero.await?,
+            mark_small: mark_small.await?,
+            mark_large: mark_large.await?,
         })
     })
 }
 
 const LOGO_PATH: &str = "images/logo.svg";
 const HERO_PATH: &str = "images/hero.svg";
+const MARK_PATH: &str = "images/lodestone_mark.svg";
 
 /// Makes the decoded images available to [`logo`] and [`hero`]. If decoding
 /// failed, they fall back to GPUI's loader.
@@ -81,6 +97,16 @@ pub fn hero(cx: &App) -> ImageSource {
     match cx.try_global::<BundledImages>() {
         Some(images) => images.hero.clone().into(),
         None => HERO_PATH.into(),
+    }
+}
+
+/// The green Lodestone mark, which stands for Lodestone Host: `large` for the
+/// offer, otherwise at icon size.
+pub fn mark(large: bool, cx: &App) -> ImageSource {
+    match cx.try_global::<BundledImages>() {
+        Some(images) if large => images.mark_large.clone().into(),
+        Some(images) => images.mark_small.clone().into(),
+        None => MARK_PATH.into(),
     }
 }
 
@@ -178,6 +204,12 @@ mod tests {
             .render_single_frame(Assets::embedded(LOGO_PATH).unwrap(), SVG_SCALE)
             .unwrap();
         assert_eq!(logo.size(0).width.0, 212);
+        for (scale, side) in [(MARK_SMALL_SCALE, 64), (MARK_LARGE_SCALE, 160)] {
+            let mark = renderer
+                .render_single_frame(Assets::embedded(MARK_PATH).unwrap(), scale)
+                .unwrap();
+            assert_eq!(mark.size(0).width.0, side);
+        }
     }
 
     #[test]

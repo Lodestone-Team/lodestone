@@ -22,6 +22,7 @@ pub mod extras;
 pub mod friends;
 mod friends_view;
 pub mod host;
+mod host_offer;
 pub mod lan;
 pub mod local;
 pub mod tools;
@@ -481,6 +482,8 @@ pub struct Servers {
     pub local: local::LocalCores,
     /// Friends' servers (Lodestone Connect) and the join dialog.
     pub friends: friends::Friends,
+    /// "Download Lodestone Host" is looking up the newest release.
+    host_download: Option<Task<()>>,
     /// Closes a friend's tunnel when its game exits.
     _instances_changed: Option<Subscription>,
 }
@@ -522,6 +525,7 @@ impl Servers {
             extras: Default::default(),
             local: Default::default(),
             friends: friends::Friends::new(&data_root),
+            host_download: None,
             _instances_changed: None,
         };
         this._instances_changed =
