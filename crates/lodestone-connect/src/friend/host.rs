@@ -54,8 +54,11 @@ const RENEW_AT_MOST: Duration = Duration::from_secs(6 * 60 * 60);
 /// How often the host collects its addresses again (publishing them if they changed)
 /// and renews the router's forwarding (which lasts an hour).
 const REFRESH_EVERY: Duration = Duration::from_secs(10 * 60);
-/// How long a stream has to send its header.
+/// How long a stream has to send its whole header.
 const HEADER_WITHIN: Duration = Duration::from_secs(10);
+/// The most streams of one connection whose header is still being read. More wait in
+/// QUIC until one is done.
+const MAX_PENDING_STREAMS: usize = 8;
 /// How long a new connection has to finish its handshake and say hello. Until then it
 /// holds a place counted against the friend whose knock let its address in.
 const HELLO_WITHIN: Duration = Duration::from_secs(10);
@@ -1161,6 +1164,38 @@ async fn hello(connection: &quinn::Connection, shared: &Shared) -> Option<Public
     Some(key)
 }
 
+/// What a stream after the hello carries.
+enum Header {
+    Info,
+    Game(String),
+}
+
+/// Reads a stream's header. The error says why it's refused.
+async fn read_header(recv: &mut quinn::RecvStream) -> std::result::Result<Header, &'static [u8]> {
+    let mut kind = [0u8; 1];
+    recv.read_exact(&mut kind)
+        .await
+        .map_err(|_| &b"no header"[..])?;
+    match kind[0] {
+        k if k == FriendStreamKind::Info as u8 => Ok(Header::Info),
+        k if k == FriendStreamKind::Game as u8 => {
+            let bad = |_| &b"bad header"[..];
+            let mut len = [0u8; 1];
+            recv.read_exact(&mut len).await.map_err(bad)?;
+            if len[0] == 0 || usize::from(len[0]) > MAX_INSTANCE_LEN {
+                return Err(b"bad header");
+            }
+            let mut name = vec![0u8; usize::from(len[0])];
+            recv.read_exact(&mut name).await.map_err(bad)?;
+            String::from_utf8(name)
+                .map(Header::Game)
+                .map_err(|_| &b"bad header"[..])
+        }
+        // invite kinds (0-2), a second hello, or anything else
+        _ => Err(b"bad kind"),
+    }
+}
+
 async fn serve_connection(
     connection: quinn::Connection,
     key: PublicKey,
@@ -1177,7 +1212,11 @@ async fn serve_connection(
     if !shared.is_friend(&key) {
         connection.close(2u32.into(), b"removed");
     }
+    let pending = Arc::new(tokio::sync::Semaphore::new(MAX_PENDING_STREAMS));
     loop {
+        let Ok(permit) = pending.clone().acquire_owned().await else {
+            break;
+        };
         let (send, mut recv) = match connection.accept_bi().await {
             Ok(streams) => streams,
             Err(_) => break,
@@ -1186,40 +1225,20 @@ async fn serve_connection(
         let shared = shared.clone();
         let handler = handler.clone();
         tokio::spawn(async move {
+            let header = tokio::time::timeout(HEADER_WITHIN, read_header(&mut recv)).await;
+            drop(permit);
             let close = |why: &'static [u8]| connection.close(1u32.into(), why);
-            let mut kind = [0u8; 1];
-            if !matches!(
-                tokio::time::timeout(HEADER_WITHIN, recv.read_exact(&mut kind)).await,
-                Ok(Ok(()))
-            ) {
-                return close(b"no header");
-            }
+            let header = match header {
+                Ok(Ok(header)) => header,
+                Ok(Err(why)) => return close(why),
+                Err(_) => return close(b"no header"),
+            };
             if !shared.is_friend(&key) {
                 return close(b"removed");
             }
-            match kind[0] {
-                k if k == FriendStreamKind::Info as u8 => {
-                    handler.info(tokio::io::join(recv, send), key);
-                }
-                k if k == FriendStreamKind::Game as u8 => {
-                    let mut len = [0u8; 1];
-                    if recv.read_exact(&mut len).await.is_err()
-                        || len[0] == 0
-                        || usize::from(len[0]) > MAX_INSTANCE_LEN
-                    {
-                        return close(b"bad header");
-                    }
-                    let mut name = vec![0u8; usize::from(len[0])];
-                    if recv.read_exact(&mut name).await.is_err() {
-                        return close(b"bad header");
-                    }
-                    let Ok(instance) = String::from_utf8(name) else {
-                        return close(b"bad header");
-                    };
-                    handler.game(tokio::io::join(recv, send), key, instance);
-                }
-                // invite kinds (0-2), a second hello, or anything else
-                _ => close(b"bad kind"),
+            match header {
+                Header::Info => handler.info(tokio::io::join(recv, send), key),
+                Header::Game(instance) => handler.game(tokio::io::join(recv, send), key, instance),
             }
         });
     }

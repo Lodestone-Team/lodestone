@@ -553,6 +553,29 @@ async fn one_friends_removal_and_misbehaviour_leave_the_others_alone() {
         .await
         .expect("closed");
 
+    // and so does a game header that stops halfway (kind, length 3, one byte of the
+    // name), once its 10 seconds are up. Meanwhile the core reads at most 8 headers at
+    // once: a ninth stream waits, even a good one.
+    let joined = join_friend(&service, &dee, &dee_core, options())
+        .await
+        .unwrap();
+    let mut stalled = vec![joined.open_raw(&[5, 3, b's']).await.unwrap()];
+    for _ in 1..8 {
+        stalled.push(joined.open_raw(&[5]).await.unwrap());
+    }
+    let mut ninth = joined.open_game("smp").await.unwrap();
+    ninth.write_all(b"hello\n").await.unwrap();
+    let mut back = [0u8; 6];
+    assert!(
+        tokio::time::timeout(Duration::from_secs(2), ninth.read_exact(&mut back))
+            .await
+            .is_err(),
+        "the core read a ninth header"
+    );
+    tokio::time::timeout(Duration::from_secs(15), joined.closed())
+        .await
+        .expect("closed");
+
     // one friend gets at most MAX_CONNECTIONS_PER_FRIEND connections
     let mut held = Vec::new();
     for _ in 0..lodestone_connect::friend::host::MAX_CONNECTIONS_PER_FRIEND {
