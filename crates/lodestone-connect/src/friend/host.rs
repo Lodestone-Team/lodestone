@@ -59,8 +59,13 @@ const HEADER_WITHIN: Duration = Duration::from_secs(10);
 /// How long a new connection has to finish its handshake and say hello. Until then it
 /// holds a place counted against the friend whose knock let its address in.
 const HELLO_WITHIN: Duration = Duration::from_secs(10);
-/// The most addresses one friend's latest knock opens (its candidates).
-const MAX_ALLOWED_PER_FRIEND: usize = meet::MAX_CANDIDATES;
+/// The most addresses one knock opens (its candidates).
+const MAX_ALLOWED_PER_KNOCK: usize = meet::MAX_CANDIDATES;
+/// How many of a friend's latest knocks count at once: each lets its addresses connect
+/// and gets its own spray, so two joins at once from one friend (two launchers, or two
+/// servers on this core) don't cancel each other. An older knock's go when a newer one
+/// comes, so one friend never holds more than this.
+const KNOCKS_PER_FRIEND: usize = 2;
 /// The most connections one friend may hold at once, so no friend can take every place.
 /// Connections still in their handshake or hello count too, against the friend whose
 /// knock let their address in.
@@ -287,10 +292,10 @@ struct Shared {
     friends: Mutex<HashMap<PublicKey, Secret>>,
     /// Bumped whenever the friend list changes, so the records are published again.
     generation: watch::Sender<u64>,
-    /// For each friend, the addresses of their latest accepted knock and until when
-    /// they may connect. A new knock replaces the friend's addresses, so one friend can
-    /// never crowd out another.
-    allowed: Mutex<HashMap<PublicKey, (Vec<IpAddr>, Instant)>>,
+    /// For each friend, the addresses of their latest accepted knocks (at most
+    /// [`KNOCKS_PER_FRIEND`]) and until when they may connect. A new knock replaces the
+    /// friend's oldest, so one friend can never crowd out another.
+    allowed: Mutex<HashMap<PublicKey, VecDeque<(Vec<IpAddr>, Instant)>>>,
     connections: Mutex<Connections>,
     /// The addresses on connections now, and how many connections each has. The
     /// [`Gate`] reads this for every datagram, inside QUIC: never call QUIC while
@@ -325,6 +330,7 @@ impl Shared {
             .lock()
             .expect("not poisoned")
             .values()
+            .flatten()
             .any(|(ips, until)| *until > now && ips.contains(&ip))
     }
 
@@ -345,11 +351,10 @@ impl Shared {
     /// The friends whose accepted knocks let `ip` connect now.
     fn allowed_by(&self, ip: IpAddr) -> Vec<PublicKey> {
         let mut allowed = self.allowed.lock().expect("not poisoned");
-        let now = Instant::now();
-        allowed.retain(|_, (_, until)| *until > now);
+        forget_expired(&mut allowed);
         allowed
             .iter()
-            .filter(|(_, (ips, _))| ips.contains(&ip))
+            .filter(|(_, knocks)| knocks.iter().any(|(ips, _)| ips.contains(&ip)))
             .map(|(friend, _)| *friend)
             .collect()
     }
@@ -410,21 +415,25 @@ impl Shared {
         Some(id)
     }
 
-    /// Lets `friend` connect from `ips` (their knock's candidates) for [`ALLOW_FOR`],
-    /// replacing what their previous knock allowed. The address the service says it
-    /// saw isn't used: the service could name any address.
+    /// Lets `friend` connect from `ips` (a knock's candidates) for [`ALLOW_FOR`],
+    /// replacing what their oldest knock allowed once they have [`KNOCKS_PER_FRIEND`].
+    /// The address the service says it saw isn't used: the service could name any
+    /// address.
     fn allow(&self, friend: PublicKey, ips: impl IntoIterator<Item = IpAddr>) {
         let mut list: Vec<IpAddr> = Vec::new();
         for ip in ips {
             let ip = canonical(SocketAddr::new(ip, 0)).ip();
-            if !list.contains(&ip) && list.len() < MAX_ALLOWED_PER_FRIEND {
+            if !list.contains(&ip) && list.len() < MAX_ALLOWED_PER_KNOCK {
                 list.push(ip);
             }
         }
         let mut allowed = self.allowed.lock().expect("not poisoned");
-        let now = Instant::now();
-        allowed.retain(|_, (_, until)| *until > now);
-        allowed.insert(friend, (list, now + ALLOW_FOR));
+        forget_expired(&mut allowed);
+        let knocks = allowed.entry(friend).or_default();
+        while knocks.len() >= KNOCKS_PER_FRIEND {
+            knocks.pop_front();
+        }
+        knocks.push_back((list, Instant::now() + ALLOW_FOR));
     }
 
     /// Forgets what a friend's knocks allowed (they were removed).
@@ -439,6 +448,15 @@ impl Shared {
             connected.connection.close(2u32.into(), why);
         }
     }
+}
+
+/// Drops the knocks whose time to connect is over.
+fn forget_expired(allowed: &mut HashMap<PublicKey, VecDeque<(Vec<IpAddr>, Instant)>>) {
+    let now = Instant::now();
+    allowed.retain(|_, knocks| {
+        knocks.retain(|(_, until)| *until > now);
+        !knocks.is_empty()
+    });
 }
 
 fn now_secs() -> u64 {
@@ -809,7 +827,8 @@ async fn service_loop(shared: Arc<Shared>, sprayer: UdpSocket, mut stop: watch::
 }
 
 /// Opens a knock, and if it's a friend's and fresh, lets its addresses connect for a
-/// while and punches towards them: one spray per friend, at most [`MAX_SPRAYS`].
+/// while and punches towards them: a spray for each of a friend's latest
+/// [`KNOCKS_PER_FRIEND`] knocks, at most [`MAX_SPRAYS`] in all.
 fn on_knock(
     shared: &Shared,
     index: &HashMap<[u8; ID_LEN], PublicKey>,
@@ -840,13 +859,17 @@ fn on_knock(
         return;
     }
     shared.allow(*key, knock.candidates.iter().map(|addr| addr.ip()));
-    // one spray per friend: a new knock replaces their last one
-    for (friend, spray) in sprays.iter() {
-        if friend == key {
+    // a few sprays per friend: a new knock replaces their oldest
+    sprays.retain(|(_, spray)| !spray.is_finished());
+    while sprays.iter().filter(|(friend, _)| friend == key).count() >= KNOCKS_PER_FRIEND {
+        let oldest = sprays
+            .iter()
+            .position(|(friend, _)| friend == key)
+            .expect("counted above");
+        if let Some((_, spray)) = sprays.remove(oldest) {
             spray.abort();
         }
     }
-    sprays.retain(|(friend, spray)| !spray.is_finished() && friend != key);
     while sprays.len() >= MAX_SPRAYS {
         if let Some((_, oldest)) = sprays.pop_front() {
             oldest.abort();
@@ -1227,6 +1250,60 @@ pub(crate) mod tests {
         assert_eq!(shared.reserve(crowd).unwrap().friend, Some(dee));
         drop(bens_place);
         assert_eq!(shared.connections.lock().unwrap().unproven_total(), 0);
+    }
+
+    /// A knock from `friend` (on `shared`) with these addresses, as the service delivers
+    /// it, and the lookup index it needs.
+    fn knock_from(
+        shared: &Shared,
+        friend: PublicKey,
+        candidates: &[SocketAddr],
+    ) -> (DeliveredKnock, HashMap<[u8; ID_LEN], PublicKey>) {
+        let secret = shared.friends.lock().unwrap()[&friend].clone();
+        let lookup = meet::publish_lookups(&secret, now_secs())[0];
+        let (_, sealed) = meet::seal_knock(&secret, &lookup, candidates, now_secs()).unwrap();
+        let delivered = DeliveredKnock {
+            lookup,
+            sealed,
+            seen: None,
+        };
+        (delivered, HashMap::from([(lookup, friend)]))
+    }
+
+    #[tokio::test]
+    async fn a_friends_latest_knocks_each_get_a_spray_and_their_addresses() {
+        let dee = key(1);
+        let shared = shared_with(&[dee]);
+        let sprayer = UdpSocket::bind("127.0.0.1:0").unwrap();
+        sprayer.set_nonblocking(true).unwrap();
+        let (_stop, stop) = watch::channel(false);
+        let mut guards = HashMap::new();
+        let mut sprays = VecDeque::new();
+        // nothing listens on these ports
+        let joins: Vec<SocketAddr> = (1..=3)
+            .map(|n| SocketAddr::from(([127, 0, 0, n], 9)))
+            .collect();
+        for (n, join) in joins.iter().enumerate() {
+            let (knock, index) = knock_from(&shared, dee, &[*join]);
+            on_knock(
+                &shared,
+                &index,
+                knock,
+                &mut guards,
+                &mut sprays,
+                &sprayer,
+                &stop,
+            );
+            assert_eq!(sprays.len(), (n + 1).min(KNOCKS_PER_FRIEND));
+        }
+        // the two latest joins both keep their spray and their addresses
+        assert!(sprays.iter().all(|(_, spray)| !spray.is_finished()));
+        assert!(shared.may_reach(joins[1].ip()));
+        assert!(shared.may_reach(joins[2].ip()));
+        assert!(!shared.may_reach(joins[0].ip()), "the oldest knock's went");
+        for (_, spray) in sprays {
+            spray.abort();
+        }
     }
 
     #[test]
