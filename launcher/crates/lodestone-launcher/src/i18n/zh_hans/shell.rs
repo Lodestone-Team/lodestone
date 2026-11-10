@@ -302,6 +302,11 @@ pub fn text(message: M) -> &'static str {
         M::TurnOffAndSignOut => "关闭并退出登录",
         M::TurnOffOnly => "仅关闭",
         M::SignInSection => "Microsoft 登录",
+        M::OfflineAccountsSetting => "离线账户",
+        M::OfflineAccountsSettingHint => "在账户菜单中显示“{add}”。仅供测试。",
+        M::OfflineAccountsAlwaysOn => {
+            "在调试版本中以及设置 LODESTONE_LAUNCHER_OFFLINE=1 时始终开启。"
+        }
         M::CodingAgentsSection => "编程助手",
         M::CodingAgentsLead => {
             "Claude Code、Codex 等编程助手可以通过 lodestone-launcher-cli 操作启动器。启动器在数据文件夹中为它们保存了指南。"
@@ -380,7 +385,6 @@ pub fn text(message: M) -> &'static str {
         M::LauncherIdentityNote => {
             "开发者选项：以 Minecraft Launcher 身份登录，而不是以 Lodestone Launcher 身份。Microsoft 的页面可能会显示 Minecraft 的名称，而不是 Lodestone 的。"
         }
-        M::UseLinkInstead => "改用登录链接",
         M::UseCodeInstead => "改用代码",
         M::SignInCodeBody => {
             "使用你玩 Minecraft: Java Edition 的 Microsoft 账户登录。你会获得一个代码，需在 Microsoft 网站上输入。"
@@ -403,10 +407,6 @@ pub fn text(message: M) -> &'static str {
         M::StopSigningInBody => "Microsoft 仍在等待你复制的代码。如果现在停止，输入它将无法登录。",
         M::StopSigningIn => "停止登录",
         M::KeepWaiting => "继续等待",
-        M::LinkInstructions => {
-            "请在打开的浏览器窗口中登录。随后 Microsoft 会显示一个页面，说明该页面通常不会显示。从浏览器地址栏复制完整地址，并且只粘贴到本启动器中。"
-        }
-        M::LinkStartsWith => "地址以 {url} 开头",
         M::SigningInToMinecraft => "正在登录 Minecraft…",
         M::ExpectedUntilApproved => {
             "在 Mojang 批准该应用之前，这是正常现象。你的账户没有任何问题。"
@@ -698,6 +698,37 @@ pub fn text(message: M) -> &'static str {
         }
         M::StorageOther => "设置和其他文件",
         M::StorageCacheAndLogs => "缓存和日志",
+        M::StorageDataFolder => "数据文件夹",
+        M::StorageDataFolderHint => {
+            "你的实例和世界、账户、设置和游戏文件。移动它可以把它们放到另一个磁盘上。"
+        }
+        M::StorageMoveEllipsis => "移动…",
+        M::StorageMoveBackEllipsis => "移回…",
+        M::StorageMoveHere => "移到这里",
+        M::StorageMoveCantUse => "无法把数据移到那里：{error}",
+        M::StorageMoveStopGame => "请先停止游戏，再移动数据文件夹。",
+        M::StorageMoveTitle => "移动你的数据？",
+        M::StorageMoveBody => {
+            "数据文件夹中的所有内容都会移到 {to}：你的实例和世界、账户、设置和游戏文件。完成后启动器会重新启动。"
+        }
+        M::StorageMoveBackTitle => "把数据移回去？",
+        M::StorageMoveBackBody => "所有内容都会移回默认文件夹 {to}。完成后启动器会重新启动。",
+        M::StorageMoveSize => "共 {size}。",
+        M::StorageMoveConfirm => "移动并重启",
+        M::StorageMoving => "正在移动你的数据…",
+        M::StorageMovingTo => "移到 {to}",
+        M::StorageMovingPreparing => "正在准备…",
+        M::StorageMovingProgress => "{done} / {total}",
+        M::StorageMovingNote => "取消后数据会留在原处。",
+        M::StorageMoveFailedTitle => "无法移动你的数据",
+        M::StorageMoveFailedBody => "你的数据仍在 {from}。{error}",
+        M::StorageMoveRestartFailed => "数据已移动。请退出启动器并重新打开，以使用新文件夹。",
+        M::DataFolderMissingTitle => "找不到你的数据文件夹",
+        M::DataFolderMissingBody => {
+            "你的实例和世界在 {path}，但它不存在。如果它在未连接的磁盘上，请连接后重试。默认文件夹是空的，你的数据会留在原处。"
+        }
+        M::DataFolderUseDefault => "使用默认文件夹",
+        M::DataFolderQuit => "退出",
         M::StorageLogs => "日志和崩溃报告",
         M::StorageOldLogs => "{size} 超过 30 天",
         M::StorageVersions => "版本",

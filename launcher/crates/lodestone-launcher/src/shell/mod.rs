@@ -3,6 +3,7 @@
 //! selected instance with its tabs and a large Play button.
 
 mod account_box;
+pub mod data_folder;
 pub(crate) mod developer;
 mod launcher_settings;
 mod narrator_offer;
@@ -244,6 +245,17 @@ enum Modal {
         bytes: u64,
         focus: FocusHandle,
     },
+    /// Moving the data folder from Settings > Storage: asking, then its progress.
+    DataMove {
+        to: std::path::PathBuf,
+        back: bool,
+        focus: FocusHandle,
+    },
+    /// The moved data folder isn't there at start.
+    DataFolderMissing {
+        path: std::path::PathBuf,
+        focus: FocusHandle,
+    },
 }
 
 /// The root view of the launcher window.
@@ -471,6 +483,23 @@ impl LauncherShell {
                     },
                     cx,
                 );
+            }
+            StorageEvent::ConfirmMove { to, back } => {
+                let focus = cx.focus_handle();
+                this.modal.open(
+                    Modal::DataMove {
+                        to: to.clone(),
+                        back: *back,
+                        focus,
+                    },
+                    cx,
+                );
+            }
+            StorageEvent::Moved => this.data_folder_moved(cx),
+            StorageEvent::MoveCancelled => {
+                if matches!(this.modal.current(), Some(Modal::DataMove { .. })) {
+                    this.close_modal(cx);
+                }
             }
         }));
         let updater = {
@@ -2140,6 +2169,12 @@ impl LauncherShell {
             Modal::StorageClean { what, bytes, focus } => {
                 self.render_storage_clean(*what, *bytes, focus.clone(), cx)
             }
+            Modal::DataMove { to, back, focus } => {
+                self.render_data_move(to, *back, focus.clone(), cx)
+            }
+            Modal::DataFolderMissing { path, focus } => {
+                self.render_data_folder_missing(path, focus.clone(), cx)
+            }
             Modal::DeleteWorld { .. } | Modal::ReplaceWorld { .. } => {
                 self.render_world_dialog(modal, cx)?
             }
@@ -2552,6 +2587,8 @@ impl Render for LauncherShell {
 
         let shell = div()
             .id("launcher-shell")
+            // Scopes the shell's own shortcuts, such as pasting an invite link.
+            .key_context(crate::SHELL_CONTEXT)
             .track_focus(&self.root_focus)
             // For the debug traces: where the pointer went down, to place clicks on
             // elements that aren't shared controls.

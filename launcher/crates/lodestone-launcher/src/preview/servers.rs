@@ -58,6 +58,7 @@ pub const SCENES: &[&str] = &[
     "servers-join-connecting",
     "servers-join-ready",
     "servers-join-ready-mods",
+    "servers-join-port-taken",
     "servers-join-failed",
     "servers-join-no-path",
     "servers-friend-list-empty",
@@ -464,7 +465,7 @@ fn shared(name: &str, loader: &str, version: Option<&str>, modpack: bool) -> Sha
 
 /// Made-up friends' servers: one checked and online, one offline, one not asked yet.
 fn made_up_friends() -> Vec<(FriendServer, FriendStatus)> {
-    let entry = |code: &str, server: &SharedServer, trusted: bool| {
+    let entry = |code: &str, server: &SharedServer, trusted: bool, port: Option<u16>| {
         let invite = Invite::parse(&format!(
             "https://connect.lodestone.cc/j/{code}#{}.{}",
             "ab".repeat(32),
@@ -473,6 +474,7 @@ fn made_up_friends() -> Vec<(FriendServer, FriendStatus)> {
         .expect("a made-up invite");
         let mut saved = FriendServer::new(&invite, server, 1_700_000_000);
         saved.set_trusted(trusted);
+        saved.game_port = port;
         saved
     };
     let smp = shared("Alex's SMP", "fabric", Some("0.16.14"), true);
@@ -481,16 +483,19 @@ fn made_up_friends() -> Vec<(FriendServer, FriendStatus)> {
     sky.core_name = "Sam's PC".into();
     vec![
         (
-            entry("ABCDEFGH23", &smp, true),
+            entry("ABCDEFGH23", &smp, true, Some(31234)),
             FriendStatus::Online {
                 server: Box::new(smp.clone()),
                 kind: ConnectionKind::Internet,
                 rtt: std::time::Duration::from_millis(34),
             },
         ),
-        (entry("JKMNPQRS45", &creative, false), FriendStatus::Unknown),
         (
-            entry("TVWXYZ0167", &sky, false),
+            entry("JKMNPQRS45", &creative, false, Some(36017)),
+            FriendStatus::Unknown,
+        ),
+        (
+            entry("TVWXYZ0167", &sky, false, None),
             FriendStatus::Offline(JoinError::HostOffline),
         ),
     ]
@@ -509,10 +514,20 @@ fn apply_join(scene: &str, servers: &mut Servers, cx: &mut Context<Servers>) {
         "servers-join-ready" => PreviewJoin::Ready {
             server: shared("Creative build", "vanilla", None, false),
             kind: ConnectionKind::LocalNetwork,
+            port: 36017,
+            taken_port: None,
         },
         "servers-join-ready-mods" => PreviewJoin::Ready {
             server: shared("Alex's SMP", "fabric", Some("0.16.14"), true),
             kind: ConnectionKind::Internet,
+            port: 31234,
+            taken_port: None,
+        },
+        "servers-join-port-taken" => PreviewJoin::Ready {
+            server: shared("Creative build", "vanilla", None, false),
+            kind: ConnectionKind::LocalNetwork,
+            port: 36017,
+            taken_port: Some(52841),
         },
         "servers-join-failed" => PreviewJoin::Failed {
             error: JoinError::WrongHost,

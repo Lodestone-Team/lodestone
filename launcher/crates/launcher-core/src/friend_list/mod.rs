@@ -338,12 +338,15 @@ fn lodestone_unhex(text: &str) -> Option<Vec<u8>> {
 }
 
 /// The Keychain item `base` for the friend list in `data`: `base` itself for the data
-/// folder this user's launcher uses, and `base@<8 hex digits of the folder's SHA-256>`
-/// for any other (`LODESTONE_LAUNCHER_DATA_DIR`, tests, dev bundles), so they never
-/// make or use this person's real friend identity.
+/// folder this user's launcher really uses (the default one, or wherever they moved it
+/// in Settings › Storage), and `base@<8 hex digits of the folder's SHA-256>` for any
+/// other (`LODESTONE_LAUNCHER_DATA_DIR`, tests, dev bundles), so those never make or use
+/// this person's real friend identity. Moving the data folder keeps the identity.
 pub fn secret_name(base: &str, data: &DataDir) -> String {
-    let default = dirs::data_dir().map(|dir| dir.join(crate::paths::APP_DIR_NAME));
-    if default.as_deref() == Some(data.root()) {
+    let overridden = std::env::var_os("LODESTONE_LAUNCHER_DATA_DIR").is_some_and(|dir| !dir.is_empty());
+    let real = !overridden
+        && crate::paths::locate_data_dir().is_some_and(|location| location.dir == data.root());
+    if real {
         return base.to_string();
     }
     let digest = crypto::sha256(data.root().to_string_lossy().as_bytes());

@@ -164,6 +164,20 @@ async fn a_friend_joins_plays_and_keeps_the_link() {
     let mut tcp = TcpStream::connect(forward.local_addr()).await.unwrap();
     echo_through(&mut tcp, "through a local port\n").await;
 
+    // A given port (the launcher keeps one per friend's server) works the same; while
+    // it is open, a second forward can't take it.
+    let port = std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
+    let fixed: SocketAddr = ([127, 0, 0, 1], port).into();
+    let stable = joined.forward(StreamKind::Game, fixed).await.unwrap();
+    assert_eq!(stable.local_addr(), fixed);
+    let mut tcp = TcpStream::connect(fixed).await.unwrap();
+    echo_through(&mut tcp, "through the usual port\n").await;
+    assert!(joined.forward(StreamKind::Game, fixed).await.is_err());
+
     // An info port answers HTTP, as a core client would ask.
     let info = joined
         .forward(StreamKind::Info, "127.0.0.1:0".parse().unwrap())

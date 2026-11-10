@@ -23,7 +23,7 @@ use super::{
     Friend, FriendState, FriendStatus, Friends, FriendsError, MAX_FRIENDS, PendingLink, hex, now,
     on_tokio,
 };
-use crate::cores::connect::{JoinError, Progress, Tunnel, open_friend};
+use crate::cores::connect::{GamePort, JoinError, Progress, Tunnel, open_friend};
 
 /// A friend link's card, opened and checked: who sent it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -618,12 +618,15 @@ impl Friends {
         .map_err(Into::into)
     }
 
-    /// A tunnel to `instance` on `friend`'s core, for Play.
+    /// A tunnel to `instance` on `friend`'s core, for Play, with the game port as
+    /// `game_port` says (the server's saved one, so Minecraft's server list keeps
+    /// working).
     pub async fn open_tunnel(
         &self,
         friend: &str,
         fingerprint: &[u8; 32],
         instance: &str,
+        game_port: GamePort,
         progress: Progress,
     ) -> Result<Tunnel, JoinError> {
         let friend = self
@@ -645,6 +648,7 @@ impl Friends {
             &self.me,
             target,
             instance.to_string(),
+            game_port,
             progress,
         )
         .await

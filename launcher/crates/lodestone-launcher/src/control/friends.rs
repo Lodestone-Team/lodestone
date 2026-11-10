@@ -26,7 +26,9 @@ use super::{
 };
 use crate::servers::{
     AdvisoryAnswer, Servers,
-    friends::{FriendEntry, FriendStatus, JoinStage, join_error_text},
+    friends::{
+        FriendEntry, FriendStatus, JoinStage, game_address, join_error_text, port_taken_text,
+    },
 };
 
 fn kind_name(kind: ConnectionKind) -> &'static str {
@@ -89,6 +91,8 @@ fn friend_json(entry: &FriendEntry, servers: &Servers) -> Value {
         "instance": saved.instance_id,
         "added_at": saved.added_at,
         "last_joined": saved.last_joined,
+        // where Minecraft joins it whenever its tunnel is open, the same every time
+        "address": saved.game_port.map(game_address),
         "status": status,
         "playing": playing,
     })
@@ -204,6 +208,12 @@ fn card_json(servers: &Servers, id: &str, cx: &App) -> Option<Value> {
         "max_players": shared.max_player_count,
         "connection": kind_name(session.kind()),
         "rtt_ms": session.rtt().as_millis() as u64,
+        // this session's; another than the usual one when that port was taken
+        "address": session.address,
+        "port_taken": session.port_taken.map(|saved| {
+            let (title, body) = port_taken_text(saved, &session.address);
+            json!({ "port": saved, "message": format!("{title}. {body}") })
+        }),
         "instance": instance,
     }))
 }

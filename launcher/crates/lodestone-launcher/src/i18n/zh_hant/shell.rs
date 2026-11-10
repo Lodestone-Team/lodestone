@@ -304,6 +304,11 @@ pub fn text(message: M) -> &'static str {
         M::TurnOffAndSignOut => "關閉並登出",
         M::TurnOffOnly => "只關閉",
         M::SignInSection => "Microsoft 登入",
+        M::OfflineAccountsSetting => "離線帳號",
+        M::OfflineAccountsSettingHint => "在帳號選單中顯示「{add}」。僅供測試。",
+        M::OfflineAccountsAlwaysOn => {
+            "在偵錯版本中以及設定 LODESTONE_LAUNCHER_OFFLINE=1 時一律開啟。"
+        }
         M::CodingAgentsSection => "程式設計助手",
         M::CodingAgentsLead => {
             "Claude Code、Codex 等程式設計助手可以透過 lodestone-launcher-cli 操作啟動器。啟動器在資料夾中為它們保存了指南。"
@@ -384,7 +389,6 @@ pub fn text(message: M) -> &'static str {
         M::LauncherIdentityNote => {
             "開發者選項：以 Minecraft Launcher 身分登入，而不是以 Lodestone Launcher 身分。Microsoft 的頁面可能會顯示 Minecraft 的名稱，而不是 Lodestone 的。"
         }
-        M::UseLinkInstead => "改用登入連結",
         M::UseCodeInstead => "改用代碼",
         M::SignInCodeBody => {
             "使用你玩 Minecraft: Java Edition 的 Microsoft 帳號登入。你會取得一組代碼，需要在 Microsoft 網站上輸入。"
@@ -407,10 +411,6 @@ pub fn text(message: M) -> &'static str {
         M::StopSigningInBody => "Microsoft 仍在等待你複製的代碼。如果現在停止，輸入它將無法登入。",
         M::StopSigningIn => "停止登入",
         M::KeepWaiting => "繼續等待",
-        M::LinkInstructions => {
-            "請在開啟的瀏覽器視窗中登入。接著 Microsoft 會顯示一個頁面，說明這個頁面通常不會顯示。從瀏覽器的網址列複製完整網址，並且只貼到這個啟動器中。"
-        }
-        M::LinkStartsWith => "網址以 {url} 開頭",
         M::SigningInToMinecraft => "正在登入 Minecraft…",
         M::ExpectedUntilApproved => {
             "在 Mojang 核准這個應用程式之前，這是正常的。你的帳號沒有任何問題。"
@@ -704,6 +704,37 @@ pub fn text(message: M) -> &'static str {
         }
         M::StorageOther => "設定和其他檔案",
         M::StorageCacheAndLogs => "快取和日誌",
+        M::StorageDataFolder => "資料夾",
+        M::StorageDataFolderHint => {
+            "你的實例和世界、帳號、設定和遊戲檔案。移動它可以把它們放到另一個磁碟上。"
+        }
+        M::StorageMoveEllipsis => "移動…",
+        M::StorageMoveBackEllipsis => "移回…",
+        M::StorageMoveHere => "移到這裡",
+        M::StorageMoveCantUse => "無法把資料移到那裡：{error}",
+        M::StorageMoveStopGame => "請先停止遊戲，再移動資料夾。",
+        M::StorageMoveTitle => "移動你的資料？",
+        M::StorageMoveBody => {
+            "資料夾中的所有內容都會移到 {to}：你的實例和世界、帳號、設定和遊戲檔案。完成後啟動器會重新啟動。"
+        }
+        M::StorageMoveBackTitle => "把資料移回去？",
+        M::StorageMoveBackBody => "所有內容都會移回預設資料夾 {to}。完成後啟動器會重新啟動。",
+        M::StorageMoveSize => "共 {size}。",
+        M::StorageMoveConfirm => "移動並重新啟動",
+        M::StorageMoving => "正在移動你的資料…",
+        M::StorageMovingTo => "移到 {to}",
+        M::StorageMovingPreparing => "正在準備…",
+        M::StorageMovingProgress => "{done} / {total}",
+        M::StorageMovingNote => "取消後資料會留在原處。",
+        M::StorageMoveFailedTitle => "無法移動你的資料",
+        M::StorageMoveFailedBody => "你的資料仍在 {from}。{error}",
+        M::StorageMoveRestartFailed => "資料已移動。請結束啟動器並重新開啟，以使用新資料夾。",
+        M::DataFolderMissingTitle => "找不到你的資料夾",
+        M::DataFolderMissingBody => {
+            "你的實例和世界在 {path}，但它不存在。如果它在未連接的磁碟上，請連接後重試。預設資料夾是空的，你的資料會留在原處。"
+        }
+        M::DataFolderUseDefault => "使用預設資料夾",
+        M::DataFolderQuit => "結束",
         M::StorageLogs => "日誌和當機報告",
         M::StorageOldLogs => "{size} 超過 30 天",
         M::StorageVersions => "版本",

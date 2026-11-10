@@ -13,7 +13,12 @@
 //!    (with its mods kept in step), one of the user's that matches a server without
 //!    mods, or a new one with the server's client pack, after the mod advisory unless
 //!    the user trusts the server for mods. The pack comes through the tunnel's info port.
-//! 4. starts Minecraft joining `127.0.0.1:<the tunnel's game port>`.
+//! 4. starts Minecraft joining `127.0.0.1:<the tunnel's game port>`. Each server keeps
+//!    its game port from session to session, so the same address works in Minecraft's
+//!    server list whenever its tunnel is open here. When something else has the port,
+//!    that session uses another one and the launcher says so. The instance's own
+//!    server list (`servers.dat`) gets the server under its name at that address
+//!    (`launcher_core::cores::server_list`), written before the game starts.
 //!
 //! The tunnel stays open while the game runs, and closes when it exits. If the host
 //! goes away mid-game, the launcher says so. The server is remembered (the invite link
@@ -26,14 +31,15 @@
 
 use std::{
     collections::HashMap,
-    path::PathBuf,
+    path::{Path, PathBuf},
     time::{Duration, Instant},
 };
 
 use gpui::{AppContext as _, Context, Entity, FocusHandle, SharedString, Task};
+pub use launcher_core::cores::friends::game_address;
 use launcher_core::cores::{
     CoreClient, ServerInstance,
-    connect::{self, ConnectionKind, Invite, JoinError, Progress, SharedServer, Tunnel},
+    connect::{self, ConnectionKind, GamePort, Invite, JoinError, Progress, SharedServer, Tunnel},
     friends::{self, FriendServer, FriendsFile, InstanceMatch},
     link::ServerLink,
 };
@@ -93,6 +99,11 @@ pub struct Session {
     client: CoreClient,
     /// The shared server as a server on a core, for the instance flows.
     pub server: ServerInstance,
+    /// Where Minecraft joins it: `127.0.0.1:<the game port>`.
+    pub address: String,
+    /// The server's saved game port, when something else had it, so this session uses
+    /// another one.
+    pub port_taken: Option<u16>,
     /// The instance Play started, once it did.
     pub playing: Option<String>,
     /// Play waits for a new instance to be made (and linked), then joins.
@@ -216,6 +227,18 @@ impl Friends {
             .values()
             .any(|s| s.playing.as_deref() == Some(instance_id))
     }
+}
+
+/// What to say when the saved port `saved` was taken, so this session is at `address`.
+pub fn port_taken_text(saved: u16, address: &str) -> (String, String) {
+    (
+        tr!(M::FriendPortTaken, port = saved.to_string()),
+        tr!(
+            M::FriendPortTakenBody,
+            address = address,
+            port = saved.to_string()
+        ),
+    )
 }
 
 fn now() -> i64 {
@@ -386,17 +409,27 @@ impl Servers {
     fn open_source(
         &mut self,
         source: &Source,
+        game_port: GamePort,
         progress: Progress,
         cx: &mut Context<Self>,
     ) -> LocalBoxFuture<'static, Result<Tunnel, JoinError>> {
         match source {
-            Source::Invite(invite) => connect::open(invite.clone(), progress).boxed_local(),
+            Source::Invite(invite) => {
+                connect::open(invite.clone(), game_port, progress).boxed_local()
+            }
             Source::FriendList {
                 friend,
                 fingerprint,
                 instance,
                 ..
-            } => self.friend_list_tunnel(friend.clone(), fingerprint, instance.clone(), progress, cx),
+            } => self.friend_list_tunnel(
+                friend.clone(),
+                fingerprint,
+                instance.clone(),
+                game_port,
+                progress,
+                cx,
+            ),
         }
     }
 
@@ -459,7 +492,11 @@ impl Servers {
                 }
             }
         }));
-        let opening = self.open_source(&source, progress, cx);
+        let file = FriendsFile {
+            friends: self.friends.list.iter().map(|f| f.saved.clone()).collect(),
+        };
+        let game_port = file.game_port(&id);
+        let opening = self.open_source(&source, game_port.clone(), progress, cx);
         self.friends.connecting = Some(cx.spawn(async move |this, cx| {
             let result = opening.await;
             this.update(cx, |this, cx| {
@@ -472,7 +509,7 @@ impl Servers {
                 match result {
                     // the dialog was closed or moved on: the tunnel closes as it drops
                     Ok(_) if !waiting => {}
-                    Ok(tunnel) => this.connected(source, tunnel, then_play, cx),
+                    Ok(tunnel) => this.connected(source, tunnel, &game_port, then_play, cx),
                     Err(error) => {
                         if let Some(entry) = this.friends.get_mut(&id) {
                             entry.status = FriendStatus::Offline(error.clone());
@@ -500,6 +537,7 @@ impl Servers {
         &mut self,
         source: Source,
         mut tunnel: Tunnel,
+        game_port: &GamePort,
         then_play: bool,
         cx: &mut Context<Self>,
     ) {
@@ -521,6 +559,7 @@ impl Servers {
                 ..
             } => file.upsert_friend_list(friend, fingerprint, &shared, now()),
         };
+        let port_taken = file.friends[index].joined_on_port(game_port, tunnel.game_port());
         let saved = file.friends[index].clone();
         let id = saved.id.clone();
         let status = FriendStatus::Online {
@@ -575,6 +614,8 @@ impl Servers {
             id.clone(),
             Session {
                 kind: tunnel.kind,
+                address: game_address(tunnel.game_port()),
+                port_taken,
                 tunnel: Some(tunnel),
                 shared,
                 client,
@@ -846,15 +887,22 @@ impl Servers {
     }
 
     /// Where Minecraft joins the friend's server `id`, and the game is tied to its
-    /// tunnel. `None` when its tunnel closed.
+    /// tunnel. `None` when its tunnel closed. `game_dir` is the instance's game folder,
+    /// to list the server in; `None` while its game runs (the game rewrites the list).
     pub(super) fn friend_join_target(
         &mut self,
         id: &str,
         instance_id: &str,
+        game_dir: Option<&Path>,
     ) -> Option<launcher_core::game::launch::JoinServer> {
         let session = self.friends.sessions.get_mut(id)?;
         let target = session.tunnel.as_ref()?.join_target();
         session.playing = Some(instance_id.to_string());
+        // the dialog said so; it closes as the game starts, so the page says it too
+        if let Some(saved) = session.port_taken {
+            let address = session.address.clone();
+            self.notice = Some(Notice::info(move || port_taken_text(saved, &address)));
+        }
         let linked = self
             .instance_links
             .get(instance_id)
@@ -862,6 +910,12 @@ impl Servers {
         if let Some(entry) = self.friends.get_mut(id) {
             entry.saved.instance_id = (!linked).then(|| instance_id.to_string());
             entry.saved.last_joined = Some(now());
+            // the game still joins when this fails; the list is only a convenience
+            if let Some(game_dir) = game_dir
+                && let Err(err) = entry.saved.list_in_game(instance_id, game_dir, false)
+            {
+                log::warn!("couldn't update {instance_id}'s server list: {err}");
+            }
         }
         self.save_friends();
         Some(target)
@@ -977,9 +1031,10 @@ impl Servers {
         let check_id = id.to_string();
         let cached = self.friends.invites.get(id).cloned();
         // a server from the friend list opens its tunnel through the list
+        // any free port: the saved one stays free for Play
         let listed = self
             .friend_list_source(id)
-            .map(|source| self.open_source(&source, Progress::default(), cx));
+            .map(|source| self.open_source(&source, GamePort::Any, Progress::default(), cx));
         let task = cx.spawn(async move |this, cx| {
             let invite = match (cached, &listed) {
                 (Some(invite), _) => Ok(Some(invite)),
@@ -992,9 +1047,10 @@ impl Servers {
             let read = invite.as_ref().ok().cloned().flatten();
             let opening = match (invite, listed) {
                 (_, Some(opening)) => Some(opening),
-                (Ok(Some(invite)), None) => {
-                    Some(connect::open(invite, Progress::default()).boxed_local())
-                }
+                // any free port: the saved one stays free for Play
+                (Ok(Some(invite)), None) => Some(
+                    connect::open(invite, GamePort::Any, Progress::default()).boxed_local(),
+                ),
                 _ => None,
             };
             let result = match opening {
@@ -1038,7 +1094,19 @@ impl Servers {
         let Some(index) = self.friends.list.iter().position(|f| f.saved.id == id) else {
             return;
         };
-        self.friends.list.remove(index);
+        let removed = self.friends.list.remove(index);
+        // out of the server lists it was added to; a running game's list is left as it
+        // is (the game rewrites it)
+        if !self.preview {
+            let instances = self.instances.read(cx);
+            let failed = removed.saved.unlist_in_games(
+                |instance| instances.game_dir(instance),
+                |instance| instances.is_active(instance),
+            );
+            for (instance, err) in failed {
+                log::warn!("couldn't update {instance}'s server list: {err}");
+            }
+        }
         self.friends.checks.remove(id);
         self.friends.invites.remove(id);
         self.save_friends();
@@ -1086,6 +1154,9 @@ pub enum PreviewJoin {
     Ready {
         server: SharedServer,
         kind: ConnectionKind,
+        /// The saved game port, and the one this session uses when it was taken.
+        port: u16,
+        taken_port: Option<u16>,
     },
     Failed {
         error: JoinError,
@@ -1120,7 +1191,12 @@ impl Servers {
                     name,
                 }
             }
-            PreviewJoin::Ready { server, kind } => {
+            PreviewJoin::Ready {
+                server,
+                kind,
+                port,
+                taken_port,
+            } => {
                 let id = format!("{}preview/{}", friends::ID_PREFIX, server.instance_uuid);
                 let client = CoreClient::new(
                     self.http.clone(),
@@ -1131,6 +1207,8 @@ impl Servers {
                     Session {
                         tunnel: None,
                         kind,
+                        address: game_address(taken_port.unwrap_or(port)),
+                        port_taken: taken_port.map(|_| port),
                         client,
                         server: connect::server_instance(&server),
                         shared: server,

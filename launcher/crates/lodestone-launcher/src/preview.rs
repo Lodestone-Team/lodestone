@@ -126,6 +126,8 @@ pub const SCENES: &[&str] = &[
     "perf-monitor",
     "settings-storage",
     "settings-storage-confirm",
+    "settings-storage-moved",
+    "settings-storage-move",
     "play-background",
     "play-background-dark",
     "icon-picker",
@@ -1329,6 +1331,17 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
             let confirm = (scene == "settings-storage-confirm")
                 .then_some(launcher_core::disk::Clean::UnusedGameFiles);
             shell.preview_storage(storage_report(), confirm, cx);
+            shell.preview_data_folder(false, false, cx);
+        }
+        // The data folder moved to another drive, and "Move your data?".
+        "settings-storage-moved" | "settings-storage-move" => {
+            shell.open_settings(Some(crate::shell::SettingsPage::Storage), None, cx);
+            shell.preview_storage(storage_report(), None, cx);
+            shell.preview_data_folder(
+                scene == "settings-storage-moved",
+                scene == "settings-storage-move",
+                cx,
+            );
         }
         "undo-toast" => {
             shell.open_settings(Some(crate::shell::SettingsPage::General), None, cx);

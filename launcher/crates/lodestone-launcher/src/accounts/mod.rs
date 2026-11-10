@@ -74,7 +74,11 @@ pub struct Accounts {
     avatars: HashMap<String, Arc<RenderImage>>,
     /// A problem with `accounts.json` to show the user.
     notice: Option<SharedString>,
-    offline_enabled: bool,
+    /// Offline accounts are on whatever the setting says: a debug build, or
+    /// `LODESTONE_LAUNCHER_OFFLINE=1`.
+    offline_forced: bool,
+    /// Settings > Developer > "Offline accounts".
+    offline_setting: bool,
     /// Settings > Developer > "Sign in as the Minecraft Launcher". New Microsoft
     /// sign-ins use the official launcher's client while it is on.
     launcher_identity: bool,
@@ -111,9 +115,8 @@ impl Accounts {
                 OpenProblem::Unreadable(err) => tr!(M::CouldntReadAccounts, error = err),
             })
         });
-        let launcher_identity = settings::load_or_default(&data_dir.settings_file())
-            .developer
-            .sign_in_as_minecraft_launcher;
+        let developer = settings::load_or_default(&data_dir.settings_file()).developer;
+        let launcher_identity = developer.sign_in_as_minecraft_launcher;
         let mut this = Self {
             store,
             data_dir,
@@ -123,7 +126,8 @@ impl Accounts {
             sessions: HashMap::new(),
             avatars: HashMap::new(),
             notice,
-            offline_enabled,
+            offline_forced: offline_enabled,
+            offline_setting: developer.offline_accounts,
             launcher_identity,
             tasks: HashMap::new(),
             avatar_tasks: HashMap::new(),
@@ -157,8 +161,30 @@ impl Accounts {
         self.notice.as_ref()
     }
 
+    /// Whether offline accounts can be added: a debug build,
+    /// `LODESTONE_LAUNCHER_OFFLINE=1`, or Settings > Developer > "Offline accounts".
     pub fn offline_enabled(&self) -> bool {
-        self.offline_enabled
+        self.offline_forced || self.offline_setting
+    }
+
+    /// Offline accounts are on in this build whatever the setting says.
+    pub fn offline_forced(&self) -> bool {
+        self.offline_forced
+    }
+
+    /// Turns Settings > Developer > "Offline accounts" on or off and saves it in
+    /// `settings.json`. Offline accounts already added are kept.
+    pub fn set_offline_accounts(&mut self, enabled: bool, cx: &mut Context<Self>) {
+        let result = settings::update(&self.data_dir.settings_file(), |settings| {
+            settings.developer.offline_accounts = enabled;
+        });
+        match result {
+            Ok(_) => self.offline_setting = enabled,
+            Err(err) => {
+                self.notice = Some(tr!(M::CouldntSaveSettings, error = err).into());
+            }
+        }
+        cx.notify();
     }
 
     /// Whether "Sign in as the Minecraft Launcher" is on.

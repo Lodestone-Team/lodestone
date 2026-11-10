@@ -337,6 +337,12 @@ crate::i18n::messages! {
         TurnOffOnly = "Turn off only",
         /// Settings > Developer: the section of "Sign in as the Minecraft Launcher".
         SignInSection = "Microsoft sign-in",
+        /// Settings > Developer: the toggle for offline accounts.
+        OfflineAccountsSetting = "Offline accounts",
+        /// {add} is "Add offline account".
+        OfflineAccountsSettingHint = "Shows “{add}” in the account menu. For testing only.",
+        /// The hint while offline accounts are on whatever the setting says.
+        OfflineAccountsAlwaysOn = "Always on in debug builds and with LODESTONE_LAUNCHER_OFFLINE=1.",
         /// Settings > Developer: what lodestone-launcher-cli may do.
         /// Settings > Developer > Coding agents.
         CodingAgentsSection = "Coding agents",
@@ -434,7 +440,6 @@ crate::i18n::messages! {
         // Signing in with Microsoft.
         SignInWithMicrosoft = "Sign in with Microsoft",
         LauncherIdentityNote = "Developer option: signing in as the Minecraft Launcher, not as Lodestone Launcher. Microsoft's pages may show Minecraft's name instead of Lodestone's.",
-        UseLinkInstead = "Use a sign-in link instead",
         UseCodeInstead = "Use a code instead",
         SignInCodeBody = "Sign in with the Microsoft account you play Minecraft: Java Edition with. You'll get a code to enter on Microsoft's website.",
         SignInBrowserBody = "Sign in with the Microsoft account you play Minecraft: Java Edition with. Your browser opens to finish signing in.",
@@ -457,9 +462,6 @@ crate::i18n::messages! {
         StopSigningInBody = "Microsoft is still waiting for the code you copied. If you stop now, entering it won't sign you in.",
         StopSigningIn = "Stop signing in",
         KeepWaiting = "Keep waiting",
-        LinkInstructions = "Sign in in the browser window that opened. Microsoft then shows a page saying it is not normally shown. Copy the full address from the browser's address bar and paste it only into this launcher.",
-        /// {url} is the start of the address to paste.
-        LinkStartsWith = "It starts with {url}",
         SigningInToMinecraft = "Signing in to Minecraft…",
         ExpectedUntilApproved = "This is expected until Mojang approves the app. Nothing is wrong with your account.",
 
@@ -758,6 +760,35 @@ crate::i18n::messages! {
         StorageCleanSnapshotsBody = "This frees {size}. It removes the snapshots taken before going back, those of deleted instances, and files made to share.",
         StorageOther = "Settings and other files",
         StorageCacheAndLogs = "Cache and logs",
+        /// Settings > Storage: the section with the data folder's path.
+        StorageDataFolder = "Data folder",
+        StorageDataFolderHint = "Your instances and worlds, accounts, settings and game files. Move it to keep them on another drive.",
+        StorageMoveEllipsis = "Move…",
+        /// Moves the data folder back to the default folder.
+        StorageMoveBackEllipsis = "Move back…",
+        /// The folder dialog's button when choosing where to move the data folder.
+        StorageMoveHere = "Move here",
+        StorageMoveCantUse = "Can't move the data there: {error}",
+        StorageMoveStopGame = "Stop the game before moving the data folder.",
+        StorageMoveTitle = "Move your data?",
+        StorageMoveBody = "Everything in the data folder moves to {to}: your instances and worlds, accounts, settings and game files. The launcher restarts when it's done.",
+        StorageMoveBackTitle = "Move your data back?",
+        StorageMoveBackBody = "Everything moves back to the default folder, {to}. The launcher restarts when it's done.",
+        StorageMoveSize = "It's {size}.",
+        StorageMoveConfirm = "Move and restart",
+        StorageMoving = "Moving your data…",
+        StorageMovingTo = "To {to}",
+        StorageMovingPreparing = "Getting ready…",
+        StorageMovingProgress = "{done} of {total}",
+        StorageMovingNote = "Cancel leaves it where it was.",
+        StorageMoveFailedTitle = "Couldn't move your data",
+        StorageMoveFailedBody = "Your data is still in {from}. {error}",
+        StorageMoveRestartFailed = "Your data moved. Quit the launcher and open it again to use the new folder.",
+        /// At start, when the moved data folder isn't there.
+        DataFolderMissingTitle = "Can't find your data folder",
+        DataFolderMissingBody = "Your instances and worlds are in {path}, which isn't there. If it's on a drive that isn't connected, connect it and try again. The default folder starts with nothing in it, and your data stays where it is.",
+        DataFolderUseDefault = "Use the default folder",
+        DataFolderQuit = "Quit",
         StorageLogs = "Logs and crash reports",
         StorageOldLogs = "{size} older than 30 days",
         StorageVersions = "Versions",

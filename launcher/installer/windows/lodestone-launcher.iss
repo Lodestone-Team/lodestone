@@ -6,14 +6,18 @@
 ;   ISCC /DSourceExe=<path\to\lodestone-launcher.exe> /DBuild=531 /DVersion=0.1.0
 ;        /DOutputDir=<folder> /DOutputName=<file name without .exe> lodestone-launcher.iss
 ;
-; It installs for the current user only, under %LOCALAPPDATA%\Programs, without
-; asking for administrator rights. That matters for updates: the launcher updates
+; It installs for the current user only, without asking for administrator rights,
+; under %LOCALAPPDATA%\Programs unless the person chooses another folder (another
+; drive's games folder, say). That matters for updates: the launcher updates
 ; itself by replacing its own executable (launcher-core/src/update.rs), which it
-; can only do in a folder the user can write to. Program Files would need
-; administrator rights for every update.
+; can only do in a folder the user can write to, so Setup refuses folders they
+; can't (shared.iss). Program Files would need administrator rights for every
+; update. Upgrading keeps the folder of the install it upgrades.
 ;
 ; The launcher's data (instances, worlds, accounts) is in %APPDATA%\Lodestone
-; Launcher, a different folder. Installing and uninstalling never touch it.
+; Launcher, a different folder. Installing never touches it; uninstalling keeps it,
+; and at the end says so and offers to delete it, with the saved Microsoft sign-ins
+; (shared.iss).
 
 #ifndef SourceExe
   #error Pass /DSourceExe=<path to lodestone-launcher.exe>
@@ -56,8 +60,10 @@ VersionInfoDescription={#AppName} Setup
 ; (it would break updates).
 PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=
+; %LOCALAPPDATA%\Programs\Lodestone Launcher by default. The folder page shows on a
+; first install only: an upgrade goes where the existing install is.
 DefaultDirName={autopf}\{#AppName}
-DisableDirPage=yes
+DisableDirPage=auto
 DisableProgramGroupPage=yes
 DisableReadyPage=yes
 ArchitecturesAllowed=x64compatible
@@ -81,6 +87,10 @@ Compression=lzma2/ultra64
 LZMANumFastBytes=273
 LZMAUseSeparateProcess=yes
 SolidCompression=yes
+
+[Messages]
+SelectDirBrowseLabel=To continue, click Next. To install somewhere else, such as a games folder on another drive, click Browse.
+ConfirmUninstall=Are you sure you want to remove %1?%n%nYour instances, worlds and accounts are kept. At the end you can choose to delete them too.
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Shortcuts:"; Flags: unchecked
@@ -118,3 +128,138 @@ Type: files; Name: "{app}\{#ExeName}.old"
 Type: files; Name: "{app}\{#ExeName}.update"
 Type: files; Name: "{app}\{#ExeName}.update.part"
 Type: dirifempty; Name: "{app}"
+
+#include "shared.iss"
+
+[Code]
+function CredDelete(TargetName: String; CredType: DWORD; Flags: DWORD): BOOL;
+  external 'CredDeleteW@advapi32.dll stdcall';
+
+const
+  CRED_TYPE_GENERIC = 1;
+
+{ launcher-control/src/paths.rs: LODESTONE_LAUNCHER_DATA_DIR replaces the default
+  folder, else %APPDATA%. }
+function DefaultDataFolder: String;
+begin
+  Result := EnvOr('LODESTONE_LAUNCHER_DATA_DIR', ExpandConstant('{userappdata}\{#AppName}'));
+end;
+
+{ The folder the data was moved to (Settings > Storage), which the default folder's
+  data-location.json names, or '' when it wasn't moved. The file is JSON, written by
+  launcher-control/src/paths.rs: "path": "D:\\Games\\Lodestone Launcher". }
+function MovedDataFolder: String;
+var
+  Lines: TArrayOfString;
+  Text, Rest, Path, C: String;
+  I, At: Integer;
+begin
+  Result := '';
+  { UTF-8, so a path with accents reads right. }
+  if not LoadStringsFromFile(AddBackslash(DefaultDataFolder) + 'data-location.json', Lines) then
+    Exit;
+  Text := '';
+  for I := 0 to GetArrayLength(Lines) - 1 do
+    Text := Text + Lines[I];
+  At := Pos('"path"', Text);
+  if At = 0 then
+    Exit;
+  Rest := Copy(Text, At + Length('"path"'), Length(Text));
+  At := Pos('"', Rest);
+  if At = 0 then
+    Exit;
+  Rest := Copy(Rest, At + 1, Length(Rest));
+  Path := '';
+  I := 1;
+  while I <= Length(Rest) do
+  begin
+    C := Copy(Rest, I, 1);
+    if C = '"' then
+    begin
+      { Only a full path, as the launcher reads it. }
+      if ((Length(Path) >= 3) and (Copy(Path, 2, 1) = ':')) or (Copy(Path, 1, 2) = '\\') then
+        Result := Path;
+      Exit;
+    end;
+    if (C = '\') and (I < Length(Rest)) then
+    begin
+      I := I + 1;
+      C := Copy(Rest, I, 1);
+    end;
+    Path := Path + C;
+    I := I + 1;
+  end;
+end;
+
+{ Where the person moved the data, else the default folder. }
+function DataFolder: String;
+begin
+  Result := MovedDataFolder;
+  if Result = '' then
+    Result := DefaultDataFolder;
+end;
+
+procedure InitializeWizard;
+begin
+  AddDataLocationNote('Your instances, worlds and accounts are kept in ' + DataFolder +
+    ', not in this folder.');
+end;
+
+function NextButtonClick(CurPageID: Integer): Boolean;
+begin
+  Result := CheckWritableDir(CurPageID);
+end;
+
+{ A running launcher would keep its executable from being deleted, and could write
+  its data again after it was deleted. }
+function InitializeUninstall: Boolean;
+begin
+  Result := True;
+  while Result and CheckForMutexes('Local\LodestoneLauncher.SingleInstance') do
+    Result := MsgBox('{#AppName} is open. Close it, then click OK to uninstall it.',
+      mbError, MB_OKCANCEL) = IDOK;
+end;
+
+procedure RegisterKeptData;
+begin
+  AddKeptData('Instances, worlds and accounts', DataFolder,
+    'Your instances with their worlds, mods, resource packs and screenshots, your ' +
+    'accounts and settings, and downloaded game files. Deleting it also signs your ' +
+    'Microsoft accounts out of this computer.');
+end;
+
+{ The Microsoft accounts' tokens are in Windows' Credential Manager, not the data
+  folder: one generic credential per account, "zed:url=lodestone-launcher:<id>"
+  (launcher-core/src/accounts.rs's secret_key, as GPUI's write_credentials names
+  it). The ids come from accounts.json, before it is deleted.
+  A moved data folder's location file goes too, so a later install doesn't look
+  for a folder that is gone. }
+procedure BeforeDeletingKeptData(Index: Integer);
+var
+  Json: AnsiString;
+  Rest, Id: String;
+  At, Stop: Integer;
+begin
+  if (MovedDataFolder <> '') and (CompareText(KeptFolders[Index], MovedDataFolder) = 0) then
+  begin
+    DeleteFile(AddBackslash(DefaultDataFolder) + 'data-location.json');
+    DeleteFile(AddBackslash(DefaultDataFolder) + 'data-move-cleanup.json');
+    RemoveDir(DefaultDataFolder);
+  end;
+  if not LoadStringFromFile(AddBackslash(KeptFolders[Index]) + 'accounts.json', Json) then
+    Exit;
+  Rest := String(Json);
+  At := Pos('"microsoft:', Rest);
+  while At > 0 do
+  begin
+    Rest := Copy(Rest, At + 1, Length(Rest));
+    Stop := Pos('"', Rest);
+    if Stop = 0 then
+      Break;
+    Id := Copy(Rest, 1, Stop - 1);
+    Rest := Copy(Rest, Stop + 1, Length(Rest));
+    if CredDelete('zed:url=lodestone-launcher:' + Id, CRED_TYPE_GENERIC, 0) then
+      Log('Removed the saved sign-in of ' + Id);
+    At := Pos('"microsoft:', Rest);
+  end;
+end;

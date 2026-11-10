@@ -1056,7 +1056,7 @@ fn check_room(dir: &Path, bytes: u64) -> Result<(), SnapshotError> {
 }
 
 #[cfg(unix)]
-fn free_space(dir: &Path) -> Option<u64> {
+pub(crate) fn free_space(dir: &Path) -> Option<u64> {
     use std::os::unix::ffi::OsStrExt;
     let path = std::ffi::CString::new(dir.as_os_str().as_bytes()).ok()?;
     let mut stat: libc::statvfs = unsafe { std::mem::zeroed() };
@@ -1071,7 +1071,7 @@ fn free_space(dir: &Path) -> Option<u64> {
 /// The bytes free to this user on `dir`'s volume (quotas included), like `statvfs`'s
 /// `f_bavail`.
 #[cfg(windows)]
-fn free_space(dir: &Path) -> Option<u64> {
+pub(crate) fn free_space(dir: &Path) -> Option<u64> {
     use std::os::windows::ffi::OsStrExt;
     use windows_sys::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
     let path: Vec<u16> = dir.as_os_str().encode_wide().chain([0]).collect();
@@ -1090,7 +1090,7 @@ fn free_space(dir: &Path) -> Option<u64> {
 }
 
 #[cfg(not(any(unix, windows)))]
-fn free_space(_: &Path) -> Option<u64> {
+pub(crate) fn free_space(_: &Path) -> Option<u64> {
     None
 }
 

@@ -17,8 +17,15 @@
 //! known by [`friend_list_id`]: `friend:<core fingerprint>/<instance uuid>`. It keeps
 //! the friend's key ([`FriendServer::friend_key`]) and the core's fingerprint, which
 //! its mod trust is tied to; nothing about it goes to the Keychain.
+//!
+//! Each server keeps its own game port ([`FriendServer::game_port`]), picked on the
+//! first join from its id, so Minecraft finds it at the same `127.0.0.1:<port>` every
+//! session ([`FriendsFile::game_port`]).
 
-use std::path::{Path, PathBuf};
+use std::{
+    ops::RangeInclusive,
+    path::{Path, PathBuf},
+};
 
 use serde::{Deserialize, Serialize};
 
@@ -27,10 +34,11 @@ use serde::{Deserialize, Serialize};
 pub use lodestone_connect::{Service, friend::pair::FriendLink};
 
 use super::{
-    connect::{Invite, SharedServer, loader},
+    connect::{GamePort, Invite, SharedServer, loader},
     link::ServerLink,
     matching_loader,
     models::ServerLoader,
+    server_list::{self, Listed},
 };
 use crate::{
     Secret, SecretStore,
@@ -124,6 +132,14 @@ pub struct FriendServer {
     /// about again (launcher/docs/friends.md, "Mods").
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trusted_pack: Option<String>,
+    /// The local game port Minecraft joins this server on (`127.0.0.1:<port>`), the
+    /// same every session. Picked on the first join ([`port_choices`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub game_port: Option<u16>,
+    /// The entries the launcher added to instances' Minecraft server lists for it
+    /// ([`super::server_list`]), one per instance.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub listed: Vec<Listed>,
 }
 
 impl FriendServer {
@@ -251,6 +267,71 @@ impl FriendServer {
         self.trusted_pack = etag.filter(|e| !e.is_empty()).map(str::to_string);
     }
 
+    /// The entry the launcher added to `instance_id`'s server list.
+    pub fn listed_in(&self, instance_id: &str) -> Option<&Listed> {
+        self.listed.iter().find(|l| l.instance_id == instance_id)
+    }
+
+    /// Adds this server to the Minecraft server list of the instance `instance_id`
+    /// (its game folder `game_dir`) under its name at its usual address, or brings the
+    /// entry up to date. Never with a port used for one session only: without a saved
+    /// port, nothing is listed. Nothing is written while the instance's game `runs`,
+    /// since the game rewrites the list; the next join does it.
+    pub fn list_in_game(
+        &mut self,
+        instance_id: &str,
+        game_dir: &Path,
+        runs: bool,
+    ) -> std::io::Result<()> {
+        let Some(port) = self.game_port.filter(|_| !runs) else {
+            return Ok(());
+        };
+        let previous = self.listed_in(instance_id);
+        let address = game_address(port);
+        let listed =
+            server_list::list_server(game_dir, previous, instance_id, &self.name, &address)?;
+        if let Some(listed) = listed {
+            self.listed.retain(|l| l.instance_id != instance_id);
+            self.listed.push(listed);
+        }
+        Ok(())
+    }
+
+    /// Takes this server out of the server lists it was added to, except those of
+    /// instances whose game runs (`runs`); `game_dir` finds an instance's game folder.
+    /// Returns the instances whose list couldn't be read or written.
+    pub fn unlist_in_games(
+        &self,
+        game_dir: impl Fn(&str) -> PathBuf,
+        runs: impl Fn(&str) -> bool,
+    ) -> Vec<(String, std::io::Error)> {
+        self.listed
+            .iter()
+            .filter(|listed| !runs(&listed.instance_id))
+            .filter_map(|listed| {
+                server_list::unlist_server(&game_dir(&listed.instance_id), listed)
+                    .err()
+                    .map(|err| (listed.instance_id.clone(), err))
+            })
+            .collect()
+    }
+
+    /// Notes the game port a join used, which asked for `wanted`: a first join keeps
+    /// the port it picked. Returns the saved port when it was taken, so this join used
+    /// another one (the saved port stays for next time).
+    pub fn joined_on_port(&mut self, wanted: &GamePort, used: u16) -> Option<u16> {
+        match (self.game_port, wanted) {
+            (Some(saved), GamePort::Saved(asked)) if *asked == saved && used != saved => {
+                Some(saved)
+            }
+            (None, GamePort::Choose(ports)) if ports.contains(&used) => {
+                self.game_port = Some(used);
+                None
+            }
+            _ => None,
+        }
+    }
+
     /// What the host said last, as a [`SharedServer`] (without the live parts).
     pub fn shared(&self) -> SharedServer {
         SharedServer {
@@ -267,6 +348,39 @@ impl FriendServer {
             max_player_count: None,
         }
     }
+}
+
+/// Where Minecraft joins a friend's server whose game port is `port`.
+pub fn game_address(port: u16) -> String {
+    format!("127.0.0.1:{port}")
+}
+
+/// Where game ports are picked: unprivileged, and away from Minecraft's 25565 and the
+/// core's 16662.
+pub const GAME_PORTS: RangeInclusive<u16> = 30000..=39999;
+
+/// How many ports a first join tries before it takes any free port.
+const PORT_TRIES: usize = 8;
+
+/// The game ports a first join of the server `id` tries, in order: one picked from the
+/// id (always the same for it), then the ports after it, skipping `taken` (other saved
+/// servers' ports).
+pub fn port_choices(id: &str, taken: &[u16]) -> Vec<u16> {
+    let (start, end) = (*GAME_PORTS.start(), *GAME_PORTS.end());
+    let size = u32::from(end - start) + 1;
+    let first = fnv1a(id.as_bytes()) % size;
+    (0..size)
+        .map(|step| start + ((first + step) % size) as u16)
+        .filter(|port| !taken.contains(port))
+        .take(PORT_TRIES)
+        .collect()
+}
+
+/// FNV-1a: a small hash that stays the same in every build and on every computer.
+fn fnv1a(bytes: &[u8]) -> u32 {
+    bytes.iter().fold(0x811c_9dc5, |hash, &byte| {
+        (hash ^ u32::from(byte)).wrapping_mul(0x0100_0193)
+    })
 }
 
 fn hex(bytes: &[u8]) -> String {
@@ -372,6 +486,21 @@ impl FriendsFile {
 
     pub fn get_mut(&mut self, id: &str) -> Option<&mut FriendServer> {
         self.friends.iter_mut().find(|f| f.id == id)
+    }
+
+    /// Which game port joining the server `id` asks for: its saved port, or, on its
+    /// first join, ports picked from its id that no other saved server has.
+    pub fn game_port(&self, id: &str) -> GamePort {
+        if let Some(port) = self.get(id).and_then(|f| f.game_port) {
+            return GamePort::Saved(port);
+        }
+        let taken: Vec<u16> = self
+            .friends
+            .iter()
+            .filter(|f| f.id != id)
+            .filter_map(|f| f.game_port)
+            .collect();
+        GamePort::Choose(port_choices(id, &taken))
     }
 
     /// Takes the entry out; returns it.
@@ -790,6 +919,170 @@ mod tests {
         // invite entries don't write the key, so older launchers read them as before
         let text = serde_json::to_string(&file.friends[0]).unwrap();
         assert!(!text.contains("friend_key"), "{text}");
+    }
+
+    #[test]
+    fn game_ports_are_picked_from_the_id_in_range() {
+        let id = "connect:connect.lodestone.cc/ABCDEFGH23";
+        let ports = port_choices(id, &[]);
+        assert_eq!(ports.len(), PORT_TRIES);
+        // the same id picks the same ports, on any computer and in any build
+        assert_eq!(ports, port_choices(id, &[]));
+        assert_eq!(ports[0], 30000 + (fnv1a(id.as_bytes()) % 10000) as u16);
+        for port in &ports {
+            assert!(GAME_PORTS.contains(port), "{port}");
+        }
+        assert!(!GAME_PORTS.contains(&25565) && !GAME_PORTS.contains(&16662));
+        // the next ones follow, and wrap around at the end of the range
+        for pair in ports.windows(2) {
+            assert!(pair[1] == pair[0] + 1 || (pair[0] == 39999 && pair[1] == 30000));
+        }
+        // another id picks another port
+        assert_ne!(
+            port_choices("connect:connect.lodestone.cc/OTHER1", &[])[0],
+            ports[0]
+        );
+        // other servers' ports are skipped
+        let skipped = port_choices(id, &[ports[0], ports[2]]);
+        assert_eq!(skipped[..2], [ports[1], ports[3]]);
+        assert!(!skipped.contains(&ports[0]) && !skipped.contains(&ports[2]));
+        // ids from all over the range stay in it
+        for n in 0..500 {
+            let port = port_choices(&format!("connect:x/{n}"), &[])[0];
+            assert!(GAME_PORTS.contains(&port), "{port}");
+        }
+    }
+
+    #[test]
+    fn a_server_keeps_its_game_port() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = friends_file(dir.path());
+        let mut file = FriendsFile::default();
+        let first = invite_for("FIRST1", 0xab);
+        let id = friend_id(&first);
+        // a first join picks a port from the id
+        let wanted = file.game_port(&id);
+        let GamePort::Choose(ports) = &wanted else {
+            panic!("{wanted:?}");
+        };
+        assert_eq!(ports, &port_choices(&id, &[]));
+        let index = file.upsert(&first, &shared("vanilla", None, false), 1);
+        // the first choice was busy, so it took the second
+        assert_eq!(file.friends[index].joined_on_port(&wanted, ports[1]), None);
+        let saved = ports[1];
+        assert_eq!(file.friends[index].game_port, Some(saved));
+
+        // it survives saving and loading
+        save(&path, &file).unwrap();
+        let mut file = load(&path).unwrap();
+        assert_eq!(file.friends[0].game_port, Some(saved));
+        assert_eq!(file.game_port(&id), GamePort::Saved(saved));
+
+        // later joins ask for it; when it is busy, that join uses another and it stays
+        let entry = &mut file.friends[0];
+        assert_eq!(entry.joined_on_port(&GamePort::Saved(saved), saved), None);
+        assert_eq!(
+            entry.joined_on_port(&GamePort::Saved(saved), 54321),
+            Some(saved)
+        );
+        assert_eq!(entry.game_port, Some(saved));
+        // a Check (any port) changes nothing
+        assert_eq!(entry.joined_on_port(&GamePort::Any, 40000), None);
+        assert_eq!(entry.game_port, Some(saved));
+
+        // a first join that found none of its ports free saves nothing; the next one
+        // tries them again
+        let second = invite_for("SECOND2", 0xcd);
+        let mut other = shared("vanilla", None, false);
+        other.instance_uuid = "other".into();
+        let index = file.upsert(&second, &other, 2);
+        let wanted = file.game_port(&friend_id(&second));
+        assert_eq!(file.friends[index].joined_on_port(&wanted, 61000), None);
+        assert_eq!(file.friends[index].game_port, None);
+        assert_eq!(file.game_port(&friend_id(&second)), wanted);
+
+        // two saved servers never get the same port, even when one's first choice is
+        // the other's port
+        let clash = FriendServer {
+            id: "connect:x/clash".into(),
+            ..FriendServer::default()
+        };
+        let clash_first = port_choices(&clash.id, &[])[0];
+        file.friends[0].game_port = Some(clash_first);
+        file.friends.push(clash);
+        let GamePort::Choose(ports) = file.game_port("connect:x/clash") else {
+            panic!("a first join chooses");
+        };
+        assert!(!ports.contains(&clash_first));
+        assert_eq!(ports[0], port_choices("connect:x/clash", &[])[1]);
+    }
+
+    #[test]
+    fn the_server_goes_in_the_instances_server_list() {
+        use super::server_list::SERVERS_DAT;
+        let dir = tempfile::tempdir().unwrap();
+        let game_dir = |instance: &str| dir.path().join(instance).join("minecraft");
+        let list = |instance: &str| std::fs::read(game_dir(instance).join(SERVERS_DAT));
+        let mut entry = FriendServer::new(&invite(0xab), &shared("vanilla", None, false), 1);
+
+        // no saved port (this session's port was a fallback): nothing is listed
+        entry.list_in_game("a", &game_dir("a"), false).unwrap();
+        assert!(list("a").is_err());
+
+        entry.game_port = Some(31234);
+        // never while the game runs
+        entry.list_in_game("a", &game_dir("a"), true).unwrap();
+        assert!(list("a").is_err());
+        assert!(entry.listed.is_empty());
+
+        entry.list_in_game("a", &game_dir("a"), false).unwrap();
+        entry.list_in_game("b", &game_dir("b"), false).unwrap();
+        let a = entry.listed_in("a").unwrap().clone();
+        assert_eq!((a.name.as_str(), a.ip.as_str()), ("SMP", "127.0.0.1:31234"));
+        assert_eq!(entry.listed.len(), 2);
+        let written = list("a").unwrap();
+        // again: the same entry, nothing written twice
+        entry.list_in_game("a", &game_dir("a"), false).unwrap();
+        assert_eq!(list("a").unwrap(), written);
+        assert_eq!(entry.listed.len(), 2);
+
+        // what was listed survives saving and loading
+        let path = friends_file(dir.path());
+        let file = FriendsFile {
+            friends: vec![entry.clone()],
+        };
+        save(&path, &file).unwrap();
+        assert_eq!(load(&path).unwrap(), file);
+
+        // removing the friend's server takes it out, except where the game runs
+        let failed = entry.unlist_in_games(game_dir, |instance| instance == "b");
+        assert!(failed.is_empty(), "{failed:?}");
+        assert_ne!(list("a").unwrap(), written);
+        assert!(!String::from_utf8_lossy(&list("a").unwrap()).contains("31234"));
+        assert!(String::from_utf8_lossy(&list("b").unwrap()).contains("31234"));
+    }
+
+    #[test]
+    fn an_older_file_without_game_ports_loads() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = friends_file(dir.path());
+        let mut file = FriendsFile::default();
+        file.upsert(&invite(0xab), &shared("vanilla", None, false), 1);
+        save(&path, &file).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        // as an older launcher wrote it: no game port
+        assert!(!text.contains("game_port"), "{text}");
+        let loaded = load(&path).unwrap();
+        assert_eq!(loaded.friends[0].game_port, None);
+        assert!(matches!(
+            loaded.game_port(&loaded.friends[0].id),
+            GamePort::Choose(_)
+        ));
+        // once saved, the port is one more field, which older launchers ignore
+        let mut entry = loaded.friends[0].clone();
+        entry.game_port = Some(31234);
+        let text = serde_json::to_string(&entry).unwrap();
+        assert!(text.contains(r#""game_port":31234"#), "{text}");
     }
 
     #[test]

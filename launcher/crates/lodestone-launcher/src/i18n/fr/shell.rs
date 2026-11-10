@@ -364,6 +364,13 @@ pub fn text(message: M) -> &'static str {
         M::TurnOffAndSignOut => "Désactiver et déconnecter",
         M::TurnOffOnly => "Désactiver seulement",
         M::SignInSection => "Connexion Microsoft",
+        M::OfflineAccountsSetting => "Comptes hors ligne",
+        M::OfflineAccountsSettingHint => {
+            "Affiche «\u{a0}{add}\u{a0}» dans le menu du compte. Pour les tests uniquement."
+        }
+        M::OfflineAccountsAlwaysOn => {
+            "Toujours activé dans les versions de débogage et avec LODESTONE_LAUNCHER_OFFLINE=1."
+        }
         M::CodingAgentsSection => "Agents de programmation",
         M::CodingAgentsLead => {
             "Claude Code, Codex et d’autres agents de programmation peuvent piloter le lanceur avec lodestone-launcher-cli. Le lanceur garde des guides pour eux dans son dossier de données."
@@ -454,7 +461,6 @@ pub fn text(message: M) -> &'static str {
         M::LauncherIdentityNote => {
             "Option de développement\u{a0}: connexion en tant que Minecraft Launcher, et non en tant que Lodestone Launcher. Les pages de Microsoft peuvent afficher le nom de Minecraft au lieu de celui de Lodestone."
         }
-        M::UseLinkInstead => "Utiliser plutôt un lien de connexion",
         M::UseCodeInstead => "Utiliser plutôt un code",
         M::SignInCodeBody => {
             "Connectez-vous avec le compte Microsoft avec lequel vous jouez à Minecraft: Java Edition. Vous recevrez un code à saisir sur le site de Microsoft."
@@ -483,10 +489,6 @@ pub fn text(message: M) -> &'static str {
         }
         M::StopSigningIn => "Arrêter la connexion",
         M::KeepWaiting => "Continuer d’attendre",
-        M::LinkInstructions => {
-            "Connectez-vous dans la fenêtre du navigateur qui s’est ouverte. Microsoft affiche ensuite une page indiquant qu’elle n’est normalement pas affichée. Copiez l’adresse complète depuis la barre d’adresse du navigateur et collez-la uniquement dans ce lanceur."
-        }
-        M::LinkStartsWith => "Elle commence par {url}",
         M::SigningInToMinecraft => "Connexion à Minecraft…",
         M::ExpectedUntilApproved => {
             "C’est normal tant que Mojang n’a pas approuvé l’application. Votre compte n’a aucun problème."
@@ -824,6 +826,41 @@ pub fn text(message: M) -> &'static str {
         }
         M::StorageOther => "Réglages et autres fichiers",
         M::StorageCacheAndLogs => "Cache et journaux",
+        M::StorageDataFolder => "Dossier de données",
+        M::StorageDataFolderHint => {
+            "Vos instances et mondes, comptes, réglages et fichiers du jeu. Déplacez-le pour les garder sur un autre disque."
+        }
+        M::StorageMoveEllipsis => "Déplacer…",
+        M::StorageMoveBackEllipsis => "Ramener…",
+        M::StorageMoveHere => "Déplacer ici",
+        M::StorageMoveCantUse => "Impossible de déplacer les données là\u{a0}: {error}",
+        M::StorageMoveStopGame => "Arrêtez le jeu avant de déplacer le dossier de données.",
+        M::StorageMoveTitle => "Déplacer vos données\u{a0}?",
+        M::StorageMoveBody => {
+            "Tout le dossier de données va dans {to}\u{a0}: vos instances et mondes, comptes, réglages et fichiers du jeu. Le launcher redémarre une fois terminé."
+        }
+        M::StorageMoveBackTitle => "Ramener vos données\u{a0}?",
+        M::StorageMoveBackBody => {
+            "Tout revient dans le dossier par défaut, {to}. Le launcher redémarre une fois terminé."
+        }
+        M::StorageMoveSize => "Cela représente {size}.",
+        M::StorageMoveConfirm => "Déplacer et redémarrer",
+        M::StorageMoving => "Déplacement de vos données…",
+        M::StorageMovingTo => "Vers {to}",
+        M::StorageMovingPreparing => "Préparation…",
+        M::StorageMovingProgress => "{done} sur {total}",
+        M::StorageMovingNote => "Annuler les laisse où elles étaient.",
+        M::StorageMoveFailedTitle => "Impossible de déplacer vos données",
+        M::StorageMoveFailedBody => "Vos données sont toujours dans {from}. {error}",
+        M::StorageMoveRestartFailed => {
+            "Vos données ont été déplacées. Quittez le launcher et rouvrez-le pour utiliser le nouveau dossier."
+        }
+        M::DataFolderMissingTitle => "Dossier de données introuvable",
+        M::DataFolderMissingBody => {
+            "Vos instances et mondes sont dans {path}, qui est introuvable. S'il est sur un disque non connecté, connectez-le et réessayez. Le dossier par défaut démarre vide, et vos données restent où elles sont."
+        }
+        M::DataFolderUseDefault => "Utiliser le dossier par défaut",
+        M::DataFolderQuit => "Quitter",
         M::StorageLogs => "Journaux et rapports de plantage",
         M::StorageOldLogs => "{size} de plus de 30\u{a0}jours",
         M::StorageVersions => "Versions",

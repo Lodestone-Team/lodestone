@@ -4,14 +4,19 @@
 //! [`open`] connects to the host of an invite on a thread of its own, with a small
 //! Tokio runtime, and forwards two local ports into the tunnel:
 //!
-//! - the game port, which Minecraft joins as `127.0.0.1:<port>`;
+//! - the game port, which Minecraft joins as `127.0.0.1:<port>`. A friend's server keeps
+//!   the same one from session to session ([`GamePort`]), so an entry in Minecraft's
+//!   server list keeps working;
 //! - the info port, where a [`CoreClient`](super::CoreClient) at `http://127.0.0.1:<port>`
 //!   reads the shared server's details and its client pack, as from a core whose
-//!   servers are listed publicly.
+//!   servers are listed publicly. It is a new free port each time.
+//!
+//! Both listen on 127.0.0.1 only.
 //!
 //! The [`Tunnel`] keeps both open until it is dropped, or until the host goes away.
 
 use std::{
+    future::Future,
     net::{Ipv4Addr, SocketAddr},
     sync::{
         Arc,
@@ -69,6 +74,63 @@ impl Progress {
     pub fn preview_reading(&self) {
         self.set(Stage::ReadingInfo);
     }
+}
+
+/// Which local port the game port is.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum GamePort {
+    /// Any free port: for "Check", which closes the tunnel at once.
+    #[default]
+    Any,
+    /// The port saved for this server. When something else has it, a free port this
+    /// time.
+    Saved(u16),
+    /// A first join: the first of these that is free, else any free port.
+    Choose(Vec<u16>),
+}
+
+impl GamePort {
+    /// The ports to try, in order, before any free port.
+    pub fn ports(&self) -> &[u16] {
+        match self {
+            GamePort::Any => &[],
+            GamePort::Saved(port) => std::slice::from_ref(port),
+            GamePort::Choose(ports) => ports,
+        }
+    }
+}
+
+/// How long [`answers`] waits for a connection on this computer.
+const PROBE_TIMEOUT: Duration = Duration::from_millis(500);
+
+/// Whether a program listens on `127.0.0.1:port`: another program, or this server's
+/// tunnel open in another launcher. Binding 127.0.0.1 can succeed next to a program
+/// that listens on all addresses, so binding alone doesn't tell.
+async fn answers(port: u16) -> bool {
+    let connect = tokio::net::TcpStream::connect((Ipv4Addr::LOCALHOST, port));
+    // no answer in time counts as taken, to be safe
+    !matches!(
+        tokio::time::timeout(PROBE_TIMEOUT, connect).await,
+        Ok(Err(_))
+    )
+}
+
+/// Binds the game port with `bind`: the first port of `wanted` nothing listens on and
+/// that binds, else any free port (port 0).
+async fn bind_game<T, E, F, Fut>(wanted: &GamePort, mut bind: F) -> Result<T, E>
+where
+    F: FnMut(SocketAddr) -> Fut,
+    Fut: Future<Output = Result<T, E>>,
+{
+    for &port in wanted.ports() {
+        if port == 0 || answers(port).await {
+            continue;
+        }
+        if let Ok(bound) = bind(SocketAddr::from((Ipv4Addr::LOCALHOST, port))).await {
+            return Ok(bound);
+        }
+    }
+    bind(SocketAddr::from((Ipv4Addr::LOCALHOST, 0))).await
 }
 
 /// Why joining failed, as the window explains it.
@@ -164,18 +226,24 @@ enum Target {
 }
 
 /// Connects to the host of `invite` (2 to 10 seconds), reads the shared server's
-/// details and opens the two local ports. `progress` follows along.
-pub async fn open(invite: Invite, progress: Progress) -> Result<Tunnel, JoinError> {
-    open_target(Target::Invite(invite), progress).await
+/// details and opens the two local ports, the game port as `game_port` says.
+/// `progress` follows along.
+pub async fn open(
+    invite: Invite,
+    game_port: GamePort,
+    progress: Progress,
+) -> Result<Tunnel, JoinError> {
+    open_target(Target::Invite(invite), game_port, progress).await
 }
 
 /// Connects to a friend's `core` as `me` and opens the two local ports for `instance`,
-/// one of the servers it shares with this person.
+/// one of the servers it shares with this person, the game port as `game_port` says.
 pub async fn open_friend(
     service: Service,
     me: &PersonKey,
     core: FriendCore,
     instance: String,
+    game_port: GamePort,
     progress: Progress,
 ) -> Result<Tunnel, JoinError> {
     let target = Target::Friend {
@@ -184,10 +252,14 @@ pub async fn open_friend(
         core,
         instance,
     };
-    open_target(target, progress).await
+    open_target(target, game_port, progress).await
 }
 
-async fn open_target(target: Target, progress: Progress) -> Result<Tunnel, JoinError> {
+async fn open_target(
+    target: Target,
+    game_port: GamePort,
+    progress: Progress,
+) -> Result<Tunnel, JoinError> {
     let (ready_tx, ready_rx) = oneshot::channel::<Result<Opened, JoinError>>();
     let (stop_tx, stop_rx) = oneshot::channel::<()>();
     let (ended_tx, ended_rx) = oneshot::channel::<String>();
@@ -210,6 +282,7 @@ async fn open_target(target: Target, progress: Progress) -> Result<Tunnel, JoinE
             };
             runtime.block_on(run(
                 target,
+                game_port,
                 progress,
                 ready_tx,
                 stop_rx,
@@ -325,8 +398,10 @@ impl AnyJoined {
 }
 
 /// The tunnel's thread: joins, forwards the ports, then waits for the end.
+#[allow(clippy::too_many_arguments)]
 async fn run(
     target: Target,
+    game_port: GamePort,
     progress: Progress,
     ready: oneshot::Sender<Result<Opened, JoinError>>,
     stop: oneshot::Receiver<()>,
@@ -346,7 +421,7 @@ async fn run(
     let local = SocketAddr::from((Ipv4Addr::LOCALHOST, 0));
     let opened = async {
         let server = joined.server().await?;
-        let game = joined.forward(true, local).await?;
+        let game = bind_game(&game_port, |at| joined.forward(true, at)).await?;
         let info = joined.forward(false, local).await?;
         Ok::<_, lodestone_connect::Error>((server, game, info))
     }
@@ -403,6 +478,11 @@ impl Tunnel {
             host: self.game.ip().to_string(),
             port: self.game.port(),
         }
+    }
+
+    /// The game port this tunnel listens on.
+    pub fn game_port(&self) -> u16 {
+        self.game.port()
     }
 
     /// The address to point a [`CoreClient`](super::CoreClient) at, for the shared
@@ -537,6 +617,71 @@ mod tests {
             JoinError::from(service(500, "internal")),
             JoinError::Failed(_)
         ));
+    }
+
+    fn block_on<T>(future: impl Future<Output = T>) -> T {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(future)
+    }
+
+    /// A port nothing listens on now.
+    fn free_port() -> u16 {
+        std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port()
+    }
+
+    /// Binds as the tunnel's forward does.
+    async fn listen(at: SocketAddr) -> std::io::Result<tokio::net::TcpListener> {
+        tokio::net::TcpListener::bind(at).await
+    }
+
+    fn port_of(listener: &tokio::net::TcpListener) -> u16 {
+        listener.local_addr().unwrap().port()
+    }
+
+    #[test]
+    fn the_game_port_binds_the_saved_port_or_falls_back() {
+        block_on(async {
+            // the saved port, when it is free
+            let saved = free_port();
+            let bound = bind_game(&GamePort::Saved(saved), listen).await.unwrap();
+            assert_eq!(port_of(&bound), saved);
+            assert!(bound.local_addr().unwrap().ip().is_loopback());
+
+            // taken (this server's tunnel open elsewhere): another port, this time
+            let again = bind_game(&GamePort::Saved(saved), listen).await.unwrap();
+            assert_ne!(port_of(&again), saved);
+            assert_ne!(port_of(&again), 0);
+            drop(bound);
+
+            // a program listening on every address also counts as taken, though
+            // 127.0.0.1 alone might bind next to it
+            let everywhere = std::net::TcpListener::bind((Ipv4Addr::UNSPECIFIED, 0)).unwrap();
+            let busy = everywhere.local_addr().unwrap().port();
+            let bound = bind_game(&GamePort::Saved(busy), listen).await.unwrap();
+            assert_ne!(port_of(&bound), busy);
+
+            // a first join takes the first free choice
+            let free = free_port();
+            let bound = bind_game(&GamePort::Choose(vec![busy, free]), listen)
+                .await
+                .unwrap();
+            assert_eq!(port_of(&bound), free);
+            // and any free port when none is
+            let none = bind_game(&GamePort::Choose(vec![busy, free]), listen)
+                .await
+                .unwrap();
+            assert!(![busy, free, 0].contains(&port_of(&none)));
+            // Check takes any free port
+            let any = bind_game(&GamePort::Any, listen).await.unwrap();
+            assert!(![busy, free, 0].contains(&port_of(&any)));
+        });
     }
 
     #[test]

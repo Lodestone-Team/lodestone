@@ -35,7 +35,7 @@ use futures::{
 use gpui::{AppContext as _, Context, Entity, FocusHandle, SharedString, Task};
 use launcher_core::{
     cores::{
-        connect::{JoinError, Progress, SharedServer, Tunnel},
+        connect::{GamePort, JoinError, Progress, SharedServer, Tunnel},
         friends::{FriendLink, FriendsFile, Service},
     },
     friend_list::{
@@ -874,6 +874,7 @@ impl Servers {
         friend: String,
         fingerprint: &str,
         instance: String,
+        game_port: GamePort,
         progress: Progress,
         cx: &mut Context<Self>,
     ) -> LocalBoxFuture<'static, Result<Tunnel, JoinError>> {
@@ -895,7 +896,9 @@ impl Servers {
             let friends = guard
                 .as_ref()
                 .ok_or_else(|| JoinError::Failed(RETIRED.to_string()))?;
-            friends.open_tunnel(&friend, &core, &instance, progress).await
+            friends
+                .open_tunnel(&friend, &core, &instance, game_port, progress)
+                .await
         }
         .boxed_local()
     }
