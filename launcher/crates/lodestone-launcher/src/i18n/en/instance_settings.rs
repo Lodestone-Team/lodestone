@@ -71,6 +71,7 @@ crate::i18n::messages! {
         UploadImage = "Upload an image…",
 
         // The automatic sidebar groups, as the group hint names them.
+        AutoGroupServers = "Servers",
         AutoGroupFabric = "Fabric (modded)",
         AutoGroupForge = "Forge (modded)",
         AutoGroupNeoForge = "NeoForge (modded)",

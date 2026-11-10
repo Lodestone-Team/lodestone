@@ -2231,6 +2231,8 @@ impl Servers {
     ) {
         self.preview = true;
         self._poller = None;
+        // a read of the links on disk that started before would replace these
+        self.links_task = None;
         self.local.scanned = true;
         self.cores = cores
             .into_iter()

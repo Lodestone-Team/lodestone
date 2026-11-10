@@ -40,8 +40,8 @@ pub struct Settings {
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub collapsed_groups: BTreeSet<String>,
     /// "Group instances automatically": the sidebar lists instances without a group
-    /// of their own by loader, or under Imported. On by default; left out of the file
-    /// while on.
+    /// of their own under Servers (linked to a server), by loader, or under Imported.
+    /// On by default; left out of the file while on.
     #[serde(default = "yes", skip_serializing_if = "is_true")]
     pub auto_groups: bool,
     /// Settings > Instance defaults > "Set up new instances automatically": a new

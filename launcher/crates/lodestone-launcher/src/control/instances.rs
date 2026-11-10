@@ -76,7 +76,11 @@ pub fn instance_json(instance: &Instance, instances: &Instances, servers: &Serve
     let link = servers.instance_link(&instance.id);
     let extra = json!({
         "loader_label": instance.loader_label(),
-        "effective_group": core_instances::group_of(instance, instances.auto_groups()),
+        "effective_group": core_instances::group_of(
+            instance,
+            instances.auto_groups(),
+            instances.is_linked(&instance.id),
+        ),
         "selected": instances.selected().is_some_and(|s| s.id == instance.id),
         "state": status.state,
         "server": link.map(|link| json!({

@@ -39,6 +39,7 @@ pub fn text(message: M) -> &'static str {
         M::GroupModded => "{loader}（模组）",
         M::Vanilla => "原版",
         M::GroupImported => "已导入",
+        M::GroupServers => "服务器",
 
         M::NoInstanceSelected => "未选择实例",
         M::NoInstanceSelectedHint => "创建一个实例，即可选择 Minecraft 版本和加载器。",
@@ -154,7 +155,7 @@ pub fn text(message: M) -> &'static str {
         M::NoAccount => "无账户",
         M::ManageAccounts => "管理账户",
         M::GroupAutomatically => "自动分组实例",
-        M::GroupAutomaticallyHint => "按加载器为未分组的实例分组。",
+        M::GroupAutomaticallyHint => "按服务器或加载器为未分组的实例分组。",
         M::AutoConfigure => "自动设置新实例",
         M::AutoConfigureHint => {
             "新实例首次游戏前，根据这台电脑和它的模组选择内存、Java 参数和视频设置；共享设置未涵盖时，还会沿用你的鼠标灵敏度和按键绑定。你自己更改的设置会保留。"

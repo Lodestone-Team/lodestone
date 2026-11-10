@@ -29,7 +29,7 @@ pub use undo::InstanceSnapshot;
 pub(crate) mod control;
 
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     path::PathBuf,
     sync::Arc,
     time::{Duration, Instant, SystemTime},
@@ -368,6 +368,9 @@ pub struct Instances {
     sidebar_banners_checked: Option<(u64, u64)>,
     /// Goes up with each [`Self::reload`].
     list_generation: u64,
+    /// The instances linked to a server, as the Lodestone Host page last read their
+    /// links: the sidebar groups them under Servers (see [`Self::set_linked`]).
+    linked: HashSet<String>,
     /// [`Self::required_java`]'s answers by game version: the instance Settings tab
     /// asks on every frame, and each answer reads and parses a version file. An
     /// installed version's answer never changes; a missing one is asked again after
@@ -508,6 +511,7 @@ impl Instances {
             sidebar_banner_tasks: HashMap::new(),
             sidebar_banners_checked: None,
             list_generation: 0,
+            linked: HashSet::new(),
             required_java: Default::default(),
             slideshow_revision: 0,
             background_shown: None,
@@ -899,7 +903,24 @@ impl Instances {
 
     /// The instances by sidebar group, as the sidebar lists them.
     pub fn grouped(&self) -> Vec<(Option<String>, Vec<&Instance>)> {
-        launcher_core::instances::grouped(&self.list, self.settings.auto_groups)
+        launcher_core::instances::grouped(&self.list, self.settings.auto_groups, |i| {
+            self.linked.contains(&i.id)
+        })
+    }
+
+    /// Whether the instance is linked to a server: one on a Lodestone core, or a
+    /// friend's shared server.
+    pub fn is_linked(&self, id: &str) -> bool {
+        self.linked.contains(id)
+    }
+
+    /// The instances linked to a server. The Lodestone Host page reads the links (the
+    /// instances' `lodestone_server.json`), and the shell hands them over here.
+    pub fn set_linked(&mut self, linked: HashSet<String>, cx: &mut Context<Self>) {
+        if self.linked != linked {
+            self.linked = linked;
+            cx.notify();
+        }
     }
 
     pub fn is_group_collapsed(&self, group: &str) -> bool {
@@ -927,7 +948,7 @@ impl Instances {
 
     /// The group names in use, for suggestions.
     pub fn groups(&self) -> Vec<String> {
-        launcher_core::instances::grouped(&self.list, false)
+        launcher_core::instances::grouped(&self.list, false, |_| false)
             .into_iter()
             .filter_map(|(name, _)| name)
             .collect()

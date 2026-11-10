@@ -359,10 +359,15 @@ fn rail_instance(
         RowPlace::LastPlayed => format!("last-played-{id}"),
     };
     let launching = instances.is_launching(&id);
-    let description: Option<SharedString> = match (running, active) {
-        (true, _) if launching => Some(t(M::Launching).into()),
-        (true, _) => Some(t(M::Playing).into()),
-        _ => played_summary(instance).map(Into::into),
+    let description: Option<String> = match (running, active) {
+        (true, _) if launching => Some(t(M::Launching).to_string()),
+        (true, _) => Some(t(M::Playing).to_string()),
+        _ => played_summary(instance),
+    };
+    let linked = linked_to(shell, &id, cx);
+    let description: Option<SharedString> = match (description, &linked) {
+        (Some(description), Some(linked)) => Some(format!("{description} · {linked}").into()),
+        (description, linked) => description.or_else(|| linked.clone()).map(Into::into),
     };
     let element_id = SharedString::from(element_id);
     div()
@@ -385,7 +390,13 @@ fn rail_instance(
         .hover(|style| style.bg(crate::skin::sidebar_inks().fill))
         .when(is_selected, |this| {
             this.bg(crate::skin::sidebar_inks().fill)
-                .border_color(crate::theme::ink::border())
+                // a linked instance's outline stands for its border
+                .when(linked.is_none(), |this| {
+                    this.border_color(crate::theme::ink::border())
+                })
+        })
+        .when(linked.is_some(), |this| {
+            this.child(linked_outline(is_selected, false))
         })
         .child(icon)
         .when(active, |this| {
@@ -647,13 +658,17 @@ fn instance_row(
         .then(|| instances.sidebar_banner(&id))
         .flatten();
     let banner_readability = crate::skin::look(cx).spec.banner.readability;
-    let description: SharedString = if instances.is_launching(&id) {
-        format!("{detail} · {}", t(M::Launching)).into()
+    let mut description: String = if instances.is_launching(&id) {
+        format!("{detail} · {}", t(M::Launching))
     } else if running {
-        format!("{detail} · {}", t(M::Playing)).into()
+        format!("{detail} · {}", t(M::Playing))
     } else {
-        detail.clone().into()
+        detail.clone()
     };
+    let linked = linked_to(shell, &id, cx);
+    if let Some(linked) = &linked {
+        description = format!("{description} · {linked}");
+    }
     let element_id = SharedString::from(element_id);
     let hovered = shell.sidebar_hover() == Some(&element_id);
     let overlay = icon_overlay(shell, instance, &element_id, hovered, ROW_ICON, cx);
@@ -664,7 +679,7 @@ fn instance_row(
         .debug_selector(move || selector.clone())
         .accessible(Role::ListItem, element_id, instance.name.clone())
         .aria_selected(is_selected)
-        .aria_description(description)
+        .aria_description(SharedString::from(description))
         .keyboard_focus()
         .on_hover(cx.listener(move |this, hovered: &bool, _, cx| {
             this.hover_sidebar_row(&hover_row, *hovered, cx)
@@ -685,7 +700,10 @@ fn instance_row(
         .hover(|style| style.bg(crate::skin::sidebar_inks().fill))
         .when(is_selected, |this| {
             this.bg(crate::skin::sidebar_inks().fill)
-                .border_color(crate::theme::ink::border())
+                // a linked instance's outline stands for its border
+                .when(linked.is_none(), |this| {
+                    this.border_color(crate::theme::ink::border())
+                })
         })
         .when_some(banner, |this, (banner, backdrop)| {
             this.child(
@@ -745,11 +763,43 @@ fn instance_row(
                     }),
             )
         })
+        // over the banner, which covers the row
+        .when(linked.is_some(), |this| {
+            this.child(linked_outline(is_selected, hovered))
+        })
         .when_some(tooltip, |this, tooltip| {
             this.tooltip(crate::components::text_tooltip(tooltip))
         })
         .on_press(cx.listener(move |this, _, _, cx| this.select_instance(&id, cx)))
         .into_any_element()
+}
+
+/// "Linked to Survival SMP on Peter's core", for an instance linked to a server (one
+/// on a Lodestone core, or a friend's shared server). Its row is outlined in
+/// Lodestone Host's green, and assistive technology reads this.
+fn linked_to(shell: &LauncherShell, id: &str, cx: &Context<LauncherShell>) -> Option<String> {
+    let link = shell.servers.read(cx).instance_link(id)?;
+    Some(tr!(
+        M::LinkedTo,
+        server = link.server_name,
+        core = link.core_name
+    ))
+}
+
+/// A linked instance's outline in Lodestone Host's green: quiet until its row is
+/// selected or the pointer is on it.
+fn linked_outline(selected: bool, hovered: bool) -> impl IntoElement {
+    let opacity = match (selected, hovered) {
+        (true, _) => 100,
+        (false, true) => 85,
+        (false, false) => 60,
+    };
+    crate::components::server_outline(
+        radius::MD,
+        1.,
+        opacity,
+        crate::skin::sidebar_inks().dark_text(),
+    )
 }
 
 /// A group's name as the sidebar shows it: the automatic groups' names in the
@@ -760,6 +810,7 @@ fn group_label(name: &str) -> String {
         .into_iter()
         .find(|group| group.name() == name)
     {
+        Some(AutoGroup::Servers) => t(M::GroupServers).to_string(),
         Some(AutoGroup::Fabric) => tr!(M::GroupModded, loader = "Fabric"),
         Some(AutoGroup::Forge) => tr!(M::GroupModded, loader = "Forge"),
         Some(AutoGroup::NeoForge) => tr!(M::GroupModded, loader = "NeoForge"),

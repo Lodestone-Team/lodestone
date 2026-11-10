@@ -67,6 +67,7 @@ pub fn text(message: M) -> &'static str {
         M::Emoji => "表情符號",
         M::UploadImage => "上傳圖片…",
 
+        M::AutoGroupServers => "伺服器",
         M::AutoGroupFabric => "Fabric（模組）",
         M::AutoGroupForge => "Forge（模組）",
         M::AutoGroupNeoForge => "NeoForge（模組）",

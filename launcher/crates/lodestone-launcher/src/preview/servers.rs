@@ -529,6 +529,25 @@ pub fn apply_linked_instance(shell: &mut LauncherShell, cx: &mut Context<Launche
     shell.show(crate::shell::Page::Instance, cx);
 }
 
+/// Links the made-up instances `(instance id, core, server)` to the made-up cores'
+/// servers: `home`'s `smp`, `creative` and `atm`, and `friend`'s `skyblock`.
+pub fn link_instances(
+    shell: &mut LauncherShell,
+    links: Vec<(String, &str, &str)>,
+    cx: &mut Context<LauncherShell>,
+) {
+    let links = links
+        .into_iter()
+        .map(|(id, core, server)| (core.to_string(), server.to_string(), id))
+        .collect();
+    let servers = shell.servers().clone();
+    servers.update(cx, |servers, cx| {
+        servers.preview(vec![home(true), friend()], links);
+        // the shell hands the links to the instance list
+        cx.notify();
+    });
+}
+
 fn saved_hidden() -> SavedCore {
     saved(
         "club",

@@ -181,7 +181,7 @@ are gone from Modrinth. An `LDS2` code is imported like the modpack (the pack is
 downloaded first) and then its changes are applied; it waits like `modpacks install`.
 
 `instances list` gives `instances` (each with `effective_group`: its own group, or with
-automatic groups on, "Fabric (modded)", "Vanilla", "Imported" …), `groups` in sidebar
+automatic groups on, "Servers" (linked to a server), "Fabric (modded)", "Vanilla", "Imported" …), `groups` in sidebar
 order, `auto_groups` and `last_played`.
 
 Play:
