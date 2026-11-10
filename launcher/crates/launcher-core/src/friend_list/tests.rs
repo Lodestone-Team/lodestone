@@ -20,10 +20,16 @@ fn the_book_is_sealed_and_survives_reopening() {
     let mut friends = open(dir.path(), &store);
     let me = friends.me();
     let data = DataDir::at(dir.path());
-    let mut names = vec![secret_name(IDENTITY_SECRET, &data), secret_name(FILE_KEY_SECRET, &data)];
+    let mut names = vec![
+        secret_name(IDENTITY_SECRET, &data),
+        secret_name(FILE_KEY_SECRET, &data),
+    ];
     names.sort();
     assert_eq!(store.keys(), names);
-    assert!(names.iter().all(|n| n.contains('@')), "a test folder never uses the real items");
+    assert!(
+        names.iter().all(|n| n.contains('@')),
+        "a test folder never uses the real items"
+    );
     friends.set_name("  Ana \u{202E} ").unwrap();
     assert_eq!(friends.book.name, "Ana");
     friends
@@ -75,7 +81,10 @@ fn names_cores_and_flags() {
     assert!(friends.book.state_seq > seq);
     assert_eq!(
         friends.book.state_cores(),
-        vec![StateCore { fingerprint: [0x11; 32], name: "Ana's server".into() }]
+        vec![StateCore {
+            fingerprint: [0x11; 32],
+            name: "Ana's server".into()
+        }]
     );
     assert!(friends.remove_my_core(&fp).unwrap());
     assert!(friends.book.state_cores().is_empty());
@@ -91,22 +100,35 @@ fn names_cores_and_flags() {
             Ok(())
         })
         .unwrap();
-    friends.set_nickname(&"ab".repeat(32), Some("Benny")).unwrap();
+    friends
+        .set_nickname(&"ab".repeat(32), Some("Benny"))
+        .unwrap();
     friends.set_verified(&"ab".repeat(32), true).unwrap();
     let ben = friends.book.friend(&"ab".repeat(32)).unwrap();
     assert_eq!(ben.display_name(), "Benny");
     assert!(ben.verified);
     assert_eq!(friends.book.same_name("benny", "zz").len(), 1);
     assert_eq!(friends.book.same_name("BEN", "zz").len(), 1);
-    assert_eq!(friends.book.same_name("Веn", "zz").len(), 1, "a Cyrillic look-alike");
+    assert_eq!(
+        friends.book.same_name("Веn", "zz").len(),
+        1,
+        "a Cyrillic look-alike"
+    );
     assert!(friends.book.same_name("Ben", &"ab".repeat(32)).is_empty());
 }
 
 #[test]
 fn only_active_friends_with_a_live_state_can_be_joined() {
-    let core = StateCore { fingerprint: [1; 32], name: "PC".into() };
+    let core = StateCore {
+        fingerprint: [1; 32],
+        name: "PC".into(),
+    };
     let mut friend = Friend {
-        state: Some(FriendState { seq: 1, expires: 1000, cores: vec![core] }),
+        state: Some(FriendState {
+            seq: 1,
+            expires: 1000,
+            cores: vec![core],
+        }),
         ..Friend::default()
     };
     assert!(friend.joinable_cores(10).is_empty(), "pending");
@@ -127,8 +149,18 @@ fn two_people_become_friends_through_the_service() {
     let service = Service::parse(&url).unwrap();
     let (ana_dir, ben_dir) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
     let (ana_keys, ben_keys) = (MemorySecretStore::new(), MemorySecretStore::new());
-    let mut ana = block_on(Friends::open(&DataDir::at(ana_dir.path()), &ana_keys, service.clone())).unwrap();
-    let mut ben = block_on(Friends::open(&DataDir::at(ben_dir.path()), &ben_keys, service)).unwrap();
+    let mut ana = block_on(Friends::open(
+        &DataDir::at(ana_dir.path()),
+        &ana_keys,
+        service.clone(),
+    ))
+    .unwrap();
+    let mut ben = block_on(Friends::open(
+        &DataDir::at(ben_dir.path()),
+        &ben_keys,
+        service,
+    ))
+    .unwrap();
     ana.set_name("Ana").unwrap();
     ben.set_name("Ben").unwrap();
 
@@ -137,7 +169,10 @@ fn two_people_become_friends_through_the_service() {
     assert_eq!(preview.name, "Ana");
     assert_eq!(preview.safety_code, ana.safety_code());
     let ana_key = block_on(ben.answer_link(&link)).unwrap();
-    assert_eq!(ben.book.friend(&ana_key).unwrap().status, FriendStatus::Pending);
+    assert_eq!(
+        ben.book.friend(&ana_key).unwrap().status,
+        FriendStatus::Pending
+    );
     // pending until Ana confirms
     let refreshed = block_on(ben.refresh()).unwrap();
     assert!(refreshed.confirmed.is_empty());
@@ -155,7 +190,10 @@ fn two_people_become_friends_through_the_service() {
     assert_eq!(refreshed.confirmed, vec![ana_key.clone()]);
     let ben_key = ben.me().to_hex();
     block_on(ana.refresh()).unwrap();
-    assert_eq!(ana.book.friend(&ben_key).unwrap().status, FriendStatus::Active);
+    assert_eq!(
+        ana.book.friend(&ben_key).unwrap().status,
+        FriendStatus::Active
+    );
     assert_eq!(
         ana.book.friend(&ben_key).unwrap().pair,
         ben.book.friend(&ana_key).unwrap().pair
@@ -166,7 +204,12 @@ fn two_people_become_friends_through_the_service() {
     ana.add_my_core(&fp, "Ana's PC").unwrap();
     block_on(ana.publish_states()).unwrap();
     block_on(ben.refresh()).unwrap();
-    let cores = ben.book.friend(&ana_key).unwrap().joinable_cores(now()).to_vec();
+    let cores = ben
+        .book
+        .friend(&ana_key)
+        .unwrap()
+        .joinable_cores(now())
+        .to_vec();
     assert_eq!(cores.len(), 1);
     assert_eq!(cores[0].name, "Ana's PC");
     ana.remove_my_core(&fp).unwrap();
@@ -188,7 +231,12 @@ fn two_apps_writing_the_file_never_undo_each_other() {
     launcher.set_name("Ana").unwrap();
     launcher
         .modify(|book| {
-            book.friends.push(Friend { key: "ab".repeat(32), name: "Ben".into(), pair: "cd".repeat(32), ..Friend::default() });
+            book.friends.push(Friend {
+                key: "ab".repeat(32),
+                name: "Ben".into(),
+                pair: "cd".repeat(32),
+                ..Friend::default()
+            });
             Ok(())
         })
         .unwrap();
@@ -219,8 +267,16 @@ fn two_apps_writing_the_file_never_undo_each_other() {
 
 #[test]
 fn nothing_secret_is_printed() {
-    let friend = Friend { key: "ab".repeat(32), pair: "cd".repeat(32), ..Friend::default() };
+    let friend = Friend {
+        key: "ab".repeat(32),
+        pair: "cd".repeat(32),
+        ..Friend::default()
+    };
     assert!(!format!("{friend:?}").contains(&"cd".repeat(32)));
-    let link = PendingLink { code: "X".into(), invitation: "secret-stuff".into(), expires: 1 };
+    let link = PendingLink {
+        code: "X".into(),
+        invitation: "secret-stuff".into(),
+        expires: 1,
+    };
     assert!(!format!("{link:?}").contains("secret-stuff"));
 }

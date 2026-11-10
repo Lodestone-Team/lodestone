@@ -225,14 +225,20 @@ pub fn text(message: M) -> &'static str {
             "{title} {version} est conçu pour {loaders} {gameVersions}, pas pour {loader} {gameVersion}. Le serveur risque de planter."
         }
         M::FriendsTitle => "Amis",
-        M::FriendsLead => "Les amis ajoutés dans Lodestone Launcher voient les serveurs que vous partagez avec eux et les rejoignent sans lien. Rien n’est partagé tant que vous ne cochez pas un ami.",
+        M::FriendsLead => {
+            "Les amis ajoutés dans Lodestone Launcher voient les serveurs que vous partagez avec eux et les rejoignent sans lien. Rien n’est partagé tant que vous ne cochez pas un ami."
+        }
         M::FriendsAddInLauncher => "Ajoutez des amis dans Lodestone Launcher",
-        M::FriendsAddInLauncherHint => "Votre liste d’amis est gérée par Lodestone Launcher sur cet ordinateur. Une fois que vous y avez des amis, vous pouvez partager ce serveur avec eux ici.",
+        M::FriendsAddInLauncherHint => {
+            "Votre liste d’amis est gérée par Lodestone Launcher sur cet ordinateur. Une fois que vous y avez des amis, vous pouvez partager ce serveur avec eux ici."
+        }
         M::FriendsLoading => "Chargement de vos amis…",
         M::FriendsShareWith => "Partager ce serveur avec {name}",
         M::FriendsNotVerified => "Non vérifié",
         M::FriendsConnected => "Connecté",
-        M::FriendsSyncFailed => "Impossible de synchroniser votre liste d’amis avec ce core : {error}",
+        M::FriendsSyncFailed => {
+            "Impossible de synchroniser votre liste d’amis avec ce core : {error}"
+        }
         M::FriendsOpenFailed => "Impossible d’ouvrir votre liste d’amis : {error}",
         M::FriendsPublishFailed => "Impossible de prévenir {name} de ce core : {error}",
         M::FriendsPublishFailedAll => "Impossible de prévenir vos amis de ce core : {error}",

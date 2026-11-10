@@ -185,9 +185,13 @@ pub fn text(message: M) -> &'static str {
             "{title} {version} 适用于 {loaders} {gameVersions}，而不是 {loader} {gameVersion}。它可能导致服务器崩溃。"
         }
         M::FriendsTitle => "好友",
-        M::FriendsLead => "你在 Lodestone Launcher 中添加的好友可以看到你与他们共享的服务器，无需链接即可加入。在你勾选好友之前，不会共享任何内容。",
+        M::FriendsLead => {
+            "你在 Lodestone Launcher 中添加的好友可以看到你与他们共享的服务器，无需链接即可加入。在你勾选好友之前，不会共享任何内容。"
+        }
         M::FriendsAddInLauncher => "在 Lodestone Launcher 中添加好友",
-        M::FriendsAddInLauncherHint => "你的好友列表由这台电脑上的 Lodestone Launcher 保存。在那里添加好友后，即可在这里与他们共享此服务器。",
+        M::FriendsAddInLauncherHint => {
+            "你的好友列表由这台电脑上的 Lodestone Launcher 保存。在那里添加好友后，即可在这里与他们共享此服务器。"
+        }
         M::FriendsLoading => "正在加载好友…",
         M::FriendsShareWith => "与 {name} 共享此服务器",
         M::FriendsNotVerified => "未验证",

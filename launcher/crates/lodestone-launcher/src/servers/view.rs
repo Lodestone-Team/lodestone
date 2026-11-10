@@ -1063,7 +1063,11 @@ impl Render for ServersOverlay {
             &servers.friend_list.dialog,
             friend_list,
             window,
-            |prompt| Some(super::friend_list_view::friend_list_dialog(entity, prompt, app)),
+            |prompt| {
+                Some(super::friend_list_view::friend_list_dialog(
+                    entity, prompt, app,
+                ))
+            },
         ));
         children.extend(slot_layers(&servers.friends.join, join, window, |prompt| {
             Some(super::friends_view::join_dialog(entity, prompt, app))

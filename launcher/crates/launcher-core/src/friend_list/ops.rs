@@ -113,10 +113,9 @@ impl Friends {
         let service = self.service.clone();
         let code = invitation.link.code.clone();
         let access_hash = invitation.link.access_hash();
-        let secret = on_tokio(move || async move {
-            service.pair_open(&code, &access_hash, &card).await
-        })
-        .await??;
+        let secret =
+            on_tokio(move || async move { service.pair_open(&code, &access_hash, &card).await })
+                .await??;
         invitation.mailbox_secret = Some(secret);
         let link = invitation.link.link();
         let pending = PendingLink {
@@ -147,7 +146,8 @@ impl Friends {
             if let Some(secret) = invitation.mailbox_secret.clone() {
                 let service = invitation.link.service.clone();
                 let code = link.code.clone();
-                let _ = on_tokio(move || async move { service.pair_close(&code, &secret).await }).await;
+                let _ =
+                    on_tokio(move || async move { service.pair_close(&code, &secret).await }).await;
             }
         }
         Ok(())
@@ -176,9 +176,10 @@ impl Friends {
             };
             let service = invitation.link.service.clone();
             let code = link.code.clone();
-            let replies = on_tokio(move || async move { service.pair_replies(&code, &secret).await })
-                .await??
-                .unwrap_or_default();
+            let replies =
+                on_tokio(move || async move { service.pair_replies(&code, &secret).await })
+                    .await??
+                    .unwrap_or_default();
             let answers = replies.len();
             for sealed in replies {
                 // a reply that doesn't check out is somebody's garbage: skip it
@@ -222,9 +223,10 @@ impl Friends {
             .ok_or_else(|| refused("That friend link has no mailbox."))?;
         let service = invitation.link.service.clone();
         let fetch_code = code.to_string();
-        let replies = on_tokio(move || async move { service.pair_replies(&fetch_code, &secret).await })
-            .await??
-            .unwrap_or_default();
+        let replies =
+            on_tokio(move || async move { service.pair_replies(&fetch_code, &secret).await })
+                .await??
+                .unwrap_or_default();
         let me = self.me();
         let reply = replies
             .iter()
@@ -245,7 +247,9 @@ impl Friends {
                 return Err(refused("You're already friends."));
             }
             if book.friends.len() >= MAX_FRIENDS {
-                return Err(refused(format!("You can have at most {MAX_FRIENDS} friends.")));
+                return Err(refused(format!(
+                    "You can have at most {MAX_FRIENDS} friends."
+                )));
             }
             book.friends.push(friend);
             Ok(())
@@ -292,14 +296,17 @@ impl Friends {
             return Err(refused("You're already friends."));
         }
         if self.book.friends.len() >= MAX_FRIENDS {
-            return Err(refused(format!("You can have at most {MAX_FRIENDS} friends.")));
+            return Err(refused(format!(
+                "You can have at most {MAX_FRIENDS} friends."
+            )));
         }
         let answer = answer(&self.me, &self.book.name, &link, &card)?;
         let service = link.service.clone();
         let code = link.code.clone();
         let access = link.access();
         let sealed = answer.sealed.clone();
-        on_tokio(move || async move { service.pair_reply(&code, &access, &sealed).await }).await??;
+        on_tokio(move || async move { service.pair_reply(&code, &access, &sealed).await })
+            .await??;
         let friend = Friend {
             key: key.clone(),
             name: card.name.clone(),
@@ -334,7 +341,11 @@ impl Friends {
             issued,
             expires: issued + STATE_LIFETIME_SECS,
             name: self.book.name.clone(),
-            cores: if retired { Vec::new() } else { self.book.state_cores() },
+            cores: if retired {
+                Vec::new()
+            } else {
+                self.book.state_cores()
+            },
             retired,
         }
     }
@@ -430,7 +441,8 @@ impl Friends {
             };
             let id = slot_id(&pair, &key, &me);
             let service = self.service.clone();
-            let sealed = match on_tokio(move || async move { service.slot_read(&id).await }).await? {
+            let sealed = match on_tokio(move || async move { service.slot_read(&id).await }).await?
+            {
                 Ok(Some(sealed)) => sealed,
                 Ok(None) => continue,
                 Err(err) => {
@@ -463,7 +475,12 @@ impl Friends {
                 }
                 if let Some(old) = &entry.state {
                     for core in &old.cores {
-                        if state.retired || !state.cores.iter().any(|c| c.fingerprint == core.fingerprint) {
+                        if state.retired
+                            || !state
+                                .cores
+                                .iter()
+                                .any(|c| c.fingerprint == core.fingerprint)
+                        {
                             out.dropped_cores.push(hex(&core.fingerprint));
                         }
                     }
@@ -472,7 +489,11 @@ impl Friends {
                 entry.state = Some(FriendState {
                     seq: state.seq,
                     expires: state.expires,
-                    cores: if state.retired { Vec::new() } else { state.cores },
+                    cores: if state.retired {
+                        Vec::new()
+                    } else {
+                        state.cores
+                    },
                 });
             }
             Ok(())
@@ -576,7 +597,11 @@ impl Friends {
             let mut out = Vec::new();
             for (friend, core, target) in checks {
                 let online = is_online(&service, &target).await.unwrap_or(false);
-                out.push(CorePresence { friend, core, online });
+                out.push(CorePresence {
+                    friend,
+                    core,
+                    online,
+                });
             }
             out
         })
@@ -638,7 +663,9 @@ impl Friends {
             .iter()
             .any(|c| &c.fingerprint == fingerprint)
         {
-            return Err(JoinError::Failed("Your friend doesn't list that core any more.".into()));
+            return Err(JoinError::Failed(
+                "Your friend doesn't list that core any more.".into(),
+            ));
         }
         let target = self
             .friend_core(friend, fingerprint)
@@ -655,12 +682,16 @@ impl Friends {
     }
 }
 
-async fn fetch_card(link: &FriendLink) -> Result<lodestone_connect::friend::pair::Card, FriendsError> {
+async fn fetch_card(
+    link: &FriendLink,
+) -> Result<lodestone_connect::friend::pair::Card, FriendsError> {
     let service: Service = link.service.clone();
     let code = link.code.clone();
     let access = link.access();
     let sealed = on_tokio(move || async move { service.pair_card(&code, &access).await })
         .await??
-        .ok_or_else(|| refused("This friend link has been used or has expired. Ask for a new one."))?;
+        .ok_or_else(|| {
+            refused("This friend link has been used or has expired. Ask for a new one.")
+        })?;
     Ok(open_card(link, &sealed, now())?)
 }

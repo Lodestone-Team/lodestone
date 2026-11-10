@@ -45,11 +45,11 @@ use launcher_core::cores::{
 };
 
 use super::{Notice, Servers, ServersEvent};
-use futures::{FutureExt as _, future::LocalBoxFuture};
 use crate::{
     components::{DialogSlot, TextInput},
     i18n::{ServersMsg as M, t, tr},
 };
+use futures::{FutureExt as _, future::LocalBoxFuture};
 
 /// What a tunnel goes to: a server shared with an invite link, or one a friend shares
 /// with this person, through the friend list.
@@ -461,10 +461,14 @@ impl Servers {
         self.friends.attempt += 1;
         let attempt = self.friends.attempt;
         let progress = Progress::default();
-        let name = self.friends.get(&id).map(|f| f.saved.name.clone()).or(match &source {
-            Source::FriendList { name, .. } => name.clone(),
-            Source::Invite(_) => None,
-        });
+        let name = self
+            .friends
+            .get(&id)
+            .map(|f| f.saved.name.clone())
+            .or(match &source {
+                Source::FriendList { name, .. } => name.clone(),
+                Source::Invite(_) => None,
+            });
         self.join_stage(
             JoinStage::Connecting {
                 progress: progress.clone(),
@@ -1048,25 +1052,21 @@ impl Servers {
             let opening = match (invite, listed) {
                 (_, Some(opening)) => Some(opening),
                 // any free port: the saved one stays free for Play
-                (Ok(Some(invite)), None) => Some(
-                    connect::open(invite, GamePort::Any, Progress::default()).boxed_local(),
-                ),
+                (Ok(Some(invite)), None) => {
+                    Some(connect::open(invite, GamePort::Any, Progress::default()).boxed_local())
+                }
                 _ => None,
             };
             let result = match opening {
-                Some(opening) => {
-                    opening
-                        .await
-                        .map(|tunnel| {
-                            let status = FriendStatus::Online {
-                                server: Box::new(tunnel.server.clone()),
-                                kind: tunnel.kind,
-                                rtt: tunnel.rtt(),
-                            };
-                            drop(tunnel);
-                            status
-                        })
-                }
+                Some(opening) => opening.await.map(|tunnel| {
+                    let status = FriendStatus::Online {
+                        server: Box::new(tunnel.server.clone()),
+                        kind: tunnel.kind,
+                        rtt: tunnel.rtt(),
+                    };
+                    drop(tunnel);
+                    status
+                }),
                 _ => Err(JoinError::Failed(t(M::FriendLinkMissing).into())),
             };
             this.update(cx, |this, cx| {

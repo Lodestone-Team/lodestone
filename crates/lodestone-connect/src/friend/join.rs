@@ -12,8 +12,8 @@ use tokio::{io::AsyncReadExt as _, task::JoinHandle};
 
 use super::{
     crypto::{probe_tag, PersonKey, Secret},
-    protocol::{hello_message, FriendStreamKind, HELLO_CONTEXT, HELLO_LABEL, MAX_INSTANCE_LEN},
     meet,
+    protocol::{hello_message, FriendStreamKind, HELLO_CONTEXT, HELLO_LABEL, MAX_INSTANCE_LEN},
 };
 use crate::{
     addr::ConnectionKind,
@@ -233,12 +233,14 @@ impl FriendJoined {
 
     /// An info stream: HTTP/1.1 to the routes about the servers shared with you.
     pub async fn open_info(&self) -> Result<TunnelStream> {
-        self.open(&Self::header(FriendStreamKind::Info, None)?).await
+        self.open(&Self::header(FriendStreamKind::Info, None)?)
+            .await
     }
 
     /// A game stream to `instance`.
     pub async fn open_game(&self, instance: &str) -> Result<TunnelStream> {
-        self.open(&Self::header(FriendStreamKind::Game, Some(instance))?).await
+        self.open(&Self::header(FriendStreamKind::Game, Some(instance))?)
+            .await
     }
 
     /// The servers this core shares with you.
@@ -256,7 +258,11 @@ impl FriendJoined {
     /// Listens on `listen` and passes each TCP connection to it through the tunnel:
     /// to `instance`'s game port with `Some`, or to the info routes with `None` (a core
     /// client with `http://<local_addr>` as its address).
-    pub async fn forward(&self, instance: Option<&str>, listen: SocketAddr) -> Result<crate::join::Forward> {
+    pub async fn forward(
+        &self,
+        instance: Option<&str>,
+        listen: SocketAddr,
+    ) -> Result<crate::join::Forward> {
         let header = match instance {
             Some(instance) => Self::header(FriendStreamKind::Game, Some(instance))?,
             None => Self::header(FriendStreamKind::Info, None)?,

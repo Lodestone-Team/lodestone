@@ -61,9 +61,7 @@ pub fn text(message: M) -> &'static str {
             "這個連結屬於 {host}，不是此啟動器使用的 Lodestone Connect 服務，因此無法在這裡開啟。"
         }
         M::PreviewFrom => "這個連結來自 {name}",
-        M::PreviewCompare => {
-            "成為好友後，請透過語音或當面與 {name} 核對安全碼。只新增你認識的人。"
-        }
+        M::PreviewCompare => "成為好友後，請透過語音或當面與 {name} 核對安全碼。只新增你認識的人。",
         M::AlreadyFriends => "你和 {name} 已經是好友了。",
         M::Added => "{name} 已在你的好友清單中。對方確認前不會分享任何內容。",
         M::NeedNameFirst => "請先選擇你的名稱：好友會在你的回覆中看到它。",
@@ -102,9 +100,8 @@ pub fn text(message: M) -> &'static str {
 
 pub fn plural(message: P) -> [&'static str; 2] {
     match message {
-        P::AnsweredTimes => [
-            "這個連結收到了 {count} 個回覆。可能有其他人拿到了這個連結：接受前請核對安全碼。";
-            2
-        ],
+        P::AnsweredTimes => {
+            ["這個連結收到了 {count} 個回覆。可能有其他人拿到了這個連結：接受前請核對安全碼。"; 2]
+        }
     }
 }

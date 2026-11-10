@@ -13,9 +13,7 @@ use launcher_core::{
 use super::{
     Servers,
     extras::note,
-    friend_list::{
-        AddFriend, CoreServers, FriendDialog, FriendPrompt, expiry_label, hex, short,
-    },
+    friend_list::{AddFriend, CoreServers, FriendDialog, FriendPrompt, expiry_label, hex, short},
     friends::JoinStage,
     status_label,
     view::server_detail,
@@ -25,9 +23,7 @@ use crate::{
         Button, ButtonSize, ButtonVariant, Checkbox, Dialog, Icon, LoadingDots,
         a11y::{Accessible, Role},
     },
-    i18n::{
-        CommonMsg, FriendListMsg as M, FriendListPlural as P, ServersMsg, format, t, tr, trn,
-    },
+    i18n::{CommonMsg, FriendListMsg as M, FriendListPlural as P, ServersMsg, format, t, tr, trn},
     skin::Skinned,
     theme::{self, colors, fonts, leading, px, radius, text, weights},
 };
@@ -57,7 +53,11 @@ fn badge(label: &'static str, color: theme::Color) -> gpui::Div {
 }
 
 /// A safety code, in a monospaced box so its groups line up.
-fn code_box(id: impl Into<SharedString>, label: impl Into<SharedString>, code: &str) -> gpui::Stateful<gpui::Div> {
+fn code_box(
+    id: impl Into<SharedString>,
+    label: impl Into<SharedString>,
+    code: &str,
+) -> gpui::Stateful<gpui::Div> {
     let id: SharedString = id.into();
     let label: SharedString = label.into();
     div()
@@ -346,7 +346,8 @@ impl Servers {
         for link in &list.snapshot.book.links {
             let code = link.code.clone();
             let id = format!("friend-link-{}", link.code.to_lowercase());
-            let answers: Vec<&&LinkReply> = replies.iter().filter(|r| r.code == link.code).collect();
+            let answers: Vec<&&LinkReply> =
+                replies.iter().filter(|r| r.code == link.code).collect();
             out = out.child(
                 div()
                     .id(SharedString::from(id.clone()))
@@ -368,9 +369,9 @@ impl Servers {
                         Button::new(SharedString::from(format!("{id}-cancel")), t(M::CancelLink))
                             .size(ButtonSize::Slim)
                             .variant(ButtonVariant::Ghost)
-                            .on_click(
-                                cx.listener(move |this, _, _, cx| this.cancel_friend_link(&code, cx)),
-                            ),
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.cancel_friend_link(&code, cx)
+                            })),
                     ),
             );
             for reply in answers {
@@ -453,7 +454,10 @@ impl Servers {
                     ),
             )
             .when(reply.answers > 1, |this| {
-                this.child(warning(trn!(P::AnsweredTimes, reply.answers), colors::YELLOW))
+                this.child(warning(
+                    trn!(P::AnsweredTimes, reply.answers),
+                    colors::YELLOW,
+                ))
             })
             .when(!reply.same_name_as.is_empty(), |this| {
                 this.child(warning(
@@ -482,12 +486,16 @@ impl Servers {
                     let names: Vec<String> = cores
                         .iter()
                         .filter(|c| {
-                            list.presence.get(&(friend.key.clone(), hex(&c.fingerprint)))
+                            list.presence
+                                .get(&(friend.key.clone(), hex(&c.fingerprint)))
                                 == Some(&true)
                         })
                         .map(|c| c.name.clone())
                         .collect();
-                    (colors::GREEN_200, tr!(M::OnlineOn, cores = format::list(&names)))
+                    (
+                        colors::GREEN_200,
+                        tr!(M::OnlineOn, cores = format::list(&names)),
+                    )
                 }
                 _ => (colors::GRAY_500, t(M::Offline).into()),
             },
@@ -496,7 +504,11 @@ impl Servers {
         let verify_key = key.clone();
         let mut row_el = div()
             .id(SharedString::from(id.clone()))
-            .accessible(Role::ListItem, id.clone(), friend.display_name().to_string())
+            .accessible(
+                Role::ListItem,
+                id.clone(),
+                friend.display_name().to_string(),
+            )
             .flex()
             .flex_col()
             .border_t_1()
@@ -545,12 +557,15 @@ impl Servers {
                     )
                     .when(!friend.verified, |this| {
                         this.child(
-                            Button::new(SharedString::from(format!("{id}-verify")), t(M::CompareCodes))
-                                .size(ButtonSize::Slim)
-                                .variant(ButtonVariant::Ghost)
-                                .on_click(cx.listener(move |this, _, _, cx| {
-                                    this.open_friend_verify(&verify_key, cx)
-                                })),
+                            Button::new(
+                                SharedString::from(format!("{id}-verify")),
+                                t(M::CompareCodes),
+                            )
+                            .size(ButtonSize::Slim)
+                            .variant(ButtonVariant::Ghost)
+                            .on_click(cx.listener(
+                                move |this, _, _, cx| this.open_friend_verify(&verify_key, cx),
+                            )),
                         )
                     })
                     .child(
@@ -562,9 +577,9 @@ impl Servers {
                             } else {
                                 Icon::ChevronRight
                             })
-                            .on_click(
-                                cx.listener(move |this, _, _, cx| this.toggle_friend(&toggle_key, cx)),
-                            ),
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.toggle_friend(&toggle_key, cx)
+                            })),
                     ),
             );
         if expanded {
@@ -580,13 +595,7 @@ impl Servers {
             self.friends.join.current().map(|p| &p.stage),
             Some(JoinStage::Connecting { .. } | JoinStage::Preparing { .. })
         );
-        let mut panel = div()
-            .flex()
-            .flex_col()
-            .gap_2()
-            .pl_8()
-            .pr_4()
-            .pb_3();
+        let mut panel = div().flex().flex_col().gap_2().pl_8().pr_4().pb_3();
         let cores = friend.joinable_cores(launcher_core::friend_list::now());
         if friend.status == Status::Pending {
             panel = panel.child(note(tr!(M::WaitingFor, name = friend.name)));
@@ -675,9 +684,11 @@ impl Servers {
                             )
                             .size(ButtonSize::Slim)
                             .variant(ButtonVariant::Ghost)
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.friend_servers(key.clone(), fp.clone(), cx).detach()
-                            })),
+                            .on_click(cx.listener(
+                                move |this, _, _, cx| {
+                                    this.friend_servers(key.clone(), fp.clone(), cx).detach()
+                                },
+                            )),
                         ),
                     );
                 }
@@ -698,20 +709,26 @@ impl Servers {
                 .flex_wrap()
                 .gap_2()
                 .child(
-                    Button::new(SharedString::from(format!("{id}-codes")), t(M::CompareCodes))
-                        .size(ButtonSize::Slim)
-                        .variant(ButtonVariant::Ghost)
-                        .on_click(
-                            cx.listener(move |this, _, _, cx| this.open_friend_verify(&verify_key, cx)),
-                        ),
+                    Button::new(
+                        SharedString::from(format!("{id}-codes")),
+                        t(M::CompareCodes),
+                    )
+                    .size(ButtonSize::Slim)
+                    .variant(ButtonVariant::Ghost)
+                    .on_click(
+                        cx.listener(move |this, _, _, cx| this.open_friend_verify(&verify_key, cx)),
+                    ),
                 )
                 .child(
-                    Button::new(SharedString::from(format!("{id}-rename")), t(CommonMsg::Rename))
-                        .size(ButtonSize::Slim)
-                        .variant(ButtonVariant::Ghost)
-                        .on_click(
-                            cx.listener(move |this, _, _, cx| this.open_friend_rename(&rename_key, cx)),
-                        ),
+                    Button::new(
+                        SharedString::from(format!("{id}-rename")),
+                        t(CommonMsg::Rename),
+                    )
+                    .size(ButtonSize::Slim)
+                    .variant(ButtonVariant::Ghost)
+                    .on_click(
+                        cx.listener(move |this, _, _, cx| this.open_friend_rename(&rename_key, cx)),
+                    ),
                 )
                 .child(
                     Button::new(
@@ -729,12 +746,15 @@ impl Servers {
                     ),
                 )
                 .child(
-                    Button::new(SharedString::from(format!("{id}-remove")), t(CommonMsg::Remove))
-                        .size(ButtonSize::Slim)
-                        .variant(ButtonVariant::Danger)
-                        .on_click(
-                            cx.listener(move |this, _, _, cx| this.open_friend_remove(&remove_key, cx)),
-                        ),
+                    Button::new(
+                        SharedString::from(format!("{id}-remove")),
+                        t(CommonMsg::Remove),
+                    )
+                    .size(ButtonSize::Slim)
+                    .variant(ButtonVariant::Danger)
+                    .on_click(
+                        cx.listener(move |this, _, _, cx| this.open_friend_remove(&remove_key, cx)),
+                    ),
                 ),
         );
         panel.into_any_element()
@@ -779,7 +799,11 @@ impl Servers {
                     .flex_none()
                     .size(px(6.))
                     .rounded_full()
-                    .bg(if running { colors::GREEN_200 } else { colors::GRAY_500 }),
+                    .bg(if running {
+                        colors::GREEN_200
+                    } else {
+                        colors::GRAY_500
+                    }),
             )
             .child(
                 div()
@@ -800,13 +824,16 @@ impl Servers {
                     ))),
             )
             .child(
-                Button::new(SharedString::from(format!("{id}-play")), t(ServersMsg::Play))
-                    .size(ButtonSize::Slim)
-                    .variant(ButtonVariant::Primary)
-                    .disabled(joining)
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.play_friend_server(&play_key, &play_fp, &play_server, cx)
-                    })),
+                Button::new(
+                    SharedString::from(format!("{id}-play")),
+                    t(ServersMsg::Play),
+                )
+                .size(ButtonSize::Slim)
+                .variant(ButtonVariant::Primary)
+                .disabled(joining)
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.play_friend_server(&play_key, &play_fp, &play_server, cx)
+                })),
             )
             .into_any_element()
     }
@@ -838,7 +865,11 @@ fn error_note(error: &Option<SharedString>) -> Option<gpui::Div> {
 }
 
 /// The friend list's dialog.
-pub fn friend_list_dialog(servers: &Entity<Servers>, prompt: &FriendPrompt, cx: &App) -> AnyElement {
+pub fn friend_list_dialog(
+    servers: &Entity<Servers>,
+    prompt: &FriendPrompt,
+    cx: &App,
+) -> AnyElement {
     let this = servers.read(cx);
     let close = servers.clone();
     let cancel = servers.clone();
@@ -861,7 +892,11 @@ pub fn friend_list_dialog(servers: &Entity<Servers>, prompt: &FriendPrompt, cx: 
             .unwrap_or_default()
     };
     match &prompt.dialog {
-        FriendDialog::Name { input, error, saving } => {
+        FriendDialog::Name {
+            input,
+            error,
+            saving,
+        } => {
             let save = servers.clone();
             dialog("friend-name", t(M::NameTitle).into())
                 .child(
@@ -870,9 +905,11 @@ pub fn friend_list_dialog(servers: &Entity<Servers>, prompt: &FriendPrompt, cx: 
                         .flex_col()
                         .gap_3()
                         .child(paragraph(t(M::NameBody)))
-                        .child(on_enter(servers, input.clone().into_any_element(), |this, cx| {
-                            this.save_friend_name(cx)
-                        }))
+                        .child(on_enter(
+                            servers,
+                            input.clone().into_any_element(),
+                            |this, cx| this.save_friend_name(cx),
+                        ))
                         .children(error_note(error)),
                 )
                 .footer(
@@ -880,12 +917,20 @@ pub fn friend_list_dialog(servers: &Entity<Servers>, prompt: &FriendPrompt, cx: 
                         .variant(ButtonVariant::Primary)
                         .loading(*saving)
                         .disabled(*saving)
-                        .on_click(move |_, _, cx| save.update(cx, |this, cx| this.save_friend_name(cx))),
+                        .on_click(move |_, _, cx| {
+                            save.update(cx, |this, cx| this.save_friend_name(cx))
+                        }),
                 )
                 .footer(cancel_button(t(CommonMsg::Cancel)))
                 .into_any_element()
         }
-        FriendDialog::Add(add) => add_dialog(servers, this, add, dialog("friend-add", t(M::AddTitle).into()), cancel_button),
+        FriendDialog::Add(add) => add_dialog(
+            servers,
+            this,
+            add,
+            dialog("friend-add", t(M::AddTitle).into()),
+            cancel_button,
+        ),
         FriendDialog::Verify { key } => {
             let friend = this.friend_list.friend(key);
             let name = name_of(key);
@@ -917,14 +962,13 @@ pub fn friend_list_dialog(servers: &Entity<Servers>, prompt: &FriendPrompt, cx: 
                                 )),
                         )
                         .child(
-                            Checkbox::new("friend-verify-match", verified, t(M::CodesMatch)).on_change(
-                                move |value, _, cx| {
+                            Checkbox::new("friend-verify-match", verified, t(M::CodesMatch))
+                                .on_change(move |value, _, cx| {
                                     let value = *value;
                                     toggle.update(cx, |this, cx| {
                                         this.set_friend_verified(&toggle_key, value, cx)
                                     })
-                                },
-                            ),
+                                }),
                         ),
                 )
                 .footer(cancel_button(t(CommonMsg::Done)))
@@ -945,9 +989,11 @@ pub fn friend_list_dialog(servers: &Entity<Servers>, prompt: &FriendPrompt, cx: 
                         .flex_col()
                         .gap_3()
                         .child(paragraph(tr!(M::RenameBody, name = chosen)))
-                        .child(on_enter(servers, input.clone().into_any_element(), |this, cx| {
-                            this.save_friend_nickname(false, cx)
-                        })),
+                        .child(on_enter(
+                            servers,
+                            input.clone().into_any_element(),
+                            |this, cx| this.save_friend_nickname(false, cx),
+                        )),
                 )
                 .footer(
                     Button::new("friend-rename-save", t(CommonMsg::Save))
@@ -966,7 +1012,11 @@ pub fn friend_list_dialog(servers: &Entity<Servers>, prompt: &FriendPrompt, cx: 
                 .footer(cancel_button(t(CommonMsg::Cancel)))
                 .into_any_element()
         }
-        FriendDialog::Remove { key, removing, error } => {
+        FriendDialog::Remove {
+            key,
+            removing,
+            error,
+        } => {
             let remove = servers.clone();
             let name = name_of(key);
             dialog("friend-remove", tr!(M::RemoveTitle, name = name))
@@ -1006,12 +1056,16 @@ pub fn friend_list_dialog(servers: &Entity<Servers>, prompt: &FriendPrompt, cx: 
                         .child(paragraph(t(M::RetireBody)))
                         .child(warning(t(M::RetireWarning), colors::RED_200))
                         .child(
-                            Checkbox::new("friend-retire-understood", *understood, t(M::RetireUnderstood))
-                                .disabled(*retiring)
-                                .on_change(move |value, _, cx| {
-                                    let value = *value;
-                                    tick.update(cx, |this, cx| this.set_retire_understood(value, cx))
-                                }),
+                            Checkbox::new(
+                                "friend-retire-understood",
+                                *understood,
+                                t(M::RetireUnderstood),
+                            )
+                            .disabled(*retiring)
+                            .on_change(move |value, _, cx| {
+                                let value = *value;
+                                tick.update(cx, |this, cx| this.set_retire_understood(value, cx))
+                            }),
                         )
                         .children(error_note(error)),
                 )
@@ -1124,7 +1178,10 @@ fn add_dialog(
                 ))
             })
             .when(preview.already_friends, |this| {
-                this.child(warning(tr!(M::AlreadyFriends, name = preview.name), colors::YELLOW))
+                this.child(warning(
+                    tr!(M::AlreadyFriends, name = preview.name),
+                    colors::YELLOW,
+                ))
             })
             .children(error_note(&add.error));
         return dialog
@@ -1142,7 +1199,9 @@ fn add_dialog(
                 Button::new("friend-add-back", t(CommonMsg::Back))
                     .variant(ButtonVariant::Secondary)
                     .disabled(add.adding)
-                    .on_click(move |_, _, cx| back.update(cx, |this, cx| this.clear_friend_preview(cx))),
+                    .on_click(move |_, _, cx| {
+                        back.update(cx, |this, cx| this.clear_friend_preview(cx))
+                    }),
             )
             .into_any_element();
     }
@@ -1212,7 +1271,9 @@ fn add_dialog(
                         .icon(Icon::Link)
                         .loading(add.making)
                         .disabled(add.making || !has_name)
-                        .on_click(move |_, _, cx| make.update(cx, |this, cx| this.make_friend_link(cx))),
+                        .on_click(move |_, _, cx| {
+                            make.update(cx, |this, cx| this.make_friend_link(cx))
+                        }),
                 ),
             );
         }

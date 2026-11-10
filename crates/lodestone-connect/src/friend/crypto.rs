@@ -431,7 +431,10 @@ pub fn core_secret(
     friend: &PublicKey,
     core_fingerprint: &[u8; 32],
 ) -> Secret {
-    pair.child("core", &transcript(&[&owner.0, &friend.0, core_fingerprint]))
+    pair.child(
+        "core",
+        &transcript(&[&owner.0, &friend.0, core_fingerprint]),
+    )
 }
 
 /// When this pair's ids change, as seconds into the day: each pair at its own time, so
@@ -502,8 +505,14 @@ mod tests {
         assert!(code
             .chars()
             .all(|c| c == '-' || CROCKFORD.contains(&(c as u8))));
-        assert_eq!(PublicKey([1; 32]).safety_code(), PublicKey([1; 32]).safety_code());
-        assert_ne!(PublicKey([1; 32]).safety_code(), PublicKey([2; 32]).safety_code());
+        assert_eq!(
+            PublicKey([1; 32]).safety_code(),
+            PublicKey([1; 32]).safety_code()
+        );
+        assert_ne!(
+            PublicKey([1; 32]).safety_code(),
+            PublicKey([2; 32]).safety_code()
+        );
         assert_eq!(crockford(&[0xff, 0xff], 3), "ZZZ");
         assert_eq!(crockford(&[0x00, 0x00], 3), "000");
         assert_eq!(crockford(&[0b00001_000, 0b01_000000], 2), "11");
@@ -528,7 +537,10 @@ mod tests {
         assert!(open(&secret, Role::Record, b"lookup-a", &changed).is_none());
         assert!(open(&secret, Role::Record, b"lookup-a", &blob[..10]).is_none());
         // a fresh nonce each time
-        assert_ne!(blob, seal(&secret, Role::Record, b"lookup-a", b"addresses").unwrap());
+        assert_ne!(
+            blob,
+            seal(&secret, Role::Record, b"lookup-a", b"addresses").unwrap()
+        );
     }
 
     #[test]

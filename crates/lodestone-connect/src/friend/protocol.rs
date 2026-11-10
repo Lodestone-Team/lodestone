@@ -23,6 +23,10 @@ pub enum FriendStreamKind {
 pub const MAX_INSTANCE_LEN: usize = 64;
 
 /// What a friend signs in their hello.
-pub fn hello_message(exporter: &[u8; 32], core_fingerprint: &[u8; 32], friend: &PublicKey) -> Vec<u8> {
+pub fn hello_message(
+    exporter: &[u8; 32],
+    core_fingerprint: &[u8; 32],
+    friend: &PublicKey,
+) -> Vec<u8> {
     transcript(&[exporter, core_fingerprint, &friend.0])
 }

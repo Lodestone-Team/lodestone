@@ -325,13 +325,19 @@ fn pair_secret(shared: &Secret, link_secret: &Secret, card: &[u8], reply: &[u8])
     let mut input = Vec::with_capacity(64);
     input.extend_from_slice(shared.as_bytes());
     input.extend_from_slice(link_secret.as_bytes());
-    let out = crypto::derive(&input, "pair", &transcript(&[&sha256(card), &sha256(reply)]));
+    let out = crypto::derive(
+        &input,
+        "pair",
+        &transcript(&[&sha256(card), &sha256(reply)]),
+    );
     zeroize::Zeroize::zeroize(&mut input);
     Secret::from_bytes(out)
 }
 
 fn bad(what: &str) -> Error {
-    Error::Other(format!("This friend link didn't check out ({what}). Ask for a new one."))
+    Error::Other(format!(
+        "This friend link didn't check out ({what}). Ask for a new one."
+    ))
 }
 
 fn key32(text: &str) -> Option<[u8; 32]> {
@@ -353,7 +359,14 @@ pub fn open_card(link: &FriendLink, sealed: &[u8], now: u64) -> Result<Card> {
     }
     let exchange = key32(&wire.exchange).ok_or_else(|| bad("key"))?;
     let sig = unhex(&wire.sig).ok_or_else(|| bad("signature"))?;
-    let message = card_message(&key, &exchange, &wire.name, &wire.code, wire.expires, &link.secret);
+    let message = card_message(
+        &key,
+        &exchange,
+        &wire.name,
+        &wire.code,
+        wire.expires,
+        &link.secret,
+    );
     if !key.verify("card", &message, &sig) {
         return Err(bad("signature"));
     }
@@ -454,7 +467,12 @@ struct InvitationFile {
 impl Invitation {
     /// A new friend link from `me` (display name `name`) at `service`, and the sealed
     /// card to put in its mailbox.
-    pub fn create(me: &PersonKey, name: &str, service: Service, now: u64) -> Result<(Self, Vec<u8>)> {
+    pub fn create(
+        me: &PersonKey,
+        name: &str,
+        service: Service,
+        now: u64,
+    ) -> Result<(Self, Vec<u8>)> {
         let name = clean_name(name);
         if name.is_empty() {
             return Err(Error::Other("Choose a name your friend will see.".into()));
@@ -466,7 +484,14 @@ impl Invitation {
         let expires = now + LINK_LIFETIME_SECS;
         let sig = me.sign(
             "card",
-            &card_message(&key, &exchange_public, &name, &link.code, expires, &link.secret),
+            &card_message(
+                &key,
+                &exchange_public,
+                &name,
+                &link.code,
+                expires,
+                &link.secret,
+            ),
         );
         let card = serde_json::to_vec(&CardWire {
             v: VERSION,
@@ -494,9 +519,18 @@ impl Invitation {
     /// Opens and checks a reply from the mailbox: signed by its sender and bound to this
     /// card. `me` is the inviter, whose own key is refused as a reply.
     pub fn open_reply(&self, me: &PublicKey, sealed: &[u8]) -> Result<Reply> {
-        let bad = |what: &str| Error::Other(format!("A reply to your friend link didn't check out ({what})."));
-        let bytes = crypto::open(&self.link.secret, Role::Reply, self.link.code.as_bytes(), sealed)
-            .ok_or_else(|| bad("it couldn't be opened"))?;
+        let bad = |what: &str| {
+            Error::Other(format!(
+                "A reply to your friend link didn't check out ({what})."
+            ))
+        };
+        let bytes = crypto::open(
+            &self.link.secret,
+            Role::Reply,
+            self.link.code.as_bytes(),
+            sealed,
+        )
+        .ok_or_else(|| bad("it couldn't be opened"))?;
         let wire: ReplyWire = serde_json::from_slice(&bytes).map_err(|_| bad("garbled"))?;
         if wire.v != VERSION {
             return Err(bad("a newer version of Lodestone made it"));
@@ -531,7 +565,12 @@ impl Invitation {
     pub fn accept(&self, reply: &Reply) -> Result<Secret> {
         let exchange = ExchangeKey::from_seed(&self.exchange_seed)?;
         let shared = exchange.agree(&reply.exchange)?;
-        Ok(pair_secret(&shared, &self.link.secret, &self.card, &reply.bytes))
+        Ok(pair_secret(
+            &shared,
+            &self.link.secret,
+            &self.card,
+            &reply.bytes,
+        ))
     }
 
     /// The invitation as JSON, with its secrets: keep it sealed.
@@ -576,7 +615,10 @@ mod tests {
         let (invitation, sealed_card) =
             Invitation::create(&ana, "Ana", Service::default(), NOW).unwrap();
         let text = invitation.link.link();
-        assert!(text.starts_with("https://connect.lodestone.cc/f/"), "{text}");
+        assert!(
+            text.starts_with("https://connect.lodestone.cc/f/"),
+            "{text}"
+        );
 
         // Ben, from the link alone
         let link = FriendLink::parse(&text).unwrap();
@@ -587,7 +629,9 @@ mod tests {
 
         // Ana, after a restart
         let invitation = Invitation::from_json(&invitation.to_json()).unwrap();
-        let reply = invitation.open_reply(&ana.public(), &answer.sealed).unwrap();
+        let reply = invitation
+            .open_reply(&ana.public(), &answer.sealed)
+            .unwrap();
         assert_eq!((reply.key, reply.name.as_str()), (ben.public(), "Ben"));
         assert_eq!(invitation.accept(&reply).unwrap(), answer.pair);
     }
@@ -595,7 +639,8 @@ mod tests {
     #[test]
     fn cards_are_checked() {
         let ana = PersonKey::generate().unwrap();
-        let (invitation, sealed) = Invitation::create(&ana, "Ana", Service::default(), NOW).unwrap();
+        let (invitation, sealed) =
+            Invitation::create(&ana, "Ana", Service::default(), NOW).unwrap();
         let link = invitation.link.clone();
         // expired
         assert!(open_card(&link, &sealed, NOW + LINK_LIFETIME_SECS).is_err());
@@ -608,7 +653,8 @@ mod tests {
         // because she opened Ana's link): the signature covers the first link's secret
         let plain = crypto::open(&link.secret, Role::Card, link.code.as_bytes(), &sealed).unwrap();
         let other = FriendLink::new(Service::default(), &ana.public()).unwrap();
-        let resealed = crypto::seal(&other.secret, Role::Card, other.code.as_bytes(), &plain).unwrap();
+        let resealed =
+            crypto::seal(&other.secret, Role::Card, other.code.as_bytes(), &plain).unwrap();
         assert!(open_card(&other, &resealed, NOW).is_err());
         // your own link
         let card = open_card(&link, &sealed, NOW).unwrap();
@@ -619,7 +665,8 @@ mod tests {
     fn replies_are_bound_to_the_card() {
         let ana = PersonKey::generate().unwrap();
         let ben = PersonKey::generate().unwrap();
-        let (first, sealed_first) = Invitation::create(&ana, "Ana", Service::default(), NOW).unwrap();
+        let (first, sealed_first) =
+            Invitation::create(&ana, "Ana", Service::default(), NOW).unwrap();
         let (second, _) = Invitation::create(&ana, "Ana", Service::default(), NOW).unwrap();
         let card = open_card(&first.link, &sealed_first, NOW).unwrap();
         let answer = answer(&ben, "Ben", &first.link, &card).unwrap();
@@ -627,7 +674,12 @@ mod tests {
         // the reply to the first link can't be used on the second
         assert!(second.open_reply(&ana.public(), &answer.sealed).is_err());
         // a reply that names Ana herself is refused
-        let own = super::answer(&PersonKey::from_pkcs8(ana.pkcs8()).unwrap(), "x", &first.link, &card);
+        let own = super::answer(
+            &PersonKey::from_pkcs8(ana.pkcs8()).unwrap(),
+            "x",
+            &first.link,
+            &card,
+        );
         assert!(own.is_err());
     }
 
@@ -644,7 +696,11 @@ mod tests {
         assert!(FriendLink::parse(text.split('#').next().unwrap()).is_err());
         assert!(FriendLink::parse("lodestone://friend?link=lodestone%3A%2F%2Ffriend").is_err());
         // plain HTTP only to this computer
-        let local = FriendLink::new(Service::parse("http://127.0.0.1:8787").unwrap(), &ana.public()).unwrap();
+        let local = FriendLink::new(
+            Service::parse("http://127.0.0.1:8787").unwrap(),
+            &ana.public(),
+        )
+        .unwrap();
         assert!(FriendLink::parse(&local.link()).is_ok());
         let lan = local.link().replace("127.0.0.1", "192.168.1.1");
         assert!(FriendLink::parse(&lan).is_err());

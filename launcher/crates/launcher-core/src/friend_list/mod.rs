@@ -220,7 +220,9 @@ impl Book {
             .filter(|f| f.key != except)
             .filter(|f| {
                 name_skeleton(&f.name) == name
-                    || f.nickname.as_deref().is_some_and(|n| name_skeleton(n) == name)
+                    || f.nickname
+                        .as_deref()
+                        .is_some_and(|n| name_skeleton(n) == name)
             })
             .collect()
     }
@@ -300,9 +302,11 @@ pub fn read_book(path: &Path, key: &FriendSecret) -> Result<Book, FriendsError> 
     if wire.v != FILE_VERSION {
         return Err(FriendsError::Damaged("made by a newer launcher".into()));
     }
-    let sealed = lodestone_unhex(&wire.sealed).ok_or_else(|| FriendsError::Damaged("not hex".into()))?;
-    let plain = crypto::open(key, Role::File, FILE_NAME.as_bytes(), &sealed)
-        .ok_or_else(|| FriendsError::Damaged("it couldn't be opened with this computer's key".into()))?;
+    let sealed =
+        lodestone_unhex(&wire.sealed).ok_or_else(|| FriendsError::Damaged("not hex".into()))?;
+    let plain = crypto::open(key, Role::File, FILE_NAME.as_bytes(), &sealed).ok_or_else(|| {
+        FriendsError::Damaged("it couldn't be opened with this computer's key".into())
+    })?;
     serde_json::from_slice(&plain).map_err(|err| FriendsError::Damaged(err.to_string()))
 }
 
@@ -343,7 +347,8 @@ fn lodestone_unhex(text: &str) -> Option<Vec<u8>> {
 /// other (`LODESTONE_LAUNCHER_DATA_DIR`, tests, dev bundles), so those never make or use
 /// this person's real friend identity. Moving the data folder keeps the identity.
 pub fn secret_name(base: &str, data: &DataDir) -> String {
-    let overridden = std::env::var_os("LODESTONE_LAUNCHER_DATA_DIR").is_some_and(|dir| !dir.is_empty());
+    let overridden =
+        std::env::var_os("LODESTONE_LAUNCHER_DATA_DIR").is_some_and(|dir| !dir.is_empty());
     let real = !overridden
         && crate::paths::locate_data_dir().is_some_and(|location| location.dir == data.root());
     if real {
@@ -473,7 +478,9 @@ impl Friends {
     pub fn set_name(&mut self, name: &str) -> Result<(), FriendsError> {
         let name = clean_name(name);
         if name.is_empty() {
-            return Err(FriendsError::Refused("Choose a name your friends will see.".into()));
+            return Err(FriendsError::Refused(
+                "Choose a name your friends will see.".into(),
+            ));
         }
         self.modify(|book| {
             if name != book.name {
@@ -523,7 +530,11 @@ impl Friends {
         }
         let name = clean_name(name);
         self.modify(|book| {
-            let changed = match book.my_cores.iter_mut().find(|c| c.fingerprint == fingerprint) {
+            let changed = match book
+                .my_cores
+                .iter_mut()
+                .find(|c| c.fingerprint == fingerprint)
+            {
                 Some(core) if core.name == name => false,
                 Some(core) => {
                     core.name = name;

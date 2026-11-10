@@ -1131,16 +1131,22 @@ pub enum FriendList {
     SetName { name: String },
     /// Makes a friend link to send. It works once, for 24 hours; anyone with it can ask
     /// to be your friend, so send it only to them.
-    #[command(after_help = "Examples:\n  lodestone-launcher-cli friend-list make-link\n  lodestone-launcher-cli --json friend-list make-link | jq -r .link")]
+    #[command(
+        after_help = "Examples:\n  lodestone-launcher-cli friend-list make-link\n  lodestone-launcher-cli --json friend-list make-link | jq -r .link"
+    )]
     MakeLink,
     /// Your open friend links (their codes and when they stop working).
     #[command(after_help = "Examples:\n  lodestone-launcher-cli friend-list links")]
     Links,
     /// Cancels one of your friend links.
-    #[command(after_help = "Examples:\n  lodestone-launcher-cli friend-list cancel-link 7KQ2M9XD4T")]
+    #[command(
+        after_help = "Examples:\n  lodestone-launcher-cli friend-list cancel-link 7KQ2M9XD4T"
+    )]
     CancelLink { code: String },
     /// Shows who a friend link is from (name and safety code), without answering it.
-    #[command(after_help = "Examples:\n  printf '%s\\n' \"$LINK\" | lodestone-launcher-cli friend-list preview -\n  lodestone-launcher-cli friend-list preview 'https://connect.lodestone.cc/f/…'")]
+    #[command(
+        after_help = "Examples:\n  printf '%s\\n' \"$LINK\" | lodestone-launcher-cli friend-list preview -\n  lodestone-launcher-cli friend-list preview 'https://connect.lodestone.cc/f/…'"
+    )]
     Preview {
         /// The friend link (https://connect.lodestone.cc/f/…, lodestone://friend?link=…),
         /// or "-" to read it from stdin.
@@ -1148,7 +1154,9 @@ pub enum FriendList {
     },
     /// Answers a friend link: its sender becomes your friend, pending until they
     /// accept. Show the user the name and safety code from `preview` first.
-    #[command(after_help = "Examples:\n  printf '%s\\n' \"$LINK\" | lodestone-launcher-cli friend-list answer - --safety-code K7Q2-M9XD-4TRW-H3BE --yes")]
+    #[command(
+        after_help = "Examples:\n  printf '%s\\n' \"$LINK\" | lodestone-launcher-cli friend-list answer - --safety-code K7Q2-M9XD-4TRW-H3BE --yes"
+    )]
     Answer {
         /// The friend link, or "-" to read it from stdin.
         link: String,
@@ -1162,7 +1170,9 @@ pub enum FriendList {
     Replies,
     /// Accepts an answer to one of your friend links (its code and the person's key,
     /// from `replies`): they become your friend.
-    #[command(after_help = "Examples:\n  lodestone-launcher-cli friend-list accept 7KQ2M9XD4T 3f9a…c4 --yes")]
+    #[command(
+        after_help = "Examples:\n  lodestone-launcher-cli friend-list accept 7KQ2M9XD4T 3f9a…c4 --yes"
+    )]
     Accept { code: String, key: String },
     /// Your friends: status, verified, hidden, their cores and whether they're online
     /// (as last checked; `refresh` checks again).
@@ -1174,7 +1184,9 @@ pub enum FriendList {
     Refresh,
     /// Ticks "Codes match" for a friend, once you compared safety codes by voice or in
     /// person.
-    #[command(after_help = "Examples:\n  lodestone-launcher-cli friend-list verify Alex\n  lodestone-launcher-cli friend-list verify Alex --undo")]
+    #[command(
+        after_help = "Examples:\n  lodestone-launcher-cli friend-list verify Alex\n  lodestone-launcher-cli friend-list verify Alex --undo"
+    )]
     Verify {
         /// Their name, nickname, or key (or its first 8+ hex digits).
         friend: String,
@@ -1183,7 +1195,9 @@ pub enum FriendList {
         undo: bool,
     },
     /// Gives a friend a name only you see.
-    #[command(after_help = "Examples:\n  lodestone-launcher-cli friend-list nickname Samantha Sam\n  lodestone-launcher-cli friend-list nickname Sam --clear")]
+    #[command(
+        after_help = "Examples:\n  lodestone-launcher-cli friend-list nickname Samantha Sam\n  lodestone-launcher-cli friend-list nickname Sam --clear"
+    )]
     Nickname {
         friend: String,
         #[arg(required_unless_present = "clear")]
@@ -1193,7 +1207,9 @@ pub enum FriendList {
         clear: bool,
     },
     /// Hides your cores from a friend: they stop seeing your servers. You stay friends.
-    #[command(after_help = "Examples:\n  lodestone-launcher-cli friend-list hide Kim\n  lodestone-launcher-cli friend-list hide Kim --undo")]
+    #[command(
+        after_help = "Examples:\n  lodestone-launcher-cli friend-list hide Kim\n  lodestone-launcher-cli friend-list hide Kim --undo"
+    )]
     Hide {
         friend: String,
         /// Show them your cores again.
@@ -1204,7 +1220,9 @@ pub enum FriendList {
     #[command(after_help = "Examples:\n  lodestone-launcher-cli friend-list remove Kim --yes")]
     Remove { friend: String },
     /// The servers a friend's cores share with you.
-    #[command(after_help = "Examples:\n  lodestone-launcher-cli friend-list servers Alex\n  lodestone-launcher-cli friend-list servers Alex --core \"Alex's PC\"")]
+    #[command(
+        after_help = "Examples:\n  lodestone-launcher-cli friend-list servers Alex\n  lodestone-launcher-cli friend-list servers Alex --core \"Alex's PC\""
+    )]
     Servers {
         friend: String,
         /// One core: its name, or its fingerprint's first hex digits.

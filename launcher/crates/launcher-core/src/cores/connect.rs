@@ -402,7 +402,11 @@ impl AnyJoined {
     ) -> Result<join::Forward, lodestone_connect::Error> {
         match self {
             AnyJoined::Invite(joined) => {
-                let kind = if game { StreamKind::Game } else { StreamKind::Info };
+                let kind = if game {
+                    StreamKind::Game
+                } else {
+                    StreamKind::Info
+                };
                 joined.forward(kind, listen).await
             }
             AnyJoined::Friend(joined, instance) => {

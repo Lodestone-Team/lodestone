@@ -81,7 +81,10 @@ fn list_for(
             let pair = friend.pair_secret()?;
             let shared = match &shared {
                 Some((which, list)) if *which == friend.key => list.clone(),
-                _ => kept.get(friend.key.as_str()).map(|l| (*l).clone()).unwrap_or_default(),
+                _ => kept
+                    .get(friend.key.as_str())
+                    .map(|l| (*l).clone())
+                    .unwrap_or_default(),
             };
             Some(EntryBody {
                 key: friend.key.clone(),

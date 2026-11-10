@@ -808,7 +808,9 @@ pub fn plan(
         },
         Command::FriendList(c) => match c {
             FriendList::Me => call("friend_list.me", vec![]),
-            FriendList::SetName { name } => call("friend_list.set_name", vec![("name", json!(name))]),
+            FriendList::SetName { name } => {
+                call("friend_list.set_name", vec![("name", json!(name))])
+            }
             FriendList::MakeLink => call("friend_list.create_link", vec![]),
             FriendList::Links => call("friend_list.links", vec![]),
             FriendList::CancelLink { code } => {
@@ -1207,14 +1209,22 @@ mod tests {
         let (method, params, long) = call_of(&["friend-list", "set-name", "Peter"]);
         assert_eq!((method, long), ("friend_list.set_name", false));
         assert_eq!(params["name"], "Peter");
-        assert_eq!(call_of(&["friend-list", "make-link"]).0, "friend_list.create_link");
+        assert_eq!(
+            call_of(&["friend-list", "make-link"]).0,
+            "friend_list.create_link"
+        );
         assert_eq!(call_of(&["friend-list", "links"]).0, "friend_list.links");
         let link = "https://connect.lodestone.cc/f/7KQ2M9XD4T#ab.cd";
         let (method, params, _) = call_of(&["friend-list", "preview", link]);
         assert_eq!(method, "friend_list.preview_link");
         assert_eq!(params["link"], link);
-        let (method, params, _) =
-            call_of(&["friend-list", "answer", link, "--safety-code", "K7Q2-M9XD-4TRW-H3BE"]);
+        let (method, params, _) = call_of(&[
+            "friend-list",
+            "answer",
+            link,
+            "--safety-code",
+            "K7Q2-M9XD-4TRW-H3BE",
+        ]);
         assert_eq!(method, "friend_list.answer_link");
         assert_eq!(params["safety_code"], "K7Q2-M9XD-4TRW-H3BE");
         // "-": the link from stdin
@@ -1229,24 +1239,47 @@ mod tests {
         assert!(plan(&cli.command, &mut empty).is_err());
         let (method, params, _) = call_of(&["friend-list", "accept", "7KQ2M9XD4T", "abcd"]);
         assert_eq!(method, "friend_list.accept");
-        assert_eq!((params["code"].as_str(), params["key"].as_str()), (Some("7KQ2M9XD4T"), Some("abcd")));
+        assert_eq!(
+            (params["code"].as_str(), params["key"].as_str()),
+            (Some("7KQ2M9XD4T"), Some("abcd"))
+        );
         let (method, params, _) = call_of(&["friend-list", "verify", "Alex"]);
         assert_eq!(method, "friend_list.verify");
         assert_eq!(params["value"], true);
-        assert_eq!(call_of(&["friend-list", "verify", "Alex", "--undo"]).1["value"], false);
+        assert_eq!(
+            call_of(&["friend-list", "verify", "Alex", "--undo"]).1["value"],
+            false
+        );
         assert_eq!(call_of(&["friend-list", "hide", "Kim"]).1["value"], true);
-        assert_eq!(call_of(&["friend-list", "nickname", "Samantha", "Sam"]).1["nickname"], "Sam");
-        assert!(call_of(&["friend-list", "nickname", "Sam", "--clear"]).1.get("nickname").is_none_or(Value::is_null));
+        assert_eq!(
+            call_of(&["friend-list", "nickname", "Samantha", "Sam"]).1["nickname"],
+            "Sam"
+        );
+        assert!(
+            call_of(&["friend-list", "nickname", "Sam", "--clear"])
+                .1
+                .get("nickname")
+                .is_none_or(Value::is_null)
+        );
         assert!(
             Cli::try_parse_from(["lodestone-launcher-cli", "friend-list", "nickname", "Sam"])
                 .is_err()
         );
-        assert_eq!(call_of(&["friend-list", "remove", "Kim"]).0, "friend_list.remove");
+        assert_eq!(
+            call_of(&["friend-list", "remove", "Kim"]).0,
+            "friend_list.remove"
+        );
         let (method, params, _) = call_of(&["friend-list", "servers", "Alex", "--core", "PC"]);
         assert_eq!(method, "friend_list.servers");
         assert_eq!(params["core"], "PC");
-        assert_eq!(call_of(&["friend-list", "refresh"]).0, "friend_list.refresh");
-        assert_eq!(call_of(&["friend-list", "replies"]).0, "friend_list.replies");
+        assert_eq!(
+            call_of(&["friend-list", "refresh"]).0,
+            "friend_list.refresh"
+        );
+        assert_eq!(
+            call_of(&["friend-list", "replies"]).0,
+            "friend_list.replies"
+        );
         assert_eq!(call_of(&["friend-list", "retire"]).0, "friend_list.retire");
     }
 

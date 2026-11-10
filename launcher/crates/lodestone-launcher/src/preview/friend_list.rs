@@ -12,9 +12,7 @@ use launcher_core::{
 
 use crate::servers::{
     Servers,
-    friend_list::{
-        CoreServers, MadeLink, PreviewAddFriend, PreviewFriendList, Snapshot, hex,
-    },
+    friend_list::{CoreServers, MadeLink, PreviewAddFriend, PreviewFriendList, Snapshot, hex},
 };
 
 const ME: &str = "K7Q2-M9XD-4TRW-H3BE";
@@ -28,8 +26,10 @@ fn core(byte: u8, name: &str) -> launcher_core::friend_list::FriendState {
         seq: 3,
         expires: now() + 30 * 86_400,
         cores: vec![
-            serde_json::from_value(serde_json::json!({ "fingerprint": hex(&[byte; 32]), "name": name }))
-                .expect("a made-up core"),
+            serde_json::from_value(
+                serde_json::json!({ "fingerprint": hex(&[byte; 32]), "name": name }),
+            )
+            .expect("a made-up core"),
         ],
     }
 }
@@ -45,7 +45,13 @@ fn friend(byte: u8, name: &str, status: FriendStatus, verified: bool) -> Friend 
     }
 }
 
-fn shared(name: &str, loader: &str, version: Option<&str>, modpack: bool, state: &str) -> SharedServer {
+fn shared(
+    name: &str,
+    loader: &str,
+    version: Option<&str>,
+    modpack: bool,
+    state: &str,
+) -> SharedServer {
     SharedServer {
         core_name: "Alex's PC".into(),
         core_uuid: "alex-core".into(),
@@ -88,7 +94,11 @@ fn base(name: &str, friends: Vec<Friend>) -> PreviewFriendList {
                 friends,
                 ..Book::default()
             },
-            safety_code: if name.is_empty() { String::new() } else { ME.into() },
+            safety_code: if name.is_empty() {
+                String::new()
+            } else {
+                ME.into()
+            },
             key: key(0x99),
         },
         replies: Vec::new(),
@@ -108,10 +118,12 @@ fn link(code: &str) -> PendingLink {
 }
 
 pub fn apply(scene: &str, servers: &mut Servers, cx: &mut Context<Servers>) {
-    let made_link = || MadeLink {
+    let made_link = || {
+        MadeLink {
         link: "https://connect.lodestone.cc/f/7KQ2M9XD4T#3f9a0c11d2e84b7756a1c0ffee42b19d.8e7a6c5b4d3e2f1a0b9c8d7e6f5a4b3c3f9a0c11d2e84b7756a1c0ffee42b19d"
             .into(),
         expires: now() + 24 * 3600,
+    }
     };
     match scene {
         "servers-friend-list-empty" => {
@@ -146,7 +158,10 @@ pub fn apply(scene: &str, servers: &mut Servers, cx: &mut Context<Servers>) {
             }
         }
         "servers-friend-list-reply" => {
-            let mut list = base("Peter", vec![friend(0x11, "Alex", FriendStatus::Active, true)]);
+            let mut list = base(
+                "Peter",
+                vec![friend(0x11, "Alex", FriendStatus::Active, true)],
+            );
             list.snapshot.book.links = vec![link("7KQ2M9XD4T")];
             list.presence = vec![];
             list.replies = vec![

@@ -130,7 +130,11 @@ pub async fn join(invite: &Invite, options: JoinOptions) -> Result<Joined> {
 
 /// Keeps answering along the chosen path for a while as QUIC takes over the socket, so
 /// the routers keep it open and a host still probing hears back.
-pub(crate) fn keep_open(socket: &UdpSocket, peer: SocketAddr, tag: [u8; 8]) -> Result<JoinHandle<()>> {
+pub(crate) fn keep_open(
+    socket: &UdpSocket,
+    peer: SocketAddr,
+    tag: [u8; 8],
+) -> Result<JoinHandle<()>> {
     let socket = socket.try_clone()?;
     Ok(tokio::spawn(async move {
         let until = tokio::time::Instant::now() + Duration::from_secs(30);

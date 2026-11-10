@@ -206,7 +206,10 @@ mod tests {
     const NOW: u64 = 1_800_000_000;
 
     fn addrs() -> Vec<SocketAddr> {
-        vec!["203.0.113.5:40000".parse().unwrap(), "[2001:db8::1]:40000".parse().unwrap()]
+        vec![
+            "203.0.113.5:40000".parse().unwrap(),
+            "[2001:db8::1]:40000".parse().unwrap(),
+        ]
     }
 
     #[test]
@@ -214,7 +217,10 @@ mod tests {
         let secret = Secret::random().unwrap();
         let id = lookup(&secret, 1);
         let sealed = seal_record(&secret, &id, &addrs(), NOW).unwrap();
-        assert_eq!(open_record(&secret, &id, &sealed, NOW + 5).unwrap(), addrs());
+        assert_eq!(
+            open_record(&secret, &id, &sealed, NOW + 5).unwrap(),
+            addrs()
+        );
         assert!(open_record(&secret, &id, &sealed, NOW + RECORD_MAX_AGE_SECS + 1).is_err());
         assert!(open_record(&secret, &lookup(&secret, 2), &sealed, NOW).is_err());
         // a knock handed back as a record doesn't open
@@ -240,7 +246,10 @@ mod tests {
         // the latest moment the knock's time is still accepted: still remembered
         let mut guard = ReplayGuard::default();
         assert!(guard.admit(&opened, NOW - KNOCK_SKEW_SECS));
-        assert!(!guard.admit(&opened, NOW + KNOCK_SKEW_SECS), "a replay at the edge");
+        assert!(
+            !guard.admit(&opened, NOW + KNOCK_SKEW_SECS),
+            "a replay at the edge"
+        );
     }
 
     #[test]

@@ -162,9 +162,7 @@ pub fn set_name(call: Call, cx: &mut App) -> Reply {
         &call,
         cx,
         move |servers, cx| servers.friend_set_name(params.name, cx),
-        |(), cx, servers| {
-            Ok(cx.update(|cx| me_json(&servers.read(cx).friend_list.snapshot)))
-        },
+        |(), cx, servers| Ok(cx.update(|cx| me_json(&servers.read(cx).friend_list.snapshot))),
     )
 }
 
@@ -263,7 +261,9 @@ pub fn answer_link(call: Call, cx: &mut App) -> Reply {
         "adds the link's sender as your friend. Show the user their name and safety code first (`friend-list preview`)"
     ));
     let servers = call.control.servers.clone();
-    let preview = servers.update(cx, |servers, cx| servers.friend_preview(params.link.clone(), cx));
+    let preview = servers.update(cx, |servers, cx| {
+        servers.friend_preview(params.link.clone(), cx)
+    });
     cx.spawn(async move |cx| {
         let preview = preview.await.map_err(failed)?;
         if let Some(expected) = &params.safety_code
@@ -487,7 +487,9 @@ pub fn servers(call: Call, cx: &mut App) -> Reply {
             .iter()
             .map(|c| (hex(&c.fingerprint), c.name.clone()))
             .filter(|(fp, name)| match &params.core {
-                Some(core) => fp.starts_with(&core.to_ascii_lowercase()) || name.eq_ignore_ascii_case(core),
+                Some(core) => {
+                    fp.starts_with(&core.to_ascii_lowercase()) || name.eq_ignore_ascii_case(core)
+                }
                 None => true,
             })
             .collect();

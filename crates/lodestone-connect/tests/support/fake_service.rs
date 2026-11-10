@@ -362,9 +362,10 @@ impl FakeService {
                 Some((_, sealed)) => (200, json!({"sealed": sealed})),
                 None => not_found,
             },
-            ("PUT", ["v2", "meet"]) if records_of(body).len() > 256 => {
-                (400, json!({"error": "bad_body", "message": "At most 256 records."}))
-            }
+            ("PUT", ["v2", "meet"]) if records_of(body).len() > 256 => (
+                400,
+                json!({"error": "bad_body", "message": "At most 256 records."}),
+            ),
             ("PUT", ["v2", "meet"]) => {
                 state.next += 1;
                 let session = format!("{:032x}", state.next as u128 * 15485863);
@@ -381,7 +382,10 @@ impl FakeService {
                         live: true,
                     },
                 );
-                (201, json!({"session": session, "secret": secret, "expires_at": null}))
+                (
+                    201,
+                    json!({"session": session, "secret": secret, "expires_at": null}),
+                )
             }
             ("PUT", ["v2", "meet", session]) => {
                 let records = records_of(body);
@@ -450,7 +454,9 @@ impl FakeService {
         let allowed = {
             let state = self.state.lock().unwrap();
             match state.sessions.get(session) {
-                Some(open) if open.live && bearer.as_deref() == Some(open.secret.as_str()) => Ok(()),
+                Some(open) if open.live && bearer.as_deref() == Some(open.secret.as_str()) => {
+                    Ok(())
+                }
                 Some(open) if open.live => Err(403),
                 _ => Err(404),
             }
@@ -491,7 +497,6 @@ impl FakeService {
             }
         }
     }
-
 
     async fn socket(
         &self,
@@ -569,7 +574,12 @@ fn records_of(body: &Value) -> HashMap<String, String> {
         .as_array()
         .map(|list| {
             list.iter()
-                .filter_map(|r| Some((r["lookup"].as_str()?.to_string(), r["sealed"].as_str()?.to_string())))
+                .filter_map(|r| {
+                    Some((
+                        r["lookup"].as_str()?.to_string(),
+                        r["sealed"].as_str()?.to_string(),
+                    ))
+                })
                 .collect()
         })
         .unwrap_or_default()

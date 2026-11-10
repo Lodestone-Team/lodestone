@@ -60,9 +60,15 @@ impl Service {
     /// was used or expired).
     pub async fn pair_card(&self, code: &str, access: &str) -> Result<Option<Vec<u8>>> {
         found(
-            call(self, "GET", &format!("/v2/pairs/{code}"), Some(access), None)
-                .await
-                .and_then(|answer| hex_field(&answer, "card")),
+            call(
+                self,
+                "GET",
+                &format!("/v2/pairs/{code}"),
+                Some(access),
+                None,
+            )
+            .await
+            .and_then(|answer| hex_field(&answer, "card")),
         )
     }
 
@@ -82,20 +88,34 @@ impl Service {
     /// The sealed replies in mailbox `code`, for its owner. `None` if it's gone.
     pub async fn pair_replies(&self, code: &str, secret: &str) -> Result<Option<Vec<Vec<u8>>>> {
         found(
-            call(self, "GET", &format!("/v2/pairs/{code}/replies"), Some(secret), None)
-                .await
-                .map(|answer| {
-                    answer["replies"]
-                        .as_array()
-                        .map(|list| list.iter().filter_map(|r| unhex(r.as_str()?)).collect())
-                        .unwrap_or_default()
-                }),
+            call(
+                self,
+                "GET",
+                &format!("/v2/pairs/{code}/replies"),
+                Some(secret),
+                None,
+            )
+            .await
+            .map(|answer| {
+                answer["replies"]
+                    .as_array()
+                    .map(|list| list.iter().filter_map(|r| unhex(r.as_str()?)).collect())
+                    .unwrap_or_default()
+            }),
         )
     }
 
     /// Deletes mailbox `code`.
     pub async fn pair_close(&self, code: &str, secret: &str) -> Result<()> {
-        match call(self, "DELETE", &format!("/v2/pairs/{code}"), Some(secret), None).await {
+        match call(
+            self,
+            "DELETE",
+            &format!("/v2/pairs/{code}"),
+            Some(secret),
+            None,
+        )
+        .await
+        {
             Ok(_) | Err(Error::Service { status: 404, .. }) => Ok(()),
             Err(err) => Err(err),
         }
@@ -128,7 +148,15 @@ impl Service {
 
     /// Deletes slot `id`.
     pub async fn slot_clear(&self, id: &[u8; ID_LEN], proof: &str) -> Result<()> {
-        match call(self, "DELETE", &format!("/v2/slots/{}", hex(id)), Some(proof), None).await {
+        match call(
+            self,
+            "DELETE",
+            &format!("/v2/slots/{}", hex(id)),
+            Some(proof),
+            None,
+        )
+        .await
+        {
             Ok(_) | Err(Error::Service { status: 404, .. }) => Ok(()),
             Err(err) => Err(err),
         }
@@ -155,7 +183,15 @@ impl Service {
 
     /// Whether a core is publishing at `lookup` now.
     pub async fn is_publishing(&self, lookup: &[u8; ID_LEN]) -> Result<bool> {
-        match call(self, "HEAD", &format!("/v2/lookups/{}", hex(lookup)), None, None).await {
+        match call(
+            self,
+            "HEAD",
+            &format!("/v2/lookups/{}", hex(lookup)),
+            None,
+            None,
+        )
+        .await
+        {
             Ok(_) => Ok(true),
             Err(Error::Service { status: 404, .. }) => Ok(false),
             Err(err) => Err(err),

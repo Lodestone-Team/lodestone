@@ -72,7 +72,9 @@ fn message(receiver: &PublicKey, state: &State) -> Vec<u8> {
     let seq = state.seq.to_be_bytes();
     let issued = state.issued.to_be_bytes();
     let expires = state.expires.to_be_bytes();
-    let count = u32::try_from(state.cores.len()).unwrap_or(u32::MAX).to_be_bytes();
+    let count = u32::try_from(state.cores.len())
+        .unwrap_or(u32::MAX)
+        .to_be_bytes();
     let mut fields: Vec<&[u8]> = vec![
         &version,
         &receiver.0,
@@ -159,7 +161,8 @@ pub fn open_state(
 ) -> Result<State> {
     let bad = |what: &str| Error::Other(format!("A friend's state didn't check out ({what})."));
     let id = slot_id(pair, sender, me);
-    let bytes = crypto::open(pair, Role::State, &id, sealed).ok_or_else(|| bad("it couldn't be opened"))?;
+    let bytes =
+        crypto::open(pair, Role::State, &id, sealed).ok_or_else(|| bad("it couldn't be opened"))?;
     let wire: Wire = serde_json::from_slice(&bytes).map_err(|_| bad("garbled"))?;
     if wire.v != VERSION {
         return Err(bad("a newer version of Lodestone made it"));
@@ -179,7 +182,10 @@ pub fn open_state(
     if state.cores.len() > MAX_CORES
         || state.expires > state.issued.saturating_add(STATE_LIFETIME_SECS)
         || clean_name(&state.name) != state.name
-        || state.cores.iter().any(|core| clean_name(&core.name) != core.name)
+        || state
+            .cores
+            .iter()
+            .any(|core| clean_name(&core.name) != core.name)
     {
         return Err(bad("out of bounds"));
     }

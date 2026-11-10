@@ -319,21 +319,19 @@ pub fn find_friend(book: &Book, reference: &str) -> Result<String, FindError> {
         return Ok(friend.key.clone());
     }
     let lower = reference.to_lowercase();
-    let by_prefix: Vec<&Friend> = if lower.len() >= 8 && lower.chars().all(|c| c.is_ascii_hexdigit())
-    {
-        book.friends
-            .iter()
-            .filter(|f| f.key.starts_with(&lower))
-            .collect()
-    } else {
-        Vec::new()
-    };
+    let by_prefix: Vec<&Friend> =
+        if lower.len() >= 8 && lower.chars().all(|c| c.is_ascii_hexdigit()) {
+            book.friends
+                .iter()
+                .filter(|f| f.key.starts_with(&lower))
+                .collect()
+        } else {
+            Vec::new()
+        };
     let found: Vec<&Friend> = if by_prefix.is_empty() {
         book.friends
             .iter()
-            .filter(|f| {
-                f.display_name().to_lowercase() == lower || f.name.to_lowercase() == lower
-            })
+            .filter(|f| f.display_name().to_lowercase() == lower || f.name.to_lowercase() == lower)
             .collect()
     } else {
         by_prefix
@@ -487,7 +485,10 @@ impl Servers {
 
     /// Reads friends' states (confirming pending friends, dropping retired cores),
     /// checks which cores share now, and asks for answers to open friend links.
-    pub fn friend_refresh(&mut self, cx: &mut Context<Self>) -> Task<Result<RefreshReport, String>> {
+    pub fn friend_refresh(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<RefreshReport, String>> {
         self.friend_list.refreshing = true;
         cx.notify();
         let task = self.friend_op(cx, |friends| {
@@ -538,20 +539,14 @@ impl Servers {
             list.made = None;
         }
         let mut problems: Vec<String> = report.problems.clone();
-        problems.extend(
-            report
-                .refreshed
-                .problems
-                .iter()
-                .map(|(key, why)| {
-                    let name = list
-                        .snapshot
-                        .book
-                        .friend(key)
-                        .map_or_else(|| short(key).to_string(), |f| f.display_name().to_string());
-                    format!("{name}: {why}")
-                }),
-        );
+        problems.extend(report.refreshed.problems.iter().map(|(key, why)| {
+            let name = list
+                .snapshot
+                .book
+                .friend(key)
+                .map_or_else(|| short(key).to_string(), |f| f.display_name().to_string());
+            format!("{name}: {why}")
+        }));
         list.problem = (!problems.is_empty()).then(|| problems.join("; "));
         for fingerprint in &report.refreshed.dropped_cores {
             self.clear_friend_core_trust(fingerprint);
@@ -561,7 +556,9 @@ impl Servers {
         }
         for key in &report.refreshed.retired {
             self.clear_friend_trust(key);
-            self.friend_list.servers.retain(|(friend, _), _| friend != key);
+            self.friend_list
+                .servers
+                .retain(|(friend, _), _| friend != key);
         }
     }
 
@@ -609,7 +606,11 @@ impl Servers {
         cx.spawn(async move |_, _| task.await)
     }
 
-    pub fn friend_set_name(&mut self, name: String, cx: &mut Context<Self>) -> Task<Result<(), String>> {
+    pub fn friend_set_name(
+        &mut self,
+        name: String,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<(), String>> {
         self.friend_op(cx, move |friends| {
             async move {
                 friends.set_name(&name)?;
@@ -644,7 +645,11 @@ impl Servers {
         })
     }
 
-    pub fn friend_cancel_link(&mut self, code: String, cx: &mut Context<Self>) -> Task<Result<(), String>> {
+    pub fn friend_cancel_link(
+        &mut self,
+        code: String,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<(), String>> {
         let cancel = code.clone();
         let task = self.friend_op(cx, move |friends| {
             async move { friends.cancel_link(&cancel).await }.boxed_local()
@@ -653,7 +658,12 @@ impl Servers {
             let result = task.await;
             this.update(cx, |this, cx| {
                 this.friend_list.replies.retain(|r| r.code != code);
-                if this.friend_list.made.as_ref().is_some_and(|m| m.link.contains(&code)) {
+                if this
+                    .friend_list
+                    .made
+                    .as_ref()
+                    .is_some_and(|m| m.link.contains(&code))
+                {
                     this.friend_list.made = None;
                 }
                 cx.notify();
@@ -663,7 +673,10 @@ impl Servers {
         })
     }
 
-    pub fn friend_replies(&mut self, cx: &mut Context<Self>) -> Task<Result<Vec<LinkReply>, String>> {
+    pub fn friend_replies(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<Vec<LinkReply>, String>> {
         let task = self.friend_op(cx, |friends| {
             async move { friends.link_replies().await }.boxed_local()
         });
@@ -701,7 +714,12 @@ impl Servers {
                 if result.is_ok() {
                     // the link is used up: its other answers go with it
                     this.friend_list.replies.retain(|r| r.code != code);
-                    if this.friend_list.made.as_ref().is_some_and(|m| m.link.contains(&code)) {
+                    if this
+                        .friend_list
+                        .made
+                        .as_ref()
+                        .is_some_and(|m| m.link.contains(&code))
+                    {
                         this.friend_list.made = None;
                     }
                 }
@@ -712,7 +730,11 @@ impl Servers {
         })
     }
 
-    pub fn friend_preview(&mut self, link: String, cx: &mut Context<Self>) -> Task<Result<LinkPreview, String>> {
+    pub fn friend_preview(
+        &mut self,
+        link: String,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<LinkPreview, String>> {
         self.friend_op(cx, move |friends| {
             async move { friends.preview_link(&link).await }.boxed_local()
         })
@@ -720,7 +742,11 @@ impl Servers {
 
     /// Answers a friend link: its sender becomes a pending friend. Only after the
     /// person saw the card (the window's Add, or the control API with confirmation).
-    pub fn friend_answer(&mut self, link: String, cx: &mut Context<Self>) -> Task<Result<String, String>> {
+    pub fn friend_answer(
+        &mut self,
+        link: String,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<String, String>> {
         self.friend_op(cx, move |friends| {
             async move { friends.answer_link(&link).await }.boxed_local()
         })
@@ -760,7 +786,11 @@ impl Servers {
     }
 
     /// Removes a friend, and stops trusting the mods of their cores' servers.
-    pub fn friend_remove(&mut self, key: String, cx: &mut Context<Self>) -> Task<Result<(), String>> {
+    pub fn friend_remove(
+        &mut self,
+        key: String,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<(), String>> {
         let cores: Vec<String> = self
             .friend_list
             .friend(&key)
@@ -780,8 +810,12 @@ impl Servers {
                         this.clear_friend_core_trust(fingerprint);
                     }
                     this.friend_list.expanded.remove(&key);
-                    this.friend_list.presence.retain(|(friend, _), _| friend != &key);
-                    this.friend_list.servers.retain(|(friend, _), _| friend != &key);
+                    this.friend_list
+                        .presence
+                        .retain(|(friend, _), _| friend != &key);
+                    this.friend_list
+                        .servers
+                        .retain(|(friend, _), _| friend != &key);
                     cx.notify();
                 })
                 .ok();
@@ -815,7 +849,11 @@ impl Servers {
             let handle = opening.await?;
             // waits for any change in progress, then takes the list: nothing runs on it
             // after this
-            let friends = handle.lock().await.take().ok_or_else(|| RETIRED.to_string())?;
+            let friends = handle
+                .lock()
+                .await
+                .take()
+                .ok_or_else(|| RETIRED.to_string())?;
             let store = secrets.store(cx);
             let result = friends
                 .retire_identity(&*store, &data)
@@ -949,11 +987,15 @@ impl Servers {
             .iter()
             .map(|c| hex(&c.fingerprint))
             .filter(|fp| {
-                self.friend_list.presence.get(&(key.to_string(), fp.clone())) != Some(&false)
+                self.friend_list
+                    .presence
+                    .get(&(key.to_string(), fp.clone()))
+                    != Some(&false)
             })
             .collect();
         for fingerprint in cores {
-            self.friend_servers(key.to_string(), fingerprint, cx).detach();
+            self.friend_servers(key.to_string(), fingerprint, cx)
+                .detach();
         }
     }
 
@@ -1027,7 +1069,12 @@ impl Servers {
         .detach();
     }
 
-    fn set_name_state(&mut self, busy: bool, failure: Option<SharedString>, cx: &mut Context<Self>) {
+    fn set_name_state(
+        &mut self,
+        busy: bool,
+        failure: Option<SharedString>,
+        cx: &mut Context<Self>,
+    ) {
         match self.friend_list.dialog.current_mut().map(|p| &mut p.dialog) {
             Some(FriendDialog::Name { error, saving, .. }) => {
                 *error = failure;
@@ -1293,7 +1340,12 @@ impl Servers {
     }
 
     pub fn open_friend_verify(&mut self, key: &str, cx: &mut Context<Self>) {
-        self.friend_dialog(FriendDialog::Verify { key: key.to_string() }, cx);
+        self.friend_dialog(
+            FriendDialog::Verify {
+                key: key.to_string(),
+            },
+            cx,
+        );
     }
 
     /// "Codes match" in the compare dialog.
@@ -1362,8 +1414,11 @@ impl Servers {
 
     /// "Remove friend" in the confirmation.
     pub fn confirm_friend_remove(&mut self, cx: &mut Context<Self>) {
-        let Some(FriendDialog::Remove { key, removing, error }) =
-            self.friend_list.dialog.current_mut().map(|p| &mut p.dialog)
+        let Some(FriendDialog::Remove {
+            key,
+            removing,
+            error,
+        }) = self.friend_list.dialog.current_mut().map(|p| &mut p.dialog)
         else {
             return;
         };
@@ -1379,8 +1434,9 @@ impl Servers {
             this.update(cx, |this, cx| match result {
                 Ok(()) => this.close_friend_dialog(cx),
                 Err(err) => {
-                    if let Some(FriendDialog::Remove { removing, error, .. }) =
-                        this.friend_list.dialog.current_mut().map(|p| &mut p.dialog)
+                    if let Some(FriendDialog::Remove {
+                        removing, error, ..
+                    }) = this.friend_list.dialog.current_mut().map(|p| &mut p.dialog)
                     {
                         *removing = false;
                         *error = Some(err.into());
@@ -1438,8 +1494,9 @@ impl Servers {
             this.update(cx, |this, cx| match result {
                 Ok(_) => this.close_friend_dialog(cx),
                 Err(err) => {
-                    if let Some(FriendDialog::Retire { retiring, error, .. }) =
-                        this.friend_list.dialog.current_mut().map(|p| &mut p.dialog)
+                    if let Some(FriendDialog::Retire {
+                        retiring, error, ..
+                    }) = this.friend_list.dialog.current_mut().map(|p| &mut p.dialog)
                     {
                         *retiring = false;
                         *error = Some(err.into());
@@ -1492,14 +1549,21 @@ impl Servers {
     }
 
     /// Opens one of the friend list's dialogs with made-up content.
-    pub fn preview_friend_dialog(&mut self, which: &str, add: PreviewAddFriend, cx: &mut Context<Self>) {
+    pub fn preview_friend_dialog(
+        &mut self,
+        which: &str,
+        add: PreviewAddFriend,
+        cx: &mut Context<Self>,
+    ) {
         match which {
             "add" => {
                 self.open_add_friend(None, cx);
                 if let PreviewAddFriend::Preview { link, preview } = add
                     && let Some(state) = self.add_state()
                 {
-                    state.input.update(cx, |input, cx| input.set_text(link.clone(), cx));
+                    state
+                        .input
+                        .update(cx, |input, cx| input.set_text(link.clone(), cx));
                     state.preview = Some((link, preview));
                 }
             }
@@ -1602,8 +1666,10 @@ mod tests {
     fn a_friend_is_online_when_any_core_shares() {
         let mut alex = friend(&"ab".repeat(32), "Alex", None);
         let core = |byte: u8| {
-            serde_json::from_value(serde_json::json!({ "fingerprint": hex(&[byte; 32]), "name": "PC" }))
-                .unwrap()
+            serde_json::from_value(
+                serde_json::json!({ "fingerprint": hex(&[byte; 32]), "name": "PC" }),
+            )
+            .unwrap()
         };
         alex.status = Status::Active;
         alex.state = Some(FriendState {

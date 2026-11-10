@@ -20,7 +20,10 @@ use lodestone_connect::{
         host::{CoreIdentity, FriendAccess, FriendHandler, FriendHost, FriendHostConfig},
         join::{is_online, join_friend, FriendCore},
         pair::{answer, open_card, FriendLink, Invitation},
-        state::{open_state, seal_state, slot_id, slot_proof, slot_proof_hash, State, StateCore, STATE_LIFETIME_SECS},
+        state::{
+            open_state, seal_state, slot_id, slot_proof, slot_proof_hash, State, StateCore,
+            STATE_LIFETIME_SECS,
+        },
     },
     host::pipe,
     join::JoinOptions,
@@ -46,7 +49,10 @@ fn options() -> JoinOptions {
 }
 
 fn now() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs()
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
 }
 
 async fn echo_server() -> SocketAddr {
@@ -141,25 +147,51 @@ async fn friends_pair_and_join_without_links() {
     // --- pairing through the mailbox
     let (mut invitation, card) = Invitation::create(&ana, "Ana", service.clone(), now()).unwrap();
     let link = invitation.link.clone();
-    invitation.mailbox_secret = Some(service.pair_open(&link.code, &link.access_hash(), &card).await.unwrap());
+    invitation.mailbox_secret = Some(
+        service
+            .pair_open(&link.code, &link.access_hash(), &card)
+            .await
+            .unwrap(),
+    );
 
     let opened = FriendLink::parse(&link.link()).unwrap();
-    let sealed = service.pair_card(&opened.code, &opened.access()).await.unwrap().expect("a card");
+    let sealed = service
+        .pair_card(&opened.code, &opened.access())
+        .await
+        .unwrap()
+        .expect("a card");
     let card = open_card(&opened, &sealed, now()).unwrap();
     assert_eq!(card.key, ana.public());
     let reply = answer(&ben, "Ben", &opened, &card).unwrap();
-    assert_eq!(service.pair_reply(&opened.code, &opened.access(), &reply.sealed).await.unwrap(), 1);
+    assert_eq!(
+        service
+            .pair_reply(&opened.code, &opened.access(), &reply.sealed)
+            .await
+            .unwrap(),
+        1
+    );
     // the wrong access is refused
-    assert!(service.pair_card(&opened.code, &"0".repeat(64)).await.is_err());
+    assert!(service
+        .pair_card(&opened.code, &"0".repeat(64))
+        .await
+        .is_err());
 
     let secret = invitation.mailbox_secret.clone().unwrap();
-    let replies = service.pair_replies(&link.code, &secret).await.unwrap().unwrap();
+    let replies = service
+        .pair_replies(&link.code, &secret)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(replies.len(), 1);
     let checked = invitation.open_reply(&ana.public(), &replies[0]).unwrap();
     let pair = invitation.accept(&checked).unwrap();
     assert_eq!(pair, reply.pair);
     service.pair_close(&link.code, &secret).await.unwrap();
-    assert!(service.pair_card(&opened.code, &opened.access()).await.unwrap().is_none());
+    assert!(service
+        .pair_card(&opened.code, &opened.access())
+        .await
+        .unwrap()
+        .is_none());
 
     // --- Ana's core, and her state naming it, through her slot for Ben
     let identity = CoreIdentity::generate().unwrap();
@@ -169,14 +201,21 @@ async fn friends_pair_and_join_without_links() {
         issued: now(),
         expires: now() + STATE_LIFETIME_SECS,
         name: "Ana".into(),
-        cores: vec![StateCore { fingerprint, name: "Ana's PC".into() }],
+        cores: vec![StateCore {
+            fingerprint,
+            name: "Ana's PC".into(),
+        }],
         retired: false,
     };
     let id = slot_id(&pair, &ana.public(), &ben.public());
     let proof = slot_proof(&pair, &ana.public(), &ben.public());
     assert_eq!(slot_proof_hash(&proof).len(), 64);
     service
-        .slot_write(&id, &proof, &seal_state(&ana, &ben.public(), &pair, &state).unwrap())
+        .slot_write(
+            &id,
+            &proof,
+            &seal_state(&ana, &ben.public(), &pair, &state).unwrap(),
+        )
         .await
         .unwrap();
     // Ben can't overwrite Ana's slot with a proof of his own
@@ -190,20 +229,35 @@ async fn friends_pair_and_join_without_links() {
     let secret_for_ben = core_secret(&pair, &ana.public(), &ben.public(), &fingerprint);
     let host = FriendHost::start(
         &identity,
-        vec![FriendAccess { key: ben.public(), secret: secret_for_ben.clone() }],
-        FriendHostConfig { service: service.clone(), gather: LOOPBACK },
-        Streams { friend: ben.public(), game: echo_server().await },
+        vec![FriendAccess {
+            key: ben.public(),
+            secret: secret_for_ben.clone(),
+        }],
+        FriendHostConfig {
+            service: service.clone(),
+            gather: LOOPBACK,
+        },
+        Streams {
+            friend: ben.public(),
+            game: echo_server().await,
+        },
     )
     .await
     .unwrap();
-    let core = FriendCore { fingerprint: got.cores[0].fingerprint, secret: core_secret(&pair, &ana.public(), &ben.public(), &fingerprint) };
+    let core = FriendCore {
+        fingerprint: got.cores[0].fingerprint,
+        secret: core_secret(&pair, &ana.public(), &ben.public(), &fingerprint),
+    };
     for _ in 0..50 {
         if is_online(&service, &core).await.unwrap() {
             break;
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
-    assert!(is_online(&service, &core).await.unwrap(), "Ana's core shows as online");
+    assert!(
+        is_online(&service, &core).await.unwrap(),
+        "Ana's core shows as online"
+    );
 
     // Strangers get silence: a QUIC handshake to the core before any knock gets no answer.
     let core_addr = host.status().candidates[0].addr;
@@ -264,13 +318,25 @@ async fn a_core_publishes_again_after_its_session_ends() {
     let secret = core_secret(&pair, &ana.public(), &ben.public(), &fingerprint);
     let host = FriendHost::start(
         &identity,
-        vec![FriendAccess { key: ben.public(), secret: secret.clone() }],
-        FriendHostConfig { service: service.clone(), gather: LOOPBACK },
-        Streams { friend: ben.public(), game: echo_server().await },
+        vec![FriendAccess {
+            key: ben.public(),
+            secret: secret.clone(),
+        }],
+        FriendHostConfig {
+            service: service.clone(),
+            gather: LOOPBACK,
+        },
+        Streams {
+            friend: ben.public(),
+            game: echo_server().await,
+        },
     )
     .await
     .unwrap();
-    let core = FriendCore { fingerprint, secret };
+    let core = FriendCore {
+        fingerprint,
+        secret,
+    };
     let online = |want: bool| {
         let service = service.clone();
         let core = core.clone();
@@ -293,8 +359,11 @@ async fn a_core_publishes_again_after_its_session_ends() {
     assert_eq!(second.len(), 1);
     assert_ne!(second, first);
     let joined = join_friend(&service, &ben, &core, options()).await.unwrap();
-    assert_eq!(echo_through(&joined).await, b"hello
-");
+    assert_eq!(
+        echo_through(&joined).await,
+        b"hello
+"
+    );
     host.stop().await;
 }
 
@@ -309,12 +378,14 @@ async fn quinn_attempt(addr: SocketAddr, fingerprint: [u8; 32]) -> Result<(), St
     )
     .unwrap();
     let _ = fingerprint;
-    let crypto = rustls::ClientConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
-        .with_protocol_versions(&[&rustls::version::TLS13])
-        .unwrap()
-        .dangerous()
-        .with_custom_certificate_verifier(Arc::new(AnyCert))
-        .with_no_client_auth();
+    let crypto = rustls::ClientConfig::builder_with_provider(Arc::new(
+        rustls::crypto::ring::default_provider(),
+    ))
+    .with_protocol_versions(&[&rustls::version::TLS13])
+    .unwrap()
+    .dangerous()
+    .with_custom_certificate_verifier(Arc::new(AnyCert))
+    .with_no_client_auth();
     let mut crypto = crypto;
     crypto.alpn_protocols = vec![b"lodestone-friend-1".to_vec()];
     endpoint.set_default_client_config(quinn::ClientConfig::new(Arc::new(
@@ -388,13 +459,25 @@ async fn one_friends_removal_and_misbehaviour_leave_the_others_alone() {
     let host = FriendHost::start(
         &identity,
         vec![access(&ben, &for_ben), access(&dee, &for_dee)],
-        FriendHostConfig { service: service.clone(), gather: LOOPBACK },
-        Streams { friend: dee.public(), game: echo_server().await },
+        FriendHostConfig {
+            service: service.clone(),
+            gather: LOOPBACK,
+        },
+        Streams {
+            friend: dee.public(),
+            game: echo_server().await,
+        },
     )
     .await
     .unwrap();
-    let ben_core = FriendCore { fingerprint, secret: for_ben.clone() };
-    let dee_core = FriendCore { fingerprint, secret: for_dee.clone() };
+    let ben_core = FriendCore {
+        fingerprint,
+        secret: for_ben.clone(),
+    };
+    let dee_core = FriendCore {
+        fingerprint,
+        secret: for_dee.clone(),
+    };
     for _ in 0..50 {
         if is_online(&service, &dee_core).await.unwrap() {
             break;
@@ -403,25 +486,41 @@ async fn one_friends_removal_and_misbehaviour_leave_the_others_alone() {
     }
 
     // an invite stream (kind 0) on a friend connection closes it
-    let joined = join_friend(&service, &dee, &dee_core, options()).await.unwrap();
+    let joined = join_friend(&service, &dee, &dee_core, options())
+        .await
+        .unwrap();
     let mut invite_kind = joined.open_raw(&[0u8; 17]).await.unwrap();
     let _ = invite_kind.write_all(b"x").await;
-    tokio::time::timeout(Duration::from_secs(10), joined.closed()).await.expect("closed");
+    tokio::time::timeout(Duration::from_secs(10), joined.closed())
+        .await
+        .expect("closed");
 
     // so does a second hello
-    let joined = join_friend(&service, &dee, &dee_core, options()).await.unwrap();
+    let joined = join_friend(&service, &dee, &dee_core, options())
+        .await
+        .unwrap();
     let mut again = joined.open_raw(&[3u8; 97]).await.unwrap();
     let _ = again.write_all(b"x").await;
-    tokio::time::timeout(Duration::from_secs(10), joined.closed()).await.expect("closed");
+    tokio::time::timeout(Duration::from_secs(10), joined.closed())
+        .await
+        .expect("closed");
 
     // one friend gets at most MAX_CONNECTIONS_PER_FRIEND connections
     let mut held = Vec::new();
     for _ in 0..lodestone_connect::friend::host::MAX_CONNECTIONS_PER_FRIEND {
-        held.push(join_friend(&service, &dee, &dee_core, options()).await.unwrap());
+        held.push(
+            join_friend(&service, &dee, &dee_core, options())
+                .await
+                .unwrap(),
+        );
     }
-    assert!(join_friend(&service, &dee, &dee_core, options()).await.is_err());
+    assert!(join_friend(&service, &dee, &dee_core, options())
+        .await
+        .is_err());
     // ... and Ben still gets in
-    let ben_joined = join_friend(&service, &ben, &ben_core, options()).await.unwrap();
+    let ben_joined = join_friend(&service, &ben, &ben_core, options())
+        .await
+        .unwrap();
     drop(held);
 
     // removing Ben closes his connection and stops his record; Dee is unaffected
@@ -437,7 +536,9 @@ async fn one_friends_removal_and_misbehaviour_leave_the_others_alone() {
     }
     assert!(!is_online(&service, &ben_core).await.unwrap());
     assert!(is_online(&service, &dee_core).await.unwrap());
-    let dee_joined = join_friend(&service, &dee, &dee_core, options()).await.unwrap();
+    let dee_joined = join_friend(&service, &dee, &dee_core, options())
+        .await
+        .unwrap();
     assert_eq!(echo_through(&dee_joined).await, b"hello\n");
 
     // unsharing with Dee closes her connections at once

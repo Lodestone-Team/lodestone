@@ -60,7 +60,10 @@ pub const FRIEND_LIST_PREFIX: &str = "friend:";
 /// The id of the server `instance` on a friend's core whose friend certificate has
 /// `fingerprint` (hex): `friend:<fingerprint>/<instance>`.
 pub fn friend_list_id(fingerprint: &str, instance: &str) -> String {
-    format!("{FRIEND_LIST_PREFIX}{}/{instance}", fingerprint.to_ascii_lowercase())
+    format!(
+        "{FRIEND_LIST_PREFIX}{}/{instance}",
+        fingerprint.to_ascii_lowercase()
+    )
 }
 
 /// The core fingerprint (hex) and instance of a [`friend_list_id`].
@@ -456,8 +459,7 @@ impl FriendsFile {
         let fingerprint = fingerprint.to_ascii_lowercase();
         let mut changed = false;
         for entry in &mut self.friends {
-            let on_core =
-                parse_friend_list_id(&entry.id).is_some_and(|(fp, _)| fp == fingerprint);
+            let on_core = parse_friend_list_id(&entry.id).is_some_and(|(fp, _)| fp == fingerprint);
             if on_core && entry.trusted_as.is_some() {
                 entry.set_trusted(false);
                 changed = true;
@@ -860,7 +862,9 @@ mod tests {
         assert_eq!(id, format!("friend:{}/server", "ab".repeat(32)));
         assert!(is_friend_id(&id));
         assert!(is_friend_list_id(&id));
-        assert!(!is_friend_list_id("connect:connect.lodestone.cc/ABCDEFGH23"));
+        assert!(!is_friend_list_id(
+            "connect:connect.lodestone.cc/ABCDEFGH23"
+        ));
         let lower = "ab".repeat(32);
         assert_eq!(parse_friend_list_id(&id), Some((lower.as_str(), "server")));
         assert_eq!(parse_friend_list_id("friend:short/server"), None);
@@ -905,7 +909,10 @@ mod tests {
         assert!(!file.friends[1].trusts_pack(Some("pack-2")));
         assert!(!file.friends[1].trusts_pack(None));
         file.friends[1].trust_pack(None);
-        assert!(!file.friends[1].trusts_pack(None), "a pack without an ETag isn't trusted");
+        assert!(
+            !file.friends[1].trusts_pack(None),
+            "a pack without an ETag isn't trusted"
+        );
         // an invite's server keeps trusting any pack under its certificate
         assert!(file.friends[0].trusts_pack(Some("anything")));
         assert!(file.friends[0].trusts_pack(None));

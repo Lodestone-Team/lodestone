@@ -111,7 +111,8 @@ impl CoreIdentity {
     }
 
     pub fn from_json(text: &str) -> Result<Self> {
-        let bad = |what: &str| Error::Other(format!("The saved friend certificate is damaged ({what})"));
+        let bad =
+            |what: &str| Error::Other(format!("The saved friend certificate is damaged ({what})"));
         let file: IdentityFile = serde_json::from_str(text).map_err(|_| bad("not JSON"))?;
         if file.version != 1 {
             return Err(bad("unknown version"));
@@ -408,15 +409,23 @@ impl FriendHost {
             task.abort();
         }
         let abort = service.abort_handle();
-        if tokio::time::timeout(Duration::from_secs(5), service).await.is_err() {
+        if tokio::time::timeout(Duration::from_secs(5), service)
+            .await
+            .is_err()
+        {
             abort.abort();
         }
         let mapping = self.shared.mapping.lock().expect("not poisoned").take();
         if let Some(mapping) = mapping {
             let _ = tokio::task::spawn_blocking(move || mapping.remove()).await;
         }
-        self.shared.connections.lock().expect("not poisoned").clear();
-        self.shared.update(|status| status.state = HostState::Stopped);
+        self.shared
+            .connections
+            .lock()
+            .expect("not poisoned")
+            .clear();
+        self.shared
+            .update(|status| status.state = HostState::Stopped);
     }
 }
 
@@ -437,7 +446,14 @@ impl Drop for FriendHost {
 // The service
 
 /// Each friend's records for now, and which friend each lookup id belongs to.
-fn records(shared: &Shared, now: u64) -> (Vec<([u8; ID_LEN], Vec<u8>)>, HashMap<[u8; ID_LEN], PublicKey>, Duration) {
+fn records(
+    shared: &Shared,
+    now: u64,
+) -> (
+    Vec<([u8; ID_LEN], Vec<u8>)>,
+    HashMap<[u8; ID_LEN], PublicKey>,
+    Duration,
+) {
     let friends = shared.friends.lock().expect("not poisoned");
     let mut records = Vec::new();
     let mut index = HashMap::new();
@@ -452,7 +468,9 @@ fn records(shared: &Shared, now: u64) -> (Vec<([u8; ID_LEN], Vec<u8>)>, HashMap<
                 Err(err) => tracing::debug!("friends: couldn't seal a record: {err}"),
             }
         }
-        renew = renew.min(Duration::from_secs(meet::secs_to_republish(secret, now).max(1)));
+        renew = renew.min(Duration::from_secs(
+            meet::secs_to_republish(secret, now).max(1),
+        ));
     }
     (records, index, renew)
 }
@@ -472,7 +490,12 @@ async fn service_loop(shared: Arc<Shared>, sprayer: UdpSocket, mut stop: watch::
         }
         let now = now_secs();
         let (records, index, renew) = records(&shared, now);
-        shared.update(|status| status.publishing = index.values().collect::<std::collections::HashSet<_>>().len());
+        shared.update(|status| {
+            status.publishing = index
+                .values()
+                .collect::<std::collections::HashSet<_>>()
+                .len()
+        });
         if records.is_empty() {
             if let Some(old) = session.take() {
                 let _ = shared.service.meet_close(&old).await;
@@ -491,7 +514,9 @@ async fn service_loop(shared: Arc<Shared>, sprayer: UdpSocket, mut stop: watch::
         let published = match &session {
             Some(open) => match shared.service.meet_update(open, &records).await {
                 Ok(()) => Ok(()),
-                Err(Error::Service { status: 403 | 404, .. }) => {
+                Err(Error::Service {
+                    status: 403 | 404, ..
+                }) => {
                     session = None;
                     watch = None;
                     continue;
@@ -511,7 +536,11 @@ async fn service_loop(shared: Arc<Shared>, sprayer: UdpSocket, mut stop: watch::
             Ok(()) => {}
             // The service refused these records (too many friends, too large): trying
             // again won't help. Say so, and wait for the friend list to change.
-            Err(err @ Error::Service { status: 400 | 413, .. }) => {
+            Err(
+                err @ Error::Service {
+                    status: 400 | 413, ..
+                },
+            ) => {
                 tracing::warn!("friends: the service refused the records: {err}");
                 shared.update(|status| {
                     status.state = HostState::Reconnecting;
@@ -597,7 +626,13 @@ fn on_knock(
     let Some(key) = index.get(&delivered.lookup) else {
         return;
     };
-    let Some(secret) = shared.friends.lock().expect("not poisoned").get(key).cloned() else {
+    let Some(secret) = shared
+        .friends
+        .lock()
+        .expect("not poisoned")
+        .get(key)
+        .cloned()
+    else {
         return;
     };
     let Some(knock) = meet::open_knock(&secret, &delivered.lookup, &delivered.sealed) else {
@@ -625,7 +660,13 @@ fn on_knock(
         let tag = probe_tag(&secret, &knock.id);
         sprays.push_back((
             *key,
-            tokio::spawn(probe::spray(socket, knock.candidates, tag, SPRAY_FOR, stop.clone())),
+            tokio::spawn(probe::spray(
+                socket,
+                knock.candidates,
+                tag,
+                SPRAY_FOR,
+                stop.clone(),
+            )),
         ));
     }
 }
@@ -669,7 +710,11 @@ async fn portmap_loop(shared: Arc<Shared>, mut stop: watch::Receiver<bool>) {
 // ---------------------------------------------------------------------------
 // Connections
 
-async fn accept_loop(endpoint: quinn::Endpoint, shared: Arc<Shared>, handler: Arc<dyn FriendHandler>) {
+async fn accept_loop(
+    endpoint: quinn::Endpoint,
+    shared: Arc<Shared>,
+    handler: Arc<dyn FriendHandler>,
+) {
     let unproven = Arc::new(AtomicUsize::new(0));
     while let Some(incoming) = endpoint.accept().await {
         // Silence for anyone without an accepted knock: not even a retry or a refusal,

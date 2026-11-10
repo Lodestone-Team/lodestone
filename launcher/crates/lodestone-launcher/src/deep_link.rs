@@ -131,7 +131,9 @@ mod tests {
         assert!(is_link(&deep));
         assert!(is_friend_link(&deep));
         // an invite, a broken friend link and a deep link inside a deep link aren't
-        assert!(!is_friend_link("https://connect.lodestone.cc/j/ABCDEFGH23#ab.cd"));
+        assert!(!is_friend_link(
+            "https://connect.lodestone.cc/j/ABCDEFGH23#ab.cd"
+        ));
         assert!(!is_friend_link("https://connect.lodestone.cc/f/ABC#00.11"));
         let nested = format!("lodestone://friend?link={}", url_encode(&deep));
         assert!(!is_friend_link(&nested));
