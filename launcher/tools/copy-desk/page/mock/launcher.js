@@ -822,9 +822,9 @@
     };
     const other = S.otherCores;
     return h("div.lx-main", h("div.lx-page", { "data-mk-scroll": "lx-host" },
-      h("div.lx-pagehead", h("div.lx-grow", h("h1.lx-h1.lx-h1-chillax", sv("ServersTitle")), h("div.lx-sub", sv("PageHint"))), pbtn(sv("AddServer"), () => ctx.open("addServer"), "plus")),
+      h("div.lx-pagehead", h("div.lx-grow", h("h1.lx-h1.lx-h1-chillax", sv("ServersTitle")))),
       banners[S.hostMsg] ? banners[S.hostMsg]() : null,
-      h("div.lx-areah", h("div.lx-grow", h("div.lx-areah-t", sv("OnThisComputer")), h("div.lx-areah-s", sv("OnThisComputerHint"))), gbtn(sv("Rescan"))),
+      h("div.lx-areah", h("div.lx-grow", h("div.lx-areah-t", sv("OnThisComputer"))), gbtn(sv("Rescan"))),
       localCore(ctx),
       friendsSection(ctx),
       h("div.lx-hostsec", h("div.lx-hostsec-h", ic("user"), h("div.lx-grow", h("div.lx-hostsec-t", sv("FriendsTitle"), S.relay === "dev" ? h("span", { style: { color: "var(--yellow)", fontFamily: "Satoshi", fontSize: "13px", marginLeft: "10px" } }, sh("ConnectServiceInUse", { service: "connect-dev.lodestone.cc" })) : null), h("div.lx-hostsec-s", sv("FriendsHint"))),
@@ -834,7 +834,7 @@
           h("div.lx-srvrow", dot("off"), h("div.lx-grow", h("div.lx-srvrow-n", tx("Sam's survival")), h("div.lx-row-s", sv("SharedBy", { name: "Sam's Core" }))), btn(sv("FriendCheck"), { sm: true }), h("span.lx-muted", sv("FriendChecking")), gbtn(sv("StopTrusting"))),
           h("div.lx-srvrow", dot("on"), h("div.lx-grow", h("div.lx-srvrow-n", tx("Survival SMP")), h("div.lx-row-s", sv("SharedBy", { name: "Peter's Lodestone Core" }), sep(), sv("DirectConnection"))), pbtn(sv("Play")))]
           : h("div.lx-srvrow.lx-muted", sv("NoFriendsYet"))),
-      h("div.lx-areah", h("div.lx-grow", h("div.lx-areah-t", sv("OtherCoresTitle")), h("div.lx-areah-s", sv("OtherCoresHint")))),
+      h("div.lx-areah", h("div.lx-grow", h("div.lx-areah-t", sv("OtherCoresTitle")), h("div.lx-areah-s", sv("OtherCoresHint"))), gbtn(sv("AddServer"), () => ctx.open("addServer"), "plus")),
       other === "none" ? empty("server", sv("NoOtherCores"), sv("NoServersHint"), [pbtn(sv("AddServer"), () => ctx.open("addServer"), "plus")]) : [
         h("div.lx-corebox", h("div.lx-core", h("span.lx-ibtn", { style: { width: "38px", height: "38px", border: 0, background: "var(--g700)" } }, ic("server")),
           h("div.lx-grow", h("div.lx-core-n", tx("Alex's server box")), h("div.lx-core-s", tx("https://192.168.1.42:16662"), sep(), other === "signedIn" ? sv("SignedInAs", { username: "peter" }) : sv("NotSignedIn"))),

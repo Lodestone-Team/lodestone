@@ -3,11 +3,7 @@ use crate::i18n::{ServersMsg as M, ServersPlural as P};
 pub fn text(message: M) -> &'static str {
     match message {
         M::ServersTitle => "Lodestone Host",
-        M::PageHint => "你的 Lodestone 核心上的伺服器。建立與其中一個相符的實例，然後在上面遊玩。",
         M::OnThisComputer => "這台電腦上",
-        M::OnThisComputerHint => {
-            "在這裡執行的 Lodestone Host 和 Lodestone Core。以擁有者身分連線時，啟動器會證明它能存取核心的檔案，因此不需要密碼。"
-        }
         M::Rescan => "重新掃描",
         M::ScanningLocal => "正在尋找這台電腦上的核心…",
         M::NoLocalCores => "這台電腦上沒有正在執行的 Lodestone Host 或 Lodestone Core。",
@@ -47,7 +43,7 @@ pub fn text(message: M) -> &'static str {
         }
         M::ClaimFiles => "無法使用核心的資料夾：{error}",
         M::ClaimInvalid => "核心傳送了 Lodestone Launcher 無法理解的內容：{error}",
-        M::AddServer => "新增伺服器",
+        M::AddServer => "新增主機",
         M::Dismiss => "關閉",
         M::OtherCoresTitle => "其他核心",
         M::OtherCoresHint => "你依位址新增的其他電腦上的核心：你自己的，或朋友的。",

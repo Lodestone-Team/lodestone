@@ -3,13 +3,7 @@ use crate::i18n::{ServersMsg as M, ServersPlural as P};
 pub fn text(message: M) -> &'static str {
     match message {
         M::ServersTitle => "Lodestone Host",
-        M::PageHint => {
-            "Les serveurs de vos Lodestone Cores. Créez une instance qui correspond à l’un d’eux, puis jouez dessus."
-        }
         M::OnThisComputer => "Sur cet ordinateur",
-        M::OnThisComputerHint => {
-            "Lodestone Host et Lodestone Core qui tournent ici. Se connecter en tant que propriétaire prouve que ce lanceur peut accéder aux fichiers du core\u{202F}: aucun mot de passe n’est nécessaire."
-        }
         M::Rescan => "Rechercher à nouveau",
         M::ScanningLocal => "Recherche de cores sur cet ordinateur…",
         M::NoLocalCores => "Aucun Lodestone Host ni Lodestone Core ne tourne sur cet ordinateur.",
@@ -57,7 +51,7 @@ pub fn text(message: M) -> &'static str {
         M::ClaimInvalid => {
             "Le core a envoyé quelque chose que Lodestone Launcher ne comprend pas\u{a0}: {error}"
         }
-        M::AddServer => "Ajouter un serveur",
+        M::AddServer => "Ajouter un hôte",
         M::Dismiss => "Masquer",
         M::OtherCoresTitle => "Autres cores",
         M::OtherCoresHint => {

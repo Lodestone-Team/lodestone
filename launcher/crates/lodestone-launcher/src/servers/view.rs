@@ -981,12 +981,7 @@ impl Servers {
             .flex_col()
             .gap_2()
             .child(
-                section_header(
-                    "local-cores-title",
-                    t(M::OnThisComputer),
-                    t(M::OnThisComputerHint),
-                )
-                .child(
+                section_header("local-cores-title", t(M::OnThisComputer), None).child(
                     Button::new("rescan-local", t(M::Rescan))
                         .size(ButtonSize::Slim)
                         .variant(ButtonVariant::Ghost)
@@ -1021,18 +1016,26 @@ impl Servers {
     }
 
     /// "Other cores": those added by address, on other computers, with a neutral look.
-    fn render_other(&self, cards: Vec<AnyElement>) -> AnyElement {
+    fn render_other(&self, cards: Vec<AnyElement>, cx: &mut Context<Self>) -> AnyElement {
         let empty = cards.is_empty();
         div()
             .id("other-cores")
             .flex()
             .flex_col()
             .gap_2()
-            .child(section_header(
-                "other-cores-title",
-                t(M::OtherCoresTitle),
-                t(M::OtherCoresHint),
-            ))
+            .child(
+                section_header(
+                    "other-cores-title",
+                    t(M::OtherCoresTitle),
+                    Some(t(M::OtherCoresHint)),
+                )
+                .child(
+                    Button::new("add-server", t(M::AddServer))
+                        .size(ButtonSize::Slim)
+                        .icon(Icon::Plus)
+                        .on_click(cx.listener(|this, _, _, cx| this.open_add(None, cx))),
+                ),
+            )
             .when(empty, |this| {
                 this.child(
                     div()
@@ -1078,7 +1081,7 @@ enum Place<'a> {
 }
 
 /// A section's title, its hint under it, and room on the right for buttons.
-fn section_header(id: &'static str, title: &'static str, hint: &'static str) -> gpui::Div {
+fn section_header(id: &'static str, title: &'static str, hint: Option<&'static str>) -> gpui::Div {
     div().flex().flex_row().items_center().gap_3().child(
         div()
             .flex()
@@ -1097,7 +1100,7 @@ fn section_header(id: &'static str, title: &'static str, hint: &'static str) -> 
                     .text_color(crate::theme::ink::text())
                     .child(title),
             )
-            .child(small(hint).text_color(crate::theme::ink::muted())),
+            .children(hint.map(|hint| small(hint).text_color(crate::theme::ink::muted()))),
     )
 }
 
@@ -1317,37 +1320,20 @@ impl Render for Servers {
             .py_6()
             .gap_4()
             .child(
-                div()
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .gap_4()
-                    .child(
+                div().flex().flex_row().items_center().gap_4().child(
+                    div().flex().flex_col().flex_1().min_w_0().child(
                         div()
-                            .flex()
-                            .flex_col()
-                            .flex_1()
-                            .min_w_0()
-                            .child(
-                                div()
-                                    .id("servers-title")
-                                    .role(Role::Heading)
-                                    .aria_level(1)
-                                    .aria_label(t(M::ServersTitle))
-                                    .font_family(fonts::heading())
-                                    .text_size(theme::text_size(text::H1))
-                                    .font_weight(weights::BOLD.into())
-                                    .text_color(crate::theme::ink::text())
-                                    .child(t(M::ServersTitle)),
-                            )
-                            .child(small(t(M::PageHint)).text_color(crate::theme::ink::muted())),
-                    )
-                    .child(
-                        Button::new("add-server", t(M::AddServer))
-                            .variant(ButtonVariant::Primary)
-                            .icon(Icon::Plus)
-                            .on_click(cx.listener(|this, _, _, cx| this.open_add(None, cx))),
+                            .id("servers-title")
+                            .role(Role::Heading)
+                            .aria_level(1)
+                            .aria_label(t(M::ServersTitle))
+                            .font_family(fonts::heading())
+                            .text_size(theme::text_size(text::H1))
+                            .font_weight(weights::BOLD.into())
+                            .text_color(crate::theme::ink::text())
+                            .child(t(M::ServersTitle)),
                     ),
+                ),
             )
             .children(self.notice.as_ref().map(|notice| {
                 let (title, message) = notice.text();
@@ -1395,7 +1381,7 @@ impl Render for Servers {
             .child(self.render_local(local_cards, cx))
             .child(self.render_friend_list(cx))
             .child(self.render_friends(cx))
-            .child(self.render_other(other_cards))
+            .child(self.render_other(other_cards, cx))
             .child(self.render_lan(cx))
             .into_any_element()
     }

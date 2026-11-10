@@ -8,10 +8,8 @@ crate::i18n::messages! {
         // ===== The page =====
         /// The page's title, and the back button on a server's page.
         ServersTitle = "Lodestone Host",
-        PageHint = "Servers on your Lodestone cores. Create an instance that matches one, then play on it.",
         /// "On this computer": cores found here, and "Connect as owner".
         OnThisComputer = "On this computer",
-        OnThisComputerHint = "Lodestone Host and Lodestone Core running here. Connecting as owner proves this launcher can reach the core's files, so no password is needed.",
         Rescan = "Rescan",
         ScanningLocal = "Looking for cores on this computer…",
         NoLocalCores = "No Lodestone Host or Lodestone Core is running on this computer.",
@@ -44,7 +42,7 @@ crate::i18n::messages! {
         ClaimFiles = "Couldn't use the core's data folder: {error}",
         ClaimInvalid = "The core sent something Lodestone Launcher doesn't understand: {error}",
         /// The button (and dialog title) that adds a core by its address.
-        AddServer = "Add server",
+        AddServer = "Add host",
         /// Closes the message at the top of the page.
         Dismiss = "Dismiss",
         /// "Other cores": cores added by address, on other computers.
