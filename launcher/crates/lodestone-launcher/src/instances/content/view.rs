@@ -1,5 +1,6 @@
 //! How the Content tab looks: the kinds and the search over the list, the installed
-//! lists (filtered by the search), the Modrinth results below them while searching,
+//! lists (filtered by the search), Modrinth's projects below them (searched, or browsed
+//! with nothing typed) with their filters,
 //! the Shaders section's shader mod card, and a project's page.
 
 use crate::skin::Skinned;
@@ -22,9 +23,10 @@ use launcher_core::{
     mc_text,
 };
 use lodestone_minecraft::modrinth::{
-    ModrinthSearchHit, ModrinthSearchIndex, ModrinthVersionType, RawVersion,
+    ClientEnvironment, ModrinthSearchHit, ModrinthSearchIndex, ModrinthVersionType, RawVersion,
 };
 
+use super::filters::{self, Filters};
 use super::{ContentView, Load, PAGE_SIZE, ProjectTab};
 use crate::components::{
     KeyboardFocus,
@@ -248,16 +250,16 @@ pub(super) enum Entry {
         last: bool,
         reorder: Option<(bool, bool)>,
     },
-    /// "On Modrinth · n", with the sort and the compatibility filter.
+    /// "On Modrinth · n", with the sort, the Filters button and the compatibility filter.
     ModrinthHeading,
+    /// The open filter panel, with what it has picked (so it is measured again when
+    /// that changes).
+    ModrinthFilters(Filters),
     ModrinthLoading,
     ModrinthFailed(SharedString),
     /// No network: Modrinth can't be searched.
     ModrinthOffline,
     ModrinthNothing,
-    /// Not searching, with content installed: a placeholder that says the search box
-    /// finds more on Modrinth (and focuses it when clicked).
-    ModrinthPrompt,
     /// A Modrinth result, by its index in the results.
     Hit {
         index: usize,
@@ -1337,7 +1339,6 @@ impl ContentView {
         if listing.items.is_empty() {
             plan.push(Entry::Heading(Heading::Installed(0)));
             plan.push(Entry::Empty);
-            // Something to start from: the most relevant projects.
             self.modrinth_plan(kind, cx, &mut plan);
             self.curseforge_plan(kind, cx, &mut plan);
             return plan;
@@ -1394,69 +1395,19 @@ impl ContentView {
                 }
             }
         }
-        // Below what's installed, always the Modrinth section: until something is
-        // typed, a placeholder pointing at the search box.
-        plan.push(Entry::ModrinthHeading);
-        plan.push(Entry::ModrinthPrompt);
+        // Below what's installed, the platforms' projects to browse.
+        self.modrinth_plan(kind, cx, &mut plan);
+        self.curseforge_plan(kind, cx, &mut plan);
         plan
-    }
-
-    /// Whether the Modrinth section shows its placeholder rather than results: nothing
-    /// is typed and something is installed (with nothing installed, it suggests the
-    /// most relevant projects instead).
-    fn modrinth_prompting(&self, kind: ContentKind, cx: &gpui::App) -> bool {
-        self.query(kind, cx).is_empty()
-            && matches!(&self.section(kind).listing, Load::Ready(listing) if !listing.items.is_empty())
-    }
-
-    /// The Modrinth section's placeholder: the search box finds more there.
-    fn render_modrinth_prompt(&self, kind: ContentKind, cx: &mut Context<Self>) -> AnyElement {
-        let message = t(match kind {
-            ContentKind::Mod => M::ModrinthPromptMods,
-            ContentKind::ResourcePack => M::ModrinthPromptResourcePacks,
-            ContentKind::ShaderPack => M::ModrinthPromptShaderPacks,
-        });
-        let target = self.target_label(kind, cx);
-        div()
-            .id(("modrinth-prompt", kind as usize))
-            .flex()
-            .flex_col()
-            .items_center()
-            .justify_center()
-            .gap_2()
-            .py_8()
-            .rounded(radius::XL)
-            .border_2()
-            .border_dashed()
-            .border_color(colors::GRAY_FADED.opacity(10))
-            .text_color(colors::GRAY_FADED.opacity(50))
-            .font_weight(weights::BOLD.into())
-            .cursor_pointer()
-            .hover(|style| style.border_color(colors::GRAY_FADED.opacity(25)))
-            .on_click(cx.listener(move |this, _, window, cx| {
-                let search = this.section(kind).browse.search.clone();
-                window.focus(&gpui::Focusable::focus_handle(search.read(cx), cx), cx);
-            }))
-            .child(Icon::MagnifyingGlass.render(px(20.), colors::GRAY_FADED.opacity(50)))
-            .child(
-                div()
-                    .px_4()
-                    .text_center()
-                    .whitespace_normal()
-                    .child(message),
-            )
-            .when(!target.is_empty(), |this| {
-                this.child(
-                    small(tr!(M::ModrinthPromptTarget, target = target))
-                        .font_weight(weights::MEDIUM.into()),
-                )
-            })
-            .into_any_element()
     }
 
     /// The Modrinth part of the list: its heading, then the results not installed yet.
     fn modrinth_plan(&self, kind: ContentKind, cx: &gpui::App, plan: &mut Vec<Entry>) {
         plan.push(Entry::ModrinthHeading);
+        let browse = &self.section(kind).browse;
+        if browse.filters_open {
+            plan.push(Entry::ModrinthFilters(browse.filters.clone()));
+        }
         match &self.section(kind).browse.results {
             Load::NotLoaded | Load::Loading if self.modrinth(cx).is_none() => {
                 plan.push(Entry::ModrinthOffline)
@@ -1626,7 +1577,7 @@ impl ContentView {
                 .into_any_element(),
             Entry::ModrinthOffline => muted(t(M::BrowsingNeedsNetwork)).into_any_element(),
             Entry::ModrinthNothing => muted(t(M::NothingMatches)).into_any_element(),
-            Entry::ModrinthPrompt => self.render_modrinth_prompt(kind, cx),
+            Entry::ModrinthFilters(_) => self.render_modrinth_filters(kind, cx),
             Entry::Hit {
                 index, first, last, ..
             } => {
@@ -1807,9 +1758,7 @@ impl ContentView {
             .find(|(i, _)| *i == index)
             .map_or(M::SortRelevance, |(_, label)| *label);
         let target = self.target_label(kind, cx);
-        // The placeholder's heading has no count: the results it would count are from
-        // an earlier search, or none.
-        let title = match total.filter(|_| !self.modrinth_prompting(kind, cx)) {
+        let title = match total {
             Some(total) => tr!(M::OnModrinthCount, count = format::number(total as u64)),
             None => t(M::OnModrinth).to_string(),
         };
@@ -1867,14 +1816,36 @@ impl ContentView {
                     move |window, cx| close(&(), window, cx),
                 )))
             });
-        let chip = div()
-            .id(("only-compatible", kind as usize))
+        let chip = filter_chip(
+            ("only-compatible", kind as usize),
+            format!("{}-only-compatible", kind.dir()),
+            tr!(M::OnlyTarget, target = target).into(),
+            None,
+            only,
+        )
+        .on_press(cx.listener(move |this, _, _, cx| this.set_only_compatible(kind, !only, cx)));
+        // Filters, with how many are picked; opens the panel under the heading.
+        let browse = &self.section(kind).browse;
+        let (open, picked) = (browse.filters_open, browse.filters.count());
+        let label: SharedString = if picked == 0 {
+            t(M::Filters).into()
+        } else {
+            tr!(M::FiltersCount, count = format::number(picked as u64)).into()
+        };
+        let filters_button = div()
+            .id(("modrinth-filters", kind as usize))
             .accessible(
-                Role::CheckBox,
-                format!("{}-only-compatible", kind.dir()),
-                tr!(M::OnlyTarget, target = target),
+                Role::Button,
+                format!("{}-filters", kind.dir()),
+                label.clone(),
             )
-            .aria_toggled(if only { Toggled::True } else { Toggled::False })
+            .expandable(open, {
+                let view = cx.entity().downgrade();
+                move |_: &mut Window, cx: &mut gpui::App| {
+                    view.update(cx, |this, cx| this.toggle_filters_open(kind, cx))
+                        .ok();
+                }
+            })
             .keyboard_focus()
             .flex()
             .flex_row()
@@ -1888,7 +1859,7 @@ impl ContentView {
             .text_size(theme::text_size(text::SMALL))
             .font_weight(weights::BOLD.into())
             .map(|this| {
-                if only {
+                if picked > 0 {
                     this.bg(crate::theme::accent::base().opacity(25))
                         .border_color(crate::theme::accent::light().opacity(60))
                         .text_color(colors::WHITE)
@@ -1902,14 +1873,20 @@ impl ContentView {
                         })
                 }
             })
-            .when(only, |this| {
-                this.child(Icon::Check.render(px(10.), colors::WHITE))
-            })
-            .child(tr!(M::OnlyTarget, target = target))
-            .on_press(cx.listener(move |this, _, _, cx| this.set_only_compatible(kind, !only, cx)));
+            .child(label)
+            .child(
+                if open {
+                    Icon::ChevronDown
+                } else {
+                    Icon::ChevronRight
+                }
+                .render(px(10.), crate::theme::ink::secondary()),
+            )
+            .on_press(cx.listener(move |this, _, _, cx| this.toggle_filters_open(kind, cx)));
         div()
             .flex()
             .flex_row()
+            .flex_wrap()
             .items_center()
             .gap_2()
             .child(
@@ -1920,8 +1897,155 @@ impl ContentView {
                 ),
             )
             .child(sort)
+            .child(filters_button)
             .child(chip)
             .into_any_element()
+    }
+
+    /// The filter panel under the Modrinth heading: Modrinth's categories of the kind
+    /// (with features, resolution or performance impact), where a mod is installed, and
+    /// open source.
+    fn render_modrinth_filters(&mut self, kind: ContentKind, cx: &mut Context<Self>) -> AnyElement {
+        let current = self.section(kind).browse.filters.clone();
+        let group = |label: M, chips: Vec<AnyElement>| {
+            div()
+                .flex()
+                .flex_col()
+                .gap_1p5()
+                .child(
+                    small(t(label))
+                        .font_weight(weights::BOLD.into())
+                        .text_color(crate::theme::ink::muted()),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .flex_wrap()
+                        .gap_1p5()
+                        .children(chips),
+                )
+        };
+        let mut panel = div()
+            .id(("modrinth-filter-panel", kind as usize))
+            .flex()
+            .flex_col()
+            .gap_3()
+            .p_3()
+            .rounded(radius::XL)
+            .bg(colors::GRAY_800)
+            .border_1()
+            .border_color(colors::GRAY_FADED.opacity(15));
+        for (filter_group, categories) in filters::groups(kind) {
+            let chips = categories
+                .iter()
+                .map(|category| {
+                    let slug = category.slug;
+                    filter_chip(
+                        SharedString::from(format!("filter-{}-{slug}", kind.dir())),
+                        format!("{}-filter-{slug}", kind.dir()),
+                        category.label().into(),
+                        category.icon,
+                        current.categories.contains(slug),
+                    )
+                    .on_press(cx.listener(move |this, _, _, cx| {
+                        this.change_filters(kind, |f| f.toggle_category(slug), cx)
+                    }))
+                    .into_any_element()
+                })
+                .collect();
+            panel = panel.child(group(filter_group.label(), chips));
+        }
+        if filters::has_environment(kind) {
+            let choices = [
+                (
+                    ClientEnvironment::Any,
+                    M::EnvAny,
+                    "any",
+                    filters::ENV_ANY_ICON,
+                ),
+                (
+                    ClientEnvironment::ClientOnly,
+                    M::EnvClientOnly,
+                    "client",
+                    filters::ENV_CLIENT_ICON,
+                ),
+                (
+                    ClientEnvironment::ServerToo,
+                    M::EnvServerToo,
+                    "server",
+                    filters::ENV_SERVER_ICON,
+                ),
+            ];
+            let chips = choices
+                .into_iter()
+                .map(|(value, label, id, icon)| {
+                    filter_chip(
+                        SharedString::from(format!("filter-env-{id}")),
+                        format!("{}-filter-env-{id}", kind.dir()),
+                        t(label).into(),
+                        Some(icon),
+                        current.environment == value,
+                    )
+                    .on_press(cx.listener(move |this, _, _, cx| {
+                        this.change_filters(kind, |f| f.environment = value, cx)
+                    }))
+                    .into_any_element()
+                })
+                .collect();
+            panel = panel.child(
+                group(M::FilterEnvironment, chips).child(
+                    small(t(M::FilterEnvironmentHint))
+                        .whitespace_normal()
+                        .text_color(crate::theme::ink::muted()),
+                ),
+            );
+        }
+        let open_source = current.open_source;
+        panel = panel.child(group(
+            M::FilterOther,
+            vec![
+                filter_chip(
+                    ("filter-open-source", kind as usize),
+                    format!("{}-filter-open-source", kind.dir()),
+                    t(M::FilterOpenSource).into(),
+                    Some(filters::OPEN_SOURCE_ICON),
+                    open_source,
+                )
+                .on_press(cx.listener(move |this, _, _, cx| {
+                    this.change_filters(kind, |f| f.open_source = !open_source, cx)
+                }))
+                .into_any_element(),
+            ],
+        ));
+        let modrinth_only = self.curseforge(cx).is_some();
+        if current.count() > 0 || modrinth_only {
+            panel = panel.child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap_3()
+                    .child(div().flex_1().min_w_0().when(modrinth_only, |this| {
+                        this.child(
+                            small(t(M::FiltersModrinthOnly))
+                                .whitespace_normal()
+                                .text_color(crate::theme::ink::muted()),
+                        )
+                    }))
+                    .when(current.count() > 0, |this| {
+                        this.child(
+                            Button::new(("clear-filters", kind as usize), t(M::ClearFilters))
+                                .variant(ButtonVariant::Secondary)
+                                .size(ButtonSize::Slim)
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.change_filters(kind, |f| *f = Filters::default(), cx)
+                                })),
+                        )
+                    }),
+            );
+        }
+        panel.into_any_element()
     }
 
     /// Previous and next page of the Modrinth results.
@@ -2457,6 +2581,66 @@ impl NeedsLoader {
     }
 }
 
+/// A pill that is on or off: the compatibility filter beside the Modrinth heading and
+/// the filter panel's choices, with `icon` (an asset path) before its label. One
+/// without an icon shows a check when it is on. The caller adds what pressing it does.
+fn filter_chip(
+    id: impl Into<gpui::ElementId>,
+    automation_id: String,
+    label: SharedString,
+    icon: Option<&'static str>,
+    on: bool,
+) -> gpui::Stateful<gpui::Div> {
+    let icon_color = if on {
+        colors::WHITE.into()
+    } else {
+        crate::theme::ink::secondary()
+    };
+    div()
+        .id(id)
+        .accessible(Role::CheckBox, automation_id, label.clone())
+        .aria_toggled(if on { Toggled::True } else { Toggled::False })
+        .keyboard_focus()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_1()
+        .px_2p5()
+        .py_0p5()
+        .rounded_full()
+        .border_1()
+        .cursor_pointer()
+        .text_size(theme::text_size(text::SMALL))
+        .font_weight(weights::BOLD.into())
+        .map(|this| {
+            if on {
+                this.bg(crate::theme::accent::base().opacity(25))
+                    .border_color(crate::theme::accent::light().opacity(60))
+                    .text_color(colors::WHITE)
+            } else {
+                this.border_color(crate::theme::ink::border())
+                    .text_color(crate::theme::ink::secondary())
+                    .hover(|style| {
+                        style
+                            .text_color(crate::theme::ink::text())
+                            .bg(colors::GRAY_750)
+                    })
+            }
+        })
+        .map(|this| match icon {
+            Some(path) => this.child(
+                gpui::svg()
+                    .path(path)
+                    .flex_none()
+                    .size(px(12.))
+                    .text_color(icon_color),
+            ),
+            None if on => this.child(Icon::Check.render(px(10.), colors::WHITE)),
+            None => this,
+        })
+        .child(label)
+}
+
 /// A round selection mark.
 fn radio(selected: bool) -> impl IntoElement {
     div()
@@ -2493,17 +2677,15 @@ impl Render for ContentView {
         let cf_project_open = self.section(kind).cf.project.is_some();
         let project_open = self.section(kind).browse.project.is_some() || cf_project_open;
         if !project_open
-            && self.shows_modrinth(kind, cx)
             && matches!(self.section(kind).cf.results, Load::NotLoaded)
             && self.curseforge(cx).is_some()
             && (self.query(kind, cx).is_empty() || self.section(kind).browse.task.is_none())
         {
             self.cf_search(kind, cx);
         }
-        // Nothing installed: the most relevant projects, to start from. (While typing,
-        // the search runs once typing pauses.)
+        // Nothing typed: Modrinth's projects to browse. (While typing, the search runs
+        // once typing pauses.)
         if !project_open
-            && self.shows_modrinth(kind, cx)
             && matches!(self.section(kind).browse.results, Load::NotLoaded)
             && self.section(kind).browse.task.is_none()
             && self.modrinth(cx).is_some()

@@ -253,6 +253,8 @@ pub fn fill(instance_dir: &Path, scene: &str) {
         "content-mods"
             | "content-shaders"
             | "content-browse"
+            | "content-browse-idle"
+            | "content-filters"
             | "content-project"
             | "content-formatted-shaders"
     ) {
@@ -546,6 +548,24 @@ pub fn apply(scene: &str, view: &mut ContentView, cx: &mut Context<ContentView>)
             icons(),
             cx,
         ),
+        "content-filters-packs" | "content-filters-shaders" => {
+            let kind = if scene == "content-filters-packs" {
+                ContentKind::ResourcePack
+            } else {
+                ContentKind::ShaderPack
+            };
+            view.preview_state(kind, None, HashMap::new(), icons(), cx);
+            let browse = &mut view.section_mut(kind).browse;
+            browse.filters_open = true;
+            browse
+                .filters
+                .toggle_category(if kind == ContentKind::ShaderPack {
+                    "shadows"
+                } else {
+                    "audio"
+                });
+            browse.filters.open_source = true;
+        }
         "content-shaders-vanilla" => {
             view.preview_state(ContentKind::ShaderPack, None, HashMap::new(), icons(), cx)
         }
@@ -634,7 +654,7 @@ pub fn apply(scene: &str, view: &mut ContentView, cx: &mut Context<ContentView>)
             .expect("a valid response");
             view.preview_results(ContentKind::ResourcePack, text, response.normalize(), cx);
         }
-        "content-browse" => {
+        "content-browse" | "content-browse-idle" | "content-filters" => {
             view.preview_state(ContentKind::Mod, None, HashMap::new(), icons(), cx);
             let hits = [
                 (
@@ -697,7 +717,17 @@ pub fn apply(scene: &str, view: &mut ContentView, cx: &mut Context<ContentView>)
                 "offset": 0, "limit": 20, "total_hits": 2481,
             }))
             .expect("a valid response");
-            view.preview_results(ContentKind::Mod, "so", response.normalize(), cx);
+            // Typed "so", or browsing with nothing typed (with the filter panel open).
+            let text = if scene == "content-browse" { "so" } else { "" };
+            view.preview_results(ContentKind::Mod, text, response.normalize(), cx);
+            if scene == "content-filters" {
+                let browse = &mut view.section_mut(ContentKind::Mod).browse;
+                browse.filters_open = true;
+                browse.filters.toggle_category("optimization");
+                browse.filters.toggle_category("utility");
+                browse.filters.environment =
+                    lodestone_minecraft::modrinth::ClientEnvironment::ClientOnly;
+            }
         }
         "content-project" | "content-description" => {
             view.preview_state(ContentKind::Mod, None, HashMap::new(), icons(), cx);

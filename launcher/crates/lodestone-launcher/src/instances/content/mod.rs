@@ -1,12 +1,14 @@
-//! The Content tab: an instance's mods, resource packs and shader packs. One search
-//! field filters what is installed and, as it is typed, searches Modrinth too (and
-//! CurseForge, in builds with Lodestone's CurseForge key; see [`curseforge`]): the list
-//! shows the installed matches first, then the Modrinth results, then CurseForge's.
+//! The Content tab: an instance's mods, resource packs and shader packs. The list shows
+//! what is installed, then Modrinth's projects to browse (and CurseForge's, in builds
+//! with Lodestone's CurseForge key; see [`curseforge`]). One search field filters what
+//! is installed and, as it is typed, searches the platforms too; Modrinth's results
+//! also have filters (see [`filters`]).
 //!
 //! The work is done by `launcher-core::content`; this view keeps the state of each
 //! section, runs that work in the background and refuses changes while the game runs.
 
 pub(crate) mod curseforge;
+pub(crate) mod filters;
 pub(crate) mod view;
 
 use std::{
@@ -115,6 +117,10 @@ pub struct Browse {
     /// The text the current results are for.
     text: String,
     pub only_compatible: bool,
+    /// Modrinth's categories, where a mod runs and open source.
+    pub filters: filters::Filters,
+    /// The filter panel is open.
+    pub filters_open: bool,
     pub index: ModrinthSearchIndex,
     pub offset: u32,
     pub results: Load<ModrinthSearchResponse>,
@@ -171,6 +177,8 @@ impl Section {
                 search,
                 text: String::new(),
                 only_compatible: true,
+                filters: filters::Filters::default(),
+                filters_open: false,
                 index: ModrinthSearchIndex::Relevance,
                 offset: 0,
                 results: Load::NotLoaded,
@@ -496,17 +504,6 @@ impl ContentView {
             .text()
             .trim()
             .to_string()
-    }
-
-    /// Whether the list shows Modrinth results: while searching, and while nothing is
-    /// installed (then the most relevant projects, to start from).
-    pub fn shows_modrinth(&self, kind: ContentKind, cx: &gpui::App) -> bool {
-        !self.query(kind, cx).is_empty()
-            || self
-                .section(kind)
-                .listing
-                .ready()
-                .is_some_and(|listing| listing.items.is_empty())
     }
 
     /// Empties the search, as Escape in the field does.
@@ -1235,8 +1232,8 @@ impl ContentView {
         self.section_mut(kind).cf.project = None;
         self.section_mut(kind).cf.offset = 0;
         if text.trim().is_empty() {
-            // Back to the installed list; the platforms are searched again only if
-            // nothing is installed.
+            // Back to the whole installed list, with the platforms browsed below it
+            // (searched again on the next frame).
             let section = self.section_mut(kind);
             section.browse.task = None;
             section.browse.results = Load::NotLoaded;
@@ -1284,6 +1281,29 @@ impl ContentView {
         self.search(kind, cx);
     }
 
+    pub fn toggle_filters_open(&mut self, kind: ContentKind, cx: &mut Context<Self>) {
+        let browse = &mut self.section_mut(kind).browse;
+        browse.filters_open = !browse.filters_open;
+        cx.notify();
+    }
+
+    /// Changes the Modrinth filters of `kind` and searches again from the first page.
+    pub fn change_filters(
+        &mut self,
+        kind: ContentKind,
+        change: impl FnOnce(&mut filters::Filters),
+        cx: &mut Context<Self>,
+    ) {
+        let browse = &mut self.section_mut(kind).browse;
+        let before = browse.filters.clone();
+        change(&mut browse.filters);
+        if browse.filters == before {
+            return;
+        }
+        browse.offset = 0;
+        self.search(kind, cx);
+    }
+
     pub fn set_page(&mut self, kind: ContentKind, offset: u32, cx: &mut Context<Self>) {
         self.section_mut(kind).browse.offset = offset;
         self.search(kind, cx);
@@ -1304,6 +1324,7 @@ impl ContentView {
         } else {
             (None, Vec::new())
         };
+        let filters = &browse.filters;
         let params = match ClientSearchParams::new(
             Some(text),
             kind.project_type(),
@@ -1312,7 +1333,14 @@ impl ContentView {
             Some(browse.index),
             Some(browse.offset),
             Some(PAGE_SIZE),
-        ) {
+        )
+        .and_then(|params| {
+            params.with_filters(
+                filters.category_facets(kind),
+                filters.environment_for(kind),
+                filters.open_source,
+            )
+        }) {
             Ok(params) => params,
             Err(err) => {
                 self.section_mut(kind).browse.results = Load::Failed(err.to_string().into());
@@ -1435,9 +1463,7 @@ impl ContentView {
 
     pub fn close_project(&mut self, kind: ContentKind, cx: &mut Context<Self>) {
         self.section_mut(kind).browse.project = None;
-        if matches!(self.section(kind).browse.results, Load::NotLoaded)
-            && self.shows_modrinth(kind, cx)
-        {
+        if matches!(self.section(kind).browse.results, Load::NotLoaded) {
             self.search(kind, cx);
         }
         cx.notify();
