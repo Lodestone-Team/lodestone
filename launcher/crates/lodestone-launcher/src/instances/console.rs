@@ -45,6 +45,21 @@ fn chip_of(level: Level) -> Level {
     }
 }
 
+/// Presses a level's chip. With every level shown (as at first), it narrows the
+/// log to that level alone; after that, pressing others adds them, and pressing a
+/// shown one takes it away. Taking away the last one shows every level again.
+fn pick(shown: &mut BTreeSet<Level>, level: Level) {
+    if shown.len() == CHIPS.len() {
+        shown.clear();
+        shown.insert(level);
+    } else if !shown.remove(&level) {
+        shown.insert(level);
+    }
+    if shown.is_empty() {
+        shown.extend(CHIPS.iter().map(|(level, _, _)| *level));
+    }
+}
+
 pub fn level_color(level: Level) -> Color {
     match level {
         Level::Trace | Level::Debug => colors::GRAY_500,
@@ -166,9 +181,7 @@ impl Console {
     }
 
     fn toggle(&mut self, level: Level, cx: &mut Context<Self>) {
-        if !self.shown.remove(&level) {
-            self.shown.insert(level);
-        }
+        pick(&mut self.shown, level);
         cx.notify();
     }
 
@@ -511,5 +524,39 @@ impl Render for Console {
                         shown = super::thousands(count as u64)
                     )),
             )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn all() -> BTreeSet<Level> {
+        CHIPS.iter().map(|(level, _, _)| *level).collect()
+    }
+
+    #[test]
+    fn first_press_narrows_to_that_level() {
+        let mut shown = all();
+        pick(&mut shown, Level::Warn);
+        assert_eq!(shown, BTreeSet::from([Level::Warn]));
+    }
+
+    #[test]
+    fn later_presses_add_and_remove() {
+        let mut shown = all();
+        pick(&mut shown, Level::Warn);
+        pick(&mut shown, Level::Error);
+        assert_eq!(shown, BTreeSet::from([Level::Warn, Level::Error]));
+        pick(&mut shown, Level::Warn);
+        assert_eq!(shown, BTreeSet::from([Level::Error]));
+    }
+
+    #[test]
+    fn removing_the_last_level_shows_all_again() {
+        let mut shown = all();
+        pick(&mut shown, Level::Info);
+        pick(&mut shown, Level::Info);
+        assert_eq!(shown, all());
     }
 }
