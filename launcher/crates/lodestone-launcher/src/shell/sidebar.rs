@@ -641,6 +641,11 @@ fn instance_row(
             Some(kind) => format!("{} · {}", instance.game_version, kind.label()),
         },
     };
+    // a friend's server: whose it is, first
+    let detail = match shell.servers.read(cx).instance_owner(&id) {
+        Some(owner) if place == RowPlace::List => format!("{owner} · {detail}"),
+        _ => detail,
+    };
     let tooltip: Option<SharedString> = played_summary(instance).map(Into::into);
     let element_id = match place {
         RowPlace::List => format!("instance-{id}"),

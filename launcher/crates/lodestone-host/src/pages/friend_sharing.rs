@@ -50,79 +50,7 @@ pub fn section_for(sharing: &Entity<FriendSharing>, instance: &str, cx: &App) ->
                 .into_any_element(),
         ),
         Phase::Failed => {}
-        Phase::Ready => {
-            let core = model.core.as_ref();
-            for friend in &model.rows {
-                let pending = model
-                    .pending
-                    .get(&(friend.key.clone(), instance.to_string()))
-                    .copied();
-                let checked = pending.unwrap_or_else(|| is_shared(core, &friend.key, instance));
-                let connected = is_connected(core, &friend.key);
-                let on_change = {
-                    let sharing = sharing.clone();
-                    let key = friend.key.clone();
-                    let instance = instance.to_string();
-                    move |on: &bool, _: &mut gpui::Window, cx: &mut App| {
-                        sharing.update(cx, |sharing, cx| {
-                            sharing.set_shared(&key, &instance, *on, cx)
-                        });
-                    }
-                };
-                let tags = div()
-                    .flex()
-                    .flex_row()
-                    .flex_none()
-                    .items_center()
-                    .ml_auto()
-                    .gap(px(8.))
-                    // to tell apart friends with the same name
-                    .child(
-                        div()
-                            .text_size(text::SMALL)
-                            .text_color(ink::muted())
-                            .font_family(lodestone_ui::theme::fonts::mono())
-                            .child(friend.safety_code.clone()),
-                    )
-                    .when(!friend.verified, |this| {
-                        this.child(tag(t(M::FriendsNotVerified), colors::YELLOW))
-                    })
-                    .when(connected, |this| {
-                        this.child(tag(t(M::FriendsConnected), colors::GREEN))
-                    });
-                rows.push(
-                    div()
-                        .id(SharedString::from(format!("friend-{}", friend.key)))
-                        .flex()
-                        .flex_row()
-                        .flex_wrap()
-                        .items_center()
-                        .gap_x(px(16.))
-                        .gap_y(px(8.))
-                        .px(px(16.))
-                        .py(px(12.))
-                        .min_h(px(56.))
-                        .child(
-                            Checkbox::new(
-                                SharedString::from(format!("friend-share-{}", friend.key)),
-                                checked,
-                                tr!(M::FriendsShareWith, name = friend.name),
-                            )
-                            .disabled(pending.is_some())
-                            .on_change(on_change),
-                        )
-                        .child(tags)
-                        .into_any_element(),
-                );
-                if model
-                    .confirm
-                    .as_ref()
-                    .is_some_and(|(key, at)| key == &friend.key && at == instance)
-                {
-                    rows.push(confirm_row(sharing, &friend.name));
-                }
-            }
-        }
+        Phase::Ready => rows.extend(friend_rows(sharing, instance, cx)),
     }
     if matches!(model.phase, Phase::Ready | Phase::NeedsLauncher) {
         rows.extend(certificate_rows(sharing, model));
@@ -164,6 +92,89 @@ pub fn section_for(sharing: &Entity<FriendSharing>, instance: &str, cx: &App) ->
             )
         })
         .into_any_element()
+}
+
+/// One row per friend, each with "Share this server with <name>" (and the warning
+/// before a first share with a friend whose codes weren't compared), while friend
+/// sharing is ready; nothing otherwise. Also on the Overview's "Share with friends".
+pub fn friend_rows(sharing: &Entity<FriendSharing>, instance: &str, cx: &App) -> Vec<AnyElement> {
+    let model = sharing.read(cx);
+    let mut rows: Vec<AnyElement> = Vec::new();
+    if model.phase != Phase::Ready {
+        return rows;
+    }
+    let core = model.core.as_ref();
+    for friend in &model.rows {
+        let pending = model
+            .pending
+            .get(&(friend.key.clone(), instance.to_string()))
+            .copied();
+        let checked = pending.unwrap_or_else(|| is_shared(core, &friend.key, instance));
+        let connected = is_connected(core, &friend.key);
+        let on_change = {
+            let sharing = sharing.clone();
+            let key = friend.key.clone();
+            let instance = instance.to_string();
+            move |on: &bool, _: &mut gpui::Window, cx: &mut App| {
+                sharing.update(cx, |sharing, cx| {
+                    sharing.set_shared(&key, &instance, *on, cx)
+                });
+            }
+        };
+        let tags = div()
+            .flex()
+            .flex_row()
+            .flex_none()
+            .items_center()
+            .ml_auto()
+            .gap(px(8.))
+            // to tell apart friends with the same name
+            .child(
+                div()
+                    .text_size(text::SMALL)
+                    .text_color(ink::muted())
+                    .font_family(lodestone_ui::theme::fonts::mono())
+                    .child(friend.safety_code.clone()),
+            )
+            .when(!friend.verified, |this| {
+                this.child(tag(t(M::FriendsNotVerified), colors::YELLOW))
+            })
+            .when(connected, |this| {
+                this.child(tag(t(M::FriendsConnected), colors::GREEN))
+            });
+        rows.push(
+            div()
+                .id(SharedString::from(format!("friend-{}", friend.key)))
+                .flex()
+                .flex_row()
+                .flex_wrap()
+                .items_center()
+                .gap_x(px(16.))
+                .gap_y(px(8.))
+                .px(px(16.))
+                .py(px(12.))
+                .min_h(px(56.))
+                .child(
+                    Checkbox::new(
+                        SharedString::from(format!("friend-share-{}", friend.key)),
+                        checked,
+                        tr!(M::FriendsShareWith, name = friend.name),
+                    )
+                    .disabled(pending.is_some())
+                    .on_change(on_change),
+                )
+                .child(tags)
+                .into_any_element(),
+        );
+        if model
+            .confirm
+            .as_ref()
+            .is_some_and(|(key, at)| key == &friend.key && at == instance)
+        {
+            rows.push(confirm_row(sharing, &friend.name));
+        }
+    }
+    rows
 }
 
 /// The core's friend certificate: once retired (here or in the Launcher), "Get a new

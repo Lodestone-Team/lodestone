@@ -34,6 +34,8 @@ pub const SCENES: &[&str] = &[
     "sidebar-linked-bright-hover",
     "sidebar-linked-off",
     "sidebar-linked-rail",
+    // the selected instance made for a server a friend shares through the friend list
+    "sidebar-linked-friend",
 ];
 
 pub fn is_scene(scene: &str) -> bool {
@@ -145,14 +147,46 @@ fn apply_linked(scene: &str, shell: &mut LauncherShell, cx: &mut Context<Launche
     else {
         return;
     };
-    super::servers::link_instances(
-        shell,
-        vec![
-            (selected, "friend", "skyblock"),
-            (optimized.clone(), "home", "smp"),
-        ],
-        cx,
-    );
+    if scene == "sidebar-linked-friend" {
+        // Peter_test's core, as their state in the friend list names it
+        let fingerprint = "c3".repeat(32);
+        let id = launcher_core::cores::friends::friend_list_id(&fingerprint, "skyblock");
+        super::servers::link_instances(
+            shell,
+            vec![
+                (selected, id.as_str(), "skyblock"),
+                (optimized.clone(), "home", "smp"),
+            ],
+            cx,
+        );
+        shell.servers().clone().update(cx, |servers, cx| {
+            use launcher_core::friend_list::{Friend, FriendState, FriendStatus};
+            let core =
+                serde_json::json!({ "fingerprint": fingerprint, "name": "peter's Lodestone Core" });
+            servers.friend_list.snapshot.book.friends = vec![Friend {
+                key: "d4".repeat(32),
+                name: "Peter_test".into(),
+                status: FriendStatus::Active,
+                verified: true,
+                state: Some(FriendState {
+                    seq: 1,
+                    expires: launcher_core::friend_list::now() + 86_400,
+                    cores: vec![serde_json::from_value(core).expect("a made-up core")],
+                }),
+                ..Friend::default()
+            }];
+            cx.notify();
+        });
+    } else {
+        super::servers::link_instances(
+            shell,
+            vec![
+                (selected, "friend", "skyblock"),
+                (optimized.clone(), "home", "smp"),
+            ],
+            cx,
+        );
+    }
     if scene.starts_with("sidebar-linked-bright") {
         super::use_bright_skin(shell, cx);
     }
