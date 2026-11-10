@@ -255,8 +255,11 @@ A core registers one **session** with all its records, and waits on one WebSocke
 
 - A session has at most 256 records; a sealed record or knock is at most 1 KiB.
 - `seen` is the address the knock came from (`cf-connecting-ip`).
-- A lookup id belongs to the session that registered it last. A record is live while its
-  session is (pinged within 2 minutes, at most 24 hours old).
+- A lookup id is held by one session; another session takes it only while the holder
+  isn't live, and a session that couldn't take one tries again on its next update and
+  every 2 minutes while it's live (a restarted core gets its ids back once its old
+  session has gone quiet). A record is live while its session is (pinged within 2
+  minutes, at most 24 hours old).
 - Sessions use `ping`/`pong` and close codes 4000 (ended) as invites do.
 - Session updates register only the lookups added and unregister only those dropped;
   each 16 changes cost one unit of a per-address budget (40 units a minute), so records

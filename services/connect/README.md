@@ -123,7 +123,7 @@ deleted 90 days after its last write.
 
 A core registers one **session** (a `MeetSession` Durable Object) holding all its
 records, and waits for knocks on one WebSocket. Each lookup id has a `Lookup` Durable
-Object remembering the session that registered it last.
+Object remembering the session that holds it.
 
 | Request | Auth | Body | Answer |
 |---|---|---|---|
@@ -137,8 +137,12 @@ Object remembering the session that registered it last.
 - `session`, `secret` and lookup ids are 32 hex digits. A session has at most 256
   records, each lookup once (a repeated one is refused, `400`); a sealed record or knock
   is at most 2048 hex digits (1 KiB).
-- Making or replacing a session registers each of its lookups to it: a lookup belongs to
-  the session that registered it last. Lookups dropped by a replacement, or left when a
+- Making or replacing a session registers each of its lookups to it. A lookup is held
+  by one session: another session takes it only while the holder isn't live (no socket
+  heard from within 2 minutes), so registering someone else's lookup ids elsewhere can't
+  cut their core off. A session that couldn't take a lookup tries again on its next
+  replacement, and every 2 minutes while it's live, so a core that restarts gets its ids
+  back once its old session has gone quiet. Lookups dropped by a replacement, or left when a
   session ends, are unregistered unless another session has taken them since.
 - A lookup is **live** while its session is: a WebSocket on it heard from (connected or
   pinged) within 2 minutes, and the session under 24 hours old. A knock on a live lookup
@@ -171,7 +175,7 @@ Error codes, beyond v1's: `bad_body` (400: a field missing or malformed), `forbi
   the other-requests and the creation limits.
 - **Sessions** register only the lookups added and unregister only those dropped, so
   resending the same records costs no Durable Object calls, and churning them is
-  budgeted. A lookup another session took isn't taken back by resending it.
+  budgeted.
 - **Presence checks and slot reads** must carry `X-Lodestone-Client: 1` (else 400). A web
   page elsewhere can't send that header without a CORS preflight, which this service
   never answers, so it can't use up a visitor's limits.

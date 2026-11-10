@@ -1152,17 +1152,19 @@ export class MeetSession extends DurableObject {
       return { rateLimited: true };
     }
     const now = Date.now();
-    const session = { name, secret, records, seenAt: now, expiresAt: now + MAX_AGE_MS };
+    const session = { name, secret, records, unclaimed: [], seenAt: now, expiresAt: now + MAX_AGE_MS };
     await this.ctx.storage.put('session', session);
     await this.ctx.storage.setAlarm(now + this.idleMs);
-    await this.register(name, Object.keys(records));
+    session.unclaimed = await this.register(name, Object.keys(records));
+    if (session.unclaimed.length) await this.ctx.storage.put('session', session);
     return { expiresAt: session.expiresAt };
   }
 
   /// Replaces the records. Only the lookups added are registered to this session, and
   /// only the ones dropped are unregistered (where they still point here), each charged
   /// to the address's budget, so resending the same records costs next to nothing.
-  /// Counts as the core being there.
+  /// Lookups this session couldn't take before (another live session held them) are
+  /// tried again. Counts as the core being there.
   async replace(secret, records, ip) {
     const session = await this.load();
     if (!session) return goneSession;
@@ -1172,11 +1174,16 @@ export class MeetSession extends DurableObject {
     if (!(await chargeRegistrations(this.env.REGISTER_LIMIT, ip, added.length + dropped.length))) {
       return { status: 429, error: 'rate_limited', message: 'Too many record changes from this address. Wait a minute.' };
     }
+    const retry = (session.unclaimed || []).filter((lookup) => Object.hasOwn(records, lookup) && Object.hasOwn(session.records, lookup));
     session.records = records;
     session.seenAt = Date.now();
     await this.ctx.storage.put('session', session);
-    await this.register(session.name, added);
+    const unclaimed = await this.register(session.name, [...added, ...retry]);
     await this.unregister(session.name, dropped);
+    if (unclaimed.length || session.unclaimed?.length) {
+      session.unclaimed = unclaimed;
+      await this.ctx.storage.put('session', session);
+    }
     return { expiresAt: session.expiresAt };
   }
 
@@ -1196,6 +1203,8 @@ export class MeetSession extends DurableObject {
     return { sealed: session.records[lookup] };
   }
 
+  /// Whether this session publishes `lookup` now: it has the record and a live socket.
+  /// A Lookup asks this before letting another session take it.
   async present(lookup) {
     const session = await this.load();
     return Boolean(session && Object.hasOwn(session.records, lookup) && this.liveSockets().length);
@@ -1242,6 +1251,11 @@ export class MeetSession extends DurableObject {
       }
       if (now - seen < this.idleMs) {
         await this.ctx.storage.setAlarm(Math.min(seen + this.idleMs, session.expiresAt));
+        // Lookups another session held when this one registered: theirs may have ended.
+        if (session.unclaimed?.length && this.liveSockets().length) {
+          session.unclaimed = await this.register(session.name, session.unclaimed.filter((lookup) => Object.hasOwn(session.records, lookup)));
+          await this.ctx.storage.put('session', session);
+        }
         return;
       }
     }
@@ -1285,8 +1299,14 @@ export class MeetSession extends DurableObject {
     }
   }
 
+  /// Registers `lookups` to this session; answers the ones another live session holds,
+  /// which stay that session's.
   async register(name, lookups) {
-    await eachLookup(this.env, lookups, (lookup) => lookup.register(name));
+    const refused = [];
+    await eachLookup(this.env, lookups, async (lookup, id) => {
+      if (!(await lookup.register(name, id))) refused.push(id);
+    });
+    return refused;
   }
 
   async unregister(name, lookups) {
@@ -1296,18 +1316,29 @@ export class MeetSession extends DurableObject {
 
 async function eachLookup(env, lookups, call) {
   for (let i = 0; i < lookups.length; i += LOOKUP_BATCH) {
-    await Promise.all(lookups.slice(i, i + LOOKUP_BATCH).map((id) => call(env.LOOKUPS.get(env.LOOKUPS.idFromName(id)))));
+    await Promise.all(lookups.slice(i, i + LOOKUP_BATCH).map((id) => call(env.LOOKUPS.get(env.LOOKUPS.idFromName(id)), id)));
   }
 }
 
 // ---------------------------------------------------------------------------
-// One lookup id: the session that registered it last, for 24 hours from then (no
-// session lasts longer).
+// One lookup id: the session that holds it, for 24 hours from when it took it (no
+// session lasts longer). Another session takes it only while the holder isn't live
+// (no socket heard from within two minutes), so a session can't be cut off by someone
+// registering its lookup ids elsewhere; a core that restarts gets its ids back once its
+// old session has gone quiet.
 
 export class Lookup extends DurableObject {
-  async register(session) {
+  /// Gives `lookup` (this object's id) to `session` and answers true, unless another
+  /// session holds it and is live: then false, and nothing changes.
+  async register(session, lookup) {
+    const holder = await this.ctx.storage.get('session');
+    if (holder && holder !== session) {
+      const live = await this.env.MEET_SESSIONS.get(this.env.MEET_SESSIONS.idFromName(holder)).present(lookup);
+      if (live) return false;
+    }
     await this.ctx.storage.put('session', session);
     await this.ctx.storage.setAlarm(Date.now() + MAX_AGE_MS);
+    return true;
   }
 
   /// Lets go, unless another session registered this lookup since.
