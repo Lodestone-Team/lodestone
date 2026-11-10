@@ -67,6 +67,23 @@ begin
     RemoveDir(Made[I]);
 end;
 
+{ Whether Dir is Root or a folder in it. }
+function IsUnder(const Dir, Root: String): Boolean;
+begin
+  Result := (Root <> '') and
+    (Pos(Lowercase(AddBackslash(Root)), Lowercase(AddBackslash(Dir))) = 1);
+end;
+
+{ Program Files and the Windows folder, which need administrator rights for every
+  change. Setup started with "Run as administrator" can write to them, so the write
+  test alone would let the app be installed where it can never update itself. }
+function IsSystemFolder(const Dir: String): Boolean;
+begin
+  Result := IsUnder(Dir, ExpandConstant('{commonpf32}')) or
+    IsUnder(Dir, ExpandConstant('{commonpf64}')) or
+    IsUnder(Dir, ExpandConstant('{win}'));
+end;
+
 { For NextButtonClick: on the folder page, refuses a folder this user can't write to. }
 function CheckWritableDir(CurPageID: Integer): Boolean;
 var
@@ -76,7 +93,7 @@ begin
   if CurPageID <> wpSelectDir then
     Exit;
   Dir := WizardDirValue;
-  if CanWriteTo(Dir) then
+  if not IsSystemFolder(Dir) and CanWriteTo(Dir) then
     Exit;
   Result := False;
   SuppressibleMsgBox(
@@ -275,7 +292,9 @@ begin
   W := ScaleX(460);
   ButtonW := ScaleX(96);
 #if Ver >= EncodeVer(6, 6, 0)
-  Form := CreateCustomForm(W + 2 * Margin, ScaleY(200), False, False);
+  { The size unscaled: CreateCustomForm scales it, and KeepSize stops it widening
+    the form further by WizardSizePercent, past the controls placed below. }
+  Form := CreateCustomForm(460 + 2 * 16, 200, True, True);
 #else
   Form := CreateCustomForm;
   Form.ClientWidth := W + 2 * Margin;
