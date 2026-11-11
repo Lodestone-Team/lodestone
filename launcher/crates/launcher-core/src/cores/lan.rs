@@ -191,7 +191,8 @@ impl LanWorlds {
     }
 }
 
-/// A running listener. Dropping it stops the thread within a fraction of a second.
+/// A running listener. Dropping it stops the thread: at once for announcements, which it
+/// no longer passes on, and within [`STOP_CHECK_EVERY`] for the thread and its socket.
 pub struct LanListener {
     stop: Arc<AtomicBool>,
 }
@@ -330,6 +331,12 @@ fn reusable_udp_socket(addr: SocketAddrV4) -> io::Result<UdpSocket> {
 /// Winsock's "message too long".
 const WSAEMSGSIZE: i32 = 10040;
 
+/// How often a listener with nothing to read wakes to see whether it was dropped. An
+/// announcement wakes it at once; this is only how long a dropped listener's thread
+/// lingers. Waking more often costs CPU in the background all day: with "Share LAN
+/// worlds" on, a listener runs whichever page is shown.
+pub const STOP_CHECK_EVERY: Duration = Duration::from_secs(5);
+
 /// Listens on `socket` on a new thread, calling `on_announcement` with each sender and
 /// announcement, until the returned listener is dropped (or `on_announcement` returns
 /// `false`). Malformed packets are ignored.
@@ -337,7 +344,7 @@ pub fn listen(
     socket: UdpSocket,
     on_announcement: impl Fn(IpAddr, Announcement) -> bool + Send + 'static,
 ) -> io::Result<LanListener> {
-    socket.set_read_timeout(Some(Duration::from_millis(250)))?;
+    socket.set_read_timeout(Some(STOP_CHECK_EVERY))?;
     let stop = Arc::new(AtomicBool::new(false));
     let stopped = stop.clone();
     thread::Builder::new()
@@ -346,7 +353,12 @@ pub fn listen(
             // one byte more than allowed, to tell long packets from full ones
             let mut buffer = [0u8; MAX_PACKET_BYTES + 1];
             while !stopped.load(Ordering::Relaxed) {
-                match socket.recv_from(&mut buffer) {
+                let received = socket.recv_from(&mut buffer);
+                // dropped while it waited
+                if stopped.load(Ordering::Relaxed) {
+                    break;
+                }
+                match received {
                     Ok((len, SocketAddr::V4(from))) => {
                         if let Some(announcement) = parse_packet(&buffer[..len])
                             && !on_announcement(IpAddr::V4(*from.ip()), announcement)

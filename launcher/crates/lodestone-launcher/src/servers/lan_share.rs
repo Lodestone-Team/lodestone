@@ -27,7 +27,11 @@ use std::{
     time::{Duration, Instant},
 };
 
-use futures::FutureExt as _;
+use futures::{
+    FutureExt as _, StreamExt as _,
+    channel::mpsc,
+    future::{self, Either},
+};
 use gpui::{AppContext as _, Context, Task};
 use launcher_core::{
     accounts::AccountKind,
@@ -47,10 +51,14 @@ use launcher_core::{
 use super::{Servers, friend_list::hex};
 use crate::instances::InstancesEvent;
 
-/// How often the open worlds are looked at.
+/// How often the open worlds are looked at while there are any (or a host runs).
 const TICK: Duration = Duration::from_secs(2);
 /// How long after a failed registration (no friend list yet, offline) it's tried again.
 const REGISTER_AGAIN_AFTER: Duration = Duration::from_secs(60);
+/// How often it looks with no world open: for a registration to try again, or a
+/// certificate that left the state. A world opening wakes it at once, by its
+/// announcements or its game's log.
+const IDLE_TICK: Duration = REGISTER_AGAIN_AFTER;
 
 /// What the Friends page shows of the person's own sharing.
 #[derive(Default)]
@@ -76,6 +84,8 @@ pub struct LanShare {
     pub problem: Option<String>,
     knocks: KnockMemory,
     ticker: Option<Task<()>>,
+    /// Wakes the ticker out of its long wait with nothing open.
+    wake: Option<mpsc::UnboundedSender<()>>,
     /// The offscreen screenshots fill these themselves.
     pub preview: bool,
 }
@@ -113,6 +123,10 @@ impl Servers {
         // announcements from this computer only: asked once per address
         let worlds = share.worlds.clone();
         let local: Mutex<HashMap<IpAddr, bool>> = Mutex::default();
+        // announcements from this computer, and games this launcher started, wake the
+        // ticker, which waits long while nothing is open
+        let (wake, woken) = mpsc::unbounded::<()>();
+        share.wake = Some(wake.clone());
         let listening = lan::lan_socket().and_then(|socket| {
             lan::listen(socket, move |host, announcement| {
                 let mine = local
@@ -125,6 +139,7 @@ impl Servers {
                     .unwrap_or(false);
                 if mine && let Ok(mut worlds) = worlds.lock() {
                     worlds.announced(announcement.port, announcement.motd, Instant::now());
+                    let _ = wake.unbounded_send(());
                 }
                 true
             })
@@ -133,11 +148,36 @@ impl Servers {
         // this launcher started still show, from their logs
         share.listener = listening.ok();
         share.ticker = Some(cx.spawn(async move |this, cx| {
+            // `None` once every sender is gone: timers only
+            let mut woken = Some(woken);
             loop {
-                if this.update(cx, |this, cx| this.lan_share_tick(cx)).is_err() {
+                let Ok(busy) = this.update(cx, |this, cx| {
+                    this.lan_share_tick(cx);
+                    this.lan_share_busy()
+                }) else {
                     break;
+                };
+                let timer = cx
+                    .background_executor()
+                    .timer(if busy { TICK } else { IDLE_TICK });
+                let closed = match woken.as_mut() {
+                    Some(rx) => {
+                        let closed = matches!(
+                            future::select(timer, rx.next()).await,
+                            Either::Right((None, _))
+                        );
+                        // one tick for any number of announcements
+                        while rx.try_recv().is_ok() {}
+                        closed
+                    }
+                    None => {
+                        timer.await;
+                        false
+                    }
+                };
+                if closed {
+                    woken = None;
                 }
-                cx.background_executor().timer(TICK).await;
             }
         }));
         // the friend list, for the friends to share with (opens it, making nothing)
@@ -151,6 +191,7 @@ impl Servers {
         share.enabled = false;
         share.listener = None;
         share.ticker = None;
+        share.wake = None;
         share.host = None;
         share.state = None;
         share.host_friends.clear();
@@ -261,21 +302,43 @@ impl Servers {
                     worlds.game_serving(*port, info);
                 }
                 self.lan_share_tick(cx);
+                self.lan_share_wake();
             }
             InstancesEvent::GameExited(id) | InstancesEvent::Exited { id, .. } => {
                 if let Ok(mut worlds) = self.lan_share.worlds.lock() {
                     worlds.game_exited(id);
                 }
                 self.lan_share_tick(cx);
+                self.lan_share_wake();
             }
             InstancesEvent::Crashed(crash) => {
                 if let Ok(mut worlds) = self.lan_share.worlds.lock() {
                     worlds.game_exited(&crash.instance_id);
                 }
                 self.lan_share_tick(cx);
+                self.lan_share_wake();
             }
             _ => {}
         }
+    }
+
+    /// Has the ticker look again now, and at its short interval while worlds are open.
+    fn lan_share_wake(&self) {
+        if let Some(wake) = &self.lan_share.wake {
+            let _ = wake.unbounded_send(());
+        }
+    }
+
+    /// Whether the ticker should look again soon: worlds named or being pinged, or a
+    /// host running.
+    fn lan_share_busy(&self) -> bool {
+        let share = &self.lan_share;
+        share.pinging
+            || share.host.is_some()
+            || share
+                .worlds
+                .lock()
+                .map_or(true, |worlds| !worlds.is_empty())
     }
 
     /// Pings the ports that are due, works out the open worlds, and starts, updates or
@@ -350,12 +413,10 @@ impl Servers {
             self.lan_share.open = open.clone();
             cx.notify();
         }
-        let host_name = self.lan_host_name(cx);
-        let friends = self.lan_share_friends();
-        let share = &mut self.lan_share;
-        let (Some(identity), false) = (share.identity.clone(), open.is_empty()) else {
+        let (Some(identity), false) = (self.lan_share.identity.clone(), open.is_empty()) else {
             // nothing open (or not listed yet): nothing published, so friends see
             // the launcher offline
+            let share = &mut self.lan_share;
             if share.host.take().is_some() {
                 share.state = None;
                 share.host_friends.clear();
@@ -363,6 +424,9 @@ impl Servers {
             }
             return;
         };
+        let host_name = self.lan_host_name(cx);
+        let friends = self.lan_share_friends();
+        let share = &mut self.lan_share;
         let keys: Vec<String> = friends.iter().map(|f| f.key.to_hex()).collect();
         match &share.host {
             Some(host) => {
