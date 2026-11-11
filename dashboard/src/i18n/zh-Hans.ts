@@ -703,11 +703,11 @@ export const zhHans: Messages = {
   'server.settingField.unknownType': '提交错误：未知的值类型。',
 
   // PublicListingSetting
-  'server.share.title': '与好友共享',
-  'server.share.lead': '好友通过链接在 Lodestone Launcher 中加入',
+  'server.share.title': '共享',
+  'server.share.lead': '拥有链接的人可在 Lodestone Launcher 中加入',
   'server.share.off':
-    '把链接发给好友。他们在 Lodestone Launcher 中打开后，游戏会直接连接到这台电脑，无需端口转发。',
-  'server.share.start': '与好友共享',
+    '把链接发给你想一起玩的人。他们在 Lodestone Launcher 中打开后，游戏会直接连接到这台电脑，无需端口转发。',
+  'server.share.start': '共享',
   'server.share.state.starting': '正在启动…',
   'server.share.state.sharing': '共享中',
   'server.share.state.reconnecting': '正在重新连接…',
@@ -717,13 +717,13 @@ export const zhHans: Messages = {
   'server.share.copied': '已复制邀请链接',
   'server.share.copyFailed': '无法复制。请选中链接后手动复制。',
   'server.share.preparing': '正在获取链接…',
-  'server.share.howFriendsJoin':
-    '服务器运行期间，任何拥有此链接的人都能加入。没有 Lodestone Launcher 的好友会看到下载链接。',
+  'server.share.howToJoin':
+    '服务器运行期间，任何拥有此链接的人都能加入。没有 Lodestone Launcher 的人会看到下载链接。',
   'server.share.hardNetwork':
-    '此网络的路由器难以建立直接连接，部分好友可能无法加入。',
-  'server.share.connected': { other: '{count} 位好友已连接' },
+    '此网络的路由器难以建立直接连接，部分玩家可能无法加入。',
+  'server.share.connected': { other: '{count} 人已连接' },
   'server.share.joins': { other: '（目前共加入 {count} 次）' },
-  'server.share.friendLine': '通过{connection}，{ms} 毫秒',
+  'server.share.peerLine': '通过{connection}，{ms} 毫秒',
   'server.share.connection.same_computer': '这台电脑',
   'server.share.connection.local_network': '局域网',
   'server.share.connection.ipv6': 'IPv6',
@@ -731,7 +731,7 @@ export const zhHans: Messages = {
   'server.share.stop': '停止共享',
   'server.share.stopTitle': '停止共享？',
   'server.share.stopBody':
-    '正在游戏的好友会断开连接，链接也将失效。再次共享会生成新链接。',
+    '通过链接游戏的人都会断开连接，链接也将失效。再次共享会生成新链接。',
   'server.publicListing.title': '共享',
   'server.publicListing.lead': '谁可以在不登录的情况下找到此服务器。',
   'server.publicListing.listedPublicly': '公开列出',
@@ -779,6 +779,8 @@ export const zhHans: Messages = {
     '此核心构建时未包含脚本支持（Deno），因此无法使用 atom 服务器。',
   'server.card.codeExecutionDisabled': '此核心已禁用代码执行',
   'server.card.copyIp': '复制 IP',
+  'server.card.share': '共享',
+  'server.card.shareHint': '通过链接共享此服务器',
   'server.card.online': '{players}/{max} 在线',
 
   // InstanceCard：启动未接受 Minecraft EULA 的服务器

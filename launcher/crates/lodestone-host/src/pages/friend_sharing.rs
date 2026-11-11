@@ -96,7 +96,7 @@ pub fn section_for(sharing: &Entity<FriendSharing>, instance: &str, cx: &App) ->
 
 /// One row per friend, each with "Share this server with <name>" (and the warning
 /// before a first share with a friend whose codes weren't compared), while friend
-/// sharing is ready; nothing otherwise. Also on the Overview's "Share with friends".
+/// sharing is ready; nothing otherwise. Also on the Overview's "Share".
 pub fn friend_rows(sharing: &Entity<FriendSharing>, instance: &str, cx: &App) -> Vec<AnyElement> {
     let model = sharing.read(cx);
     let mut rows: Vec<AnyElement> = Vec::new();

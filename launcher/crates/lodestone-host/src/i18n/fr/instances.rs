@@ -171,7 +171,7 @@ pub fn text(message: M) -> &'static str {
         M::PlayersSortByName => "NOM",
         M::PlayersLinkedUser => "L’utilisateur Lodestone qui a associé ce compte Minecraft",
         M::PlayersNone => "Aucun joueur en ligne",
-        M::ShareTitle => "Partager avec des amis",
+        M::ShareTitle => "Partager",
         M::ShareLead => {
             "Choisissez des amis dans votre liste d’amis, ou envoyez un lien à n’importe qui"
         }
@@ -184,9 +184,9 @@ pub fn text(message: M) -> &'static str {
         }
         M::ShareLinkHeading => "Ou envoyez un lien d’invitation",
         M::ShareOff => {
-            "Envoyez un lien à vos amis. Ils l'ouvrent dans Lodestone Launcher, et leur jeu se connecte directement à cet ordinateur. Aucune redirection de port nécessaire."
+            "Envoyez un lien à qui vous voulez. Ces personnes l'ouvrent dans Lodestone Launcher, et leur jeu se connecte directement à cet ordinateur. Aucune redirection de port nécessaire."
         }
-        M::ShareStart => "Partager avec des amis",
+        M::ShareStart => "Partager avec un lien",
         M::ShareStarting => "Démarrage…",
         M::ShareSharing => "Partagé",
         M::ShareReconnecting => "Reconnexion…",
@@ -195,13 +195,13 @@ pub fn text(message: M) -> &'static str {
         M::ShareCopy => "Copier le lien",
         M::ShareCopied => "Lien d'invitation copié",
         M::SharePreparing => "Création du lien…",
-        M::ShareHowFriendsJoin => {
-            "Toute personne ayant le lien peut rejoindre ce serveur pendant qu'il tourne. Les amis sans Lodestone Launcher reçoivent un lien de téléchargement."
+        M::ShareHowToJoin => {
+            "Toute personne ayant le lien peut rejoindre ce serveur pendant qu'il tourne. Les personnes sans Lodestone Launcher reçoivent un lien de téléchargement."
         }
         M::ShareHardNetwork => {
-            "Le routeur de ce réseau rend les connexions directes difficiles. Certains amis ne pourront peut-être pas rejoindre."
+            "Le routeur de ce réseau rend les connexions directes difficiles. Certaines personnes ne pourront peut-être pas rejoindre."
         }
-        M::ShareFriendLine => "via {connection}, {ms} ms",
+        M::SharePeerLine => "via {connection}, {ms} ms",
         M::ShareSameComputer => "cet ordinateur",
         M::ShareLocalNetwork => "le réseau local",
         M::ShareIpv6 => "IPv6",
@@ -209,10 +209,10 @@ pub fn text(message: M) -> &'static str {
         M::ShareStop => "Arrêter le partage",
         M::ShareStopTitle => "Arrêter le partage ?",
         M::ShareStopBody => {
-            "Les amis en train de jouer sont déconnectés et le lien ne fonctionne plus. Partager à nouveau crée un nouveau lien."
+            "Les personnes qui jouent via le lien sont déconnectées et le lien ne fonctionne plus. Partager à nouveau crée un nouveau lien."
         }
         M::ShareShort => "Partager",
-        M::ShareShortHint => "Partager ce serveur avec des amis",
+        M::ShareShortHint => "Partager ce serveur",
     }
 }
 
@@ -222,7 +222,7 @@ pub fn plural(message: P) -> [&'static str; 2] {
             "Afficher plus ({count} restante)",
             "Afficher plus ({count} restantes)",
         ],
-        P::ShareConnected => ["{count} ami connecté", "{count} amis connectés"],
+        P::ShareConnected => ["{count} personne connectée", "{count} personnes connectées"],
         P::ShareJoins => [
             "({count} connexion jusqu’ici)",
             "({count} connexions jusqu’ici)",

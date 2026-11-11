@@ -708,11 +708,11 @@ export const zhHant: Messages = {
   'server.settingField.unknownType': '提交錯誤：未知的值類型。',
 
   // PublicListingSetting
-  'server.share.title': '與好友分享',
-  'server.share.lead': '好友透過連結在 Lodestone Launcher 中加入',
+  'server.share.title': '分享',
+  'server.share.lead': '擁有連結的人可在 Lodestone Launcher 中加入',
   'server.share.off':
-    '把連結傳給好友。他們在 Lodestone Launcher 中開啟後，遊戲會直接連線到這台電腦，無需連接埠轉送。',
-  'server.share.start': '與好友分享',
+    '把連結傳給你想一起玩的人。他們在 Lodestone Launcher 中開啟後，遊戲會直接連線到這台電腦，無需連接埠轉送。',
+  'server.share.start': '分享',
   'server.share.state.starting': '正在啟動…',
   'server.share.state.sharing': '分享中',
   'server.share.state.reconnecting': '正在重新連線…',
@@ -722,13 +722,13 @@ export const zhHant: Messages = {
   'server.share.copied': '已複製邀請連結',
   'server.share.copyFailed': '無法複製。請選取連結後手動複製。',
   'server.share.preparing': '正在取得連結…',
-  'server.share.howFriendsJoin':
-    '伺服器執行期間，任何擁有此連結的人都能加入。沒有 Lodestone Launcher 的好友會看到下載連結。',
+  'server.share.howToJoin':
+    '伺服器執行期間，任何擁有此連結的人都能加入。沒有 Lodestone Launcher 的人會看到下載連結。',
   'server.share.hardNetwork':
-    '此網路的路由器難以建立直接連線，部分好友可能無法加入。',
-  'server.share.connected': { other: '{count} 位好友已連線' },
+    '此網路的路由器難以建立直接連線，部分玩家可能無法加入。',
+  'server.share.connected': { other: '{count} 人已連線' },
   'server.share.joins': { other: '（目前共加入 {count} 次）' },
-  'server.share.friendLine': '透過{connection}，{ms} 毫秒',
+  'server.share.peerLine': '透過{connection}，{ms} 毫秒',
   'server.share.connection.same_computer': '這台電腦',
   'server.share.connection.local_network': '區域網路',
   'server.share.connection.ipv6': 'IPv6',
@@ -736,7 +736,7 @@ export const zhHant: Messages = {
   'server.share.stop': '停止分享',
   'server.share.stopTitle': '停止分享？',
   'server.share.stopBody':
-    '正在遊戲的好友會中斷連線，連結也將失效。再次分享會產生新連結。',
+    '透過連結遊戲的人都會中斷連線，連結也將失效。再次分享會產生新連結。',
   'server.publicListing.title': '分享',
   'server.publicListing.lead': '誰可以在不登入的情況下找到此伺服器。',
   'server.publicListing.listedPublicly': '公開列出',
@@ -785,6 +785,8 @@ export const zhHant: Messages = {
     '此核心建置時未包含指令碼支援（Deno），因此無法使用 atom 伺服器。',
   'server.card.codeExecutionDisabled': '此核心已停用程式碼執行',
   'server.card.copyIp': '複製 IP',
+  'server.card.share': '分享',
+  'server.card.shareHint': '透過連結分享此伺服器',
   'server.card.online': '{players}/{max} 在線上',
 
   // InstanceCard：啟動未接受 Minecraft EULA 的伺服器

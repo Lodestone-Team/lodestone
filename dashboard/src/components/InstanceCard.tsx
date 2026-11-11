@@ -11,6 +11,7 @@ import { toast } from 'react-toastify';
 import useAnalyticsEventTracker from 'utils/hooks';
 import {
   faArrowRotateBackward,
+  faLink,
   faPlug,
   faPowerOff,
 } from '@fortawesome/free-solid-svg-icons';
@@ -29,6 +30,9 @@ import { useI18n } from 'i18n';
 import ConfirmDialog from './Atoms/ConfirmDialog';
 import { MinecraftEulaLink } from './Instance/Create/EulaCheckbox';
 import { acceptInstanceEula, getInstanceEula } from 'data/MinecraftEula';
+import { BrowserLocationContext } from 'data/BrowserLocationContext';
+import { useInstanceShare } from 'data/InstanceShare';
+import { SHARE_SECTION_HASH } from './Instance/InstanceShareSection';
 
 // // for the css style of the double border when focused
 // const stateToBorderMap: { [key in InstanceState]: string[] } = {
@@ -39,6 +43,17 @@ import { acceptInstanceEula, getInstanceEula } from 'data/MinecraftEula';
 //   Error: ['ui-checked:outline-red', 'ui-checked:ring-red-faded/25'],
 //   // Loading: 'outline-gray-300 ring-gray-500',
 // };
+
+// The power icon says the state, as the clients' server rows do (the
+// launcher's `state_color`): green running, yellow starting or stopping, red
+// after a crash, grey stopped. Hover keeps the colour.
+const stateToPowerIconClass: { [key in InstanceState]: string } = {
+  Running: 'text-green-200 enabled:hover:text-green-200',
+  Starting: 'text-yellow-300 enabled:hover:text-yellow-300',
+  Stopping: 'text-yellow-300 enabled:hover:text-yellow-300',
+  Error: 'text-red-200 enabled:hover:text-red-200',
+  Stopped: 'text-gray-500 enabled:hover:text-gray-500',
+};
 
 const stateToApiEndpointMap: { [key in InstanceState]: string } = {
   Running: '/stop',
@@ -79,6 +94,19 @@ export default function InstanceCard({
   const canViewInstance = useUserAuthorized('can_view_instance', uuid);
   const canStartInstance = useUserAuthorized('can_start_instance', uuid);
   const canStopInstance = useUserAuthorized('can_stop_instance', uuid);
+  // Share opens the Overview's Share section, which only Minecraft Java servers
+  // have, for users who may manage them, on cores that can share; the others
+  // keep Copy IP. (The same query as the section's, so it is asked once.)
+  const isJava = game_type.type === 'MinecraftJava';
+  const { isError: shareUnavailable } = useInstanceShare(uuid, isJava);
+  const canShare = isJava && !shareUnavailable;
+  const { setLocation } = useContext(BrowserLocationContext);
+  const openShare = () =>
+    setLocation((loc) => ({
+      ...loc,
+      pathname: '/dashboard/overview',
+      hash: SHARE_SECTION_HASH,
+    }));
   const gaEventTracker = useAnalyticsEventTracker('Instance Card');
   // atom instances are owner only, and can't start while code
   // execution is disabled
@@ -106,6 +134,20 @@ export default function InstanceCard({
     default:
       break;
   }
+
+  // what the signed-in user may do, as the core checks it: a restart stops
+  // and starts the server
+  const mayPower = (action: 'start' | 'stop' | 'restart' | 'kill') => {
+    switch (action) {
+      case 'start':
+        return canStartInstance;
+      case 'stop':
+      case 'kill':
+        return canStopInstance;
+      case 'restart':
+        return canStartInstance && canStopInstance;
+    }
+  };
 
   const stateToMenuInfo = () => {
     if (atomBlockedReason) return [];
@@ -237,6 +279,10 @@ export default function InstanceCard({
   };
 
   const stateColor = stateToLabelColor[state];
+  const menuInfo = stateToMenuInfo().filter((info) => mayPower(info.action));
+  // the card's second row: a small outlined button, as Copy IP was
+  const chipClass =
+    'grow rounded-xs bg-gray-800 p-1 text-small leading-4 font-medium tracking-medium text-gray-300 outline-1 outline-gray-faded/30 outline-solid hover:bg-gray-700 hover:outline-white/50';
 
   return (
     <div className="my-2 border-b-2 border-gray-faded/30 pb-2">
@@ -275,20 +321,24 @@ export default function InstanceCard({
             <Menu.Button
               as={IconButton}
               icon={faPowerOff}
-              disabled={atomBlockedReason !== null}
+              aria-label={`${t('server.card.power')}: ${t(`common.state.${state}`)}`}
+              className={stateToPowerIconClass[state]}
+              disabled={atomBlockedReason !== null || menuInfo.length === 0}
             />
+            {/* opens with a short fade and scale from the button's corner;
+                with reduced motion, only the fade */}
             <Transition
               as={Fragment}
-              enter="transition ease-out duration-200"
-              enterFrom="opacity-0 -translate-y-1"
-              enterTo="opacity-100 translate-y-0"
-              leave="transition ease-in duration-150"
-              leaveFrom="opacity-100 translate-y-0"
-              leaveTo="opacity-0 -translate-y-1"
+              enter="transition ease-out duration-150"
+              enterFrom="opacity-0 scale-95 -translate-y-1 motion-reduce:scale-100 motion-reduce:translate-y-0"
+              enterTo="opacity-100 scale-100 translate-y-0"
+              leave="transition ease-in duration-100"
+              leaveFrom="opacity-100 scale-100 translate-y-0"
+              leaveTo="opacity-0 scale-95 -translate-y-1 motion-reduce:scale-100 motion-reduce:translate-y-0"
             >
-              <Menu.Items className="absolute right-0 z-10 mt-1.5 origin-top-left divide-y divide-gray-faded/30 rounded border border-gray-faded/30 bg-gray-800 drop-shadow-md focus:outline-hidden">
+              <Menu.Items className="absolute right-0 z-10 mt-1.5 origin-top-right divide-y divide-gray-faded/30 rounded border border-gray-faded/30 bg-gray-800 drop-shadow-md focus:outline-hidden">
                 <div className="px-1.5 py-2">
-                  {stateToMenuInfo().map((menuInfo, i) => (
+                  {menuInfo.map((menuInfo, i) => (
                     <Menu.Item
                       key={i}
                       disabled={
@@ -328,11 +378,37 @@ export default function InstanceCard({
           'text-medium leading-5 font-bold tracking-medium text-gray-300'
         )}
       >
-        <ClipboardTextfield
-          className="grow rounded-xs bg-gray-800 p-1 text-small leading-4 font-medium tracking-medium text-gray-300 outline-1 outline-gray-faded/30 outline-solid hover:bg-gray-700 hover:outline-white/50"
-          textToCopy={`${domain}:${port}`}
-          text={t('server.card.copyIp')}
-        />
+        {canShare ? (
+          <Tooltip
+            showArrow={false}
+            overlay={<span>{t('server.card.shareHint')}</span>}
+            placement="bottom"
+            trigger={['hover']}
+            mouseEnterDelay={0.2}
+          >
+            <button
+              type="button"
+              onClick={openShare}
+              className={clsx(
+                chipClass,
+                'group flex cursor-pointer flex-row items-center justify-center gap-2 whitespace-nowrap select-none',
+                'focus-visible:ring-4 focus-visible:ring-blue-faded/50 focus-visible:outline-hidden'
+              )}
+            >
+              <FontAwesomeIcon
+                icon={faLink}
+                className="text-gray-faded/25 group-hover:text-gray-500"
+              />
+              {t('server.card.share')}
+            </button>
+          </Tooltip>
+        ) : (
+          <ClipboardTextfield
+            className={chipClass}
+            textToCopy={`${domain}:${port}`}
+            text={t('server.card.copyIp')}
+          />
+        )}
         <Label
           size="small"
           className="flex grow justify-center whitespace-nowrap"
