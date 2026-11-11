@@ -193,6 +193,20 @@ crate::i18n::messages! {
         ShareStop = "Stop sharing",
         ShareStopTitle = "Stop sharing?",
         ShareStopBody = "Everyone playing through the link is disconnected, and the link stops working. Sharing again makes a new link.",
+        /// Beside Stop sharing: replaces the invite link.
+        ShareNewLink = "New link",
+        ShareNewLinkTitle = "Make a new link?",
+        ShareNewLinkBody = "The current link stops working, and everyone playing through it is disconnected. Send the new link to the people who should still join. Friends you share with from your friend list aren't affected.",
+        ShareNewLinkConfirm = "Make new link",
+        ShareNewLinkMade = "Made a new invite link",
+        /// In the Share section after friends were removed since this link was made.
+        ShareRemovedFriendsNote = "You removed {names} as a friend. If they have this invite link, they can still join until you make a new one.",
+        ShareRemovedFriendsDismiss = "Dismiss",
+        /// A toast after a sync took removed friends off the core.
+        ShareRemovedFriendsToast = "{names} can still join {servers} if they have the invite link. Make new links to stop them.",
+        ShareNewLinks = "Make new links",
+        ShareNewLinksMade = "Made new invite links. Send them to the people who should still join.",
+        ShareNewLinkFailed = "Couldn't make a new link for {name}: {error}",
         /// The sidebar card's Share: opens the Overview's Share section.
         ShareShort = "Share",
         ShareShortHint = "Share this server",

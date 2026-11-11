@@ -147,7 +147,7 @@ pub fn open_menu_for_screenshot(view: &AnyView, name: &str, cx: &mut App) {
 }
 
 /// Puts sample friends on the Settings tab's Friends section (development
-/// screenshots' `--friends none|loading|off|retired|shared|confirm|renew|certificate|certificate-manual|error`, with `--tab settings`).
+/// screenshots' `--friends none|loading|off|retired|shared|confirm|removed|renew|certificate|certificate-manual|error`, with `--tab settings`).
 #[cfg(feature = "screenshot")]
 pub fn friends_demo(view: &AnyView, scene: &str, cx: &mut App) {
     // the Overview's "Share", with the same friends

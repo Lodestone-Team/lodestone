@@ -210,6 +210,25 @@ pub fn text(message: M) -> &'static str {
         M::ShareStopBody => {
             "Les personnes qui jouent via le lien sont déconnectées et le lien ne fonctionne plus. Partager à nouveau crée un nouveau lien."
         }
+        M::ShareNewLink => "Nouveau lien",
+        M::ShareNewLinkTitle => "Créer un nouveau lien ?",
+        M::ShareNewLinkBody => {
+            "Le lien actuel ne fonctionne plus et les personnes qui jouent via ce lien sont déconnectées. Envoyez le nouveau lien aux personnes qui doivent encore pouvoir rejoindre. Les amis avec qui vous partagez depuis votre liste d'amis ne sont pas concernés."
+        }
+        M::ShareNewLinkConfirm => "Créer un nouveau lien",
+        M::ShareNewLinkMade => "Nouveau lien d'invitation créé",
+        M::ShareRemovedFriendsNote => {
+            "Vous avez retiré {names} de vos amis. S'ils ont ce lien d'invitation, ils peuvent encore rejoindre tant que vous n'en créez pas un nouveau."
+        }
+        M::ShareRemovedFriendsDismiss => "Ignorer",
+        M::ShareRemovedFriendsToast => {
+            "{names} peuvent encore rejoindre {servers} s'ils ont le lien d'invitation. Créez de nouveaux liens pour les en empêcher."
+        }
+        M::ShareNewLinks => "Créer de nouveaux liens",
+        M::ShareNewLinksMade => {
+            "Nouveaux liens d'invitation créés. Envoyez-les aux personnes qui doivent encore pouvoir rejoindre."
+        }
+        M::ShareNewLinkFailed => "Impossible de créer un nouveau lien pour {name} : {error}",
         M::ShareShort => "Partager",
         M::ShareShortHint => "Partager ce serveur",
     }

@@ -26,8 +26,8 @@ use launcher_core::cores::{
 };
 use lodestone_ui::{
     components::{
-        Button, ButtonVariant, Dialog, DialogSlot, Icon, IconButton, LineChart, LoadingDots,
-        TextInput, Toast, text_tooltip, window_layer,
+        Button, ButtonSize, ButtonVariant, Dialog, DialogSlot, Icon, IconButton, LineChart,
+        LoadingDots, TextInput, Toast, text_tooltip, window_layer,
     },
     theme::{Color, colors, fonts, ink, px, radius, text, weights},
 };
@@ -81,9 +81,10 @@ fn remember_share(uuid: &str, share: Option<&InstanceShare>, cx: &mut App) {
     }
 }
 
-/// The "Stop sharing?" confirmation.
+/// The "Stop sharing?" confirmation, or with `new_link` the "Make a new link?" one.
 struct StopPrompt {
     focus: FocusHandle,
+    new_link: bool,
 }
 
 pub struct OverviewPage {
@@ -374,6 +375,47 @@ impl OverviewPage {
             .ok();
         });
         self._tasks.push(task);
+    }
+
+    /// Replaces the invite link: the old one stops working, and everyone playing
+    /// through it is disconnected.
+    fn new_link(&mut self, cx: &mut Context<Self>) {
+        self.stop_prompt.close(cx);
+        if self.share_busy {
+            return;
+        }
+        self.share_busy = true;
+        let admin = self.admin(cx);
+        let uuid = self.uuid.clone();
+        let task = cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_spawn(async move { crate::friends::new_link(&admin, &uuid).await })
+                .await;
+            this.update(cx, |this, cx| {
+                this.share_busy = false;
+                match result {
+                    Ok(share) => {
+                        remember_share(&this.uuid, Some(&share), cx);
+                        this.share = Some(share);
+                        this.poll_share(cx);
+                        if let Some(sharing) = this.state.read(cx).friends.clone() {
+                            let uuid = this.uuid.clone();
+                            sharing.update(cx, |sharing, cx| sharing.link_renewed(&uuid, cx));
+                        }
+                        this.toast(Toast::success(t(M::ShareNewLinkMade)).key("share"), cx);
+                    }
+                    Err(err) => {
+                        // it may have stopped without starting again: show what it is now
+                        this.poll_share(cx);
+                        this.toast(Toast::error(err.to_string()).key("share"), cx)
+                    }
+                }
+                cx.notify();
+            })
+            .ok();
+        });
+        self._tasks.push(task);
+        cx.notify();
     }
 
     fn copy(&self, text: String, message: String, cx: &mut Context<Self>) {
@@ -909,6 +951,44 @@ impl OverviewPage {
                     .text_color(color)
                     .child(text_)
             };
+            // friends removed since this link was made may still have it
+            let removed_note = self
+                .state
+                .read(cx)
+                .friends
+                .clone()
+                .and_then(|sharing| {
+                    let names = sharing.read(cx).link_warning(&self.uuid)?.to_vec();
+                    Some((sharing, names))
+                })
+                .map(|(sharing, names)| {
+                    div()
+                        .id("share-removed-friends")
+                        .flex()
+                        .flex_row()
+                        .flex_wrap()
+                        .items_center()
+                        .gap(px(8.))
+                        .child(div().flex_1().min_w(px(240.)).child(note(
+                            tr!(
+                                M::ShareRemovedFriendsNote,
+                                names = lodestone_ui::i18n::format::list(&names)
+                            ),
+                            colors::YELLOW,
+                        )))
+                        .child(
+                            Button::new(
+                                "share-removed-friends-dismiss",
+                                t(M::ShareRemovedFriendsDismiss),
+                            )
+                            .variant(ButtonVariant::Ghost)
+                            .size(ButtonSize::Slim)
+                            .on_click(move |_, _, cx| {
+                                sharing.update(cx, |sharing, cx| sharing.dismiss_link_warnings(cx));
+                            }),
+                        )
+                        .into_any_element()
+                });
             let friends: Vec<AnyElement> = share
                 .friends
                 .iter()
@@ -963,6 +1043,7 @@ impl OverviewPage {
                         }),
                 )
                 .child(link)
+                .children(removed_note)
                 // the link names its service: say so when it isn't connect.lodestone.cc,
                 // so testers don't send a dev link to friends
                 .when_some(share_relay_note(&share), |this, relay| {
@@ -1015,14 +1096,42 @@ impl OverviewPage {
                     )
                 })
                 .child(
-                    div().flex().flex_row().justify_end().child(
-                        Button::new("share-stop", t(M::ShareStop))
-                            .variant(ButtonVariant::Danger)
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                let focus = cx.focus_handle();
-                                this.stop_prompt.open(StopPrompt { focus }, cx);
-                            })),
-                    ),
+                    div()
+                        .flex()
+                        .flex_row()
+                        .justify_end()
+                        .gap(px(8.))
+                        .child(
+                            Button::new("share-new-link", t(M::ShareNewLink))
+                                .variant(ButtonVariant::Secondary)
+                                .icon(Icon::Link)
+                                .loading(self.share_busy)
+                                .disabled(self.share_busy)
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    let focus = cx.focus_handle();
+                                    this.stop_prompt.open(
+                                        StopPrompt {
+                                            focus,
+                                            new_link: true,
+                                        },
+                                        cx,
+                                    );
+                                })),
+                        )
+                        .child(
+                            Button::new("share-stop", t(M::ShareStop))
+                                .variant(ButtonVariant::Danger)
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    let focus = cx.focus_handle();
+                                    this.stop_prompt.open(
+                                        StopPrompt {
+                                            focus,
+                                            new_link: false,
+                                        },
+                                        cx,
+                                    );
+                                })),
+                        ),
                 )
                 .into_any_element()
         };
@@ -1123,27 +1232,43 @@ impl OverviewPage {
         let close = std::rc::Rc::new(cx.listener(|this, _: &(), _, cx| {
             this.stop_prompt.close(cx);
         }));
-        Dialog::new(
-            "share-stop-dialog",
-            t(M::ShareStopTitle),
-            prompt.focus.clone(),
-        )
-        .on_close({
-            let close = close.clone();
-            move |window, cx| close(&(), window, cx)
-        })
-        .child(
-            div()
-                .text_size(text::MEDIUM)
-                .text_color(ink::secondary())
-                .child(t(M::ShareStopBody)),
-        )
-        .footer(
-            Button::new("share-stop-confirm", t(M::ShareStop))
-                .variant(ButtonVariant::Danger)
-                .on_click(cx.listener(|this, _, _, cx| this.stop_share(cx))),
-        )
-        .into_any_element()
+        let new_link = prompt.new_link;
+        let (title, body, confirm) = if new_link {
+            (
+                M::ShareNewLinkTitle,
+                M::ShareNewLinkBody,
+                M::ShareNewLinkConfirm,
+            )
+        } else {
+            (M::ShareStopTitle, M::ShareStopBody, M::ShareStop)
+        };
+        Dialog::new("share-stop-dialog", t(title), prompt.focus.clone())
+            .on_close({
+                let close = close.clone();
+                move |window, cx| close(&(), window, cx)
+            })
+            .child(
+                div()
+                    .text_size(text::MEDIUM)
+                    .text_color(ink::secondary())
+                    .child(t(body)),
+            )
+            .footer(
+                Button::new("share-stop-confirm", t(confirm))
+                    .variant(if new_link {
+                        ButtonVariant::Primary
+                    } else {
+                        ButtonVariant::Danger
+                    })
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        if new_link {
+                            this.new_link(cx)
+                        } else {
+                            this.stop_share(cx)
+                        }
+                    })),
+            )
+            .into_any_element()
     }
 
     fn render_performance(&self, instance: &InstanceInfo, cx: &Context<Self>) -> AnyElement {

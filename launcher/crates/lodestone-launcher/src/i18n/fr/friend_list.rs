@@ -128,7 +128,7 @@ pub fn text(message: M) -> &'static str {
         M::NameLike => "Même nom que {names} : vérifiez de qui il s’agit",
         M::RemoveTitle => "Retirer {name}\u{202F}?",
         M::RemoveBody => {
-            "Vous ne voyez plus ses serveurs, et il ne voit plus les vôtres. Vos hôtes cessent de partager avec lui la prochaine fois qu’ils se synchronisent. Pour redevenir amis, l’un de vous crée un nouveau lien d’ami."
+            "Vous ne voyez plus ses serveurs, et il ne voit plus les vôtres. Vos hôtes cessent de partager avec lui la prochaine fois qu’ils se synchronisent. Pour redevenir amis, l’un de vous crée un nouveau lien d’ami. Les liens d’invitation que vous lui avez envoyés fonctionnent jusqu’à ce que vous en créiez de nouveaux dans Lodestone Host."
         }
         M::RemoveFriend => "Retirer cet ami",
         M::ShareLan => "Partager les mondes LAN avec mes amis",

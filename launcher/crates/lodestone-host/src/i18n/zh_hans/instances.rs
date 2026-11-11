@@ -194,6 +194,23 @@ pub fn text(message: M) -> &'static str {
         M::ShareStop => "停止共享",
         M::ShareStopTitle => "停止共享？",
         M::ShareStopBody => "通过链接游戏的人都会断开连接，链接也将失效。再次共享会生成新链接。",
+        M::ShareNewLink => "新链接",
+        M::ShareNewLinkTitle => "生成新链接？",
+        M::ShareNewLinkBody => {
+            "当前链接将失效，通过它游戏的人都会断开连接。请把新链接发给仍然可以加入的人。通过好友列表共享的好友不受影响。"
+        }
+        M::ShareNewLinkConfirm => "生成新链接",
+        M::ShareNewLinkMade => "已生成新的邀请链接",
+        M::ShareRemovedFriendsNote => {
+            "你已删除好友 {names}。如果对方有这个邀请链接，在你生成新链接之前仍然可以加入。"
+        }
+        M::ShareRemovedFriendsDismiss => "忽略",
+        M::ShareRemovedFriendsToast => {
+            "如果 {names} 有邀请链接，仍然可以加入 {servers}。生成新链接即可阻止。"
+        }
+        M::ShareNewLinks => "生成新链接",
+        M::ShareNewLinksMade => "已生成新的邀请链接。请发给仍然可以加入的人。",
+        M::ShareNewLinkFailed => "无法为 {name} 生成新链接：{error}",
         M::ShareShort => "分享",
         M::ShareShortHint => "分享此服务器",
     }
