@@ -484,6 +484,21 @@ pub const METHODS: &[Method] = &[
         "Updates an instance's modpack (shows the plan first).",
         content::modpack_update,
     ),
+    method(
+        "modpacks.add",
+        "Adds a modpack's files to an instance next to its own, such as a server's (shows the plan first).",
+        content::modpack_add,
+    ),
+    method(
+        "modpacks.added",
+        "The modpacks added to an instance on top of its own, with their files.",
+        content::modpack_added,
+    ),
+    destructive(
+        "modpacks.remove",
+        "Removes a modpack added to an instance: the files it added that weren't changed.",
+        content::modpack_remove,
+    ),
     // snapshots
     method(
         "snapshots.list",
@@ -1629,6 +1644,7 @@ pub const READ_METHODS: &[&str] = &[
     "content.updates",
     "modpacks.search",
     "modpacks.check",
+    "modpacks.added",
     "snapshots.list",
     "worlds.list",
     "worlds.backups",
@@ -1819,6 +1835,8 @@ mod tests {
         "content.switch_loader",
         "modpacks.install",
         "modpacks.update",
+        "modpacks.add",
+        "modpacks.remove",
         "snapshots.create",
         "snapshots.revert",
         "snapshots.export",

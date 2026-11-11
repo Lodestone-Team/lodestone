@@ -239,6 +239,17 @@ pub fn text(message: M) -> &'static str {
             "Lodestone Launcher s’est fermé au milieu d’une recherche, donc certains mods de {name} sont encore désactivés."
         }
         M::FinderPutBackFailed => "Certains mods n’ont pas pu être réactivés\u{a0}: {error}",
+
+        M::AddingName => "Ajout de {name}",
+        M::ModrinthUnreachable => "Modrinth est injoignable.",
+        M::ModpackAddedAlready => {
+            "{pack} est déjà ajouté à cette instance. Retirez-le d’abord dans les Paramètres pour en ajouter une autre version."
+        }
+        M::CouldntAddModpack => "Impossible d’ajouter le modpack",
+        M::ModpackAdded => "Modpack ajouté",
+        M::ModpackAddedMessage => "{pack} a été ajouté à {name}. Appuyez sur Jouer pour la lancer.",
+        M::CouldntRemoveModpack => "Impossible de retirer le modpack",
+        M::ModpackRemoved => "Modpack retiré",
     }
 }
 
@@ -310,6 +321,15 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::FinderTriesLeft => [
             "Environ {count} essai de plus",
             "Environ {count} essais de plus",
+        ],
+
+        P::AddedPackFilesRemoved => [
+            "{count} fichier de {pack} a été supprimé.",
+            "{count} fichiers de {pack} ont été supprimés.",
+        ],
+        P::AddedPackFilesKept => [
+            "{count} fichier que vous avez modifié a été gardé.",
+            "{count} fichiers que vous avez modifiés ont été gardés.",
         ],
     }
 }

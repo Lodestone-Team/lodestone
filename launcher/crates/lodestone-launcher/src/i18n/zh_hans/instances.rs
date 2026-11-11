@@ -211,6 +211,15 @@ pub fn text(message: M) -> &'static str {
         M::FinderInterruptedTitle => "要完成在“{name}”中查找模组吗？",
         M::FinderInterrupted => "启动器在查找中途关闭了，所以“{name}”的部分模组仍处于禁用状态。",
         M::FinderPutBackFailed => "部分模组无法重新启用：{error}",
+
+        M::AddingName => "正在添加 {name}",
+        M::ModrinthUnreachable => "无法连接到 Modrinth。",
+        M::ModpackAddedAlready => "此实例已添加 {pack}。要添加其他版本，请先在“设置”中将其移除。",
+        M::CouldntAddModpack => "无法添加整合包",
+        M::ModpackAdded => "整合包已添加",
+        M::ModpackAddedMessage => "{pack} 已添加到 {name}。按“开始游戏”即可启动。",
+        M::CouldntRemoveModpack => "无法移除整合包",
+        M::ModpackRemoved => "整合包已移除",
     }
 }
 
@@ -243,5 +252,8 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::FinderModsLeft => ["还有 {count} 个模组待检查"; 2],
         P::FinderModsOff => ["已禁用 {count} 个模组"; 2],
         P::FinderTriesLeft => ["大约还需 {count} 次尝试"; 2],
+
+        P::AddedPackFilesRemoved => ["已移除 {pack} 的 {count} 个文件。"; 2],
+        P::AddedPackFilesKept => ["你修改过的 {count} 个文件已保留。"; 2],
     }
 }

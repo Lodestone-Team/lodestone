@@ -13,6 +13,7 @@ use launcher_core::content::{
     CurseForge, Modrinth,
     curseforge::{CLASS_MODPACKS, CfFile, CfMod, CfSearch, CfSearchResults, CfSort},
 };
+use launcher_core::instances::Loader;
 use lodestone_minecraft::modrinth::{
     ClientProjectType, ClientSearchParams, ModrinthProject, ModrinthSearchIndex,
     ModrinthSearchResponse, ModrinthVersionType, RawVersion,
@@ -111,6 +112,9 @@ pub struct ModpackBrowser {
     images: HashMap<String, RemoteIcon>,
     descriptions: HashMap<String, Arc<Vec<launcher_core::markdown::Block>>>,
     task: Option<Task<()>>,
+    /// Only packs for this Minecraft version and loader, when adding a pack to an
+    /// instance.
+    compatible: Option<(String, Loader)>,
     _observe: Vec<Subscription>,
 }
 
@@ -137,7 +141,29 @@ impl ModpackBrowser {
             images: HashMap::new(),
             descriptions: HashMap::new(),
             task: None,
+            compatible: None,
             _observe: observe,
+        }
+    }
+
+    /// Lists only the packs, and their versions, for `game_version` with `loader`:
+    /// those that can be added to an instance of that version.
+    pub fn compatible_with(mut self, game_version: String, loader: Loader) -> Self {
+        self.compatible = Some((game_version, loader));
+        self
+    }
+
+    /// The Modrinth loader the packs must have, and the Minecraft version.
+    fn modrinth_filter(&self) -> (Vec<String>, Vec<String>) {
+        match &self.compatible {
+            Some((game, loader)) => (
+                loader
+                    .kind()
+                    .map(|k| vec![k.label().to_ascii_lowercase()])
+                    .unwrap_or_default(),
+                vec![game.clone()],
+            ),
+            None => (Vec::new(), Vec::new()),
         }
     }
 
@@ -200,6 +226,12 @@ impl ModpackBrowser {
             return;
         };
         let mut search = CfSearch::new(CLASS_MODPACKS, &self.text);
+        if let Some((game, loader)) = &self.compatible {
+            search.game_version = Some(game.clone());
+            if loader.kind().is_some() {
+                search.loaders = vec![*loader];
+            }
+        }
         search.sort = self.cf_sort;
         search.limit = PAGE_SIZE as usize;
         self.cf_results = Load::Loading;
@@ -224,9 +256,20 @@ impl ModpackBrowser {
         let Some(cf) = self.cf(cx) else {
             return;
         };
+        let filter = self.compatible.clone();
         let work = cx.background_spawn(async move {
             let project = cf.project(project_id).await;
-            let files = cf.files(project_id, None, None).await;
+            let files = match &filter {
+                Some((game, loader)) => {
+                    cf.files(
+                        project_id,
+                        Some(game),
+                        loader.kind().is_some().then_some(*loader),
+                    )
+                    .await
+                }
+                None => cf.files(project_id, None, None).await,
+            };
             (project, files)
         });
         let task = cx.spawn(async move |this, cx| {
@@ -313,11 +356,12 @@ impl ModpackBrowser {
         let Some(api) = self.api(cx) else {
             return;
         };
+        let (loaders, games) = self.modrinth_filter();
         let params = match ClientSearchParams::new(
             Some(self.text.clone()),
             ClientProjectType::Modpack,
-            None,
-            Vec::new(),
+            games.into_iter().next(),
+            loaders,
             Some(self.index),
             Some(0),
             Some(PAGE_SIZE),
@@ -385,9 +429,10 @@ impl ModpackBrowser {
             return;
         };
         let id = project_id.clone();
+        let (loaders, games) = self.modrinth_filter();
         let work = cx.background_spawn(async move {
             let project = api.project(&id).await;
-            let versions = api.versions(&id, &[], &[]).await;
+            let versions = api.versions(&id, &loaders, &games).await;
             (project, versions)
         });
         let task = cx.spawn(async move |this, cx| {

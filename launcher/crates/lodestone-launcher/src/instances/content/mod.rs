@@ -261,6 +261,8 @@ pub enum RemoteIcon {
 pub enum ContentEvent {
     /// Open "New instance" with Fabric chosen.
     NewFabricInstance,
+    /// Open "Add a modpack" for the instance.
+    AddModpack(String),
     /// A mod being turned off has enabled mods that can't load without it, or one being
     /// turned on needs mods that are off: ask whether to turn those off or on too (then
     /// [`ContentView::set_mods_enabled`]).
@@ -327,6 +329,9 @@ pub struct ContentView {
     descriptions: HashMap<String, Arc<Vec<launcher_core::markdown::Block>>>,
     /// Whether the game was running at the last check, to reload when it stops.
     was_active: bool,
+    /// The instance's content revision when its lists were last read (see
+    /// [`Instances::content_revision`]).
+    revision: u64,
     /// The instance's "Beta and alpha updates" at the last check.
     prerelease: bool,
     /// The "⋯" menu beside the search is open.
@@ -399,6 +404,7 @@ impl ContentView {
             page_scroll: gpui::ScrollHandle::new(),
             descriptions: HashMap::new(),
             was_active: false,
+            revision: 0,
             prerelease: false,
             menu_open: false,
             sort_open: false,
@@ -421,12 +427,22 @@ impl ContentView {
         self.instance_id.as_deref()
     }
 
+    /// Whether the instance has a mod loader, so a modpack can be added to it.
+    pub fn has_loader(&self) -> bool {
+        self.loader
+            .as_ref()
+            .is_some_and(|(loader, _)| loader.kind().is_some())
+    }
+
     /// Follows the selected instance: a new one, or a new loader for the same one ("Switch
     /// to Fabric", or a change in Settings), starts over; a game that stopped may have
     /// changed its options, so the lists are read again.
     fn sync(&mut self, cx: &mut Context<Self>) {
-        let (selected, loader, active, prerelease) = {
+        let (selected, loader, active, prerelease, revision) = {
             let instances = self.instances.read(cx);
+            let revision = instances
+                .selected()
+                .map_or(0, |i| instances.content_revision(&i.id));
             let selected = instances.selected();
             let prerelease = selected.is_some_and(|i| i.prerelease_updates);
             let loader = selected.map(|i| (i.loader, i.loader_version.clone()));
@@ -434,8 +450,10 @@ impl ContentView {
             let active = selected
                 .as_deref()
                 .is_some_and(|id| instances.is_active(id));
-            (selected, loader, active, prerelease)
+            (selected, loader, active, prerelease, revision)
         };
+        let changed = revision != self.revision;
+        self.revision = revision;
         if selected != self.instance_id || loader != self.loader {
             self.instance_id = selected;
             self.loader = loader;
@@ -452,7 +470,7 @@ impl ContentView {
                     self.look_for_updates(kind, true, cx);
                 }
             }
-        } else if self.was_active && !active {
+        } else if (self.was_active && !active) || changed {
             for kind in ContentKind::ALL {
                 if !matches!(self.section(kind).listing, Load::NotLoaded) {
                     self.reload(kind, cx);

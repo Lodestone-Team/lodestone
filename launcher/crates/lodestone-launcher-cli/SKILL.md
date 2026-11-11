@@ -100,7 +100,7 @@ The user also sees each connected program (this CLI says
   `content remove`, `accounts remove`, `cores remove`, `cores trust`, `friends remove`,
   `friend-list answer`, `friend-list accept`, `friend-list verify`, `friend-list remove`,
   `friend-list retire-core`, `friend-list retire`, `shared clear`,
-  `play clear-logs`, `storage clean`, `snapshots revert`, `snapshots delete`, applying `modpacks update`, a `content switch-loader` that leaves mods
+  `play clear-logs`, `storage clean`, `snapshots revert`, `snapshots delete`, applying `modpacks update` or `modpacks add`, `modpacks remove`, a `content switch-loader` that leaves mods
   behind, and turning on `settings developer set --sign-in-as-minecraft-launcher true`.
   Deleting moves to the Trash. Never add `--yes` on your own.
 - **Trust in a core is the user's decision.** Mods from a Lodestone core run as programs
@@ -244,6 +244,15 @@ lodestone-launcher-cli modpacks install --file ./pack.mrpack
 lodestone-launcher-cli modpacks check FO
 lodestone-launcher-cli modpacks update FO           # exit 5 with data.plan: show it to the user
 lodestone-launcher-cli modpacks update FO --yes     # long; backs up worlds first (--no-backup-worlds)
+# Add a pack's mods and configs to an instance that has its own (one made for a server):
+# the instance's pack (the server's) wins, nothing the instance has is replaced, and the
+# pack must be for the instance's Minecraft version and loader.
+lodestone-launcher-cli modpacks add SMP fabulously-optimized        # exit 5 with data.plan
+lodestone-launcher-cli modpacks add SMP fabulously-optimized --yes  # long
+lodestone-launcher-cli modpacks add SMP --file ./pack.mrpack --yes  # or a CurseForge .zip
+lodestone-launcher-cli modpacks added SMP                           # ids and files
+lodestone-launcher-cli modpacks remove SMP fabulously-optimized     # exit 5: what it removes
+lodestone-launcher-cli modpacks remove SMP fabulously-optimized --yes
 ```
 
 Worlds:

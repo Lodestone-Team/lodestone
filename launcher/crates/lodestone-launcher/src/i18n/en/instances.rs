@@ -227,6 +227,19 @@ crate::i18n::messages! {
         FinderInterrupted = "Lodestone Launcher closed in the middle of a search, so some of {name}'s mods are still turned off.",
         /// {error} says what went wrong.
         FinderPutBackFailed = "Some mods couldn't be turned back on: {error}",
+
+        // Adding a modpack's files to an instance that exists.
+        /// Progress: the pack's files going into the instance.
+        AddingName = "Adding {name}",
+        ModrinthUnreachable = "Modrinth can't be reached.",
+        /// The pack, or another version of it, was added to the instance before.
+        ModpackAddedAlready = "{pack} is added to this instance already. Remove it in Settings first to add another version.",
+        CouldntAddModpack = "Couldn't add the modpack",
+        ModpackAdded = "Modpack added",
+        /// "Fabulously Optimized was added to Survival. Press Play to start it."
+        ModpackAddedMessage = "{pack} was added to {name}. Press Play to start it.",
+        CouldntRemoveModpack = "Couldn't remove the modpack",
+        ModpackRemoved = "Modpack removed",
     }
 
     pub enum InstancesPlural {
@@ -288,5 +301,15 @@ crate::i18n::messages! {
         FinderModsLeft = ("{count} mod left to check", "{count} mods left to check"),
         FinderModsOff = ("{count} mod turned off", "{count} mods turned off"),
         FinderTriesLeft = ("About {count} more try", "About {count} more tries"),
+
+        /// After removing a pack added to an instance.
+        AddedPackFilesRemoved = (
+            "{count} file of {pack} was removed.",
+            "{count} files of {pack} were removed."
+        ),
+        AddedPackFilesKept = (
+            "{count} file you changed was kept.",
+            "{count} files you changed were kept."
+        ),
     }
 }

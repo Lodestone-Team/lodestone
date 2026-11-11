@@ -312,6 +312,32 @@ pub fn text(message: M) -> &'static str {
         M::PlayBackgroundKeywords => "壁纸 图片 背景 幻灯片",
         M::DeleteKeywords => "删除 移除 卸载",
         M::LoaderKeywords => "模组加载器 Fabric Forge NeoForge Quilt",
+
+        M::AddModpackTitle => "向 {name} 添加整合包",
+        M::AddModpackFilter => "适用于 Minecraft {version}（{loader}）的整合包。{note}",
+        M::AddModpackServerNote => {
+            "整合包的模组会与 {server} 的模组放在一起，服务器的模组保持不变，因此你仍然可以加入。"
+        }
+        M::AddModpackNote => {
+            "整合包的文件会与实例自己的文件放在一起，不会替换实例中已有的任何文件。"
+        }
+        M::AddModpackButton => "添加整合包",
+        M::CheckingModpack => "正在检查整合包",
+        M::AddModpackSummary => "{pack} {version}：需下载 {size}。",
+        M::AddModpackNothing => "此实例已包含该整合包的所有文件。",
+        M::AddGroupFiles => "将添加（{count}）",
+        M::AddGroupConfigs => "将添加的配置（{count}）",
+        M::AddGroupServer => "保持 {server} 的版本（{count}）",
+        M::AddGroupPack => "保持实例整合包的版本（{count}）",
+        M::AddGroupThere => "实例中已有（{count}）",
+        M::AddedModpacks => "已添加的整合包",
+        M::AddModpackRow => "添加整合包",
+        M::AddModpackHint => "将整合包的模组和配置添加到此实例中，与已有的放在一起。",
+        M::AddModpackServerHint => {
+            "将整合包的模组（例如客户端优化）添加到 {server} 的模组旁边。服务器的模组保持不变。"
+        }
+        M::AddModpackEllipsis => "添加整合包…",
+        M::RemoveAddedModpackNote => "移除该整合包添加的文件。你修改过的文件会保留。",
     }
 }
 
@@ -341,5 +367,8 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::SharedChangedNote => {
             ["共享游戏设置：游戏中更改的 {count} 项设置将在下次启动时被共享值替换（见“设置”）"; 2]
         }
+
+        P::AndMoreFiles => ["以及另外 {count} 个"; 2],
+        P::AddedModpackFiles => ["已添加 {count} 个文件"; 2],
     }
 }

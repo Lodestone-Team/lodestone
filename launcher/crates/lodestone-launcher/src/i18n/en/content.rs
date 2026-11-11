@@ -309,6 +309,9 @@ crate::i18n::messages! {
         EnableModOnlyWarning = "With only {name} on, the game won't start until they're on too or {name} is off again.",
         EnableModAll = "Turn them all on",
         EnableModOnly = "Only {name}",
+
+        /// Next to "Browse Modrinth" on the Mods tab: add a modpack's mods.
+        AddModpackContent = "Add a modpack",
     }
 
     pub enum ContentPlural {

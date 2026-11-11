@@ -281,6 +281,8 @@ pub fn text(message: M) -> &'static str {
         }
         M::EnableModAll => "全部開啟",
         M::EnableModOnly => "僅開啟 {name}",
+
+        M::AddModpackContent => "加入模組包",
     }
 }
 

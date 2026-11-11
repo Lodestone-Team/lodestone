@@ -312,6 +312,32 @@ pub fn text(message: M) -> &'static str {
         M::PlayBackgroundKeywords => "桌布 圖片 背景 幻燈片",
         M::DeleteKeywords => "刪除 移除 解除安裝",
         M::LoaderKeywords => "模組載入器 Fabric Forge NeoForge Quilt",
+
+        M::AddModpackTitle => "將模組包加入 {name}",
+        M::AddModpackFilter => "適用於 Minecraft {version}（{loader}）的模組包。{note}",
+        M::AddModpackServerNote => {
+            "模組包的模組會與 {server} 的模組放在一起，伺服器的模組保持不變，因此你仍然可以加入。"
+        }
+        M::AddModpackNote => {
+            "模組包的檔案會與實例自己的檔案放在一起，不會取代實例中已有的任何檔案。"
+        }
+        M::AddModpackButton => "加入模組包",
+        M::CheckingModpack => "正在檢查模組包",
+        M::AddModpackSummary => "{pack} {version}：需下載 {size}。",
+        M::AddModpackNothing => "此實例已包含此模組包的所有檔案。",
+        M::AddGroupFiles => "將加入（{count}）",
+        M::AddGroupConfigs => "將加入的設定檔（{count}）",
+        M::AddGroupServer => "保持 {server} 的版本（{count}）",
+        M::AddGroupPack => "保持實例模組包的版本（{count}）",
+        M::AddGroupThere => "實例中已有（{count}）",
+        M::AddedModpacks => "已加入的模組包",
+        M::AddModpackRow => "加入模組包",
+        M::AddModpackHint => "將模組包的模組和設定檔加入此實例，與已有的放在一起。",
+        M::AddModpackServerHint => {
+            "將模組包的模組（例如用戶端最佳化）加入到 {server} 的模組旁邊。伺服器的模組保持不變。"
+        }
+        M::AddModpackEllipsis => "加入模組包…",
+        M::RemoveAddedModpackNote => "移除此模組包加入的檔案。你修改過的檔案會保留。",
     }
 }
 
@@ -342,5 +368,8 @@ pub fn plural(message: P) -> [&'static str; 2] {
             ["共用遊戲設定：遊戲中變更的 {count} 項設定將在下次啟動時被共用值取代（請見「設定」）";
                 2]
         }
+
+        P::AndMoreFiles => ["以及另外 {count} 個"; 2],
+        P::AddedModpackFiles => ["已加入 {count} 個檔案"; 2],
     }
 }

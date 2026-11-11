@@ -1,6 +1,7 @@
 //! The app's instances: the list from `launcher-core`, the selected one, and each
 //! instance's run (installing, playing) with its console log.
 
+pub mod add_modpack;
 pub mod appearance;
 mod auto_config;
 pub mod console;
@@ -438,6 +439,9 @@ pub struct Instances {
         HashMap<String, Vec<launcher_core::content::curseforge_install::CfPlannedFile>>,
     /// Modpack updates in progress, by instance.
     modpack_updates: HashMap<String, modpacks::UpdateJob>,
+    /// Counts changes to an instance's content made outside its Content tab (a modpack
+    /// added, removed or updated), so the tab reads its lists again.
+    content_revisions: HashMap<String, u64>,
     /// Redraws while imports and updates run.
     import_ticker: Option<Task<()>>,
     /// Counts changes to the shared game settings made in the launcher's Settings, so
@@ -559,6 +563,7 @@ impl Instances {
             snapshot_rows: HashMap::new(),
             snapshot_tasks: HashMap::new(),
             modpack_updates: HashMap::new(),
+            content_revisions: HashMap::new(),
             import_ticker: None,
         };
         this.reload(cx);
@@ -1082,6 +1087,16 @@ impl Instances {
     pub fn shared_settings_changed(&mut self, cx: &mut Context<Self>) {
         self.shared_revision += 1;
         cx.notify();
+    }
+
+    /// How many times the instance's content changed outside its Content tab.
+    pub fn content_revision(&self, id: &str) -> u64 {
+        self.content_revisions.get(id).copied().unwrap_or(0)
+    }
+
+    /// Notes that the instance's content changed outside its Content tab.
+    pub(crate) fn content_changed(&mut self, id: &str) {
+        *self.content_revisions.entry(id.to_string()).or_default() += 1;
     }
 
     pub fn is_active(&self, id: &str) -> bool {

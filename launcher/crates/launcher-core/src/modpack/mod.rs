@@ -1,6 +1,7 @@
 //! Modrinth modpacks (`.mrpack`) as instances: reading and checking a pack, making a new
-//! instance from it ([`import`]), and updating an instance to another version of its
-//! pack ([`update`]).
+//! instance from it ([`import`]), updating an instance to another version of its
+//! pack ([`update`]), and adding a pack's files to an instance that has a pack of its
+//! own already, such as a server's ([`addon`]).
 //!
 //! The rules follow the dashboard's server import (`core/src/modpack`), for the client:
 //!
@@ -16,6 +17,7 @@
 //!
 //! See <https://support.modrinth.com/en/articles/8802351-modrinth-modpack-format-mrpack>.
 
+pub mod addon;
 pub mod curseforge;
 pub mod import;
 pub mod update;

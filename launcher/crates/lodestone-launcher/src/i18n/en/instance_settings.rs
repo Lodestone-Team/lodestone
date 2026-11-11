@@ -379,6 +379,36 @@ crate::i18n::messages! {
         /// Words a search of the settings finds the loader by, besides its name; never
         /// shown.
         LoaderKeywords = "mod loader Fabric Forge NeoForge Quilt",
+
+        // "Add a modpack": a modpack's files added to an instance that exists.
+        /// The dialog's title; {name} is the instance.
+        AddModpackTitle = "Add a modpack to {name}",
+        /// Above the list: "Modpacks for Minecraft 1.21.1 with Fabric. {note}".
+        AddModpackFilter = "Modpacks for Minecraft {version} with {loader}. {note}",
+        /// For an instance made for a server.
+        AddModpackServerNote = "The pack's mods go next to {server}'s, which stay as the server has them, so you can still join.",
+        AddModpackNote = "The pack's files go next to the instance's own. Nothing the instance has is replaced.",
+        /// The button that downloads the picked pack and shows what adding it does.
+        AddModpackButton = "Add modpack",
+        CheckingModpack = "Checking the modpack",
+        /// "Fabulously Optimized 6.2.0: 12.4 MiB to download."
+        AddModpackSummary = "{pack} {version}: {size} to download.",
+        AddModpackNothing = "The instance has every file of this pack already.",
+        /// Groups of files in the review.
+        AddGroupFiles = "To add ({count})",
+        AddGroupConfigs = "Configs to add ({count})",
+        /// Files the server's pack has, kept as the server has them.
+        AddGroupServer = "Kept as {server} has them ({count})",
+        /// The same for an instance made from a modpack.
+        AddGroupPack = "Kept as the instance's modpack has them ({count})",
+        AddGroupThere = "Already in the instance ({count})",
+        /// The Settings section of the packs added to an instance.
+        AddedModpacks = "Added modpacks",
+        AddModpackRow = "Add a modpack",
+        AddModpackHint = "Add a modpack's mods and configs to this instance, next to the ones it has.",
+        AddModpackServerHint = "Add a modpack's mods, such as client optimizations, next to {server}'s. The server's mods stay as they are.",
+        AddModpackEllipsis = "Add a modpack…",
+        RemoveAddedModpackNote = "Removes the files the pack added. Files you changed stay.",
     }
 
     pub enum InstanceSettingsPlural {
@@ -430,5 +460,10 @@ crate::i18n::messages! {
             "Shared game settings: {count} setting changed in-game will be replaced by the shared one next launch (see Settings)",
             "Shared game settings: {count} settings changed in-game will be replaced by the shared ones next launch (see Settings)"
         ),
+
+        /// Below a review's list of files.
+        AndMoreFiles = ("and {count} more", "and {count} more"),
+        /// An added modpack's files in the instance.
+        AddedModpackFiles = ("{count} file added", "{count} files added"),
     }
 }

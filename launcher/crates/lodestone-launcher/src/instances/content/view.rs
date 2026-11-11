@@ -1630,6 +1630,20 @@ impl ContentView {
                     .size(ButtonSize::Slim)
                     .on_click(cx.listener(move |this, _, _, cx| this.set_view(kind, view, cx)))
             }))
+            // A modpack's mods, added next to the instance's own (a server's, say).
+            .when(kind == ContentKind::Mod && self.has_loader(), |this| {
+                this.child(
+                    Button::new("find-more-modpack", t(M::AddModpackContent))
+                        .variant(ButtonVariant::Secondary)
+                        .icon(Icon::Cube)
+                        .size(ButtonSize::Slim)
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            if let Some(id) = this.instance_id().map(str::to_string) {
+                                cx.emit(super::ContentEvent::AddModpack(id));
+                            }
+                        })),
+                )
+            })
             .into_any_element()
     }
 
