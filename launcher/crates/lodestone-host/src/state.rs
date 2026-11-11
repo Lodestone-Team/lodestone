@@ -87,9 +87,12 @@ pub struct HostState {
     pub creating: Vec<Creating>,
     /// Why the last list or power request failed.
     pub error: Option<String>,
-    /// An instance whose Overview should scroll to its Share section, and start the
-    /// invite link unless there are friends to pick (the sidebar's "Share" button).
+    /// An instance whose Overview should scroll to its Share section (the sidebar's
+    /// "Share" button, which only goes there, as the dashboard's does).
     pub share_requested: Option<String>,
+    /// With [`Self::share_requested`]: also start the invite link unless there are
+    /// friends to pick (the `--share` screenshot flag).
+    pub share_start: bool,
     /// The scroll of the page beside the sidebar, so a page can bring a section into
     /// view (the Overview's Share).
     pub page_scroll: gpui::ScrollHandle,
@@ -125,6 +128,7 @@ impl HostState {
             toasts: cx.new(|_| Toasts::new()),
             _stream: None,
             share_requested: None,
+            share_start: false,
             page_scroll: gpui::ScrollHandle::new(),
             friends: None,
             own_file_toasts: Vec::new(),

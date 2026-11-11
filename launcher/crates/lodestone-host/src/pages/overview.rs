@@ -113,12 +113,13 @@ pub struct OverviewPage {
 
 impl OverviewPage {
     pub fn new(state: Entity<HostState>, uuid: String, cx: &mut Context<Self>) -> Self {
-        let share_on_load = state.update(cx, |state, _| {
+        // (scroll to Share, also start the link)
+        let (scroll_on_load, share_on_load) = state.update(cx, |state, _| {
             if state.share_requested.as_deref() == Some(uuid.as_str()) {
                 state.share_requested = None;
-                true
+                (true, std::mem::take(&mut state.share_start))
             } else {
-                false
+                (false, false)
             }
         });
         let mut subscriptions = vec![
@@ -126,9 +127,14 @@ impl OverviewPage {
                 // the sidebar's Share while this Overview is open
                 let requested = state.read(cx).share_requested.as_deref() == Some(&this.uuid);
                 if requested {
-                    state.update(cx, |state, _| state.share_requested = None);
+                    let start = state.update(cx, |state, _| {
+                        state.share_requested = None;
+                        std::mem::take(&mut state.share_start)
+                    });
                     this.scroll_to_share = true;
-                    this.request_share(cx);
+                    if start {
+                        this.request_share(cx);
+                    }
                 }
                 cx.notify()
             }),
@@ -153,7 +159,7 @@ impl OverviewPage {
             share,
             share_busy: false,
             share_on_load,
-            scroll_to_share: share_on_load,
+            scroll_to_share: scroll_on_load,
             stop_prompt: DialogSlot::new(|this: &mut Self| &mut this.stop_prompt),
             reports: VecDeque::new(),
             received: None,
@@ -290,9 +296,9 @@ impl OverviewPage {
     }
 
     /// Starts sharing unless the server is shared already; before the first answer
-    /// about sharing, once it comes.
-    /// The sidebar's Share: starts the invite link, unless there are friends to tick
-    /// in "Share" instead (the person picks there, or starts the link).
+    /// about sharing, once it comes. Only for the `--share` screenshot flag: the
+    /// sidebar's Share just goes to the Share section. With friends to tick in
+    /// "Share", it leaves the choice to the person.
     fn request_share(&mut self, cx: &mut Context<Self>) {
         if self.has_friends_to_pick(cx) {
             return;

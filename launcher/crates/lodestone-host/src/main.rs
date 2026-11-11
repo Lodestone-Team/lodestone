@@ -196,6 +196,7 @@ mod screenshot {
                                 };
                                 shell.state.update(cx, |state, cx| {
                                     state.share_requested = Some(uuid.clone());
+                                    state.share_start = true;
                                     cx.notify();
                                 });
                             });
