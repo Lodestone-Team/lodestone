@@ -56,7 +56,7 @@ const PROTECTED_EXTENSIONS: [&str; 19] = [
     "lodestone_config",
     "out",
     "inf",
-    // macros and the generic instance bootstrap (`run.ts`) are run by Deno
+    // scripts, which a plugin runtime may run
     "js",
     "mjs",
     "cjs",
@@ -402,7 +402,7 @@ async fn copy_instance_files(
 
     let path_dest = scoped_join_win_safe(&root, &relative_path_dest)?;
 
-    // copying a script, or anything into a macros folder, creates code
+    // copying a script creates code
     for source in &paths_source {
         let is_dir = tokio::fs::symlink_metadata(source)
             .await
@@ -599,7 +599,7 @@ async fn move_instance_file(
         ))?
         .is_dir();
 
-    // moving a script, or anything into a macros folder, creates code at the destination
+    // moving a script creates code at the destination
     if is_instance_code_path(&root, &path_dest, is_dir)
         || (!is_dir && is_script_path(&path_source))
         || (is_dir && contains_script(path_source.clone()).await?)
@@ -995,8 +995,8 @@ fn unzip_destinations(path_to_zip_file: &FsPath, unzip_option: &UnzipOption) -> 
 }
 
 /// The check for every extracted entry: the protected file rules for users who cannot
-/// write protected files, and the code rules (see [`check_code_write`]) for scripts and
-/// anything that lands in a macros folder, for every user.
+/// write protected files, and the code rules (see [`check_code_write`]) for scripts, for
+/// every user.
 fn code_entry_check(
     root: PathBuf,
     destinations: Vec<PathBuf>,
@@ -1017,7 +1017,7 @@ fn code_entry_check(
             check_code_write(is_owner, &code_execution).map_err(|e| Error {
                 kind: e.kind,
                 source: e.source.wrap_err(format!(
-                    "The archive contains a script or macro ({})",
+                    "The archive contains a script ({})",
                     relative_path.display()
                 )),
             })?;
@@ -1344,14 +1344,13 @@ mod tests {
             );
         }
 
-        // a link to the macros folder is the macros folder
+        // a link to a folder in the instance is that folder
         for path in ["cfg/a.txt", "cfg_abs/a.txt", "cfg"] {
             let joined = scoped_join_win_safe(&root, path).unwrap();
             assert_eq!(
                 joined.strip_prefix(&root).unwrap().iter().next().unwrap(),
                 "macros"
             );
-            assert!(is_instance_code_path(&root, &joined, false), "{path}");
         }
         // a harmless name linked to a protected file is that file
         let joined = scoped_join_win_safe(&root, "readme.txt").unwrap();
@@ -1512,8 +1511,9 @@ mod tests {
     #[test]
     fn test_instance_code_paths() {
         let root = FsPath::new("/lodestone/instances/a");
-        assert!(is_instance_code_path(root, &root.join("macros"), true));
-        assert!(is_instance_code_path(
+        // the old macros folder is an ordinary folder now
+        assert!(!is_instance_code_path(root, &root.join("macros"), true));
+        assert!(!is_instance_code_path(
             root,
             &root.join("macros/x/config.json"),
             false
@@ -1528,12 +1528,6 @@ mod tests {
         assert!(!is_instance_code_path(
             root,
             &root.join("server.properties"),
-            false
-        ));
-        // "macros" only counts at the top of the instance
-        assert!(!is_instance_code_path(
-            root,
-            &root.join("world/macros/a.txt"),
             false
         ));
         // anything outside the instance counts as code
@@ -1588,17 +1582,14 @@ mod tests {
         for (is_owner, enabled) in [(false, true), (true, false), (false, false)] {
             let check = check(is_owner, enabled, "");
             assert!(check(FsPath::new("a.ts"), &file_type("a.ts")).is_err());
-            assert!(check(FsPath::new("macros"), &file_type("macros")).is_err());
             assert!(check(FsPath::new("a.txt"), &file_type("a.txt")).is_ok());
-            // a plain file extracted into a macros folder
+            // the old macros folder is an ordinary folder now
+            assert!(check(FsPath::new("macros"), &file_type("macros")).is_ok());
             let into_macros = check_into(&root, is_owner, enabled);
-            assert!(into_macros(FsPath::new("a.txt"), &file_type("a.txt")).is_err());
+            assert!(into_macros(FsPath::new("a.txt"), &file_type("a.txt")).is_ok());
         }
         let owner = check(true, true, "");
         assert!(owner(FsPath::new("a.ts"), &file_type("a.ts")).is_ok());
-        assert!(owner(FsPath::new("macros"), &file_type("macros")).is_ok());
-        let owner_into_macros = check_into(&root, true, true);
-        assert!(owner_into_macros(FsPath::new("a.txt"), &file_type("a.txt")).is_ok());
 
         // the protected file rules still apply to users who cannot write protected files
         let restricted = code_entry_check(

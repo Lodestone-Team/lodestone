@@ -9,7 +9,6 @@ use crate::{
     auth::permission::UserPermission,
     events::CausedBy,
     global_settings::{CodeExecutionSwitch, GlobalSettingsData},
-    macro_executor::MacroExecutor,
     test_util::{serve_api, test_app_state},
     types::DotLodestoneConfig,
 };
@@ -110,11 +109,7 @@ async fn core() -> Core {
             r#"{"id":"thing","environment":"client"}"#,
         )],
     );
-    let executor = MacroExecutor::new(
-        state.event_broadcaster.clone(),
-        tokio::runtime::Handle::current(),
-        CodeExecutionSwitch::new(false),
-    );
+    let executor = CodeExecutionSwitch::new(false);
     let restored = crate::restore_instances(&instances, state.event_broadcaster.clone(), executor)
         .await
         .unwrap();

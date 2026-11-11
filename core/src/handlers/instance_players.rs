@@ -14,7 +14,7 @@ use crate::{
     AppState,
 };
 
-use super::util::{get_instance, require_owner_for_atom, AuthedUser};
+use super::util::{get_instance, AuthedUser};
 
 pub async fn get_player_count(
     State(state): State<AppState>,
@@ -54,7 +54,6 @@ pub async fn set_max_player_count(
         .require(&state, UserAction::AccessSetting(uuid.clone()))
         .await?;
     let instance = get_instance(&state, &uuid)?;
-    require_owner_for_atom(&requester, &instance)?;
     instance.set_max_player_count(count).await.map(Json)
 }
 

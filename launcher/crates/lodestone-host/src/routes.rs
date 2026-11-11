@@ -27,20 +27,16 @@ pub enum InstanceTab {
     Files,
     /// "Mods" for Fabric and Forge, "Plugins" for Paper and Spigot.
     Mods,
-    /// Macros and tasks run on Deno, which the Host's core doesn't have: shown only for
-    /// a core with the `macros` capability (another core), as the dashboard does.
-    Macros,
     EventLogs,
 }
 
 impl InstanceTab {
-    pub const ALL: [InstanceTab; 7] = [
+    pub const ALL: [InstanceTab; 6] = [
         InstanceTab::Overview,
         InstanceTab::Settings,
         InstanceTab::Console,
         InstanceTab::Files,
         InstanceTab::Mods,
-        InstanceTab::Macros,
         InstanceTab::EventLogs,
     ];
 }
@@ -77,7 +73,6 @@ impl InstanceTab {
     /// Whether the sidebar lists the tab.
     pub fn visible(self, cx: &TabContext) -> bool {
         match self {
-            InstanceTab::Macros => cx.me.is_owner && cx.info.capabilities.macros,
             InstanceTab::Mods => {
                 mod_support(cx.instance).is_some()
                     && cx.me.may(InstancePermission::ReadFiles, &cx.instance.uuid)
@@ -135,8 +130,7 @@ mod tests {
         };
         let mut user = owner.clone();
         user.is_owner = false;
-        let mut info = FullCoreInfo::default();
-        info.capabilities.macros = false;
+        let info = FullCoreInfo::default();
         let fabric = instance(MinecraftVariant::Fabric);
         let vanilla = instance(MinecraftVariant::Vanilla);
         let cx = |me, instance, settings| TabContext {
@@ -150,10 +144,6 @@ mod tests {
         assert!(
             !InstanceTab::Mods.visible(&cx(&user, &fabric, None)),
             "needs to read files"
-        );
-        assert!(
-            !InstanceTab::Macros.visible(&cx(&owner, &fabric, None)),
-            "no Deno"
         );
         assert!(matches!(fabric.game_type, Game::MinecraftJava { .. }));
     }

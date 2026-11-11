@@ -6,14 +6,13 @@
  */
 export type CoreCapabilities = { 
 /**
- * Macros, tasks, instance scripts (prelaunch) and extensions, which run on the Deno
- * runtime. False when the core was built without the `deno` feature. Whether code
- * may run right now is the separate code execution setting.
+ * Macros, tasks, instance scripts (prelaunch) and extensions. Always false: they ran
+ * on the Deno runtime, which was removed. Kept for older clients.
  */
 macros: boolean, 
 /**
- * Atom (generic TypeScript) instances, which also run on Deno. False when the core
- * was built without the `deno` feature. Docker instances do not need it.
+ * Atom (generic TypeScript) instances. Always false: they also ran on Deno. Kept for
+ * older clients. Docker instances do not need it.
  */
 generic_instances: boolean, 
 /**

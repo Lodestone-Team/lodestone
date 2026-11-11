@@ -2,7 +2,6 @@
 
 use crate::error::ErrorKind;
 use crate::event_broadcaster::EventBroadcaster;
-use crate::handlers::extension::get_extension_routes;
 use crate::migration::migrate;
 use crate::prelude::{
     init_app_state, lodestone_path, path_to_global_settings, path_to_stores, path_to_tmp,
@@ -18,8 +17,8 @@ use crate::{
         events::get_events_routes, gateway::get_gateway_routes, global_fs::get_global_fs_routes,
         global_settings::get_global_settings_routes, instance::*,
         instance_config::get_instance_config_routes, instance_fs::get_instance_fs_routes,
-        instance_macro::get_instance_macro_routes, instance_mods::get_instance_mods_routes,
-        instance_players::get_instance_players_routes, instance_server::get_instance_server_routes,
+        instance_mods::get_instance_mods_routes, instance_players::get_instance_players_routes,
+        instance_server::get_instance_server_routes,
         instance_setup_configs::get_instance_setup_config_routes, modpack::get_modpack_routes,
         modrinth::get_modrinth_routes, monitor::get_monitor_routes, setup::get_setup_route,
         system::get_system_routes, users::get_user_routes,
@@ -41,10 +40,7 @@ use error::Error;
 use events::{CausedBy, Event};
 use futures::Future;
 use global_settings::GlobalSettings;
-#[cfg(feature = "deno")]
-use implementations::generic;
 use implementations::minecraft;
-use macro_executor::MacroExecutor;
 use port_manager::PortManager;
 use prelude::GameInstance;
 use ringbuffer::{AllocRingBuffer, RingBuffer};
@@ -94,24 +90,18 @@ pub(crate) use export_shared_bindings;
 pub mod auth;
 pub mod capabilities;
 mod command_console;
+pub mod connect;
 mod core_uuid;
 pub mod db;
-#[cfg(feature = "deno")]
-mod deno_ops;
 mod docker_bridge;
 pub mod error;
-// its event filters are used by macros, which need the `deno` feature
-pub mod connect;
-#[cfg_attr(not(feature = "deno"), allow(dead_code))]
 mod event_broadcaster;
 mod events;
-mod extension;
 pub mod global_settings;
 mod handlers;
 pub mod implementations;
 mod listen;
 pub mod local_claim;
-pub mod macro_executor;
 mod migration;
 mod minecraft_links;
 mod modpack;
@@ -135,7 +125,7 @@ use handlers::global_fs::DownloadableFile;
 #[cfg(test)]
 pub(crate) mod test_util {
     /// Installs the same rustls crypto provider as [`crate::run`]. Call it at the start of
-    /// any test that uses TLS or deno's fetch(), which panic without a process default.
+    /// any test that uses TLS, which panics without a process default.
     pub(crate) fn install_crypto_provider() {
         let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
     }
@@ -200,7 +190,7 @@ pub(crate) mod test_util {
             system: Arc::new(Mutex::new(sysinfo::System::new())),
             download_urls: Default::default(),
             safe_mode: global_settings.safe_mode_flag(),
-            code_execution: code_execution.clone(),
+            code_execution,
             login_limiter: Default::default(),
             tls_info: Arc::new(crate::tls::TlsInfo {
                 mode: crate::tls::TlsMode::None,
@@ -226,11 +216,6 @@ pub(crate) mod test_util {
                 .await,
             ),
             global_settings: Arc::new(Mutex::new(global_settings)),
-            macro_executor: crate::macro_executor::MacroExecutor::new(
-                tx.clone(),
-                tokio::runtime::Handle::current(),
-                code_execution,
-            ),
             sqlite_pool: sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap(),
             docker_bridge: crate::docker_bridge::DockerBridge::without_docker(
                 tx,
@@ -316,7 +301,6 @@ pub struct AppState {
     port_manager: Arc<Mutex<PortManager>>,
     first_time_setup_key: Arc<Mutex<Option<String>>>,
     download_urls: Arc<Mutex<HashMap<String, DownloadableFile>>>,
-    macro_executor: MacroExecutor,
     sqlite_pool: sqlx::SqlitePool,
     docker_bridge: docker_bridge::DockerBridge,
     /// The current safe mode setting, kept in sync by [`GlobalSettings`].
@@ -353,8 +337,7 @@ impl AppState {
         self.safe_mode.load(std::sync::atomic::Ordering::SeqCst)
     }
 
-    /// Whether code execution (macros, atom instances, extensions, instance scripts and
-    /// custom Java commands) is allowed. Takes no lock.
+    /// Whether code execution (custom Java commands) is allowed. Takes no lock.
     pub fn code_execution_enabled(&self) -> bool {
         self.code_execution.is_enabled()
     }
@@ -395,12 +378,10 @@ fn api_router(shared_state: AppState) -> Router {
         .merge(get_setup_route(shared_state.clone()))
         .merge(local_claim::get_local_claim_routes(shared_state.clone()))
         .merge(get_monitor_routes(shared_state.clone()))
-        .merge(get_instance_macro_routes(shared_state.clone()))
         .merge(get_instance_fs_routes(shared_state.clone()))
         .merge(get_global_fs_routes(shared_state.clone()))
         .merge(get_global_settings_routes(shared_state.clone()))
         .merge(get_gateway_routes(shared_state.clone()))
-        .merge(get_extension_routes(shared_state.clone()))
         .merge(get_modrinth_routes(shared_state.clone()))
         .merge(get_instance_mods_routes(shared_state.clone()))
         .merge(get_modpack_routes(shared_state.clone()))
@@ -489,7 +470,7 @@ fn snapshot_instances(
 async fn restore_instances(
     instances_path: &Path,
     event_broadcaster: EventBroadcaster,
-    macro_executor: MacroExecutor,
+    code_execution: global_settings::CodeExecutionSwitch,
 ) -> Result<DashMap<InstanceUuid, GameInstance>, Error> {
     let ret: DashMap<InstanceUuid, GameInstance> = DashMap::new();
 
@@ -528,7 +509,7 @@ async fn restore_instances(
                     path.to_owned(),
                     dot_lodestone_config.clone(),
                     event_broadcaster.clone(),
-                    macro_executor.clone(),
+                    code_execution.clone(),
                 )
                 .await
                 {
@@ -544,46 +525,14 @@ async fn restore_instances(
                 debug!("Restored Minecraft Java instance successfully");
                 (dot_lodestone_config.uuid().to_owned(), instance.into())
             }
-            // Left on disk untouched, so a core built with Deno restores it again.
-            #[cfg(not(feature = "deno"))]
+            // Atom instances ran TypeScript on Deno, which the core no longer has. Their
+            // files are left on disk untouched.
             GameType::Generic => {
                 warn!(
-                    "Not restoring atom instance {}: this Lodestone Core was built without scripting support (the `deno` feature). Its files are kept, and a core built with the feature restores it",
+                    "Not restoring atom instance {}: Lodestone Core no longer supports atom instances. Its files are kept",
                     path.display()
                 );
                 continue;
-            }
-            #[cfg(feature = "deno")]
-            GameType::Generic => {
-                // Restoring an atom runs its code, so with code execution off the instance
-                // is left on disk and comes back once code execution is on and the core
-                // restarts.
-                if !macro_executor.code_execution_enabled() {
-                    warn!(
-                        "Not restoring atom instance {}: code execution is disabled on this core. It will be restored after code execution is turned on and Lodestone Core restarts",
-                        path.display()
-                    );
-                    continue;
-                }
-                let instance = match generic::GenericInstance::restore(
-                    path.to_owned(),
-                    dot_lodestone_config.clone(),
-                    event_broadcaster.clone(),
-                    macro_executor.clone(),
-                )
-                .await
-                {
-                    Ok(v) => v,
-                    Err(e) => {
-                        error!(
-                            "Error while restoring atom instance {} : {e}",
-                            path.display()
-                        );
-                        continue;
-                    }
-                };
-                debug!("Restored Generic instance successfully");
-                (dot_lodestone_config.uuid().to_owned(), instance.into())
             }
             GameType::MinecraftBedrock => {
                 error!(
@@ -711,9 +660,6 @@ fn output_sys_info() {
     info!("System info:");
     info!("  OS: {}", std::env::consts::OS);
     info!("  Arch: {}", std::env::consts::ARCH);
-    if !cfg!(feature = "deno") {
-        info!("  Built without scripting support (the `deno` feature): macros, instance scripts, extensions and atom instances are not available");
-    }
     // CPU and RAM info
     let sys = crate::util::cpu_and_memory_system();
     let cpu_name = sys
@@ -801,8 +747,7 @@ pub struct Args {
     pub is_host: bool,
     #[arg(short, long)]
     pub lodestone_path: Option<PathBuf>,
-    /// Turn off macros, atom instances, extensions, instance scripts and custom Java
-    /// commands, and stop them from being turned on through the API. Setting the
+    /// Turn off custom Java commands, and stop them from being turned on through the API. Setting the
     /// LODESTONE_DISABLE_CODE_EXECUTION environment variable to 1, true or yes does the same.
     #[arg(long, default_value = "false")]
     pub disable_code_execution: bool,
@@ -851,7 +796,7 @@ pub async fn run_with(
 > {
     // Crates in the dependency graph can enable different rustls crypto providers, so
     // rustls may not pick a process-wide default on its own and `ClientConfig::builder()` /
-    // `ServerConfig::builder()` would panic (deno's fetch(), the TLS listener). Install
+    // `ServerConfig::builder()` would panic (the TLS listener, HTTPS requests). Install
     // aws-lc-rs explicitly before anything touches TLS. Errors only if one is already set.
     let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
     let product = product::CoreProduct::from_is_host(args.is_host);
@@ -963,7 +908,7 @@ pub async fn run_with(
     }
     let code_execution = global_settings.code_execution_switch();
     if !code_execution.is_enabled() {
-        warn!("Code execution is disabled: atom instances will not be restored, and macros, extensions, instance scripts and custom Java commands will not run");
+        warn!("Code execution is disabled: custom Java commands will not run");
     }
 
     // Before anything is served: the certificate decides how the web server listens.
@@ -988,12 +933,7 @@ pub async fn run_with(
         None
     };
 
-    let macro_executor = MacroExecutor::new(
-        tx.clone(),
-        tokio::runtime::Handle::current(),
-        code_execution.clone(),
-    );
-    let instances = restore_instances(&path_to_instances, tx.clone(), macro_executor.clone())
+    let instances = restore_instances(&path_to_instances, tx.clone(), code_execution.clone())
         .await
         .map_err(|_| Error {
             kind: ErrorKind::Internal,
@@ -1052,7 +992,6 @@ pub async fn run_with(
             .await,
         ),
         global_settings: Arc::new(Mutex::new(global_settings)),
-        macro_executor,
         sqlite_pool: Pool::connect_with(
             SqliteConnectOptions::from_str(&format!(
                 "sqlite://{}/data.db",
@@ -1162,7 +1101,7 @@ pub async fn run_with(
                 interval.tick().await;
                 let snapshot = snapshot_instances(&instances);
                 // Query all instances at once, each with a timeout, so one instance that
-                // does not answer (for example a dead atom macro) cannot stall the others.
+                // does not answer cannot stall the others.
                 let reports =
                     futures::future::join_all(snapshot.iter().map(|(uuid, instance)| async move {
                         match tokio::time::timeout(MONITOR_TIMEOUT, instance.monitor()).await {
@@ -1377,7 +1316,6 @@ pub async fn run_with(
                     let _ = handle.await;
                 }
                 shared_state.instances.clear();
-                shared_state.macro_executor.shutdown_all();
                 info!("Shutdown complete");
                 // The caller decides how to exit the process once this future completes.
             }
@@ -1395,7 +1333,6 @@ mod restore_tests {
     use super::*;
     use crate::global_settings::CodeExecutionSwitch;
     use crate::implementations::minecraft::{Flavour, RestoreConfig};
-    use crate::traits::t_macro::TMacro;
 
     /// Every file under `dir` and its contents.
     fn snapshot_files(dir: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
@@ -1414,10 +1351,9 @@ mod restore_tests {
         std::fs::write(path, serde_json::to_string_pretty(value).unwrap()).unwrap();
     }
 
-    /// Instances written by a core built with `deno`: an atom instance, and a Minecraft
-    /// instance with a macro and its stored config. A core without `deno` (or with code
-    /// execution off) must start on them: it restores the Minecraft instance, skips the
-    /// atom, and leaves every file as it was, so a core with `deno` brings them all back.
+    /// Instances written by an older core that had Deno: an atom instance, and a Minecraft
+    /// instance with a macro and its stored config. The core must start on them: it
+    /// restores the Minecraft instance, skips the atom, and leaves every file as it was.
     #[tokio::test]
     async fn atoms_and_macros_on_disk_do_not_stop_startup() {
         // restoring a Minecraft instance looks up the Lodestone paths, which no other test
@@ -1482,32 +1418,14 @@ mod restore_tests {
         let before = snapshot_files(&instances);
 
         let (tx, _rx) = EventBroadcaster::new(16);
-        // off, so a core with `deno` skips the atom too instead of running it
-        let executor = MacroExecutor::new(
-            tx.clone(),
-            tokio::runtime::Handle::current(),
-            CodeExecutionSwitch::new(false),
-        );
-        let restored = restore_instances(&instances, tx, executor).await.unwrap();
+        let restored = restore_instances(&instances, tx, CodeExecutionSwitch::new(false))
+            .await
+            .unwrap();
 
         assert_eq!(restored.len(), 1);
         let server_instance = restored.get(&server_uuid).unwrap().value().clone();
         assert_eq!(server_instance.name().await, "my server");
         assert!(!restored.contains_key(&atom_uuid));
-        // the macro is still listed; running it is refused
-        let macros = server_instance.get_macro_list().await.unwrap();
-        assert_eq!(macros.len(), 1);
-        assert_eq!(macros[0].name, "greet");
-        let refused = server_instance
-            .run_macro("greet", Vec::new(), None, CausedBy::System)
-            .await
-            .unwrap_err();
-        if cfg!(feature = "deno") {
-            assert!(matches!(refused.kind, ErrorKind::PermissionDenied));
-        } else {
-            assert!(matches!(refused.kind, ErrorKind::UnsupportedOperation));
-        }
-
         assert_eq!(snapshot_files(&instances), before);
     }
 }

@@ -25,7 +25,6 @@ crate::i18n::messages! {
         DeleteWarning = "This instance’s settings, worlds and backups will be permanently deleted. Please backup any important data before proceeding.",
         Deleting = "Deleting {name}…",
         /// Why a setting can't be changed.
-        OwnerOnlyAtom = "Only the owner can control atom servers.",
         CommandLineReadOnly = "Read-only while code execution is disabled on this core.",
         CommandLineOwnerOnly = "Only the owner can change this setting.",
         /// A setting's text field.

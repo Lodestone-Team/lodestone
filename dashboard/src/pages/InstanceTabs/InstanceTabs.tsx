@@ -10,7 +10,6 @@ import GameConsole from 'components/GameConsole';
 import FileViewer from 'components/FileViewer';
 import DashboardCard from 'components/DashboardCard';
 import { InstanceSettingCard } from 'components/Instance';
-import Macros from 'pages/macros';
 import ModsTab from 'components/Mods/ModsTab';
 import { getModSupport, modTabTitle } from 'utils/mods';
 import { InstanceTabPath, tabs } from './tabList';
@@ -46,7 +45,6 @@ const tabContent: Record<InstanceTabPath, ReactNode> = {
   console: <GameConsole />,
   files: <FileViewer />,
   mods: <ModsTab />,
-  macros: <Macros />,
   logs: <LogsPlaceholder />,
 };
 

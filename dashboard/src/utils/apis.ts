@@ -1,7 +1,6 @@
 import { QueryClient } from '@tanstack/react-query';
 import axios from 'axios';
 import { ClientFile } from 'bindings/ClientFile';
-import { MacroEntry } from 'bindings/MacroEntry';
 import { LoginReply } from 'bindings/LoginReply';
 import { PublicUser } from 'bindings/PublicUser';
 import { UserPermission } from 'bindings/UserPermission';
@@ -21,10 +20,6 @@ import {
 import { UnzipOption } from 'bindings/UnzipOption';
 import { CopyInstanceFileRequest } from 'bindings/CopyInstanceFileRequest';
 import { ZipRequest } from 'bindings/ZipRequest';
-import { TaskEntry } from 'bindings/TaskEntry';
-import { HistoryEntry } from 'bindings/HistoryEntry';
-import { GetConfigResponse } from 'bindings/GetConfigResponse';
-import { SettingManifest } from 'bindings/SettingManifest';
 import { t } from 'i18n';
 
 /*
@@ -557,98 +552,3 @@ export const openPort = async (port: number) => {
     })
   );
 };
-
-/***********************
- * Start Tasks/Macro API
- * the getters below throw ApiError
- ***********************/
-
-export const getTasks = async (uuid: string) => {
-  const taskList = await axiosWrapper<TaskEntry[]>({
-    method: 'get',
-    url: `/instance/${uuid}/task/list`,
-  });
-
-  return taskList;
-};
-
-export const getMacros = async (uuid: string) => {
-  const macroList = await axiosWrapper<MacroEntry[]>({
-    method: 'get',
-    url: `/instance/${uuid}/macro/list`,
-  });
-
-  return macroList;
-};
-
-// get macro config
-export const getMacroConfig = async (uuid: string, macro_name: string) => {
-  const macroConfig = await axiosWrapper<GetConfigResponse>({
-    method: 'get',
-    url: `/instance/${uuid}/macro/config/get/${macro_name}`,
-  });
-  return macroConfig;
-};
-
-// write macro local config
-export const storeMacroConfig = async (
-  uuid: string,
-  macro_name: string,
-  config: Record<string, SettingManifest>
-) => {
-  const serverResponse = await axiosWrapper<unknown>({
-    method: 'post',
-    url: `/instance/${uuid}/macro/config/store/${macro_name}`,
-    data: config,
-  });
-  return serverResponse;
-};
-
-export const getInstanceHistory = async (uuid: string) => {
-  const historyList = await axiosWrapper<HistoryEntry[]>({
-    method: 'get',
-    url: `/instance/${uuid}/history/list`,
-  });
-
-  return historyList;
-};
-
-/** Runs a macro. Returns the error message. */
-export const createTask = async (
-  queryClient: QueryClient,
-  uuid: string,
-  macro_name: string,
-  args: string[]
-) => {
-  const error = await catchAsyncToString(
-    axiosWrapper<null>({
-      method: 'put',
-      url: `/instance/${uuid}/macro/run/${macro_name}`,
-      data: args,
-    })
-  );
-  // refetch the task list once the task exists
-  if (!error)
-    queryClient.invalidateQueries({
-      queryKey: ['instance', uuid, 'taskList'],
-    });
-  return error;
-};
-
-/** Kills a running macro. Returns the error message. */
-export const killTask = async (
-  queryClient: QueryClient,
-  uuid: string,
-  pid: string
-) => {
-  return await catchAsyncToString(
-    axiosWrapper<null>({
-      method: 'put',
-      url: `/instance/${uuid}/macro/kill/${pid}`,
-    })
-  );
-};
-/***********************
- * End Tasks/Macro API
- ***********************/
-

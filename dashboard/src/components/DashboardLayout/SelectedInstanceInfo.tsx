@@ -10,11 +10,9 @@ import { faExpand } from '@fortawesome/free-solid-svg-icons';
 import { tabs } from 'pages/InstanceTabs/tabList';
 import { useQueryClient } from '@tanstack/react-query';
 import { GlobalSettingsData } from 'bindings/GlobalSettingsData';
-import { useCodeExecution } from 'data/CodeExecution';
 import { isUserAuthorized, useUserInfo } from 'data/UserInfo';
 import { getModSupport, modTabTitle } from 'utils/mods';
 import { Skeleton, SkeletonGroup } from 'components/Atoms/Skeleton';
-import { useCoreCapabilities } from 'data/SystemInfo';
 import { useT } from 'i18n';
 
 export const SelectedInstanceInfo = ({
@@ -31,10 +29,6 @@ export const SelectedInstanceInfo = ({
   const { setPathname, searchParams } = useContext(BrowserLocationContext);
   // the location this page renders (the settings modal can be open over it)
   const setActive = useLocation().pathname.split('/')[2];
-  // macros are owner only
-  const { canManage } = useCodeExecution();
-  // and the core must have them; wait until it says so
-  const { macros, isPending: capabilitiesPending } = useCoreCapabilities();
   // the Mods tab: only for instances that support mods or plugins
   const modSupport = selectedInstance
     ? getModSupport(selectedInstance.game_type)
@@ -45,10 +39,7 @@ export const SelectedInstanceInfo = ({
     isUserAuthorized(user, 'can_read_instance_file', selectedInstance.uuid);
 
   const visibleTabs = tabs.filter(
-    (tab) =>
-      (tab.path !== 'macros' ||
-        (canManage && macros && !capabilitiesPending)) &&
-      (tab.path !== 'mods' || (modSupport && canReadFiles))
+    (tab) => tab.path !== 'mods' || (modSupport && canReadFiles)
   );
 
   const uuid = selectedInstance?.uuid;

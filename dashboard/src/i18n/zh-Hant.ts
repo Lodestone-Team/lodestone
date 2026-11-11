@@ -21,7 +21,6 @@
 //   upload / download                上傳 / 下載
 //   mod / modpack                    模組 / 模組包
 //   resource pack                    資源包
-//   macro                            巨集
 //   player / world                   玩家 / 世界
 //   port / address                   連接埠 / 位址
 //   memory (RAM)                     記憶體
@@ -215,14 +214,7 @@ export const zhHant: Messages = {
   'shell.event.playerMessage': '{player} 在 {name} 上說：{message}',
   'shell.event.apiKeyCreated': '已建立 API 金鑰「{name}」',
   'shell.event.apiKeyRevoked': '已撤銷 API 金鑰「{name}」',
-  'shell.event.macroStarted': '巨集 {pid} 已在 {server} 上啟動',
-  'shell.event.macroDetached': '巨集 {pid} 已在 {server} 上分離',
-  'shell.event.macroStopped':
-    '巨集 {pid} 已在 {server} 上停止，狀態為 {status}',
   'shell.event.loadFailed': '無法載入通知：{error}',
-
-  'shell.noScripting':
-    '此核心建置時未包含指令碼支援（Deno），因此無法使用巨集。',
 
   'shell.userMenu.guest': '訪客',
   'shell.userMenu.account': '帳戶：{name}',
@@ -385,15 +377,11 @@ export const zhHant: Messages = {
     '確定要關閉安全模式嗎？這樣你就能讓自己以外的使用者執行可能有危險的指令。請確認你信任所有取得這些權限的使用者。',
   'settings.core.turnOff': '關閉',
   'settings.core.codeExecution.label': '程式碼執行',
-  'settings.core.codeExecution.hint':
-    '巨集、Atom 伺服器、擴充功能、伺服器指令碼和自訂 Java 指令。',
-  'settings.core.codeExecution.hintJavaOnly': '自訂 Java 指令。',
+  'settings.core.codeExecution.hint': '自訂 Java 指令。',
   'settings.core.codeExecution.locked':
     '已被此核心的管理員鎖定（LODESTONE_DISABLE_CODE_EXECUTION 或 --disable-code-execution）。',
   'settings.core.codeExecution.offTitle': '要關閉程式碼執行嗎？',
   'settings.core.codeExecution.offBody':
-    '執行中的巨集和 Atom 伺服器將會停止。在你重新開啟程式碼執行之前，巨集、Atom 伺服器、擴充功能、伺服器指令碼和自訂 Java 指令都不會在此核心上執行。任何項目都不會自動重新啟動。',
-  'settings.core.codeExecution.offBodyJavaOnly':
     '在你重新開啟程式碼執行之前，自訂 Java 指令不會在此核心上執行。任何項目都不會自動重新啟動。',
   'settings.core.lanHttp.label': '允許透過未加密 HTTP 進行區域網路存取',
   'settings.core.lanHttp.hint': '未加密。你網路中的其他人可以讀取密碼。',
@@ -444,8 +432,6 @@ export const zhHant: Messages = {
   'settings.users.permissionsLead': '{username} 在此核心上可以執行的操作。',
   'settings.users.unsafePermissions': '不安全的權限',
   'settings.users.unsafePermissionsLead': '關閉安全模式後才能授予非擁有者。',
-  'settings.users.ownerOnly': '巨集、擴充功能和 Atom 伺服器',
-  'settings.users.ownerOnlyHint': '僅限擁有者。Docker 伺服器使用一般權限。',
 
   'settings.permission.can_create_instance.title': '建立伺服器',
   'settings.permission.can_create_instance.user':
@@ -604,9 +590,6 @@ export const zhHant: Messages = {
   'settings.apiKeys.unsafe': '不安全的設定',
   'settings.apiKeys.unsafeSafeMode':
     '安全模式已開啟，因此在核心設定中關閉安全模式之前，核心會拒絕將這些權限授予自訂存取的金鑰。',
-  'settings.apiKeys.ownerOnly': '巨集、擴充功能和 Atom 伺服器',
-  'settings.apiKeys.ownerOnlyHint':
-    '只有完整存取的金鑰才能使用巨集、擴充功能和 Atom 伺服器。',
   'settings.apiKeys.newTitle': '已建立 API 金鑰「{name}」',
   'settings.apiKeys.newCopyNow': '請立即複製此金鑰。之後將無法再次檢視。',
   'settings.apiKeys.newUseWithCli': '在 Lodestone CLI 中使用：',
@@ -624,7 +607,6 @@ export const zhHant: Messages = {
   'server.tab.console': '主控台',
   'server.tab.files': '檔案',
   'server.tab.mods': '模組',
-  'server.tab.macros': '巨集',
   'server.tab.logs': '事件日誌',
 
   // InstanceTabs
@@ -781,9 +763,6 @@ export const zhHant: Messages = {
   'server.action.restart': '重新啟動',
   'server.action.kill': '強制停止',
   'server.card.power': '電源',
-  'server.card.noScripting':
-    '此核心建置時未包含指令碼支援（Deno），因此無法使用 atom 伺服器。',
-  'server.card.codeExecutionDisabled': '此核心已停用程式碼執行',
   'server.card.copyIp': '複製 IP',
   'server.card.share': '分享',
   'server.card.shareHint': '透過連結分享此伺服器',
@@ -822,7 +801,7 @@ export const zhHant: Messages = {
   'server.api.loginFailed': '登入失敗：{message}',
   'server.api.loginError': '錯誤：{message}',
 
-  // ===== Console and macros =====
+  // ===== Console =====
 
   // GameConsole: a server's console tab
   'console.pageTitle': '伺服器主控台',
@@ -850,46 +829,9 @@ export const zhHant: Messages = {
   // ConsoleLine: one line of console output
   'console.line.linkedUser': '連結了此 Minecraft 帳戶的 Lodestone 使用者',
 
-  // CodeExecution: owner-only features and the code execution switch
-  'console.ownerOnlyAtom': '只有擁有者可以控制 atom 伺服器',
-  'console.ownerOnlyAtomSentence': '只有擁有者可以控制 atom 伺服器。',
+  // CodeExecution: the custom Java command settings and the code execution switch
   'console.commandLine.readOnly': '此核心已停用程式碼執行，此設定為唯讀。',
   'console.commandLine.ownerOnly': '只有擁有者可以變更此設定。',
-
-  // Macros page
-  'console.macros.pageTitle': '伺服器巨集',
-  'console.macros.intro': '你的伺服器的所有巨集',
-  'console.macros.ownerOnly': '只有此核心的擁有者可以使用巨集。',
-  'console.macros.codeExecutionDisabledBanner':
-    '此核心已停用程式碼執行。在核心設定中重新啟用之前，無法執行或設定巨集。',
-  'console.macros.codeExecutionDisabled': '此核心已停用程式碼執行',
-  'console.macros.tab.macros': '所有巨集',
-  'console.macros.tab.tasks': '執行中的工作',
-  'console.macros.tab.history': '歷史記錄',
-  'console.macros.column.name': '巨集名稱',
-  'console.macros.column.lastRun': '上次執行',
-  'console.macros.column.created': '建立時間',
-  'console.macros.column.finished': '完成時間',
-  'console.macros.column.pid': '處理程序 ID',
-  'console.macros.noTime': '無',
-  'console.macros.run': '執行巨集',
-  'console.macros.editConfig': '編輯設定',
-  'console.macros.killTask': '強制停止工作',
-  'console.macros.configTitle': '巨集設定',
-  'console.macros.configRequired': '此巨集需要額外的設定。',
-  'console.macros.noServer': '未選取伺服器',
-  'console.macros.loadFailed': '無法載入巨集：{error}',
-  'console.macros.openConfigFailed': '開啟巨集設定時發生錯誤：{error}',
-  'console.macros.runFailed': '執行巨集時發生錯誤：{error}',
-  'console.macros.killFailed': '無法強制停止工作：{error}',
-  'console.macros.saveConfigFailed': '無法儲存巨集設定：{error}',
-  'console.macros.invalidState': '錯誤：狀態無效',
-
-  // MacroCreateForm (not used yet)
-  'console.macros.create.name': '巨集名稱',
-  'console.macros.create.args': '引數',
-  'console.macros.create.submit': '建立巨集',
-  'console.macros.create.nameRequired': '必須填寫巨集名稱',
 
   // ===== Creating a server =====
 

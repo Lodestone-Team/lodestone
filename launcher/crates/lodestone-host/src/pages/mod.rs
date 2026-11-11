@@ -15,7 +15,6 @@
 //! | Settings (instance) | [`instance_settings`] | C |
 //! | Mods / Plugins | [`mods`] | C |
 //! | Event logs | [`event_logs`] | C |
-//! | Macros (needs Deno: out of scope) | [`macros`] | — |
 //! | Settings › General | [`core_settings`] | D |
 //! | Settings › Users | [`users`] | D |
 //! | Settings › Profile | [`profile`] | D |
@@ -33,7 +32,6 @@ pub mod files;
 pub mod friend_sharing;
 pub mod home;
 pub mod instance_settings;
-pub mod macros;
 pub mod minecraft_links;
 pub mod mods;
 pub mod overview;
@@ -83,7 +81,6 @@ pub fn open(route: &Route, state: Entity<HostState>, cx: &mut App) -> AnyView {
                     .into(),
                 InstanceTab::Files => cx.new(|cx| files::FilesPage::new(state, uuid, cx)).into(),
                 InstanceTab::Mods => cx.new(|cx| mods::ModsPage::new(state, uuid, cx)).into(),
-                InstanceTab::Macros => cx.new(|cx| macros::MacrosPage::new(state, uuid, cx)).into(),
                 InstanceTab::EventLogs => cx
                     .new(|cx| event_logs::EventLogsPage::new(state, uuid, cx))
                     .into(),

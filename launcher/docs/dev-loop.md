@@ -35,7 +35,7 @@ python3 launcher/scripts/dev_loop.py launcher --once            # build, run, an
   `launcher/target/dev-loop/host` for the core's data, its own data and the launcher
   folder it reads friends from. Its core runs on port 16762 (`--core-port`), so it
   never takes 16662 from an installed Host. The core is built once at the start,
-  without Deno, and again when a file in `core/` changes.
+  and again when a file in `core/` changes.
 - Ctrl+C stops the loop and the app.
 
 ## Where the time goes

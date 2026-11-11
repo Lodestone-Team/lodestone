@@ -304,7 +304,6 @@ pub fn scope_instances(scope: &ApiKeyScope) -> Vec<&InstanceUuid> {
             .chain(&p.can_access_instance_setting)
             .chain(&p.can_read_instance_resource)
             .chain(&p.can_write_instance_resource)
-            .chain(&p.can_access_instance_macro)
             .chain(&p.can_read_instance_file)
             .chain(&p.can_write_instance_file)
             .collect(),
@@ -315,8 +314,8 @@ pub fn scope_instances(scope: &ApiKeyScope) -> Vec<&InstanceUuid> {
 /// user, with their current permissions) can use.
 ///
 /// "Can use" is [`User::can_perform_action`], so for the owner, who can do everything,
-/// the key's list applies as written; an admin's automatic powers count too. The macro
-/// and extension fields grant nothing and come out empty.
+/// the key's list applies as written; an admin's automatic powers count too. The legacy
+/// macro and extension fields grant nothing and come out empty.
 pub fn effective_permissions(user: &User, key: &UserPermission) -> UserPermission {
     let keep = |set: &std::collections::HashSet<InstanceUuid>,
                 action: fn(InstanceUuid) -> UserAction| {
@@ -995,10 +994,7 @@ mod manager_tests {
         let user = f.manager.try_auth(&full).unwrap();
         assert!(user.is_owner);
         assert!(user.is_api_key());
-        assert!(user
-            .try_action(&UserAction::AccessMacro(None), true)
-            .is_ok());
-        assert!(user.try_action(&UserAction::InstallExtension, true).is_ok());
+        assert!(user.try_action(&UserAction::ManageUser, true).is_ok());
 
         let user = f.manager.try_auth(&narrow).unwrap();
         assert!(!user.is_owner && !user.is_admin);
@@ -1008,14 +1004,8 @@ mod manager_tests {
         assert!(user
             .try_action(&UserAction::StartInstance(a), false)
             .is_err());
-        // owner-only features: macros, extensions, atoms, script writes, managing users
-        assert!(user
-            .try_action(&UserAction::AccessMacro(None), false)
-            .is_err());
-        assert!(user
-            .try_action(&UserAction::InstallExtension, false)
-            .is_err());
-        assert!(user.owner_only("create atom servers").is_err());
+        // owner-only features: script writes, managing users
+        assert!(user.owner_only("manage users").is_err());
         assert!(crate::handlers::util::check_code_write(
             user.is_owner,
             &crate::global_settings::CodeExecutionSwitch::new(true)

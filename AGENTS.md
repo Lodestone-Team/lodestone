@@ -115,7 +115,8 @@ asks for it.
 - **Follow `.claude/skills/publish-host-release/SKILL.md`**, on top of the
   launcher's skill. Add `--product host` to every command.
 - **Each build is two programs:** the Host and the Lodestone Core it runs, built from
-  the root workspace with `--no-default-features`. Never build or ship Deno.
+  the root workspace with `--no-default-features`. Never build or ship Deno: core no
+  longer has it, but commits before its removal still have a default `deno` feature.
 - **"Host - Release"** (`.github/workflows/host-release.yml`) runs by hand only, with
   `tag` and `channel` (`beta` or `stable`, which must match the tag), and builds macOS
   and Windows into the draft. **Host - macOS app** builds the Mac app on its own.
@@ -136,7 +137,8 @@ The GPUI rewrite of Lodestone Host is `launcher/crates/lodestone-host`; the Taur
 plan: how the Host works, the feature checklist and the work packages. In short:
 
 - It runs `lodestone_core` as a child process (`--is-host --port --stop-with-stdin`),
-  always built with `--no-default-features`: never with Deno.
+  always built with `--no-default-features`: never with Deno (which only older
+  commits still have).
 - It signs in as the owner through the core's local claim (`"session": true`).
 - It shares `launcher/crates/lodestone-ui` (components, theme, fonts, i18n plumbing)
   with the launcher, and talks to the core through `launcher-core`'s `cores::admin`.

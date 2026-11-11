@@ -15,8 +15,7 @@ be built in parallel with little file overlap. Tick items (`[x]`) as you build t
 - **The core is a child process.** The Host can't link the core: the core's
   dependencies would break the launcher workspace's rule that every crate comes from
   Zed v1.27.0's lockfile. It runs the core's own program, `lodestone_core`, built from
-  the root workspace **without the `deno` feature** (`cargo build -p lodestone_core
-  --no-default-features`; never build Deno, in development, bundles or releases), and
+  the root workspace (`cargo build -p lodestone_core --no-default-features`), and
   shipped next to the Host's executable. `core_process.rs` finds it, picks the port
   (16662; a debug build takes the next free one; `LODESTONE_HOST_CORE_PORT` overrides),
   and starts it with `--is-host --lodestone-path <data> --port <port>
@@ -126,8 +125,7 @@ the real connect.lodestone.cc and throwaway folders (never `~/.lodestone` or the
 launcher's real data). No Minecraft server is started: a plain TCP listener stands in
 for the game port.
 
-1. **Build** the core without Deno (`cargo build -p lodestone_core
-   --no-default-features`), then in `launcher/`: `cargo build -p lodestone-host
+1. **Build** the core (`cargo build -p lodestone_core --no-default-features`), then in `launcher/`: `cargo build -p lodestone-host
    --features screenshot -p lodestone-launcher -p lodestone-launcher-cli`.
 2. **Host, first run.** With `LODESTONE_PATH`, `LODESTONE_HOST_DATA_DIR` and
    `LODESTONE_HOST_CORE` (`../target/debug/lodestone_core`) set to a new temp folder,
@@ -197,13 +195,15 @@ package has its i18n area (`InstancesMsg`, `ConsoleFilesMsg`, `InstanceMsg`,
 translation in `fr`, `zh_hans` and `zh_hant` (a missing one doesn't compile). Each
 package has its `cores/admin/<area>.rs` with the routes to add listed at its top.
 
-**Out of scope: everything that needs Deno.** The Host's core is built without the
-`deno` feature, so macros, tasks, instance scripts, extensions and atom (scripted)
-instances don't exist there. The Host shows them as unavailable, as the dashboard does
-for a core without the capability (`core/src/capabilities.rs`): the Macros tab only
-shows for a core with the `macros` capability and then says scripting is unavailable
-(`pages/macros.rs`), and atom instances' controls are disabled without
-`generic_instances`. Don't build them. They are marked **out of scope** below.
+**Removed: everything that ran on Deno.** Lodestone Core no longer has Deno, so
+macros, tasks, instance scripts, extensions and atom (scripted) instances are gone
+from the core, the dashboard and the Host. `/info` still sends `capabilities.macros`
+and `capabilities.generic_instances`, always false, and `UserPermission` still has
+`can_access_instance_macro` and `can_install_extension`; the Host reads neither the
+capabilities nor shows those permissions. An older core may still send macro events
+or list an atom instance: the events read as unknown and are skipped, and an atom
+instance shows as any other non-Minecraft (`Generic`) server, with the core deciding
+who may control it. These items are marked **removed** below.
 
 ## Done in the foundation
 
@@ -287,11 +287,11 @@ Conventions in the code that every area relies on:
 - Owner bypasses all permission checks client-side (`data/UserInfo.ts` `isUserAuthorized`): `is_owner` →
   true; boolean perms → value; per-instance perms (arrays of instance UUIDs) → membership.
 - "Atom" instance = `game_type.type === 'Generic'` and UUID not starting `DOCKER-`; owner-only to control
-  (`data/CodeExecution.ts`). "Docker" instance = UUID starts with `DOCKER-`, normal permissions apply.
+  (`data/CodeExecution.ts`). Removed: the Host shows one from an older core as any `Generic` server. "Docker" instance = UUID starts with `DOCKER-`, normal permissions apply.
 - Code-execution switch: `useCodeExecution()` → `enabled` (= !`code_execution_locked` && `code_execution_enabled`,
   default true), `locked`, `canManage` (= `is_owner`), `canRun` (= canManage && enabled).
 - Core capabilities (`/info` → `capabilities`, missing = available): `macros`, `generic_instances`
-  (`docker` exists in the type but the dashboard never reads it).
+  (now always false; the Host doesn't read them) (`docker` exists in the type but the dashboard never reads it).
 - "Saved" toast: one small reusable toast (`components/Settings/savedToast.ts`, id `settings-saved`,
   1.5 s) after any auto-saving setting.
 
@@ -352,11 +352,11 @@ Conventions in the code that every area relies on:
   - Empty state: dashed box "No instance selected" (faExpand icon).
   - Loading skeleton when URL names an instance but list still loading.
   - Instance card (§2.2) then the tab list. Tab visibility rules:
-    - `macros` only if owner (`canManage`) and core capability `macros` (and capabilities loaded).
+    - `macros` only if owner (`canManage`) and core capability `macros` (and capabilities loaded); removed.
     - `mods` only if the game supports mods/plugins (Fabric/Forge → "Mods", Paper/Spigot → "Plugins",
       `utils/mods.ts getModSupport`) **and** user has `can_read_instance_file` on the instance.
     - Tabs + icons (`pages/InstanceTabs/tabList.tsx`): Overview (chart-line), Settings (cog),
-      Console (server), Files (folder), Mods/Plugins (puzzle), Macros (code-compare), Event Logs (inbox).
+      Console (server), Files (folder), Mods/Plugins (puzzle), Event Logs (inbox). (Macros (code-compare): removed.)
       Active tab highlighted.
 - [x] Footer: core connection status row — `components/DashboardLayout/CoreConnectionStatus.tsx`
   - Icon + core name; colour by status: success (plug-check, green), loading (plug, gray), degraded
@@ -532,15 +532,15 @@ Conventions in the code that every area relies on:
 - [x] Notification titles produced per event (i18n `shell.event.*`): state transitions per state
   (`Starting/Running/Stopping/Stopped/Error` "<name> is …"), instance warning (+ error toast
   "warningToast"), instance error, players joined/left/both, player chat message, API key created/revoked,
-  macro started/detached/stopped (with exit status type).
+  macro started/detached/stopped (with exit status type; removed).
 - [x] Cache side effects of events (fresh only): StateTransition → instance state; InstanceError → state
   Error; PlayerChange → player list/count; UserCreated → refetch user list; UserDeleted → drop user (self →
   sign out); UsernameChanged / PermissionChanged → update self + list; ApiKeyCreated/Revoked → refetch key
-  lists; Macro Started → refetch task+macro lists; Macro Stopped → refetch task+history;
+  lists; Macro Started → refetch task+macro lists; Macro Stopped → refetch task+history (removed);
   ProgressionEnd InstanceCreation → add instance; InstanceDelete → remove instance;
   FSOperationCompleted → success/error toast with core message + refetch that instance's file lists;
   GlobalSettingsChanged → refetch global settings. `FSEvent`, `UserLoggedIn/Out` ignored.
-  - *Host:* `HostState::apply` (instances, players, self, creations, deletions, settings); Users and API keys refetch on their events; a zip or unzip that finishes shows its toast on any page and the Files tab lists its folder again. Macro events: out of scope (no Deno).
+  - *Host:* `HostState::apply` (instances, players, self, creations, deletions, settings); Users and API keys refetch on their events; a zip or unzip that finishes shows its toast on any page and the Files tab lists its folder again. Macro events: removed; an older core's read as unknown and are skipped.
 - [x] Global toasts (react-toastify): bottom-right, click to close, pause on hover, Zoom transition,
   level icon; colours info gray / error red / warning yellow / success green — `pages/_app.tsx`.
   - *Host:* `lodestone_ui::components::Toasts` (#632), drawn by the shell.
@@ -608,6 +608,7 @@ Conventions in the code that every area relies on:
     `can_stop_instance` (per instance).
   - Atom instances: whole menu disabled with tooltip if core lacks `generic_instances` ("no scripting") or
     user isn't owner; Start/Restart disabled with note when code execution is disabled.
+    - *Host:* **Removed** (Lodestone dropped Deno, with macros, tasks, instance scripts, extensions and atom instances); the menu follows the permissions alone.
 
 ### 2.3 Create instance dialog — `components/Instance/InstanceCreateForm.tsx`, `components/Instance/Create/*`, `components/DashboardLayout/LeftNav.tsx`  
 **Package: A.**
@@ -634,9 +635,9 @@ Conventions in the code that every area relies on:
 - [x] Create: `POST /instance/create/{HandlerGameType}` body `SetupValue {name, description, auto_start,
   restart_on_crash, setting_sections: {sectionId: {settings: {id: {value}}}}}`; failure → toast, dialog
   stays open; success closes dialog; the instance appears through progression events (pill → list).
-- [x] **Out of scope** (needs Deno). Generic/atom path: `PUT /generic_setup_manifest {url}` and `POST /instance/create_generic
-  {url, setup_value}` exist in code but there's no URL field in the UI **(dead)**. No Docker-instance UI.
-  - *Host:* Not applicable: out of scope (Deno), and dead in the dashboard.
+- [x] **Removed** (Lodestone dropped Deno, with macros, tasks, instance scripts, extensions and atom instances). Generic/atom path: `PUT /generic_setup_manifest {url}` and `POST /instance/create_generic
+  {url, setup_value}` existed in code but there was no URL field in the UI **(dead)**. No Docker-instance UI.
+  - *Host:* Not applicable: removed from the core.
 - [x] Dialog skeleton while code loads (`CreateInstanceFlow.tsx`); Back keeps typed values.
 
 ### 2.4 Create from Modrinth modpack — `components/Instance/Create/ModpackCreateForm.tsx`, `components/Mods/ModrinthSearch.tsx`, `data/Mods.ts`  
@@ -671,7 +672,7 @@ Conventions in the code that every area relies on:
 
 - [x] In Settings › Danger zone: "Delete" button → danger confirm dialog ("Delete <name>?", cannot be
   undone) → `DELETE /instance/{uuid}`; refetch list, deselect; error toast.
-- [x] Permission: `can_delete_instance` (global) and, for atom instances, owner.
+- [x] Permission: `can_delete_instance` (global) and, for atom instances, owner (atom rule removed).
 - [x] No clone, rename-folder, import-existing, backup or export features exist in the dashboard.
   - *Host:* Not applicable: not in the dashboard.
 
@@ -683,7 +684,7 @@ Conventions in the code that every area relies on:
 - [x] Inline-editable **name** (heading) and **description**: click or pencil → input, Enter/floppy saves,
   Esc/blur cancels; trimmed; inline error text; spinner — `components/EditableTextfield.tsx`.
   - `PUT /instance/{uuid}/name` / `PUT /instance/{uuid}/description` (JSON string body); updates list cache.
-  - Read-only for non-owners on atom instances (tooltip). No explicit permission check client-side.
+  - Read-only for non-owners on atom instances (tooltip; removed). No explicit permission check client-side.
   - Host: Enter or the floppy saves, Esc or × cancels; leaving the field does not
     cancel. An empty name is refused before it is sent.
 - [x] Labels row: game icon, state label, "Version x", "n/m players", address chip `<domain|core
@@ -743,8 +744,8 @@ Conventions in the code that every area relies on:
 - [x] Command input: `POST /instance/{uuid}/console` body JSON string; error toast "Couldn't send: …";
   history of last ~50 commands per tab session, ↑/↓ navigation. *Host: kept per instance
   while the Host runs.*
-  - Input disabled with message when: no `can_access_instance_console`; atom instance and not owner;
-    instance Stopped; stream closed.
+  - Input disabled with message when: no `can_access_instance_console`; atom instance and not owner
+    (removed); instance Stopped; stream closed.
 - [x] Empty/no-permission states with server icon graphic; skeleton code lines while loading.
 - [x] The instance tab container's Console heading with the state label (§1.2): not done,
   the heading is the shell's; the sidebar and the status dot show the state.
@@ -837,7 +838,7 @@ Conventions in the code that every area relies on:
     pause and on submit (not empty for numbers, strict integer/float parse, min/max).
   - Save: `PUT /instance/{uuid}/settings/{sectionId}/{settingId}` body `ConfigurableValue` JSON → "Saved" toast.
   - Disabled when `!is_mutable`, no `can_access_instance_setting` (row shows "No permission"), atom &
-    not owner, or `java_cmd`/`cmd_args` blocked (reason appended).
+    not owner (removed), or `java_cmd`/`cmd_args` blocked (reason appended).
   - Section with no settings: "Not available" row.
   - Special preview: `motd` setting shows rendered MOTD (Minecraft formatting, `\uXXXX`/`\n` unescaped) on a
     dirt background with the Minecraft font — `SettingOverrides.tsx`, `components/Atoms/MOTDRender.tsx`,
@@ -845,7 +846,7 @@ Conventions in the code that every area relies on:
   - (Which settings exist — port, RAM, java, flags, server.properties fields… — comes entirely from the
     core's manifest; the dashboard has no hard-coded list.)
 - [x] **Automation** section: Auto start, Restart on crash toggles → `PUT /instance/{uuid}/auto_start` /
-  `/restart_on_crash` (JSON bool); refetch list; needs `can_access_instance_setting` (+ owner for atom).
+  `/restart_on_crash` (JSON bool); refetch list; needs `can_access_instance_setting` (owner for atom: removed).
 - [x] **Sharing / public listing** (Minecraft Java only; hidden on cores without scopes) —
   `components/Instance/PublicListingSetting.tsx`
   - `GET /instance/{uuid}/public_listing` → `InstancePublicListing`; "Public" toggle + checkboxes
@@ -930,12 +931,13 @@ Conventions in the code that every area relies on:
   deep links: the Host has no URLs. Results and projects aren't cached in the Host (the
   core caches Modrinth for 5 minutes).
 
-### 6.3 Macros tab — `pages/macros.tsx`, `components/Table.tsx`, `components/ButtonMenu.tsx`  
-**Package: **out of scope** (needs Deno).**
+### 6.3 Macros tab (removed)
+
+**Removed** (Lodestone dropped Deno, with macros, tasks, instance scripts, extensions and atom instances): the core, the dashboard and the Host have no Macros tab. What the dashboard had, for reference:
 
 - [x] Visible only to the owner on cores with the `macros` capability; otherwise "owner only" /
   "no scripting" text. Banner when code execution is disabled (listing, kill and history still work).
-  - *Host:* Not applicable: out of scope (Deno).
+  - *Host:* Not applicable: removed.
 - [x] Sub-tabs: **Macros**, **Tasks**, **History** (tables with skeleton rows, "No data", zebra rows, per-row
   "…" menu).
   - Macros: `GET /instance/{uuid}/macro/list` → `MacroEntry[]`; columns Name, Last run. Row menu:
@@ -944,14 +946,14 @@ Conventions in the code that every area relies on:
   - Tasks: `GET /instance/{uuid}/task/list` → `TaskEntry[]`; columns Name, Created, PID; menu **Kill** →
     `PUT /instance/{uuid}/macro/kill/{pid}`.
   - History: `GET /instance/{uuid}/history/list` → `HistoryEntry[]`; columns Name, Created, Finished, PID.
-  - *Host:* Not applicable: out of scope (Deno).
+  - *Host:* Not applicable: removed.
 - [x] Macro config dialog: `GET /instance/{uuid}/macro/config/get/{name}` → `GetConfigResponse {config:
   {name: SettingManifest}, message, error}`; renders each setting with the same setting-field controls
   (edits local only); red "config required" note if `error`; **Save** → `POST
   /instance/{uuid}/macro/config/store/{name}` body the config map; failure keeps dialog open.
-  - *Host:* Not applicable: out of scope (Deno).
+  - *Host:* Not applicable: removed.
 - [x] Lists refetch on macro events and every visit. `MacroCreateForm.tsx` ("create macro") **(dead)**.
-  - *Host:* Not applicable: out of scope (Deno).
+  - *Host:* Not applicable: removed.
 
 ### 6.4 Event Logs tab — `pages/InstanceTabs/InstanceTabs.tsx`  
 **Package: C.**
@@ -1009,9 +1011,9 @@ Conventions in the code that every area relies on:
   - *Host:* Shows the Lodestone Host version where the dashboard shows its own.
 - [x] **Danger zone**:
   - Safe mode toggle (turning on saves; turning off asks confirm) → `PUT /global_settings/safe_mode`.
-  - Code execution toggle (owner; disabled if locked, with "locked by administrator" note; hint differs
-    when core has no Deno: only custom Java commands) → turning off asks danger confirm → `PUT
-    /global_settings/code_execution`, then refetch.
+  - Code execution toggle (owner; disabled if locked, with "locked by administrator" note; it covers
+    custom Java commands only, now that macros, atoms, extensions and scripts are removed) → turning off
+    asks danger confirm → `PUT /global_settings/code_execution`, then refetch.
   - Allow plain HTTP from LAN (owner, if supported) → turning on asks danger confirm → `PUT
     /global_settings/allow_lan_http`.
   - Allow local claim (owner, if supported) → `PUT /global_settings/allow_local_claim`.
@@ -1039,10 +1041,12 @@ Conventions in the code that every area relies on:
     `components/Atoms/MultiSelectGrid.tsx`.
   - **Unsafe permissions** (danger card; disabled while safe mode is on): `can_write_instance_resource`,
     `can_write_instance_file` (per instance), `can_write_global_file`, `can_manage_permission` (toggles);
-    plus a disabled "Owner only" row explaining macros/extensions/atoms are owner-only (or "no scripting").
+    plus a disabled "Owner only" row explaining macros/extensions/atoms are owner-only (or "no scripting");
+    the row is removed (the Host's API key scope had the same row, removed too).
   - Each change: `PUT /user/{uid}/update_perm` body full `UserPermission`; changes are queued and each is
     computed from the latest cached permissions; "Saved" toast; edits only by owner.
-  - Not editable/listed: `can_access_instance_macro`, `can_install_extension`.
+  - Not editable/listed: `can_access_instance_macro`, `can_install_extension` (still on the wire; the
+    features are removed, and the Host doesn't count them in a key's permissions).
   - **API keys** of that user (§7.4, revoke only).
   - **Minecraft accounts** of that user (owner): list + Remove (§7.5).
 - [x] Non-owners see no user list (the page is effectively empty for them).
@@ -1095,7 +1099,7 @@ Conventions in the code that every area relies on:
 **Package: nobody.**
 
 - [x] No system-stats page (`/system/ram|disk|cpu` hooks and `SystemStat.tsx` exist but are unused
-  **(dead)**), no core updater UI, no global event-log page, no extension management, no backup UI.
+  **(dead)**), no core updater UI, no global event-log page, no extension management (extensions are removed), no backup UI.
   Version/info appears only in Core › General › Information and the connection tooltip.
   - *Host:* Not applicable: not in the dashboard.
 
@@ -1113,8 +1117,8 @@ Conventions in the code that every area relies on:
 - [x] Core start failure → native desktop notification "Lodestone Host failed to start: <error>"
   (`notify-rust`) and exit.
 - [x] If the core future ends on its own (not via Quit) → `process::exit(128)`.
-- [x] **No Deno, ever:** the Host bundles a core built with `--no-default-features`, and shows scripting as unavailable. (The Tauri Host had:) Cargo feature `deno` (default) passes through to core (macros/atoms); `--no-default-features` build
-  has no scripting (dashboard reacts via capabilities).
+- [x] **No Deno:** Lodestone Core no longer has Deno, macros or atoms (removed). (The Tauri Host had:) Cargo feature `deno` (default) passed through to core (macros/atoms); `--no-default-features` built
+  without scripting (dashboard reacted via capabilities).
 
 ### 8.2 Commands exposed to JS (all permission-free) — `src-tauri/src/main.rs`  
 **Package: foundation (done: replaced by the local claim).**
@@ -1336,7 +1340,10 @@ All paths are under `/api/v1`. Bodies are JSON unless noted. Types are in `dashb
 | POST | `/modpack/inspect` | `ModpackInspectRequest {version_id}` | `ModpackInfo` |
 | POST | `/modpack/upload` | multipart `file` | `ModpackInfo` (with `upload_id`) |
 
-### 10.7 Macros / tasks
+### 10.7 Macros / tasks (removed)
+
+These routes are gone from the core, with `/task/*`, `/history/*`, `/extension/*` and
+`/instance/create_generic`. What they were:
 
 | Method | Path | Request | Response |
 |---|---|---|---|
@@ -1374,8 +1381,9 @@ Event variants the dashboard handles (everything else must at least be tolerated
   {key_id, name}`; `UserLoggedIn`, `UserLoggedOut` (ignored).
   - *Host:* As above.
 - [x] `MacroEvent` {instance_uuid, macro_pid, macro_event_inner}: `Started`, `Detach`, `Stopped
-  {exit_status: ExitStatus}`.
-  - *Host:* Parsed and tolerated; macros are out of scope.
+  {exit_status: ExitStatus}`. Removed.
+  - *Host:* Not modelled: an older core's macro events read as `EventInner::Unknown`, and
+    `caused_by: {type: "Macro"}` as `CausedBy::Unknown`.
 - [x] `ProgressionEvent` {event_id, progression_event_inner}: `ProgressionStart {progression_name, total,
   inner: ProgressionStartValue (InstanceCreation|InstanceDelete {instance_uuid})}`, `ProgressionUpdate
   {progress_message, progress}`, `ProgressionEnd {success, message, inner: ProgressionEndValue

@@ -1,7 +1,6 @@
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   faChartLine,
-  faCodeCompare,
   faCog,
   faFolder,
   faInbox,
@@ -17,13 +16,7 @@ import type { MessageKey } from 'i18n';
 // loading of InstanceTabs.
 
 export type InstanceTabPath =
-  | 'overview'
-  | 'settings'
-  | 'console'
-  | 'files'
-  | 'mods'
-  | 'macros'
-  | 'logs';
+  'overview' | 'settings' | 'console' | 'files' | 'mods' | 'logs';
 
 /** a tab's name, a message without placeholders */
 export type TabTitleKey = Extract<MessageKey, `server.tab.${string}`>;
@@ -77,13 +70,6 @@ export const tabs: InstanceTabInfo[] = [
     path: 'mods',
     width: 'max-w-4xl',
     icon: <FontAwesomeIcon icon={faPuzzlePiece} />,
-  },
-  {
-    titleKey: 'server.tab.macros',
-    displayTitleKey: 'server.tab.macros',
-    path: 'macros',
-    width: 'max-w-4xl',
-    icon: <FontAwesomeIcon icon={faCodeCompare} />,
   },
   {
     titleKey: 'server.tab.logs',

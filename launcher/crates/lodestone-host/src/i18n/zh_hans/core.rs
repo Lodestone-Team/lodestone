@@ -28,19 +28,14 @@ pub fn text(message: M) -> &'static str {
         }
         M::TurnOff => "关闭",
         M::CodeExecution => "代码执行",
-        M::CodeExecutionHint => "宏、Atom 服务器、扩展、服务器脚本和自定义 Java 命令。",
-        M::CodeExecutionHintJavaOnly => "自定义 Java 命令。",
+        M::CodeExecutionHint => "自定义 Java 命令。",
         M::CodeExecutionLocked => {
             "已被此核心的管理员锁定（LODESTONE_DISABLE_CODE_EXECUTION 或 --disable-code-execution）。"
         }
         M::CodeExecutionOffTitle => "关闭代码执行？",
         M::CodeExecutionOffBody => {
-            "正在运行的宏和 Atom 服务器将被停止。在你重新开启代码执行之前，宏、Atom 服务器、扩展、服务器脚本和自定义 Java 命令都不会在此核心上运行。任何内容都不会自动重新启动。"
-        }
-        M::CodeExecutionOffBodyJavaOnly => {
             "在你重新开启代码执行之前，自定义 Java 命令不会在此核心上运行。任何内容都不会自动重新启动。"
         }
-        M::NoScripting => "此核心构建时未包含脚本支持（Deno），因此无法使用宏。",
         M::LanHttp => "允许通过明文 HTTP 进行局域网访问",
         M::LanHttpHint => "未加密。你网络中的其他人可以读取密码。",
         M::LanHttpConfirmTitle => "允许其他设备使用明文 HTTP？",
@@ -106,8 +101,6 @@ pub fn text(message: M) -> &'static str {
         M::PermissionsLead => "{username} 在此核心上可以执行的操作。",
         M::UnsafePermissions => "不安全权限",
         M::UnsafePermissionsLead => "关闭安全模式后才能授予非所有者。",
-        M::OwnerOnly => "宏、扩展和 Atom 服务器",
-        M::OwnerOnlyHint => "仅限所有者。Docker 服务器使用普通权限。",
         M::UsersOwnerOnly => "只有所有者可以管理用户。",
         M::You => "你",
         M::Admin => "管理员",
@@ -241,8 +234,6 @@ pub fn text(message: M) -> &'static str {
         M::KeyUnsafeSafeMode => {
             "安全模式已开启，因此在核心设置中关闭安全模式之前，核心会拒绝为自定义访问的密钥授予这些权限。"
         }
-        M::KeyOwnerOnly => "宏、扩展和 Atom 服务器",
-        M::KeyOwnerOnlyHint => "只有完全访问的密钥才能使用宏、扩展和 Atom 服务器。",
         M::NewKeyTitle => "已创建 API 密钥“{name}”",
         M::NewKeyCopyNow => "请立即复制此密钥。之后将无法再次查看。",
         M::NewKeyUseWithCli => "在 Lodestone CLI 中使用：",
@@ -281,11 +272,7 @@ pub fn text(message: M) -> &'static str {
         M::PlayerMessage => "{player} 在 {name} 上说：{message}",
         M::EventApiKeyCreated => "已创建 API 密钥“{name}”",
         M::EventApiKeyRevoked => "已吊销 API 密钥“{name}”",
-        M::MacroStarted => "宏 {pid} 已在 {server} 上启动",
-        M::MacroDetached => "宏 {pid} 已在 {server} 上分离",
-        M::MacroStopped => "宏 {pid} 已在 {server} 上停止，状态为 {status}",
         M::LoadFailed => "无法加载通知：{error}",
-        M::CoreFallback => "核心",
         M::CoreFailedNotice => "Lodestone Core 无法启动：{error}",
         M::UpdatesTitle => "更新",
         M::UpdatesLead => "这台电脑上的 Lodestone Host。Lodestone Core 随之更新。",

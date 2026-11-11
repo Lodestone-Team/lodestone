@@ -17,7 +17,7 @@ argon2 = "0.6.0"
 async-trait = "0.1.92"
 axum = { version = "0.8.9", features = ["ws", "multipart"] }
 axum-auth = "0.8.1"
-# tls-rustls enables only rustls' aws-lc-rs provider (the one deno uses). Never enable a
+# tls-rustls enables only rustls' aws-lc-rs provider. Never enable a
 # feature that turns on rustls' `ring` provider without keeping the explicit
 # `install_default()` call in `lodestone_core::run`.
 axum-server = { version = "0.8.0", features = ["tls-rustls"] }
@@ -27,15 +27,6 @@ chrono = "0.4.45"
 clap = { version = "4.6.7", features = ["derive"] }
 color-eyre = "0.6.5"
 dashmap = "6.2.1"
-# The deno crates are pinned exactly: they must move together, and the op compat shim
-# (src/deno_ops/compat.js) depends on deno_runtime's bootstrap internals. They are only
-# built with the `deno` feature, see [features].
-deno_ast = { version = "=0.53.3", features = ["transpiling"], optional = true }
-deno_core = { version = "=0.413.0", optional = true }
-deno_error = { version = "=0.7.1", optional = true }
-deno_resolver = { version = "=0.91.0", optional = true }
-deno_runtime = { version = "=0.268.0", optional = true }
-sys_traits = { version = "=0.1.29", features = ["real"], optional = true }
 enum-kinds = "0.5.1"
 enum_dispatch = "0.3.13"
 fancy-regex = "0.19.2"
@@ -59,16 +50,15 @@ reqwest = { version = "0.13.5", features = ["stream", "json"] }
 ringbuffer = "0.16.0"
 rs-snowflake = "0.6.0"
 # Dependencies can enable different rustls crypto providers, so rustls may not pick a
-# default on its own. `run()` installs aws-lc-rs explicitly; without it deno's fetch() and
-# the TLS listener panic.
+# default on its own. `run()` installs aws-lc-rs explicitly; without it the TLS listener
+# panics.
 rustls = { version = "0.23.40", default-features = false, features = ["std", "aws_lc_rs"] }
 safe-path = { git = "https://github.com/Lodestone-Team/safe_path_subset", rev = "f87a38f1ffe6e8eb3c602d3602e971750cf01fbc" }
 sanitize-filename = "0.6.0"
 semver = { version = "1.0.28", features = ["serde"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde-aux = { version = "4.7.0", default-features = false }
-# Deno turns these on for the whole build. Turned on here too, so JSON objects keep their
-# key order (stored events, settings) and floats parse the same with or without `deno`.
+# JSON objects keep their key order (stored events, settings), and floats round-trip.
 serde_json = { version = "1.0.154", features = ["preserve_order", "float_roundtrip"] }
 sha1 = "0.10.7"
 sha2 = "0.10.9"
@@ -76,8 +66,7 @@ socket2 = "0.6.5"
 # constant-time comparison of API key hashes
 subtle = "2.6.1"
 # Pinned to a launchbadge/sqlx main commit: the latest release (0.9.0) caps libsqlite3-sys <0.38,
-# but deno_runtime >=0.261 links libsqlite3-sys 0.38 (only one crate may link sqlite3).
-# Switch back to a crates.io release once one ships with the relaxed bound.
+# which Deno needed when the core had it. Switch back to a crates.io release when convenient.
 # No TLS feature: SQLite needs none, and `tls-rustls` enables rustls' `ring` backend.
 sqlx = { git = "https://github.com/launchbadge/sqlx", rev = "f574e07d0692487ae5a1025e134abdf08d747395", features = [
     "runtime-tokio",
@@ -119,25 +108,8 @@ libc = "0.2"
 # WebSocket client for the API key tests; axum's `ws` feature already locks this version
 tokio-tungstenite = { version = "0.29.0", default-features = false, features = ["connect"] }
 
-[build-dependencies]
-# Used by build.rs to create the deno runtime startup snapshot (`deno` feature only).
-deno_core = { version = "=0.413.0", optional = true }
-deno_runtime = { version = "=0.268.0", features = ["snapshot"], optional = true }
-
 [features]
-default = ["deno"]
-# The Deno (V8) runtime and everything that runs on it: macros and tasks, instance scripts
-# (prelaunch), atom (generic TypeScript) instances and extensions. Without it the core
-# builds much faster and smaller; those features answer 501 and `/info` reports them as
-# unavailable in `capabilities`. See README.md.
-deno = [
-    "dep:deno_ast",
-    "dep:deno_core",
-    "dep:deno_error",
-    "dep:deno_resolver",
-    "dep:deno_runtime",
-    "dep:sys_traits",
-]
+default = []
 # No-op, kept so existing `--features vendored-openssl` builds keep working: nothing links
 # OpenSSL any more (all TLS goes through rustls).
 vendored-openssl = []

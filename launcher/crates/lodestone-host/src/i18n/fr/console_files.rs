@@ -21,7 +21,6 @@ pub fn text(message: M) -> &'static str {
         M::ConsoleEmpty => "Aucun message dans la console pour l’instant",
         M::ConsoleSendFailed => "Impossible d’envoyer la commande : {error}",
         M::ConsoleLinkedUser => "L’utilisateur Lodestone qui a associé ce compte Minecraft",
-        M::ConsoleOwnerOnlyAtom => "Seul le propriétaire peut contrôler les serveurs atom",
         M::ConsoleJumpToLatest => "Aller à la fin",
         M::Console => "Console",
         M::FilesAddRemove => "Ajouter/Retirer",

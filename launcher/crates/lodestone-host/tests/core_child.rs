@@ -129,10 +129,6 @@ fn the_host_runs_and_signs_in_to_its_own_core() {
         "remote access needs a password first"
     );
     assert!(
-        !session.info.capabilities.macros,
-        "the Host's core is built without Deno"
-    );
-    assert!(
         session.admin.core().is_strict(),
         "the token only goes over HTTPS"
     );

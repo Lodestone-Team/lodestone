@@ -107,7 +107,6 @@ const InstanceTabList = [
   'console',
   'files',
   'mods',
-  'macros',
   'logs',
 ];
 

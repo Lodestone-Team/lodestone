@@ -8,7 +8,6 @@ import Button from 'components/Atoms/Button';
 import { Toggle } from 'components/Atoms/Toggle';
 import { InstanceInfo } from 'bindings/InstanceInfo';
 import { useUserAuthorized } from 'data/UserInfo';
-import { useCanControlInstance } from 'data/CodeExecution';
 import { useQueryClient } from '@tanstack/react-query';
 import ConfirmDialog from 'components/Atoms/ConfirmDialog';
 import { toast } from 'react-toastify';
@@ -165,13 +164,11 @@ export default function InstanceSetting() {
   } = useInstanceManifest(instance.uuid);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
 
-  // atom instances can only be deleted by the owner
-  const canControlInstance = useCanControlInstance(instance);
-  const can_delete_instance =
-    useUserAuthorized('can_delete_instance') && canControlInstance;
-  const can_access_instance_setting =
-    useUserAuthorized('can_access_instance_setting', instance.uuid) &&
-    canControlInstance;
+  const can_delete_instance = useUserAuthorized('can_delete_instance');
+  const can_access_instance_setting = useUserAuthorized(
+    'can_access_instance_setting',
+    instance.uuid
+  );
   const queryClient = useQueryClient();
 
   // computed during render: kept in state by an effect, the sections were
@@ -267,11 +264,7 @@ export default function InstanceSetting() {
         <StartupSettings
           instance={instance}
           canEdit={can_access_instance_setting}
-          disabledReason={
-            canControlInstance
-              ? t('server.settings.noPermission')
-              : t('console.ownerOnlyAtom')
-          }
+          disabledReason={t('server.settings.noPermission')}
         />
         <PublicListingSetting instance={instance} />
         <ResourcePackSetting
@@ -293,9 +286,7 @@ export default function InstanceSetting() {
               hint={
                 can_delete_instance
                   ? t('server.settings.deleteServerHint')
-                  : canControlInstance
-                    ? t('server.settings.noPermission')
-                    : t('console.ownerOnlyAtom')
+                  : t('server.settings.noPermission')
               }
             >
               <Button

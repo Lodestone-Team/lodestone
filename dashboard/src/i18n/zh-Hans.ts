@@ -21,7 +21,6 @@
 //   upload / download                上传 / 下载
 //   mod / modpack                    模组 / 整合包
 //   resource pack                    资源包
-//   macro                            宏
 //   player / world                   玩家 / 世界
 //   port / address                   端口 / 地址
 //   memory (RAM)                     内存
@@ -215,12 +214,7 @@ export const zhHans: Messages = {
   'shell.event.playerMessage': '{player} 在 {name} 上说：{message}',
   'shell.event.apiKeyCreated': '已创建 API 密钥“{name}”',
   'shell.event.apiKeyRevoked': '已吊销 API 密钥“{name}”',
-  'shell.event.macroStarted': '宏 {pid} 已在 {server} 上启动',
-  'shell.event.macroDetached': '宏 {pid} 已在 {server} 上分离',
-  'shell.event.macroStopped': '宏 {pid} 已在 {server} 上停止，状态为 {status}',
   'shell.event.loadFailed': '无法加载通知：{error}',
-
-  'shell.noScripting': '此核心构建时未包含脚本支持（Deno），因此无法使用宏。',
 
   'shell.userMenu.guest': '访客',
   'shell.userMenu.account': '账户：{name}',
@@ -382,15 +376,11 @@ export const zhHans: Messages = {
     '确定要关闭安全模式吗？这样你就可以让自己以外的用户运行可能有危险的命令。请确保你信任所有获得这些权限的用户。',
   'settings.core.turnOff': '关闭',
   'settings.core.codeExecution.label': '代码执行',
-  'settings.core.codeExecution.hint':
-    '宏、Atom 服务器、扩展、服务器脚本和自定义 Java 命令。',
-  'settings.core.codeExecution.hintJavaOnly': '自定义 Java 命令。',
+  'settings.core.codeExecution.hint': '自定义 Java 命令。',
   'settings.core.codeExecution.locked':
     '已被此核心的管理员锁定（LODESTONE_DISABLE_CODE_EXECUTION 或 --disable-code-execution）。',
   'settings.core.codeExecution.offTitle': '关闭代码执行？',
   'settings.core.codeExecution.offBody':
-    '正在运行的宏和 Atom 服务器将被停止。在你重新开启代码执行之前，宏、Atom 服务器、扩展、服务器脚本和自定义 Java 命令都不会在此核心上运行。任何内容都不会自动重新启动。',
-  'settings.core.codeExecution.offBodyJavaOnly':
     '在你重新开启代码执行之前，自定义 Java 命令不会在此核心上运行。任何内容都不会自动重新启动。',
   'settings.core.lanHttp.label': '允许通过明文 HTTP 进行局域网访问',
   'settings.core.lanHttp.hint': '未加密。你网络中的其他人可以读取密码。',
@@ -441,8 +431,6 @@ export const zhHans: Messages = {
   'settings.users.permissionsLead': '{username} 在此核心上可以执行的操作。',
   'settings.users.unsafePermissions': '不安全权限',
   'settings.users.unsafePermissionsLead': '关闭安全模式后才能授予非所有者。',
-  'settings.users.ownerOnly': '宏、扩展和 Atom 服务器',
-  'settings.users.ownerOnlyHint': '仅限所有者。Docker 服务器使用普通权限。',
 
   'settings.permission.can_create_instance.title': '创建服务器',
   'settings.permission.can_create_instance.user': '该用户可以创建新服务器。',
@@ -599,9 +587,6 @@ export const zhHans: Messages = {
   'settings.apiKeys.unsafe': '不安全设置',
   'settings.apiKeys.unsafeSafeMode':
     '安全模式已开启，因此在核心设置中关闭安全模式之前，核心会拒绝为自定义访问的密钥授予这些权限。',
-  'settings.apiKeys.ownerOnly': '宏、扩展和 Atom 服务器',
-  'settings.apiKeys.ownerOnlyHint':
-    '只有完全访问的密钥才能使用宏、扩展和 Atom 服务器。',
   'settings.apiKeys.newTitle': '已创建 API 密钥“{name}”',
   'settings.apiKeys.newCopyNow': '请立即复制此密钥。之后将无法再次查看。',
   'settings.apiKeys.newUseWithCli': '在 Lodestone CLI 中使用：',
@@ -619,7 +604,6 @@ export const zhHans: Messages = {
   'server.tab.console': '控制台',
   'server.tab.files': '文件',
   'server.tab.mods': '模组',
-  'server.tab.macros': '宏',
   'server.tab.logs': '事件日志',
 
   // InstanceTabs
@@ -775,9 +759,6 @@ export const zhHans: Messages = {
   'server.action.restart': '重启',
   'server.action.kill': '强制停止',
   'server.card.power': '电源',
-  'server.card.noScripting':
-    '此核心构建时未包含脚本支持（Deno），因此无法使用 atom 服务器。',
-  'server.card.codeExecutionDisabled': '此核心已禁用代码执行',
   'server.card.copyIp': '复制 IP',
   'server.card.share': '共享',
   'server.card.shareHint': '通过链接共享此服务器',
@@ -816,7 +797,7 @@ export const zhHans: Messages = {
   'server.api.loginFailed': '登录失败：{message}',
   'server.api.loginError': '错误：{message}',
 
-  // ===== Console and macros =====
+  // ===== Console =====
 
   // GameConsole: a server's console tab
   'console.pageTitle': '服务器控制台',
@@ -844,46 +825,9 @@ export const zhHans: Messages = {
   // ConsoleLine: one line of console output
   'console.line.linkedUser': '关联了此 Minecraft 账户的 Lodestone 用户',
 
-  // CodeExecution: owner-only features and the code execution switch
-  'console.ownerOnlyAtom': '只有所有者可以控制 atom 服务器',
-  'console.ownerOnlyAtomSentence': '只有所有者可以控制 atom 服务器。',
+  // CodeExecution: the custom Java command settings and the code execution switch
   'console.commandLine.readOnly': '此核心已禁用代码执行，此设置为只读。',
   'console.commandLine.ownerOnly': '只有所有者可以更改此设置。',
-
-  // Macros page
-  'console.macros.pageTitle': '服务器宏',
-  'console.macros.intro': '你的服务器的所有宏',
-  'console.macros.ownerOnly': '只有此核心的所有者可以使用宏。',
-  'console.macros.codeExecutionDisabledBanner':
-    '此核心已禁用代码执行。在核心设置中重新启用之前，无法运行或配置宏。',
-  'console.macros.codeExecutionDisabled': '此核心已禁用代码执行',
-  'console.macros.tab.macros': '所有宏',
-  'console.macros.tab.tasks': '运行中的任务',
-  'console.macros.tab.history': '历史记录',
-  'console.macros.column.name': '宏名称',
-  'console.macros.column.lastRun': '上次运行',
-  'console.macros.column.created': '创建时间',
-  'console.macros.column.finished': '完成时间',
-  'console.macros.column.pid': '进程 ID',
-  'console.macros.noTime': '无',
-  'console.macros.run': '运行宏',
-  'console.macros.editConfig': '编辑配置',
-  'console.macros.killTask': '强制停止任务',
-  'console.macros.configTitle': '宏配置',
-  'console.macros.configRequired': '此宏需要额外的配置。',
-  'console.macros.noServer': '未选择服务器',
-  'console.macros.loadFailed': '无法加载宏：{error}',
-  'console.macros.openConfigFailed': '打开宏配置时出错：{error}',
-  'console.macros.runFailed': '运行宏时出错：{error}',
-  'console.macros.killFailed': '无法强制停止任务：{error}',
-  'console.macros.saveConfigFailed': '无法保存宏配置：{error}',
-  'console.macros.invalidState': '错误：状态无效',
-
-  // MacroCreateForm (not used yet)
-  'console.macros.create.name': '宏名称',
-  'console.macros.create.args': '参数',
-  'console.macros.create.submit': '创建宏',
-  'console.macros.create.nameRequired': '必须填写宏名称',
 
   // ===== Creating a server =====
 

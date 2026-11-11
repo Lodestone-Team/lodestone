@@ -17,16 +17,13 @@ use crate::implementations::minecraft::line_parser::{
 };
 use crate::implementations::minecraft::player::MinecraftPlayer;
 use crate::implementations::minecraft::util::name_to_uuid;
-use crate::macro_executor::{DefaultWorkerOptionGenerator, SpawnResult};
 use crate::traits::t_configurable::TConfigurable;
-use crate::traits::t_macro::TaskEntry;
 use crate::traits::t_server::{MonitorReport, State, StateAction, TServer};
 
 use crate::types::Snowflake;
 use crate::util::{dont_spawn_terminal, list_dir, local_port_available};
 
 use super::properties::PropertiesDocument;
-use super::r#macro::resolve_macro_invocation;
 use super::{java_binary, Flavour, ForgeBuildVersion, MinecraftInstance, RestoreConfig};
 use tracing::{error, info, warn};
 
@@ -244,70 +241,6 @@ impl MinecraftInstance {
         }
     }
 
-    async fn run_prelaunch(&self, name: &str) {
-        // Macros live in the macros folder; older setups kept prelaunch in the instance root.
-        let prelaunch = match resolve_macro_invocation(&self.path_to_macros, "prelaunch").await {
-            Some(p) => Some(p),
-            None => resolve_macro_invocation(&self.path_to_instance, "prelaunch").await,
-        };
-        let Some(prelaunch) = prelaunch else {
-            info!("[{}] No prelaunch script found, skipping", name);
-            return;
-        };
-        if !self.macro_executor.code_execution_enabled() {
-            // the server still starts, only the script is skipped
-            warn!(
-                "[{}] Skipping the prelaunch script {}: code execution is disabled on this core",
-                name,
-                prelaunch.display()
-            );
-            self.event_broadcaster.send(Event::new_system_message(
-                self.uuid.clone(),
-                name.to_string(),
-                "Skipped the prelaunch script: code execution is disabled on this core".to_string(),
-            ));
-            return;
-        }
-        let res: Result<SpawnResult, Error> = self
-            .macro_executor
-            .spawn(
-                prelaunch,
-                Vec::new(),
-                CausedBy::System,
-                Box::new(DefaultWorkerOptionGenerator),
-                None,
-                None,
-                Some(self.uuid.clone()),
-            )
-            .await;
-        match res {
-            Ok(SpawnResult {
-                macro_pid: pid,
-                exit_future,
-                detach_future,
-            }) => {
-                self.pid_to_task_entry.lock().await.insert(
-                    pid,
-                    TaskEntry {
-                        pid,
-                        name: "prelaunch".to_string(),
-                        creation_time: chrono::Utc::now().timestamp(),
-                    },
-                );
-                self.prune_task_history().await;
-                tokio::select! {
-                    _ = exit_future => {
-                        info!("Prelaunch script exited");
-                    }
-                    _ = detach_future => {
-                        info!("Prelaunch script requested detach");
-                    }
-                }
-            }
-            Err(e) => warn!("[{}] Failed to run the prelaunch script: {}", name, e),
-        }
-    }
-
     /// Adds the arguments that select the server jar.
     async fn add_jar_args(
         &self,
@@ -381,16 +314,14 @@ impl MinecraftInstance {
             });
         }
 
-        self.run_prelaunch(name).await;
-
-        // The instance may have been stopped or killed (e.g. on shutdown) while the prelaunch
-        // script ran; launching the server now would leave an untracked process behind.
+        // The instance may have been stopped or killed (e.g. on shutdown) while it was
+        // getting ready; launching the server now would leave an untracked process behind.
         if self.state().await != State::Starting {
             warn!(
-                "[{}] Instance is no longer starting after the prelaunch script, not launching the server",
+                "[{}] Instance is no longer starting, not launching the server",
                 name
             );
-            return Err(eyre!("Server was stopped while the prelaunch script was running").into());
+            return Err(eyre!("Server was stopped while it was starting").into());
         }
 
         let config = self.config.lock().await.clone();
@@ -723,8 +654,8 @@ impl TServer for MinecraftInstance {
         let write_result = {
             let process = self.process.lock().await;
             if process.is_none() {
-                // Still in the prelaunch phase: nothing runs yet, and start() won't launch
-                // the server now that the state changed.
+                // Still getting ready: nothing runs yet, and start() won't launch the
+                // server now that the state changed.
                 self.set_state_if(
                     &[State::Stopping],
                     State::Stopped,

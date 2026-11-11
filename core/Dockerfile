@@ -6,11 +6,6 @@ FROM rust:1.99.1-trixie@sha256:8a4e90c7946b74626488b1446f712c0fe0ed1a596cbd3d871
 # create and enter app directory
 WORKDIR /app
 
-# libclang is needed by bindgen (libsqlite3-sys, libnghttp2) in the deno dependency tree
-RUN apt-get update \
-  && apt-get install -y clang libclang-dev \
-  && rm -rf /var/lib/apt/lists/*
-
 # copy over the workspace (see Dockerfile.dockerignore)
 COPY . ./
 

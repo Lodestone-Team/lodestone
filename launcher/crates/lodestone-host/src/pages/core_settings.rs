@@ -543,7 +543,6 @@ impl CoreSettingsPage {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let (asking, focus) = (*asking, focus.clone());
-        let macros = self.state.read(cx).info.capabilities.macros;
         let (switch, value, title, body, action, danger) = match asking {
             Asking::SafeModeOff => (
                 CoreSwitch::SafeMode,
@@ -557,11 +556,7 @@ impl CoreSettingsPage {
                 CoreSwitch::CodeExecution,
                 false,
                 CoreMsg::CodeExecutionOffTitle,
-                if macros {
-                    CoreMsg::CodeExecutionOffBody
-                } else {
-                    CoreMsg::CodeExecutionOffBodyJavaOnly
-                },
+                CoreMsg::CodeExecutionOffBody,
                 CoreMsg::TurnOff,
                 true,
             ),
@@ -654,7 +649,6 @@ impl Render for CoreSettingsPage {
         let state = self.state.read(cx);
         let owner = state.me.is_owner;
         let settings = state.settings.clone().unwrap_or_default();
-        let macros = state.info.capabilities.macros;
         let query = self.search.read(cx).query();
         let mut sections: Vec<AnyElement> = Vec::new();
 
@@ -779,15 +773,7 @@ impl Render for CoreSettingsPage {
             cx,
         )];
         if owner {
-            let mut hint = if macros {
-                t(CoreMsg::CodeExecutionHint).to_string()
-            } else {
-                format!(
-                    "{} {}",
-                    t(CoreMsg::CodeExecutionHintJavaOnly),
-                    t(CoreMsg::NoScripting)
-                )
-            };
+            let mut hint = t(CoreMsg::CodeExecutionHint).to_string();
             if settings.code_execution_locked {
                 hint = format!("{hint} {}", t(CoreMsg::CodeExecutionLocked));
             }

@@ -83,20 +83,6 @@ impl TConfigurable for MinecraftInstance {
         Ok(())
     }
 
-    async fn set_port(&self, port: u32) -> Result<(), Error> {
-        let port = u16::try_from(port)
-            .ok()
-            .filter(|p| *p != 0)
-            .ok_or_else(|| bad_request(format!("Invalid port {port}: expected 1 to 65535")))?;
-        // also updates config.port
-        self.set_server_property(
-            "server-port",
-            &ConfigurableValue::UnsignedInteger(port as u32),
-            true,
-        )
-        .await
-    }
-
     async fn set_auto_start(&self, auto_start: bool) -> Result<(), Error> {
         self.config.lock().await.auto_start = auto_start;
         self.write_config_to_file().await
@@ -284,7 +270,7 @@ impl MinecraftInstance {
                     change
                 }
                 // the command line can run any program, so it is part of code execution
-                "java_cmd" | "cmd_args" if !self.macro_executor.code_execution_enabled() => {
+                "java_cmd" | "cmd_args" if !self.code_execution.is_enabled() => {
                     return Err(crate::global_settings::code_execution_disabled_error());
                 }
                 "java_cmd" => {

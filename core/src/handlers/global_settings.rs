@@ -72,27 +72,24 @@ pub async fn change_core_safe_mode(
     Ok(())
 }
 
-/// Turns code execution on or off. Turning it off stops every running macro, including the
-/// ones that run atom instances, and tells connected clients to fetch the settings again.
-/// Turning it on starts nothing.
+/// Turns code execution (custom Java commands) on or off, and tells connected clients to
+/// fetch the settings again.
 pub async fn change_code_execution(
     axum::extract::State(state): axum::extract::State<AppState>,
     requester: AuthedUser,
     Json(enabled): Json<bool>,
 ) -> Result<(), Error> {
     requester.owner_only("turn code execution on or off")?;
-    // Held while the running macros are stopped, so turning it back on waits until they are.
-    let mut global_settings = state.global_settings.lock().await;
-    global_settings.set_code_execution_enabled(enabled).await?;
-    if !enabled {
-        info!("Code execution turned off, stopping all macros");
-        // Every macro spawned before the switch went off is in the process table, see
-        // `MacroExecutor::spawn`. Killing them sends their Stopped events.
-        state.macro_executor.shutdown_all();
-    } else {
-        info!("Code execution turned on");
-    }
-    drop(global_settings);
+    state
+        .global_settings
+        .lock()
+        .await
+        .set_code_execution_enabled(enabled)
+        .await?;
+    info!(
+        "Code execution turned {}",
+        if enabled { "on" } else { "off" }
+    );
     state.event_broadcaster.send(Event {
         event_inner: EventInner::GlobalSettingsChanged,
         details: format!(

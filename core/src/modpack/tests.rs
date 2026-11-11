@@ -283,9 +283,6 @@ fn path_safety_skips() {
         ".lodestone_minecraft_config.json",
         "config/.lodestone_x",
         ".Lodestone/anything",
-        "macros/prelaunch.ts",
-        "macros/data.json",
-        "Macros/x.txt",
         "eula.txt",
         "EULA.TXT",
         "server.jar",
@@ -293,7 +290,6 @@ fn path_safety_skips() {
     ] {
         assert!(skipped(path, false, true), "{path}");
     }
-    assert!(skipped("macros/", true, true));
     // scripts need the owner with code execution on
     for path in [
         "kubejs/server_scripts/main.js",
@@ -310,6 +306,7 @@ fn path_safety_skips() {
         "config/eula.txt",
         "mods/a.jar",
         "world/macros/x",
+        "macros/data.json",
         "config/sodium.json",
     ] {
         assert_eq!(

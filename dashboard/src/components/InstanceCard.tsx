@@ -18,9 +18,7 @@ import {
 import IconButton from './Atoms/IconButton';
 import ClipboardTextfield from './ClipboardTextfield';
 import { useGlobalSettings } from 'data/GlobalSettings';
-import { isAtomInstance, useCodeExecution } from 'data/CodeExecution';
 import { LodestoneContext } from 'data/LodestoneContext';
-import { useCoreCapabilities } from 'data/SystemInfo';
 import Tooltip from 'rc-tooltip';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Menu, Transition } from '@headlessui/react';
@@ -108,21 +106,7 @@ export default function InstanceCard({
       hash: SHARE_SECTION_HASH,
     }));
   const gaEventTracker = useAnalyticsEventTracker('Instance Card');
-  // atom instances are owner only, and can't start while code
-  // execution is disabled
-  const { canManage, enabled: codeExecutionEnabled } = useCodeExecution();
-  const isAtom = isAtomInstance({ uuid, game_type });
-  // a core built without Deno can't run atoms (it doesn't restore them either)
-  const { genericInstances } = useCoreCapabilities();
-  const atomBlockedReason = !isAtom
-    ? null
-    : !genericInstances
-      ? t('server.card.noScripting')
-      : !canManage
-        ? t('console.ownerOnlyAtom')
-        : null;
-  const atomStartBlocked = isAtom && !codeExecutionEnabled;
-  let disabled = !canViewInstance || atomBlockedReason !== null;
+  let disabled = !canViewInstance;
   switch (stateToApiEndpointMap[state]) {
     case '/start':
       if (!canStartInstance) disabled = true;
@@ -150,7 +134,6 @@ export default function InstanceCard({
   };
 
   const stateToMenuInfo = () => {
-    if (atomBlockedReason) return [];
     const kill = {
       action: 'kill',
       label: t('server.action.kill'),
@@ -312,7 +295,7 @@ export default function InstanceCard({
         <p className="grow truncate">{name}</p>
         <Tooltip
           showArrow={false}
-          overlay={<span>{atomBlockedReason ?? t('server.card.power')}</span>}
+          overlay={<span>{t('server.card.power')}</span>}
           placement="top"
           trigger={['hover']}
           mouseEnterDelay={0.2}
@@ -323,7 +306,7 @@ export default function InstanceCard({
               icon={faPowerOff}
               aria-label={`${t('server.card.power')}: ${t(`common.state.${state}`)}`}
               className={stateToPowerIconClass[state]}
-              disabled={atomBlockedReason !== null || menuInfo.length === 0}
+              disabled={menuInfo.length === 0}
             />
             {/* opens with a short fade and scale from the button's corner;
                 with reduced motion, only the fade */}
@@ -339,14 +322,7 @@ export default function InstanceCard({
               <Menu.Items className="absolute right-0 z-10 mt-1.5 origin-top-right divide-y divide-gray-faded/30 rounded border border-gray-faded/30 bg-gray-800 drop-shadow-md focus:outline-hidden">
                 <div className="px-1.5 py-2">
                   {menuInfo.map((menuInfo, i) => (
-                    <Menu.Item
-                      key={i}
-                      disabled={
-                        atomStartBlocked &&
-                        (menuInfo.action === 'start' ||
-                          menuInfo.action === 'restart')
-                      }
-                    >
+                    <Menu.Item key={i}>
                       {({ disabled }) => (
                         <Button
                           className="w-full gap-8 whitespace-nowrap"
@@ -360,11 +336,6 @@ export default function InstanceCard({
                       )}
                     </Menu.Item>
                   ))}
-                  {atomStartBlocked && (
-                    <p className="max-w-48 px-2 pt-1 text-small font-medium text-white/50 italic">
-                      {t('server.card.codeExecutionDisabled')}
-                    </p>
-                  )}
                 </div>
               </Menu.Items>
             </Transition>

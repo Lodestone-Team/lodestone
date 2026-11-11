@@ -24,7 +24,7 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::error::{Error, ErrorKind};
-use crate::handlers::util::{is_in_macros_dir, is_script_path};
+use crate::handlers::util::is_script_path;
 use crate::modrinth::ModrinthApi;
 
 /// Files are downloaded this many at a time.
@@ -128,7 +128,7 @@ fn unsafe_pack(message: impl std::fmt::Display) -> Error {
 }
 
 /// The paths a pack may not write into an instance: anything named `.lodestone*` at any
-/// depth (Lodestone's own files), anything in `macros/`, the protected files at the root
+/// depth (Lodestone's own files), the protected files at the root
 /// (such as `eula.txt`), and scripts unless `allow_scripts`.
 struct InstancePathPolicy {
     allow_scripts: bool,
@@ -141,9 +141,6 @@ impl PathPolicy for InstancePathPolicy {
             .any(|c| c.to_lowercase().starts_with(".lodestone"))
         {
             return Some("Lodestone's own files cannot be replaced".into());
-        }
-        if is_in_macros_dir(relative) {
-            return Some("macros cannot come from a modpack".into());
         }
         if components.len() == 1
             && PROTECTED_ROOT_FILES.contains(&components[0].to_lowercase().as_str())

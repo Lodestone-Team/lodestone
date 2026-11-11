@@ -55,20 +55,22 @@ fn build_search_query(event_query: &EventQuery) -> Option<QueryBuilder<Sqlite>> 
 /// database (the core never deletes them) and are skipped quietly when read.
 ///
 /// Compatibility: `PlayitggRunnerEvent` came from the playit.gg integration, which
-/// Lodestone Connect replaced.
-const REMOVED_EVENT_TYPES: &[&str] = &["PlayitggRunnerEvent"];
+/// Lodestone Connect replaced. `MacroEvent` came from macros, which ran on Deno.
+const REMOVED_EVENT_TYPES: &[&str] = &["PlayitggRunnerEvent", "MacroEvent"];
 
-/// Whether the stored event `event_value` is of a type in [`REMOVED_EVENT_TYPES`].
+/// `caused_by` types that older cores stored but this core no longer has: `Macro`, for
+/// events a macro caused.
+const REMOVED_CAUSES: &[&str] = &["Macro"];
+
+/// Whether the stored event `event_value` is of a type in [`REMOVED_EVENT_TYPES`], or was
+/// caused by something in [`REMOVED_CAUSES`].
 fn is_removed_event_type(event_value: &str) -> bool {
-    serde_json::from_str::<serde_json::Value>(event_value)
-        .ok()
-        .and_then(|value| {
-            value
-                .pointer("/event_inner/type")
-                .and_then(|kind| kind.as_str())
-                .map(|kind| REMOVED_EVENT_TYPES.contains(&kind))
-        })
-        .unwrap_or(false)
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(event_value) else {
+        return false;
+    };
+    let kind_of = |pointer: &str| value.pointer(pointer).and_then(|kind| kind.as_str());
+    kind_of("/event_inner/type").is_some_and(|kind| REMOVED_EVENT_TYPES.contains(&kind))
+        || kind_of("/caused_by/type").is_some_and(|kind| REMOVED_CAUSES.contains(&kind))
 }
 
 /// Returns the stored events that match `event_query`, oldest first. At most
@@ -221,8 +223,8 @@ mod tests {
         assert!(out_of_range.is_empty());
     }
 
-    /// Events of a removed type, stored by an older core (here a playit.gg runner event),
-    /// are skipped; the events around them are still returned.
+    /// Events of a removed type or cause, stored by an older core (a playit.gg runner event,
+    /// macro events), are skipped; the events around them are still returned.
     #[tokio::test]
     async fn events_of_removed_types_are_skipped() {
         let (_dir, pool) = temp_pool().await;
@@ -241,15 +243,33 @@ mod tests {
             "level": "Info",
             "caused_by": { "type": "System" }
         });
-        assert!(is_removed_event_type(&old.to_string()));
-        sqlx::query(
-            "INSERT INTO ClientEvents (event_value, details, snowflake, level) VALUES (?1, '', ?2, 'Info')",
-        )
-        .bind(old.to_string())
-        .bind(Snowflake::new())
-        .execute(&pool)
-        .await
-        .unwrap();
+        // a macro's own event, and an instance event a macro caused
+        let macro_event = serde_json::json!({
+            "event_inner": {
+                "type": "MacroEvent",
+                "instance_uuid": null,
+                "macro_pid": 3,
+                "macro_event_inner": { "type": "Started" }
+            },
+            "details": "",
+            "snowflake": Snowflake::new(),
+            "level": "Info",
+            "caused_by": { "type": "Macro", "macro_pid": 3 }
+        });
+        let mut caused_by_macro =
+            serde_json::to_value(instance_event(&uuid, EventLevel::Info)).unwrap();
+        caused_by_macro["caused_by"] = serde_json::json!({ "type": "Macro", "macro_pid": 3 });
+        for stored in [&old, &macro_event, &caused_by_macro] {
+            assert!(is_removed_event_type(&stored.to_string()), "{stored}");
+            sqlx::query(
+                "INSERT INTO ClientEvents (event_value, details, snowflake, level) VALUES (?1, '', ?2, 'Info')",
+            )
+            .bind(stored.to_string())
+            .bind(Snowflake::new())
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
         let after = instance_event(&uuid, EventLevel::Info);
         write_client_events(&pool, std::slice::from_ref(&after))
             .await

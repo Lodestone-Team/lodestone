@@ -27,7 +27,6 @@ crate::i18n::messages! {
         ConsoleSendFailed = "Failed to send command: {error}",
         /// The tooltip of the name after a console line about a linked player.
         ConsoleLinkedUser = "The Lodestone user who linked this Minecraft account",
-        ConsoleOwnerOnlyAtom = "Only the owner can control atom servers",
         /// A button over the console when it has been scrolled up.
         ConsoleJumpToLatest = "Jump to latest",
         /// The console's name for screen readers.

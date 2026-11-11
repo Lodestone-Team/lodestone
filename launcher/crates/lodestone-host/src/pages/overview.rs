@@ -657,125 +657,114 @@ fn loader_name(instance: &InstanceInfo) -> Option<String> {
 
 impl OverviewPage {
     fn render_header(&mut self, instance: &InstanceInfo, cx: &mut Context<Self>) -> AnyElement {
-        let me = &self.state.read(cx).me;
-        let read_only = instance.is_atom() && !me.is_owner;
         let address = instance_address(self.state.read(cx).settings.as_ref(), instance.port);
-        let editable =
-            |field: EditField, this: &mut Self, cx: &mut Context<Self>| -> AnyElement {
-                let (value, placeholder, size, color, edit_label) = match field {
-                    EditField::Name => (
-                        instance.name.clone(),
-                        t(M::NoName),
-                        text::XLARGE_2,
-                        ink::text(),
-                        t(M::EditName),
-                    ),
-                    EditField::Description => (
-                        instance.description.clone(),
-                        t(M::NoDescription),
-                        text::H3,
-                        ink::muted(),
-                        t(M::EditDescription),
-                    ),
-                };
-                if let Some(editing) = this.editing.as_ref().filter(|e| e.field == field) {
-                    let saving = editing.saving;
-                    return div()
-                        .flex()
-                        .flex_col()
-                        .gap(px(4.))
-                        .child(
-                            div()
-                                .flex()
-                                .flex_row()
-                                .items_center()
-                                .gap(px(6.))
-                                .on_key_down(cx.listener(|this, event: &KeyDownEvent, _, cx| {
-                                    match event.keystroke.key.as_str() {
-                                        "enter" => this.save_edit(cx),
-                                        "escape" => this.cancel_edit(cx),
-                                        _ => return,
-                                    }
-                                    cx.stop_propagation();
-                                }))
-                                .child(div().flex_1().min_w_0().child(editing.input.clone()))
-                                .child(if saving {
-                                    div().px(px(6.)).child(LoadingDots).into_any_element()
-                                } else {
-                                    IconButton::new(
-                                        SharedString::from(format!("save-{field:?}")),
-                                        Icon::FloppyDisk,
-                                    )
-                                    .label(t(CommonMsg::Save))
-                                    .on_click(cx.listener(|this, _, _, cx| this.save_edit(cx)))
-                                    .into_any_element()
-                                })
-                                .child(
-                                    IconButton::new(
-                                        SharedString::from(format!("cancel-{field:?}")),
-                                        Icon::Xmark,
-                                    )
-                                    .label(t(CommonMsg::Cancel))
-                                    .disabled(saving)
-                                    .on_click(cx.listener(|this, _, _, cx| this.cancel_edit(cx))),
-                                ),
-                        )
-                        .when_some(editing.error.clone(), |this, error| {
-                            this.child(
-                                div()
-                                    .text_size(text::SMALL)
-                                    .text_color(colors::RED_200)
-                                    .child(error),
-                            )
-                        })
-                        .into_any_element();
-                }
-                let shown = if value.is_empty() {
-                    placeholder.to_string()
-                } else {
-                    value
-                };
-                div()
-                    .id(SharedString::from(format!("overview-{field:?}")))
-                    .group("editable")
+        let editable = |field: EditField, this: &mut Self, cx: &mut Context<Self>| -> AnyElement {
+            let (value, placeholder, size, color, edit_label) = match field {
+                EditField::Name => (
+                    instance.name.clone(),
+                    t(M::NoName),
+                    text::XLARGE_2,
+                    ink::text(),
+                    t(M::EditName),
+                ),
+                EditField::Description => (
+                    instance.description.clone(),
+                    t(M::NoDescription),
+                    text::H3,
+                    ink::muted(),
+                    t(M::EditDescription),
+                ),
+            };
+            if let Some(editing) = this.editing.as_ref().filter(|e| e.field == field) {
+                let saving = editing.saving;
+                return div()
                     .flex()
-                    .flex_row()
-                    .items_center()
-                    .gap(px(8.))
-                    .min_w_0()
+                    .flex_col()
+                    .gap(px(4.))
                     .child(
                         div()
-                            .min_w_0()
-                            .truncate()
-                            .when(field == EditField::Name, |this| {
-                                this.font_family(fonts::heading())
-                                    .font_weight(weights::BOLD.face())
-                            })
-                            .when(field == EditField::Description, |this| this.italic())
-                            .text_size(size)
-                            .text_color(color)
-                            .child(shown),
-                    )
-                    .map(|this| {
-                        if read_only {
-                            this.tooltip(text_tooltip(t(M::OwnerOnlyAtom)))
-                        } else {
-                            this.cursor_pointer()
-                                .child(
-                                    div()
-                                        .flex_none()
-                                        .invisible()
-                                        .group_hover("editable", |style| style.visible())
-                                        .child(Icon::Pen.render(px(14.), ink::muted())),
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap(px(6.))
+                            .on_key_down(cx.listener(|this, event: &KeyDownEvent, _, cx| {
+                                match event.keystroke.key.as_str() {
+                                    "enter" => this.save_edit(cx),
+                                    "escape" => this.cancel_edit(cx),
+                                    _ => return,
+                                }
+                                cx.stop_propagation();
+                            }))
+                            .child(div().flex_1().min_w_0().child(editing.input.clone()))
+                            .child(if saving {
+                                div().px(px(6.)).child(LoadingDots).into_any_element()
+                            } else {
+                                IconButton::new(
+                                    SharedString::from(format!("save-{field:?}")),
+                                    Icon::FloppyDisk,
                                 )
-                                .tooltip(text_tooltip(edit_label))
-                                .on_click(cx.listener(move |this, _, window, cx| {
-                                    this.edit(field, window, cx)
-                                }))
-                        }
+                                .label(t(CommonMsg::Save))
+                                .on_click(cx.listener(|this, _, _, cx| this.save_edit(cx)))
+                                .into_any_element()
+                            })
+                            .child(
+                                IconButton::new(
+                                    SharedString::from(format!("cancel-{field:?}")),
+                                    Icon::Xmark,
+                                )
+                                .label(t(CommonMsg::Cancel))
+                                .disabled(saving)
+                                .on_click(cx.listener(|this, _, _, cx| this.cancel_edit(cx))),
+                            ),
+                    )
+                    .when_some(editing.error.clone(), |this, error| {
+                        this.child(
+                            div()
+                                .text_size(text::SMALL)
+                                .text_color(colors::RED_200)
+                                .child(error),
+                        )
                     })
-                    .into_any_element()
+                    .into_any_element();
+            }
+            let shown = if value.is_empty() {
+                placeholder.to_string()
+            } else {
+                value
             };
+            div()
+                .id(SharedString::from(format!("overview-{field:?}")))
+                .group("editable")
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap(px(8.))
+                .min_w_0()
+                .child(
+                    div()
+                        .min_w_0()
+                        .truncate()
+                        .when(field == EditField::Name, |this| {
+                            this.font_family(fonts::heading())
+                                .font_weight(weights::BOLD.face())
+                        })
+                        .when(field == EditField::Description, |this| this.italic())
+                        .text_size(size)
+                        .text_color(color)
+                        .child(shown),
+                )
+                .cursor_pointer()
+                .child(
+                    div()
+                        .flex_none()
+                        .invisible()
+                        .group_hover("editable", |style| style.visible())
+                        .child(Icon::Pen.render(px(14.), ink::muted())),
+                )
+                .tooltip(text_tooltip(edit_label))
+                .on_click(cx.listener(move |this, _, window, cx| this.edit(field, window, cx)))
+                .into_any_element()
+        };
         let name = editable(EditField::Name, self, cx);
         let description = editable(EditField::Description, self, cx);
         let players = tr!(
@@ -1288,6 +1277,8 @@ impl OverviewPage {
 
     fn render_players(&mut self, instance: &InstanceInfo, cx: &mut Context<Self>) -> AnyElement {
         let mut players = instance.player_list.clone().unwrap_or_default();
+        // a player this build can't read (an older core's atom instance's) has no name
+        players.retain(|p| *p != Player::Unknown);
         players.sort_by_key(|p| p.name().to_lowercase());
         if !self.sort_ascending {
             players.reverse();

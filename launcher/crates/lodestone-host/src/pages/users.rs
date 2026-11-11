@@ -512,7 +512,6 @@ impl UsersPage {
         };
         let state = self.state.read(cx);
         let safe_mode = state.settings.as_ref().is_some_and(|s| s.safe_mode);
-        let macros = state.info.capabilities.macros;
         let instances = state.instances.clone().unwrap_or_default();
         let this = cx.entity().downgrade();
         let uid = user.uid.clone();
@@ -534,7 +533,7 @@ impl UsersPage {
             None,
             on_change.clone(),
         );
-        let mut unsafe_rows = permissions::rows(
+        let unsafe_rows = permissions::rows(
             "user-perm-unsafe",
             &Permission::UNSAFE,
             &user.permissions,
@@ -545,11 +544,6 @@ impl UsersPage {
             None,
             on_change,
         );
-        unsafe_rows.push(SettingRow::new(t(CoreMsg::OwnerOnly)).hint(if macros {
-            t(CoreMsg::OwnerOnlyHint)
-        } else {
-            t(CoreMsg::NoScripting)
-        }));
         let normal = query
             .section(
                 t(CoreMsg::Permissions),

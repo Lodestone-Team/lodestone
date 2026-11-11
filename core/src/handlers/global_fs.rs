@@ -25,15 +25,13 @@ use crate::{
     auth::user::{User, UserAction},
     error::{Error, ErrorKind},
     events::{new_fs_event, Event, FSOperation, FSTarget, ProgressionEventID},
-    prelude::{lodestone_path, path_to_instances, path_to_stores, path_to_tmp},
+    prelude::{lodestone_path, path_to_stores, path_to_tmp},
     types::InstanceUuid,
     util::{list_dir, rand_alphanumeric, resolve_path_conflict, zip_files},
     AppState,
 };
 
-use super::util::{
-    contains_script, decode_base64, is_in_macros_dir, is_script_path, require_code_write,
-};
+use super::util::{contains_script, decode_base64, is_script_path, require_code_write};
 use tempfile::TempDir;
 
 /// How long a download link from `/fs/.../download` or `/instance/.../url` keeps working.
@@ -304,53 +302,19 @@ async fn resolve_existing_prefix(path: &std::path::Path) -> Option<PathBuf> {
     }
 }
 
-/// `path` relative to `base`, comparing names without case on the platforms whose file
-/// systems usually ignore it.
-fn strip_base(path: &std::path::Path, base: &std::path::Path) -> Option<PathBuf> {
-    if let Ok(relative) = path.strip_prefix(base) {
-        return Some(relative.to_path_buf());
-    }
-    if !cfg!(any(windows, target_os = "macos")) {
-        return None;
-    }
-    let mut components = path.components();
-    for base_component in base.components() {
-        let component = components.next()?;
-        let same = component.as_os_str().to_string_lossy().to_lowercase()
-            == base_component.as_os_str().to_string_lossy().to_lowercase();
-        if !same {
-            return None;
-        }
-    }
-    Some(components.as_path().to_path_buf())
-}
-
-/// Whether `relative_path`, relative to the instances folder, is in an instance's macros
-/// folder (or is one).
-fn is_in_instance_macros_dir(relative_path: &std::path::Path) -> bool {
-    let mut components = relative_path.components();
-    // the instance's own folder
-    components.next();
-    is_in_macros_dir(components.as_path())
-}
-
-/// Whether creating or changing the absolute `path` creates or changes code: a script file,
-/// or anything in an instance's macros folder. Symbolic links are resolved first; a path
-/// that cannot be checked counts as code.
+/// Whether creating or changing the absolute `path` creates or changes code: a script file.
+/// Symbolic links are resolved first; a path that cannot be checked counts as code.
 async fn is_global_code_path(path: &std::path::Path, is_dir: bool) -> bool {
-    if !is_dir && is_script_path(path) {
+    if is_dir {
+        return false;
+    }
+    if is_script_path(path) {
         return true;
     }
-    let Some(resolved) = resolve_existing_prefix(path).await else {
-        return true;
-    };
-    if !is_dir && is_script_path(&resolved) {
-        return true;
+    match resolve_existing_prefix(path).await {
+        Some(resolved) => is_script_path(&resolved),
+        None => true,
     }
-    let instances = tokio::fs::canonicalize(path_to_instances())
-        .await
-        .unwrap_or_else(|_| path_to_instances().clone());
-    strip_base(&resolved, &instances).is_some_and(|relative| is_in_instance_macros_dir(&relative))
 }
 
 fn token_error() -> Error {
@@ -1054,43 +1018,6 @@ mod tests {
         let missing = FileEntry::from(temp.path().join("missing").as_path());
         assert!(matches!(missing.file_type, FileType::Unknown));
         assert_eq!(missing.modification_time, None);
-    }
-
-    #[test]
-    fn test_instance_macros_dir() {
-        let check = |p: &str| is_in_instance_macros_dir(std::path::Path::new(p));
-        assert!(check("server-1234/macros"));
-        assert!(check("server-1234/macros/prelaunch.ts"));
-        assert!(check("server-1234/MACROS/x/config.json"));
-        assert!(!check("server-1234"));
-        assert!(!check("server-1234/world/macros"));
-        assert!(!check("macros"));
-        assert!(!check(""));
-    }
-
-    #[test]
-    fn test_strip_base() {
-        let base = std::path::Path::new("/home/u/.lodestone/instances");
-        assert_eq!(
-            strip_base(
-                std::path::Path::new("/home/u/.lodestone/instances/a/macros"),
-                base
-            ),
-            Some(PathBuf::from("a/macros"))
-        );
-        assert_eq!(
-            strip_base(std::path::Path::new("/home/u/.lodestone/stores"), base),
-            None
-        );
-        let other_case = strip_base(
-            std::path::Path::new("/home/u/.lodestone/INSTANCES/a/macros"),
-            base,
-        );
-        if cfg!(any(windows, target_os = "macos")) {
-            assert_eq!(other_case, Some(PathBuf::from("a/macros")));
-        } else {
-            assert_eq!(other_case, None);
-        }
     }
 
     #[tokio::test]

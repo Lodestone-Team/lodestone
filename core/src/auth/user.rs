@@ -289,16 +289,12 @@ impl User {
                         .can_write_instance_file
                         .contains(instance_id)
             }
-            // Macros and extensions run code, so they are owner only whatever the user was
-            // granted; the owner returned above.
-            UserAction::AccessMacro(_) => false,
             UserAction::CreateInstance => self.is_admin || self.permissions.can_create_instance,
             UserAction::DeleteInstance => self.is_admin || self.permissions.can_delete_instance,
             UserAction::ReadGlobalFile => self.permissions.can_read_global_file,
             UserAction::WriteGlobalFile => self.permissions.can_write_global_file,
             UserAction::ManageUser => self.is_owner,
             UserAction::ManagePermission => self.permissions.can_manage_permission,
-            UserAction::InstallExtension => false,
         }
     }
 
@@ -321,11 +317,6 @@ impl User {
     pub fn try_action(&self, action: &UserAction, safe_mode: bool) -> Result<(), Error> {
         if self.is_owner {
             return Ok(());
-        }
-        match action {
-            UserAction::AccessMacro(_) => return self.owner_only("use macros"),
-            UserAction::InstallExtension => return self.owner_only("install extensions"),
-            _ => {}
         }
         if safe_mode && !action.is_safe() {
             return Err(Error {
@@ -365,7 +356,6 @@ impl User {
                     UserAction::WriteResource(_) => {
                         eyre!("You don't have permission to write this server's resource")
                     }
-                    UserAction::AccessMacro(_) => eyre!("Only the owner can use macros"),
                     UserAction::ReadInstanceFile(_) => {
                         eyre!("You don't have permission to read this server's file")
                     }
@@ -387,9 +377,6 @@ impl User {
                     UserAction::ManageUser => eyre!("You don't have permission to manage user"),
                     UserAction::ManagePermission => {
                         eyre!("You don't have permission to manage permission")
-                    }
-                    UserAction::InstallExtension => {
-                        eyre!("Only the owner can install extensions")
                     }
                 },
             })
@@ -414,9 +401,6 @@ impl User {
             }
             EventInner::UserEvent(_event) => self.can_perform_action(&UserAction::ManageUser),
             EventInner::FSEvent(_) => self.can_perform_action(&UserAction::ManageUser),
-            EventInner::MacroEvent(macro_event) => {
-                self.can_perform_action(&UserAction::AccessMacro(macro_event.instance_uuid.clone()))
-            }
             EventInner::ProgressionEvent(progression_event) => {
                 self.can_view_progression_event(progression_event, caused_by)
             }
@@ -432,10 +416,6 @@ impl User {
         progression_event: &ProgressionEvent,
         caused_by: &CausedBy,
     ) -> bool {
-        // macros are owner only, and so is what they report
-        if matches!(caused_by, CausedBy::Macro { .. }) {
-            return self.is_owner;
-        }
         if self.is_owner || self.is_admin {
             return true;
         }
@@ -510,7 +490,6 @@ pub enum UserAction {
     AccessSetting(InstanceUuid),
     ReadResource(InstanceUuid),
     WriteResource(InstanceUuid),
-    AccessMacro(Option<InstanceUuid>),
     ReadInstanceFile(InstanceUuid),
     WriteInstanceFile(InstanceUuid),
 
@@ -521,7 +500,6 @@ pub enum UserAction {
     WriteGlobalFile,
     ManageUser,
     ManagePermission,
-    InstallExtension,
 }
 
 impl UserAction {
@@ -538,7 +516,6 @@ impl UserAction {
             UserAction::AccessSetting(_) => true,
             UserAction::ReadResource(_) => true,
             UserAction::WriteResource(_) => false,
-            UserAction::AccessMacro(_) => false,
             UserAction::ReadInstanceFile(_) => true,
             UserAction::WriteInstanceFile(_) => false,
             UserAction::CreateInstance => true,
@@ -547,7 +524,6 @@ impl UserAction {
             UserAction::WriteGlobalFile => false,
             UserAction::ManageUser => false,
             UserAction::ManagePermission => false,
-            UserAction::InstallExtension => false,
         }
     }
 }
@@ -1560,13 +1536,10 @@ mod permission_tests {
         let i = uuid("a");
         // the "unsafe permission" fields in auth/permission.rs
         assert!(!UserAction::WriteResource(i.clone()).is_safe());
-        assert!(!UserAction::AccessMacro(Some(i.clone())).is_safe());
-        assert!(!UserAction::AccessMacro(None).is_safe());
         assert!(!UserAction::WriteInstanceFile(i.clone()).is_safe());
         assert!(!UserAction::WriteGlobalFile.is_safe());
         assert!(!UserAction::ManagePermission.is_safe());
         assert!(!UserAction::ManageUser.is_safe());
-        assert!(!UserAction::InstallExtension.is_safe());
         assert!(!UserAction::ReadGlobalFile.is_safe());
 
         assert!(UserAction::ViewInstance(i.clone()).is_safe());
@@ -1944,48 +1917,13 @@ mod permission_tests {
     }
 
     #[test]
-    fn macros_and_extensions_are_owner_only() {
-        let i = uuid("a");
-        let owner = user(true, false, UserPermission::default());
-        let granted_admin = user(false, true, all_permissions(std::slice::from_ref(&i)));
-        let granted_user = user(false, false, all_permissions(std::slice::from_ref(&i)));
-        let actions = [
-            UserAction::AccessMacro(Some(i.clone())),
-            UserAction::AccessMacro(None),
-            UserAction::InstallExtension,
-        ];
-        for action in &actions {
-            for safe_mode in [true, false] {
-                assert!(owner.try_action(action, safe_mode).is_ok());
-                for non_owner in [&granted_admin, &granted_user] {
-                    assert!(!non_owner.can_perform_action(action));
-                    let err = non_owner.try_action(action, safe_mode).unwrap_err();
-                    assert!(matches!(err.kind, ErrorKind::PermissionDenied));
-                    assert!(
-                        err.source.to_string().starts_with("Only the owner can"),
-                        "{}",
-                        err.source
-                    );
-                }
-            }
-        }
-        // other granted permissions still work with safe mode off
-        assert!(granted_user
-            .try_action(&UserAction::WriteGlobalFile, false)
-            .is_ok());
-    }
-
-    #[test]
     fn owner_only_helper() {
         let owner = user(true, false, UserPermission::default());
         let admin = user(false, true, all_permissions(&[uuid("a")]));
         assert!(owner.owner_only("do it").is_ok());
-        let err = admin.owner_only("manage atom servers").unwrap_err();
+        let err = admin.owner_only("manage users").unwrap_err();
         assert!(matches!(err.kind, ErrorKind::PermissionDenied));
-        assert_eq!(
-            err.source.to_string(),
-            "Only the owner can manage atom servers"
-        );
+        assert_eq!(err.source.to_string(), "Only the owner can manage users");
     }
 
     #[test]
@@ -2040,42 +1978,21 @@ mod permission_tests {
             .remove("can_install_extension");
         let loaded: User = serde_json::from_value(json).unwrap();
         assert!(loaded.permissions.can_access_instance_macro.contains(&i));
-        assert!(!loaded.can_perform_action(&UserAction::AccessMacro(Some(i))));
-        assert!(!loaded.can_perform_action(&UserAction::InstallExtension));
     }
 
     #[test]
-    fn macro_events_are_owner_only() {
-        use crate::events::{MacroEvent, MacroEventInner};
-        use crate::macro_executor::MacroPID;
+    fn progression_and_settings_events_visibility() {
         let i = uuid("a");
-        let owner = user(true, false, UserPermission::default());
         let admin = user(false, true, all_permissions(std::slice::from_ref(&i)));
-        let macro_event = EventInner::MacroEvent(MacroEvent {
-            instance_uuid: Some(i.clone()),
-            macro_pid: MacroPID(1),
-            macro_event_inner: MacroEventInner::Started,
-        });
-        let by_macro = CausedBy::Macro {
-            macro_pid: MacroPID(1),
-        };
-        assert!(owner.can_view_event_parts(&macro_event, &by_macro));
-        assert!(!admin.can_view_event_parts(&macro_event, &by_macro));
-
         let (progression, _) = Event::new_progression_event_start(
-            "macro progress",
+            "progress",
             None,
             Some(ProgressionStartValue::InstanceCreation {
                 instance_uuid: i.clone(),
             }),
-            by_macro.clone(),
+            CausedBy::System,
         );
-        assert!(owner.can_view_event(&progression));
-        assert!(!admin.can_view_event(&progression));
-        // the same event from the system is visible to admins
-        let mut from_system = progression.clone();
-        from_system.caused_by = CausedBy::System;
-        assert!(admin.can_view_event(&from_system));
+        assert!(admin.can_view_event(&progression));
 
         // everyone is told to fetch the settings again
         let viewer = user(false, false, UserPermission::default());

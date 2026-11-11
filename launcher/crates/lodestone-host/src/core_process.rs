@@ -3,8 +3,8 @@
 //!
 //! The Host can't link the core: the core's dependencies would break the launcher
 //! workspace's rule that every crate comes from Zed's lockfile. So it runs the core's
-//! own program, `lodestone_core`, built from the repository's root workspace without
-//! the `deno` feature and shipped next to the Host's executable.
+//! own program, `lodestone_core`, built from the repository's root workspace and
+//! shipped next to the Host's executable.
 //!
 //! The core is started with `--is-host` (so `/info` says Lodestone Host started it),
 //! `--lodestone-path` (its data folder), `--port` (the Host picks the port, so it knows
