@@ -13,6 +13,7 @@
 //!   accounts;
 //! - [`hosting`]: "Host this modpack", a launcher instance as a new server;
 //! - [`lan`]: worlds opened to LAN on this network;
+//! - [`lan_open`]: the worlds this computer has open to LAN, for friends;
 //! - [`local_claim`]: "Connect as owner" for a core on this computer;
 //! - [`connect`] and [`friends`]: servers friends share with Lodestone Connect invite
 //!   links, joined through a direct tunnel, and the ones the user joined;
@@ -28,6 +29,7 @@ pub mod friends;
 pub mod hosting;
 pub mod join;
 pub mod lan;
+pub mod lan_open;
 pub mod link;
 pub mod live;
 pub mod local_claim;

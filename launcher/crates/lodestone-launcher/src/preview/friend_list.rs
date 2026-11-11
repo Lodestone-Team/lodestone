@@ -3,9 +3,11 @@
 
 use gpui::Context;
 use launcher_core::{
-    cores::connect::SharedServer,
+    cores::{connect::SharedServer, lan_open::OpenWorld},
     friend_list::{
-        Book, Friend, FriendState, FriendStatus, MyCore, PendingLink, StatePlayer, now,
+        Book, Friend, FriendState, FriendStatus, MyCore, PendingLink, StatePlayer,
+        lan::{LAN_CORE_NAME, LAN_SOURCE},
+        now,
         ops::{LinkPreview, LinkReply},
     },
 };
@@ -23,6 +25,7 @@ fn key(byte: u8) -> String {
 
 fn core(byte: u8, name: &str) -> launcher_core::friend_list::FriendState {
     FriendState {
+        launchers: Vec::new(),
         players: Vec::new(),
         seq: 3,
         expires: now() + 30 * 86_400,
@@ -74,6 +77,7 @@ fn shared(
         state: Some(state.into()),
         player_count: (state == "Running").then_some(2),
         max_player_count: Some(20),
+        online_mode: None,
     }
 }
 
@@ -99,6 +103,7 @@ fn friends() -> Vec<Friend> {
     kim.nickname = Some("Kim".into());
     kim.hidden = true;
     kim.state = Some(FriendState {
+        launchers: Vec::new(),
         players: Vec::new(),
         seq: 1,
         expires: now() + 86_400,
@@ -267,6 +272,62 @@ pub fn apply(scene: &str, servers: &mut Servers, cx: &mut Context<Servers>) {
         "servers-friend-list-retire" => {
             servers.preview_friend_list(base("Peter", friends()));
             servers.preview_friend_dialog("retire", PreviewAddFriend::Empty, cx);
+        }
+        // "Share LAN worlds with friends": Peter shares a world he opened, and Alex
+        // has one open (his launcher, beside his PC); off, the switch explains itself
+        "servers-friend-list-lan" | "servers-friend-list-lan-off" => {
+            let mut friends = friends();
+            let alex = &mut friends[0];
+            if let Some(state) = &mut alex.state {
+                state.cores.push(
+                    serde_json::from_value(serde_json::json!({
+                        "fingerprint": hex(&[0xa2; 32]),
+                        "name": LAN_CORE_NAME,
+                    }))
+                    .expect("a made-up core"),
+                );
+                state.launchers = vec![hex(&[0xa2; 32])];
+            }
+            let mut list = base("Peter", friends);
+            if scene == "servers-friend-list-lan" {
+                list.snapshot.book.my_cores.push(MyCore {
+                    fingerprint: key(0xa6),
+                    name: LAN_CORE_NAME.into(),
+                    source: Some(LAN_SOURCE.into()),
+                });
+            }
+            list.presence = vec![
+                ((key(0x11), hex(&[0xa1; 32])), false),
+                ((key(0x11), hex(&[0xa2; 32])), true),
+                ((key(0x22), hex(&[0xb2; 32])), false),
+            ];
+            let mut world = shared("Alex - Island", "vanilla", None, false, "Running");
+            world.instance_uuid = "lan-3f9a0c11d2e8".into();
+            world.online_mode = Some(true);
+            world.player_count = Some(1);
+            world.max_player_count = Some(8);
+            list.expanded = vec![(
+                key(0x11),
+                vec![(hex(&[0xa2; 32]), CoreServers::Loaded(vec![world]))],
+            )];
+            servers.preview_friend_list(list);
+            if scene == "servers-friend-list-lan" {
+                servers.preview_lan_share(
+                    vec![OpenWorld {
+                        id: "lan-7c1d9e0a4b52".into(),
+                        name: "Peter - New World".into(),
+                        port: 51234,
+                        game_version: "1.21.4".into(),
+                        loader: "vanilla".into(),
+                        loader_version: None,
+                        online_mode: Some(true),
+                        player_count: Some(2),
+                        max_player_count: Some(8),
+                        instance: None,
+                    }],
+                    1,
+                );
+            }
         }
         "servers-friend-list-retire-core" => {
             servers.preview_friend_list(base("Peter", friends()));

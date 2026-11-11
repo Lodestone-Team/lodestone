@@ -140,6 +140,12 @@ offline accounts, which can't join there. In offline mode every player goes in w
 offline UUID. Players already listed, by UUID or name, aren't added twice, and
 unsharing removes nobody. The Host shows each friend's players under their box, so the
 owner sees who sharing would whitelist.
+A state may also list `launchers`: the fingerprints of those of its `cores` that are the
+person's Launcher sharing LAN worlds (see "LAN worlds"), signed apart as
+`launchers_sig` over `("state-launchers", everything the state's signature covers, the
+fingerprints)`. Each must be one of the cores. A state with launchers and no valid
+`launchers_sig` is refused; launchers from before it see those cores as cores.
+
 Receivers keep the highest `seq` seen and refuse lower ones. A state expires 90 days after
 it was issued; launchers issue a new one weekly while they run. A friend's cores in an
 expired state aren't joined.
@@ -327,6 +333,60 @@ with it (which drops every friend connection), and answers `200` with the same J
 and what's shared stay. Friends reach the core again once the owner's launcher lists the
 new fingerprint in its next state.
 
+## LAN worlds
+
+With **Share LAN worlds with friends** on (a switch under "You" on the Friends page; off
+by default, setting `share_lan_worlds`), the worlds the person opens to LAN show on their
+friends' Friends pages while they're open, and friends join them as they join a friend's
+server: a tunnel, a Magic localhost address, and the matching instance.
+
+**Detecting** (`launcher-core/src/cores/lan_open.rs`). Two things name a world: a LAN
+announcement (224.0.2.60:4445) from an address of this computer (any game, whoever
+launched it), and `Started serving on <port>` in the log of a game the Launcher started,
+which also gives its instance's version, loader and account. The log works where
+announcements don't arrive (macOS without the Local Network permission). Either way the
+world counts only once `127.0.0.1:<port>` answers a Minecraft status ping, asked again
+every 15 seconds; it closes when its announcements stop (6 seconds), its game exits, or
+two pings in a row fail. A world's id is `lan-` and 12 hex digits of its name's SHA-256,
+so a friend's Magic localhost port stays the same each time it opens.
+
+**Publishing.** The Launcher shares as a core does. It has a friend certificate of its
+own (`<data>/friend_lan_host.json`, sealed with the friend file's key, 0600), and turning
+the switch on lists it once in the person's state as a core (`MyCore::source`
+`lodestone-launcher:lan-worlds`, name "Lodestone Launcher") marked in `launchers`.
+Worlds opening and closing need no new state: the Launcher runs its friend host only
+while a world is open, so a friend's presence check on its lookup id is "open now", and
+the worlds themselves come over the info stream. Turning the switch off takes it out of
+the state (not retired: turning it on again lists the same certificate). Retiring it
+from "You" works as for a core; the Launcher then makes a new certificate.
+
+**Serving** (`launcher-core/src/friend_list/lan.rs`, `lodestone-launcher/src/servers/lan_share.rs`).
+The friend host is `lodestone_connect`'s, with the Launcher's certificate, so everything
+under "Finding a friend's core" and "Joining" holds: records per friend, knocks, gated
+QUIC, the friend hello. It shares with friends who accepted (not pending or retired) and
+whom the person doesn't hide from, at most 120; hiding or removing a friend disconnects
+them at once. Info answers only `GET /api/v1/friend/servers`, with the open worlds as
+`SharedServer`s (`state: Running`, no client pack, `online_mode` when known). Game
+streams go to `127.0.0.1:<the world's port>` for an open world's id, never anywhere
+else. It runs whichever page is shown, and never with the switch off.
+
+**Joining.** Friends' launchers show their friend's launcher as **LAN worlds**, only
+while it's online, each world tagged **LAN world** with its name (its MOTD,
+`<player> - <world>`), version and "open now", and Play as for any friend's server.
+Under it: joinable only while the friend's game has it open; a Microsoft account is
+needed when the world is in online mode (it is when the host plays with a Microsoft
+account, which the Launcher knows for games it started); the Minecraft version; and,
+for a modded world, that the same mods are needed (there's no client pack).
+
+Launchers from before this see the Launcher as one more core of their friend's (offline
+while no world is open) and its worlds as servers on it, which they can join.
+
+What it doesn't protect against, beyond the above: a world's port is a local Minecraft
+server; whoever can make this computer announce a port (a program running here, or
+someone on the network spoofing this computer's address) can have it shared only if it
+answers a status ping, so it's at most another Minecraft server of this computer, and
+only friends reach it.
+
 ## Mods
 
 - Trust stays per server, tied to its certificate (`trusted_as`). A friend's server
@@ -506,7 +566,9 @@ A core registers one **session** with all its records, and waits on one WebSocke
   file, pairing, states, presence and joining (`ops.rs`), and `core_sync.rs`, which
   puts the friend list on a core for the app with an owner session to it.
 - Launcher: the Friends section of the Servers page, the friend deep link, and CLI
-  commands. Host: sharing an instance with chosen friends, and syncing its core.
+  commands. LAN worlds: `launcher-core/src/cores/lan_open.rs` (detecting),
+  `launcher-core/src/friend_list/lan.rs` (the certificate, the state, the host) and
+  `lodestone-launcher/src/servers/lan_share.rs`. Host: sharing an instance with chosen friends, and syncing its core.
 
 The Launcher and the Host share one friend list: the file in the Launcher's data folder
 and the Keychain items `friend-identity` and `friend-list-key` (account "Lodestone
@@ -517,7 +579,10 @@ person's real identity.
 
 Tests: `crates/lodestone-connect/tests/friends.rs` pairs, publishes and joins through an
 in-process service (or the real Worker with `CONNECT_TEST_SERVICE`);
-`services/connect/test/friends.test.js` checks the v2 routes; the core's
+`services/connect/test/friends.test.js` checks the v2 routes;
+`launcher/crates/launcher-core/tests/lan_worlds.rs` shares a fake LAN world between two
+friend lists and exchanges bytes through the tunnel (in-process service, or
+`CONNECT_TEST_SERVICE`); the core's
 `connect::tests` check the owner-only routes and the friend info routes; and
 launcher-core's `friend_list::tests` check the sealed file and, with
 `CONNECT_TEST_SERVICE`, the whole flow between two people.

@@ -430,6 +430,11 @@ impl Friends {
             } else {
                 self.book.players.clone()
             },
+            launchers: if retired {
+                Vec::new()
+            } else {
+                self.book.state_launchers()
+            },
         }
     }
 
@@ -648,6 +653,11 @@ impl Friends {
                         Vec::new()
                     } else {
                         state.players
+                    },
+                    launchers: if state.retired {
+                        Vec::new()
+                    } else {
+                        state.launchers.iter().map(|fp| hex(fp)).collect()
                     },
                     cores: if state.retired {
                         Vec::new()

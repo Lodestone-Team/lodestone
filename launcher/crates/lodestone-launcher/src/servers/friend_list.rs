@@ -77,7 +77,7 @@ use crate::{
 };
 
 /// What an operation says when there's no friend list (yet, or any more).
-const NO_LIST: &str = "You have no friend list yet. Add a friend to start one.";
+pub(super) const NO_LIST: &str = "You have no friend list yet. Add a friend to start one.";
 
 /// How often the section checks on friends while it is shown.
 pub const REFRESH_EVERY: Duration = Duration::from_secs(5 * 60);
@@ -2168,6 +2168,7 @@ mod tests {
         };
         alex.status = Status::Active;
         alex.state = Some(FriendState {
+            launchers: Vec::new(),
             players: Vec::new(),
             seq: 1,
             expires: friend_list::now() + 3600,

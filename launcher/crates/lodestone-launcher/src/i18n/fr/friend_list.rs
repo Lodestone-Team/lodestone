@@ -131,6 +131,33 @@ pub fn text(message: M) -> &'static str {
             "Vous ne voyez plus ses serveurs, et il ne voit plus les vôtres. Vos hôtes cessent de partager avec lui la prochaine fois qu’ils se synchronisent. Pour redevenir amis, l’un de vous crée un nouveau lien d’ami."
         }
         M::RemoveFriend => "Retirer cet ami",
+        M::ShareLan => "Partager les mondes LAN avec mes amis",
+        M::ShareLanBody => {
+            "Quand vous ouvrez un monde solo en LAN, vos amis le voient ici et peuvent le rejoindre via Lodestone Connect tant qu’il est ouvert. Les amis à qui vous êtes masqué ne le voient pas."
+        }
+        M::LanNoneOpen => {
+            "Aucun monde n’est ouvert en LAN pour l’instant. Dans le jeu, ouvrez un monde et choisissez Ouvrir au LAN."
+        }
+        M::LanSharing => "Partagé avec vos amis\u{a0}: {world}",
+        M::LanStarting => "Préparation du partage…",
+        M::LanProblem => "Impossible de partager vos mondes LAN\u{a0}: {error}",
+        M::LanNoList => {
+            "Ajoutez d’abord un ami\u{a0}: seules les personnes de votre liste d’amis voient vos mondes LAN."
+        }
+        M::LanOnlineMode => {
+            "Vos amis ont besoin d’un compte Microsoft pour rejoindre\u{a0}: un monde LAN utilise le mode en ligne de votre jeu."
+        }
+        M::LanFromHere => "Partage des mondes LAN depuis ce launcher",
+        M::LanWorlds => "Mondes LAN",
+        M::LanWorld => "Monde LAN",
+        M::OpenNow => "ouvert maintenant",
+        M::LanOpenStatus => "A un monde LAN ouvert",
+        M::LanJoinNote => "Accessible tant que le jeu de {name} le garde ouvert.",
+        M::LanNeedsMicrosoft => {
+            "Nécessite un compte Microsoft\u{a0}: le monde est en mode en ligne."
+        }
+        M::LanNeedsVersion => "Jouez-y avec Minecraft {version}.",
+        M::LanModded => "Il utilise {loader}\u{a0}: il vous faut les mêmes mods.",
     }
 }
 
@@ -140,5 +167,6 @@ pub fn plural(message: P) -> [&'static str; 2] {
             "Ce lien a reçu {count} réponse. Quelqu’un d’autre a peut-être ce lien\u{a0}: comparez les codes de sécurité avant d’accepter.",
             "Ce lien a reçu {count} réponses. Quelqu’un d’autre a peut-être ce lien\u{a0}: comparez les codes de sécurité avant d’accepter.",
         ],
+        P::LanFriendsJoined => ["{count} ami connecté", "{count} amis connectés"],
     }
 }
