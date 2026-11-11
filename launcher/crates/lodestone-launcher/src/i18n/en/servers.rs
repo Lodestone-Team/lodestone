@@ -8,6 +8,8 @@ crate::i18n::messages! {
         // ===== The page =====
         /// The page's title, and the back button on a server's page.
         ServersTitle = "Lodestone Host",
+        /// The Friends page's title.
+        FriendsPageTitle = "Friends",
         /// "On this computer": hosts found here, and "Connect as owner".
         OnThisComputer = "On this computer",
         Rescan = "Rescan",

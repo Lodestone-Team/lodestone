@@ -84,6 +84,8 @@ pub enum Page {
     Instance,
     /// Lodestone cores and their servers.
     Servers,
+    /// Friends: the friend list and the servers friends share.
+    Friends,
 }
 
 /// The tabs of an instance.
@@ -1541,9 +1543,10 @@ impl LauncherShell {
 
     pub fn show(&mut self, page: Page, cx: &mut Context<Self>) {
         self.page = page;
-        // the Servers page polls its cores only while it is shown
+        // the Servers and Friends pages poll their cores only while one is shown
         self.servers.update(cx, |servers, cx| {
-            servers.set_visible(page == Page::Servers, cx)
+            servers.set_friends_page(page == Page::Friends, cx);
+            servers.set_visible(matches!(page, Page::Servers | Page::Friends), cx)
         });
         self.note_place(cx);
         cx.notify();
@@ -1607,8 +1610,8 @@ impl LauncherShell {
                 self.select_tab(place.tab, cx);
                 self.show(Page::Instance, cx);
             }
-            Page::Servers => {
-                self.show(Page::Servers, cx);
+            Page::Servers | Page::Friends => {
+                self.show(place.page, cx);
                 self.servers.update(cx, |servers, cx| match &place.server {
                     Some((core, server)) => servers.open_detail_by_id(core, server, cx),
                     None if servers.detail().is_some() => servers.close_detail(cx),
@@ -2819,7 +2822,7 @@ impl Render for LauncherShell {
         self.sync_slideshow(cx);
         let main = match self.page {
             Page::Instance => play::render(self, cx).into_any_element(),
-            Page::Servers => self.servers.clone().into_any_element(),
+            Page::Servers | Page::Friends => self.servers.clone().into_any_element(),
         };
         let settings = self.settings_modal.render(window, |modal| {
             Some(self.render_settings(modal, window, cx))

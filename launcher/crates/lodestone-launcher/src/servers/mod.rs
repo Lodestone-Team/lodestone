@@ -523,6 +523,9 @@ pub struct Servers {
     pub cert_prompt: DialogSlot<Servers, CertPrompt>,
     pub trust_prompt: DialogSlot<Servers, TrustPrompt>,
     visible: bool,
+    /// Shown as the Friends page (the friend list and friends' servers) rather than
+    /// the Lodestone Host page.
+    friends_page: bool,
     last_poll: Option<Instant>,
     /// No network, no Keychain: the offscreen screenshots.
     preview: bool,
@@ -577,6 +580,7 @@ impl Servers {
             cert_prompt: DialogSlot::new(|this: &mut Servers| &mut this.cert_prompt),
             trust_prompt: DialogSlot::new(|this: &mut Servers| &mut this.trust_prompt),
             visible: false,
+            friends_page: false,
             last_poll: None,
             preview: false,
             tasks: Vec::new(),
@@ -668,6 +672,14 @@ impl Servers {
     }
 
     /// The page is shown or hidden; lists are polled only while it is shown.
+    /// Shows the Friends page's sections (true) or the Lodestone Host page's.
+    pub fn set_friends_page(&mut self, friends: bool, cx: &mut Context<Self>) {
+        if self.friends_page != friends {
+            self.friends_page = friends;
+            cx.notify();
+        }
+    }
+
     pub fn set_visible(&mut self, visible: bool, cx: &mut Context<Self>) {
         if self.visible == visible {
             return;

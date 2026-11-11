@@ -1309,6 +1309,11 @@ impl Render for Servers {
                 other_cards.push(self.core_card(index, core, Place::Other, cx));
             }
         }
+        let title = if self.friends_page {
+            t(M::FriendsPageTitle)
+        } else {
+            t(M::ServersTitle)
+        };
         div()
             .id("servers-page")
             .flex()
@@ -1326,12 +1331,12 @@ impl Render for Servers {
                             .id("servers-title")
                             .role(Role::Heading)
                             .aria_level(1)
-                            .aria_label(t(M::ServersTitle))
+                            .aria_label(title)
                             .font_family(fonts::heading())
                             .text_size(theme::text_size(text::H1))
                             .font_weight(weights::BOLD.into())
                             .text_color(crate::theme::ink::text())
-                            .child(t(M::ServersTitle)),
+                            .child(title),
                     ),
                 ),
             )
@@ -1378,11 +1383,16 @@ impl Render for Servers {
                             .on_click(cx.listener(|this, _, _, cx| this.dismiss_notice(cx))),
                     )
             }))
-            .child(self.render_local(local_cards, cx))
-            .child(self.render_friend_list(cx))
-            .child(self.render_friends(cx))
-            .child(self.render_other(other_cards, cx))
-            .child(self.render_lan(cx))
+            .map(|page| {
+                if self.friends_page {
+                    page.child(self.render_friend_list(cx))
+                        .child(self.render_friends(cx))
+                } else {
+                    page.child(self.render_local(local_cards, cx))
+                        .child(self.render_other(other_cards, cx))
+                        .child(self.render_lan(cx))
+                }
+            })
             .into_any_element()
     }
 }

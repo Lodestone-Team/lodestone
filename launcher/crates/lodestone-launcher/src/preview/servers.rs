@@ -826,7 +826,11 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
     }
     let servers = shell.servers().clone();
     servers.update(cx, |servers, cx| apply_servers(scene, servers, cx));
-    shell.show(Page::Servers, cx);
+    // friends' servers and the friend list are on the Friends page
+    let friends = scene.starts_with("servers-friend")
+        || scene.starts_with("servers-join")
+        || scene == "servers-highlight-friend";
+    shell.show(if friends { Page::Friends } else { Page::Servers }, cx);
     // a server's page opened from its name, then the top bar's back arrow: Forward
     // goes back to it
     if scene == "servers-history-back" {
