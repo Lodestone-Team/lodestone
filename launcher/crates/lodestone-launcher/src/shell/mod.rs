@@ -367,6 +367,7 @@ impl LauncherShell {
             cx.observe(&accounts, |_, _, cx| cx.notify()),
             cx.observe(&instances, |this, _, cx| {
                 this.sync_settings(cx);
+                this.sync_watched(cx);
                 this.check_narrator_offer(cx);
                 this.note_place(cx);
                 cx.notify();
@@ -1598,8 +1599,20 @@ impl LauncherShell {
             servers.set_friends_page(page == Page::Friends, cx);
             servers.set_visible(matches!(page, Page::Servers | Page::Friends), cx)
         });
+        self.sync_watched(cx);
         self.note_place(cx);
         cx.notify();
+    }
+
+    /// Tells the Servers page which instance's page shows, so the state of the
+    /// friend's server it was made for stays fresh for its Play.
+    fn sync_watched(&mut self, cx: &mut Context<Self>) {
+        let watched = (self.page == Page::Instance)
+            .then(|| self.instances.read(cx).selected().map(|i| i.id.clone()))
+            .flatten();
+        self.servers.update(cx, |servers, cx| {
+            servers.watch_instance(watched.as_deref(), cx)
+        });
     }
 
     /// The place the window shows, for the top bar's arrows.

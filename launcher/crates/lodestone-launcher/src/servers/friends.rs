@@ -22,8 +22,15 @@
 //!
 //! The tunnel stays open while the game runs, and closes when it exits. If the host
 //! goes away mid-game, the launcher says so. The server is remembered (the invite link
-//! in the Keychain) so Play on its row joins it again; nothing is polled in the
-//! background: "Check" asks once.
+//! in the Keychain) so Play on its row joins it again.
+//!
+//! Whether a server runs ([`Liveness`]) is asked again now and then, but only while
+//! someone looks: its row on the Servers page, or the page of an instance made for it
+//! ([`Servers::watch_instance`]). Each ask opens the tunnel once and closes it, more
+//! often while the server is stopped or starting ([`recheck_after`]). While the join
+//! dialog has a tunnel open, the server's state is read through its info port every
+//! few seconds instead. Play never starts Minecraft while the server is stopped or
+//! starting: the dialog says so, and its Play turns on once the server runs.
 //!
 //! A server shared through the friend list (`super::friend_list`) joins the same way,
 //! from [`Source::FriendList`]: the tunnel comes from the friend list instead of a
@@ -97,6 +104,54 @@ pub enum FriendStatus {
     },
     Offline(JoinError),
 }
+
+/// Whether a friend's server can be joined now, as far as the launcher knows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Liveness {
+    /// Not asked yet.
+    Unknown,
+    /// Being asked for the first time.
+    Checking,
+    Running,
+    Starting,
+    /// Stopped, stopping or crashed: Minecraft can't join it.
+    Stopped,
+    /// Its host didn't answer: their computer or Lodestone Host is off, they stopped
+    /// sharing, or the networks can't meet.
+    Unreachable,
+}
+
+impl Liveness {
+    /// What the host said of its server. A host that answers without a state (an
+    /// older one) runs it.
+    pub fn of_shared(server: &SharedServer) -> Self {
+        match server.state.as_deref() {
+            Some("Starting") => Liveness::Starting,
+            Some("Stopped" | "Stopping" | "Error") => Liveness::Stopped,
+            _ => Liveness::Running,
+        }
+    }
+
+    /// Play can't join now: the server is known to be stopped or still starting.
+    pub fn blocks_play(self) -> bool {
+        matches!(self, Liveness::Stopped | Liveness::Starting)
+    }
+}
+
+/// How long a server's state stays good enough before it is asked again: soon while
+/// it starts, often while it is stopped (so Play turns on once a friend starts it),
+/// and now and then otherwise.
+pub fn recheck_after(liveness: Liveness) -> Duration {
+    match liveness {
+        Liveness::Starting => Duration::from_secs(8),
+        Liveness::Stopped => Duration::from_secs(30),
+        Liveness::Unreachable => Duration::from_secs(60),
+        Liveness::Unknown | Liveness::Checking | Liveness::Running => Duration::from_secs(120),
+    }
+}
+
+/// How often the join dialog reads the state of the server whose tunnel it has open.
+const SESSION_POLL: Duration = Duration::from_secs(4);
 
 /// A friend's server on the page.
 pub struct FriendEntry {
@@ -203,6 +258,12 @@ pub struct Friends {
     /// Redraws the dialog while it connects.
     ticker: Option<Task<()>>,
     checks: HashMap<String, Task<()>>,
+    /// When each server's status was last learned, for asking again ([`recheck_after`]).
+    checked: HashMap<String, Instant>,
+    /// Reads the state of the server whose tunnel the dialog has open, by its id.
+    session_poll: Option<(String, Task<()>)>,
+    /// The instance whose page shows, and the task that keeps its server's state fresh.
+    watched: Option<(String, Task<()>)>,
     /// Links read from the Keychain (or saved there) this session, so Check and Play
     /// ask the Keychain once per friend, not on every press.
     invites: HashMap<String, Invite>,
@@ -219,7 +280,18 @@ impl Friends {
             attempt: 0,
             ticker: None,
             checks: HashMap::new(),
+            checked: HashMap::new(),
+            session_poll: None,
+            watched: None,
             invites: HashMap::new(),
+        }
+    }
+
+    /// Notes the status just learned of the server `id`.
+    fn set_status(&mut self, id: &str, status: FriendStatus) {
+        if let Some(entry) = self.get_mut(id) {
+            entry.status = status;
+            self.checked.insert(id.to_string(), Instant::now());
         }
     }
 
@@ -390,8 +462,114 @@ impl Servers {
     }
 
     fn join_stage(&mut self, stage: JoinStage, cx: &mut Context<Self>) {
+        let ready = match &stage {
+            JoinStage::Ready { id, .. } => Some(id.clone()),
+            _ => None,
+        };
         let focus = cx.focus_handle();
         self.set_join_stage(stage, focus, cx);
+        if let Some(id) = ready {
+            self.poll_session(&id, cx);
+        }
+    }
+
+    /// While the dialog shows the server `id` with its tunnel open, reads the server's
+    /// state through the tunnel's info port every few seconds, so the dialog (and Play)
+    /// follow a friend starting or stopping it.
+    fn poll_session(&mut self, id: &str, cx: &mut Context<Self>) {
+        if self.preview
+            || self
+                .friends
+                .session_poll
+                .as_ref()
+                .is_some_and(|(polled, _)| polled == id)
+        {
+            return;
+        }
+        let id = id.to_string();
+        let polled = id.clone();
+        let task = cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor().timer(SESSION_POLL).await;
+                // still shown with its tunnel open: the client to ask
+                let client = this
+                    .update(cx, |this, _| {
+                        let shown = matches!(
+                            this.friends.join.current().map(|p| &p.stage),
+                            Some(JoinStage::Ready { id: shown, .. }) if *shown == id
+                        );
+                        this.friends
+                            .sessions
+                            .get(&id)
+                            .filter(|s| shown && s.tunnel.is_some())
+                            .map(|s| (s.client.clone(), s.shared.instance_uuid.clone()))
+                    })
+                    .ok()
+                    .flatten();
+                let Some((client, instance)) = client else {
+                    break;
+                };
+                let listed = cx
+                    .background_spawn(async move { client.public_servers().await })
+                    .await;
+                let Ok(list) = listed else {
+                    continue;
+                };
+                let live = list
+                    .instances
+                    .into_iter()
+                    .find(|server| server.uuid == instance);
+                let Some(live) = live else {
+                    continue;
+                };
+                let alive = this
+                    .update(cx, |this, cx| this.session_state(&id, &live, cx))
+                    .is_ok();
+                if !alive {
+                    break;
+                }
+            }
+            this.update(cx, |this, _| {
+                if this
+                    .friends
+                    .session_poll
+                    .as_ref()
+                    .is_some_and(|(polled, _)| *polled == id)
+                {
+                    this.friends.session_poll = None;
+                }
+            })
+            .ok();
+        });
+        self.friends.session_poll = Some((polled, task));
+    }
+
+    /// The server of the open session `id`, as its host lists it now: its state and
+    /// players, for the dialog, its row and the instance page.
+    fn session_state(&mut self, id: &str, live: &ServerInstance, cx: &mut Context<Self>) {
+        let Some(session) = self.friends.sessions.get_mut(id) else {
+            return;
+        };
+        let state = state_name(live.state).map(str::to_string);
+        if session.shared.state == state
+            && session.shared.player_count == live.player_count
+            && session.shared.max_player_count == live.max_player_count
+        {
+            return;
+        }
+        session.shared.state = state;
+        session.shared.player_count = live.player_count;
+        session.shared.max_player_count = live.max_player_count;
+        session.server.state = live.state;
+        session.server.player_count = live.player_count;
+        session.server.max_player_count = live.max_player_count;
+        let status = FriendStatus::Online {
+            server: Box::new(session.shared.clone()),
+            kind: session.kind,
+            rtt: session.rtt(),
+        };
+        self.friends.set_status(id, status);
+        cx.notify();
     }
 
     /// "Add and join" in the paste stage.
@@ -616,9 +794,8 @@ impl Servers {
                     Ok(_) if !waiting => {}
                     Ok(tunnel) => this.connected(source, tunnel, &game_port, then_play, cx),
                     Err(error) => {
-                        if let Some(entry) = this.friends.get_mut(&id) {
-                            entry.status = FriendStatus::Offline(error.clone());
-                        }
+                        this.friends
+                            .set_status(&id, FriendStatus::Offline(error.clone()));
                         if waiting {
                             this.join_stage(
                                 JoinStage::Failed {
@@ -679,6 +856,7 @@ impl Servers {
             }
             None => self.friends.list.push(FriendEntry { saved, status }),
         }
+        self.friends.checked.insert(id.clone(), Instant::now());
         self.save_friends();
         if let Some(invite) = invite
             && !self.preview
@@ -742,9 +920,8 @@ impl Servers {
         let Some(session) = self.friends.sessions.remove(id) else {
             return;
         };
-        if let Some(entry) = self.friends.get_mut(id) {
-            entry.status = FriendStatus::Offline(JoinError::HostOffline);
-        }
+        self.friends
+            .set_status(id, FriendStatus::Offline(JoinError::HostOffline));
         let name = session.server.name.clone();
         let in_dialog = matches!(
             self.friends.join.current().map(|p| &p.stage),
@@ -844,9 +1021,16 @@ impl Servers {
         let Some(found) = self.friend_instance(&id, cx) else {
             return;
         };
-        let Some(server) = self.friends.sessions.get(&id).map(|s| s.server.clone()) else {
+        let Some(session) = self.friends.sessions.get(&id) else {
             return;
         };
+        // a stopped or starting server can't be joined: the dialog says so, and its
+        // Play turns on once the server runs
+        if Liveness::of_shared(session.shared()).blocks_play() {
+            cx.notify();
+            return;
+        }
+        let server = session.server.clone();
         if let Some(instance) = found.instance_id()
             && self.instances.read(cx).is_active(instance)
         {
@@ -1146,16 +1330,18 @@ impl Servers {
                 session.kind(),
                 session.rtt(),
             );
-            if let Some(entry) = self.friends.get_mut(id) {
-                entry.status = FriendStatus::Online { server, kind, rtt };
-            }
+            self.friends
+                .set_status(id, FriendStatus::Online { server, kind, rtt });
             cx.notify();
             return;
         }
         let Some(entry) = self.friends.get_mut(id) else {
             return;
         };
-        entry.status = FriendStatus::Checking;
+        // asked again: what it said last stays shown until the answer comes
+        if matches!(entry.status, FriendStatus::Unknown) {
+            entry.status = FriendStatus::Checking;
+        }
         let secrets = self.accounts.read(cx).secrets().clone();
         let check_id = id.to_string();
         let cached = self.friends.invites.get(id).cloned();
@@ -1214,6 +1400,9 @@ impl Servers {
                         Ok(status) => status,
                         Err(error) => FriendStatus::Offline(error),
                     };
+                    this.friends
+                        .checked
+                        .insert(check_id.clone(), Instant::now());
                 }
                 if learned {
                     this.save_friends();
@@ -1263,6 +1452,96 @@ impl Servers {
 }
 
 impl Servers {
+    /// Whether the friend's server `id` can be joined now, as far as the launcher
+    /// knows: from its open tunnel, else from when it was last asked.
+    pub fn friend_liveness(&self, id: &str) -> Liveness {
+        if let Some(session) = self.friends.sessions.get(id) {
+            return Liveness::of_shared(session.shared());
+        }
+        match self.friends.get(id).map(|entry| &entry.status) {
+            None | Some(FriendStatus::Unknown) => Liveness::Unknown,
+            Some(FriendStatus::Checking) => Liveness::Checking,
+            Some(FriendStatus::Online { server, .. }) => Liveness::of_shared(server),
+            Some(FriendStatus::Offline(_)) => Liveness::Unreachable,
+        }
+    }
+
+    /// Whether "Check" (or a re-check) is asking the friend's server `id` now.
+    pub fn friend_checking(&self, id: &str) -> bool {
+        self.friends.checks.contains_key(id)
+    }
+
+    /// Asks again whether the friend's servers `ids` run, for those whose answer is
+    /// old ([`recheck_after`]). Servers with an open tunnel are followed through it,
+    /// and links that need the person (ended, wrong host, unreadable) wait for Check.
+    pub(super) fn recheck_friends(&mut self, ids: Vec<String>, cx: &mut Context<Self>) {
+        if self.preview {
+            return;
+        }
+        let due: Vec<String> = ids
+            .into_iter()
+            .filter(|id| {
+                let Some(entry) = self.friends.get(id) else {
+                    return false;
+                };
+                if self.friends.checks.contains_key(id)
+                    || self.friends.sessions.contains_key(id)
+                    || matches!(
+                        entry.status,
+                        FriendStatus::Offline(
+                            JoinError::Ended | JoinError::WrongHost | JoinError::Failed(_)
+                        )
+                    )
+                {
+                    return false;
+                }
+                let liveness = self.friend_liveness(id);
+                self.friends
+                    .checked
+                    .get(id)
+                    .is_none_or(|at| at.elapsed() >= recheck_after(liveness))
+            })
+            .collect();
+        for id in due {
+            self.check_friend(&id, cx);
+        }
+    }
+
+    /// The instance whose page the window shows (`None`: another page). While it is
+    /// one made for a friend's server, that server's state is kept fresh for its page
+    /// and its Play.
+    pub fn watch_instance(&mut self, instance_id: Option<&str>, cx: &mut Context<Self>) {
+        if self.friends.watched.as_ref().map(|(id, _)| id.as_str()) == instance_id {
+            return;
+        }
+        let Some(instance_id) = instance_id else {
+            self.friends.watched = None;
+            return;
+        };
+        let watched = instance_id.to_string();
+        let task = cx.spawn(async move |this, cx| {
+            loop {
+                let alive = this
+                    .update(cx, |this, cx| {
+                        let friend = this
+                            .instance_links
+                            .get(&watched)
+                            .map(|link| link.core_uuid.clone())
+                            .filter(|core| friends::is_friend_id(core));
+                        if let Some(friend) = friend {
+                            this.recheck_friends(vec![friend], cx);
+                        }
+                    })
+                    .is_ok();
+                if !alive {
+                    break;
+                }
+                cx.background_executor().timer(Duration::from_secs(4)).await;
+            }
+        });
+        self.friends.watched = Some((instance_id.to_string(), task));
+    }
+
     /// The friend-list source of a saved friend's server, when it came from the list.
     fn friend_list_source(&self, id: &str) -> Option<Source> {
         let entry = self.friends.get(id)?;
@@ -1279,12 +1558,10 @@ impl Servers {
     }
 }
 
-/// What the host says of `server` now, as its core lists it to its owner: the saved
-/// details, with the live state and players.
-fn live_shared(saved: &FriendServer, server: &ServerInstance) -> SharedServer {
+/// A server state's name as a host sends it in [`SharedServer::state`].
+fn state_name(state: launcher_core::cores::ServerState) -> Option<&'static str> {
     use launcher_core::cores::ServerState;
-    // the names the host sends
-    let state = match server.state {
+    match state {
         ServerState::Starting => Some("Starting"),
         ServerState::Running => Some("Running"),
         ServerState::Stopping => Some("Stopping"),
@@ -1292,7 +1569,12 @@ fn live_shared(saved: &FriendServer, server: &ServerInstance) -> SharedServer {
         ServerState::Error => Some("Error"),
         ServerState::Hidden | ServerState::Unknown => None,
     }
-    .map(str::to_string);
+}
+
+/// What the host says of `server` now, as its core lists it to its owner: the saved
+/// details, with the live state and players.
+fn live_shared(saved: &FriendServer, server: &ServerInstance) -> SharedServer {
+    let state = state_name(server.state).map(str::to_string);
     SharedServer {
         name: server.name.clone(),
         game_version: server.game_version.clone(),
@@ -1495,5 +1777,54 @@ impl Servers {
             },
         };
         self.join_stage(stage, cx);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn shared(state: Option<&str>) -> SharedServer {
+        SharedServer {
+            core_name: "Peter's".into(),
+            core_uuid: "core".into(),
+            instance_uuid: "smp".into(),
+            name: "My Server".into(),
+            game_version: "1.21.4".into(),
+            loader: "fabric".into(),
+            loader_version: None,
+            modpack: false,
+            state: state.map(str::to_string),
+            player_count: None,
+            max_player_count: None,
+            online_mode: None,
+        }
+    }
+
+    #[test]
+    fn only_a_running_server_lets_play_join() {
+        for (state, liveness) in [
+            (Some("Running"), Liveness::Running),
+            // an older host that doesn't say: it answered, so it runs
+            (None, Liveness::Running),
+            (Some("Starting"), Liveness::Starting),
+            (Some("Stopping"), Liveness::Stopped),
+            (Some("Stopped"), Liveness::Stopped),
+            (Some("Error"), Liveness::Stopped),
+        ] {
+            assert_eq!(Liveness::of_shared(&shared(state)), liveness, "{state:?}");
+        }
+        assert!(!Liveness::Running.blocks_play());
+        assert!(Liveness::Starting.blocks_play());
+        assert!(Liveness::Stopped.blocks_play());
+        // Play is the retry for a host that didn't answer
+        assert!(!Liveness::Unreachable.blocks_play());
+        assert!(!Liveness::Unknown.blocks_play());
+    }
+
+    #[test]
+    fn a_stopped_server_is_asked_more_often_than_a_running_one() {
+        assert!(recheck_after(Liveness::Starting) < recheck_after(Liveness::Stopped));
+        assert!(recheck_after(Liveness::Stopped) < recheck_after(Liveness::Running));
     }
 }

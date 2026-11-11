@@ -14,10 +14,10 @@ use crate::{
         PlayButtonState, Tabs,
         a11y::{Accessible, Role},
     },
-    i18n::{ShellMsg as M, t, tr},
+    i18n::{ServersMsg, ShellMsg as M, t, tr},
     instances::appearance::{Background, scrim_layers},
     instances::{Ago, PlayState, play_time},
-    servers::InstanceLink,
+    servers::{InstanceLink, friends::Liveness},
     theme::{self, colors, fonts, leading, radius, text, weights},
 };
 
@@ -273,6 +273,48 @@ fn linked_to(link: &InstanceLink, cx: &mut Context<LauncherShell>) -> impl IntoE
         core = link.core_name
     );
     let (core, server) = (link.core_uuid.clone(), link.server_uuid.clone());
+    // whether the server runs: the dot's colour, and a word after the link
+    let (dot, status): (Option<theme::Color>, Option<(&'static str, theme::Color)>) =
+        match link.live {
+            Liveness::Unknown => (None, None),
+            Liveness::Checking => (
+                Some(colors::GRAY_500),
+                Some((t(M::ServerChecking), crate::theme::ink::muted())),
+            ),
+            Liveness::Running => (
+                Some(colors::GREEN_200),
+                Some((t(M::ServerOnline), colors::GREEN_200)),
+            ),
+            Liveness::Starting => (
+                Some(colors::YELLOW),
+                Some((t(M::ServerStarting), colors::YELLOW)),
+            ),
+            Liveness::Stopped => (
+                Some(colors::GRAY_500),
+                Some((t(M::ServerStopped), crate::theme::ink::muted())),
+            ),
+            Liveness::Unreachable => (
+                Some(colors::RED_200),
+                Some((t(M::ServerUnreachable), colors::RED_200)),
+            ),
+        };
+    // "Check" asks a friend's server again, when it isn't running
+    let check = (link.friend
+        && matches!(
+            link.live,
+            Liveness::Stopped | Liveness::Starting | Liveness::Unreachable
+        ))
+    .then(|| {
+        let friend = link.core_uuid.clone();
+        Button::new("linked-server-check", t(ServersMsg::FriendCheck))
+            .size(ButtonSize::Slim)
+            .variant(ButtonVariant::Ghost)
+            .disabled(link.checking)
+            .on_click(cx.listener(move |this, _, _, cx| {
+                this.servers
+                    .update(cx, |servers, cx| servers.check_friend(&friend, cx))
+            }))
+    });
     div()
         .flex()
         .flex_row()
@@ -284,8 +326,11 @@ fn linked_to(link: &InstanceLink, cx: &mut Context<LauncherShell>) -> impl IntoE
                 .flex_none()
                 .size(px(6.))
                 .rounded_full()
-                // Lodestone Host's green, as the instance's outline in the sidebar
-                .bg(crate::components::host_gradient(100, false)),
+                .map(|this| match dot {
+                    Some(dot) => this.bg(dot),
+                    // Lodestone Host's green, as the instance's outline in the sidebar
+                    None => this.bg(crate::components::host_gradient(100, false)),
+                }),
         )
         .child(
             div()
@@ -319,6 +364,17 @@ fn linked_to(link: &InstanceLink, cx: &mut Context<LauncherShell>) -> impl IntoE
                 }))
                 .child(label),
         )
+        .children(status.map(|(word, color)| {
+            div()
+                .id("linked-server-status")
+                .accessible(Role::Status, "linked-server-status", word)
+                .flex_none()
+                .text_size(theme::text_size(text::SMALL))
+                .font_weight(weights::BOLD.into())
+                .text_color(color)
+                .child(format!("· {word}"))
+        }))
+        .children(check)
 }
 
 /// "Minecraft 1.20.1", or "Minecraft 1.20.1 with Fabric 0.16.14".
@@ -391,6 +447,19 @@ impl LauncherShell {
         let joins = link.is_some() && matches!(state, PlayButtonState::Ready);
         let (state, caption) = match (&link, busy) {
             (Some(_), Some(busy)) if joins => (PlayButtonState::Disabled, Some(busy)),
+            // a friend's server that is stopped or starting: Minecraft couldn't join it
+            // ("Play without joining" still plays)
+            (Some(link), None) if joins && link.blocks_play => (
+                PlayButtonState::Disabled,
+                Some(tr!(
+                    if link.live == Liveness::Starting {
+                        M::ServerStartingCaption
+                    } else {
+                        M::ServerStoppedCaption
+                    },
+                    server = link.server_name
+                )),
+            ),
             (Some(link), None) if joins => {
                 (state, Some(tr!(M::AndJoin, server = link.server_name)))
             }

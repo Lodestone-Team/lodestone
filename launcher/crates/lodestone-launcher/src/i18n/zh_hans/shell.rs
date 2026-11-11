@@ -59,6 +59,13 @@ pub fn text(message: M) -> &'static str {
         M::NoInstances => "没有实例",
         M::AndJoin => "并加入 {server}",
         M::PlayWithoutJoining => "开始游戏但不加入",
+        M::ServerStoppedCaption => "{server} 已停止",
+        M::ServerStartingCaption => "{server} 正在启动",
+        M::ServerOnline => "在线",
+        M::ServerStarting => "正在启动",
+        M::ServerStopped => "已停止",
+        M::ServerUnreachable => "无法连接",
+        M::ServerChecking => "正在检查…",
         M::PlayNamed => "启动“{name}”",
 
         M::DeleteNamed => "删除“{name}”？",

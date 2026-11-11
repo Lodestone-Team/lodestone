@@ -8,7 +8,6 @@ use gpui::{
 };
 use launcher_core::{
     cores::{
-        ServerState,
         connect::{JoinError, Stage},
         friends::{InstanceMatch, Placement},
     },
@@ -19,7 +18,7 @@ use super::{
     Servers,
     extras::note,
     friends::{
-        FriendEntry, FriendStatus, JoinPrompt, JoinStage, connection_label, game_address,
+        FriendEntry, FriendStatus, JoinPrompt, JoinStage, Liveness, connection_label, game_address,
         join_error_text, port_taken_text,
     },
     status_label,
@@ -175,8 +174,9 @@ impl Servers {
                     Some((t(M::FriendChecking).into(), crate::theme::ink::muted())),
                 ),
                 status @ FriendStatus::Online { server, .. } => (
-                    match server.state.as_deref() {
-                        Some("Stopped") | Some("Error") => colors::GRAY_500,
+                    match Liveness::of_shared(server) {
+                        Liveness::Stopped => colors::GRAY_500,
+                        Liveness::Starting => colors::YELLOW,
                         _ => colors::GREEN_200,
                     },
                     online_line(status).map(|line| (line, crate::theme::ink::secondary())),
@@ -187,7 +187,9 @@ impl Servers {
                 ),
             }
         };
-        let checking = matches!(entry.status, FriendStatus::Checking);
+        let checking = self.friend_checking(&id);
+        // known to be stopped or starting: Play couldn't join it
+        let blocked = playing.is_none() && self.friend_liveness(&id).blocks_play();
         let busy = matches!(
             self.friends.join.current().map(|p| &p.stage),
             Some(JoinStage::Connecting { .. } | JoinStage::Preparing { .. })
@@ -318,7 +320,7 @@ impl Servers {
                         Button::new(SharedString::from(format!("play-{row_id}")), t(M::Play))
                             .size(ButtonSize::Slim)
                             .variant(ButtonVariant::Primary)
-                            .disabled(busy)
+                            .disabled(busy || blocked)
                             .on_click(
                                 cx.listener(move |this, _, _, cx| this.play_friend(&play_id, cx)),
                             ),
@@ -510,7 +512,8 @@ pub fn join_dialog(servers: &Entity<Servers>, prompt: &JoinPrompt, cx: &App) -> 
             };
             let shared = session.shared();
             let server = &session.server;
-            let stopped = matches!(server.state, ServerState::Stopped | ServerState::Error);
+            let liveness = Liveness::of_shared(shared);
+            let stopped = liveness.blocks_play();
             let instance = this.friend_instance(id, cx);
             let instances = this.instances.read(cx);
             let instance_name = |instance_id: &str| {
@@ -632,11 +635,21 @@ pub fn join_dialog(servers: &Entity<Servers>, prompt: &JoinPrompt, cx: &App) -> 
                             problem(title, body, colors::YELLOW)
                         }))
                         .when(stopped, |this| {
-                            this.child(problem(
-                                t(M::FriendServerStopped).into(),
-                                t(M::FriendServerStoppedBody).into(),
-                                colors::YELLOW,
-                            ))
+                            let (title, body) = if liveness == Liveness::Starting {
+                                (M::FriendServerStarting, M::FriendServerStartingBody)
+                            } else {
+                                (M::FriendServerStopped, M::FriendServerStoppedBody)
+                            };
+                            this.child(
+                                div()
+                                    .id("join-friend-stopped")
+                                    .accessible(Role::Status, "join-friend-stopped", t(title))
+                                    .child(problem(
+                                        t(title).into(),
+                                        t(body).into(),
+                                        colors::YELLOW,
+                                    )),
+                            )
                         })
                         .children(
                             error
@@ -647,6 +660,8 @@ pub fn join_dialog(servers: &Entity<Servers>, prompt: &JoinPrompt, cx: &App) -> 
                 .footer(
                     Button::new("join-friend-play", t(M::Play))
                         .variant(ButtonVariant::Primary)
+                        // on again once the server runs (the dialog follows its state)
+                        .disabled(stopped)
                         .on_click(move |_, _, cx| play.update(cx, |this, cx| this.friend_play(cx))),
                 )
                 .footer(cancel_button(t(CommonMsg::Cancel)))
