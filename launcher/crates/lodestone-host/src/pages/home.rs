@@ -1,7 +1,7 @@
 //! The page without a selected instance (`pages/home.tsx`): a welcome, and "Create a
 //! new server" for a user who may.
 
-use gpui::{Context, Entity, IntoElement, ParentElement, Render, Styled, Window, div};
+use gpui::{Context, Entity, IntoElement, ParentElement, Render, Styled, Window, div, img};
 use launcher_core::cores::admin::models::CorePermission;
 use lodestone_ui::{
     components::{Button, ButtonVariant, Icon},
@@ -38,7 +38,8 @@ impl Render for HomePage {
             .items_center()
             .justify_center()
             .gap(px(12.))
-            .child(Icon::Cube.render(px(64.), ink::faint()))
+            // the green Lodestone mark, as the Launcher's
+            .child(img("images/lodestone_mark.svg").size(px(64.)).flex_none())
             .child(
                 div()
                     .font_family(fonts::heading())
