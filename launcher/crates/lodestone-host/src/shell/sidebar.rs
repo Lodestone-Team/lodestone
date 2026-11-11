@@ -186,7 +186,8 @@ pub fn render(shell: &HostShell, cx: &mut Context<HostShell>) -> impl IntoElemen
             .text_size(text::MEDIUM)
             .text_color(ink::muted())
             .child(Icon::Expand.render(px(20.), ink::faint()))
-            .child(t(ShellMsg::NoInstanceSelected))
+            // centred under the icon, also when it wraps in a narrow sidebar
+            .child(div().text_center().child(t(ShellMsg::NoInstanceSelected)))
             .into_any_element(),
     };
 
