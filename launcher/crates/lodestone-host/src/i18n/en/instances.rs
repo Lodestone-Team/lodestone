@@ -6,7 +6,6 @@ crate::i18n::messages! {
         CopyAddress = "Copy the address",
         CopiedText = "Copied {text}",
         SettingUpPercent = "Setting up… {percent}",
-        OwnerOnlyAtom = "Only the owner can control atom servers",
         /// The "New server" dialog: its steps.
         StepSelectGame = "Select Game",
         StepBasicSettings = "Basic Settings",

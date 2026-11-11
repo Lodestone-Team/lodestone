@@ -5,7 +5,6 @@ pub fn text(message: M) -> &'static str {
         M::CopyAddress => "Copier l’adresse",
         M::CopiedText => "{text} copié",
         M::SettingUpPercent => "Configuration… {percent}",
-        M::OwnerOnlyAtom => "Seul le propriétaire peut contrôler les serveurs atom",
         M::StepSelectGame => "Choisir un jeu",
         M::StepBasicSettings => "Paramètres de base",
         M::StepServerSettings => "Paramètres du serveur",

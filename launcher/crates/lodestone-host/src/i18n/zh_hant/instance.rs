@@ -21,7 +21,6 @@ pub fn text(message: M) -> &'static str {
         M::DeleteCannotUndo => "此動作無法復原。",
         M::DeleteWarning => "此實例的設定、世界和備份將被永久刪除。繼續之前，請備份所有重要資料。",
         M::Deleting => "正在刪除 {name}…",
-        M::OwnerOnlyAtom => "只有擁有者可以控制 atom 伺服器。",
         M::CommandLineReadOnly => "此核心已停用程式碼執行，此設定為唯讀。",
         M::CommandLineOwnerOnly => "只有擁有者可以變更此設定。",
         M::CannotBeEmpty => "不可空白",

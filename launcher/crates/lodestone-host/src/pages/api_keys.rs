@@ -663,7 +663,6 @@ impl CreateKeyDialog {
         let safe_mode = state.settings.as_ref().is_some_and(|s| s.safe_mode);
         let mut instances = state.instances.clone().unwrap_or_default();
         instances.sort_by(|a, b| a.name.cmp(&b.name));
-        let macros = state.info.capabilities.macros;
         let this = cx.entity().downgrade();
         let on_change: permissions::OnChange =
             Rc::new(move |permission, instance, value, _, cx| {
@@ -733,11 +732,6 @@ impl CreateKeyDialog {
             .child(settings::card(
                 unsafe_rows.into_iter().map(IntoElement::into_any_element),
             ))
-            .child(SettingRow::new(t(CoreMsg::KeyOwnerOnly)).hint(if macros {
-                t(CoreMsg::KeyOwnerOnlyHint)
-            } else {
-                t(CoreMsg::NoScripting)
-            }))
             .into_any_element()
     }
 }

@@ -3,16 +3,12 @@ pub mod checks;
 pub mod connect;
 pub mod core_info;
 pub mod events;
-pub mod extension;
 pub mod gateway;
-#[cfg(feature = "deno")]
-pub mod generic_instance;
 pub mod global_fs;
 pub mod global_settings;
 pub mod instance;
 pub mod instance_config;
 pub mod instance_fs;
-pub mod instance_macro;
 pub mod instance_mods;
 pub mod instance_players;
 pub mod instance_server;

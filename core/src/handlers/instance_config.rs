@@ -6,7 +6,7 @@ use axum::{
 use axum_auth::AuthBearer;
 use color_eyre::eyre::eyre;
 
-use super::util::{get_instance, require_code_execution, require_owner_for_atom};
+use super::util::{get_instance, require_code_execution};
 use crate::{
     auth::user::UserAction,
     error::{Error, ErrorKind},
@@ -71,7 +71,6 @@ pub async fn set_instance_setting(
         require_code_execution(&state)?;
     }
     let instance = get_instance(&state, &uuid)?;
-    require_owner_for_atom(&requester, &instance)?;
 
     instance
         .update_configurable(&section_id, &setting_id, value)
@@ -89,7 +88,6 @@ pub async fn set_instance_name(
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
     requester.try_action(&UserAction::AccessSetting(uuid.clone()), state.safe_mode())?;
     let instance = get_instance(&state, &uuid)?;
-    require_owner_for_atom(&requester, &instance)?;
     instance.set_name(new_name).await?;
     Ok(Json(()))
 }
@@ -103,7 +101,6 @@ pub async fn set_instance_description(
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
     requester.try_action(&UserAction::AccessSetting(uuid.clone()), state.safe_mode())?;
     let instance = get_instance(&state, &uuid)?;
-    require_owner_for_atom(&requester, &instance)?;
     instance.set_description(new_description).await?;
     Ok(Json(()))
 }
@@ -117,7 +114,6 @@ pub async fn set_instance_auto_start(
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
     requester.try_action(&UserAction::AccessSetting(uuid.clone()), state.safe_mode())?;
     let instance = get_instance(&state, &uuid)?;
-    require_owner_for_atom(&requester, &instance)?;
     instance.set_auto_start(auto_start).await?;
     Ok(Json(()))
 }
@@ -131,7 +127,6 @@ pub async fn set_instance_restart_on_crash(
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
     requester.try_action(&UserAction::AccessSetting(uuid.clone()), state.safe_mode())?;
     let instance = get_instance(&state, &uuid)?;
-    require_owner_for_atom(&requester, &instance)?;
     instance.set_restart_on_crash(restart_on_crash).await?;
     Ok(Json(()))
 }
@@ -144,7 +139,6 @@ pub async fn change_version(
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
     requester.try_action(&UserAction::AccessSetting(uuid.clone()), state.safe_mode())?;
     let instance = get_instance(&state, &uuid)?;
-    require_owner_for_atom(&requester, &instance)?;
     instance.change_version(new_version).await?;
     Ok(Json(()))
 }

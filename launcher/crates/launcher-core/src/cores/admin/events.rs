@@ -2,6 +2,8 @@
 //! stream (`StreamKind::All`), typed in full so every page can match on them.
 //!
 //! Variants the core may add later read as `Unknown`, so an older Host keeps working.
+//! So do the ones it dropped that an older core still sends, such as its macro events
+//! (`MacroEvent`, `caused_by: {"type": "Macro"}`).
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -29,9 +31,6 @@ pub enum CausedBy {
     },
     Instance {
         instance_uuid: String,
-    },
-    Macro {
-        macro_pid: Value,
     },
     System,
     #[default]
@@ -67,7 +66,6 @@ impl ClientEvent {
     pub fn instance(&self) -> Option<&str> {
         match &self.event_inner {
             EventInner::InstanceEvent(event) => Some(&event.instance_uuid),
-            EventInner::MacroEvent(event) => event.instance_uuid.as_deref(),
             _ => None,
         }
     }
@@ -92,7 +90,6 @@ fn snowflake<'de, D: serde::Deserializer<'de>>(de: D) -> Result<i64, D::Error> {
 pub enum EventInner {
     InstanceEvent(InstanceEvent),
     UserEvent(UserEvent),
-    MacroEvent(MacroEvent),
     #[serde(rename = "FSEvent")]
     FsEvent(Value),
     ProgressionEvent(ProgressionEvent),
@@ -188,16 +185,6 @@ pub enum UserEventInner {
     },
     #[serde(other)]
     Unknown,
-}
-
-/// Macros run on Deno, which Lodestone Host's own core doesn't have; another core's
-/// macro events still arrive.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct MacroEvent {
-    #[serde(default)]
-    pub instance_uuid: Option<String>,
-    pub macro_pid: Value,
-    pub macro_event_inner: Value,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -349,5 +336,28 @@ mod tests {
         )
         .unwrap();
         assert_eq!(event.event_inner, EventInner::Unknown);
+    }
+
+    /// An older core still sends macro events, and events a macro caused: they read as
+    /// `Unknown`, without failing the stream or the history.
+    #[test]
+    fn reads_an_older_cores_macro_events() {
+        let event = parse(
+            r#"{"event_inner":{"type":"MacroEvent","instance_uuid":"i1","macro_pid":3,
+                "macro_event_inner":{"type":"Stopped","exit_status":{"type":"Success"}}},
+                "details":"","snowflake":"1","level":"Info","caused_by":{"type":"System"}}"#,
+        )
+        .unwrap();
+        assert_eq!(event.event_inner, EventInner::Unknown);
+        assert_eq!(event.instance(), None);
+        let event = parse(
+            r#"{"event_inner":{"type":"InstanceEvent","instance_uuid":"i1","instance_name":"SMP",
+                "instance_event_inner":{"type":"StateTransition","to":"Starting"}},
+                "details":"","snowflake":"2","level":"Info",
+                "caused_by":{"type":"Macro","macro_pid":3}}"#,
+        )
+        .unwrap();
+        assert_eq!(event.caused_by, CausedBy::Unknown);
+        assert_eq!(event.instance(), Some("i1"));
     }
 }

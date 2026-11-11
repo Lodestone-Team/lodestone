@@ -7,10 +7,7 @@ import { autoSettingsPage, basicSettingsPage, formId } from './Create/form';
 import { generateValidationSchema, generateInitialValues } from './Create/form';
 import { FormFromManifest } from './Create/FormFromManifest';
 import GameTypeSelectForm from './Create/GameTypeSelectForm';
-import {
-  useGenericSetupInstanceManifest,
-  useSetupInstanceManifest,
-} from 'data/InstanceGameTypes';
+import { useSetupInstanceManifest } from 'data/InstanceGameTypes';
 import { HandlerGameType } from 'bindings/HandlerGameType';
 import WarningAlert from 'components/Atoms/WarningAlert';
 import * as yup from 'yup';
@@ -26,7 +23,6 @@ import WizardSteps from './Create/WizardSteps';
 import EulaCheckbox from './Create/EulaCheckbox';
 import { useT } from 'i18n';
 
-export type GenericHandlerGameType = 'Generic' | HandlerGameType;
 export type FormPage = {
   name: string;
   description: string;
@@ -45,31 +41,19 @@ export default function InstanceCreateForm({
   const [activeStep, setActiveStep] = useState(0);
   // the "Modrinth modpack" flow replaces the manifest steps
   const [modpackMode, setModpackMode] = useState(modpackPreset !== null);
-  const [gameType, setGameType] = useState<GenericHandlerGameType>('Generic');
-  const [genericFetchReady, setGenericFetchReady] = useState(false); //if the button has been pressed to fetch the manifest -> enables the query
-  const [urlValid, setUrlValid] = useState(false); //if the query returned a valid manifest
-  const [url, setUrl] = useState<string>(''); //the url the user enters
+  // null until a game is picked
+  const [gameType, setGameType] = useState<HandlerGameType | null>(null);
   // the user's own agreement to the Minecraft EULA: never ticked for them
   const [eulaAccepted, setEulaAccepted] = useState(false);
   const [setupManifest, setSetupManifest] = useState<SetupManifest | null>(
     null
   );
-  // Call both hooks every render (rules of hooks); only the one for the
-  // selected game type is enabled.
-  const genericManifestQuery = useGenericSetupInstanceManifest(
-    gameType,
-    url,
-    gameType === 'Generic' && genericFetchReady
-  );
-  const gameManifestQuery = useSetupInstanceManifest(
-    gameType as HandlerGameType,
-    gameType !== 'Generic'
-  );
+  // disabled (and pending) until a game is picked
   const {
     data: setup_manifest,
     isPending: isLoading,
     error,
-  } = gameType === 'Generic' ? genericManifestQuery : gameManifestQuery;
+  } = useSetupInstanceManifest(gameType as HandlerGameType, gameType !== null);
 
   const gaEventTracker = useAnalyticsEventTracker('Create Instance');
   const formikRef =
@@ -103,19 +87,14 @@ export default function InstanceCreateForm({
   });
 
   useEffect(() => {
-    if (gameType !== 'Generic') {
-      setGenericFetchReady(false);
-      setUrlValid(false);
-    }
     if (!isLoading && !error) {
-      if (gameType === 'Generic' && genericFetchReady) setUrlValid(true); //value fetched with no errors (this is to cover the initial case when nothing has been fetched yet)
       setInitialValues(
         generateInitialValues(setup_manifest['setting_sections'])
       );
       setValidationSchema(generateValidationSchema(setup_manifest));
       setSetupManifest(setup_manifest);
     }
-  }, [gameType, isLoading, setup_manifest, error, genericFetchReady]);
+  }, [gameType, isLoading, setup_manifest, error]);
 
   const [initialValues, setInitialValues] = useState<
     Record<string, ConfigurableValue | null>
@@ -133,28 +112,15 @@ export default function InstanceCreateForm({
     t('create.step.autoSettings'),
   ];
   const formReady = activeStep === sections.length - 1;
-  const needsEula = gameType !== 'Generic';
+  // every game this form creates is a Minecraft server, which needs the EULA
   // throws on failure
   const createInstance = async (value: SetupValue) => {
-    if (gameType === 'Generic') {
-      // Left over from the removed atom flow. The Docker card has no
-      // container name field, so this step is never reached; the Docker
-      // flow's only request is the watch-list add in
-      // useGenericSetupInstanceManifest.
-      await axiosWrapper<void>({
-        method: 'post',
-        url: `/instance/create_generic`,
-        headers: { 'Content-Type': 'application/json' },
-        data: JSON.stringify({ url: url, setup_value: value }),
-      });
-    } else {
-      await axiosWrapper<void>({
-        method: 'post',
-        url: `/instance/create/${gameType}`,
-        headers: { 'Content-Type': 'application/json' },
-        data: JSON.stringify(value),
-      });
-    }
+    await axiosWrapper<void>({
+      method: 'post',
+      url: `/instance/create/${gameType}`,
+      headers: { 'Content-Type': 'application/json' },
+      data: JSON.stringify(value),
+    });
   };
 
   async function submitForm(
@@ -169,7 +135,7 @@ export default function InstanceCreateForm({
       auto_start: values.auto_start?.value as boolean,
       restart_on_crash: values.restart_on_crash?.value as boolean,
       setting_sections: sectionValues,
-      accept_eula: needsEula && eulaAccepted,
+      accept_eula: eulaAccepted,
     };
 
     try {
@@ -213,7 +179,7 @@ export default function InstanceCreateForm({
     actions: FormikHelpers<Record<string, ConfigurableValue | null>>
   ) {
     if (formReady) {
-      if (needsEula && !eulaAccepted) {
+      if (!eulaAccepted) {
         actions.setSubmitting(false);
         return;
       }
@@ -231,11 +197,6 @@ export default function InstanceCreateForm({
   // Back to an earlier step; the values typed so far stay.
   function goToStep(step: number) {
     if (step >= activeStep) return;
-    if (step === 0) {
-      setGenericFetchReady(false);
-      setUrlValid(false);
-      setUrl('');
-    }
     setActiveStep(step);
   }
 
@@ -257,12 +218,6 @@ export default function InstanceCreateForm({
       value={{
         gameType: gameType,
         setGameType: setGameType,
-        url: url,
-        setUrl: setUrl,
-        urlValid: urlValid,
-        setUrlValid: setUrlValid,
-        genericFetchReady: genericFetchReady,
-        setGenericFetchReady: setGenericFetchReady,
       }}
     >
       <Formik
@@ -305,7 +260,7 @@ export default function InstanceCreateForm({
                   )}
                 </FormFromManifest>
               )}
-              {formReady && needsEula && (
+              {formReady && (
                 <div className="pt-6">
                   <EulaCheckbox
                     checked={eulaAccepted}
@@ -326,10 +281,7 @@ export default function InstanceCreateForm({
                     formReady ? t('create.createServer') : t('common.next')
                   }
                   loading={isSubmitting}
-                  disabled={
-                    (gameType === 'Generic' && !urlValid) ||
-                    (formReady && needsEula && !eulaAccepted)
-                  }
+                  disabled={gameType === null || (formReady && !eulaAccepted)}
                 />
               </div>
             </div>

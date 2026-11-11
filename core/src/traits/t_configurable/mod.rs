@@ -13,8 +13,6 @@ use crate::error::Error;
 use crate::error::ErrorKind;
 use crate::implementations::minecraft::Flavour;
 use crate::traits::GameInstance;
-#[cfg(feature = "deno")]
-use crate::traits::GenericInstance;
 use crate::traits::MinecraftInstance;
 
 use crate::types::InstanceUuid;
@@ -94,14 +92,6 @@ pub trait TConfigurable {
     // setters
     async fn set_name(&self, name: String) -> Result<(), Error>;
     async fn set_description(&self, description: String) -> Result<(), Error>;
-    // only macros set the port, and they need the `deno` feature
-    #[cfg_attr(not(feature = "deno"), allow(dead_code))]
-    async fn set_port(&self, _port: u32) -> Result<(), Error> {
-        Err(Error {
-            kind: ErrorKind::UnsupportedOperation,
-            source: eyre!("This server does not support setting port"),
-        })
-    }
     async fn set_auto_start(&self, _auto_start: bool) -> Result<(), Error> {
         Err(Error {
             kind: ErrorKind::UnsupportedOperation,
@@ -112,12 +102,6 @@ pub trait TConfigurable {
         Err(Error {
             kind: ErrorKind::UnsupportedOperation,
             source: eyre!("This server does not support setting restart on crash"),
-        })
-    }
-    async fn set_backup_period(&self, _backup_period: Option<u32>) -> Result<(), Error> {
-        Err(Error {
-            kind: ErrorKind::UnsupportedOperation,
-            source: eyre!("This server does not support setting backup period"),
         })
     }
 

@@ -8,7 +8,6 @@ import { useIsomorphicLayoutEffect } from 'usehooks-ts';
 import { useUserAuthorized } from 'data/UserInfo';
 import {
   COMMAND_LINE_SETTINGS,
-  useCanControlInstance,
   useCommandLineBlockedReason,
 } from 'data/CodeExecution';
 import ToggleBox from './Atoms/Config/ToggleBox';
@@ -40,14 +39,11 @@ export default function SettingField({
 }) {
   const { name: label, type, options, value: initialValue, min, max } = setting;
   const commandLineBlockedReason = useCommandLineBlockedReason();
-  const canControlInstance = useCanControlInstance(instance);
-  // atom instances can only be changed by the owner; java_cmd and
-  // cmd_args also need code execution to be enabled
-  const readOnlyReason = !canControlInstance
-    ? t('console.ownerOnlyAtomSentence')
-    : COMMAND_LINE_SETTINGS.includes(settingId)
-      ? commandLineBlockedReason
-      : null;
+  // java_cmd and cmd_args need the owner (or a trusted user) and code
+  // execution to be enabled
+  const readOnlyReason = COMMAND_LINE_SETTINGS.includes(settingId)
+    ? commandLineBlockedReason
+    : null;
   const is_mutable = setting.is_mutable && !readOnlyReason;
   const description = readOnlyReason ? (
     <>

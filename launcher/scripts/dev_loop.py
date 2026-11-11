@@ -30,8 +30,7 @@ The apps never use your real data here. The launcher gets its own data folder
 (`launcher/target/dev-loop/launcher`, kept between runs, or `--data DIR`). The Host
 gets its own core data, Host data and launcher folders under
 `launcher/target/dev-loop/host`, and its core listens on port 16762
-(`--core-port`), not 16662. The Host's core is built once at the start, without Deno,
-and again when a file in `core/` changes.
+(`--core-port`), not 16662. The Host's core is built once at the start, and again when a file in `core/` changes.
 """
 
 import argparse
@@ -161,7 +160,6 @@ class App:
         return cargo_build(["-p", self.package, *features], LAUNCHER)
 
     def build_core(self) -> bool:
-        # The Host's core: never with Deno.
         return cargo_build(["-p", "lodestone_core", "--no-default-features"], ROOT)
 
     def command(self) -> list[str]:

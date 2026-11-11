@@ -660,8 +660,6 @@ impl ConsolePage {
         let instance = state.instance(&self.uuid);
         if !self.can_read || self.status == StreamStatus::NoPermission {
             Some(M::ConsoleInputNoPermission)
-        } else if instance.is_some_and(|i| i.is_atom()) && !state.me.is_owner {
-            Some(M::ConsoleOwnerOnlyAtom)
         } else if instance.is_some_and(|i| i.state == InstanceState::Stopped) {
             Some(M::ConsoleServerStopped)
         } else if self.status == StreamStatus::Closed {

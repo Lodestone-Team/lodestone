@@ -22,7 +22,6 @@
 //   upload / download                importer / télécharger
 //   mod / modpack                    mod / modpack
 //   resource pack                    pack de ressources
-//   macro                            macro (f.)
 //   player / world                   joueur / monde
 //   port / address                   port / adresse
 //   memory (RAM)                     mémoire
@@ -225,14 +224,7 @@ export const fr: Messages = {
   'shell.event.playerMessage': '{player} a dit {message} sur {name}',
   'shell.event.apiKeyCreated': 'Clé d’API « {name} » créée',
   'shell.event.apiKeyRevoked': 'Clé d’API « {name} » révoquée',
-  'shell.event.macroStarted': 'Macro {pid} démarrée sur {server}',
-  'shell.event.macroDetached': 'Macro {pid} détachée sur {server}',
-  'shell.event.macroStopped':
-    'Macro {pid} arrêtée sur {server} avec l’état {status}',
   'shell.event.loadFailed': 'Impossible de charger les notifications : {error}',
-
-  'shell.noScripting':
-    'Ce core a été compilé sans prise en charge des scripts (Deno) : les macros ne sont pas disponibles.',
 
   'shell.userMenu.guest': 'Invité',
   'shell.userMenu.account': 'Compte : {name}',
@@ -412,15 +404,11 @@ export const fr: Messages = {
     'Voulez-vous vraiment désactiver le mode sécurisé ? Vous pourrez alors permettre à d’autres utilisateurs que vous d’exécuter des commandes potentiellement dangereuses. Assurez-vous de faire confiance à tous les utilisateurs à qui vous donnez ces autorisations.',
   'settings.core.turnOff': 'Désactiver',
   'settings.core.codeExecution.label': 'Exécution de code',
-  'settings.core.codeExecution.hint':
-    'Macros, serveurs atom, extensions, scripts de serveur et commandes Java personnalisées.',
-  'settings.core.codeExecution.hintJavaOnly': 'Commandes Java personnalisées.',
+  'settings.core.codeExecution.hint': 'Commandes Java personnalisées.',
   'settings.core.codeExecution.locked':
     'Verrouillé par l’administrateur de ce core (LODESTONE_DISABLE_CODE_EXECUTION ou --disable-code-execution).',
   'settings.core.codeExecution.offTitle': 'Désactiver l’exécution de code ?',
   'settings.core.codeExecution.offBody':
-    'Les macros et serveurs atom en cours seront arrêtés. Les macros, serveurs atom, extensions, scripts de serveur et commandes Java personnalisées ne s’exécuteront plus sur ce core tant que vous n’aurez pas réactivé l’exécution de code. Rien n’est redémarré automatiquement.',
-  'settings.core.codeExecution.offBodyJavaOnly':
     'Les commandes Java personnalisées ne s’exécuteront plus sur ce core tant que vous n’aurez pas réactivé l’exécution de code. Rien n’est redémarré automatiquement.',
   'settings.core.lanHttp.label': 'Autoriser l’accès LAN en HTTP simple',
   'settings.core.lanHttp.hint':
@@ -477,9 +465,6 @@ export const fr: Messages = {
   'settings.users.unsafePermissions': 'Autorisations à risque',
   'settings.users.unsafePermissionsLead':
     'Désactivez le mode sécurisé pour les accorder à d’autres utilisateurs.',
-  'settings.users.ownerOnly': 'Macros, extensions et serveurs atom',
-  'settings.users.ownerOnlyHint':
-    'Réservé au propriétaire. Les serveurs Docker utilisent les autorisations habituelles.',
 
   'settings.permission.can_create_instance.title': 'Créer des serveurs',
   'settings.permission.can_create_instance.user':
@@ -666,9 +651,6 @@ export const fr: Messages = {
   'settings.apiKeys.unsafe': 'Paramètres à risque',
   'settings.apiKeys.unsafeSafeMode':
     'Le mode sécurisé est activé : le core refuse donc ces autorisations aux clés à accès personnalisé tant que le mode sécurisé n’est pas désactivé dans les paramètres du core.',
-  'settings.apiKeys.ownerOnly': 'Macros, extensions et serveurs atom',
-  'settings.apiKeys.ownerOnlyHint':
-    'Seules les clés à accès complet peuvent utiliser les macros, les extensions et les serveurs atom.',
   'settings.apiKeys.newTitle': 'Clé d’API « {name} » créée',
   'settings.apiKeys.newCopyNow':
     'Copiez cette clé maintenant. Vous ne pourrez plus la voir.',
@@ -688,7 +670,6 @@ export const fr: Messages = {
   'server.tab.console': 'Console',
   'server.tab.files': 'Fichiers',
   'server.tab.mods': 'Mods',
-  'server.tab.macros': 'Macros',
   'server.tab.logs': 'Journal d’événements',
 
   // InstanceTabs
@@ -867,10 +848,6 @@ export const fr: Messages = {
   'server.action.restart': 'Redémarrer',
   'server.action.kill': 'Forcer l’arrêt',
   'server.card.power': 'Alimentation',
-  'server.card.noScripting':
-    'Ce core a été compilé sans prise en charge des scripts (Deno) : les serveurs atom ne sont pas disponibles.',
-  'server.card.codeExecutionDisabled':
-    'L’exécution de code est désactivée sur ce core',
   'server.card.copyIp': 'Copier l’IP',
   'server.card.share': 'Partager',
   'server.card.shareHint': 'Partager ce serveur avec un lien',
@@ -918,7 +895,7 @@ export const fr: Messages = {
   'server.api.loginFailed': 'Échec de la connexion : {message}',
   'server.api.loginError': 'Erreur : {message}',
 
-  // ===== Console and macros =====
+  // ===== Console =====
 
   // GameConsole: a server's console tab
   'console.pageTitle': 'Console du serveur',
@@ -951,57 +928,11 @@ export const fr: Messages = {
   'console.line.linkedUser':
     'L’utilisateur Lodestone qui a associé ce compte Minecraft',
 
-  // CodeExecution: owner-only features and the code execution switch
-  'console.ownerOnlyAtom':
-    'Seul le propriétaire peut contrôler les serveurs atom',
-  'console.ownerOnlyAtomSentence':
-    'Seul le propriétaire peut contrôler les serveurs atom.',
+  // CodeExecution: the custom Java command settings and the code execution switch
   'console.commandLine.readOnly':
     'Lecture seule tant que l’exécution de code est désactivée sur ce core.',
   'console.commandLine.ownerOnly':
     'Seul le propriétaire peut modifier ce paramètre.',
-
-  // Macros page
-  'console.macros.pageTitle': 'Macros du serveur',
-  'console.macros.intro': 'Toutes les macros de votre serveur',
-  'console.macros.ownerOnly':
-    'Les macros sont réservées au propriétaire de ce core.',
-  'console.macros.codeExecutionDisabledBanner':
-    'L’exécution de code est désactivée sur ce core. Les macros ne peuvent pas être exécutées ni configurées tant qu’elle n’est pas réactivée dans les paramètres du core.',
-  'console.macros.codeExecutionDisabled':
-    'L’exécution de code est désactivée sur ce core',
-  'console.macros.tab.macros': 'Toutes les macros',
-  'console.macros.tab.tasks': 'Tâches en cours',
-  'console.macros.tab.history': 'Historique',
-  'console.macros.column.name': 'NOM DE LA MACRO',
-  'console.macros.column.lastRun': 'DERNIÈRE EXÉCUTION',
-  'console.macros.column.created': 'CRÉÉE',
-  'console.macros.column.finished': 'TERMINÉE',
-  'console.macros.column.pid': 'ID DE PROCESSUS',
-  'console.macros.noTime': 'N/D',
-  'console.macros.run': 'Exécuter la macro',
-  'console.macros.editConfig': 'Modifier la configuration',
-  'console.macros.killTask': 'Forcer l’arrêt de la tâche',
-  'console.macros.configTitle': 'Configuration de la macro',
-  'console.macros.configRequired':
-    'Cette macro nécessite une configuration supplémentaire.',
-  'console.macros.noServer': 'Aucun serveur sélectionné',
-  'console.macros.loadFailed': 'Impossible de charger les macros : {error}',
-  'console.macros.openConfigFailed':
-    'Erreur à l’ouverture de la configuration de la macro : {error}',
-  'console.macros.runFailed':
-    'Erreur lors de l’exécution de la macro : {error}',
-  'console.macros.killFailed':
-    'Impossible de forcer l’arrêt de la tâche : {error}',
-  'console.macros.saveConfigFailed':
-    'Impossible d’enregistrer la configuration de la macro : {error}',
-  'console.macros.invalidState': 'Erreur : état non valide',
-
-  // MacroCreateForm (not used yet)
-  'console.macros.create.name': 'Nom de la macro',
-  'console.macros.create.args': 'Arguments',
-  'console.macros.create.submit': 'Créer la macro',
-  'console.macros.create.nameRequired': 'Le nom de la macro est obligatoire',
 
   // ===== Creating a server =====
 

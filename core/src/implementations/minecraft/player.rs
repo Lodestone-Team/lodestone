@@ -43,10 +43,6 @@ impl TPlayer for MinecraftPlayer {
     fn get_id(&self) -> String {
         self.uuid.clone().unwrap_or_else(|| self.name.clone())
     }
-
-    fn get_name(&self) -> String {
-        self.name.clone()
-    }
 }
 
 #[async_trait]

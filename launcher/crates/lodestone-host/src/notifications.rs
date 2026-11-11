@@ -131,37 +131,6 @@ pub fn describe(event: &ClientEvent) -> Option<(String, String)> {
             }
             _ => return None,
         },
-        EventInner::MacroEvent(macro_event) => {
-            let pid = match &macro_event.macro_pid {
-                serde_json::Value::String(s) => s.clone(),
-                other => other.to_string(),
-            };
-            let server = macro_event
-                .instance_uuid
-                .clone()
-                .unwrap_or_else(|| t(CoreMsg::CoreFallback).to_string());
-            match macro_event
-                .macro_event_inner
-                .get("type")
-                .and_then(|v| v.as_str())
-            {
-                Some("Started") => tr!(CoreMsg::MacroStarted, pid = pid, server = server),
-                Some("Detach") => tr!(CoreMsg::MacroDetached, pid = pid, server = server),
-                Some("Stopped") => {
-                    let status = macro_event.macro_event_inner["exit_status"]["type"]
-                        .as_str()
-                        .unwrap_or("")
-                        .to_string();
-                    tr!(
-                        CoreMsg::MacroStopped,
-                        pid = pid,
-                        server = server,
-                        status = status
-                    )
-                }
-                _ => return None,
-            }
-        }
         _ => return None,
     };
     Some((title, String::new()))

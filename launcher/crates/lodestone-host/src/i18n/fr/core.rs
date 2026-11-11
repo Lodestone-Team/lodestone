@@ -34,22 +34,13 @@ pub fn text(message: M) -> &'static str {
         }
         M::TurnOff => "Désactiver",
         M::CodeExecution => "Exécution de code",
-        M::CodeExecutionHint => {
-            "Macros, serveurs atom, extensions, scripts de serveur et commandes Java personnalisées."
-        }
-        M::CodeExecutionHintJavaOnly => "Commandes Java personnalisées.",
+        M::CodeExecutionHint => "Commandes Java personnalisées.",
         M::CodeExecutionLocked => {
             "Verrouillé par l’administrateur de ce core (LODESTONE_DISABLE_CODE_EXECUTION ou --disable-code-execution)."
         }
         M::CodeExecutionOffTitle => "Désactiver l’exécution de code ?",
         M::CodeExecutionOffBody => {
-            "Les macros et serveurs atom en cours seront arrêtés. Les macros, serveurs atom, extensions, scripts de serveur et commandes Java personnalisées ne s’exécuteront plus sur ce core tant que vous n’aurez pas réactivé l’exécution de code. Rien n’est redémarré automatiquement."
-        }
-        M::CodeExecutionOffBodyJavaOnly => {
             "Les commandes Java personnalisées ne s’exécuteront plus sur ce core tant que vous n’aurez pas réactivé l’exécution de code. Rien n’est redémarré automatiquement."
-        }
-        M::NoScripting => {
-            "Ce core a été compilé sans prise en charge des scripts (Deno) : les macros ne sont pas disponibles."
         }
         M::LanHttp => "Autoriser l’accès LAN en HTTP simple",
         M::LanHttpHint => {
@@ -123,10 +114,6 @@ pub fn text(message: M) -> &'static str {
         M::UnsafePermissions => "Autorisations à risque",
         M::UnsafePermissionsLead => {
             "Désactivez le mode sécurisé pour les accorder à d’autres utilisateurs."
-        }
-        M::OwnerOnly => "Macros, extensions et serveurs atom",
-        M::OwnerOnlyHint => {
-            "Réservé au propriétaire. Les serveurs Docker utilisent les autorisations habituelles."
         }
         M::UsersOwnerOnly => "Seul le propriétaire gère les utilisateurs.",
         M::You => "Vous",
@@ -305,10 +292,6 @@ pub fn text(message: M) -> &'static str {
         M::KeyUnsafeSafeMode => {
             "Le mode sécurisé est activé : le core refuse donc ces autorisations aux clés à accès personnalisé tant que le mode sécurisé n’est pas désactivé dans les paramètres du core."
         }
-        M::KeyOwnerOnly => "Macros, extensions et serveurs atom",
-        M::KeyOwnerOnlyHint => {
-            "Seules les clés à accès complet peuvent utiliser les macros, les extensions et les serveurs atom."
-        }
         M::NewKeyTitle => "Clé d’API « {name} » créée",
         M::NewKeyCopyNow => "Copiez cette clé maintenant. Vous ne pourrez plus la voir.",
         M::NewKeyUseWithCli => "Utilisez-la avec la CLI Lodestone :",
@@ -353,11 +336,7 @@ pub fn text(message: M) -> &'static str {
         M::PlayerMessage => "{player} a dit {message} sur {name}",
         M::EventApiKeyCreated => "Clé d’API « {name} » créée",
         M::EventApiKeyRevoked => "Clé d’API « {name} » révoquée",
-        M::MacroStarted => "Macro {pid} démarrée sur {server}",
-        M::MacroDetached => "Macro {pid} détachée sur {server}",
-        M::MacroStopped => "Macro {pid} arrêtée sur {server} avec l’état {status}",
         M::LoadFailed => "Impossible de charger les notifications : {error}",
-        M::CoreFallback => "Core",
         M::CoreFailedNotice => "Lodestone Core n’a pas pu démarrer : {error}",
         M::UpdatesTitle => "Mises à jour",
         M::UpdatesLead => {

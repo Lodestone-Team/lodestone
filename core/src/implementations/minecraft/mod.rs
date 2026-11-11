@@ -3,7 +3,6 @@ pub mod eula;
 pub mod fabric;
 mod forge;
 mod line_parser;
-pub mod r#macro;
 mod paper;
 pub mod player;
 mod players_manager;
@@ -39,7 +38,7 @@ use ts_rs::TS;
 use crate::error::{Error, ErrorKind};
 use crate::event_broadcaster::EventBroadcaster;
 use crate::events::{Event, ProgressionEventID};
-use crate::macro_executor::{MacroExecutor, MacroPID};
+use crate::global_settings::CodeExecutionSwitch;
 use crate::prelude::path_to_binaries;
 use crate::traits::t_configurable::PathBuf;
 
@@ -49,7 +48,6 @@ use crate::traits::t_configurable::manifest::{
 };
 
 use crate::modpack::ModpackOrigin;
-use crate::traits::t_macro::TaskEntry;
 use crate::traits::t_server::State;
 use crate::traits::{InstanceDetails, TInstance};
 use crate::types::{DotLodestoneConfig, InstanceUuid};
@@ -232,7 +230,6 @@ pub struct MinecraftInstance {
     path_to_properties: PathBuf,
 
     // directory paths
-    path_to_macros: PathBuf,
     path_to_runtimes: PathBuf,
 
     process: Arc<Mutex<Option<Child>>>,
@@ -246,10 +243,9 @@ pub struct MinecraftInstance {
     system: Arc<Mutex<sysinfo::System>>,
     players_manager: Arc<Mutex<PlayersManager>>,
     configurable_manifest: Arc<Mutex<ConfigurableManifest>>,
-    macro_executor: MacroExecutor,
+    /// The code execution kill switch, which custom Java commands need.
+    code_execution: CodeExecutionSwitch,
     rcon_conn: Arc<Mutex<Option<rcon::Connection<tokio::net::TcpStream>>>>,
-    macro_name_to_last_run: Arc<Mutex<HashMap<String, i64>>>,
-    pid_to_task_entry: Arc<Mutex<IndexMap<MacroPID, TaskEntry>>>,
 }
 
 fn bad_request(message: impl Into<String>) -> Error {
@@ -736,7 +732,6 @@ impl MinecraftInstance {
         let path_to_resources = path_to_instance.join("resources");
         tokio::fs::create_dir_all(path_to_instance)
             .await
-            .and(tokio::fs::create_dir_all(path_to_instance.join("macros")).await)
             .and(tokio::fs::create_dir_all(path_to_resources.join("mods")).await)
             .and(tokio::fs::create_dir_all(path_to_resources.join("worlds")).await)
             .and(tokio::fs::create_dir_all(path_to_resources.join("defaults")).await)
@@ -768,7 +763,7 @@ impl MinecraftInstance {
         path_to_instance: PathBuf,
         progression_event_id: &ProgressionEventID,
         event_broadcaster: EventBroadcaster,
-        macro_executor: MacroExecutor,
+        code_execution: CodeExecutionSwitch,
     ) -> Result<MinecraftInstance, Error> {
         let path_to_config = path_to_instance.join(".lodestone_minecraft_config.json");
         let path_to_runtimes = path_to_binaries().to_owned();
@@ -945,7 +940,7 @@ impl MinecraftInstance {
             path_to_instance,
             dot_lodestone_config,
             event_broadcaster,
-            macro_executor,
+            code_execution,
         )
         .await
     }
@@ -954,7 +949,7 @@ impl MinecraftInstance {
         path_to_instance: PathBuf,
         dot_lodestone_config: DotLodestoneConfig,
         event_broadcaster: EventBroadcaster,
-        macro_executor: MacroExecutor,
+        code_execution: CodeExecutionSwitch,
     ) -> Result<MinecraftInstance, Error> {
         let path_to_config = path_to_instance.join(".lodestone_minecraft_config.json");
         let config_bytes = tokio::fs::read(&path_to_config).await.context(format!(
@@ -964,7 +959,6 @@ impl MinecraftInstance {
         let restore_config: RestoreConfig = serde_json::from_slice(&config_bytes).context(
             "Failed to deserialize config from string. Was the config file modified manually?",
         )?;
-        let path_to_macros = path_to_instance.join("macros");
         let path_to_properties = path_to_instance.join("server.properties");
         let path_to_runtimes = path_to_binaries().clone();
         // if the properties file doesn't exist, create it
@@ -1003,8 +997,7 @@ impl MinecraftInstance {
             path_to_instance,
             path_to_config,
             path_to_properties,
-            path_to_macros,
-            macro_executor,
+            code_execution,
             event_broadcaster,
             path_to_runtimes,
             process: Arc::new(Mutex::new(None)),
@@ -1015,8 +1008,6 @@ impl MinecraftInstance {
             system: Arc::new(Mutex::new(crate::util::cpu_and_memory_system())),
             rcon_conn: Arc::new(Mutex::new(None)),
             configurable_manifest,
-            macro_name_to_last_run: Arc::new(Mutex::new(HashMap::new())),
-            pid_to_task_entry: Arc::new(Mutex::new(IndexMap::new())),
         };
         // A broken server.properties must not hide the instance.
         if let Err(e) = instance.refresh_properties_section().await {

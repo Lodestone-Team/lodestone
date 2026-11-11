@@ -30,7 +30,6 @@ pub fn text(message: M) -> &'static str {
         M::TabFiles => "Fichiers",
         M::TabMods => "Mods",
         M::TabPlugins => "Plugins",
-        M::TabMacros => "Macros",
         M::TabEventLogs => "Journal des événements",
         M::Settings => "Paramètres",
         M::SettingsMenu => "Paramètres…",
@@ -56,9 +55,6 @@ pub fn text(message: M) -> &'static str {
         M::HomeSubtitle => "Sélectionnez un serveur dans la barre latérale, ou créez-en un.",
         M::CreateServer => "Créer un serveur",
         M::NotBuilt => "Cette page n’est pas encore dans Lodestone Host.",
-        M::NeedsScripting => {
-            "Les macros nécessitent un core avec les scripts. Le core de Lodestone Host fonctionne sans."
-        }
         M::InstanceNotFound => "Serveur introuvable",
         M::ShowHost => "Afficher Lodestone Host",
         M::QuitHost => "Quitter Lodestone Host",

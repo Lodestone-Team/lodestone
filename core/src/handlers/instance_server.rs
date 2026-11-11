@@ -22,9 +22,7 @@ use crate::{
     AppState,
 };
 
-use super::util::{
-    get_instance, is_atom, require_code_execution, require_owner_for_atom, AuthedUser,
-};
+use super::util::{get_instance, AuthedUser};
 
 fn is_docker(uuid: &InstanceUuid) -> bool {
     uuid.to_string().starts_with("DOCKER-")
@@ -43,10 +41,6 @@ pub async fn start_instance(
         return Ok(Json(()));
     }
     let instance = get_instance(&state, &uuid)?;
-    require_owner_for_atom(&requester, &instance)?;
-    if is_atom(&instance) {
-        require_code_execution(&state)?;
-    }
     let port = instance.port().await;
 
     // check if port is already in use
@@ -74,7 +68,6 @@ pub async fn stop_instance(
         return Ok(Json(()));
     }
     let instance = get_instance(&state, &uuid)?;
-    require_owner_for_atom(&requester, &instance)?;
     instance.stop(requester.caused_by(), false).await?;
     Ok(Json(()))
 }
@@ -95,10 +88,6 @@ pub async fn restart_instance(
         return Ok(Json(()));
     }
     let instance = get_instance(&state, &uuid)?;
-    require_owner_for_atom(&requester, &instance)?;
-    if is_atom(&instance) {
-        require_code_execution(&state)?;
-    }
     instance.restart(requester.caused_by(), false).await?;
     Ok(Json(()))
 }
@@ -116,7 +105,6 @@ pub async fn kill_instance(
         return Ok(Json(json!("ok")));
     }
     let instance = get_instance(&state, &uuid)?;
-    require_owner_for_atom(&requester, &instance)?;
     instance.kill(requester.caused_by()).await?;
     Ok(Json(json!("ok")))
 }
@@ -131,7 +119,6 @@ pub async fn send_command(
         .require(&state, UserAction::AccessConsole(uuid.clone()))
         .await?;
     let instance = get_instance(&state, &uuid)?;
-    require_owner_for_atom(&requester, &instance)?;
     instance
         .send_command(&command, requester.caused_by())
         .await
@@ -157,11 +144,6 @@ pub async fn get_instance_state(
 fn minecraft_instance(state: &AppState, uuid: &InstanceUuid) -> Result<MinecraftInstance, Error> {
     match get_instance(state, uuid)? {
         GameInstance::MinecraftInstance(instance) => Ok(instance),
-        #[cfg(feature = "deno")]
-        GameInstance::GenericInstance(_) => Err(Error {
-            kind: ErrorKind::BadRequest,
-            source: eyre!("Only Minecraft servers have a Minecraft EULA"),
-        }),
     }
 }
 

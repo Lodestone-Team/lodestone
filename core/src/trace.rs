@@ -184,12 +184,6 @@ pub fn event_topic(event: &Event) -> String {
                 inner_type(json!({ "x": e.user_event_inner }), "x")
             )
         }
-        EventInner::MacroEvent(e) => {
-            format!(
-                "macro.{}",
-                inner_type(json!({ "x": e.macro_event_inner }), "x")
-            )
-        }
         EventInner::ProgressionEvent(e) => {
             match inner_type(json!({ "x": e.progression_event_inner() }), "x").as_str() {
                 "progression_start" => "task.start".into(),

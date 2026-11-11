@@ -7,9 +7,8 @@ use ts_rs::TS;
 
 use crate::{
     auth::{permission::UserPermission, user_id::UserId},
-    macro_executor::MacroPID,
     output_types::ClientEvent,
-    traits::{t_macro::ExitStatus, t_player::Player, t_server::State, InstanceInfo},
+    traits::{t_player::Player, t_server::State, InstanceInfo},
     types::{InstanceUuid, Snowflake, TimeRange},
 };
 
@@ -175,38 +174,6 @@ pub struct UserEvent {
 #[derive(Serialize, Deserialize, Clone, Debug, TS, PartialEq)]
 #[ts(export)]
 #[serde(tag = "type")]
-pub enum MacroEventInner {
-    Started,
-    /// Macro requests to be detached, useful for macros that run in the background such as prelaunch script
-    Detach,
-    Stopped {
-        exit_status: ExitStatus,
-    },
-}
-#[derive(Serialize, Deserialize, Clone, Debug, TS, PartialEq)]
-#[ts(export)]
-pub struct MacroEvent {
-    pub instance_uuid: Option<InstanceUuid>,
-    pub macro_pid: MacroPID,
-    pub macro_event_inner: MacroEventInner,
-}
-
-impl From<MacroEvent> for Event {
-    fn from(val: MacroEvent) -> Self {
-        Event {
-            details: "".to_string(),
-            snowflake: Snowflake::default(),
-            event_inner: EventInner::MacroEvent(val.clone()),
-            caused_by: CausedBy::Macro {
-                macro_pid: val.macro_pid,
-            },
-        }
-    }
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, TS, PartialEq)]
-#[ts(export)]
-#[serde(tag = "type")]
 pub enum ProgressionEndValue {
     InstanceCreation(InstanceInfo),
     InstanceDelete {
@@ -318,7 +285,6 @@ impl ProgressionEvent {
 pub enum EventInner {
     InstanceEvent(InstanceEvent),
     UserEvent(UserEvent),
-    MacroEvent(MacroEvent),
     FSEvent(FSEvent),
     ProgressionEvent(ProgressionEvent),
     /// A global setting that changes what clients may do (such as code execution) changed.
@@ -344,7 +310,6 @@ fn event_type_export() {
 pub enum CausedBy {
     User { user_id: UserId, user_name: String },
     Instance { instance_uuid: InstanceUuid },
-    Macro { macro_pid: MacroPID },
     System,
     Unknown,
 }
@@ -412,13 +377,6 @@ impl Event {
     pub fn get_instance_uuid(&self) -> Option<InstanceUuid> {
         match &self.event_inner {
             EventInner::InstanceEvent(instance_event) => Some(instance_event.instance_uuid.clone()),
-            _ => None,
-        }
-    }
-
-    pub fn try_macro_event(&self) -> Option<&MacroEvent> {
-        match &self.event_inner {
-            EventInner::MacroEvent(macro_event) => Some(macro_event),
             _ => None,
         }
     }
@@ -557,19 +515,6 @@ impl Event {
                     message: message.map(|s| s.as_ref().to_string()),
                     inner,
                 },
-            }),
-            caused_by: CausedBy::System,
-        }
-    }
-
-    pub fn new_macro_detach_event(macro_pid: MacroPID) -> Event {
-        Event {
-            details: "".to_string(),
-            snowflake: Snowflake::default(),
-            event_inner: EventInner::MacroEvent(MacroEvent {
-                macro_pid,
-                instance_uuid: None,
-                macro_event_inner: MacroEventInner::Detach,
             }),
             caused_by: CausedBy::System,
         }

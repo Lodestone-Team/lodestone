@@ -52,7 +52,6 @@ Your Minecraft server, on your own machine. Lodestone Host, previously called Lo
 - Console, files, and live CPU and memory use for every server.
 - Share a server with friends through an invite link, without port forwarding, with Lodestone Connect.
 - Users and permissions for everyone who helps run your servers.
-- [Macros](https://github.com/Lodestone-Team/lodestone/wiki/Intro-to-Macro-and-Task) to extend it.
 - API keys and a CLI for scripts, bots and agents.
 
 ### Installation
@@ -84,7 +83,7 @@ lodestone_cli server start survival --wait
 lodestone_cli console survival --follow
 ```
 
-- It does everything the dashboard does: servers, console, players, files, mods, users, macros and more. Run `lodestone_cli <command> --help` for the details.
+- It does everything the dashboard does: servers, console, players, files, mods, users and more. Run `lodestone_cli <command> --help` for the details.
 - For scripts and agents, add `--json` for machine-readable output, and use a limited, expiring API key (`lodestone_cli api-keys create`) instead of your password.
 - It is self-contained: download and run the [latest release](https://github.com/Lodestone-Team/lodestone_cli/releases/latest), and it installs, updates and runs Lodestone Host.
 
@@ -106,7 +105,7 @@ Lodestone is still new, and we'd like to hear your feedback. If you have a sugge
 
 The Lodestone project uses the GNU Affero General Public License v3.0. See our `LICENSE` file for details.
 
-Lodestone and all its components (launcher, Host, CLI, dashboard, macros, etc.) are free for personal use, forever. 
+Lodestone and all its components (launcher, Host, CLI, dashboard, etc.) are free for personal use, forever. 
 
 You may use Lodestone for commercial purposes, but you must disclose the source code of any modifications you make to Lodestone. You must also disclose the source code of any software that uses Lodestone's API.
 

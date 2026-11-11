@@ -33,7 +33,6 @@ crate::i18n::messages! {
         TabFiles = "Files",
         TabMods = "Mods",
         TabPlugins = "Plugins",
-        TabMacros = "Macros",
         TabEventLogs = "Event logs",
         /// The settings and their pages.
         Settings = "Settings",
@@ -67,7 +66,6 @@ crate::i18n::messages! {
         CreateServer = "Create a new server",
         /// A page still to be built (development builds).
         NotBuilt = "This page isn’t in Lodestone Host yet.",
-        NeedsScripting = "Macros need a core with scripting. Lodestone Host’s core runs without it.",
         InstanceNotFound = "Server not found",
         /// The menu bar icon.
         ShowHost = "Show Lodestone Host",

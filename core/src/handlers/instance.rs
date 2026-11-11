@@ -25,9 +25,7 @@ use crate::types::{DotLodestoneConfig, InstanceUuid};
 use crate::{implementations::minecraft, traits::t_server::State as InstanceState, AppState};
 
 use super::instance_setup_configs::HandlerGameType;
-use super::util::{
-    all_instances, get_instance, require_code_execution, require_owner_if_atom, AuthedUser,
-};
+use super::util::{all_instances, get_instance, require_code_execution, AuthedUser};
 
 /// The longest instance name, in characters, that is used in the folder name.
 const MAX_DIR_NAME_CHARS: usize = 64;
@@ -216,7 +214,7 @@ pub(super) async fn spawn_minecraft_instance_creation(
                     setup_path.clone(),
                     &event_id,
                     state.event_broadcaster.clone(),
-                    state.macro_executor.clone(),
+                    state.code_execution.clone(),
                 )
                 .await?;
                 let Some(post_setup) = post_setup else {
@@ -229,7 +227,7 @@ pub(super) async fn spawn_minecraft_instance_creation(
                     setup_path.clone(),
                     dot_lodestone_config,
                     state.event_broadcaster.clone(),
-                    state.macro_executor.clone(),
+                    state.code_execution.clone(),
                 )
                 .await?;
                 Ok::<_, Error>((instance, message))
@@ -301,7 +299,6 @@ pub async fn delete_instance(
     requester
         .require(&state, UserAction::DeleteInstance)
         .await?;
-    require_owner_if_atom(&state, &requester, &uuid)?;
     let caused_by = requester.caused_by();
     if let Some((_, instance)) = state.instances.remove(&uuid) {
         if !(instance.state().await == InstanceState::Stopped) {
@@ -345,11 +342,6 @@ pub async fn delete_instance(
                 .await
                 .deallocate(instance.port().await);
             let instance_path = instance.path().await;
-            // if instance is generic
-            #[cfg(feature = "deno")]
-            if let crate::prelude::GameInstance::GenericInstance(i) = instance {
-                i.destruct().await;
-            };
             state.public_listing.forget(&uuid).await;
             let res = crate::util::fs::remove_dir_all(instance_path).await;
             match &res {
@@ -383,25 +375,15 @@ pub async fn delete_instance(
 }
 
 pub fn get_instance_routes(state: AppState) -> Router {
-    let router = Router::new()
+    Router::new()
         .route("/instance/list", get(get_instance_list))
         .route(
             "/instance/create/{game_type}",
             post(create_minecraft_instance),
         )
         .route("/instance/{uuid}", delete(delete_instance))
-        .route("/instance/{uuid}/info", get(get_instance_info));
-    #[cfg(feature = "deno")]
-    let router = router.route(
-        "/instance/create_generic",
-        post(super::generic_instance::create_generic_instance),
-    );
-    #[cfg(not(feature = "deno"))]
-    let router = router.route(
-        "/instance/create_generic",
-        post(|| async { crate::capabilities::Capability::GenericInstances.unavailable() }),
-    );
-    router.with_state(state)
+        .route("/instance/{uuid}/info", get(get_instance_info))
+        .with_state(state)
 }
 
 #[cfg(test)]

@@ -10,7 +10,6 @@ import {
   UnsafePermissions,
 } from 'components/Settings/permissionDescriptions';
 import { canGrantToApiKey } from 'data/ApiKeys';
-import { noScriptingMessage, useCoreCapabilities } from 'data/SystemInfo';
 import { useT } from 'i18n';
 
 /**
@@ -33,7 +32,6 @@ export default function ApiKeyScopeEditor({
   safeMode: boolean;
 }) {
   const t = useT();
-  const { macros: macrosAvailable } = useCoreCapabilities();
   const instanceUuids = instances.map((instance) => instance.uuid);
   const instanceName = (uuid: string) =>
     instances.find((instance) => instance.uuid === uuid)?.name || uuid;
@@ -126,16 +124,6 @@ export default function ApiKeyScopeEditor({
         )}
       </div>
       {permissionList(UnsafePermissions)}
-      <div>
-        <div className="text-h3 leading-tight font-bold tracking-medium text-white/50">
-          {t('settings.apiKeys.ownerOnly')}
-        </div>
-        <div className="text-medium font-medium tracking-medium text-white/50 italic">
-          {macrosAvailable
-            ? t('settings.apiKeys.ownerOnlyHint')
-            : noScriptingMessage()}
-        </div>
-      </div>
     </div>
   );
 }

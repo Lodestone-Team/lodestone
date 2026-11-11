@@ -25,7 +25,6 @@ pub fn text(message: M) -> &'static str {
             "Les paramètres, mondes et sauvegardes de cette instance seront définitivement supprimés. Sauvegardez vos données importantes avant de continuer."
         }
         M::Deleting => "Suppression de {name}…",
-        M::OwnerOnlyAtom => "Seul le propriétaire peut contrôler les serveurs atom.",
         M::CommandLineReadOnly => {
             "Lecture seule tant que l’exécution de code est désactivée sur ce core."
         }

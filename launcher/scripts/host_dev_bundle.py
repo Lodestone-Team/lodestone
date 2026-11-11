@@ -2,10 +2,9 @@
 """Builds a runnable `Lodestone Host Dev.app` (macOS) for trying the GPUI Host.
 
 The app holds the Host (`lodestone-host`) and the core it runs as a child process
-(`lodestone_core`, built without the `deno` feature, as every Host build is). Its
-Info.plist points the core's data folder, the Host's own folder (logs, the
-single-instance socket) and the Launcher data folder it reads the friend list from
-into the output folder, so a test never touches `~/.lodestone`, the installed Host's
+(`lodestone_core`). Its Info.plist points the core's data folder, the Host's own
+folder (logs, the single-instance socket) and the Launcher data folder it reads the
+friend list from into the output folder, so a test never touches `~/.lodestone`, the installed Host's
 data, or the person's real friend identity. It is signed with this Mac's
 "Apple Development" certificate when it has one (or `--sign IDENTITY`), so macOS
 keeps treating rebuilds as the same app and Keychain items stay readable after
@@ -51,7 +50,6 @@ def run(cmd: list[str], cwd: Path) -> None:
 
 def build(release: bool) -> None:
     profile = ["--release"] if release else []
-    # the core: never with Deno
     run(["cargo", "build", "-p", "lodestone_core", "--no-default-features", *profile], ROOT)
     run(["cargo", "build", "-p", "lodestone-host", *profile], LAUNCHER)
 

@@ -31,8 +31,7 @@ pub struct GlobalSettingsData {
     pub core_name: String,
     pub safe_mode: bool,
     pub domain: Option<String>,
-    // Whether macros, atom instances, extensions, instance scripts and custom Java commands
-    // may run. Files written by older versions have no switch, so it defaults to on.
+    // Whether custom Java commands may run. Files written by older versions have no switch, so it defaults to on.
     #[serde(default = "default_true")]
     pub code_execution_enabled: bool,
     // Whether the administrator locked code execution off with LODESTONE_DISABLE_CODE_EXECUTION
@@ -126,10 +125,7 @@ pub fn code_execution_lock_from_env(cli_flag: bool) -> bool {
         } else {
             format!("{DISABLE_CODE_EXECUTION_ENV} is set")
         };
-        warn!(
-            "Code execution is locked off ({reason}): macros, atom instances, extensions, \
-             instance scripts and custom Java commands are disabled"
-        );
+        warn!("Code execution is locked off ({reason}): custom Java commands are disabled");
     } else if env_value.is_some() {
         info!("Ignoring {DISABLE_CODE_EXECUTION_ENV}: it is not 1, true or yes");
     }

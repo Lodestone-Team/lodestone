@@ -56,7 +56,6 @@ pub fn tab_name(tab: InstanceTab, instance: &InstanceInfo) -> &'static str {
             Some(ModSupport::Plugins) => ShellMsg::TabPlugins,
             _ => ShellMsg::TabMods,
         },
-        InstanceTab::Macros => ShellMsg::TabMacros,
         InstanceTab::EventLogs => ShellMsg::TabEventLogs,
     })
 }
@@ -70,7 +69,6 @@ pub fn tab_icon(tab: InstanceTab) -> Icon {
         InstanceTab::Console => Icon::Server,
         InstanceTab::Files => Icon::Folder,
         InstanceTab::Mods => Icon::PuzzlePiece,
-        InstanceTab::Macros => Icon::CodeCompare,
         InstanceTab::EventLogs => Icon::Inbox,
     }
 }
@@ -513,19 +511,16 @@ fn selected_card(
 ) -> impl IntoElement {
     let me = &state.me;
     let uuid = instance.uuid.clone();
-    let atom_blocked =
-        instance.is_atom() && (!me.is_owner || !state.info.capabilities.generic_instances);
     // what the core lets this user do: a restart stops and starts the server
     let powers = {
         let (uuid, me) = (uuid.clone(), me.clone());
         PowerButtons::new("power", instance.state).allow(move |power| {
             let may = |permission| me.may(permission, &uuid);
-            let allowed = match power {
+            match power {
                 Power::Start => may(InstancePermission::Start),
                 Power::Restart => may(InstancePermission::Start) && may(InstancePermission::Stop),
                 Power::Stop | Power::Kill => may(InstancePermission::Stop),
-            };
-            allowed && !atom_blocked
+            }
         })
     }
     .actions();
@@ -590,8 +585,7 @@ fn selected_card(
     let can_share = matches!(
         instance.game_type,
         launcher_core::cores::admin::models::Game::MinecraftJava { .. }
-    ) && me.may(InstancePermission::Settings, &uuid)
-        && !atom_blocked;
+    ) && me.may(InstancePermission::Settings, &uuid);
     let share: AnyElement = if can_share {
         let uuid = uuid.clone();
         div()

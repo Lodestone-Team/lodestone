@@ -28,19 +28,14 @@ pub fn text(message: M) -> &'static str {
         }
         M::TurnOff => "關閉",
         M::CodeExecution => "程式碼執行",
-        M::CodeExecutionHint => "巨集、Atom 伺服器、擴充功能、伺服器指令碼和自訂 Java 指令。",
-        M::CodeExecutionHintJavaOnly => "自訂 Java 指令。",
+        M::CodeExecutionHint => "自訂 Java 指令。",
         M::CodeExecutionLocked => {
             "已被此核心的管理員鎖定（LODESTONE_DISABLE_CODE_EXECUTION 或 --disable-code-execution）。"
         }
         M::CodeExecutionOffTitle => "要關閉程式碼執行嗎？",
         M::CodeExecutionOffBody => {
-            "執行中的巨集和 Atom 伺服器將會停止。在你重新開啟程式碼執行之前，巨集、Atom 伺服器、擴充功能、伺服器指令碼和自訂 Java 指令都不會在此核心上執行。任何項目都不會自動重新啟動。"
-        }
-        M::CodeExecutionOffBodyJavaOnly => {
             "在你重新開啟程式碼執行之前，自訂 Java 指令不會在此核心上執行。任何項目都不會自動重新啟動。"
         }
-        M::NoScripting => "此核心建置時未包含指令碼支援（Deno），因此無法使用巨集。",
         M::LanHttp => "允許透過未加密 HTTP 進行區域網路存取",
         M::LanHttpHint => "未加密。你網路中的其他人可以讀取密碼。",
         M::LanHttpConfirmTitle => "要允許其他裝置使用未加密 HTTP 嗎？",
@@ -106,8 +101,6 @@ pub fn text(message: M) -> &'static str {
         M::PermissionsLead => "{username} 在此核心上可以執行的操作。",
         M::UnsafePermissions => "不安全的權限",
         M::UnsafePermissionsLead => "關閉安全模式後才能授予非擁有者。",
-        M::OwnerOnly => "巨集、擴充功能和 Atom 伺服器",
-        M::OwnerOnlyHint => "僅限擁有者。Docker 伺服器使用一般權限。",
         M::UsersOwnerOnly => "只有擁有者可以管理使用者。",
         M::You => "你",
         M::Admin => "管理員",
@@ -245,8 +238,6 @@ pub fn text(message: M) -> &'static str {
         M::KeyUnsafeSafeMode => {
             "安全模式已開啟，因此在核心設定中關閉安全模式之前，核心會拒絕將這些權限授予自訂存取的金鑰。"
         }
-        M::KeyOwnerOnly => "巨集、擴充功能和 Atom 伺服器",
-        M::KeyOwnerOnlyHint => "只有完整存取的金鑰才能使用巨集、擴充功能和 Atom 伺服器。",
         M::NewKeyTitle => "已建立 API 金鑰「{name}」",
         M::NewKeyCopyNow => "請立即複製此金鑰。之後將無法再次檢視。",
         M::NewKeyUseWithCli => "在 Lodestone CLI 中使用：",
@@ -287,11 +278,7 @@ pub fn text(message: M) -> &'static str {
         M::PlayerMessage => "{player} 在 {name} 上說：{message}",
         M::EventApiKeyCreated => "已建立 API 金鑰「{name}」",
         M::EventApiKeyRevoked => "已撤銷 API 金鑰「{name}」",
-        M::MacroStarted => "巨集 {pid} 已在 {server} 上啟動",
-        M::MacroDetached => "巨集 {pid} 已在 {server} 上分離",
-        M::MacroStopped => "巨集 {pid} 已在 {server} 上停止，狀態為 {status}",
         M::LoadFailed => "無法載入通知：{error}",
-        M::CoreFallback => "核心",
         M::CoreFailedNotice => "Lodestone Core 無法啟動：{error}",
         M::UpdatesTitle => "更新",
         M::UpdatesLead => "這台電腦上的 Lodestone Host。Lodestone Core 隨之更新。",

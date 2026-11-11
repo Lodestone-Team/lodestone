@@ -61,20 +61,12 @@ jobs:
           persist-credentials: false
           ref: ${{ inputs.ref }}
 
-      # Installs the toolchain pinned in rust-toolchain.toml. Core is never cross-compiled
-      # (its build script snapshots deno for the host), so the target is the host target.
+      # Installs the toolchain pinned in rust-toolchain.toml, with the matrix's target.
       - name: Install Rust toolchain
         shell: bash
         run: |
           rustup toolchain install --profile minimal --no-self-update
           rustup target add ${{ matrix.target }}
-
-      # libclang is needed by bindgen (libsqlite3-sys, libnghttp2) in the deno dependency tree
-      - name: Install dependencies (linux only)
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y clang libclang-dev
 
       - name: Cache Dependencies
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3

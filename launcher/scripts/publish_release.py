@@ -65,7 +65,7 @@ the disk image is notarized and stapled.
 Lodestone Host releases the same way with `--product host` (`host-vX.Y.Z` tags,
 `lodestone-host-<build>-<platform>-standalone` files, "Host - Release"). Each of its
 builds is two programs: the Host and the Lodestone Core it runs as a child process,
-built from the repository's root workspace without the `deno` feature, uploaded as
+built from the repository's root workspace, uploaded as
 `lodestone-host-<build>-<platform>-core[.exe]` and listed in the manifest beside the
 Host as its `core`. The Windows installer and "Lodestone Host.app" hold both. See
 .claude/skills/publish-host-release/SKILL.md.
@@ -166,7 +166,7 @@ class Product:
     paths: tuple
     # The release workflow, as GitHub's Actions page names it.
     workflow: str
-    # Whether it ships Lodestone Core beside it (`lodestone_core`, without Deno).
+    # Whether it ships Lodestone Core beside it (`lodestone_core`).
     core: bool
 
 
@@ -823,7 +823,7 @@ def build_binary(target: str | None, build: int, commit: str, key: str, into: Pa
 
 def build_core(target: str | None, build: int, key: str, into: Path, dev: bool = False) -> Path:
     """Builds Lodestone Core, which the Host runs, for `target`, from the repository's
-    root workspace. Never with Deno: `--no-default-features`."""
+    root workspace, with `--no-default-features`."""
     profile = cargo_profile(dev)
     cmd = ["cargo", "build", "--profile", profile, "--locked", "-p", CORE_PACKAGE,
            "--no-default-features"]
@@ -1140,7 +1140,7 @@ def stage(targets: list[str | None], build: int, commit: str, version: str, into
         binary = build_binary(target, build, commit, key, into, dev)
         core = None
         if PRODUCT.core:
-            step(f"Building Lodestone Core for {key} ({profile}, without Deno)")
+            step(f"Building Lodestone Core for {key} ({profile})")
             core = build_core(target, build, key, into, dev)
         if key.startswith("macos-"):
             if not host.endswith("apple-darwin"):

@@ -275,19 +275,11 @@ impl InstanceSettingsPage {
             .is_some_and(|i| matches!(i.game_type, Game::MinecraftJava { .. }))
     }
 
-    /// Atom instances are the owner's alone (`useCanControlInstance`).
-    fn can_control(&self, cx: &Context<Self>) -> bool {
-        let state = self.state.read(cx);
-        state.me.is_owner || !self.instance(cx).is_some_and(|i| i.is_atom())
-    }
-
     fn can_edit(&self, cx: &Context<Self>) -> bool {
-        self.can_control(cx)
-            && self
-                .state
-                .read(cx)
-                .me
-                .may(InstancePermission::Settings, &self.uuid)
+        self.state
+            .read(cx)
+            .me
+            .may(InstancePermission::Settings, &self.uuid)
     }
 
     /// Why `java_cmd` and `cmd_args` can't change, if they can't
@@ -802,7 +794,6 @@ impl InstanceSettingsPage {
             Load::Ready(manifest) => manifest.clone(),
         };
         let can_edit = self.can_edit(cx);
-        let can_control = self.can_control(cx);
         let blocked = self.command_line_blocked(cx);
         let mut sections = Vec::new();
         for section_ in &manifest.setting_sections {
@@ -821,13 +812,7 @@ impl InstanceSettingsPage {
                         let setting_id = &setting.setting_id;
                         let key = (section_id.clone(), setting_id.clone());
                         // why it is read-only, after its description
-                        let reason = if !can_control {
-                            Some(M::OwnerOnlyAtom)
-                        } else if field::is_command_line(setting_id) {
-                            blocked
-                        } else {
-                            None
-                        };
+                        let reason = blocked.filter(|_| field::is_command_line(setting_id));
                         let hint = if !can_edit {
                             t(M::NoPermission).to_string()
                         } else {
@@ -955,11 +940,6 @@ impl InstanceSettingsPage {
     ) -> Option<AnyElement> {
         let instance = self.instance(cx)?.clone();
         let can_edit = self.can_edit(cx);
-        let reason = if self.can_control(cx) {
-            M::NoPermission
-        } else {
-            M::OwnerOnlyAtom
-        };
         let saving = self.automation_pending.is_some();
         let rows = [
             (
@@ -982,7 +962,7 @@ impl InstanceSettingsPage {
                 _ => saved,
             };
             SettingRow::new(t(label))
-                .hint(t(if can_edit { hint } else { reason }))
+                .hint(t(if can_edit { hint } else { M::NoPermission }))
                 .when(which == Automation::AutoStart, |row| {
                     row.keywords(t(M::AutoStartKeywords))
                 })
@@ -1212,19 +1192,15 @@ impl InstanceSettingsPage {
     }
 
     fn danger_section(&self, query: &SettingsQuery, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let can_control = self.can_control(cx);
-        let can_delete = can_control
-            && self
-                .state
-                .read(cx)
-                .me
-                .may_core(CorePermission::DeleteInstance);
+        let can_delete = self
+            .state
+            .read(cx)
+            .me
+            .may_core(CorePermission::DeleteInstance);
         let hint = if can_delete {
             M::DeleteServerHint
-        } else if can_control {
-            M::NoPermission
         } else {
-            M::OwnerOnlyAtom
+            M::NoPermission
         };
         query
             .section(t(M::DangerZone), Some(t(M::DangerZoneLead).into()))

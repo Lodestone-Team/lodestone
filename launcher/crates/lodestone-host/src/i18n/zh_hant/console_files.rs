@@ -21,7 +21,6 @@ pub fn text(message: M) -> &'static str {
         M::ConsoleEmpty => "主控台還沒有訊息",
         M::ConsoleSendFailed => "無法傳送指令：{error}",
         M::ConsoleLinkedUser => "連結了此 Minecraft 帳戶的 Lodestone 使用者",
-        M::ConsoleOwnerOnlyAtom => "只有擁有者可以控制 atom 伺服器",
         M::ConsoleJumpToLatest => "跳至最新",
         M::Console => "主控台",
         M::FilesAddRemove => "新增/移除",

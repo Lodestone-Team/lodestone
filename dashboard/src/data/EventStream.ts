@@ -105,246 +105,209 @@ export const useEventStream = () => {
   const handleEvent = (event: ClientEvent, fresh: boolean) => {
     const { event_inner } = event;
 
-    match(event_inner, {
-      InstanceEvent: ({
-        instance_event_inner: event_inner,
-        instance_uuid: uuid,
-        instance_name: name,
-      }) =>
-        match(event_inner, {
-          StateTransition: ({ to }) => {
-            if (fresh) updateInstanceState(queryClient, uuid, to);
-            dispatch({
-              title: t(`shell.event.state.${to}`, { name }),
-              event,
-              type: 'add',
-              fresh,
-            });
-          },
-          InstanceWarning: () => {
-            toast.error(t('shell.event.warningToast'));
-            dispatch({
-              title: t('shell.event.warning', { name }),
-              event,
-              type: 'add',
-              fresh,
-            });
-          },
-          InstanceError: () => {
-            if (fresh) updateInstanceState(queryClient, uuid, 'Error');
-            dispatch({
-              title: t('shell.event.error', { name }),
-              event,
-              type: 'add',
-              fresh,
-            });
-          },
-          // console lines are filtered out before they get here
-          InstanceInput: () => {},
-          InstanceOutput: () => {},
-          SystemMessage: () => {},
-          PlayerChange: ({ player_list, players_joined, players_left }) => {
-            if (fresh) updateInstancePlayerList(queryClient, uuid, player_list);
+    // Older cores may also send kinds this dashboard no longer handles (e.g.
+    // MacroEvent, from before macros were removed): `otherwise` skips them.
+    match(
+      event_inner,
+      otherwise(
+        {
+          InstanceEvent: ({
+            instance_event_inner: event_inner,
+            instance_uuid: uuid,
+            instance_name: name,
+          }) =>
+            match(event_inner, {
+              StateTransition: ({ to }) => {
+                if (fresh) updateInstanceState(queryClient, uuid, to);
+                dispatch({
+                  title: t(`shell.event.state.${to}`, { name }),
+                  event,
+                  type: 'add',
+                  fresh,
+                });
+              },
+              InstanceWarning: () => {
+                toast.error(t('shell.event.warningToast'));
+                dispatch({
+                  title: t('shell.event.warning', { name }),
+                  event,
+                  type: 'add',
+                  fresh,
+                });
+              },
+              InstanceError: () => {
+                if (fresh) updateInstanceState(queryClient, uuid, 'Error');
+                dispatch({
+                  title: t('shell.event.error', { name }),
+                  event,
+                  type: 'add',
+                  fresh,
+                });
+              },
+              // console lines are filtered out before they get here
+              InstanceInput: () => {},
+              InstanceOutput: () => {},
+              SystemMessage: () => {},
+              PlayerChange: ({ player_list, players_joined, players_left }) => {
+                if (fresh)
+                  updateInstancePlayerList(queryClient, uuid, player_list);
 
-            // we don't need match statement on the type of player yet because there's only MinecraftPlayyer for now
-            const joined = players_joined.map((p) => p.name).join(', ');
-            const left = players_left.map((p) => p.name).join(', ');
+                // we don't need match statement on the type of player yet because there's only MinecraftPlayyer for now
+                const joined = players_joined.map((p) => p.name).join(', ');
+                const left = players_left.map((p) => p.name).join(', ');
 
-            const title =
-              joined && left
-                ? t('shell.event.playersJoinedAndLeft', { joined, left, name })
-                : joined
-                  ? t('shell.event.playersJoined', { players: joined, name })
-                  : left
-                    ? t('shell.event.playersLeft', { players: left, name })
-                    : '';
-            if (title.length > 0)
-              dispatch({
-                title,
-                event,
-                type: 'add',
-                fresh,
-              });
-          },
-          PlayerMessage: ({ player, player_message }) => {
-            dispatch({
-              title: t('shell.event.playerMessage', {
-                player,
-                message: player_message,
-                name,
-              }),
-              event,
-              type: 'add',
-              fresh,
-            });
-          },
-        }),
-      UserEvent: ({ user_id: uid, user_event_inner: event_inner }) => {
-        if (!fresh) return;
-        match(event_inner, {
-          UserCreated: () => {
-            queryClient.invalidateQueries({ queryKey: ['user', 'list'] });
-          },
-          UserDeleted: () => {
-            if (uid === selfUid) {
-              // the user deleted themselves, log out
-              setToken('', socket);
-              queryClient.setQueryData(['user', 'info'], undefined);
-            }
-            queryClient.setQueryData(
-              ['user', 'list'],
-              (oldList: { [uid: string]: PublicUser } | undefined) => {
-                if (!oldList) return oldList;
-                const newList = { ...oldList };
-                delete newList[uid];
-                return newList;
-              }
-            );
-          },
-          UserLoggedIn: () => {},
-          UserLoggedOut: () => {},
-          UsernameChanged: ({ new_username }) => {
-            const rename = (user: PublicUser) => ({
-              ...user,
-              username: new_username,
-            });
-            if (uid === selfUid) updateSelf(queryClient, rename);
-            updateUserInList(queryClient, uid, rename);
-          },
-          PermissionChanged: ({ new_permissions }) => {
-            if (uid === selfUid)
-              updateSelf(queryClient, setPermission(new_permissions));
-            updateUserInList(queryClient, uid, setPermission(new_permissions));
-          },
-          ApiKeyCreated: ({ name: keyName }) => {
-            refreshApiKeys(queryClient, uid, uid === selfUid);
-            dispatch({
-              title: t('shell.event.apiKeyCreated', { name: keyName }),
-              event,
-              type: 'add',
-              fresh,
-            });
-          },
-          ApiKeyRevoked: ({ name: keyName }) => {
-            refreshApiKeys(queryClient, uid, uid === selfUid);
-            dispatch({
-              title: t('shell.event.apiKeyRevoked', { name: keyName }),
-              event,
-              type: 'add',
-              fresh,
-            });
-          },
-        });
-      },
-      MacroEvent: ({
-        instance_uuid: uuid,
-        macro_pid,
-        macro_event_inner: event_inner,
-      }) =>
-        match(event_inner, {
-          Started: () => {
-            if (fresh) {
-              queryClient.invalidateQueries({
-                queryKey: ['instance', uuid, 'taskList'],
-              });
-              queryClient.invalidateQueries({
-                queryKey: ['instance', uuid, 'macroList'],
-              });
-            }
-            dispatch({
-              title: t('shell.event.macroStarted', {
-                pid: macro_pid,
-                server: uuid ?? t('shell.connection.coreFallback'),
-              }),
-              event,
-              type: 'add',
-              fresh,
-            });
-          },
-          Detach: () => {
-            dispatch({
-              title: t('shell.event.macroDetached', {
-                pid: macro_pid,
-                server: uuid ?? t('shell.connection.coreFallback'),
-              }),
-              event,
-              type: 'add',
-              fresh,
-            });
-          },
-          Stopped: ({ exit_status }) => {
-            if (fresh) {
-              queryClient.invalidateQueries({
-                queryKey: ['instance', uuid, 'taskList'],
-              });
-              queryClient.invalidateQueries({
-                queryKey: ['instance', uuid, 'historyList'],
-              });
-            }
-            dispatch({
-              title: t('shell.event.macroStopped', {
-                pid: macro_pid,
-                server: uuid ?? t('shell.connection.coreFallback'),
-                status: exit_status.type,
-              }),
-              event,
-              type: 'add',
-              fresh,
-            });
-          },
-        }),
-      ProgressionEvent: (progressionEvent) => {
-        ongoingDispatch({
-          event,
-          progressionEvent,
-          fresh,
-        });
-        if (!fresh) return;
-        match(
-          progressionEvent.progression_event_inner,
-          otherwise(
-            {
-              ProgressionEnd: ({ inner }) => {
-                if (!inner) return;
-                match(
-                  inner,
-                  otherwise(
-                    {
-                      InstanceCreation: (instance_info) =>
-                        addInstance(instance_info, queryClient),
-                      InstanceDelete: ({ instance_uuid: uuid }) =>
-                        deleteInstance(uuid, queryClient),
-                      FSOperationCompleted: ({
-                        instance_uuid,
-                        success,
-                        message,
-                      }) => {
-                        if (success) {
-                          toast.success(message);
-                        } else {
-                          toast.error(message);
-                        }
-                        queryClient.invalidateQueries({
-                          queryKey: ['instance', instance_uuid, 'fileList'],
-                        });
-                      },
-                    },
-                    () => {}
-                  )
+                const title =
+                  joined && left
+                    ? t('shell.event.playersJoinedAndLeft', {
+                        joined,
+                        left,
+                        name,
+                      })
+                    : joined
+                      ? t('shell.event.playersJoined', {
+                          players: joined,
+                          name,
+                        })
+                      : left
+                        ? t('shell.event.playersLeft', { players: left, name })
+                        : '';
+                if (title.length > 0)
+                  dispatch({
+                    title,
+                    event,
+                    type: 'add',
+                    fresh,
+                  });
+              },
+              PlayerMessage: ({ player, player_message }) => {
+                dispatch({
+                  title: t('shell.event.playerMessage', {
+                    player,
+                    message: player_message,
+                    name,
+                  }),
+                  event,
+                  type: 'add',
+                  fresh,
+                });
+              },
+            }),
+          UserEvent: ({ user_id: uid, user_event_inner: event_inner }) => {
+            if (!fresh) return;
+            match(event_inner, {
+              UserCreated: () => {
+                queryClient.invalidateQueries({ queryKey: ['user', 'list'] });
+              },
+              UserDeleted: () => {
+                if (uid === selfUid) {
+                  // the user deleted themselves, log out
+                  setToken('', socket);
+                  queryClient.setQueryData(['user', 'info'], undefined);
+                }
+                queryClient.setQueryData(
+                  ['user', 'list'],
+                  (oldList: { [uid: string]: PublicUser } | undefined) => {
+                    if (!oldList) return oldList;
+                    const newList = { ...oldList };
+                    delete newList[uid];
+                    return newList;
+                  }
                 );
               },
-            },
-            () => {}
-          )
-        );
-      },
-      FSEvent: () => {},
-      // e.g. the code execution switch changed; the event has no payload
-      GlobalSettingsChanged: () => {
-        if (fresh)
-          queryClient.invalidateQueries({ queryKey: ['global_settings'] });
-      },
-    });
+              UserLoggedIn: () => {},
+              UserLoggedOut: () => {},
+              UsernameChanged: ({ new_username }) => {
+                const rename = (user: PublicUser) => ({
+                  ...user,
+                  username: new_username,
+                });
+                if (uid === selfUid) updateSelf(queryClient, rename);
+                updateUserInList(queryClient, uid, rename);
+              },
+              PermissionChanged: ({ new_permissions }) => {
+                if (uid === selfUid)
+                  updateSelf(queryClient, setPermission(new_permissions));
+                updateUserInList(
+                  queryClient,
+                  uid,
+                  setPermission(new_permissions)
+                );
+              },
+              ApiKeyCreated: ({ name: keyName }) => {
+                refreshApiKeys(queryClient, uid, uid === selfUid);
+                dispatch({
+                  title: t('shell.event.apiKeyCreated', { name: keyName }),
+                  event,
+                  type: 'add',
+                  fresh,
+                });
+              },
+              ApiKeyRevoked: ({ name: keyName }) => {
+                refreshApiKeys(queryClient, uid, uid === selfUid);
+                dispatch({
+                  title: t('shell.event.apiKeyRevoked', { name: keyName }),
+                  event,
+                  type: 'add',
+                  fresh,
+                });
+              },
+            });
+          },
+          ProgressionEvent: (progressionEvent) => {
+            ongoingDispatch({
+              event,
+              progressionEvent,
+              fresh,
+            });
+            if (!fresh) return;
+            match(
+              progressionEvent.progression_event_inner,
+              otherwise(
+                {
+                  ProgressionEnd: ({ inner }) => {
+                    if (!inner) return;
+                    match(
+                      inner,
+                      otherwise(
+                        {
+                          InstanceCreation: (instance_info) =>
+                            addInstance(instance_info, queryClient),
+                          InstanceDelete: ({ instance_uuid: uuid }) =>
+                            deleteInstance(uuid, queryClient),
+                          FSOperationCompleted: ({
+                            instance_uuid,
+                            success,
+                            message,
+                          }) => {
+                            if (success) {
+                              toast.success(message);
+                            } else {
+                              toast.error(message);
+                            }
+                            queryClient.invalidateQueries({
+                              queryKey: ['instance', instance_uuid, 'fileList'],
+                            });
+                          },
+                        },
+                        () => {}
+                      )
+                    );
+                  },
+                },
+                () => {}
+              )
+            );
+          },
+          FSEvent: () => {},
+          // e.g. the code execution switch changed; the event has no payload
+          GlobalSettingsChanged: () => {
+            if (fresh)
+              queryClient.invalidateQueries({ queryKey: ['global_settings'] });
+          },
+        },
+        () => {}
+      )
+    );
   };
 
   // The websocket below lives as long as token and core don't change, but the

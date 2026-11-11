@@ -144,10 +144,6 @@ pub fn world_folder(level_name: &str) -> Result<PathBuf, Error> {
 fn minecraft(instance: &GameInstance) -> Result<&MinecraftInstance, Error> {
     match instance {
         GameInstance::MinecraftInstance(instance) => Ok(instance),
-        #[cfg(feature = "deno")]
-        GameInstance::GenericInstance(_) => Err(bad_request(
-            "Only Minecraft servers have a world and a resource pack",
-        )),
     }
 }
 

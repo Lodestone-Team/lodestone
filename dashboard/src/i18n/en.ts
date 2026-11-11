@@ -27,7 +27,6 @@
 //   upload / download
 //   mod / modpack
 //   resource pack
-//   macro
 //   player / world
 //   port / address
 //   memory (RAM)
@@ -279,18 +278,8 @@ export const en = {
   /** {name} is the name of an API key */
   'shell.event.apiKeyCreated': 'API key “{name}” created',
   'shell.event.apiKeyRevoked': 'API key “{name}” revoked',
-  /** {pid} is a macro's process id, {server} a server's id or "Core" */
-  'shell.event.macroStarted': 'Macro {pid} started on {server}',
-  'shell.event.macroDetached': 'Macro {pid} detached on {server}',
-  /** {status} is a technical exit status, e.g. "Success" */
-  'shell.event.macroStopped':
-    'Macro {pid} stopped on {server} with status {status}',
   /** {error} is an error message */
   'shell.event.loadFailed': 'Failed to load notifications: {error}',
-
-  // SystemInfo
-  'shell.noScripting':
-    'This core was built without scripting support (Deno), so macros aren’t available.',
 
   // UserMenu: the account menu at the bottom of the sidebar
   /** shown instead of a user name when nobody is signed in */
@@ -501,17 +490,11 @@ export const en = {
   /** the confirm button of the "Turn off safe mode / code execution?" dialogs */
   'settings.core.turnOff': 'Turn off',
   'settings.core.codeExecution.label': 'Code execution',
-  'settings.core.codeExecution.hint':
-    'Macros, atom servers, extensions, server scripts and custom Java commands.',
-  /** the same hint on a core without scripting (Deno) */
-  'settings.core.codeExecution.hintJavaOnly': 'Custom Java commands.',
+  'settings.core.codeExecution.hint': 'Custom Java commands.',
   'settings.core.codeExecution.locked':
     'Locked by this core’s administrator (LODESTONE_DISABLE_CODE_EXECUTION or --disable-code-execution).',
   'settings.core.codeExecution.offTitle': 'Turn off code execution?',
   'settings.core.codeExecution.offBody':
-    'Running macros and atom servers will be stopped. Macros, atom servers, extensions, server scripts and custom Java commands will not run on this core until you turn code execution back on. Nothing is started again automatically.',
-  /** the same dialog on a core without scripting (Deno) */
-  'settings.core.codeExecution.offBodyJavaOnly':
     'Custom Java commands will not run on this core until you turn code execution back on. Nothing is started again automatically.',
   'settings.core.lanHttp.label': 'Allow LAN access over plain HTTP',
   'settings.core.lanHttp.hint':
@@ -569,9 +552,6 @@ export const en = {
   'settings.users.unsafePermissions': 'Unsafe permissions',
   'settings.users.unsafePermissionsLead':
     'Turn off safe mode to grant these to non-owners.',
-  'settings.users.ownerOnly': 'Macros, extensions and atom servers',
-  'settings.users.ownerOnlyHint':
-    'Owner only. Docker servers use the normal permissions.',
 
   // Permissions: the title, and what it allows a user or an API key
   'settings.permission.can_create_instance.title': 'Create Servers',
@@ -767,9 +747,6 @@ export const en = {
   'settings.apiKeys.unsafe': 'Unsafe Settings',
   'settings.apiKeys.unsafeSafeMode':
     'Safe mode is on, so the core refuses these to keys with custom access until safe mode is turned off in core settings.',
-  'settings.apiKeys.ownerOnly': 'Macros, Extensions and Atom Servers',
-  'settings.apiKeys.ownerOnlyHint':
-    'Only full-access keys can use macros, extensions and atom servers.',
   // The new key dialog, shown once
   'settings.apiKeys.newTitle': 'API key "{name}" created',
   'settings.apiKeys.newCopyNow':
@@ -790,7 +767,6 @@ export const en = {
   'server.tab.console': 'Console',
   'server.tab.files': 'Files',
   'server.tab.mods': 'Mods',
-  'server.tab.macros': 'Macros',
   'server.tab.logs': 'Event Logs',
 
   // InstanceTabs
@@ -984,10 +960,6 @@ export const en = {
   'server.action.kill': 'Kill',
   /** the tooltip of the power button */
   'server.card.power': 'Power',
-  'server.card.noScripting':
-    'This core was built without scripting support (Deno), so atom servers aren’t available.',
-  'server.card.codeExecutionDisabled':
-    'Code execution is disabled on this core',
   /** copies the server's address (servers that can't be shared) */
   'server.card.copyIp': 'Copy IP',
   /** opens the Overview's Share section */
@@ -1044,7 +1016,7 @@ export const en = {
   /** the core refused the sign-in; {message} is its reason */
   'server.api.loginError': 'Error: {message}',
 
-  // ===== Console and macros =====
+  // ===== Console =====
 
   // GameConsole: a server's console tab
   /** the page title, inside common.pageTitle */
@@ -1083,59 +1055,11 @@ export const en = {
   'console.line.linkedUser':
     'The Lodestone user who linked this Minecraft account',
 
-  // CodeExecution: owner-only features and the code execution switch
-  /** "atom" servers run TypeScript code; keep "atom" untranslated */
-  'console.ownerOnlyAtom': 'Only the owner can control atom servers',
-  /** the same, as a sentence (a setting's read-only hint) */
-  'console.ownerOnlyAtomSentence': 'Only the owner can control atom servers.',
+  // CodeExecution: the custom Java command settings and the code execution switch
   /** why the Java command / arguments settings can't be changed */
   'console.commandLine.readOnly':
     'Read-only while code execution is disabled on this core.',
   'console.commandLine.ownerOnly': 'Only the owner can change this setting.',
-
-  // Macros page
-  /** the page title, inside common.pageTitle */
-  'console.macros.pageTitle': 'Server Macros',
-  'console.macros.intro': 'All macros for your server',
-  'console.macros.ownerOnly':
-    'Macros are only available to the owner of this core.',
-  'console.macros.codeExecutionDisabledBanner':
-    'Code execution is disabled on this core. Macros can’t be run or configured until it is turned back on in Core Settings.',
-  'console.macros.codeExecutionDisabled':
-    'Code execution is disabled on this core',
-  /** tabs */
-  'console.macros.tab.macros': 'All Macros',
-  'console.macros.tab.tasks': 'Running Tasks',
-  'console.macros.tab.history': 'History',
-  /** table column headers, written in capitals */
-  'console.macros.column.name': 'MACRO NAME',
-  'console.macros.column.lastRun': 'LAST RUN',
-  'console.macros.column.created': 'CREATED',
-  'console.macros.column.finished': 'FINISHED',
-  'console.macros.column.pid': 'PROCESS ID',
-  /** a time in the table that isn't known (e.g. a macro that never ran) */
-  'console.macros.noTime': 'N/A',
-  /** row menu items */
-  'console.macros.run': 'Run Macro',
-  'console.macros.editConfig': 'Edit Config',
-  'console.macros.killTask': 'Kill Task',
-  /** the macro settings dialog */
-  'console.macros.configTitle': 'Macro Config',
-  'console.macros.configRequired': 'This macro requires additional config.',
-  /** toasts; {error} is the core's error message or console.macros.noServer */
-  'console.macros.noServer': 'No server selected',
-  'console.macros.loadFailed': 'Failed to load macros: {error}',
-  'console.macros.openConfigFailed': 'Error opening macro config: {error}',
-  'console.macros.runFailed': 'Error running macro: {error}',
-  'console.macros.killFailed': 'Failed to kill task: {error}',
-  'console.macros.saveConfigFailed': 'Failed to save macro config: {error}',
-  'console.macros.invalidState': 'Error: Invalid state',
-
-  // MacroCreateForm (not used yet)
-  'console.macros.create.name': 'Macro Name',
-  'console.macros.create.args': 'Arguments',
-  'console.macros.create.submit': 'Create Macro',
-  'console.macros.create.nameRequired': 'A macro name is required',
 
   // ===== Creating a server =====
 

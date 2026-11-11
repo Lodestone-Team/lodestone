@@ -424,20 +424,18 @@
     if (onInstance && !noInstances()) {
       const addr = "localhost:" + inst.port;
       const players = ist === "running" ? S("PlayersOnline", { online: 2, max: 20 }) : null;
-      const atomLocked = s.role === "user" && s.atom === "on";
       kids.push(h("div.hx-instcard",
         h("div.hx-name", gameIc(selGame(inst)), tx(inst.name)),
         h("div.hx-meta", stateDot(ist), stateLabel(ist), tx("·"), tx(GAMES[selGame(inst)])),
         players ? h("div.hx-meta", players) : null,
         tip(h("span.hx-chipaddr", tx(addr), icon("copy", 11)), N("CopyAddress")),
-        h("div.hx-power", atomLocked ? tip(h("span.hx-muted.hx-small", tx("—")), N("OwnerOnlyAtom")) : power(ist),
+        h("div.hx-power", power(ist),
           tip(btn(N("ShareShort"), { sm: true, icon: "link", iconSize: 13, on: () => { X.set("sharing", s.sharing === "off" ? "starting" : s.sharing); X.go("overview", { i: inst.i }) } }), N("ShareShortHint")))));
       const tabs = [
         ["overview", "chart", S("TabOverview")], ["settings", "gear", S("TabSettings")], ["console", "server", S("TabConsole")],
         ["files", "folder", S("TabFiles")],
       ];
       if (supportsMods()) tabs.push(["mods", "puzzle", isPlugins() ? S("TabPlugins") : S("TabMods")]);
-      if (route === "macros") tabs.push(["macros", "code", S("TabMacros")]);
       tabs.push(["eventlogs", "inbox", S("TabEventLogs")]);
       const active = route.startsWith("mods") ? "mods" : route;
       kids.push(h("div", { style: { marginTop: "6px", display: "flex", flexDirection: "column", gap: "1px" } },
@@ -498,9 +496,6 @@
         item(C("EventError", { name: "Modded Adventure" }), FMP("HoursAgo", { count: 3 }), "hx-err"),
         item(C("EventApiKeyCreated", { name: "backup script" }), FM("Yesterday")),
         item(C("EventApiKeyRevoked", { name: "old laptop" }), FMP("DaysAgo", { count: 2 })),
-        item(C("MacroStarted", { pid: 12, server: C("CoreFallback") }), FMP("DaysAgo", { count: 3 })),
-        item(C("MacroDetached", { pid: 12, server: "Survival SMP" }), FMP("DaysAgo", { count: 3 })),
-        item(C("MacroStopped", { pid: 12, server: "Survival SMP", status: "0" }), FMP("DaysAgo", { count: 3 })),
       );
       body.push(h("div.hx-note", h("div", { style: { fontWeight: 600, marginBottom: "4px" } }, C("BetaTitle")), C("BetaBody")));
     }
@@ -624,7 +619,6 @@
         pill(N("PlayerCount", { players, max: 20 })), tip(pill(h("span", tx("localhost:" + inst.port), " ", icon("copy", 12)), null, "hx-mono"), N("CopyAddress"))),
       tip(h("div.hx-lead", { style: { margin: "12px 0 0" } }, inst.desc ? tx(inst.desc) : N("NoDescription")), N("EditDescription")),
     ];
-    if (s.role === "user" && s.atom === "on") head.push(h("div.hx-note.hx-yellow", { style: { marginTop: "12px" } }, N("OwnerOnlyAtom")));
     const share = h("div.hx-sec", h("div.hx-h2", N("ShareTitle")), h("div.hx-lead", N("ShareLead")), shareCard());
     const perf = h("div.hx-sec", h("div.hx-h2", N("PerformanceTitle")), h("div.hx-lead", N("PerformanceLead")),
       h("div.hx-grid2", { style: { gap: "30px" } },
@@ -723,7 +717,7 @@
           s.neverStarted === "on" ? srow(I("NotAvailable"), I("NotAvailableHint")) : [
             srow(I("AutoStart"), I("AutoStartHint"), toggle(false, null, s.role === "user")),
             srow(I("RestartOnCrash"), I("RestartOnCrashHint"), toggle(true, null, s.role === "user"))],
-          s.role === "user" ? srow(h("span.hx-muted", I("NoPermission")), s.atom === "on" ? I("OwnerOnlyAtom") : null) : null)),
+          s.role === "user" ? srow(h("span.hx-muted", I("NoPermission"))) : null)),
         ssec(C("ListingTitle"), C("ListingLead"), rows(srow(C("ListedPublicly"), s.role === "user" ? C("ListingOwnerOnly") : null, toggle(false, null, s.role === "user")))),
         friendsSection(),
         ssec(I("ResourcePack"), I("ResourcePackLead"), rows(
@@ -738,7 +732,7 @@
             : srow(I("EulaNotAccepted"), s.role === "user" ? I("EulaNoPermission") : I("EulaNotAcceptedHint"), h("div.hx-flex", btn(I("EulaRead"), { sm: true, icon: "ext" }), btn(I("EulaAgree"), { v: "primary", sm: true, dis: s.role === "user", on: () => X.set("eula", "accepted") }))),
           s.eula === "accepted" ? null : h("div.hx-srow.hx-err-t", I("EulaAcceptFailed", { error: "permission denied" })))),
         ssec(I("DangerZone"), I("DangerZoneLead"), rows(
-          srow(I("DeleteServer"), s.role === "user" ? (s.atom === "on" ? I("OwnerOnlyAtom") : I("NoPermission")) : I("DeleteServerHint"), btn(M("Delete"), { v: "danger", sm: true, dis: s.role === "user", on: () => X.open("delete-instance") })))),
+          srow(I("DeleteServer"), s.role === "user" ? I("NoPermission") : I("DeleteServerHint"), btn(M("Delete"), { v: "danger", sm: true, dis: s.role === "user", on: () => X.open("delete-instance") })))),
       ];
     }
     return pageWrap(heading(S("TabSettings")), h("div", { style: { display: "flex", gap: "40px" } }, nav, h("div.hx-scontent", content)));
@@ -769,7 +763,6 @@
     const dotCls = { live: "hx-run", empty: "hx-run", nobuffer: "hx-warn", error: "hx-err", closed: "hx-off" }[c] || "hx-off";
     let ph;
     if (c === "noperm") ph = F("ConsoleInputNoPermission");
-    else if (s.role === "user" && s.atom === "on") ph = F("ConsoleOwnerOnlyAtom");
     else if (ist !== "running") ph = F("ConsoleServerStopped");
     else if (c === "closed") ph = F("ConsoleStatusClosed");
     else ph = F("ConsoleInputPlaceholder");
@@ -796,7 +789,7 @@
         h("div.hx-mi", { onclick: () => X.open("files-new-file") }, F("FilesNewFile")), h("div.hx-mi", { onclick: () => X.open("files-new-folder") }, F("FilesNewFolder")), h("div.hx-mi", F("FilesUpload")), h("div.hx-sep"),
         h("div.hx-mi", F("FilesSelectAll")), h("div.hx-mi", F("FilesDeselectAll")), h("div.hx-sep"),
         h("div.hx-mi", F("FilesCutSelected")), h("div.hx-mi", F("FilesDownloadSelected")), h("div.hx-mi", F("FilesUnarchiveSelected")), h("div.hx-mi.hx-red", { onclick: () => X.open("files-delete") }, F("FilesDeleteSelected"))) : null);
-    const files = [["macros", "folder", "#3B8FD9"], ["resources", "folder", "#3B8FD9"], [".lodestone_config", "file", "#2EF29A"], [".lodestone_minecraft_config.json", "file", "#EFB440"], ["eula.txt", "file", "#bbb"], ["server.jar", "file", "#FF5C5C"], ["server.properties", "file", "#bbb"], ["world.zip", "file", "#a77"]];
+    const files = [["logs", "folder", "#3B8FD9"], ["resources", "folder", "#3B8FD9"], [".lodestone_config", "file", "#2EF29A"], [".lodestone_minecraft_config.json", "file", "#EFB440"], ["eula.txt", "file", "#bbb"], ["server.jar", "file", "#FF5C5C"], ["server.properties", "file", "#bbb"], ["world.zip", "file", "#a77"]];
     let list;
     if (f === "loading") list = h("div.hx-flist", h("div.hx-home", loading(F("FilesLoading"))));
     else if (f === "noperm") list = h("div.hx-flist", h("div.hx-home.hx-muted", { style: { padding: "20px" } }, F("FilesNoReadPermission")));
@@ -817,7 +810,7 @@
         s.role === "user" ? h("div", { style: { position: "absolute", right: "16px", top: "10px" } }, tag(F("FilesReadOnly"))) : null), F("FilesEditorTitle"), { block: true });
     }
     const menu = f === "menu" ? h("div.hx-menu", { style: { left: "480px", top: "220px" } },
-      h("div.hx-mi", M("Copy")), h("div.hx-mi", F("FilesCut")), h("div.hx-mi.hx-dis", F("FilesPaste")), h("div.hx-mi", F("FilesPasteInto", { name: "macros" })), h("div.hx-mi", FP("FilesPasteCount", { count: 2 })), h("div.hx-sep"),
+      h("div.hx-mi", M("Copy")), h("div.hx-mi", F("FilesCut")), h("div.hx-mi.hx-dis", F("FilesPaste")), h("div.hx-mi", F("FilesPasteInto", { name: "logs" })), h("div.hx-mi", FP("FilesPasteCount", { count: 2 })), h("div.hx-sep"),
       h("div.hx-mi", { onclick: () => X.open("files-rename") }, M("Rename")), h("div.hx-mi.hx-red", { onclick: () => X.open("files-delete") }, M("Delete")), h("div.hx-sep"),
       h("div.hx-mi", F("FilesZipFile", { name: "eula.txt", archive: "eula.txt.zip" })), h("div.hx-mi", F("FilesZip")), h("div.hx-mi", F("FilesZipTo", { archive: "Archive.zip" })), h("div.hx-mi", FP("FilesZipFiles", { count: 3, archive: "Archive.zip" })),
       h("div.hx-mi", F("FilesUnzipHere")), h("div.hx-mi", F("FilesUnzipHereSmart")), h("div.hx-mi", F("FilesUnzipTo", { name: "world" })), h("div.hx-sep"),
@@ -943,10 +936,6 @@
     return pageWrap(heading(S("TabEventLogs")), h("div.hx-muted", { style: { marginBottom: "14px" } }, I("EventLogsLead")), h("div", { style: { maxWidth: "866px" } }, body));
   }
 
-  function macrosPage() {
-    return pageWrap(heading(S("TabMacros")), h("div.hx-muted", { style: { fontSize: "16px", padding: "10px 20px" } }, S("NeedsScripting")),
-      h("div.hx-muted", { style: { fontSize: "16px", padding: "10px 20px" } }, C("NoScripting")));
-  }
   function notBuiltPage() {
     return pageWrap(h("div.hx-muted", { style: { fontSize: "16px" } }, S("NotBuilt")), h("div.hx-sec", heading(S("InstanceNotFound"))), h("div.hx-muted", N("NotFound")));
   }
@@ -979,7 +968,6 @@
     const pub = s.listPublic === "on";
     const flags = h("div.hx-flex.hx-gap16", { style: { marginTop: "8px" } }, check(true, C("FlagStatus")), check(true, C("FlagAddress")), check(false, C("FlagClientPack")));
     const shown = pub ? C("ShownText", { list: h("span", C("ShownNameVersion"), tx(", "), C("ShownStatus"), tx(", "), C("ShownAddress"), tx(", "), C("ShownClientPack")) }) : C("TurnOnFirst");
-    const codeHint = s.codeExec === "javaonly" ? C("CodeExecutionHintJavaOnly") : C("CodeExecutionHint");
     return h("div.hx-col.hx-gap16", { style: { gap: "34px" } },
       ro ? h("div.hx-note.hx-yellow", C("ReadOnly")) : null,
       ssec(C("SectionCore"), null, rows(
@@ -997,8 +985,8 @@
         s.tls === "none" ? null : srow(C("InfoFingerprint"), h("span.hx-mono.hx-tiny", tx("3F:9A:21:7C:0B:D4:55:E8:AA:19:C3:70:6E:42:9B:11:F0:8D:2C:67:B5:3E:94:0A:DD:71:58:C6:1F:83:2B:E9")), btn(M("Copy"), { sm: true })))),
       ssec(C("SectionDanger"), C("SectionDangerLead"), rows(
         srow(C("SafeMode"), C("SafeModeHint"), toggle(s.safeMode === "on", () => (s.safeMode === "on" ? X.open("safe-mode-off") : X.set("safeMode", "on")), ro)),
-        srow(C("CodeExecution"), h("span", codeHint, s.codeExec === "locked" ? h("div.hx-warn-t", C("CodeExecutionLocked")) : null, s.codeExec === "javaonly" ? h("div.hx-muted", C("NoScripting")) : null),
-          toggle(s.codeExec === "on" || s.codeExec === "javaonly", () => X.open("code-exec-off"), ro || s.codeExec === "locked")),
+        srow(C("CodeExecution"), h("span", C("CodeExecutionHint"), s.codeExec === "locked" ? h("div.hx-warn-t", C("CodeExecutionLocked")) : null),
+          toggle(s.codeExec === "on", () => X.open("code-exec-off"), ro || s.codeExec === "locked")),
         srow(C("LanHttp"), C("LanHttpHint"), toggle(s.lanHttp === "on", () => (s.lanHttp === "on" ? X.set("lanHttp", "off") : X.open("lan-http")), ro)),
         srow(C("LocalClaim"), s.owner === "nopassword" ? h("span", C("LocalClaimHint"), h("div.hx-warn-t", C("LocalClaimNeedsPassword"))) : C("LocalClaimHint"), toggle(true, null, ro || s.owner === "nopassword")),
         srow(C("OpenPort"), h("span", C("OpenPortHint", { upnp: "UPnP" }), s.validation === "on" ? h("div.hx-err-t", C("PortRange")) : h("div.hx-ok-t", C("PortOpened", { port: 25565 }))),
@@ -1042,8 +1030,7 @@
         perm(C("PermReadFiles"), C("PermReadFilesUser"), false), perm(C("PermWriteFiles"), C("PermWriteFilesUser"), false)),
         noInstances() ? h("div.hx-muted", C("NoServersYet")) : null),
       ssec(C("UnsafePermissions"), safe ? C("UnsafePermissionsLead") : null, h("div.hx-card.hx-rows", { style: safe ? { opacity: ".6" } : null },
-        perm(C("PermReadGlobalFile"), C("PermReadGlobalFileUser"), false), perm(C("PermWriteGlobalFile"), C("PermWriteGlobalFileUser"), false),
-        perm(C("OwnerOnly"), h("span", C("OwnerOnlyHint"), s.codeExec === "javaonly" ? h("div", C("NoScripting")) : null), false))),
+        perm(C("PermReadGlobalFile"), C("PermReadGlobalFileUser"), false), perm(C("PermWriteGlobalFile"), C("PermWriteGlobalFileUser"), false))),
       apiKeysSection("jordan"),
       mcSection("jordan"));
   }
@@ -1305,7 +1292,6 @@
         perm(C("PermWriteResource"), C("PermWriteResourceKey"), true), perm(C("PermReadFiles"), C("PermReadFilesKey"), true), perm(C("PermWriteFiles"), C("PermWriteFilesKey"), true),
         h("div.hx-label", { style: { marginTop: "8px" } }, C("KeyUnsafe")), h("div.hx-muted.hx-small", C("KeyUnsafeSafeMode")),
         perm(C("PermReadGlobalFile"), C("PermReadGlobalFileKey"), false), perm(C("PermWriteGlobalFile"), C("PermWriteGlobalFileKey"), false),
-        perm(C("KeyOwnerOnly"), C("KeyOwnerOnlyHint"), false),
         noInstances() ? h("div.hx-muted", C("NoServers")) : null,
         s.validation === "on" ? h("div.hx-err-t", C("ChooseOne")) : null) : null,
       foot(btn(C("CreateKey"), { v: "primary", lg: true, on: () => X.open("api-new") }), btn(M("Cancel"), { lg: true, on: close })));
@@ -1344,7 +1330,7 @@
   }
   function filesDeleteDlg() {
     return dlg({ title: FP("FilesDeleteTitle", { count: 3 }), w: 600 }, h("div", F("FilesDeleteMessage")),
-      h("div.hx-col.hx-gap4.hx-mono.hx-small", h("div", tx("eula.txt")), h("div", tx("macros "), F("FilesDeleteDirectory")), h("div", tx("link.lnk "), F("FilesDeleteUnknownType"))),
+      h("div.hx-col.hx-gap4.hx-mono.hx-small", h("div", tx("eula.txt")), h("div", tx("logs "), F("FilesDeleteDirectory")), h("div", tx("link.lnk "), F("FilesDeleteUnknownType"))),
       foot(btn(M("Delete"), { v: "dangerfill", lg: true, on: close }), btn(M("Cancel"), { lg: true, on: close })));
   }
   function filesUnsavedDlg() {
@@ -1398,7 +1384,7 @@
     msgSec("Resource pack URL errors", h("div.hx-err-t", I("PackUrlSpaces")), h("div.hx-err-t", I("PackNotAUrl")), h("div.hx-err-t", I("PackUrlScheme"))),
     msgSec("Friends", toast("ok", I("FriendsWhitelisted", { names: "Alex_mc, Sam_mc" })), toast("err", I("FriendsWhitelistFailed", { name: "Alex", error: "whitelist.json is read only" }))),
     msgSec("Instance (server) actions", toast("err", N("CreateFailed", { error: "port 25565 is in use" })), toast("info", I("Deleting", { name: "Survival SMP" })), h("div.hx-err-t", N("NameEmpty")), h("div.hx-err-t", N("CheckFields")), h("div.hx-muted", N("NoName"))),
-    msgSec("Overview edit", h("div.hx-flex", input("Survival SMP", { focus: true, w: "w300" }), btn(M("Save"), { sm: true, v: "primary" }), btn(M("Cancel"), { sm: true })), h("div.hx-muted.hx-small", N("OwnerOnlyAtom"), tx(" · "), I("OwnerOnlyAtom"))));
+    msgSec("Overview edit", h("div.hx-flex", input("Survival SMP", { focus: true, w: "w300" }), btn(M("Save"), { sm: true, v: "primary" }), btn(M("Cancel"), { sm: true }))));
   const routesMsgFormat = () => msgPage(
     msgSec("Dates and times (shared)", h("div.hx-col.hx-gap4",
       h("div.hx-flex", FM("JustNow"), FM("Today"), FM("Yesterday"), FM("TodayAt", { time: "14:05" }), FM("YesterdayAt", { time: "09:12" })),
@@ -1410,7 +1396,7 @@
       h("div.hx-flex.hx-muted", tx("Separators: group "), FM("GroupSeparator"), tx(" decimal "), FM("DecimalSeparator"), tx(" list "), FM("ListSeparator")))));
 
   // ---------------------------------------------------------------- routes
-  const TAB_ROUTES = ["overview", "settings", "console", "files", "mods", "mods-browse", "mods-project", "macros", "eventlogs"];
+  const TAB_ROUTES = ["overview", "settings", "console", "files", "mods", "mods-browse", "mods-project", "eventlogs"];
   const ROUTES = {
     "home": { title: "Home (no instance selected)", group: "Pages", render: homePage },
     "first-run": { title: "First run (no servers yet)", group: "Pages", render: homePage },
@@ -1421,7 +1407,6 @@
     "mods": { title: "Mods: Installed", group: "Instance", render: modsPage },
     "mods-browse": { title: "Mods: Browse", group: "Instance", render: modsBrowsePage },
     "mods-project": { title: "Mods: project page", group: "Instance", render: modsProjectPage },
-    "macros": { title: "Macros", group: "Instance", render: macrosPage },
     "eventlogs": { title: "Event logs", group: "Instance", render: eventLogsPage },
     "not-built": { title: "Not built / not found", group: "Pages", render: notBuiltPage },
     "msg-shell": { title: "Shell, core and common", group: "Messages", render: routesMsgShell },
@@ -1460,7 +1445,7 @@
     "delete-user": { title: "Delete user", group: "Dialogs", dialog: true, render: () => confirm(C("DeleteUserTitle"), C("DeleteUserConfirm", { name: "sam" }), M("Delete"), "dangerfill") },
     "mc-remove": { title: "Remove Minecraft account", group: "Dialogs", dialog: true, render: () => confirm(C("MinecraftRemoveTitle"), C("MinecraftRemoveBody", { name: "PeterAlt" }), M("Remove"), "dangerfill") },
     "safe-mode-off": { title: "Turn off safe mode?", group: "Dialogs", dialog: true, render: () => confirm(C("SafeModeOffTitle"), C("SafeModeOffBody"), C("TurnOff"), "dangerfill", () => { X.set("safeMode", "off"); X.close() }) },
-    "code-exec-off": { title: "Turn off code execution?", group: "Dialogs", dialog: true, render: () => confirm(C("CodeExecutionOffTitle"), st().codeExec === "javaonly" ? C("CodeExecutionOffBodyJavaOnly") : C("CodeExecutionOffBody"), C("TurnOff"), "dangerfill", () => { X.set("codeExec", "off"); X.close() }) },
+    "code-exec-off": { title: "Turn off code execution?", group: "Dialogs", dialog: true, render: () => confirm(C("CodeExecutionOffTitle"), C("CodeExecutionOffBody"), C("TurnOff"), "dangerfill", () => { X.set("codeExec", "off"); X.close() }) },
     "lan-http": { title: "Allow plain HTTP?", group: "Dialogs", dialog: true, render: () => confirm(C("LanHttpConfirmTitle"), C("LanHttpConfirmBody"), C("LanHttpAllow"), "dangerfill", () => { X.set("lanHttp", "on"); X.close() }) },
     "remote-off": { title: "Turn off access from other devices?", group: "Dialogs", dialog: true, render: () => confirm(C("RemoteAccessOffTitle"), C("RemoteAccessOffBody"), C("TurnOff"), "dangerfill", () => { X.set("remote", "off"); X.close() }) },
     "retire-cert": { title: "Retire friend certificate", group: "Dialogs", dialog: true, render: () => confirm(I("FriendsCertificateRetire"), I("FriendsCertificateRetireBody"), I("FriendsCertificateRetireConfirm"), "dangerfill", () => { X.set("friends", "cert"); X.close() }) },
@@ -1512,13 +1497,12 @@
       createLoad: { label: "Create form", options: opt(["ok", "Loaded"], ["loading", "Loading"], ["failed", "Failed"]), default: "ok" },
       search: { label: "Modpack search", options: opt(["results", "Results"], ["loading", "Loading"], ["none", "No results"], ["failed", "Errors"], ["link", "Opening a link"], ["uploaded", "Uploaded .mrpack"]), default: "results" },
       role: { label: "Signed-in user", options: opt(["owner", "Owner"], ["user", "Limited user"]), default: "owner" },
-      atom: { label: "Atom server (owner only)", options: opt("off", "on"), default: "off" },
       owner: { label: "Owner password", options: opt(["password", "Set"], ["nopassword", "None yet"]), default: "password" },
       remote: { label: "Access from other devices", options: opt("off", "on"), default: "on" },
       listPublic: { label: "List servers publicly", options: opt("off", "on"), default: "off" },
       lanHttp: { label: "LAN over plain HTTP", options: opt("off", "on"), default: "off" },
       safeMode: { label: "Safe mode", options: opt("on", "off"), default: "on" },
-      codeExec: { label: "Code execution", options: opt(["on", "On"], ["off", "Off"], ["locked", "Locked by admin"], ["javaonly", "No scripting (Java only)"]), default: "javaonly" },
+      codeExec: { label: "Code execution", options: opt(["on", "On"], ["off", "Off"], ["locked", "Locked by admin"]), default: "on" },
       tls: { label: "HTTPS certificate", options: opt(["self", "Self-signed"], ["own", "Your own"], ["none", "None"]), default: "self" },
       ram: { label: "Total RAM", options: opt(["ok", "Known"], ["none", "Zero"]), default: "ok" },
       users: { label: "Users", options: opt(["one", "Just you"], ["several", "Three"], ["loading", "Loading"]), default: "several" },
