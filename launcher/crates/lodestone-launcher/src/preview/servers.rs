@@ -55,6 +55,7 @@ pub const SCENES: &[&str] = &[
     "servers-history-back",
     "servers-highlight",
     "servers-highlight-friend",
+    "servers-highlight-here",
     "servers-friends",
     "servers-friends-relay",
     "servers-join-paste",
@@ -493,7 +494,8 @@ fn apply_servers(scene: &str, servers: &mut Servers, cx: &mut Context<Servers>) 
         | "servers-open-title"
         | "servers-history-back"
         | "servers-highlight"
-        | "servers-highlight-friend" => apply_rows(servers),
+        | "servers-highlight-friend"
+        | "servers-highlight-here" => apply_rows(servers),
         "servers-shared-local" | "servers-shared-local-gone" => {
             apply_shared_local(scene == "servers-shared-local", servers)
         }
@@ -844,6 +846,29 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
     if scene == "servers-highlight" {
         servers.update(cx, |servers, cx| {
             servers.highlight_server("home", "creative", cx)
+        });
+    }
+    // "Linked to …" on an instance joined with an invite link to a server that runs on
+    // this computer: its row is on the Lodestone Host page, not the Friends page
+    if scene == "servers-highlight-here" {
+        let invite = Invite::parse(&format!(
+            "https://connect.lodestone.cc/j/HMCRTV2345#{}.{}",
+            "ab".repeat(32),
+            "01".repeat(16)
+        ))
+        .expect("a made-up invite");
+        let id = launcher_core::cores::friends::friend_id(&invite);
+        let (friends, core, server) = servers.read(cx).link_target(&id, "creative");
+        shell.show(
+            if friends {
+                Page::Friends
+            } else {
+                Page::Servers
+            },
+            cx,
+        );
+        servers.update(cx, |servers, cx| {
+            servers.highlight_server(&core, &server, cx)
         });
     }
     // the same for a friend's server further down: the page scrolls to it

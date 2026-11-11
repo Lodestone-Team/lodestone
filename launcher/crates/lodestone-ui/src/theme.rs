@@ -125,6 +125,8 @@ pub mod palette {
                 0xE3E3E4 => Color::rgb(0x14171C),            // gray-300: text
                 0xA5A5AC => Color::rgb(0x474D58),            // gray-400 (and gray-faded)
                 0x767A82 => Color::rgb(0x5E6470),            // gray-500
+                0x9FA1A8 => Color::rgb(0x565C67),            // muted text
+                0x92949B | 0x84868D => Color::rgb(0x626873), // faint text, sidebar labels
                 0x67686A => Color::rgb(0xB9C0CB),            // gray-550
                 0x44464B => Color::rgb(0xE1E5EB),            // gray-600: selection
                 0x36393F => Color::rgb(0xF1F4F7),            // gray-700: hover
@@ -165,7 +167,9 @@ pub mod palette {
             // the dim behind dialogs
             (0x1D1E21, _) | (0x000000, _) => Color(0x141E2D00 | (alpha * 53 / 100)),
             // other translucent grays: the same alpha of the light theme's ink
-            (0xA5A5AC, _) | (0xE3E3E4, _) | (0x767A82, _) => Color(0x5E647000 | alpha),
+            (0xA5A5AC, _) | (0xE3E3E4, _) | (0x767A82, _) | (0x9FA1A8, _) | (0x92949B, _) => {
+                Color(0x5E647000 | alpha)
+            }
             _ => color,
         }
     }
@@ -327,10 +331,20 @@ pub mod ink {
 
     const NONE: u32 = 0;
 
+    // The launcher's own text inks, lighter than the dashboard's `text-gray-500` and
+    // 50% gray-faded so text keeps WCAG AA (4.5:1) on the surfaces it sits on. The
+    // light theme maps them to dark inks with the same margins (`palette::light`).
+    /// Descriptions and subtitles: 6.5:1 on gray-900, 5.7:1 on gray-850, 5.3:1 on
+    /// gray-800 (gray-500 was 3.9, 3.4 and 3.2).
+    pub const MUTED: Color = Color::rgb(0x9FA1A8);
+    /// Hints, captions, placeholders: 5.5:1 on gray-900, 4.9:1 on gray-850, 4.5:1 on
+    /// gray-800 (50% gray-faded was 2.7, 2.6 and 2.5).
+    pub const FAINT: Color = Color::rgb(0x92949B);
+
     static TEXT: AtomicU32 = AtomicU32::new(NONE);
     static SECONDARY: AtomicU32 = AtomicU32::new(NONE);
-    static MUTED: AtomicU32 = AtomicU32::new(NONE);
-    static FAINT: AtomicU32 = AtomicU32::new(NONE);
+    static MUTED_SLOT: AtomicU32 = AtomicU32::new(NONE);
+    static FAINT_SLOT: AtomicU32 = AtomicU32::new(NONE);
     static BORDER: AtomicU32 = AtomicU32::new(NONE);
 
     /// Uses the skin's `tokens`. Windows need a refresh to show them.
@@ -340,8 +354,8 @@ pub mod ink {
         };
         store(&TEXT, tokens.text);
         store(&SECONDARY, tokens.secondary);
-        store(&MUTED, tokens.muted);
-        store(&FAINT, tokens.faint);
+        store(&MUTED_SLOT, tokens.muted);
+        store(&FAINT_SLOT, tokens.faint);
         store(&BORDER, tokens.border);
     }
 
@@ -362,14 +376,14 @@ pub mod ink {
         get(&SECONDARY, colors::GRAY_400)
     }
 
-    /// Descriptions and subtitles (`text-gray-500`).
+    /// Descriptions and subtitles ([`MUTED`], the sidebar's subtitles).
     pub fn muted() -> Color {
-        get(&MUTED, colors::GRAY_500)
+        get(&MUTED_SLOT, MUTED)
     }
 
-    /// Hints and placeholders.
+    /// Hints, captions and placeholders ([`FAINT`]).
     pub fn faint() -> Color {
-        get(&FAINT, colors::GRAY_FADED.opacity(50))
+        get(&FAINT_SLOT, FAINT)
     }
 
     /// Lines around and between things (`border-fade-700`).
@@ -996,6 +1010,49 @@ mod tests {
         assert_eq!(weights::MEDIUMBOLD.face(), FontWeight::MEDIUM);
         assert_eq!(weights::BOLD.face(), FontWeight::MEDIUM);
         assert_eq!(weights::EXTRABOLD.face(), FontWeight::BOLD);
+    }
+
+    /// WCAG's contrast ratio between two opaque colours.
+    fn contrast(a: Color, b: Color) -> f32 {
+        let luminance = |c: Color| {
+            let channel = |shift: u32| {
+                let v = ((c.0 >> shift) & 0xff) as f32 / 255.0;
+                if v <= 0.04045 {
+                    v / 12.92
+                } else {
+                    ((v + 0.055) / 1.055).powf(2.4)
+                }
+            };
+            0.2126 * channel(24) + 0.7152 * channel(16) + 0.0722 * channel(8)
+        };
+        let (a, b) = (luminance(a), luminance(b));
+        (a.max(b) + 0.05) / (a.min(b) + 0.05)
+    }
+
+    #[test]
+    fn text_inks_keep_aa_contrast_on_the_surfaces() {
+        use colors::*;
+        // the page, side panels, cards and inputs, in both themes
+        for surface in [GRAY_900, GRAY_875, GRAY_850, GRAY_800] {
+            for ink in [GRAY_300, GRAY_400, ink::MUTED, ink::FAINT] {
+                for light in [false, true] {
+                    let (fg, bg) = if light {
+                        (palette::light(ink), palette::light(surface))
+                    } else {
+                        (ink, surface)
+                    };
+                    let ratio = contrast(fg, bg);
+                    assert!(
+                        ratio >= 4.5,
+                        "{} on {} (light: {light}): {ratio:.2}",
+                        fg.to_hex(),
+                        bg.to_hex()
+                    );
+                }
+            }
+        }
+        // subtitles keep the sidebar's (about) 6.5:1 on the darkest surface
+        assert!(contrast(ink::MUTED, GRAY_900) >= 6.4);
     }
 
     #[test]

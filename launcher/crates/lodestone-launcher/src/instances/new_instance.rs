@@ -639,7 +639,7 @@ fn code_preview(code: &ShareCode) -> impl IntoElement {
         .child(
             div()
                 .text_size(theme::text_size(text::SMALL))
-                .text_color(colors::GRAY_500)
+                .text_color(crate::theme::ink::muted())
                 .child(counts),
         )
 }

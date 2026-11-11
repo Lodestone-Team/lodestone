@@ -145,7 +145,7 @@ impl RenderOnce for ListRow {
                     div()
                         .flex_none()
                         .text_size(theme::text_size(text::SMALL))
-                        .text_color(colors::GRAY_FADED.opacity(30))
+                        .text_color(crate::theme::ink::faint())
                         .child(detail),
                 )
             })

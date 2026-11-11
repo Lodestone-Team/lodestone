@@ -168,7 +168,7 @@ fn heading(label: &'static str) -> impl IntoElement {
         .pb_1()
         .text_size(theme::text_size(text::SMALL))
         .font_weight(weights::BOLD.into())
-        .text_color(colors::GRAY_500)
+        .text_color(crate::theme::ink::muted())
         .child(label.to_uppercase())
 }
 
@@ -297,7 +297,7 @@ impl Render for PerfMonitor {
             vec![
                 div()
                     .py_1()
-                    .text_color(colors::GRAY_500)
+                    .text_color(crate::theme::ink::muted())
                     .child(t(M::PerfNoGame))
                     .into_any_element(),
             ]
@@ -468,7 +468,7 @@ impl Render for PerfMonitor {
                         this.child(
                             div()
                                 .py_1()
-                                .text_color(colors::GRAY_500)
+                                .text_color(crate::theme::ink::muted())
                                 .child(t(M::PerfIdle)),
                         )
                     })
@@ -476,7 +476,7 @@ impl Render for PerfMonitor {
                         this.child(
                             div()
                                 .py_1()
-                                .text_color(colors::GRAY_500)
+                                .text_color(crate::theme::ink::muted())
                                 .child(t(M::PerfBackground)),
                         )
                     })
@@ -484,7 +484,7 @@ impl Render for PerfMonitor {
                         div()
                             .py_1()
                             .text_size(theme::text_size(text::SMALL))
-                            .text_color(colors::GRAY_500)
+                            .text_color(crate::theme::ink::muted())
                             .child(t(M::PerfFramesNote)),
                     )
                     .child(heading(t(M::PerfGame)))
@@ -500,7 +500,7 @@ impl Render for PerfMonitor {
                             .flex()
                             .flex_col()
                             .gap_1()
-                            .text_color(colors::GRAY_500)
+                            .text_color(crate::theme::ink::muted())
                             .child(t(M::PerfLastMinute))
                             .child(t(M::PerfSelfNote)),
                     ),

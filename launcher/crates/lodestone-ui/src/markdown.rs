@@ -122,7 +122,7 @@ impl Renderer<'_> {
                     content.push_str(&format!("[{alt}]"));
                     let range = start..content.len();
                     let mut highlight = HighlightStyle {
-                        color: Some(colors::GRAY_500.into()),
+                        color: Some(crate::theme::ink::muted().into()),
                         ..HighlightStyle::default()
                     };
                     if let Some(link) = link {

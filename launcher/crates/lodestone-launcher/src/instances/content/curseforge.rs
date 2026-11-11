@@ -624,7 +624,7 @@ impl ContentView {
                                     tr!(M::BlockedWaiting, file = file.file.file_name)
                                 })
                                 .truncate()
-                                .text_color(colors::WHITE.opacity(40)),
+                                .text_color(crate::theme::ink::faint()),
                             ),
                     )
                     .child(status),
@@ -880,7 +880,7 @@ impl ContentView {
                                 this.child(
                                     small(tr!(M::ByAuthor, author = author))
                                         .flex_none()
-                                        .text_color(colors::WHITE.opacity(50)),
+                                        .text_color(crate::theme::ink::muted()),
                                 )
                             }),
                     )
@@ -1289,7 +1289,10 @@ impl ContentView {
                                     )
                                     .child(badge(type_label, type_color))
                                     .when(!file.downloadable(), |this| {
-                                        this.child(badge(t(M::WebsiteDownload), colors::GRAY_500))
+                                        this.child(badge(
+                                            t(M::WebsiteDownload),
+                                            crate::theme::ink::muted(),
+                                        ))
                                     }),
                             )
                             .child(
@@ -1304,7 +1307,7 @@ impl ContentView {
                                     format::bytes(file.file_length)
                                 ))
                                 .truncate()
-                                .text_color(colors::WHITE.opacity(40)),
+                                .text_color(crate::theme::ink::faint()),
                             )
                             .when_some(problem, |this, problem| {
                                 this.child(small(problem).text_color(colors::YELLOW_300))

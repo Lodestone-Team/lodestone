@@ -696,7 +696,7 @@ impl SnapshotDialog {
                     .key(("snapshot-part-row", index))
                     .when(part.world.is_some(), |row| row.indent())
                     .when(!size.is_empty(), |row| {
-                        row.child(div().text_color(colors::GRAY_500).child(size))
+                        row.child(div().text_color(crate::theme::ink::muted()).child(size))
                     })
                     .child(
                         Toggle::new(("snapshot-part", index), on)
@@ -819,7 +819,7 @@ impl SnapshotDialog {
                             .child(
                                 div()
                                     .text_size(theme::text_size(text::SMALL))
-                                    .text_color(colors::GRAY_500)
+                                    .text_color(crate::theme::ink::muted())
                                     .child(format::bytes(size)),
                             ),
                     ),

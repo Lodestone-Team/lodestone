@@ -1788,7 +1788,7 @@ impl FilesPage {
                         .flex_none()
                         .min_w(px(72.))
                         .text_right()
-                        .text_color(colors::GRAY_500)
+                        .text_color(lodestone_ui::theme::ink::muted())
                         .child(time),
                 )
             })
@@ -1798,7 +1798,7 @@ impl FilesPage {
                         .flex_none()
                         .min_w(px(72.))
                         .text_right()
-                        .text_color(colors::GRAY_500)
+                        .text_color(lodestone_ui::theme::ink::muted())
                         .child(size),
                 )
             })
@@ -2232,7 +2232,7 @@ impl Render for FilesPage {
                 .px(px(16.))
                 .text_size(text::MEDIUM)
                 .font_weight(weights::MEDIUM.face())
-                .text_color(colors::WHITE.opacity(50))
+                .text_color(lodestone_ui::theme::ink::muted())
                 .children(parts)
                 .when(showing_editor, |this| {
                     // long lines wrap, or scroll sideways

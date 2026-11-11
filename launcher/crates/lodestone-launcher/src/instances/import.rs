@@ -629,7 +629,7 @@ impl ImportDialog {
                             .min_w_0()
                             .whitespace_normal()
                             .text_size(theme::text_size(text::CAPTION))
-                            .text_color(colors::GRAY_FADED.opacity(40))
+                            .text_color(crate::theme::ink::faint())
                             .child(launcher.root.display().to_string()),
                     )
                     .into_any_element(),
@@ -728,7 +728,7 @@ impl ImportDialog {
             .children(self.queue.iter().map(|item| {
                 let key = item.key.clone();
                 let (status, color, fraction): (String, _, Option<f32>) = match &item.state {
-                    QueueState::Waiting => (t(M::Waiting).into(), colors::GRAY_500, None),
+                    QueueState::Waiting => (t(M::Waiting).into(), crate::theme::ink::muted(), None),
                     QueueState::Importing => {
                         (t(M::FindingVersion).into(), colors::GRAY_400, Some(0.))
                     }
@@ -741,7 +741,9 @@ impl ImportDialog {
                         None,
                     ),
                     QueueState::Failed(error) => (error.to_string(), colors::RED_200, None),
-                    QueueState::Cancelled => (t(M::Cancelled).into(), colors::GRAY_500, None),
+                    QueueState::Cancelled => {
+                        (t(M::Cancelled).into(), crate::theme::ink::muted(), None)
+                    }
                 };
                 let (status, fraction) = match (&item.state, item.progress.stage()) {
                     (QueueState::Importing, Stage::Copying) => {

@@ -825,7 +825,7 @@ impl ConsolePage {
                         .px(px(4.))
                         .rounded(radius::DEFAULT)
                         .bg(colors::GRAY_800)
-                        .text_color(colors::WHITE.opacity(50))
+                        .text_color(lodestone_ui::theme::ink::muted())
                         .child(user),
                 )
             })
@@ -853,7 +853,7 @@ pub(crate) fn graphic(
             div()
                 .text_size(text::H3)
                 .font_weight(weights::MEDIUM.face())
-                .text_color(colors::WHITE.opacity(50))
+                .text_color(lodestone_ui::theme::ink::muted())
                 .child(message.into()),
         )
         .when_some(detail, |this, detail| {

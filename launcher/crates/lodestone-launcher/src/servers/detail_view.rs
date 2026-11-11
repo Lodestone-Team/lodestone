@@ -456,7 +456,7 @@ impl ServerDetail {
                 .child(
                     div()
                         .font_weight(weights::BOLD.into())
-                        .text_color(colors::GRAY_FADED.opacity(50))
+                        .text_color(crate::theme::ink::faint())
                         .child(t(M::ConsoleNotShown)),
                 )
                 .child(
@@ -477,7 +477,7 @@ impl ServerDetail {
                 .items_center()
                 .justify_center()
                 .size_full()
-                .text_color(colors::GRAY_FADED.opacity(30))
+                .text_color(crate::theme::ink::faint())
                 .font_weight(weights::BOLD.into())
                 .child(t(M::OutputAppearsHere))
                 .into_any_element()
@@ -538,7 +538,7 @@ impl ServerDetail {
                     .text_color(if self.chat_error.is_some() {
                         colors::RED_200
                     } else {
-                        colors::GRAY_550
+                        crate::theme::ink::faint()
                     }),
                 )
                 .into_any_element()
@@ -552,7 +552,7 @@ impl ServerDetail {
             } else {
                 String::new()
             })
-            .text_color(colors::GRAY_550)
+            .text_color(crate::theme::ink::faint())
             .into_any_element()
         };
 
@@ -661,7 +661,7 @@ impl ServerDetail {
                     .full_width()
                     .on_click(cx.listener(|this, _, _, cx| this.link_selected(cx))),
                 )
-                .child(small(t(M::LinkCheckHint)).text_color(colors::GRAY_550)),
+                .child(small(t(M::LinkCheckHint)).text_color(crate::theme::ink::faint())),
             Some(_) => card,
             None if self.selected_is_offline(cx) => {
                 card.child(small(t(M::OfflineCantLink)).text_color(crate::theme::ink::muted()))
