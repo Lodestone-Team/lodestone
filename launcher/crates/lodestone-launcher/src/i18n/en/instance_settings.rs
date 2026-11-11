@@ -226,6 +226,12 @@ crate::i18n::messages! {
         VerifyHint = "Redownloads missing or damaged files.",
         Verify = "Verify",
         VerifyStarted = "Checking every file. The progress is on the Play button.",
+        /// Starts the mod finder (the crash dialog's "Find it for me") without a crash.
+        FindCrashingMod = "Find a mod that crashes the game",
+        FindCrashingModHint = "Starts the game a few times with half of the mods off, until one is left.",
+        FindCrashingModButton = "Find it…",
+        /// Search words for the row (Settings search), comma-free.
+        FindCrashingModKeywords = "crash conflict broken incompatible troubleshoot",
         Export = "Export",
         ExportHint = "As a .mrpack file.",
         ExportButton = "Export…",

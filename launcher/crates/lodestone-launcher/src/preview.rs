@@ -180,6 +180,7 @@ pub const SCENES: &[&str] = &[
     "settings-search-memory",
     "instance-settings-search",
     "instance-settings-search-narrow",
+    "instance-settings-search-crash",
     "focus-dialog",
     "focus-settings-row",
     "focus-home",
@@ -1277,10 +1278,18 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
         }
         // An instance's Settings tab searched for "java": the list shows only the
         // sections that match.
-        "instance-settings-search" | "instance-settings-search-narrow" => {
+        "instance-settings-search"
+        | "instance-settings-search-narrow"
+        | "instance-settings-search-crash" => {
             shell.select_tab(InstanceTab::Settings, cx);
+            // "crash": Maintenance's mod finder row, found by its keywords
+            let query = if scene.ends_with("-crash") {
+                "crash"
+            } else {
+                "java"
+            };
             if let Some(settings) = shell.settings_view().cloned() {
-                settings.update(cx, |settings, cx| settings.preview_search("java", cx));
+                settings.update(cx, |settings, cx| settings.preview_search(query, cx));
             }
         }
         "settings-narrow" | "settings-narrow-open" => {

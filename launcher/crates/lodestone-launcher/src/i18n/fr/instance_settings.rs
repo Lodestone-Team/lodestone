@@ -207,6 +207,12 @@ pub fn text(message: M) -> &'static str {
         M::VerifyStarted => {
             "Vérification de chaque fichier. La progression s’affiche sur le bouton Jouer."
         }
+        M::FindCrashingMod => "Trouver un mod qui fait planter le jeu",
+        M::FindCrashingModHint => {
+            "Lance le jeu plusieurs fois avec la moitié des mods désactivés, jusqu’à ce qu’il n’en reste qu’un."
+        }
+        M::FindCrashingModButton => "Trouver…",
+        M::FindCrashingModKeywords => "plantage crash conflit cassé incompatible dépannage",
         M::Export => "Exporter",
         M::ExportHint => "En fichier .mrpack.",
         M::ExportButton => "Exporter…",

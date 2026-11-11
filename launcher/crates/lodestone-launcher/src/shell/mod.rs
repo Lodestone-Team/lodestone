@@ -67,7 +67,8 @@ use crate::{
         modpacks::UpdatePrompt,
         new_instance::{NewInstanceDialog, NewInstanceDismissed},
         settings::{
-            DeleteRequested, HostRequested, InstanceSettings, LoaderChangePrompt, ShareRequested,
+            DeleteRequested, FindModRequested, HostRequested, InstanceSettings, LoaderChangePrompt,
+            ShareRequested,
         },
         share_dialog::{ShareDialog, ShareDismissed},
         worlds::{WorldsEvent, WorldsView},
@@ -299,7 +300,7 @@ pub struct LauncherShell {
     /// Updating the launcher: Settings > General, and the top bar's notice.
     updater: Entity<Updater>,
     /// The Settings tab of the selected instance, rebuilt when the selection changes.
-    settings: Option<(Entity<InstanceSettings>, [Subscription; 6])>,
+    settings: Option<(Entity<InstanceSettings>, [Subscription; 7])>,
     page: Page,
     tab: InstanceTab,
     /// The launcher's Settings, a large dialog under the other dialogs.
@@ -1143,6 +1144,9 @@ impl LauncherShell {
                     cx.subscribe(&settings, |this, _, ShareRequested(id), cx| {
                         this.open_share(id, cx)
                     }),
+                    cx.subscribe(&settings, |this, _, FindModRequested(id), cx| {
+                        this.open_mod_finder_by_hand(id, cx)
+                    }),
                     cx.subscribe(&settings, |this, _, HostRequested(id), cx| {
                         this.servers
                             .update(cx, |servers, cx| servers.open_host(id, cx))
@@ -1278,6 +1282,13 @@ impl LauncherShell {
         let instances = self.instances.clone();
         let finder = cx.new(|cx| ModFinder::new(instances, crash, cx));
         window.focus(&finder.focus_handle(cx), cx);
+        self.show_mod_finder(finder, cx);
+    }
+
+    /// Starts the mod finder from an instance's Settings, without a crash.
+    fn open_mod_finder_by_hand(&mut self, id: &str, cx: &mut Context<Self>) {
+        let instances = self.instances.clone();
+        let finder = cx.new(|cx| ModFinder::by_hand(instances, id, cx));
         self.show_mod_finder(finder, cx);
     }
 

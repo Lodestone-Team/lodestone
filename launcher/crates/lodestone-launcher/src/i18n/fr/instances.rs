@@ -199,6 +199,9 @@ pub fn text(message: M) -> &'static str {
         M::FinderManual => {
             "Le jeu a planté pendant que vous jouiez, vous devrez donc jouer chaque essai. Refaites ce qui l’avait fait planter. S’il plante encore, l’essai suivant démarre tout seul. Sinon, appuyez sur Il n’a pas planté."
         }
+        M::FinderByHand => {
+            "Jouez chaque essai et refaites ce qui a fait planter le jeu. S’il plante, l’essai suivant démarre tout seul. Sinon, appuyez sur Il n’a pas planté."
+        }
         M::FinderStart => "Commencer",
         M::FinderReading => "Vérification de vos mods",
         M::FinderTry => "Essai {number}",

@@ -85,6 +85,8 @@ pub struct ModFinder {
     after_stop: AfterStop,
     /// Whether this finishes a search an earlier launcher started.
     resumed: bool,
+    /// Started from Settings without a crash ([`ModFinder::by_hand`]).
+    by_hand: bool,
     focus: FocusHandle,
     _events: Subscription,
     task: Option<Task<()>>,
@@ -113,6 +115,25 @@ impl ModFinder {
                 mod_finder::load(dirs)
                     .map(|search| (search, true))
                     .unwrap_or_else(|| (Search::start(dirs, &suspects, at_startup), false))
+            },
+            dirs,
+            cx,
+        );
+        this
+    }
+
+    /// A search started from the instance's Settings (Maintenance) without a crash:
+    /// every mod is a suspect, and the person plays each try (a crash at startup ends
+    /// a try too).
+    pub fn by_hand(instances: Entity<Instances>, id: &str, cx: &mut Context<Self>) -> Self {
+        let dirs = instances.read(cx).content_dirs(id);
+        let mut this = Self::empty(instances, id, cx);
+        this.by_hand = true;
+        this.read(
+            |dirs| {
+                mod_finder::load(dirs)
+                    .map(|search| (search, true))
+                    .unwrap_or_else(|| (Search::start(dirs, &[], false), false))
             },
             dirs,
             cx,
@@ -158,6 +179,7 @@ impl ModFinder {
             state: State::Reading,
             after_stop: AfterStop::Record,
             resumed: false,
+            by_hand: false,
             focus: cx.focus_handle(),
             _events: events,
             task: None,
@@ -586,6 +608,8 @@ impl Render for ModFinder {
                 }))
                 .child(note(t(if automatic {
                     M::FinderAutomatic
+                } else if self.by_hand {
+                    M::FinderByHand
                 } else {
                     M::FinderManual
                 })))
