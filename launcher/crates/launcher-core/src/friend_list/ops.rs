@@ -10,7 +10,7 @@ use lodestone_connect::{
     friend::{
         crypto::{PersonKey, PublicKey, core_secret},
         join::{FriendCore, is_online, join_friend},
-        pair::{FriendLink, Invitation, answer, open_card},
+        pair::{FriendLink, Invitation, answer_with_player, open_card},
         state::{
             REISSUE_AFTER_SECS, STATE_LIFETIME_SECS, State, StateCore, open_state, seal_state,
             slot_id, slot_proof,
@@ -20,8 +20,8 @@ use lodestone_connect::{
 };
 
 use super::{
-    Book, Friend, FriendState, FriendStatus, Friends, FriendsError, MAX_FRIENDS, PendingLink, hex,
-    now, on_tokio,
+    Book, Friend, FriendState, FriendStatus, Friends, FriendsError, MAX_FRIENDS, PendingLink,
+    StatePlayer, hex, now, on_tokio, profile_of,
 };
 use crate::cores::connect::{GamePort, JoinError, Progress, Tunnel, open_friend};
 
@@ -72,8 +72,12 @@ pub struct LinkPreview {
     pub key: String,
     /// Already a friend.
     pub already_friends: bool,
-    /// Friends with the same name: shown, in case someone is pretending.
+    /// Friends with the same name (or Minecraft profile): shown, in case someone is
+    /// pretending.
     pub same_name_as: Vec<String>,
+    /// The Minecraft profile the sender says they play as, for their skin (from
+    /// launchers that send it). Their claim, signed by their key: nobody checks it.
+    pub player: Option<StatePlayer>,
 }
 
 /// An answer to one of this person's friend links, waiting for them to accept it.
@@ -86,6 +90,8 @@ pub struct LinkReply {
     /// How many people answered this link. More than one means someone else had it.
     pub answers: usize,
     pub same_name_as: Vec<String>,
+    /// The Minecraft profile they say they play as (see [`LinkPreview::player`]).
+    pub player: Option<StatePlayer>,
 }
 
 /// What [`Friends::refresh`] found.
@@ -155,7 +161,7 @@ pub async fn preview_link(
         }
         Some((_, book)) => (
             book.friend(&key).is_some(),
-            book.same_name(&card.name, &key)
+            book.lookalikes(&card.name, card.player.as_ref(), &key)
                 .iter()
                 .map(|f| f.display_name().to_string())
                 .collect(),
@@ -168,6 +174,7 @@ pub async fn preview_link(
         already_friends,
         same_name_as,
         key,
+        player: card.player.clone(),
     })
 }
 
@@ -185,8 +192,13 @@ impl Friends {
         if self.book.name.is_empty() {
             return Err(refused("Choose a name your friends will see first."));
         }
-        let (mut invitation, card) =
-            Invitation::create(&self.me, &self.book.name, self.service.clone(), now())?;
+        let (mut invitation, card) = Invitation::create_with_player(
+            &self.me,
+            &self.book.name,
+            self.book.profile(),
+            self.service.clone(),
+            now(),
+        )?;
         let service = self.service.clone();
         let code = invitation.link.code.clone();
         let access_hash = invitation.link.access_hash();
@@ -267,7 +279,7 @@ impl Friends {
                     code: link.code.clone(),
                     same_name_as: self
                         .book
-                        .same_name(&reply.name, &key)
+                        .lookalikes(&reply.name, reply.player.as_ref(), &key)
                         .iter()
                         .map(|f| f.display_name().to_string())
                         .collect(),
@@ -275,6 +287,7 @@ impl Friends {
                     name: reply.name.clone(),
                     safety_code: reply.key.safety_code(),
                     answers,
+                    player: reply.player.clone(),
                 });
             }
         }
@@ -316,6 +329,7 @@ impl Friends {
             pair: pair.to_hex(),
             status: FriendStatus::Active,
             added_at: now(),
+            player: reply.player.clone(),
             ..Friend::default()
         };
         self.modify(|book| {
@@ -360,7 +374,8 @@ impl Friends {
                 "You can have at most {MAX_FRIENDS} friends."
             )));
         }
-        let answer = answer(&self.me, &self.book.name, &link, &card)?;
+        let answer =
+            answer_with_player(&self.me, &self.book.name, self.book.profile(), &link, &card)?;
         let service = link.service.clone();
         let code = link.code.clone();
         let access = link.access();
@@ -373,6 +388,7 @@ impl Friends {
             pair: answer.pair.to_hex(),
             status: FriendStatus::Pending,
             added_at: now(),
+            player: card.player.clone(),
             ..Friend::default()
         };
         self.modify(|book| {
@@ -568,12 +584,14 @@ impl Friends {
         let now = now();
         self.modify(|book| {
             for (key, state) in read {
-                // a friend who takes on another friend's name is flagged, as at adding
-                let renamed = book
-                    .friend(&key)
-                    .is_some_and(|f| !state.retired && f.name != state.name);
+                // a friend who takes on another friend's name (or Minecraft profile)
+                // is flagged, as at adding
+                let player = profile_of(&state.players);
+                let renamed = book.friend(&key).is_some_and(|f| {
+                    !state.retired && (f.name != state.name || f.minecraft() != player)
+                });
                 let same_name: Vec<String> = if renamed {
-                    book.same_name(&state.name, &key)
+                    book.lookalikes(&state.name, player, &key)
                         .iter()
                         .map(|f| f.display_name().to_string())
                         .collect()

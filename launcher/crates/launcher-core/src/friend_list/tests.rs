@@ -275,6 +275,198 @@ fn a_friend_renamed_like_another_is_flagged() {
     );
 }
 
+fn player(name: &str, byte: u8, offline: bool) -> StatePlayer {
+    StatePlayer {
+        name: name.into(),
+        uuid: [byte; 16],
+        offline,
+    }
+}
+
+#[test]
+fn the_name_is_the_minecraft_name_until_one_is_chosen() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = MemorySecretStore::new();
+    let mut friends = open(dir.path(), &store);
+    assert!(friends.book.name.is_empty());
+    assert!(friends.book.profile().is_none());
+
+    // an offline account alone gives no name: the person is asked for one
+    assert!(friends.set_players(vec![player("Dev_1", 1, true)]).unwrap());
+    assert!(friends.book.name.is_empty());
+    assert!(friends.book.profile().is_none());
+    assert!(friends.use_profile_name().is_err());
+
+    // signed in with Microsoft: their Minecraft name, without asking
+    let seq = friends.book.state_seq;
+    friends
+        .set_players(vec![player("Steve_1", 2, false), player("Dev_1", 1, true)])
+        .unwrap();
+    assert_eq!(friends.book.name, "Steve_1");
+    assert!(friends.book.name_from_profile);
+    assert_eq!(friends.book.profile(), Some(&player("Steve_1", 2, false)));
+    assert!(friends.book.state_seq > seq, "friends get the name");
+    // it follows the profile's name (renamed on minecraft.net, or another account
+    // first)
+    friends
+        .set_players(vec![player("Steve_2", 2, false)])
+        .unwrap();
+    assert_eq!(friends.book.name, "Steve_2");
+    assert!(
+        !friends
+            .set_players(vec![player("Steve_2", 2, false)])
+            .unwrap(),
+        "no change"
+    );
+    // signed out: the name stays
+    friends.set_players(Vec::new()).unwrap();
+    assert_eq!(friends.book.name, "Steve_2");
+    friends
+        .set_players(vec![player("Steve_2", 2, false)])
+        .unwrap();
+
+    // a name of their own wins, and stays
+    friends.set_name("Ana").unwrap();
+    assert!(!friends.book.name_from_profile);
+    friends.set_players(vec![player("Alex", 3, false)]).unwrap();
+    assert_eq!(friends.book.name, "Ana");
+    // until they go back to the Minecraft name
+    friends.use_profile_name().unwrap();
+    assert_eq!(friends.book.name, "Alex");
+    assert!(friends.book.name_from_profile);
+
+    // kept across a restart
+    let again = open(dir.path(), &store);
+    assert_eq!(again.book, friends.book);
+}
+
+#[test]
+fn a_name_chosen_before_profiles_is_kept() {
+    // a friend list from before profiles: a chosen name, and no `name_from_profile`
+    let old: Book = serde_json::from_value(serde_json::json!({
+        "name": "Ana",
+        "friends": [{ "key": "ab".repeat(32), "name": "Ben", "pair": "cd".repeat(32) }],
+    }))
+    .unwrap();
+    assert!(!old.name_from_profile);
+    assert!(old.friends[0].player.is_none());
+    assert!(old.friends[0].minecraft().is_none());
+    let dir = tempfile::tempdir().unwrap();
+    let store = MemorySecretStore::new();
+    let mut friends = open(dir.path(), &store);
+    friends
+        .modify(|book| {
+            *book = Book {
+                generation: book.generation,
+                ..old.clone()
+            };
+            Ok(())
+        })
+        .unwrap();
+    friends
+        .set_players(vec![player("Steve_1", 2, false)])
+        .unwrap();
+    assert_eq!(friends.book.name, "Ana");
+    assert!(!friends.book.name_from_profile);
+    // what's left out of the file keeps it as before
+    let json = serde_json::to_value(&old).unwrap();
+    assert!(json.get("name_from_profile").is_none());
+    assert!(json["friends"][0].get("player").is_none());
+}
+
+#[test]
+fn a_friend_s_minecraft_profile_survives_and_their_states_take_over() {
+    let ana = Friend {
+        player: Some(player("Ana", 7, false)),
+        ..ben()
+    };
+    let json = serde_json::to_string(&ana).unwrap();
+    let back: Friend = serde_json::from_str(&json).unwrap();
+    assert_eq!(back, ana);
+    assert_eq!(back.minecraft(), Some(&player("Ana", 7, false)));
+    // an offline profile has no skin to show
+    let offline = Friend {
+        player: Some(player("Ana", 7, true)),
+        ..ben()
+    };
+    assert!(offline.minecraft().is_none());
+    // once a state arrives, its first Microsoft account is theirs
+    let with_state = Friend {
+        state: Some(FriendState {
+            players: vec![player("Dev", 1, true), player("Ana_2", 8, false)],
+            ..FriendState::default()
+        }),
+        ..ana.clone()
+    };
+    assert_eq!(with_state.minecraft(), Some(&player("Ana_2", 8, false)));
+    let signed_out = Friend {
+        state: Some(FriendState::default()),
+        ..ana
+    };
+    assert!(signed_out.minecraft().is_none());
+}
+
+#[test]
+fn someone_playing_as_a_friend_s_profile_is_flagged() {
+    let mut ana = Friend {
+        key: "ef".repeat(32),
+        name: "Ana".into(),
+        player: Some(player("AnaPlays", 7, false)),
+        ..ben()
+    };
+    let book = Book {
+        friends: vec![ben(), ana.clone()],
+        ..Book::default()
+    };
+    // another name, but Ana's Minecraft profile (and so her skin)
+    let same_uuid = player("Whoever", 7, false);
+    let names: Vec<&str> = book
+        .lookalikes("Mallory", Some(&same_uuid), "zz")
+        .iter()
+        .map(|f| f.name.as_str())
+        .collect();
+    assert_eq!(names, ["Ana"]);
+    // a Minecraft name like a friend's name, or like a friend's Minecraft name
+    assert_eq!(
+        book.lookalikes("Mallory", Some(&player("Ben", 9, false)), "zz")
+            .len(),
+        1
+    );
+    assert_eq!(book.lookalikes("anaplays", None, "zz").len(), 1);
+    assert!(
+        book.lookalikes("Mallory", Some(&player("Mallory", 9, false)), "zz")
+            .is_empty()
+    );
+    // an offline profile isn't anyone's: its UUID isn't compared
+    assert!(
+        book.lookalikes("Mallory", Some(&player("Whoever", 7, true)), "zz")
+            .is_empty()
+    );
+
+    // in the list: a friend who plays as another's profile is flagged, both ways
+    ana.player = Some(player("Mallory", 7, false));
+    let mallory = Friend {
+        key: "12".repeat(32),
+        name: "Mallory".into(),
+        player: Some(player("Mallory", 7, false)),
+        ..ben()
+    };
+    let book = Book {
+        friends: vec![ben(), ana, mallory],
+        ..Book::default()
+    };
+    let clashes = book.name_clashes();
+    assert_eq!(
+        clashes.get(&"12".repeat(32)).unwrap(),
+        &vec!["Ana".to_string()]
+    );
+    assert_eq!(
+        clashes.get(&"ef".repeat(32)).unwrap(),
+        &vec!["Mallory".to_string()]
+    );
+    assert!(!clashes.contains_key(&"ab".repeat(32)));
+}
+
 #[test]
 fn only_active_friends_with_a_live_state_can_be_joined() {
     let core = StateCore {
@@ -343,7 +535,10 @@ fn two_people_become_friends_through_the_service() {
         service.clone(),
     ))
     .unwrap();
-    ana.set_name("Ana").unwrap();
+    // Ana is signed in with Microsoft: her name is her Minecraft name, and her card
+    // says which profile she plays as. Ben has no Microsoft account: he chose a name.
+    ana.set_players(vec![player("Ana", 0xa5, false)]).unwrap();
+    assert_eq!(ana.book.name, "Ana");
     ben.set_name("Ben").unwrap();
 
     let link = block_on(ana.create_link()).unwrap();
@@ -353,7 +548,14 @@ fn two_people_become_friends_through_the_service() {
     let preview = block_on(ben.preview_link(&link)).unwrap();
     assert_eq!(preview.name, "Ana");
     assert_eq!(preview.safety_code, ana.safety_code());
+    assert_eq!(preview.player, Some(player("Ana", 0xa5, false)));
+    assert_eq!(nobody.player, preview.player);
     let ana_key = block_on(ben.answer_link(&link)).unwrap();
+    assert_eq!(
+        ben.book.friend(&ana_key).unwrap().minecraft(),
+        Some(&player("Ana", 0xa5, false)),
+        "her skin shows while she hasn't confirmed"
+    );
     assert_eq!(
         ben.book.friend(&ana_key).unwrap().status,
         FriendStatus::Pending
@@ -366,6 +568,7 @@ fn two_people_become_friends_through_the_service() {
     assert_eq!(replies.len(), 1);
     assert_eq!(replies[0].name, "Ben");
     assert_eq!(replies[0].safety_code, ben.safety_code());
+    assert_eq!(replies[0].player, None, "Ben has no Minecraft profile");
     block_on(ana.accept_reply(&replies[0].code, &replies[0].key)).unwrap();
     assert!(ana.book.links.is_empty(), "the link and its keys are gone");
     // the link can't be used again
@@ -373,6 +576,11 @@ fn two_people_become_friends_through_the_service() {
 
     let refreshed = block_on(ben.refresh()).unwrap();
     assert_eq!(refreshed.confirmed, vec![ana_key.clone()]);
+    // her state's accounts take over from the card
+    assert_eq!(
+        ben.book.friend(&ana_key).unwrap().minecraft(),
+        Some(&player("Ana", 0xa5, false))
+    );
     let ben_key = ben.me().to_hex();
     block_on(ana.refresh()).unwrap();
     assert_eq!(

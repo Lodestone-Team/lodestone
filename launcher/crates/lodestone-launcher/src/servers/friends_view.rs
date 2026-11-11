@@ -35,7 +35,14 @@ use crate::{
 };
 
 /// A small Copy button that puts `value` on the clipboard.
-fn copy_button(id: impl Into<SharedString>, value: String) -> Button {
+/// A public invite link without its scheme: `connect.lodestone.cc/j/ABCDEFGH23`.
+fn short_link(link: &str) -> &str {
+    link.strip_prefix("https://")
+        .or_else(|| link.strip_prefix("http://"))
+        .unwrap_or(link)
+}
+
+pub(super) fn copy_button(id: impl Into<SharedString>, value: String) -> Button {
     Button::new(id.into(), t(CommonMsg::Copy))
         .size(ButtonSize::Slim)
         .variant(ButtonVariant::Ghost)
@@ -70,9 +77,10 @@ fn online_line(status: &FriendStatus) -> Option<String> {
 }
 
 impl Servers {
-    /// "Friends' servers": the ones joined before, and "Join a friend". Those shared
-    /// from a core on this computer show under it in "On this computer" instead.
-    pub(super) fn render_friends(&self, cx: &mut Context<Self>) -> AnyElement {
+    /// "Servers from invite links", in "Other hosts and servers": the ones joined
+    /// before with an invite link from anyone. Those shared from a core on this
+    /// computer show under it in "On this computer" instead. None when there are none.
+    pub(super) fn render_invite_servers(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let local = self.local_cores();
         let rows: Vec<AnyElement> = self
             .friends
@@ -81,8 +89,10 @@ impl Servers {
             .filter(|entry| entry.saved.placement(&local) == Placement::Friends)
             .map(|entry| self.friend_row(entry, false, cx))
             .collect();
-        let empty = rows.is_empty();
-        div()
+        if rows.is_empty() {
+            return None;
+        }
+        let card = div()
             .id("friends-servers")
             .flex()
             .flex_col()
@@ -120,25 +130,11 @@ impl Servers {
                                     .child(t(M::FriendsTitle)),
                             )
                             .child(note(t(M::FriendsHint))),
-                    )
-                    .child(
-                        Button::new("join-friend", t(M::JoinAFriend))
-                            .size(ButtonSize::Slim)
-                            .icon(Icon::Plus)
-                            .on_click(cx.listener(|this, _, _, cx| this.open_join(None, cx))),
                     ),
             )
-            .when(empty, |this| {
-                this.child(
-                    note(t(M::NoFriendsYet))
-                        .px_4()
-                        .py_3()
-                        .border_t_1()
-                        .border_color(crate::theme::ink::border()),
-                )
-            })
             .children(rows)
-            .into_any_element()
+            .into_any_element();
+        Some(card)
     }
 
     /// A friend's server's row. `here`: it is shared from a core on this computer, and
@@ -230,9 +226,16 @@ impl Servers {
                             .truncate()
                             .font_weight(weights::BOLD.into())
                             .text_color(crate::theme::ink::text())
-                            .child(saved.name.clone()),
+                            .child(if saved.never_answered() {
+                                // added without joining: its host hasn't answered yet
+                                tr!(M::ServerFromLink, link = short_link(&saved.link))
+                            } else {
+                                saved.name.clone()
+                            }),
                     )
-                    .child(note(if here {
+                    .child(note(if saved.never_answered() {
+                        t(M::AddedNotAnswered).to_string()
+                    } else if here {
                         // under the core that shares it
                         server_detail(&as_server)
                     } else {
@@ -409,7 +412,13 @@ pub fn join_dialog(servers: &Entity<Servers>, prompt: &JoinPrompt, cx: &App) -> 
     let this = servers.read(cx);
     let close = servers.clone();
     let cancel = servers.clone();
-    let dialog = Dialog::new("join-friend", t(M::JoinFriendTitle), prompt.focus.clone())
+    // pasting a link adds a server; the other stages join one
+    let title = if matches!(prompt.stage, JoinStage::Paste { .. }) {
+        t(M::AddServerTitle)
+    } else {
+        t(M::JoinFriendTitle)
+    };
+    let dialog = Dialog::new("join-friend", title, prompt.focus.clone())
         .width(px(560.))
         .on_close(move |_, cx| close.update(cx, |this, cx| this.close_join(cx)));
     let cancel_button = move |label: &'static str| {
@@ -433,7 +442,7 @@ pub fn join_dialog(servers: &Entity<Servers>, prompt: &JoinPrompt, cx: &App) -> 
                             div()
                                 .on_key_down(move |event: &KeyDownEvent, _, cx| {
                                     if event.keystroke.key == "enter" {
-                                        enter.update(cx, |this, cx| this.submit_invite(cx));
+                                        enter.update(cx, |this, cx| this.submit_invite_add(cx));
                                         cx.stop_propagation();
                                     }
                                 })
@@ -445,9 +454,18 @@ pub fn join_dialog(servers: &Entity<Servers>, prompt: &JoinPrompt, cx: &App) -> 
                                 .text_color(colors::RED_200)
                         })),
                 )
+                // Add saves it without joining, even while its host is offline
                 .footer(
-                    Button::new("join-friend-submit", t(M::Join))
+                    Button::new("join-friend-add", t(M::AddInvite))
                         .variant(ButtonVariant::Primary)
+                        .on_click({
+                            let add = submit.clone();
+                            move |_, _, cx| add.update(cx, |this, cx| this.submit_invite_add(cx))
+                        }),
+                )
+                .footer(
+                    Button::new("join-friend-submit", t(M::AddAndJoin))
+                        .variant(ButtonVariant::Secondary)
                         .on_click(move |_, _, cx| {
                             submit.update(cx, |this, cx| this.submit_invite(cx))
                         }),

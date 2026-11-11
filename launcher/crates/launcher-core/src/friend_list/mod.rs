@@ -130,6 +130,11 @@ pub struct Friend {
     /// Seconds since 1970.
     #[serde(default)]
     pub added_at: u64,
+    /// The Minecraft profile their card or answer said they play as, when they became
+    /// friends (from launchers that send it). Their states' accounts take over once
+    /// one arrives: see [`Friend::minecraft`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub player: Option<StatePlayer>,
 }
 
 impl std::fmt::Debug for Friend {
@@ -144,11 +149,29 @@ impl std::fmt::Debug for Friend {
             .field("state", &self.state)
             .field("sent_seq", &self.sent_seq)
             .field("hidden", &self.hidden)
+            .field("player", &self.player)
             .finish_non_exhaustive()
     }
 }
 
+/// The first Microsoft (not offline) account among `players`: the profile a person
+/// shows friends, whose skin is drawn beside their name.
+pub fn profile_of(players: &[StatePlayer]) -> Option<&StatePlayer> {
+    players.iter().find(|p| !p.offline)
+}
+
 impl Friend {
+    /// The Minecraft profile they say they play as, for their skin: their latest
+    /// state's first Microsoft account once a state arrived, else what they sent when
+    /// you became friends. Their launcher's claim: nobody checks that the account is
+    /// theirs, so it's never shown as proof of who they are.
+    pub fn minecraft(&self) -> Option<&StatePlayer> {
+        match &self.state {
+            Some(state) => profile_of(&state.players),
+            None => self.player.as_ref().filter(|p| !p.offline),
+        }
+    }
+
     pub fn public_key(&self) -> Option<PublicKey> {
         PublicKey::from_hex(&self.key)
     }
@@ -224,9 +247,15 @@ pub struct Book {
     #[serde(default)]
     pub my_cores: Vec<MyCore>,
     /// This person's Minecraft accounts, sent to friends so their Hosts can whitelist
-    /// them (see [`Friends::set_players`]).
+    /// them (see [`Friends::set_players`]). The first Microsoft one is their profile
+    /// ([`Book::profile`]).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub players: Vec<StatePlayer>,
+    /// `name` is the profile's player name, and follows it: the person never chose
+    /// one ([`Friends::set_players`]). False once they do ([`Friends::set_name`]), and
+    /// in lists from before profiles, whose names were all chosen.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub name_from_profile: bool,
     /// The number of this person's current state.
     #[serde(default)]
     pub state_seq: u64,
@@ -257,49 +286,49 @@ impl Book {
         self.friends.iter_mut().find(|f| f.key == key)
     }
 
+    /// The Minecraft profile this person shows friends: their first Microsoft
+    /// account, if they have one.
+    pub fn profile(&self) -> Option<&StatePlayer> {
+        profile_of(&self.players)
+    }
+
     /// Other friends whose name or nickname is `name`: a new friend with the same name
     /// as an old one is flagged, in case someone is pretending.
     pub fn same_name(&self, name: &str, except: &str) -> Vec<&Friend> {
-        // compared as they look, so "Аna" in Cyrillic matches "Ana"
-        let name = name_skeleton(name);
+        self.lookalikes(name, None, except)
+    }
+
+    /// Other friends who look like someone called `name` playing as `player`: whose
+    /// name, nickname or Minecraft name looks like `name` or the player's name, or who
+    /// play as the same Minecraft profile. Anyone can name any profile, and its skin
+    /// would make them look like its owner, so it's checked as names are.
+    pub fn lookalikes(
+        &self,
+        name: &str,
+        player: Option<&StatePlayer>,
+        except: &str,
+    ) -> Vec<&Friend> {
+        let looks = Looks::new(name, player);
         self.friends
             .iter()
             .filter(|f| f.key != except)
-            .filter(|f| {
-                name_skeleton(&f.name) == name
-                    || f.nickname
-                        .as_deref()
-                        .is_some_and(|n| name_skeleton(n) == name)
-            })
+            .filter(|f| looks.matches(&Looks::of(f)))
             .collect()
     }
 
-    /// For each friend whose chosen name looks like another friend's name or nickname:
-    /// those friends' names, as the list shows them. Checked again whenever a friend
-    /// renames themselves, so a friend can't take on another's name unnoticed.
+    /// For each friend whose chosen name (or Minecraft profile) looks like another
+    /// friend's: those friends' names, as the list shows them. Checked again whenever
+    /// a friend renames themselves, so a friend can't take on another's name
+    /// unnoticed.
     pub fn name_clashes(&self) -> BTreeMap<String, Vec<String>> {
-        let skeletons: Vec<(String, Option<String>)> = self
-            .friends
-            .iter()
-            .map(|f| {
-                (
-                    name_skeleton(&f.name),
-                    f.nickname.as_deref().map(name_skeleton),
-                )
-            })
-            .collect();
+        let looks: Vec<Looks> = self.friends.iter().map(Looks::of).collect();
         let mut out = BTreeMap::new();
         for (i, friend) in self.friends.iter().enumerate() {
-            let mine = &skeletons[i].0;
             let names: Vec<String> = self
                 .friends
                 .iter()
                 .enumerate()
-                .filter(|(j, _)| *j != i)
-                .filter(|(j, _)| {
-                    let (name, nickname) = &skeletons[*j];
-                    name == mine || nickname.as_ref() == Some(mine)
-                })
+                .filter(|(j, _)| *j != i && looks[i].matches(&looks[*j]))
                 .map(|(_, f)| f.display_name().to_string())
                 .collect();
             if !names.is_empty() {
@@ -327,6 +356,53 @@ impl Book {
                 })
             })
             .collect()
+    }
+}
+
+/// How a friend looks in the list, for warnings about look-alikes: the skeletons
+/// ([`name_skeleton`]) of their name, their Minecraft name and the nickname given to
+/// them, and their Minecraft profile's UUID.
+struct Looks {
+    /// Their own: the name they chose, and their Minecraft name.
+    names: Vec<String>,
+    nickname: Option<String>,
+    uuid: Option<[u8; 16]>,
+}
+
+impl Looks {
+    fn new(name: &str, player: Option<&StatePlayer>) -> Self {
+        let player = player.filter(|p| !p.offline);
+        let mut names = vec![name_skeleton(name)];
+        names.extend(player.map(|p| name_skeleton(&p.name)));
+        names.retain(|n| !n.is_empty());
+        names.dedup();
+        Self {
+            names,
+            nickname: None,
+            uuid: player.map(|p| p.uuid),
+        }
+    }
+
+    fn of(friend: &Friend) -> Self {
+        Self {
+            nickname: friend
+                .nickname
+                .as_deref()
+                .map(name_skeleton)
+                .filter(|n| !n.is_empty()),
+            ..Self::new(&friend.name, friend.minecraft())
+        }
+    }
+
+    /// Whether someone who looks like `self` could be taken for `other`: one of
+    /// `self`'s names is one of `other`'s or the nickname `other` was given, or both
+    /// play as the same profile.
+    fn matches(&self, other: &Looks) -> bool {
+        self.uuid.is_some() && self.uuid == other.uuid
+            || self
+                .names
+                .iter()
+                .any(|n| other.names.contains(n) || other.nickname.as_ref() == Some(n))
     }
 }
 
@@ -804,7 +880,8 @@ impl Friends {
         Ok(result)
     }
 
-    /// Sets the name friends see. It reaches them with the next state.
+    /// Sets the name friends see, chosen by the person: it no longer follows their
+    /// Minecraft profile's. It reaches friends with the next state.
     pub fn set_name(&mut self, name: &str) -> Result<(), FriendsError> {
         let name = clean_name(name);
         if name.is_empty() {
@@ -813,6 +890,7 @@ impl Friends {
             ));
         }
         self.modify(|book| {
+            book.name_from_profile = false;
             if name != book.name {
                 book.name = name;
                 book.new_state();
@@ -821,28 +899,60 @@ impl Friends {
         })
     }
 
-    /// Sets the Minecraft accounts friends see (for their servers' whitelists): the
-    /// first [`MAX_PLAYERS`] with a name a player can have. Returns whether they changed;
-    /// a change makes a new state, which goes out at the next publish.
+    /// Goes back to the Minecraft profile's player name, and follows it from now on.
+    pub fn use_profile_name(&mut self) -> Result<(), FriendsError> {
+        let Some(profile) = self.book.profile().cloned() else {
+            return Err(FriendsError::Refused(
+                "Sign in with a Microsoft account to use your Minecraft name.".into(),
+            ));
+        };
+        self.modify(|book| {
+            book.name_from_profile = true;
+            if profile.name != book.name {
+                book.name = profile.name;
+                book.new_state();
+            }
+            Ok(())
+        })
+    }
+
+    /// Sets the Minecraft accounts friends see (for their servers' whitelists, and the
+    /// first Microsoft one for the skin beside this person's name): the first
+    /// [`MAX_PLAYERS`] with a name a player can have. Until the person chooses a name
+    /// of their own, their name is that profile's player name. Returns whether anything
+    /// changed; a change makes a new state, which goes out at the next publish.
     pub fn set_players(&mut self, players: Vec<StatePlayer>) -> Result<bool, FriendsError> {
         let players: Vec<StatePlayer> = players
             .into_iter()
             .filter(|p| StatePlayer::is_name(&p.name))
             .take(MAX_PLAYERS)
             .collect();
-        if players == self.book.players {
-            return Ok(false);
-        }
-        let mut changed = false;
-        self.modify(|book| {
+        let apply = |book: &mut Book| {
+            let mut changed = false;
             if players != book.players {
-                book.players = players;
-                book.new_state();
+                book.players = players.clone();
                 changed = true;
             }
-            Ok(())
-        })?;
-        Ok(changed)
+            if book.name.is_empty() || book.name_from_profile {
+                // the Minecraft name, until they choose another; one that goes (signed
+                // out) leaves the name as it was
+                if let Some(profile) = profile_of(&players) {
+                    if book.name != profile.name {
+                        book.name = profile.name.clone();
+                        changed = true;
+                    }
+                    book.name_from_profile = true;
+                }
+            }
+            if changed {
+                book.new_state();
+            }
+            changed
+        };
+        if !apply(&mut self.book.clone()) {
+            return Ok(false);
+        }
+        self.modify(|book| Ok(apply(book)))
     }
 
     /// Ticks or unticks "Codes match" for a friend.

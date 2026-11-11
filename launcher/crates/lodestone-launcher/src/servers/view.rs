@@ -1017,7 +1017,8 @@ impl Servers {
 
     /// "Other cores": those added by address, on other computers, with a neutral look.
     fn render_other(&self, cards: Vec<AnyElement>, cx: &mut Context<Self>) -> AnyElement {
-        let empty = cards.is_empty();
+        let invites = self.render_invite_servers(cx);
+        let empty = cards.is_empty() && invites.is_none();
         div()
             .id("other-cores")
             .flex()
@@ -1028,6 +1029,13 @@ impl Servers {
                     "other-cores-title",
                     t(M::OtherCoresTitle),
                     Some(t(M::OtherCoresHint)),
+                )
+                // a server from someone's invite link, and a host by its address
+                .child(
+                    Button::new("join-friend", t(M::JoinAFriend))
+                        .size(ButtonSize::Slim)
+                        .icon(Icon::Plus)
+                        .on_click(cx.listener(|this, _, _, cx| this.open_join(None, cx))),
                 )
                 .child(
                     Button::new("add-server", t(M::AddServer))
@@ -1060,6 +1068,7 @@ impl Servers {
                 )
             })
             .children(cards)
+            .children(invites)
             .into_any_element()
     }
 }
@@ -1386,7 +1395,6 @@ impl Render for Servers {
             .map(|page| {
                 if self.friends_page {
                     page.child(self.render_friend_list(cx))
-                        .child(self.render_friends(cx))
                 } else {
                     page.child(self.render_local(local_cards, cx))
                         .child(self.render_other(other_cards, cx))

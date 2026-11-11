@@ -161,6 +161,38 @@ impl FriendServer {
         entry
     }
 
+    /// A new entry for `invite` added without joining: only the link is known until
+    /// its host first answers ([`FriendServer::learn`]). Its name is empty until then.
+    pub fn added(invite: &Invite, now: i64) -> Self {
+        Self {
+            id: friend_id(invite),
+            link: public_link(invite),
+            fingerprint: hex(&invite.fingerprint),
+            added_at: now,
+            ..Self::default()
+        }
+    }
+
+    /// Takes what the host said about its server (a check, or its first answer after
+    /// the server was added without joining), without counting it as a join.
+    pub fn learn(&mut self, server: &SharedServer) {
+        if !server.core_uuid.is_empty() && !server.instance_uuid.is_empty() {
+            self.core_uuid = server.core_uuid.clone();
+            self.instance_uuid = server.instance_uuid.clone();
+        }
+        self.name = server.name.clone();
+        self.core_name = server.core_name.clone();
+        self.game_version = server.game_version.clone();
+        self.loader = server.loader.clone();
+        self.loader_version = server.loader_version.clone().filter(|v| !v.is_empty());
+        self.modpack = server.modpack;
+    }
+
+    /// Whether its host has never answered: added from a link without joining.
+    pub fn never_answered(&self) -> bool {
+        self.name.is_empty() && self.game_version.is_empty()
+    }
+
     /// A new entry for a server joined from the friend list: `server` on the core of
     /// `friend_key` whose friend certificate has `fingerprint` (hex). Its mods start
     /// untrusted.
@@ -536,6 +568,18 @@ impl FriendsFile {
             None => {
                 self.friends.push(FriendServer::new(invite, server, now));
                 self.friends.len() - 1
+            }
+        }
+    }
+
+    /// Adds a server from `invite` without joining it, unless it is saved already.
+    /// Returns its index, and whether it is new.
+    pub fn add(&mut self, invite: &Invite, now: i64) -> (usize, bool) {
+        match position_of(&self.friends, invite) {
+            Some(index) => (index, false),
+            None => {
+                self.friends.push(FriendServer::added(invite, now));
+                (self.friends.len() - 1, true)
             }
         }
     }
@@ -1475,4 +1519,22 @@ mod tests {
         // the saved game port stays for the tunnel
         assert_eq!(entry.game_port, Some(31234));
     }
+    #[test]
+    fn a_server_added_without_joining_learns_its_name_later() {
+        let invite = invite(0xab);
+        let mut file = FriendsFile::default();
+        let (index, new) = file.add(&invite, 10);
+        assert!(new);
+        assert!(file.friends[index].never_answered());
+        assert_eq!(file.friends[index].last_joined, None);
+        // adding the same link again keeps the one entry
+        assert_eq!(file.add(&invite, 20), (index, false));
+        assert_eq!(file.friends.len(), 1);
+        file.friends[index].learn(&shared("fabric", Some("0.16.14"), false));
+        assert!(!file.friends[index].never_answered());
+        assert_eq!(file.friends[index].name, "SMP");
+        assert_eq!(file.friends[index].instance_uuid, "server");
+        assert_eq!(file.friends[index].last_joined, None);
+    }
+
 }

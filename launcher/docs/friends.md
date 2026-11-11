@@ -81,6 +81,34 @@ longer reveal the pair secret (forward secrecy).
 formatting characters removed. The list shows a local nickname the owner can change, and
 warns when a new friend's name matches an existing friend's.
 
+A person signed in with a Microsoft account isn't asked for a name: theirs is their
+Minecraft profile's player name (the active Microsoft account, else the first), and it
+follows that profile until they choose another with **Edit name** ("Use my Minecraft
+name" goes back). With only offline accounts they choose one, as before. Lists from
+before this keep the name that was chosen (`Book::name_from_profile` is false for them).
+
+**Minecraft profiles.** A card or reply may also carry `player`: the profile its sender
+plays as (`{name, uuid}`, the state's `StatePlayer`), signed apart as `player_sig` over
+`("card-player" | "reply-player", everything the card's or reply's signature covers,
+name, uuid, offline)`. A card or reply with a `player` and no valid `player_sig` is
+refused. Launchers from before it ignore the unknown fields and check the first
+signature as always, and a launcher sends neither field when it has no Microsoft
+account, so its bytes are exactly the old ones. Once a friend's state arrives, its first
+Microsoft account (`players`, with the profile first) takes over from the card's.
+
+The launcher shows that profile's face (the skin's head, as in the account box) beside
+the name in the card, the answer, and the friend's row. It asks Mojang's public session
+server (`sessionserver.mojang.com/session/minecraft/profile/<uuid>`) which skin the
+profile has, at most once a day per profile (cached in `cache/avatars/profiles`), and
+draws the head from textures.minecraft.net as the account box does. Nothing waits for
+it; without a profile, or when the fetch fails, the row looks as it did before.
+
+The profile is a claim: nothing checks that the sender owns that Minecraft account, and
+anyone can name anyone's UUID, which would draw that player's skin. So the card and the
+answer say "Their launcher says they play Minecraft as …; Lodestone doesn't check this",
+and look-alike warnings also compare Minecraft names (against names, nicknames and other
+friends' Minecraft names) and flag two friends claiming the same UUID.
+
 **Nothing is shared by default.** A new friend sees no servers until the owner shares an
 instance with them by name.
 
@@ -319,7 +347,8 @@ new fingerprint in its next state.
 - Keychain items can be read by any program running as the same user (on Windows, DPAPI
   protects them with the user's sign-in). That's the boundary.
 - **Who makes it.** Only the Launcher starts a friend list, when the person first
-  chooses a name or makes or answers a friend link. Opening the Servers page, looking up
+  chooses a name or makes or answers a friend link (with their Minecraft name, when they
+  have a Microsoft account and chose none). Opening the Servers page, looking up
   a friend link (pasted, or opened from outside the Launcher), and the read-only control
   methods (`friend_list.list`, `links`) make no key and no file.
 - **Changes.** Every change takes an operating system lock on `friend_list.lock` (the
@@ -424,6 +453,7 @@ A core registers one **session** with all its records, and waits on one WebSocke
 | The friend file goes missing (retired, deleted, moved) | Changes stop; the file is never written again with old keys, and the Host never empties its core for it. |
 | An agent using the control API ticks "Codes match" | `friend_list.verify` needs `"confirm": true`, only on the user's word that they compared codes aloud. |
 | Name tricks | Names are cleaned and shown beside local nicknames; duplicates are flagged. |
+| A friend claims someone else's Minecraft profile (to show their skin) | The profile is signed by the claimer's key but never presented as proof; the UI says the launcher claims it, and a UUID or Minecraft name matching another friend's is flagged like a name. Safety codes are the check. |
 
 ## What this doesn't protect against
 
@@ -454,6 +484,8 @@ A core registers one **session** with all its records, and waits on one WebSocke
   They can also list someone else's Minecraft name among their players, and sharing
   with them would whitelist it. The Host shows those names under the friend's box before
   you share.
+- **Mojang sees whose skins you look at.** Fetching a friend's face asks Mojang's
+  session server about their UUID from your address (once a day per friend at most).
 - **Networks that can't punch through** still fail (`NoPath`).
 - **A friend whose connection comes from an address not in their knock** gets no
   answer: the core lets in only the addresses the knock named. Some carrier-grade NATs
