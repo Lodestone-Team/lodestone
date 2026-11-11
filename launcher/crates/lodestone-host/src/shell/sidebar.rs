@@ -628,9 +628,11 @@ fn selected_card(
                     .full_width()
                     .on_click(cx.listener(move |this, _, _, cx| {
                         let uuid = uuid.clone();
-                        // an Overview already open hears it through the state
+                        // an Overview already open hears it through the state; it only
+                        // goes to Share, as the dashboard's button does
                         this.state.update(cx, |state, cx| {
                             state.share_requested = Some(uuid.clone());
+                            state.share_start = false;
                             cx.notify();
                         });
                         this.navigate(
