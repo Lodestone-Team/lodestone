@@ -10,7 +10,7 @@ use gpui::{
 use launcher_core::cores::{CoreError, admin::users::MinecraftLink};
 use lodestone_ui::components::{
     Button, ButtonVariant, DialogSlot,
-    settings::{self, SettingRow},
+    settings::{self, SettingRow, SettingsQuery, SettingsSearch},
     window_layer,
 };
 
@@ -39,15 +39,45 @@ pub struct MinecraftLinksSection {
     owner: Owner,
     links: Option<Result<Vec<MinecraftLink>, String>>,
     removing: DialogSlot<Self, Removing>,
+    /// The Settings' search, on a page that has one: only the accounts that match show.
+    search: Option<Entity<SettingsSearch>>,
+}
+
+/// Whether `query` finds `link`, by the account's name or UUID.
+fn link_matches(query: &SettingsQuery, link: &MinecraftLink) -> bool {
+    query.matches([link.minecraft_name.as_str(), link.minecraft_uuid.as_str()])
 }
 
 impl MinecraftLinksSection {
+    /// Shows only what matches `search`.
+    pub fn set_search(&mut self, search: Entity<SettingsSearch>) {
+        self.search = Some(search);
+    }
+
+    /// While `query` is active, how many settings it finds here: every account (or
+    /// the empty list's line) when it matches the section's title, else the accounts
+    /// it finds.
+    pub fn found(&self, query: &SettingsQuery) -> usize {
+        let links = match &self.links {
+            Some(Ok(links)) => links.as_slice(),
+            _ => &[],
+        };
+        if query.matches([t(CoreMsg::MinecraftAccounts)]) {
+            return links.len().max(1);
+        }
+        links
+            .iter()
+            .filter(|link| link_matches(query, link))
+            .count()
+    }
+
     pub fn new(state: Entity<HostState>, owner: Owner, cx: &mut Context<Self>) -> Self {
         let mut this = Self {
             state,
             owner,
             links: None,
             removing: DialogSlot::new(|this: &mut Self| &mut this.removing),
+            search: None,
         };
         this.load(cx);
         this
@@ -130,12 +160,21 @@ impl Render for MinecraftLinksSection {
                 tr!(CoreMsg::MinecraftUserEmpty, username = username),
             ),
         };
+        let query = self
+            .search
+            .as_ref()
+            .map(|search| search.read(cx).query())
+            .unwrap_or_default();
+        // the title matches (or nothing is typed): every account
+        let all = query.matches([t(CoreMsg::MinecraftAccounts)]);
+        let hidden = !all && self.found(&query) == 0;
         let rows: Vec<AnyElement> = match &self.links {
             None => Vec::new(),
             Some(Err(err)) => vec![parts::empty_row(err.clone())],
             Some(Ok(links)) if links.is_empty() => vec![parts::empty_row(empty)],
             Some(Ok(links)) => links
                 .iter()
+                .filter(|link| all || link_matches(&query, link))
                 .map(|link| {
                     let to_remove = link.clone();
                     SettingRow::new(link.minecraft_name.clone())
@@ -197,6 +236,9 @@ impl Render for MinecraftLinksSection {
                 .into_any_element(),
             )
         });
+        if hidden {
+            return div().children(window_layer(window, confirm));
+        }
         div()
             .flex()
             .flex_col()

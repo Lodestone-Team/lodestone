@@ -99,6 +99,10 @@ pub struct HostState {
     /// File operations a page shows its own toast for, by instance and when they
     /// started: the core's "Installed 1 file(s)" event for them isn't toasted again.
     own_file_toasts: Vec<(String, std::time::Instant)>,
+    /// Made-up servers kept in the list across reloads, for the development
+    /// screenshots' `--fake-instance` (a page that reloads the list keeps its server).
+    #[cfg(feature = "screenshot")]
+    pub fake_instances: Vec<InstanceInfo>,
     _tasks: Vec<Task<()>>,
 }
 
@@ -120,6 +124,8 @@ impl HostState {
             share_requested: None,
             friends: None,
             own_file_toasts: Vec::new(),
+            #[cfg(feature = "screenshot")]
+            fake_instances: Vec::new(),
             _tasks: Vec::new(),
         };
         this.follow_events(cx);
@@ -244,6 +250,12 @@ impl HostState {
             this.update(cx, |this, cx| {
                 match instances {
                     Ok(instances) => {
+                        #[cfg(feature = "screenshot")]
+                        let instances = {
+                            let mut instances = instances;
+                            instances.extend(this.fake_instances.iter().cloned());
+                            instances
+                        };
                         this.instances = Some(instances);
                         this.error = None;
                     }

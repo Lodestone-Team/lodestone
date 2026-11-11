@@ -349,6 +349,30 @@ crate::i18n::messages! {
         ImportMrpack = "Import .mrpack…",
         /// The button of the file dialog that picks .mrpack files.
         Import = "Import",
+        /// Words a search of the settings finds Memory by, besides its name; never
+        /// shown.
+        MemoryKeywords = "RAM heap Xmx Xms",
+        /// Words a search of the settings finds Java by, besides its name; never
+        /// shown.
+        JavaKeywords = "JDK JRE runtime path",
+        /// Words a search of the settings finds JVM arguments by, besides its name; never
+        /// shown.
+        JvmArgumentsKeywords = "Java flags options",
+        /// Words a search of the settings finds Window by, besides its name; never
+        /// shown.
+        WindowKeywords = "resolution width height fullscreen size",
+        /// Words a search of the settings finds Environment variables by, besides its name; never
+        /// shown.
+        EnvironmentKeywords = "env PATH",
+        /// Words a search of the settings finds Play background by, besides its name; never
+        /// shown.
+        PlayBackgroundKeywords = "wallpaper image picture slideshow",
+        /// Words a search of the settings finds Delete instance by, besides its name; never
+        /// shown.
+        DeleteKeywords = "remove uninstall",
+        /// Words a search of the settings finds the loader by, besides its name; never
+        /// shown.
+        LoaderKeywords = "mod loader Fabric Forge NeoForge Quilt",
     }
 
     pub enum InstanceSettingsPlural {

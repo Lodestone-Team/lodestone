@@ -249,6 +249,16 @@ crate::i18n::messages! {
         /// For a core too old to make a new certificate; {path} is the certificate's file.
         FriendsCertificateManual = "Friends don’t see this core now. This core can’t make a new certificate itself: quit Lodestone Host, delete {path}, and open it again.",
         FriendsCancel = "Cancel",
+        /// More words a Settings search finds the row by (never shown).
+        MemoryKeywords = "memory RAM heap",
+        /// More words a Settings search finds the row by (never shown).
+        JvmArgsKeywords = "JVM Java arguments flags options",
+        /// More words a Settings search finds the row by (never shown).
+        WhitelistKeywords = "whitelist allowlist players",
+        /// More words a Settings search finds the row by (never shown).
+        MotdKeywords = "MOTD message of the day server description",
+        /// More words a Settings search finds the row by (never shown).
+        AutoStartKeywords = "boot startup launch automatically",
     }
 
     pub enum InstancePlural {

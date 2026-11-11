@@ -927,6 +927,8 @@ pub fn text(message: M) -> &'static str {
         M::StorageDeleteAllLogsBody => {
             "Cela libère {size}. Tous les journaux et rapports de plantage sont supprimés définitivement, sauf ceux d’un jeu en cours."
         }
+        M::ZoomKeywords => "échelle taille agrandir réduire texte",
+        M::WhenAGameStartsKeywords => "après le lancement réduire masquer fermer quitter",
     }
 }
 

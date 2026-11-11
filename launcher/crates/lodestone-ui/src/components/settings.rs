@@ -1,7 +1,15 @@
 //! The parts both Settings pages are built from: sections with a heading, cards of
 //! rows (the name and a hint on the left, the control on the right), small tags,
 //! the list of sections beside the page, a select button with its popover, and the
-//! short notice that says a change was saved.
+//! short notice that says a change was saved. [`search`] filters a page's rows by
+//! what is typed in its search field.
+
+mod search;
+pub(crate) use search::init;
+pub use search::{
+    EnglishIndex, FindSetting, SearchRow, SearchSection, SettingsQuery, SettingsSearch,
+    SettingsSearchChanged, english_in, fold, set_english_lookup,
+};
 
 use crate::skin::Skinned;
 use crate::theme::px;
@@ -106,6 +114,8 @@ pub struct SettingRow {
     indent: bool,
     /// The name can be selected, for a name worth copying such as an account's.
     selectable_label: bool,
+    /// More words a search finds the row by: keywords, and the value it shows.
+    search: Vec<SharedString>,
 }
 
 impl SettingRow {
@@ -121,7 +131,29 @@ impl SettingRow {
             leading: None,
             indent: false,
             selectable_label: false,
+            search: Vec::new(),
         }
+    }
+
+    /// Words a search of the page finds the row by besides its name and hint, such as
+    /// "RAM" for Memory: a message, so they are translated (the English is searched
+    /// too). Only for rows whose name alone is a poor match.
+    pub fn keywords(mut self, words: impl Into<SharedString>) -> Self {
+        self.search.push(words.into());
+        self
+    }
+
+    /// The value the row shows (a version, a path), for a search to find it by.
+    pub fn search_text(mut self, value: impl Into<SharedString>) -> Self {
+        self.search.push(value.into());
+        self
+    }
+
+    /// The text a search looks for the row by: its name, hint, keywords and value.
+    pub fn search_texts(&self) -> impl Iterator<Item = &str> {
+        std::iter::once(self.label.as_ref())
+            .chain(self.hint.as_deref())
+            .chain(self.search.iter().map(SharedString::as_ref))
     }
 
     /// Lets the name be selected and copied. Not for names that label a control.
@@ -447,6 +479,13 @@ impl SectionNav {
     /// The page was scrolled by hand.
     pub fn scrolled(&mut self) {
         self.picked = None;
+    }
+
+    /// Back to the top of the page, as when its search changes what it shows.
+    pub fn reset(&mut self) {
+        self.picked = None;
+        self.scroll
+            .set_offset(gpui::point(gpui::px(0.), gpui::px(0.)));
     }
 }
 

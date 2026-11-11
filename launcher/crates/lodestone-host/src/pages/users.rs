@@ -19,7 +19,7 @@ use launcher_core::cores::admin::{
 use lodestone_ui::{
     components::{
         Button, ButtonVariant, DialogSlot, Icon, IconButton,
-        settings::{self, SettingRow},
+        settings::{self, SettingRow, SettingsQuery, SettingsSearch},
         window_layer,
     },
     theme::{colors, ink, px, text, weights},
@@ -61,11 +61,18 @@ pub struct UsersPage {
     /// A permission change is on its way; `dirty` users changed again meanwhile.
     sending: bool,
     dirty: Vec<String>,
+    /// The Settings' search field: the page shows the users and settings that match.
+    search: Entity<SettingsSearch>,
     _subscriptions: Vec<Subscription>,
 }
 
 impl UsersPage {
-    pub fn new(state: Entity<HostState>, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        state: Entity<HostState>,
+        search: Entity<SettingsSearch>,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let observe_search = cx.observe(&search, |_, _, cx| cx.notify());
         let subscription = cx.subscribe(&state, |this, _, event, cx| {
             if let HostEvent::Core(event) = event
                 && let EventInner::UserEvent(user) = &event.event_inner
@@ -90,7 +97,8 @@ impl UsersPage {
             deleting: DialogSlot::new(|this: &mut Self| &mut this.deleting),
             sending: false,
             dirty: Vec::new(),
-            _subscriptions: vec![subscription],
+            search,
+            _subscriptions: vec![subscription, observe_search],
         };
         this.load(cx);
         this
@@ -136,22 +144,27 @@ impl UsersPage {
         self.selected = uid.and_then(|uid| {
             let user = self.user(&uid)?.clone();
             let state = self.state.clone();
+            let search = self.search.clone();
             let owner = (user.uid.clone(), user.username.clone());
             Some(Selected {
                 uid,
                 api_keys: cx.new(|cx| {
-                    ApiKeysSection::new(
+                    let mut section = ApiKeysSection::new(
                         state.clone(),
                         api_keys::Owner::User(owner.0.clone(), owner.1.clone()),
                         cx,
-                    )
+                    );
+                    section.set_search(search.clone());
+                    section
                 }),
                 links: cx.new(|cx| {
-                    MinecraftLinksSection::new(
+                    let mut section = MinecraftLinksSection::new(
                         state,
                         minecraft_links::Owner::User(owner.0, owner.1),
                         cx,
-                    )
+                    );
+                    section.set_search(search);
+                    section
                 }),
             })
         });
@@ -305,7 +318,7 @@ impl UsersPage {
         );
     }
 
-    fn user_row(&self, user: &PublicUser, cx: &mut Context<Self>) -> AnyElement {
+    fn user_row(&self, user: &PublicUser, cx: &mut Context<Self>) -> SettingRow {
         let me = self.state.read(cx).me.uid.clone();
         let is_self = user.uid == me;
         let mut tags = Vec::new();
@@ -382,6 +395,7 @@ impl UsersPage {
         let menu_uid = uid.clone();
         SettingRow::new(user.username.clone())
             .key(SharedString::from(format!("user-{uid}")))
+            .search_text(tags.join(" "))
             .leading(parts::avatar(&user.uid, &user.username, 32.))
             .child(
                 div().flex().flex_row().gap_1().children(
@@ -423,11 +437,12 @@ impl UsersPage {
                     )
                     .children(menu),
             )
-            .into_any_element()
     }
 
-    fn list_view(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
+    fn list_view(&self, query: &SettingsQuery, cx: &mut Context<Self>) -> Vec<AnyElement> {
         let me = self.state.read(cx).me.uid.clone();
+        // the title matches (or nothing is typed): every user
+        let all = query.matches([t(CoreMsg::AllMembers)]);
         let (title, body): (String, AnyElement) = match &self.users {
             None => (
                 t(CoreMsg::AllMembers).to_string(),
@@ -445,21 +460,31 @@ impl UsersPage {
                         .cmp(&(a.uid == me))
                         .then_with(|| a.username.to_lowercase().cmp(&b.username.to_lowercase()))
                 });
+                let rows: Vec<AnyElement> = users
+                    .iter()
+                    .map(|u| self.user_row(u, cx))
+                    .filter(|row| all || query.matches_row(row))
+                    .map(IntoElement::into_any_element)
+                    .collect();
+                query.add_found(rows.len());
+                if rows.is_empty() {
+                    return Vec::new();
+                }
                 (
                     tr!(CoreMsg::AllMembersCount, count = users.len()),
-                    settings::card(
-                        users
-                            .iter()
-                            .map(|u| self.user_row(u, cx))
-                            .collect::<Vec<_>>(),
-                    )
-                    .into_any_element(),
+                    settings::card(rows).into_any_element(),
                 )
             }
         };
-        vec![
-            parts::paragraph(t(CoreMsg::UsersDescription)),
-            div()
+        // loading, or the list didn't load: nothing to search
+        if query.is_active() && query.found() == 0 {
+            return Vec::new();
+        }
+        let description =
+            (!query.is_active()).then(|| parts::paragraph(t(CoreMsg::UsersDescription)));
+        description
+            .into_iter()
+            .chain([div()
                 .flex()
                 .flex_col()
                 .gap_2()
@@ -477,11 +502,16 @@ impl UsersPage {
                         ),
                 )
                 .child(body)
-                .into_any_element(),
-        ]
+                .into_any_element()])
+            .collect()
     }
 
-    fn user_view(&self, selected: &Selected, cx: &mut Context<Self>) -> Vec<AnyElement> {
+    fn user_view(
+        &self,
+        selected: &Selected,
+        query: &SettingsQuery,
+        cx: &mut Context<Self>,
+    ) -> Vec<AnyElement> {
         let Some(user) = self.user(&selected.uid).cloned() else {
             return Vec::new();
         };
@@ -520,16 +550,34 @@ impl UsersPage {
             None,
             on_change,
         );
-        unsafe_rows.push(
-            SettingRow::new(t(CoreMsg::OwnerOnly))
-                .hint(if macros {
-                    t(CoreMsg::OwnerOnlyHint)
-                } else {
-                    t(CoreMsg::NoScripting)
-                })
-                .into_any_element(),
-        );
-        vec![
+        unsafe_rows.push(SettingRow::new(t(CoreMsg::OwnerOnly)).hint(if macros {
+            t(CoreMsg::OwnerOnlyHint)
+        } else {
+            t(CoreMsg::NoScripting)
+        }));
+        let normal = query
+            .section(
+                t(CoreMsg::Permissions),
+                Some(tr!(CoreMsg::PermissionsLead, username = user.username).into()),
+            )
+            .card(normal)
+            .finish()
+            .map(IntoElement::into_any_element);
+        let unsafe_section = query
+            .section(
+                t(CoreMsg::UnsafePermissions),
+                Some(t(CoreMsg::UnsafePermissionsLead).into()),
+            )
+            .card_with(unsafe_rows, |card| {
+                card.border_color(colors::RED_FADED.opacity(50))
+            })
+            .finish()
+            .map(IntoElement::into_any_element);
+        if query.is_active() {
+            query.add_found(selected.api_keys.read(cx).found(query));
+            query.add_found(selected.links.read(cx).found(query));
+        }
+        let mut sections = vec![
             div()
                 .flex()
                 .flex_row()
@@ -548,21 +596,13 @@ impl UsersPage {
                         .on_click(cx.listener(|this, _, _, cx| this.select(None, cx))),
                 )
                 .into_any_element(),
-            settings::section(
-                t(CoreMsg::Permissions),
-                Some(tr!(CoreMsg::PermissionsLead, username = user.username).into()),
-            )
-            .child(settings::card(normal))
-            .into_any_element(),
-            settings::section(
-                t(CoreMsg::UnsafePermissions),
-                Some(t(CoreMsg::UnsafePermissionsLead).into()),
-            )
-            .child(settings::card(unsafe_rows).border_color(colors::RED_FADED.opacity(50)))
-            .into_any_element(),
-            selected.api_keys.clone().into_any_element(),
-            selected.links.clone().into_any_element(),
-        ]
+        ];
+        sections.extend(query.status());
+        sections.extend(normal);
+        sections.extend(unsafe_section);
+        sections.push(selected.api_keys.clone().into_any_element());
+        sections.push(selected.links.clone().into_any_element());
+        sections
     }
 }
 
@@ -571,6 +611,7 @@ impl Render for UsersPage {
         if !self.owner(cx) {
             return parts::page([parts::paragraph(t(CoreMsg::UsersOwnerOnly))]);
         }
+        let query = self.search.read(cx).query();
         let sections = match &self.selected {
             Some(selected) => {
                 let selected = Selected {
@@ -578,9 +619,12 @@ impl Render for UsersPage {
                     api_keys: selected.api_keys.clone(),
                     links: selected.links.clone(),
                 };
-                self.user_view(&selected, cx)
+                self.user_view(&selected, &query, cx)
             }
-            None => self.list_view(cx),
+            None => {
+                let list = self.list_view(&query, cx);
+                query.status().into_iter().chain(list).collect()
+            }
         };
         let mut dialogs = self
             .dialog

@@ -348,6 +348,14 @@ crate::i18n::messages! {
         /// Profile, for an owner without a password.
         SetPassword = "Set a password",
         NoPasswordYet = "No password yet. Only apps on this computer can use this core.",
+        /// More words a Settings search finds the row by (never shown).
+        RemoteAccessKeywords = "remote LAN network share",
+        /// More words a Settings search finds the row by (never shown).
+        DomainKeywords = "address hostname URL",
+        /// More words a Settings search finds the row by (never shown).
+        OpenPortKeywords = "port forwarding router UPnP firewall",
+        /// More words a Settings search finds the row by (never shown).
+        ThemeKeywords = "dark light mode appearance colors",
     }
 
     pub enum CorePlural {

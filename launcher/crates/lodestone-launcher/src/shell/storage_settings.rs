@@ -13,8 +13,8 @@
 use crate::components::a11y::Accessible as _;
 use crate::theme::px;
 use gpui::{
-    AnyElement, Context, Entity, EventEmitter, IntoElement, Render, SharedString, Task, Window,
-    div, prelude::*, relative,
+    AnyElement, App, Context, Entity, EventEmitter, IntoElement, Render, SharedString, Task,
+    Window, div, prelude::*, relative,
 };
 use launcher_control::paths::{DataDirLocation, DataDirSource};
 use launcher_core::{
@@ -26,7 +26,10 @@ use std::{path::PathBuf, sync::Arc, time::Duration};
 use crate::{
     components::{
         Button, ButtonSize, ButtonVariant, LoadingDots,
-        settings::{SettingRow, Toast, card, muted_link, section, tag, value},
+        settings::{
+            SearchRow, SettingRow, SettingsQuery, SettingsSearch, Toast, card, muted_link, tag,
+            value,
+        },
     },
     file_dialog,
     i18n::{ShellMsg as M, format, t, tr},
@@ -82,6 +85,8 @@ pub struct StorageSettings {
     moving: Option<Moving>,
     /// Why the last move didn't happen.
     move_failed: Option<SharedString>,
+    /// The Settings dialog's search.
+    search: Option<Entity<SettingsSearch>>,
 }
 
 impl file_dialog::ShowsError for StorageSettings {
@@ -112,7 +117,20 @@ impl StorageSettings {
             picking: None,
             moving: None,
             move_failed: None,
+            search: None,
         }
+    }
+
+    /// Filters the page by the Settings dialog's search.
+    pub fn set_search(&mut self, search: Entity<SettingsSearch>) {
+        self.search = Some(search);
+    }
+
+    fn query(&self, cx: &App) -> SettingsQuery {
+        self.search
+            .as_ref()
+            .map(|search| search.read(cx).query())
+            .unwrap_or_default()
     }
 
     pub fn toast(&self) -> &Toast {
@@ -460,13 +478,18 @@ impl StorageSettings {
     }
 
     /// The "Data folder" section: where it is, and moving it.
-    fn data_folder_section(&self, cx: &mut Context<Self>) -> AnyElement {
+    fn data_folder_section(
+        &self,
+        query: &SettingsQuery,
+        cx: &mut Context<Self>,
+    ) -> Option<gpui::Div> {
         let root = self.data_root(cx);
         let movable = self.movable(cx);
         let busy = self.cleaning || self.moving.is_some() || self.picking.is_some();
         let mut row = SettingRow::new(root.display().to_string())
             .key("storage-data-folder")
             .hint(t(M::StorageDataFolderHint))
+            .keywords(t(M::StorageDataFolder))
             .child(
                 muted_link("storage-open-data", t(M::StorageOpenFolder)).on_press(cx.listener(
                     |this, _, _, cx| {
@@ -493,9 +516,10 @@ impl StorageSettings {
                     .on_click(cx.listener(|this, _, _, cx| this.choose_move_target(cx))),
             );
         }
-        section(t(M::StorageDataFolder), None)
-            .child(card([row.into_any_element()]))
-            .into_any_element()
+        query
+            .section(t(M::StorageDataFolder), None)
+            .card([row])
+            .finish()
     }
 
     /// Shows the data folder as moved (or not), for the offscreen screenshots.
@@ -590,23 +614,24 @@ impl Render for StorageSettings {
             Count::Failed(error) => Some(error.clone()),
             _ => None,
         };
-        let page = div()
-            .flex()
-            .flex_col()
-            .gap_6()
-            .w_full()
-            .child(self.data_folder_section(cx));
+        let query = self.query(cx);
+        let data_folder = self.data_folder_section(&query, cx);
+        let page = div().flex().flex_col().gap_6().w_full();
         let Some(report) = report else {
             return page
-                .child(card([match failed {
-                    Some(error) => div()
-                        .px_4()
-                        .py_3()
-                        .text_color(colors::RED_200)
-                        .child(tr!(M::StorageCouldntCount, error = error))
-                        .into_any_element(),
-                    None => counting(),
-                }]))
+                .children(query.status())
+                .children(data_folder)
+                .when(!query.is_active(), |page| {
+                    page.child(card([match failed {
+                        Some(error) => div()
+                            .px_4()
+                            .py_3()
+                            .text_color(colors::RED_200)
+                            .child(tr!(M::StorageCouldntCount, error = error))
+                            .into_any_element(),
+                        None => counting(),
+                    }]))
+                })
                 .into_any_element();
         };
 
@@ -696,8 +721,8 @@ impl Render for StorageSettings {
             });
 
         // Instances.
-        let mut instance_rows: Vec<AnyElement> = if report.instances.is_empty() {
-            vec![SettingRow::new(t(M::StorageNoInstances)).into_any_element()]
+        let mut instance_rows: Vec<SearchRow> = if report.instances.is_empty() {
+            vec![SettingRow::new(t(M::StorageNoInstances)).into()]
         } else {
             report
                 .instances
@@ -743,23 +768,23 @@ impl Render for StorageSettings {
                                     cx.emit(StorageEvent::DeleteInstance(id.clone()))
                                 })),
                         )
-                        .into_any_element()
+                        .into()
                 })
                 .collect()
         };
 
         // Game files.
         let unused = report.game_files.unused.total();
-        let game_rows = vec![
+        let game_rows: Vec<SearchRow> = vec![
             SettingRow::new(t(M::StorageVersions))
                 .child(size(report.game_files.versions))
-                .into_any_element(),
+                .into(),
             SettingRow::new(t(M::StorageLibraries))
                 .child(size(report.game_files.libraries))
-                .into_any_element(),
+                .into(),
             SettingRow::new(t(M::StorageAssets))
                 .child(size(report.game_files.assets))
-                .into_any_element(),
+                .into(),
             SettingRow::new(t(M::StorageUnused))
                 .hint_opt(
                     (!report.game_files.unused.versions.is_empty())
@@ -774,7 +799,7 @@ impl Render for StorageSettings {
                     Clean::UnusedGameFiles,
                     unused,
                 ))
-                .into_any_element(),
+                .into(),
         ];
 
         // Snapshots, shared by every instance.
@@ -796,13 +821,13 @@ impl Render for StorageSettings {
                         Clean::Snapshots,
                         snapshots.removable_bytes,
                     ))
-                    .into_any_element(),
+                    .into(),
             );
         }
 
         // Java runtimes.
         let unused_runtimes = report.unused_runtimes();
-        let mut runtime_rows: Vec<AnyElement> = report
+        let mut runtime_rows: Vec<SearchRow> = report
             .runtimes
             .iter()
             .map(|runtime| {
@@ -825,11 +850,11 @@ impl Render for StorageSettings {
                         row.child(tag(t(M::StorageUnusedTag), crate::theme::ink::muted()))
                     })
                     .child(size(runtime.bytes))
-                    .into_any_element()
+                    .into()
             })
             .collect();
         if runtime_rows.is_empty() {
-            runtime_rows.push(SettingRow::new(t(M::StorageNoRuntimes)).into_any_element());
+            runtime_rows.push(SettingRow::new(t(M::StorageNoRuntimes)).into());
         } else {
             runtime_rows.push(
                 SettingRow::new(t(M::StorageUnused))
@@ -842,13 +867,13 @@ impl Render for StorageSettings {
                         Clean::UnusedRuntimes,
                         unused_runtimes,
                     ))
-                    .into_any_element(),
+                    .into(),
             );
         }
 
         // Cache, logs and the rest.
         let logs = &report.logs;
-        let mut other_rows = vec![
+        let mut other_rows: Vec<SearchRow> = vec![
             SettingRow::new(t(M::StorageCache))
                 .child(size(report.cache))
                 .child(remove_button(
@@ -859,7 +884,7 @@ impl Render for StorageSettings {
                     Clean::Cache,
                     report.cache,
                 ))
-                .into_any_element(),
+                .into(),
             SettingRow::new(t(M::StorageLogs))
                 .hint(tr!(M::StorageOldLogs, size = format::bytes(logs.old_bytes)))
                 .child(size(logs.bytes))
@@ -879,10 +904,10 @@ impl Render for StorageSettings {
                     Clean::AllLogs,
                     logs.bytes,
                 ))
-                .into_any_element(),
+                .into(),
             SettingRow::new(t(M::StorageOther))
                 .child(size(report.other))
-                .into_any_element(),
+                .into(),
         ];
         if report.leftovers.bytes > 0 {
             other_rows.insert(
@@ -897,24 +922,44 @@ impl Render for StorageSettings {
                         Clean::Leftovers,
                         report.leftovers.bytes,
                     ))
-                    .into_any_element(),
+                    .into(),
             );
         }
 
-        page.child(
-            div()
-                .p_4()
-                .rounded(radius::LG)
-                .border_1()
-                .border_color(colors::GRAY_FADED.opacity(30))
-                .bg(colors::GRAY_800)
-                .child(summary),
-        )
-        .child(section(t(M::StorageInstances), None).child(card(instance_rows)))
-        .child(section(t(M::StorageGameFiles), None).child(card(game_rows)))
-        .child(section(t(M::StorageRuntimes), None).child(card(runtime_rows)))
-        .child(section(t(M::StorageCacheAndLogs), None).child(card(other_rows)))
-        .into_any_element()
+        let sections = [
+            query
+                .section(t(M::StorageInstances), None)
+                .card(instance_rows)
+                .finish(),
+            query
+                .section(t(M::StorageGameFiles), None)
+                .card(game_rows)
+                .finish(),
+            query
+                .section(t(M::StorageRuntimes), None)
+                .card(runtime_rows)
+                .finish(),
+            query
+                .section(t(M::StorageCacheAndLogs), None)
+                .card(other_rows)
+                .finish(),
+        ];
+        page.children(query.status())
+            .children(data_folder)
+            // the total is about everything: only while nothing is typed
+            .when(!query.is_active(), |page| {
+                page.child(
+                    div()
+                        .p_4()
+                        .rounded(radius::LG)
+                        .border_1()
+                        .border_color(colors::GRAY_FADED.opacity(30))
+                        .bg(colors::GRAY_800)
+                        .child(summary),
+                )
+            })
+            .children(sections.into_iter().flatten())
+            .into_any_element()
     }
 }
 

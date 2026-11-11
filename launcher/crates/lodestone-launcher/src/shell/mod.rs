@@ -54,7 +54,8 @@ use crate::{
     },
     components::{
         Button, ButtonVariant, Dialog, DialogSlot, Icon, RichText, UnderDialogs, focus,
-        settings::Toast, window_frame,
+        settings::{FindSetting, SettingsSearch, Toast},
+        window_frame,
     },
     i18n::{CommonMsg, ShellMsg as M, ShellPlural as P, format, t, tr, trn},
     instances::{
@@ -293,6 +294,8 @@ pub struct LauncherShell {
     storage: Entity<StorageSettings>,
     /// Settings > Skin.
     skin: Entity<SkinSettings>,
+    /// The Settings dialog's search field, kept across its pages.
+    settings_search: Entity<SettingsSearch>,
     /// Updating the launcher: Settings > General, and the top bar's notice.
     updater: Entity<Updater>,
     /// The Settings tab of the selected instance, rebuilt when the selection changes.
@@ -505,6 +508,11 @@ impl LauncherShell {
             cx.new(|cx| SkinSettings::new(instances, shell, cx))
         };
         observe.push(cx.observe(&skin, |_, _, cx| cx.notify()));
+        let settings_search = cx.new(|cx| SettingsSearch::new("settings-search", cx));
+        launcher_settings.update(cx, |page, _| page.set_search(settings_search.clone()));
+        shared_settings.update(cx, |page, _| page.set_search(settings_search.clone()));
+        storage.update(cx, |page, _| page.set_search(settings_search.clone()));
+        skin.update(cx, |page, _| page.set_search(settings_search.clone()));
         observe.push(cx.subscribe(&storage, |this, _, event, cx| match event {
             StorageEvent::DeleteInstance(id) => this.confirm_delete_instance(id, cx),
             StorageEvent::Confirm { what, bytes } => {
@@ -559,6 +567,7 @@ impl LauncherShell {
             connect_service,
             storage,
             skin,
+            settings_search,
             updater,
             settings: None,
             page: Page::default(),
@@ -1160,6 +1169,34 @@ impl LauncherShell {
 
     pub fn settings_view(&self) -> Option<&Entity<InstanceSettings>> {
         self.settings.as_ref().map(|(settings, _)| settings)
+    }
+
+    /// ⌘F (Ctrl+F): to the search field of the Settings dialog, or of the instance's
+    /// Settings tab when that is shown.
+    fn find_setting(&mut self, _: &FindSetting, window: &mut Window, cx: &mut Context<Self>) {
+        if self.settings_open() {
+            {
+                let handle = self.settings_search.read(cx).focus_handle(cx);
+                window.focus(&handle, cx)
+            };
+        } else if self.page == Page::Instance
+            && self.tab == InstanceTab::Settings
+            && let Some(settings) = self.settings_view()
+        {
+            {
+                let handle = settings.read(cx).search().read(cx).focus_handle(cx);
+                window.focus(&handle, cx)
+            };
+        } else {
+            cx.propagate();
+        }
+    }
+
+    /// Types `text` in the Settings dialog's search, for the offscreen screenshots.
+    pub fn preview_settings_search(&mut self, text: &str, cx: &mut Context<Self>) {
+        let text = text.to_owned();
+        self.settings_search
+            .update(cx, |search, cx| search.set_text(text, cx));
     }
 
     /// Shows "Turn off Fabric API?" or "Turn on Sodium?", for the offscreen screenshots.
@@ -2852,6 +2889,7 @@ impl Render for LauncherShell {
             .on_action(|_: &focus::FocusNext, window, cx| focus::step(true, window, cx))
             .on_action(|_: &focus::FocusPrev, window, cx| focus::step(false, window, cx))
             .on_action(cx.listener(|this, _: &crate::PasteInvite, _, cx| this.paste_invite(cx)))
+            .on_action(cx.listener(Self::find_setting))
             .on_action(cx.listener(|this, _: &crate::GoBack, _, cx| this.go_back(cx)))
             .on_action(cx.listener(|this, _: &crate::GoForward, _, cx| this.go_forward(cx)))
             // a mouse's back and forward buttons

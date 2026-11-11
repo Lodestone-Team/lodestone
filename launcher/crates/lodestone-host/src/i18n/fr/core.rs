@@ -480,6 +480,10 @@ pub fn text(message: M) -> &'static str {
         M::NoPasswordYet => {
             "Pas encore de mot de passe. Seules les applications de cet ordinateur peuvent utiliser ce core."
         }
+        M::RemoteAccessKeywords => "à distance réseau LAN partager",
+        M::DomainKeywords => "adresse nom d’hôte URL",
+        M::OpenPortKeywords => "redirection de port routeur UPnP pare-feu",
+        M::ThemeKeywords => "sombre clair mode apparence couleurs",
     }
 }
 

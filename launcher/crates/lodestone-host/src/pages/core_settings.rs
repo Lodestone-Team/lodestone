@@ -23,7 +23,7 @@ use launcher_core::cores::admin::{
 use lodestone_ui::{
     components::{
         Button, ButtonVariant, Dialog, DialogSlot, TextInput, Toggle,
-        settings::{self, SettingRow},
+        settings::{self, SearchRow, SettingRow, SettingsSearch},
         window_layer,
     },
     theme::{colors, ink, text},
@@ -68,6 +68,8 @@ struct OpenPort {
 
 pub struct CoreSettingsPage {
     pub state: Entity<HostState>,
+    /// The Settings' search field: the page shows the settings that match it.
+    search: Entity<SettingsSearch>,
     name: Entity<TextSetting>,
     domain: Entity<TextSetting>,
     /// The settings as the core sent them, to tell which an older core lacks.
@@ -87,7 +89,11 @@ pub struct CoreSettingsPage {
 }
 
 impl CoreSettingsPage {
-    pub fn new(state: Entity<HostState>, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        state: Entity<HostState>,
+        search: Entity<SettingsSearch>,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let settings = state.read(cx).settings.clone().unwrap_or_default();
         let address = state
             .read(cx)
@@ -136,6 +142,7 @@ impl CoreSettingsPage {
                 this.save_domain(value.clone(), cx);
             }),
             cx.observe(&state, |this, state, cx| this.follow(&state, cx)),
+            cx.observe(&search, |_, _, cx| cx.notify()),
             cx.subscribe(&state, |this, _, event, cx| {
                 if matches!(event, HostEvent::InstancesReloaded) {
                     this.load(cx);
@@ -144,6 +151,7 @@ impl CoreSettingsPage {
         ];
         let mut this = Self {
             state,
+            search,
             name,
             domain,
             raw: None,
@@ -471,31 +479,26 @@ impl CoreSettingsPage {
         hint: impl Into<SharedString>,
         owner: bool,
         cx: &mut Context<Self>,
-    ) -> AnyElement {
+    ) -> SettingRow {
         let settings = self.state.read(cx).settings.clone().unwrap_or_default();
         let locked = switch == CoreSwitch::CodeExecution && settings.code_execution_locked;
-        SettingRow::new(t(label))
-            .hint(hint)
-            .child(
-                Toggle::new(
-                    SharedString::from(format!("{switch:?}")),
-                    switch.get(&settings),
-                )
-                .label(t(label))
-                .disabled(!owner || locked || self.switching.is_some())
-                .on_change(
-                    cx.listener(move |this, value: &bool, _, cx| this.flip(switch, *value, cx)),
-                ),
+        SettingRow::new(t(label)).hint(hint).child(
+            Toggle::new(
+                SharedString::from(format!("{switch:?}")),
+                switch.get(&settings),
             )
-            .into_any_element()
+            .label(t(label))
+            .disabled(!owner || locked || self.switching.is_some())
+            .on_change(cx.listener(move |this, value: &bool, _, cx| this.flip(switch, *value, cx))),
+        )
     }
 
-    fn info_rows(&self, cx: &App) -> Vec<AnyElement> {
+    fn info_rows(&self, cx: &App) -> Vec<SettingRow> {
         let info = &self.state.read(cx).info;
         let row = |label: CoreMsg, value: String| {
             SettingRow::new(t(label))
+                .search_text(value.clone())
                 .child(settings::value(value, false))
-                .into_any_element()
         };
         let mut rows = vec![
             row(CoreMsg::InfoCoreVersion, info.version.clone()),
@@ -528,8 +531,7 @@ impl CoreSettingsPage {
         if let Some(fingerprint) = &info.tls.fingerprint_sha256 {
             rows.push(
                 SettingRow::new(t(CoreMsg::InfoFingerprint))
-                    .below(parts::mono(fingerprint.clone()))
-                    .into_any_element(),
+                    .below(parts::mono(fingerprint.clone())),
             );
         }
         rows
@@ -653,12 +655,14 @@ impl Render for CoreSettingsPage {
         let owner = state.me.is_owner;
         let settings = state.settings.clone().unwrap_or_default();
         let macros = state.info.capabilities.macros;
+        let query = self.search.read(cx).query();
         let mut sections: Vec<AnyElement> = Vec::new();
 
-        if !owner {
+        // notes about the page, not settings: left out of a search
+        if !owner && !query.is_active() {
             sections.push(parts::paragraph(t(CoreMsg::ReadOnly)));
         }
-        if settings.allow_lan_http {
+        if settings.allow_lan_http && !query.is_active() {
             sections.push(parts::warning(if owner {
                 tr!(CoreMsg::LanHttpWarningOwner, setting = t(CoreMsg::LanHttp))
             } else {
@@ -668,41 +672,61 @@ impl Render for CoreSettingsPage {
 
         // Core
         let mut core_rows = vec![
-            self.name.clone().into_any_element(),
-            self.domain.clone().into_any_element(),
+            SearchRow::new(
+                self.name.clone(),
+                [t(CoreMsg::CoreName), &settings.core_name],
+            ),
+            SearchRow::new(
+                self.domain.clone(),
+                [
+                    t(CoreMsg::Domain),
+                    t(CoreMsg::DomainHint),
+                    t(CoreMsg::DomainKeywords),
+                    settings.domain.as_deref().unwrap_or(""),
+                ],
+            ),
         ];
         if owner && self.supports("allow_remote_access") {
-            core_rows.push(self.switch_row(
-                CoreSwitch::AllowRemoteAccess,
-                CoreMsg::RemoteAccess,
-                t(if settings.allow_remote_access {
-                    CoreMsg::RemoteAccessHintOn
-                } else {
-                    CoreMsg::RemoteAccessHintOff
-                }),
-                owner,
-                cx,
-            ));
+            core_rows.push(
+                self.switch_row(
+                    CoreSwitch::AllowRemoteAccess,
+                    CoreMsg::RemoteAccess,
+                    t(if settings.allow_remote_access {
+                        CoreMsg::RemoteAccessHintOn
+                    } else {
+                        CoreMsg::RemoteAccessHintOff
+                    }),
+                    owner,
+                    cx,
+                )
+                .keywords(t(CoreMsg::RemoteAccessKeywords))
+                .into(),
+            );
         }
-        sections.push(
-            settings::section(t(CoreMsg::SectionCore), None)
-                .child(settings::card(core_rows))
-                .into_any_element(),
+        sections.extend(
+            query
+                .section(t(CoreMsg::SectionCore), None)
+                .card(core_rows)
+                .finish()
+                .map(IntoElement::into_any_element),
         );
 
         // Public servers
         if owner && self.supports("list_instances_publicly") {
             let switch_on = settings.list_instances_publicly;
-            let mut rows = vec![self.switch_row(
-                CoreSwitch::ListInstancesPublicly,
-                CoreMsg::ListPublicly,
-                t(CoreMsg::ListPubliclyHint),
-                owner,
-                cx,
-            )];
+            let mut rows: Vec<SearchRow> = vec![
+                self.switch_row(
+                    CoreSwitch::ListInstancesPublicly,
+                    CoreMsg::ListPublicly,
+                    t(CoreMsg::ListPubliclyHint),
+                    owner,
+                    cx,
+                )
+                .into(),
+            ];
             if let Some(overview) = &self.overview {
                 if overview.instances.is_empty() {
-                    rows.push(parts::empty_row(t(CoreMsg::NoJavaServers)));
+                    rows.push(parts::empty_row(t(CoreMsg::NoJavaServers)).into());
                 }
                 for instance in &overview.instances {
                     let uuid = instance.uuid.clone();
@@ -721,25 +745,29 @@ impl Render for CoreSettingsPage {
                                     .ok();
                             },
                         )
-                        .into_any_element(),
+                        .into(),
                     );
                 }
             }
-            sections.push(
-                settings::section(
-                    t(CoreMsg::SectionPublic),
-                    Some(t(CoreMsg::SectionPublicLead).into()),
-                )
-                .child(settings::card(rows))
-                .into_any_element(),
+            sections.extend(
+                query
+                    .section(
+                        t(CoreMsg::SectionPublic),
+                        Some(t(CoreMsg::SectionPublicLead).into()),
+                    )
+                    .card(rows)
+                    .finish()
+                    .map(IntoElement::into_any_element),
             );
         }
 
         // Information
-        sections.push(
-            settings::section(t(CoreMsg::SectionInfo), None)
-                .child(settings::card(self.info_rows(cx)))
-                .into_any_element(),
+        sections.extend(
+            query
+                .section(t(CoreMsg::SectionInfo), None)
+                .card(self.info_rows(cx))
+                .finish()
+                .map(IntoElement::into_any_element),
         );
 
         // Danger zone
@@ -808,22 +836,29 @@ impl Render for CoreSettingsPage {
                 } else {
                     t(CoreMsg::OpenPortNoPermission).to_string()
                 })
+                .keywords(t(CoreMsg::OpenPortKeywords))
                 .child(
                     Button::new("open-port", t(CoreMsg::OpenPortButton))
                         .variant(ButtonVariant::Danger)
                         .disabled(!owner)
                         .on_click(cx.listener(|this, _, _, cx| this.open_port_dialog(cx))),
+                ),
+        );
+        sections.extend(
+            query
+                .section(
+                    t(CoreMsg::SectionDanger),
+                    Some(t(CoreMsg::SectionDangerLead).into()),
                 )
-                .into_any_element(),
+                .card_with(danger, |card| {
+                    card.border_color(colors::RED_FADED.opacity(50))
+                })
+                .finish()
+                .map(IntoElement::into_any_element),
         );
-        sections.push(
-            settings::section(
-                t(CoreMsg::SectionDanger),
-                Some(t(CoreMsg::SectionDangerLead).into()),
-            )
-            .child(settings::card(danger).border_color(colors::RED_FADED.opacity(50)))
-            .into_any_element(),
-        );
+        if let Some(status) = query.status() {
+            sections.insert(0, status);
+        }
 
         let mut dialogs = self
             .asking

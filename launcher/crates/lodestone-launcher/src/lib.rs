@@ -52,6 +52,7 @@ pub const APP_NAME: &str = "Lodestone Launcher";
 /// Sets up fonts, key bindings and the app menu. Call once, before opening windows.
 pub fn init(cx: &mut App) {
     lodestone_ui::init(cx);
+    lodestone_ui::components::settings::set_english_lookup(i18n::english_of);
     trace_hooks::install(cx);
 
     cx.on_action(|_: &Quit, cx| cx.quit());
