@@ -537,7 +537,7 @@ fn waiting(text: impl Into<SharedString>) -> impl IntoElement {
         .flex_row()
         .items_center()
         .gap_2()
-        .text_color(colors::GRAY_500)
+        .text_color(crate::theme::ink::muted())
         .child(LoadingDots)
         .child(text.into())
 }

@@ -477,7 +477,7 @@ impl InstanceSharedSettings {
                 }
                 (false, _) => line
                     .child(value(shared_text, true))
-                    .child(tag(t(M::Shared), colors::GRAY_500))
+                    .child(tag(t(M::Shared), crate::theme::ink::muted()))
                     .when(!busy, |line| {
                         line.child(link(("shared-override", id), t(M::Override)).on_press(
                             cx.listener(move |this, _, _, cx| {

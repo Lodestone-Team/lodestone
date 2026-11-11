@@ -580,7 +580,7 @@ fn subheading(title: &'static str) -> gpui::Div {
 fn share_note(text_: &'static str) -> gpui::Div {
     div()
         .text_size(text::SMALL)
-        .text_color(colors::GRAY_500)
+        .text_color(lodestone_ui::theme::ink::muted())
         .child(text_)
 }
 
@@ -957,7 +957,10 @@ impl OverviewPage {
                         .gap(px(12.))
                         .child(label(state_text, state_color))
                         .when(share.stable_link, |this| {
-                            this.child(note(t(M::ShareStableLink).into(), colors::GRAY_500))
+                            this.child(note(
+                                t(M::ShareStableLink).into(),
+                                lodestone_ui::theme::ink::muted(),
+                            ))
                         }),
                 )
                 .child(link)
@@ -966,7 +969,10 @@ impl OverviewPage {
                 .when_some(share_relay_note(&share), |this, relay| {
                     this.child(note(relay, colors::YELLOW))
                 })
-                .child(note(t(M::ShareHowFriendsJoin).into(), colors::GRAY_500))
+                .child(note(
+                    t(M::ShareHowFriendsJoin).into(),
+                    lodestone_ui::theme::ink::muted(),
+                ))
                 .when_some(share.problem.clone(), |this, problem| {
                     this.child(note(problem, colors::YELLOW))
                 })
@@ -987,7 +993,7 @@ impl OverviewPage {
                         .child(
                             div()
                                 .text_size(text::SMALL)
-                                .text_color(colors::GRAY_500)
+                                .text_color(lodestone_ui::theme::ink::muted())
                                 .child(trn!(P::ShareJoins, share.joins)),
                         ),
                 )
@@ -1206,7 +1212,7 @@ impl OverviewPage {
                     div()
                         .text_size(text::SMALL)
                         .font_weight(weights::MEDIUMBOLD.face())
-                        .text_color(colors::GRAY_FADED.opacity(60))
+                        .text_color(lodestone_ui::theme::ink::muted())
                         .child(title),
                 )
                 .child(

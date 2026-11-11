@@ -483,7 +483,7 @@ impl LauncherShell {
             div()
                 .px_2p5()
                 .text_size(theme::text_size(text::CAPTION))
-                .text_color(colors::GRAY_FADED.opacity(30))
+                .text_color(crate::theme::ink::faint())
                 .child(RichText::new(tr!(
                     M::AppVersion,
                     version = env!("CARGO_PKG_VERSION")

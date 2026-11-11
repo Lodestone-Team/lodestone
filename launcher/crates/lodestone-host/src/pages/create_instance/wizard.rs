@@ -57,7 +57,7 @@ pub fn rail(
                         this.border_1()
                             .border_color(colors::GRAY_FADED.opacity(30))
                             .bg(colors::GRAY_850)
-                            .text_color(colors::GRAY_500)
+                            .text_color(lodestone_ui::theme::ink::muted())
                             .child((i + 1).to_string())
                     }
                 });
@@ -78,7 +78,7 @@ pub fn rail(
                 } else if done {
                     colors::GRAY_400
                 } else {
-                    colors::GRAY_500
+                    lodestone_ui::theme::ink::muted()
                 })
                 .when(active, |this| this.bg(colors::GRAY_800))
                 .when(i + 1 < count, |this| {

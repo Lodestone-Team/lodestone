@@ -779,7 +779,7 @@ impl ModpackBrowser {
                                             .when(!file.downloadable(), |this| {
                                                 this.child(badge(
                                                     t(C::WebsiteDownload),
-                                                    colors::GRAY_500,
+                                                    crate::theme::ink::muted(),
                                                 ))
                                             }),
                                     )

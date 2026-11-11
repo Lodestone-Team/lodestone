@@ -822,7 +822,7 @@ impl Render for StorageSettings {
                     .key(SharedString::from(format!("runtime-{}", runtime.component)))
                     .hint_opt((!detail.is_empty()).then(|| detail.join(" · ")))
                     .when(runtime.unused(), |row| {
-                        row.child(tag(t(M::StorageUnusedTag), colors::GRAY_500))
+                        row.child(tag(t(M::StorageUnusedTag), crate::theme::ink::muted()))
                     })
                     .child(size(runtime.bytes))
                     .into_any_element()
