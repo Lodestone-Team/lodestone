@@ -582,6 +582,9 @@ pub struct InstalledMod {
     /// The installed mods that make players need this one.
     #[serde(default)]
     pub required_by: Vec<String>,
+    /// The owner marked it as needed by players ([`AdminClient::set_client_mark`]).
+    #[serde(default)]
+    pub client_marked: bool,
 }
 
 impl InstalledMod {
@@ -816,6 +819,26 @@ impl AdminClient {
                 if enabled { "enable" } else { "disable" }
             ),
             None::<()>,
+        )
+        .await
+    }
+
+    /// `PUT /instance/{uuid}/mods/{file}/client`: marks a mod as needed by players, so the
+    /// client pack gives it to them with what it needs, or takes the mark off.
+    pub async fn set_client_mark(
+        &self,
+        uuid: &str,
+        file_name: &str,
+        required: bool,
+    ) -> Result<(), CoreError> {
+        self.call(
+            Method::PUT,
+            &format!(
+                "instance/{}/mods/{}/client",
+                segment(uuid),
+                segment(file_name)
+            ),
+            Some(serde_json::json!({ "required": required })),
         )
         .await
     }

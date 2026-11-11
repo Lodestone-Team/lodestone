@@ -344,3 +344,119 @@ async fn no_needed_mods_is_an_error() {
             .is_err()
     );
 }
+
+#[tokio::test]
+async fn a_marked_uploaded_jar_goes_to_players_with_what_it_needs() {
+    let setup = Setup::new(InstalledModLoader::Fabric);
+    // an uploaded jar that says nothing about where it runs, needing another such jar
+    setup.add_jar(
+        "custom.jar",
+        r#"{"schemaVersion":1,"id":"custom","name":"Custom","depends":{"helper":"*"}}"#,
+    );
+    setup.add_jar("helper.jar", r#"{"schemaVersion":1,"id":"helper"}"#);
+    let list = setup.list().await;
+    let found = by_file(&list);
+    assert_eq!(found["custom.jar"].0, ClientRequirement::Unknown);
+    assert_eq!(list.client_required_count, 0);
+    let out = setup._dir.path().join("pack.mrpack");
+    assert!(
+        build_client_pack(&setup.fake, &setup.folder, "S", Some("0.15.11"), &out)
+            .await
+            .is_err()
+    );
+
+    set_marked(&setup.folder, "custom.jar", true).await.unwrap();
+    let list = setup.list().await;
+    let found = by_file(&list);
+    assert_eq!(found["custom.jar"].0, ClientRequirement::Required);
+    assert_eq!(
+        found["helper.jar"],
+        (ClientRequirement::Required, vec!["Custom".to_string()])
+    );
+    let marked: Vec<_> = list
+        .mods
+        .iter()
+        .filter(|m| m.client_marked)
+        .map(|m| m.file_name.as_str())
+        .collect();
+    assert_eq!(marked, ["custom.jar"]);
+    assert_eq!(list.client_required_count, 2);
+    // the marks file isn't a mod
+    assert_eq!(list.mods.len(), 2);
+
+    let plan = build_client_pack(&setup.fake, &setup.folder, "S", Some("0.15.11"), &out)
+        .await
+        .unwrap();
+    let mut included: Vec<_> = plan.included.iter().map(|(n, _)| n.as_str()).collect();
+    included.sort();
+    assert_eq!(included, ["custom.jar", "helper.jar"]);
+    let (_, _, entries) = read_pack(&out);
+    assert!(entries.contains_key("overrides/mods/custom.jar"));
+    assert!(!entries.keys().any(|k| k.contains(MARKS_FILE)));
+
+    // disabling and enabling keep the mark; a disabled mod goes to nobody
+    crate::mods::set_enabled(&setup.folder, "custom.jar", false)
+        .await
+        .unwrap();
+    assert!(read_marks(&setup.folder).await.contains("custom.jar"));
+    let list = setup.list().await;
+    assert!(list.mods.iter().any(|m| m.client_marked && !m.enabled));
+    crate::mods::set_enabled(&setup.folder, "custom.jar.disabled", true)
+        .await
+        .unwrap();
+    assert_eq!(
+        by_file(&setup.list().await)["custom.jar"].0,
+        ClientRequirement::Required
+    );
+
+    // taking the mark off gives back what the jar says
+    set_marked(&setup.folder, "custom.jar", false)
+        .await
+        .unwrap();
+    assert_eq!(
+        by_file(&setup.list().await)["custom.jar"].0,
+        ClientRequirement::Unknown
+    );
+    assert!(
+        !setup.folder.dir.join(MARKS_FILE).exists(),
+        "no marks, no file"
+    );
+
+    // a deleted mod's mark goes with it
+    set_marked(&setup.folder, "custom.jar", true).await.unwrap();
+    crate::mods::delete(&setup.folder, "custom.jar")
+        .await
+        .unwrap();
+    forget_mark(&setup.folder, "custom.jar").await.unwrap();
+    assert!(read_marks(&setup.folder).await.is_empty());
+}
+
+#[tokio::test]
+async fn marks_need_an_existing_mod_and_survive_damage() {
+    let setup = Setup::new(InstalledModLoader::Fabric);
+    let err = set_marked(&setup.folder, "missing.jar", true)
+        .await
+        .unwrap_err();
+    assert!(matches!(err.kind, ErrorKind::NotFound));
+    let err = set_marked(&setup.folder, "../x.jar", true)
+        .await
+        .unwrap_err();
+    assert!(matches!(err.kind, ErrorKind::BadRequest));
+
+    // a damaged file marks nothing, and marking again replaces it
+    setup.add_jar("a.jar", r#"{"schemaVersion":1,"id":"a"}"#);
+    std::fs::write(setup.folder.dir.join(MARKS_FILE), "not json").unwrap();
+    assert!(read_marks(&setup.folder).await.is_empty());
+    set_marked(&setup.folder, "a.jar", true).await.unwrap();
+    assert!(read_marks(&setup.folder).await.contains("a.jar"));
+
+    // plugins only run on the server
+    let paper = Setup::new(InstalledModLoader::Paper);
+    paper.add_matched(
+        FakeVersion::new("p", "p1", "p.jar").loaders(&["paper"]),
+        "required",
+        "p.jar",
+    );
+    let err = set_marked(&paper.folder, "p.jar", true).await.unwrap_err();
+    assert!(matches!(err.kind, ErrorKind::BadRequest));
+}
