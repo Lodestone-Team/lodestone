@@ -77,7 +77,7 @@ RestartApplications=no
 OutputDir={#OutputDir}
 OutputBaseFilename={#OutputName}
 SetupIconFile=lodestone.ico
-UninstallDisplayIcon={app}\lodestone.ico
+UninstallDisplayIcon={app}\{#ExeName},0
 UninstallDisplayName={#AppName}
 WizardStyle=modern
 ; The strongest LZMA2 settings: about 1% smaller than lzma2/max for the launcher,
@@ -96,12 +96,13 @@ ConfirmUninstall=Are you sure you want to remove %1?%n%nYour instances, worlds a
 Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Shortcuts:"; Flags: unchecked
 
 [Files]
+; The icon is the executable's own (resource 1, embedded by its build.rs), so
+; shortcuts, the uninstall entry and lodestone:// links use the .exe: one file fewer.
 Source: "{#SourceExe}"; DestDir: "{app}"; DestName: "{#ExeName}"; Flags: ignoreversion
-Source: "lodestone.ico"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{autoprograms}\{#AppName}"; Filename: "{app}\{#ExeName}"; IconFilename: "{app}\lodestone.ico"
-Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#ExeName}"; IconFilename: "{app}\lodestone.ico"; Tasks: desktopicon
+Name: "{autoprograms}\{#AppName}"; Filename: "{app}\{#ExeName}"; IconFilename: "{app}\{#ExeName}"; IconIndex: 0
+Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#ExeName}"; IconFilename: "{app}\{#ExeName}"; IconIndex: 0; Tasks: desktopicon
 
 [Registry]
 ; The lodestone:// URL scheme, for this user only (HKA is HKEY_CURRENT_USER in a
@@ -110,7 +111,7 @@ Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#ExeName}"; IconFilename: "{
 ; brought forward and takes the link (see the launcher's deep_link module).
 Root: HKA; Subkey: "Software\Classes\lodestone"; ValueType: string; ValueName: ""; ValueData: "URL:Lodestone Launcher"; Flags: uninsdeletekey
 Root: HKA; Subkey: "Software\Classes\lodestone"; ValueType: string; ValueName: "URL Protocol"; ValueData: ""
-Root: HKA; Subkey: "Software\Classes\lodestone\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\lodestone.ico"
+Root: HKA; Subkey: "Software\Classes\lodestone\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: """{app}\{#ExeName}"",0"
 Root: HKA; Subkey: "Software\Classes\lodestone\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#ExeName}"" ""%1"""
 
 [Run]
@@ -121,6 +122,8 @@ Filename: "{app}\{#ExeName}"; Description: "Open {#AppName}"; Flags: nowait post
 Type: files; Name: "{app}\{#ExeName}.old"
 Type: files; Name: "{app}\{#ExeName}.update"
 Type: files; Name: "{app}\{#ExeName}.update.part"
+; Installed by versions before the icon came from the executable.
+Type: files; Name: "{app}\lodestone.ico"
 
 [UninstallDelete]
 ; Files the updater makes next to the executable, which the installer didn't.

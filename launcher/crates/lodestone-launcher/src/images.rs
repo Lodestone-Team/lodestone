@@ -3,10 +3,15 @@
 //! GPUI's `img()` loads an image on its background executor the first time it is
 //! drawn, so the window appears without it and the image pops in once it has
 //! been decoded. The bundled images are decoded here instead, and the window is
-//! opened once they are ready. Skin heads, which are small, are decoded from the
-//! on-disk cache when the account list is opened.
+//! opened once they are ready. Their rendered pixels are kept in the data folder's
+//! cache, so only the first start rasterizes them. Skin heads, which are small, are
+//! decoded from the on-disk cache when the account list is opened.
 
-use std::{sync::Arc, time::Instant};
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc,
+    time::Instant,
+};
 
 use gpui::{App, AppContext as _, Global, ImageSource, RenderImage, Task};
 
@@ -48,15 +53,28 @@ const MARK_SMALL_SCALE: f32 = 64. / 368.;
 const MARK_LARGE_SCALE: f32 = 160. / 368.;
 
 /// Starts decoding the bundled images on the background executor, in parallel.
-pub fn decode(cx: &App) -> Task<anyhow::Result<BundledImages>> {
+/// With a `cache` folder, images rendered by an earlier start are read from it
+/// instead of rasterizing their SVGs again, and new renders are saved there.
+pub fn decode(cx: &App, cache: Option<PathBuf>) -> Task<anyhow::Result<BundledImages>> {
     let render = |path: &'static str, scale: f32| {
         let renderer = cx.svg_renderer();
+        let cache = cache.clone();
         cx.background_spawn(async move {
             let bytes =
                 Assets::embedded(path).ok_or_else(|| anyhow::anyhow!("{path} is not embedded"))?;
-            renderer
+            let file = cache
+                .as_deref()
+                .map(|dir| cache_file(dir, path, bytes, scale));
+            if let Some(image) = file.as_deref().and_then(read_cached) {
+                return Ok(image);
+            }
+            let image = renderer
                 .render_single_frame(bytes, scale)
-                .map_err(|err| anyhow::anyhow!("rendering {path}: {err}"))
+                .map_err(|err| anyhow::anyhow!("rendering {path}: {err}"))?;
+            if let Some(file) = file {
+                write_cached(&file, &image);
+            }
+            anyhow::Ok(image)
         })
     };
     let logo = render(LOGO_PATH, SVG_SCALE);
@@ -71,6 +89,107 @@ pub fn decode(cx: &App) -> Task<anyhow::Result<BundledImages>> {
             mark_large: mark_large.await?,
         })
     })
+}
+
+/// Where rendered bundled images are kept between starts: rasterizing the hero
+/// takes most of the time before the window opens (about 190 ms), and reading its
+/// pixels back takes a few. `None` without a data folder, or when it was moved to a
+/// folder that isn't there (a drive not connected), which this mustn't create.
+pub fn cache_dir() -> Option<PathBuf> {
+    let location = launcher_core::paths::locate_data_dir()?;
+    if location.source == launcher_core::paths::DataDirSource::Moved && !location.dir.is_dir() {
+        return None;
+    }
+    Some(
+        launcher_core::paths::DataDir::at(location.dir)
+            .cache_dir()
+            .join("images"),
+    )
+}
+
+/// Bumped when the rendering changes in a way the SVG's bytes and scale don't show
+/// (a new resvg, a different colour conversion), so older renders aren't used.
+const CACHE_VERSION: u32 = 1;
+const CACHE_MAGIC: &[u8; 4] = b"LSIM";
+/// The magic, the version, the width and the height, before the BGRA pixels.
+const CACHE_HEADER: usize = 16;
+
+/// `<cache>/<name>-<hash>.bgra`, the hash covering the SVG, the scale and
+/// [`CACHE_VERSION`].
+fn cache_file(dir: &Path, path: &str, bytes: &[u8], scale: f32) -> PathBuf {
+    use std::hash::{Hash, Hasher};
+    // Keyed the same in every run (unlike `RandomState`).
+    let mut hasher = std::hash::DefaultHasher::new();
+    (CACHE_VERSION, bytes, scale.to_bits()).hash(&mut hasher);
+    dir.join(format!(
+        "{}-{}-{:016x}.bgra",
+        cache_stem(path),
+        scale.to_bits(),
+        hasher.finish()
+    ))
+}
+
+fn cache_stem(path: &str) -> &str {
+    Path::new(path)
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or("image")
+}
+
+/// The image saved at `file`, or `None` if there isn't a whole one.
+fn read_cached(file: &Path) -> Option<Arc<RenderImage>> {
+    let mut bytes = std::fs::read(file).ok()?;
+    let header = bytes.get(..CACHE_HEADER)?;
+    let word = |at: usize| u32::from_le_bytes(header[at..at + 4].try_into().unwrap());
+    if &header[..4] != CACHE_MAGIC || word(4) != CACHE_VERSION {
+        return None;
+    }
+    let (width, height) = (word(8), word(12));
+    if bytes.len() != CACHE_HEADER + width as usize * height as usize * 4 {
+        return None;
+    }
+    bytes.drain(..CACHE_HEADER);
+    // Already BGRA, as GPUI draws it.
+    let buffer = image::RgbaImage::from_raw(width, height, bytes)?;
+    Some(Arc::new(RenderImage::new([image::Frame::new(buffer)])))
+}
+
+/// Saves `image` at `file`, replacing older renders of the same picture. A failure
+/// (a moved data folder that isn't connected) only means rasterizing next time.
+fn write_cached(file: &Path, image: &RenderImage) {
+    let (Some(dir), Some(name), Some(pixels)) =
+        (file.parent(), file.file_name(), image.as_bytes(0))
+    else {
+        return;
+    };
+    let size = image.size(0);
+    let mut bytes = Vec::with_capacity(CACHE_HEADER + pixels.len());
+    bytes.extend_from_slice(CACHE_MAGIC);
+    for word in [CACHE_VERSION, size.width.0 as u32, size.height.0 as u32] {
+        bytes.extend_from_slice(&word.to_le_bytes());
+    }
+    bytes.extend_from_slice(pixels);
+    let partial = file.with_extension("part");
+    if std::fs::create_dir_all(dir).is_err()
+        || std::fs::write(&partial, &bytes).is_err()
+        || std::fs::rename(&partial, file).is_err()
+    {
+        let _ = std::fs::remove_file(&partial);
+        return;
+    }
+    // Renders of an older version of this picture at this scale.
+    let name = name.to_string_lossy();
+    let Some((prefix, _)) = name.rsplit_once('-') else {
+        return;
+    };
+    let prefix = format!("{prefix}-");
+    for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+        let other = entry.file_name();
+        let other = other.to_string_lossy();
+        if other != name && other.starts_with(&prefix) && other.ends_with(".bgra") {
+            let _ = std::fs::remove_file(entry.path());
+        }
+    }
 }
 
 const LOGO_PATH: &str = "images/logo.svg";
@@ -210,6 +329,38 @@ mod tests {
                 .unwrap();
             assert_eq!(mark.size(0).width.0, side);
         }
+    }
+
+    #[test]
+    fn cached_renders_read_back() {
+        let dir =
+            std::env::temp_dir().join(format!("lodestone-image-cache-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let renderer = gpui::SvgRenderer::new(Arc::new(Assets));
+        let bytes = Assets::embedded(MARK_PATH).unwrap();
+        let file = cache_file(&dir, MARK_PATH, bytes, MARK_SMALL_SCALE);
+        assert!(read_cached(&file).is_none());
+        let image = renderer
+            .render_single_frame(bytes, MARK_SMALL_SCALE)
+            .unwrap();
+        write_cached(&file, &image);
+        let cached = read_cached(&file).unwrap();
+        assert_eq!(cached.size(0), image.size(0));
+        assert_eq!(cached.as_bytes(0), image.as_bytes(0));
+
+        // Another scale is another file; a changed picture replaces the old render.
+        assert_ne!(cache_file(&dir, MARK_PATH, bytes, MARK_LARGE_SCALE), file);
+        let changed = cache_file(&dir, MARK_PATH, b"<svg/>", MARK_SMALL_SCALE);
+        assert_ne!(changed, file);
+        write_cached(&changed, &image);
+        assert!(!file.exists());
+        assert!(read_cached(&changed).is_some());
+
+        // A cut-off file is rendered again.
+        let bytes = std::fs::read(&changed).unwrap();
+        std::fs::write(&changed, &bytes[..bytes.len() - 1]).unwrap();
+        assert!(read_cached(&changed).is_none());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
