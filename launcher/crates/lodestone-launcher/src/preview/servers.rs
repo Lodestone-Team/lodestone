@@ -73,12 +73,8 @@ pub const SCENES: &[&str] = &[
     "servers-friend-list-remove",
     "servers-friend-list-retire",
     "servers-friend-list-retire-core",
-    "servers-friend-steps-link",
-    "servers-friend-steps-accept",
-    "servers-friend-steps-pending",
-    "servers-friend-steps-compare",
-    "servers-friend-steps-share",
-    "servers-friend-steps-play",
+    "servers-friend-list-offline",
+    "servers-friend-list-pending",
 ];
 
 /// Made-up fingerprints.
@@ -489,10 +485,7 @@ fn apply_servers(scene: &str, servers: &mut Servers, cx: &mut Context<Servers>) 
                 cx,
             );
         }
-        scene
-            if scene.starts_with("servers-friend-list")
-                || scene.starts_with("servers-friend-steps") =>
-        {
+        scene if scene.starts_with("servers-friend-list") => {
             servers.preview(Vec::new(), Vec::new());
             super::friend_list::apply(scene, servers, cx);
         }
@@ -830,7 +823,14 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
     let friends = scene.starts_with("servers-friend")
         || scene.starts_with("servers-join")
         || scene == "servers-highlight-friend";
-    shell.show(if friends { Page::Friends } else { Page::Servers }, cx);
+    shell.show(
+        if friends {
+            Page::Friends
+        } else {
+            Page::Servers
+        },
+        cx,
+    );
     // a server's page opened from its name, then the top bar's back arrow: Forward
     // goes back to it
     if scene == "servers-history-back" {

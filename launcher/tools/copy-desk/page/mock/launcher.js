@@ -755,33 +755,22 @@
     }
     return h("div.lx-corebox.lx-local", parts);
   }
-  function friendSteps(ctx, done, nextDetail) {
-    const steps = [["StepName", "StepNameDetail"], ["StepLink", "StepLinkDetail"], ["StepAccept", null], ["StepCompare", null], ["StepShare", null], ["StepPlay", null]];
-    return h("div", { style: { padding: "14px 18px" } },
-      h("div.lx-tbar", { style: { marginBottom: "10px" } }, h("b", { style: { fontSize: "16px" } }, fl("StepsTitle")), h("span.lx-muted", fl("StepsProgress", { done, total: 6 })), h("span.lx-grow"), gbtn(fl("HideSteps"), () => ctx.set("friends", "empty"))),
-      h("div.lx-steps", steps.map(([t2, d], i) => h("div.lx-step" + (i < done ? ".done" : i === done ? ".next" : ""),
-        h("span.lx-step-n", i < done ? ic("check") : tx(i + 1)),
-        h("div", h("div.lx-step-t", fl(t2)), i === done ? [h("div.lx-step-d", nextDetail || (d ? fl(d) : null)), i === 0 ? h("div.lx-step-a", pbtn(fl("ChooseName"), () => ctx.open("friendName"))) : null] : null)))));
-  }
   function friendsSection(ctx) {
     const st = ctx.state.friends;
     const head = h("div.lx-hostsec-h", ic("users"), h("div.lx-grow", h("div.lx-hostsec-t", fl("Title")), h("div.lx-hostsec-s", fl("Hint"))),
       st === "refreshing" ? h("span.lx-muted", spinner(), " ", fl("Refreshing")) : gbtn(cm("Refresh"), null, "refresh"), btn(fl("AddFriend"), { icon: "plus", on: () => ctx.open("addFriend") }));
     const parts = [head];
     if (st === "error") { parts.push(h("div", { style: { padding: "4px 18px" } }, note([h("b", fl("OpenFailed")), h("div", tx("database is locked"))], "err", btn(cm("TryAgain"), { sm: true })))); return h("div.lx-hostsec", parts) }
-    if (st === "noName") parts.push(friendSteps(ctx, 0));
-    if (st === "linkWaiting") parts.push(friendSteps(ctx, 1, fl("StepLinkWaiting")), h("div", { style: { padding: "14px 18px" } }, h("div.lx-caps", fl("LinksTitle")),
+    if (st === "linkWaiting") parts.push(h("div", { style: { padding: "14px 18px" } }, h("div.lx-caps", fl("LinksTitle")),
       h("div.lx-srvrow", { style: { padding: "8px 0" } }, ic("link"), h("div.lx-grow", h("div.lx-mono", tx("https://connect.lodestone.cc/f/9fK2\u2026")), h("div.lx-row-s", fl("LinkWaiting", { time: "Tomorrow at 14:05" }))), btn(cm("Copy"), { sm: true, icon: "copy" }), btn(fl("CheckAnswers"), { sm: true }), gbtn(fl("CancelLink")))));
-    if (st === "reply") parts.push(friendSteps(ctx, 2, fl("StepAcceptReply", { name: "Alex" })), h("div", { style: { padding: "14px 18px" } },
-      h("div.lx-scard", h("b", fl("ReplyFrom", { name: "Alex" })), h("div.lx-mono", fl("SafetyCode", { code: "P4XN-7TQE-K2MW-9RBD" })), note(fl("SameNameAs", { names: "Alex" }), "warn"), h("div.lx-muted", flp("AnsweredTimes", { count: 2 })),
+    if (st === "reply") parts.push(h("div", { style: { padding: "14px 18px" } },
+      h("div.lx-scard", h("b", fl("ReplyFrom", { name: "Alex" })), h("div.lx-mono", fl("SafetyCode", { code: "P4XN-7TQE-K2MW-9RBD" })), h("div.lx-muted", fl("PlaysAs", { name: "AlexCrafts" })), note(fl("SameNameAs", { names: "Alex" }), "warn"), h("div.lx-muted", flp("AnsweredTimes", { count: 2 })),
         h("div", { style: { display: "flex", gap: "8px" } }, pbtn(fl("Accept")), btn(fl("Ignore"))))));
-    if (st === "pending") parts.push(friendSteps(ctx, 2, fl("StepAcceptPending", { name: "Alex" })));
-    if (st === "compare") parts.push(friendSteps(ctx, 3, h("span", fl("StepCompareDetail", { name: "Alex" }), " ", btn(fl("CompareCodes"), { sm: true, on: () => ctx.open("verify") }))));
-    if (st === "share") parts.push(friendSteps(ctx, 4, fl("StepShareDetail", { name: "Alex" })));
-    if (st === "play") parts.push(friendSteps(ctx, 5, fl("StepPlayDetail", { name: "Alex" })));
-    if (st === "list") parts.push(friendSteps(ctx, 5, fl("StepPlayOnline", { name: "Alex" })));
-    if (st === "empty") parts.push(h("div.lx-srvrow", h("div.lx-grow.lx-muted", fl("NoFriendsYet")), gbtn(fl("ShowSteps"), () => ctx.set("friends", "noName"))));
-    if (st === "noName" || st === "empty") parts.push(h("div.lx-srvrow", ic("user"), h("div.lx-grow", h("div.lx-muted", fl("You")), h("div.lx-muted", fl("NoNameYet"))), btn(fl("ChooseName"), { sm: true, on: () => ctx.open("friendName") })));
+    // no Microsoft account: asked for a name
+    if (st === "noName") parts.push(h("div.lx-srvrow", ic("user"), h("div.lx-grow", h("div.lx-muted", fl("You")), h("div.lx-muted", fl("NoNameYet"))), btn(fl("ChooseName"), { sm: true, on: () => ctx.open("friendName") })));
+    // signed in with Microsoft: the Minecraft name, without asking
+    if (st === "empty") parts.push(h("div.lx-srvrow", ic("user"), h("div.lx-grow", h("div", h("span.lx-muted", { style: { fontSize: "12.5px" } }, fl("You")), " ", h("b", tx("Lodestoner")), " ", h("span.lx-muted", fl("MinecraftNameNote")))), gbtn(fl("EditName"), () => ctx.open("friendName"))));
+    if (st === "noName" || st === "empty") parts.push(h("div.lx-srvrow", h("div.lx-grow.lx-muted", fl("NoFriendsYet")), btn(fl("AddFriend"), { sm: true, icon: "plus", on: () => ctx.open("addFriend") })));
     else {
       parts.push(h("div.lx-srvrow", ic("user"), h("div.lx-grow", h("div", h("span.lx-muted", { style: { fontSize: "12.5px" } }, fl("You")), " ", h("b", tx("Peter"))), h("div.lx-mono.lx-muted", fl("YourSafetyCode", { code: "K7Q2-M9XD-4TRW-H3BE" }))),
         gbtn(fl("EditName"), () => ctx.open("friendName")), btn(fl("Retire"), { kind: "d", sm: true, on: () => ctx.open("retire") })),
@@ -1214,7 +1203,7 @@
     const st = ctx.state.addFriend;
     const errs = { notLink: "NotAFriendLink", paste: "PasteFirst", other: "OtherService", already: "AlreadyFriends", needName: "NeedNameFirst" };
     // uses: fl("NotAFriendLink") fl("PasteFirst") fl("OtherService") fl("AlreadyFriends") fl("NeedNameFirst")
-    if (st === "preview" || st === "added") return dialog(ctx, fl("AddTitle"), [h("b", fl("PreviewFrom", { name: "Alex" })), h("div.lx-mono", fl("SafetyCode", { code: "P4XN-7TQE-K2MW-9RBD" })), h("p.lx-muted", fl("PreviewCompare", { name: "Alex" })), st === "added" ? note(fl("Added", { name: "Alex" }), "ok") : null],
+    if (st === "preview" || st === "added") return dialog(ctx, fl("AddTitle"), [h("b", fl("PreviewFrom", { name: "Alex" })), h("div.lx-muted", fl("PlaysAs", { name: "AlexCrafts" })), h("div.lx-mono", fl("SafetyCode", { code: "P4XN-7TQE-K2MW-9RBD" })), h("p.lx-muted", fl("PreviewCompare", { name: "Alex" })), st === "added" ? note(fl("Added", { name: "Alex" }), "ok") : null],
       [pbtn(fl("AddFriend"), () => ctx.set("addFriend", "added")), btn(cm("Cancel"), { on: () => ctx.close() })]);
     return dialog(ctx, fl("AddTitle"), [
       h("b", fl("SendLinkTitle")), h("p.lx-muted", fl("SendLinkBody")),
@@ -1225,7 +1214,7 @@
     ], [btn(cm("Close"), { on: () => ctx.close() })]);
   }
   const DIALOG_SIMPLE = {
-    friendName: (ctx) => dialog(ctx, fl("NameTitle"), [h("p.lx-muted", fl("NameBody")), field(null, fl("NamePlaceholder")), ctx.state.addFriend === "needName" ? h("div", { style: { color: "#ff8a8a" } }, fl("NameEmpty")) : null], [pbtn(cm("Save"), () => ctx.close()), btn(cm("Cancel"), { on: () => ctx.close() })], { narrow: true }),
+    friendName: (ctx) => dialog(ctx, fl("NameTitle"), [h("p.lx-muted", fl("NameBody")), field(null, fl("NamePlaceholder")), ctx.state.addFriend === "needName" ? h("div", { style: { color: "#ff8a8a" } }, fl("NameEmpty")) : null], [pbtn(cm("Save"), () => ctx.close()), gbtn(fl("UseMinecraftName"), () => ctx.close()), btn(cm("Cancel"), { on: () => ctx.close() })], { narrow: true }),
     verify: (ctx) => dialog(ctx, fl("VerifyTitle", { name: "Sammy" }), [h("p.lx-muted", fl("VerifyBody", { name: "Sammy" })), h("div.lx-grid2", h("div.lx-scard", h("div.lx-muted", fl("YourCode")), h("div.lx-mono", { style: { fontSize: "18px" } }, tx("K7Q2-M9XD-4TRW-H3BE"))), h("div.lx-scard", h("div.lx-muted", fl("TheirCode", { name: "Sammy" })), h("div.lx-mono", { style: { fontSize: "18px" } }, tx("P4XN-7TQE-K2MW-9RBD"))))],
       [pbtn(fl("CodesMatch"), () => ctx.close()), btn(cm("Cancel"), { on: () => ctx.close() })]),
     renameFriend: (ctx) => dialog(ctx, fl("RenameTitle", { name: "Sammy" }), [h("p.lx-muted", fl("RenameBody", { name: "Sam" })), field("Sammy", fl("NicknamePlaceholder"))], [pbtn(cm("Save"), () => ctx.close()), gbtn(fl("UseTheirName")), btn(cm("Cancel"), { on: () => ctx.close() })], { narrow: true }),
@@ -1439,7 +1428,7 @@
         ...L(sv, "CoreSignedOut CoreForbidden CoreNotFound CoreTooOld CoreTooManyRequests", (el) => te(null, el)), te(null, sv("CoreAnswered", { status: 500, message: "internal error" })), te(null, sv("CoreInvalidReply", { detail: "expected JSON" }))]),
       mgroup(sv("OnYourNetwork"), null, [tl(sv("LanNoneWindows")), tl(sv("LanNoneOther"))]),
       mgroup(sv("FriendsTitle"), null, [te(null, sv("FriendLinkMissing")), te(null, sv("FriendRemoved", { link: "https://connect.lodestone.cc/j/\u2026" })), te(sv("FriendsReadFailed"), tx("\u2026")), te(sv("FriendsSaveFailed"), tx("\u2026"))]),
-      mgroup(fl("Title"), null, [te(fl("ActionFailed"), tx("\u2026")), tl(h("span", fl("StepName"), " \u2014 ", fl("StepDone"))), tl(h("span", fl("StepLink"), " \u2014 ", fl("StepNext"))), tl(h("span", fl("StepPlay"), " \u2014 ", fl("StepLater")))]),
+      mgroup(fl("Title"), null, [te(fl("ActionFailed"), tx("\u2026"))]),
     ]],
     worlds: ["Messages \u203a Worlds", () => [
       mgroup(wd("Worlds"), null, [tl(wd("StopGameFirst"), "warn"), tl(wd("WaitForTask"), "warn"), tl(wd("Cancelled")),
@@ -1510,7 +1499,7 @@
   // uses (data-driven keys): sh("Play") sh("TabContent") sh("TabWorlds") sh("Settings") sh("TabLogs") is("General") is("GameAndLoader") is("Modpack") is("LinkedServer") is("JavaAndMemory") is("LaunchOptions") is("SharedGameSettings") is("InstanceSnapshots") is("Maintenance")
   // uses: is("AboutVanilla") is("AboutFabric") is("AboutQuilt") is("AboutForge") is("AboutNeoForge") is("KindRelease") is("KindSnapshot") is("KindBeta") is("KindAlpha") is("KindOther")
   // uses: wd("Survival") wd("Creative") wd("Adventure") wd("Spectator") sv("StateRunning") sv("StateStarting") sv("StateStopping") sv("StateStopped") sv("StateCrashed") sv("StateUnknown") sv("StateHidden") sv("BusyStarting") sv("BusyCreatingFiles")
-  // uses: fl("StepName") fl("StepNameDetail") fl("StepLink") fl("StepLinkDetail") fl("StepAccept") fl("StepCompare") fl("StepShare") fl("StepPlay") sh("InstanceDefaults") sh("SharedGameSettings") sh("General") sh("Skin") sh("Storage") sh("Accounts") sh("Developer")
+  // uses: sh("InstanceDefaults") sh("SharedGameSettings") sh("General") sh("Skin") sh("Storage") sh("Accounts") sh("Developer")
   const opts = (s) => keysOf(s).map((v) => [v, v.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/^./, (c) => c.toUpperCase())]);
   const ST = (label, s, def) => ({ label, options: opts(s), default: def || keysOf(s)[0] });
   const states = {

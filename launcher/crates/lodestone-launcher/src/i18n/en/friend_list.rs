@@ -20,43 +20,14 @@ crate::i18n::messages! {
         NoNameYet = "Choose the name your friends will see, then add them with a friend link.",
         ChooseName = "Choose name",
         EditName = "Edit name",
+        /// After the person's name in their own row, when it is their Minecraft
+        /// account's player name (they didn't choose another).
+        MinecraftNameNote = "your Minecraft name",
         OpenFailed = "Couldn't open your friend list",
         ActionFailed = "Couldn't update your friend list",
         NoFriendsYet = "No friends yet. Make a friend link and send it to someone you know.",
         /// Problems while checking on friends: {error} is what went wrong.
         RefreshProblem = "Some friends couldn't be checked: {error}",
-
-        // ===== How to add a friend: the steps, ticked as they're done =====
-        StepsTitle = "How to add a friend",
-        /// {done} and {total} are numbers of steps.
-        StepsProgress = "{done} of {total} done",
-        HideSteps = "Hide steps",
-        ShowSteps = "Show steps",
-        /// For screen readers, after a step's title.
-        StepDone = "done",
-        StepNext = "next",
-        StepLater = "not yet",
-        StepName = "Choose your name",
-        StepNameDetail = "Your friends see this name.",
-        StepLink = "Send a friend link, or open theirs",
-        StepLinkDetail = "Choose Add friend to make a link and send it to your friend any way you like. If they sent you a link, open it, or paste it under Add friend.",
-        StepLinkWaiting = "Your link is ready and works once, for 24 hours. Send it to your friend, then wait for them to open it.",
-        StepAccept = "Accept each other",
-        /// {name} is the name of the person who answered.
-        StepAcceptReply = "{name} answered your link. If it's really them, choose Accept below.",
-        /// {name} is the friend whose link this person answered.
-        StepAcceptPending = "{name} still needs to accept. They show up here once they do.",
-        StepCompare = "Compare safety codes",
-        /// {name} is a friend's name.
-        StepCompareDetail = "Read your codes to each other on a call or in person. If they match, you're talking to the real {name}.",
-        StepShare = "Get a server shared with you",
-        /// {name} is a friend's name.
-        StepShareDetail = "Ask {name} to share a server. In Lodestone Host, they open the server, go to Settings › Friends and tick your name. You can share yours the same way.",
-        StepPlay = "Play",
-        /// {name} is a friend's name.
-        StepPlayDetail = "When {name} is online, open them in the list below and choose Play on their server.",
-        /// {name} is a friend who is online now.
-        StepPlayOnline = "{name} is online. Open them in the list below and choose Play on their server.",
 
         // ===== Friend links and their answers =====
         LinksTitle = "Your friend links",
@@ -118,6 +89,10 @@ crate::i18n::messages! {
         PreviewFrom = "This link is from {name}",
         PreviewCompare = "Once you're friends, compare safety codes with {name} by voice or in person. Only add people you know.",
         AlreadyFriends = "You're already friends with {name}.",
+        /// Beside the skin of the Minecraft profile a friend link's sender (or someone
+        /// who answered) says they play as. {name} is that profile's player name.
+        /// Nothing checks it, so it must not read as proof of who they are.
+        PlaysAs = "Their launcher says they play Minecraft as {name}. Lodestone doesn't check this: only the safety code shows it's really them.",
         Added = "{name} is in your friend list. Nothing is shared until they confirm.",
         NeedNameFirst = "Choose your name first: your friend sees it with your answer.",
 
@@ -126,6 +101,8 @@ crate::i18n::messages! {
         NameBody = "Friends see this name. If you change it, they see the new one the next time their launcher checks.",
         NamePlaceholder = "Your name",
         NameEmpty = "Choose a name your friends will see.",
+        /// In the Your name dialog: go back to the Minecraft account's player name.
+        UseMinecraftName = "Use my Minecraft name",
 
         // ===== Compare codes =====
         /// {name} is the friend's name.

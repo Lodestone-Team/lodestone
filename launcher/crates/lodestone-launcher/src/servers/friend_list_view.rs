@@ -1,8 +1,11 @@
 //! How the friend list looks: its section on the Servers page, and its dialogs (see
 //! [`super::friend_list`]).
 
+use std::sync::Arc;
+
 use gpui::{
-    AnyElement, App, Context, Entity, IntoElement, KeyDownEvent, SharedString, div, prelude::*,
+    AnyElement, App, Context, Entity, IntoElement, KeyDownEvent, RenderImage, SharedString, div,
+    img, prelude::*,
 };
 use launcher_core::{
     cores::connect::{SharedServer, server_instance},
@@ -136,6 +139,17 @@ fn row() -> gpui::Div {
         .border_color(crate::theme::ink::border())
 }
 
+/// A Minecraft face (a skin's head), `size` pixels square: `None` without one, so
+/// the caller draws what it did before.
+fn face(image: Option<Arc<RenderImage>>, size: f32) -> Option<gpui::Img> {
+    image.map(|image| {
+        img(image)
+            .flex_none()
+            .size(px(size))
+            .rounded(radius::DEFAULT)
+    })
+}
+
 /// "Alex" and "Sam": the names of friends a new name matches.
 fn names(list: &[String]) -> String {
     format::list(list)
@@ -193,7 +207,6 @@ impl Servers {
                         .on_click(cx.listener(|this, _, _, cx| this.start_friend_refresh(cx))),
                 )
             })
-            .children(self.friend_steps_show_button(cx))
             .child(
                 Button::new("friend-list-add", t(M::AddFriend))
                     .size(ButtonSize::Slim)
@@ -201,8 +214,27 @@ impl Servers {
                     .on_click(cx.listener(|this, _, _, cx| this.open_add_friend(None, cx))),
             );
 
-        // you
-        let you = if book.name.is_empty() {
+        // you: the name chosen, else the Minecraft name (the list starts with it, without
+        // asking, once a friend is added), else "Choose name"
+        let profile = self.my_profile(cx);
+        let accounts = self.accounts.read(cx);
+        let my_face = profile.as_ref().and_then(|p| {
+            accounts
+                .accounts()
+                .iter()
+                .find(|a| *a.uuid.as_bytes() == p.uuid)
+                .and_then(|a| accounts.avatar(&a.id).cloned())
+        });
+        let (my_name, from_minecraft) = match (&profile, book.name.is_empty()) {
+            (Some(p), true) => (p.name.clone(), true),
+            _ => (
+                book.name.clone(),
+                book.name_from_profile && profile.as_ref().is_some_and(|p| p.name == book.name),
+            ),
+        };
+        // the face is the profile's only while the name is its own
+        let my_face = my_face.filter(|_| from_minecraft);
+        let you = if my_name.is_empty() {
             row()
                 .id("friend-list-you")
                 .child(Icon::CircleUser.render(px(16.), colors::GRAY_500))
@@ -219,9 +251,14 @@ impl Servers {
                 .accessible(
                     Role::Group,
                     "friend-list-you",
-                    format!("{}: {}", t(M::You), book.name),
+                    format!("{}: {my_name}", t(M::You)),
                 )
-                .child(Icon::CircleUser.render(px(16.), crate::theme::accent::light()))
+                .child(match face(my_face, 20.) {
+                    Some(face) => face.into_any_element(),
+                    None => Icon::CircleUser
+                        .render(px(16.), crate::theme::accent::light())
+                        .into_any_element(),
+                })
                 .child(
                     div()
                         .flex()
@@ -239,8 +276,11 @@ impl Servers {
                                         .truncate()
                                         .font_weight(weights::BOLD.into())
                                         .text_color(crate::theme::ink::text())
-                                        .child(book.name.clone()),
-                                ),
+                                        .child(my_name.clone()),
+                                )
+                                .when(from_minecraft, |this| {
+                                    this.child(note(t(M::MinecraftNameNote)).flex_none())
+                                }),
                         )
                         .when(!list.snapshot.safety_code.is_empty(), |this| {
                             this.child(
@@ -255,22 +295,18 @@ impl Servers {
                         .variant(ButtonVariant::Ghost)
                         .on_click(cx.listener(|this, _, _, cx| this.open_friend_name(cx))),
                 )
-                .child(
-                    Button::new("friend-list-retire", t(M::Retire))
-                        .size(ButtonSize::Slim)
-                        .variant(ButtonVariant::Danger)
-                        .on_click(cx.listener(|this, _, _, cx| this.open_friend_retire(cx))),
-                )
+                // an identity to retire only once there is one
+                .when(list.opened && !book.name.is_empty(), |this| {
+                    this.child(
+                        Button::new("friend-list-retire", t(M::Retire))
+                            .size(ButtonSize::Slim)
+                            .variant(ButtonVariant::Danger)
+                            .on_click(cx.listener(|this, _, _, cx| this.open_friend_retire(cx))),
+                    )
+                })
         };
 
-        // "How to add a friend", until every step is done
-        let steps = self.render_friend_steps(cx);
-        // while the steps show, they say how to choose a name and add a friend
-        let guiding = steps.is_some();
-        let mut body: Vec<AnyElement> = steps.into_iter().collect();
-        if !(guiding && book.name.is_empty()) {
-            body.push(you.into_any_element());
-        }
+        let mut body: Vec<AnyElement> = vec![you.into_any_element()];
         // the cores friends see this person share from, each with Retire (a lost or
         // stolen computer)
         for core in &book.my_cores {
@@ -341,13 +377,23 @@ impl Servers {
             body.push(self.render_links(cx));
         }
         let friends = list.sorted();
-        if friends.is_empty() && list.open_error.is_none() && !guiding {
+        if friends.is_empty() && list.open_error.is_none() {
             body.push(
-                note(t(M::NoFriendsYet))
-                    .px_4()
+                row()
+                    .id("friend-list-empty")
                     .py_3()
-                    .border_t_1()
-                    .border_color(crate::theme::ink::border())
+                    .child(note(t(M::NoFriendsYet)).flex_1().min_w_0())
+                    .when(book.links.is_empty(), |this| {
+                        this.child(
+                            Button::new("friend-list-empty-add", t(M::AddFriend))
+                                .size(ButtonSize::Slim)
+                                .variant(ButtonVariant::Primary)
+                                .icon(Icon::Plus)
+                                .on_click(
+                                    cx.listener(|this, _, _, cx| this.open_add_friend(None, cx)),
+                                ),
+                        )
+                    })
                     .into_any_element(),
             );
         }
@@ -437,6 +483,7 @@ impl Servers {
             short(&reply.key)
         );
         let busy = self.friend_list.busy.contains(&reply.key);
+        let reply_face = face(self.friend_list.head(reply.player.as_ref()), 28.);
         let (accept_code, accept_key) = (reply.code.clone(), reply.key.clone());
         let (ignore_code, ignore_key) = (reply.code.clone(), reply.key.clone());
         div()
@@ -464,6 +511,7 @@ impl Servers {
                     .flex_row()
                     .items_center()
                     .gap_3()
+                    .children(reply_face)
                     .child(
                         div()
                             .flex()
@@ -500,6 +548,11 @@ impl Servers {
                                 this.accept_friend_reply(&accept_code, &accept_key, cx)
                             })),
                     ),
+            )
+            // the profile is their launcher's word: said so, beside the face it draws
+            .when_some(
+                reply.player.as_ref().filter(|p| !p.offline),
+                |this, player| this.child(note(tr!(M::PlaysAs, name = player.name))),
             )
             .when(reply.answers > 1, |this| {
                 this.child(warning(
@@ -552,6 +605,7 @@ impl Servers {
         };
         let toggle_key = key.clone();
         let verify_key = key.clone();
+        let friend_face = face(list.head(friend.minecraft()), 24.);
         let mut row_el = div()
             .id(SharedString::from(id.clone()))
             .accessible(
@@ -572,6 +626,7 @@ impl Servers {
                     .px_4()
                     .py_2p5()
                     .child(div().flex_none().size(px(8.)).rounded_full().bg(dot))
+                    .children(friend_face)
                     .child(
                         div()
                             .flex()
@@ -970,6 +1025,12 @@ pub fn friend_list_dialog(
             saving,
         } => {
             let save = servers.clone();
+            let use_minecraft = servers.clone();
+            // back to the Minecraft name, once another was chosen
+            let book = &this.friend_list.snapshot.book;
+            let minecraft_name = this.my_profile(cx).filter(|p| {
+                !book.name.is_empty() && !(book.name_from_profile && p.name == book.name)
+            });
             dialog("friend-name", t(M::NameTitle).into())
                 .child(
                     div()
@@ -993,6 +1054,16 @@ pub fn friend_list_dialog(
                             save.update(cx, |this, cx| this.save_friend_name(cx))
                         }),
                 )
+                .when(minecraft_name.is_some(), |this| {
+                    this.footer(
+                        Button::new("friend-name-minecraft", t(M::UseMinecraftName))
+                            .variant(ButtonVariant::Ghost)
+                            .disabled(*saving)
+                            .on_click(move |_, _, cx| {
+                                use_minecraft.update(cx, |this, cx| this.use_minecraft_name(cx))
+                            }),
+                    )
+                })
                 .footer(cancel_button(t(CommonMsg::Cancel)))
                 .into_any_element()
         }
@@ -1248,6 +1319,8 @@ fn add_dialog(
     if let Some((_, preview)) = &add.preview {
         let back = servers.clone();
         let confirm = servers.clone();
+        let player = preview.player.as_ref().filter(|p| !p.offline);
+        let their_face = face(this.friend_list.head(player), 32.);
         let card = div()
             .id("friend-add-card")
             .accessible(
@@ -1260,12 +1333,26 @@ fn add_dialog(
             .gap_3()
             .child(
                 div()
-                    .font_family(fonts::heading())
-                    .text_size(theme::text_size(text::H3))
-                    .font_weight(weights::BOLD.into())
-                    .text_color(crate::theme::ink::text())
-                    .child(tr!(M::PreviewFrom, name = preview.name)),
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap_3()
+                    .children(their_face)
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .font_family(fonts::heading())
+                            .text_size(theme::text_size(text::H3))
+                            .font_weight(weights::BOLD.into())
+                            .text_color(crate::theme::ink::text())
+                            .child(tr!(M::PreviewFrom, name = preview.name)),
+                    ),
             )
+            // the profile is the sender's word: said so, beside the face it draws
+            .when_some(player, |this, player| {
+                this.child(note(tr!(M::PlaysAs, name = player.name)))
+            })
             .child(code_box(
                 "friend-add-code",
                 tr!(M::TheirCode, name = preview.name),

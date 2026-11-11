@@ -21,7 +21,6 @@ mod detail_view;
 pub mod extras;
 pub mod friend_list;
 mod friend_list_view;
-mod friend_steps;
 pub mod friends;
 mod friends_view;
 pub mod host;

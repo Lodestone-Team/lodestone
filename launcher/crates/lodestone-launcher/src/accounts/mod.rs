@@ -291,6 +291,11 @@ impl Accounts {
         &self.secrets
     }
 
+    /// The HTTP client, for skins.
+    pub fn http(&self) -> Arc<dyn HttpClient> {
+        self.http.clone()
+    }
+
     pub fn data_dir(&self) -> &DataDir {
         &self.data_dir
     }

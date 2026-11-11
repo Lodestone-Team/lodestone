@@ -5,7 +5,7 @@ use gpui::Context;
 use launcher_core::{
     cores::connect::SharedServer,
     friend_list::{
-        Book, Friend, FriendState, FriendStatus, MyCore, PendingLink, now,
+        Book, Friend, FriendState, FriendStatus, MyCore, PendingLink, StatePlayer, now,
         ops::{LinkPreview, LinkReply},
     },
 };
@@ -32,6 +32,15 @@ fn core(byte: u8, name: &str) -> launcher_core::friend_list::FriendState {
             )
             .expect("a made-up core"),
         ],
+    }
+}
+
+/// A made-up Microsoft account's profile.
+fn player(name: &str, byte: u8) -> StatePlayer {
+    StatePlayer {
+        name: name.into(),
+        uuid: [byte; 16],
+        offline: false,
     }
 }
 
@@ -68,16 +77,24 @@ fn shared(
     }
 }
 
-/// Alex (verified, online, expanded), Sam (not verified, offline, nicknamed), Jo
-/// (waiting to confirm) and Kim (hidden, sharing nothing, and calling themselves
-/// "Alex": flagged).
+/// Alex (verified, online, expanded, with a skin), Sam (not verified, offline,
+/// nicknamed, with a skin), Jo (waiting to confirm, with the skin their link's card
+/// named) and Kim (hidden, sharing nothing, no Minecraft profile, and calling
+/// themselves "Alex": flagged).
 fn friends() -> Vec<Friend> {
     let mut alex = friend(0x11, "Alex", FriendStatus::Active, true);
     alex.state = Some(core(0xa1, "Alex's PC"));
+    if let Some(state) = &mut alex.state {
+        state.players = vec![player("Alex", 0xc1)];
+    }
     let mut sam = friend(0x22, "Samantha", FriendStatus::Active, false);
     sam.nickname = Some("Sam".into());
     sam.state = Some(core(0xb2, "Sam's laptop"));
-    let jo = friend(0x33, "Jo", FriendStatus::Pending, false);
+    if let Some(state) = &mut sam.state {
+        state.players = vec![player("Sam_Builds", 0xc2)];
+    }
+    let mut jo = friend(0x33, "Jo", FriendStatus::Pending, false);
+    jo.player = Some(player("JoJo", 0xc3));
     let mut kim = friend(0x44, "Alex", FriendStatus::Active, false);
     kim.nickname = Some("Kim".into());
     kim.hidden = true;
@@ -122,6 +139,13 @@ fn base(name: &str, friends: Vec<Friend>) -> PreviewFriendList {
         expanded: Vec::new(),
         made: None,
         opened: !name.is_empty(),
+        heads: vec![
+            ([0xc1; 16], true),
+            ([0xc2; 16], false),
+            ([0xc3; 16], true),
+            ([0xc6; 16], false),
+            ([0xc7; 16], true),
+        ],
     }
 }
 
@@ -179,49 +203,13 @@ pub fn apply(scene: &str, servers: &mut Servers, cx: &mut Context<Servers>) {
                 _ => {}
             }
         }
-        // "How to add a friend" at each step (the first is servers-friend-list-empty)
-        "servers-friend-steps-link" => {
-            let mut list = base("Peter", Vec::new());
-            list.snapshot.book.links = vec![link("7KQ2M9XD4T")];
-            servers.preview_friend_list(list);
+        // someone without a Microsoft account: asked to choose a name
+        "servers-friend-list-offline" => {
+            servers.preview_friend_list(base("", Vec::new()));
         }
-        "servers-friend-steps-accept" => {
-            let mut list = base("Peter", Vec::new());
-            list.snapshot.book.links = vec![link("7KQ2M9XD4T")];
-            list.replies = vec![LinkReply {
-                code: "7KQ2M9XD4T".into(),
-                key: key(0x66),
-                name: "Robin".into(),
-                safety_code: "Q8WE-4RTY-7UIO-P2AS".into(),
-                answers: 1,
-                same_name_as: Vec::new(),
-            }];
-            servers.preview_friend_list(list);
-        }
-        "servers-friend-steps-pending" => {
-            servers.preview_friend_list(base(
-                "Peter",
-                vec![friend(0x33, "Jo", FriendStatus::Pending, false)],
-            ));
-        }
-        "servers-friend-steps-compare" => {
-            servers.preview_friend_list(base(
-                "Peter",
-                vec![friend(0x22, "Sam", FriendStatus::Active, false)],
-            ));
-        }
-        "servers-friend-steps-share" => {
-            servers.preview_friend_list(base(
-                "Peter",
-                vec![friend(0x11, "Alex", FriendStatus::Active, true)],
-            ));
-        }
-        "servers-friend-steps-play" => {
-            let mut alex = friend(0x11, "Alex", FriendStatus::Active, true);
-            alex.state = Some(core(0xa1, "Alex's PC"));
-            let mut list = base("Peter", vec![alex]);
-            list.presence = vec![((key(0x11), hex(&[0xa1; 32])), true)];
-            servers.preview_friend_list(list);
+        // a friend link this person answered: waiting for them to confirm
+        "servers-friend-list-pending" => {
+            servers.preview_friend_list(base("Peter", vec![friends().remove(2)]));
         }
         "servers-friend-list-reply" => {
             let mut list = base(
@@ -238,6 +226,7 @@ pub fn apply(scene: &str, servers: &mut Servers, cx: &mut Context<Servers>) {
                     safety_code: "M3PD-91XQ-ZT7R-K2HA".into(),
                     answers: 2,
                     same_name_as: vec!["Alex".into()],
+                    player: None,
                 },
                 LinkReply {
                     code: "7KQ2M9XD4T".into(),
@@ -246,6 +235,7 @@ pub fn apply(scene: &str, servers: &mut Servers, cx: &mut Context<Servers>) {
                     safety_code: "Q8WE-4RTY-7UIO-P2AS".into(),
                     answers: 2,
                     same_name_as: Vec::new(),
+                    player: Some(player("RobinHood_7", 0xc6)),
                 },
             ];
             servers.preview_friend_list(list);
@@ -266,6 +256,7 @@ pub fn apply(scene: &str, servers: &mut Servers, cx: &mut Context<Servers>) {
                         key: key(0x77),
                         already_friends: false,
                         same_name_as: vec!["Sam".into()],
+                        player: Some(player("Sam_Plays", 0xc7)),
                     },
                 }
             } else {
