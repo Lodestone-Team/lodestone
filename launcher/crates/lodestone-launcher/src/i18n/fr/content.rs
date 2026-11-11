@@ -299,6 +299,8 @@ pub fn text(message: M) -> &'static str {
         }
         M::EnableModAll => "Tout activer",
         M::EnableModOnly => "Seulement {name}",
+
+        M::AddModpackContent => "Ajouter un modpack",
     }
 }
 

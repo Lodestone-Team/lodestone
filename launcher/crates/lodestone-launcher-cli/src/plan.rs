@@ -613,6 +613,25 @@ pub fn plan(
                     ("backup_worlds", json!(!no_backup_worlds)),
                 ],
             ),
+            Modpacks::Add {
+                instance,
+                project,
+                file,
+                version,
+            } => long(
+                "modpacks.add",
+                vec![
+                    ("instance", json!(instance)),
+                    ("project", json!(project)),
+                    ("file", path_value(file)?),
+                    ("version", json!(version)),
+                ],
+            ),
+            Modpacks::Added(i) => call("modpacks.added", vec![("instance", json!(i.instance))]),
+            Modpacks::Remove { instance, pack } => call(
+                "modpacks.remove",
+                vec![("instance", json!(instance)), ("pack", json!(pack))],
+            ),
         },
         Command::Worlds(c) => match c {
             Worlds::List(i) => call("worlds.list", vec![("instance", json!(i.instance))]),

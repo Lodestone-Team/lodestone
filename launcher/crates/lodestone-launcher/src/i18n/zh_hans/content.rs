@@ -277,6 +277,8 @@ pub fn text(message: M) -> &'static str {
         }
         M::EnableModAll => "全部开启",
         M::EnableModOnly => "仅开启 {name}",
+
+        M::AddModpackContent => "添加整合包",
     }
 }
 

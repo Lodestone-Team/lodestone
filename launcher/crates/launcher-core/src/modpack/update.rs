@@ -115,6 +115,20 @@ impl UpdatePlan {
     pub fn override_writes(&self) -> impl Iterator<Item = (&OverrideFile, &str)> {
         self.overrides.iter().map(|(o, p)| (o, p.as_str()))
     }
+
+    /// Also removes the files at `paths` (on disk), which aren't the pack's: the mods
+    /// of added packs that the new version supersedes ([`super::addon::superseded`]).
+    pub(crate) fn remove_also(&mut self, paths: Vec<String>) {
+        for path in paths {
+            let written = self.downloads.iter().any(|(_, p)| *p == path)
+                || self.overrides.iter().any(|(_, p)| *p == path);
+            if written || self.removals.contains(&path) {
+                continue;
+            }
+            self.removed.push(path.clone());
+            self.removals.push(path);
+        }
+    }
 }
 
 /// The file at `relative` (or, for a mod, its `.disabled` name): its path on disk and
@@ -386,6 +400,7 @@ async fn apply_staged(
         "instance.json",
         crate::content::provenance::FILE,
         super::RECORD_FILE,
+        super::addon::ADDED_FILE,
     ] {
         let from = dirs.instance.join(file);
         if from.is_file() {
@@ -451,6 +466,10 @@ async fn apply_staged(
     if let Err(err) = saved {
         return Err(undo(dirs, &snapshot, &changed, err));
     }
+    // The added packs' files the update replaced or removed aren't theirs any more. If
+    // the record can't be saved it only names files that are gone, which removing an
+    // added pack skips.
+    let _ = super::addon::forget_missing(dirs);
     Ok(UpdateOutcome {
         snapshot,
         world_backups,
@@ -522,7 +541,11 @@ fn undo(
             failed.push(path.clone());
         }
     }
-    for file in [crate::content::provenance::FILE, super::RECORD_FILE] {
+    for file in [
+        crate::content::provenance::FILE,
+        super::RECORD_FILE,
+        super::addon::ADDED_FILE,
+    ] {
         if restore(&snapshot.join(file), &dirs.instance.join(file)).is_err() {
             failed.push(file.to_string());
         }

@@ -92,6 +92,9 @@ pub struct FindModRequested(pub String);
 /// "Share…" was clicked for this instance: the shell opens the share code dialog.
 pub struct ShareRequested(pub String);
 
+/// "Add a modpack…" was clicked for this instance: the shell opens "Add a modpack".
+pub struct AddModpackRequested(pub String);
+
 /// Asks the shell to confirm a loader change that leaves mods behind or puts worlds at
 /// risk.
 #[derive(Clone, Debug)]
@@ -185,6 +188,12 @@ pub struct InstanceSettings {
     modpack: Option<ModpackRecord>,
     /// The server the instance was made for: its pack is the server's client pack.
     server: Option<String>,
+    /// The packs added on top of the instance's own, read again when adding one ends.
+    added: launcher_core::modpack::addon::AddedPacks,
+    /// A pack is being added: when it ends, `added` is read again.
+    adding: bool,
+    /// "Remove" was clicked for this added pack and waits for the second click.
+    confirm_remove_added: Option<String>,
     /// The pack's versions on Modrinth, after "Check for updates".
     modpack_versions: Load<Vec<RawVersion>>,
     /// Downloading and planning an update.
@@ -236,6 +245,7 @@ impl EventEmitter<HostRequested> for InstanceSettings {}
 impl EventEmitter<FindModRequested> for InstanceSettings {}
 impl EventEmitter<super::snapshots::SnapshotRequested> for InstanceSettings {}
 impl EventEmitter<ShareRequested> for InstanceSettings {}
+impl EventEmitter<AddModpackRequested> for InstanceSettings {}
 impl EventEmitter<LoaderChangePrompt> for InstanceSettings {}
 impl EventEmitter<UpdatePrompt> for InstanceSettings {}
 
@@ -311,6 +321,7 @@ impl InstanceSettings {
             cx.new(|cx| LoaderPicker::new(instances, Some(game), choice, cx).compact())
         };
         let modpack = instances.read(cx).modpack(&instance.id);
+        let added = instances.read(cx).added_modpacks(&instance.id);
         let server = launcher_core::cores::link::load_link(
             &instances.read(cx).content_dirs(&instance.id).instance,
         )
@@ -344,6 +355,18 @@ impl InstanceSettings {
         let mut observe = vec![
             cx.observe(&loader, |_, _, cx| cx.notify()),
             cx.observe(&servers, |_, _, cx| cx.notify()),
+            // the added packs, once adding one ends
+            cx.observe(&instances, |this, instances, cx| {
+                let adding = instances
+                    .read(cx)
+                    .modpack_update(&this.instance_id)
+                    .is_some();
+                if this.adding && !adding {
+                    this.added = instances.read(cx).added_modpacks(&this.instance_id);
+                    cx.notify();
+                }
+                this.adding = adding;
+            }),
             // a new search starts at the top of what it finds
             cx.subscribe(&search, |this, _, _: &SettingsSearchChanged, cx| {
                 this.nav.reset();
@@ -387,6 +410,9 @@ impl InstanceSettings {
             java_check: JavaCheck::None,
             modpack,
             server,
+            added,
+            adding: false,
+            confirm_remove_added: None,
             modpack_versions: Load::NotLoaded,
             preparing_update: false,
             confirm_unlink: false,
@@ -1742,6 +1768,17 @@ impl InstanceSettings {
         }
     }
 
+    fn remove_added(&mut self, pack_id: String, cx: &mut Context<Self>) {
+        self.confirm_remove_added = None;
+        let id = self.instance_id.clone();
+        // the window shows how it went
+        let _ = self.instances.update(cx, |instances, cx| {
+            instances.remove_added_modpack(&id, &pack_id, cx)
+        });
+        self.added = self.instances.read(cx).added_modpacks(&id);
+        cx.notify();
+    }
+
     fn check_modpack(&mut self, cx: &mut Context<Self>) {
         let Some(record) = self.modpack.clone().filter(ModpackRecord::on_modrinth) else {
             return;
@@ -1936,6 +1973,86 @@ impl InstanceSettings {
         }
         query
             .section(t(M::Modpack), None)
+            .card(rows)
+            .finish()
+            .map(IntoElement::into_any_element)
+    }
+
+    /// The Added modpacks section, for an instance with a mod loader: the packs added
+    /// on top of its own, each with Remove, and "Add a modpack…".
+    fn added_modpacks_section(
+        &self,
+        query: &SettingsQuery,
+        busy: bool,
+        has_loader: bool,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
+        if !has_loader && self.added.packs.is_empty() {
+            return None;
+        }
+        let mut rows = Vec::new();
+        for (index, pack) in self.added.packs.iter().enumerate() {
+            let record = &pack.record;
+            let title = if record.version_number.is_empty() {
+                record.title.clone()
+            } else {
+                format!("{} {}", record.title, record.version_number)
+            };
+            // keyed by the pack: two packs may have the same title
+            let mut row = SettingRow::new(title)
+                .key(SharedString::from(format!("added-modpack-{}", pack.id)))
+                .hint(trn!(P::AddedModpackFiles, record.files.len()));
+            let pack_id = pack.id.clone();
+            row = if self.confirm_remove_added.as_deref() == Some(pack.id.as_str()) {
+                row.child(
+                    Button::new(("confirm-remove-added", index), t(CommonMsg::Remove))
+                        .variant(ButtonVariant::Danger)
+                        .size(ButtonSize::Slim)
+                        .disabled(busy)
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.remove_added(pack_id.clone(), cx)
+                        })),
+                )
+                .child(
+                    muted_link(("cancel-remove-added", index), t(CommonMsg::Cancel)).on_press(
+                        cx.listener(|this, _, _, cx| {
+                            this.confirm_remove_added = None;
+                            cx.notify();
+                        }),
+                    ),
+                )
+                .note(t(M::RemoveAddedModpackNote), colors::GRAY_400)
+            } else {
+                row.child(
+                    muted_link(("remove-added", index), t(CommonMsg::Remove)).on_press(
+                        cx.listener(move |this, _, _, cx| {
+                            this.confirm_remove_added = Some(pack_id.clone());
+                            cx.notify();
+                        }),
+                    ),
+                )
+            };
+            rows.push(row);
+        }
+        if has_loader {
+            let hint = match &self.server {
+                Some(server) => tr!(M::AddModpackServerHint, server = server),
+                None => t(M::AddModpackHint).to_string(),
+            };
+            rows.push(
+                SettingRow::new(t(M::AddModpackRow)).hint(hint).child(
+                    Button::new("add-modpack", t(M::AddModpackEllipsis))
+                        .variant(ButtonVariant::Secondary)
+                        .size(ButtonSize::Slim)
+                        .disabled(busy)
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            cx.emit(AddModpackRequested(this.instance_id.clone()))
+                        })),
+                ),
+            );
+        }
+        query
+            .section(t(M::AddedModpacks), None)
             .card(rows)
             .finish()
             .map(IntoElement::into_any_element)
@@ -2163,6 +2280,15 @@ impl Render for InstanceSettings {
 
         if let Some(modpack) = self.modpack_section(&query, busy, cx) {
             sections.push((t(M::Modpack).into(), modpack));
+        }
+        let has_loader = instance.as_ref().is_some_and(|i| i.loader.kind().is_some());
+        let adding = self
+            .instances
+            .read(cx)
+            .modpack_update(&self.instance_id)
+            .is_some();
+        if let Some(added) = self.added_modpacks_section(&query, busy || adding, has_loader, cx) {
+            sections.push((t(M::AddedModpacks).into(), added));
         }
 
         // General.

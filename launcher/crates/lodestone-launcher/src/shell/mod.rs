@@ -60,6 +60,7 @@ use crate::{
     i18n::{CommonMsg, ShellMsg as M, ShellPlural as P, format, t, tr, trn},
     instances::{
         CrashInfo, Instances, InstancesEvent,
+        add_modpack::{AddModpackDialog, AddModpackDismissed},
         console::Console,
         content::{ContentEvent, ContentView},
         import::{ImportDialog, ImportDismissed},
@@ -67,8 +68,8 @@ use crate::{
         modpacks::UpdatePrompt,
         new_instance::{NewInstanceDialog, NewInstanceDismissed},
         settings::{
-            DeleteRequested, FindModRequested, HostRequested, InstanceSettings, LoaderChangePrompt,
-            ShareRequested,
+            AddModpackRequested, DeleteRequested, FindModRequested, HostRequested,
+            InstanceSettings, LoaderChangePrompt, ShareRequested,
         },
         share_dialog::{ShareDialog, ShareDismissed},
         worlds::{WorldsEvent, WorldsView},
@@ -152,6 +153,11 @@ enum Modal {
     /// "Import from another launcher".
     Import {
         dialog: Entity<ImportDialog>,
+        _events: Subscription,
+    },
+    /// "Add a modpack" to an instance.
+    AddModpack {
+        dialog: Entity<AddModpackDialog>,
         _events: Subscription,
     },
     /// "Share code" for an instance.
@@ -300,7 +306,7 @@ pub struct LauncherShell {
     /// Updating the launcher: Settings > General, and the top bar's notice.
     updater: Entity<Updater>,
     /// The Settings tab of the selected instance, rebuilt when the selection changes.
-    settings: Option<(Entity<InstanceSettings>, [Subscription; 7])>,
+    settings: Option<(Entity<InstanceSettings>, [Subscription; 8])>,
     page: Page,
     tab: InstanceTab,
     /// The launcher's Settings, a large dialog under the other dialogs.
@@ -433,6 +439,7 @@ impl LauncherShell {
         let mut observe = observe;
         observe.push(cx.subscribe(&content, |this, _, event, cx| match event {
             ContentEvent::NewFabricInstance => this.open_new_instance_with_loader(cx),
+            ContentEvent::AddModpack(id) => this.open_add_modpack(id, cx),
             ContentEvent::ConfirmToggle(prompt) => {
                 let modal = Modal::ToggleMod {
                     prompt: prompt.clone(),
@@ -1145,6 +1152,9 @@ impl LauncherShell {
                     cx.subscribe(&settings, |this, _, ShareRequested(id), cx| {
                         this.open_share(id, cx)
                     }),
+                    cx.subscribe(&settings, |this, _, AddModpackRequested(id), cx| {
+                        this.open_add_modpack(id, cx)
+                    }),
                     cx.subscribe(&settings, |this, _, FindModRequested(id), cx| {
                         this.open_mod_finder_by_hand(id, cx)
                     }),
@@ -1813,6 +1823,10 @@ impl LauncherShell {
         {
             settings.update(cx, |settings, cx| settings.revert_loader(cx));
         }
+        // "Add a modpack" closed while it showed a review: its downloaded pack goes.
+        if let Some(Modal::AddModpack { dialog, .. }) = self.modal.current() {
+            dialog.clone().update(cx, |dialog, cx| dialog.discard(cx));
+        }
         self.modal.close(cx);
     }
 
@@ -1824,6 +1838,7 @@ impl LauncherShell {
             Some(Modal::Import { dialog: open, .. }) => open.entity_id() == dialog,
             Some(Modal::Snapshot { dialog: open, .. }) => open.entity_id() == dialog,
             Some(Modal::Share { dialog: open, .. }) => open.entity_id() == dialog,
+            Some(Modal::AddModpack { dialog: open, .. }) => open.entity_id() == dialog,
             Some(Modal::SignIn { dialog: open, .. }) => open.entity_id() == dialog,
             Some(Modal::Offline { dialog: open, .. }) => open.entity_id() == dialog,
             _ => false,
@@ -1898,6 +1913,36 @@ impl LauncherShell {
         });
         self.modal.open(
             Modal::Snapshot {
+                dialog,
+                _events: subscription,
+            },
+            cx,
+        );
+    }
+
+    /// The open "Add a modpack" dialog, for the offscreen screenshots.
+    pub fn add_modpack_dialog(&self) -> Option<&Entity<AddModpackDialog>> {
+        match self.modal.current() {
+            Some(Modal::AddModpack { dialog, .. }) => Some(dialog),
+            _ => None,
+        }
+    }
+
+    /// Opens "Add a modpack" for the instance `id`.
+    pub fn open_add_modpack(&mut self, id: &str, cx: &mut Context<Self>) {
+        if !self.instances.read(cx).list().iter().any(|i| i.id == id) {
+            return;
+        }
+        self.account_menu_open = false;
+        let instances = self.instances.clone();
+        let dialog = cx.new(|cx| AddModpackDialog::new(instances, id, cx));
+        let subscription = cx.subscribe(&dialog, |this, dialog, _: &AddModpackDismissed, cx| {
+            if this.is_open_dialog(dialog.entity_id()) {
+                this.close_modal(cx)
+            }
+        });
+        self.modal.open(
+            Modal::AddModpack {
                 dialog,
                 _events: subscription,
             },
@@ -2302,6 +2347,7 @@ impl LauncherShell {
             Modal::Import { dialog, .. } => dialog.clone().into_any_element(),
             Modal::Snapshot { dialog, .. } => dialog.clone().into_any_element(),
             Modal::Share { dialog, .. } => dialog.clone().into_any_element(),
+            Modal::AddModpack { dialog, .. } => dialog.clone().into_any_element(),
             Modal::ModFinder { finder, .. } => finder.clone().into_any_element(),
             Modal::Crash {
                 crash,

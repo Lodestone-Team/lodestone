@@ -1,5 +1,7 @@
 //! The modpack screenshots: the Modpack page of "New instance", an import in progress,
-//! the Settings tab of an instance made from a pack, and the update's confirmation.
+//! the Settings tab of an instance made from a pack, the update's confirmation, and
+//! "Add a modpack" for an instance made for a server (the browser, the review, and the
+//! Settings tab with the added pack).
 
 use std::{collections::BTreeMap, fs, path::Path, sync::Arc};
 
@@ -10,7 +12,11 @@ use launcher_core::{
         download::ProgressSnapshot,
         loaders::{LoaderChoice, LoaderKind},
     },
-    modpack::{FileSource, ModpackRecord, OverrideFile, PackFile, PackInfo, update},
+    modpack::{
+        FileSource, ModpackRecord, OverrideFile, PackFile, PackInfo,
+        addon::{self, AddedPack, AddedPacks},
+        update,
+    },
 };
 use lodestone_minecraft::{
     hash,
@@ -21,7 +27,11 @@ use serde_json::json;
 
 use super::content::{icon, icon_url};
 use crate::{
-    instances::{Instances, modpacks::UpdatePrompt, new_instance::Mode},
+    instances::{
+        Instances,
+        modpacks::{AddPrompt, UpdatePrompt},
+        new_instance::Mode,
+    },
     shell::{InstanceTab, LauncherShell},
 };
 
@@ -211,6 +221,134 @@ pub fn fill(instance_dir: &Path) {
     let _ = ModpackRecord { files, ..record() }.save(&dirs.instance);
 }
 
+/// The server the "Add a modpack" scenes' instance was made for.
+const SERVER: &str = "Friends SMP";
+
+/// An instance made for a server: the server's pack (Lithium and two content mods, a
+/// config) and the link; for `modpack-added-settings`, Fabulously Optimized added too.
+pub fn fill_server(instance_dir: &Path, scene: &str) {
+    let dirs = InstanceDirs::new(instance_dir);
+    let mods = dirs.game.join("mods");
+    let config = dirs.game.join("config");
+    let _ = fs::create_dir_all(&mods);
+    let _ = fs::create_dir_all(&config);
+    let mut files = BTreeMap::new();
+    for (name, project) in [
+        ("lithium-fabric-mc1.20.1-0.11.2.jar", "gvQqBUqZ"),
+        ("create-fabric-0.5.1-f-build.1417+mc1.20.1.jar", "Xbc0uyRg"),
+        ("farmers-delight-fabric-1.20.1-2.1.1.jar", "4EakbH8e"),
+    ] {
+        let path = mods.join(name);
+        super::content::fabric_mod(&path, project, name, "1", None);
+        files.insert(
+            format!("mods/{name}"),
+            PackFile {
+                sha1: hash::sha1_of(&path).unwrap_or_default(),
+                source: FileSource::Index,
+                project: Some(project.into()),
+            },
+        );
+    }
+    let path = config.join("create-common.toml");
+    let _ = fs::write(&path, "[worldgen]\n");
+    files.insert(
+        "config/create-common.toml".into(),
+        PackFile {
+            sha1: hash::sha1_of(&path).unwrap_or_default(),
+            source: FileSource::Override,
+            project: None,
+        },
+    );
+    let _ = ModpackRecord {
+        title: SERVER.into(),
+        files,
+        ..ModpackRecord::default()
+    }
+    .save(&dirs.instance);
+    let _ = launcher_core::cores::link::save_link(
+        &dirs.instance,
+        &launcher_core::cores::link::ServerLink {
+            core_uuid: "core".into(),
+            core_url: "http://127.0.0.1:16662".into(),
+            server_uuid: "server".into(),
+            server_name: SERVER.into(),
+            pack_etag: None,
+        },
+    );
+    if scene == "modpack-added-settings" {
+        let mut added = BTreeMap::new();
+        for (name, project) in [
+            ("sodium-fabric-0.5.13+mc1.20.1.jar", "AANobbMI"),
+            ("entityculling-fabric-1.6.2-mc1.20.1.jar", "NNAgCjsB"),
+            ("zoomify-2.11.2.jar", "w7ThoJFB"),
+        ] {
+            let path = mods.join(name);
+            super::content::fabric_mod(&path, project, name, "1", None);
+            added.insert(
+                format!("mods/{name}"),
+                PackFile {
+                    sha1: hash::sha1_of(&path).unwrap_or_default(),
+                    source: FileSource::Index,
+                    project: Some(project.into()),
+                },
+            );
+        }
+        let _ = AddedPacks {
+            packs: vec![AddedPack {
+                id: "fo".into(),
+                record: ModpackRecord {
+                    files: added,
+                    ..record()
+                },
+            }],
+        }
+        .save(&dirs.instance);
+    }
+}
+
+/// What adding Fabulously Optimized to the server's instance does.
+fn add_prompt(instances: &Instances, id: &str) -> AddPrompt {
+    let dirs = instances.content_dirs(id);
+    let override_file = |path: &str| OverrideFile {
+        path: path.into(),
+        index: 0,
+        size: 120,
+        sha1: launcher_core::game::download::sha1_hex(path.as_bytes()),
+    };
+    let pack = PackInfo {
+        name: "Fabulously Optimized".into(),
+        version_number: Some("6.4.0".into()),
+        summary: None,
+        game_version: "1.20.1".into(),
+        loader: Some((LoaderKind::Fabric, "0.16.10".into())),
+        recommended_memory: None,
+        downloads: vec![
+            download("mods/sodium-fabric-0.5.13+mc1.20.1.jar", "AANobbMI"),
+            download("mods/lithium-fabric-mc1.20.1-0.11.3.jar", "gvQqBUqZ"),
+            download("mods/entityculling-fabric-1.6.2-mc1.20.1.jar", "NNAgCjsB"),
+            download("mods/zoomify-2.11.2.jar", "w7ThoJFB"),
+            download("mods/moreculling-fabric-1.20.4-0.22.1.jar", "51shyZVL"),
+            download("mods/cull-less-leaves-1.0.6.jar", "HVnmMxH1"),
+        ],
+        overrides: vec![
+            override_file("config/sodium-options.json"),
+            override_file("config/zoomify.json"),
+            override_file("config/create-common.toml"),
+        ],
+        skipped: Vec::new(),
+    };
+    let plan = addon::plan(&dirs, &pack, record());
+    AddPrompt {
+        instance_id: id.to_string(),
+        instance_name: "Survival 1.20.1".into(),
+        server: Some(SERVER.into()),
+        plan: Arc::new(plan),
+        pack_path: dirs.instance.join(".lodestone-preview-pack.mrpack"),
+        keep_pack: false,
+        blocked: Vec::new(),
+    }
+}
+
 fn download(path: &str, project: &str) -> PackDownload {
     let bytes = path.as_bytes();
     PackDownload {
@@ -327,6 +465,26 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
                 });
             }
         }
+        "modpack-add" | "modpack-add-review" => {
+            let id = shell.instances().read(cx).selected().map(|i| i.id.clone());
+            let Some(id) = id else {
+                return;
+            };
+            shell.open_add_modpack(&id, cx);
+            let prompt = (scene == "modpack-add-review")
+                .then(|| add_prompt(shell.instances().read(cx), &id));
+            if let Some(dialog) = shell.add_modpack_dialog().cloned() {
+                dialog.update(cx, |dialog, cx| {
+                    dialog.browser().clone().update(cx, |browser, cx| {
+                        browser.preview("", results(), project(), versions(), icons(), cx)
+                    });
+                    if let Some(prompt) = prompt {
+                        dialog.preview_review(prompt, cx);
+                    }
+                });
+            }
+        }
+        "modpack-added-settings" => shell.select_tab(InstanceTab::Settings, cx),
         "modpack-update" => {
             shell.select_tab(InstanceTab::Settings, cx);
             if let Some(settings) = shell.settings_view() {

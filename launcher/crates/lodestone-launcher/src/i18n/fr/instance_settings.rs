@@ -338,6 +338,36 @@ pub fn text(message: M) -> &'static str {
         M::PlayBackgroundKeywords => "fond d’écran image photo diaporama",
         M::DeleteKeywords => "supprimer retirer désinstaller",
         M::LoaderKeywords => "chargeur de mods Fabric Forge NeoForge Quilt",
+
+        M::AddModpackTitle => "Ajouter un modpack à {name}",
+        M::AddModpackFilter => "Modpacks pour Minecraft {version} avec {loader}. {note}",
+        M::AddModpackServerNote => {
+            "Les mods du pack s’ajoutent à ceux de {server}, qui restent tels que le serveur les a\u{a0}: vous pouvez toujours le rejoindre."
+        }
+        M::AddModpackNote => {
+            "Les fichiers du pack s’ajoutent à ceux de l’instance. Rien de ce qu’elle a n’est remplacé."
+        }
+        M::AddModpackButton => "Ajouter le modpack",
+        M::CheckingModpack => "Vérification du modpack",
+        M::AddModpackSummary => "{pack} {version}\u{a0}: {size} à télécharger.",
+        M::AddModpackNothing => "L’instance a déjà tous les fichiers de ce pack.",
+        M::AddGroupFiles => "À ajouter ({count})",
+        M::AddGroupConfigs => "Configurations à ajouter ({count})",
+        M::AddGroupServer => "Gardés tels que {server} les a ({count})",
+        M::AddGroupPack => "Gardés tels que le modpack de l’instance les a ({count})",
+        M::AddGroupThere => "Déjà dans l’instance ({count})",
+        M::AddedModpacks => "Modpacks ajoutés",
+        M::AddModpackRow => "Ajouter un modpack",
+        M::AddModpackHint => {
+            "Ajoutez les mods et configurations d’un modpack à cette instance, à côté des siens."
+        }
+        M::AddModpackServerHint => {
+            "Ajoutez les mods d’un modpack, comme des optimisations côté client, à côté de ceux de {server}. Les mods du serveur restent tels quels."
+        }
+        M::AddModpackEllipsis => "Ajouter un modpack…",
+        M::RemoveAddedModpackNote => {
+            "Supprime les fichiers ajoutés par le pack. Les fichiers que vous avez modifiés restent."
+        }
     }
 }
 
@@ -389,5 +419,8 @@ pub fn plural(message: P) -> [&'static str; 2] {
             "Paramètres de jeu partagés\u{a0}: {count}\u{a0}paramètre changé en jeu sera remplacé par la valeur partagée au prochain lancement (voir Paramètres)",
             "Paramètres de jeu partagés\u{a0}: {count}\u{a0}paramètres changés en jeu seront remplacés par les valeurs partagées au prochain lancement (voir Paramètres)",
         ],
+
+        P::AndMoreFiles => ["et {count} autre", "et {count} autres"],
+        P::AddedModpackFiles => ["{count} fichier ajouté", "{count} fichiers ajoutés"],
     }
 }

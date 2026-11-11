@@ -128,6 +128,9 @@ pub const SCENES: &[&str] = &[
     "modpack-importing",
     "modpack-settings",
     "modpack-update",
+    "modpack-add",
+    "modpack-add-review",
+    "modpack-added-settings",
     "worlds",
     "worlds-backups",
     "worlds-datapacks",
@@ -773,7 +776,9 @@ pub fn instances(scene: &str, accounts: &Entity<Accounts>, cx: &mut App) -> Enti
                 if name == "Survival 1.20.1" && is_worlds_scene(scene) {
                     worlds::fill(&store.dir(&instance.id));
                 }
-                if name == "Survival 1.20.1" && scene.starts_with("modpack-") {
+                if name == "Survival 1.20.1" && scene.starts_with("modpack-add") {
+                    modpacks::fill_server(&store.dir(&instance.id), scene);
+                } else if name == "Survival 1.20.1" && scene.starts_with("modpack-") {
                     modpacks::fill(&store.dir(&instance.id));
                 }
                 if played > 0 {
@@ -1154,9 +1159,12 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
             let view = shell.worlds().clone();
             view.update(cx, |view, cx| worlds::apply(scene, view, cx));
         }
-        "new-instance-modpack" | "modpack-settings" | "modpack-update" => {
-            modpacks::apply(scene, shell, cx)
-        }
+        "new-instance-modpack"
+        | "modpack-settings"
+        | "modpack-update"
+        | "modpack-add"
+        | "modpack-add-review"
+        | "modpack-added-settings" => modpacks::apply(scene, shell, cx),
         scene if scene.starts_with("content-") => {
             shell.select_tab(InstanceTab::Content, cx);
             let view = shell.content().clone();

@@ -24,6 +24,7 @@ impl Modal {
             Modal::Import { .. } => "import",
             Modal::Snapshot { .. } => "snapshot",
             Modal::Share { .. } => "share",
+            Modal::AddModpack { .. } => "add_modpack",
             Modal::Crash { .. } => "crash",
             Modal::ModFinder { .. } => "mod_finder",
             Modal::LaunchFailed { .. } => "launch_failed",
