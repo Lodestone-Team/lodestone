@@ -112,9 +112,23 @@ pub fn text(message: M) -> &'static str {
         M::ModsNeededBy => "Requis par {mods}",
         M::ModsUnknown => "Inconnu",
         M::ModsUnknownModrinth => {
-            "Modrinth n’indique pas si les joueurs en ont besoin. Consultez la page du mod."
+            "Modrinth n’indique pas si les joueurs en ont besoin. Consultez la page du mod, et cochez Pour les joueurs si c’est le cas."
         }
-        M::ModsUnknownNotOnModrinth => "Absent de Modrinth. Consultez la page du mod.",
+        M::ModsUnknownNotOnModrinth => {
+            "Absent de Modrinth. Consultez la page du mod, et cochez Pour les joueurs si les joueurs en ont besoin."
+        }
+        M::ModsForPlayers => "Pour les joueurs",
+        M::ModsForPlayersHint => {
+            "Les joueurs reçoivent ce mod, et les mods dont il a besoin, en rejoignant. Cochez-le pour les mods dont les joueurs ont besoin sans que Lodestone puisse le savoir, comme ceux que vous avez téléversés."
+        }
+        M::ModsForPlayersAlready => {
+            "Les joueurs reçoivent déjà ce mod : Modrinth ou le mod indique qu'ils en ont besoin."
+        }
+        M::ModsMarkedForPlayers => {
+            "Les joueurs recevront {name} la prochaine fois qu'ils rejoindront"
+        }
+        M::ModsUnmarkedForPlayers => "{name} n'est plus marqué pour les joueurs",
+        M::ModsMarkFailed => "Impossible de modifier {name} : {error}",
         M::ModsRelease => "stable",
         M::ModsBeta => "bêta",
         M::ModsAlpha => "alpha",

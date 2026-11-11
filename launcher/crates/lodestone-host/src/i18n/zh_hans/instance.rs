@@ -87,8 +87,20 @@ pub fn text(message: M) -> &'static str {
         M::ModsPlayersNeed => "玩家需要安装",
         M::ModsNeededBy => "{mods} 需要它",
         M::ModsUnknown => "未知",
-        M::ModsUnknownModrinth => "Modrinth 未说明玩家是否需要它，请查看该模组的页面。",
-        M::ModsUnknownNotOnModrinth => "不在 Modrinth 上，请查看该模组的页面。",
+        M::ModsUnknownModrinth => {
+            "Modrinth 未说明玩家是否需要它，请查看该模组的页面。如果玩家需要，请勾选“给玩家”。"
+        }
+        M::ModsUnknownNotOnModrinth => {
+            "不在 Modrinth 上，请查看该模组的页面。如果玩家需要，请勾选“给玩家”。"
+        }
+        M::ModsForPlayers => "给玩家",
+        M::ModsForPlayersHint => {
+            "玩家加入时会获得这个模组及其依赖的模组。对于 Lodestone 无法判断但玩家需要的模组（例如你上传的），请勾选此项。"
+        }
+        M::ModsForPlayersAlready => "玩家已会获得这个模组：Modrinth 或模组本身表明玩家需要它。",
+        M::ModsMarkedForPlayers => "玩家下次加入时会获得 {name}",
+        M::ModsUnmarkedForPlayers => "{name} 不再标记为给玩家",
+        M::ModsMarkFailed => "无法更改 {name}：{error}",
         M::ModsRelease => "正式版",
         M::ModsBeta => "测试版",
         M::ModsAlpha => "早期测试版",

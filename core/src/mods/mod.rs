@@ -107,6 +107,9 @@ pub struct InstalledMod {
     pub client_requirement: ClientRequirement,
     /// The display names of the installed mods that make players need this one.
     pub required_by: Vec<String>,
+    /// The owner marked it as needed by players (`PUT .../mods/{file_name}/client`).
+    #[serde(default)]
+    pub client_marked: bool,
 }
 
 impl InstalledMod {
@@ -116,7 +119,7 @@ impl InstalledMod {
         modrinth: Option<ModrinthMatch>,
         loader: InstalledModLoader,
     ) -> Self {
-        let requirement = client::base_requirement(loader, &file, modrinth.as_ref());
+        let requirement = client::base_requirement(loader, &file, modrinth.as_ref(), false);
         Self::with_requirement(file, modrinth, requirement, Vec::new())
     }
 
@@ -135,6 +138,7 @@ impl InstalledMod {
             modrinth,
             client_requirement,
             required_by,
+            client_marked: false,
         }
     }
 
@@ -431,19 +435,26 @@ pub async fn build_list(
             }
         }
     }
+    let marks = client::read_marks(folder).await;
     let files: Vec<client::MatchedFile> = files
         .into_iter()
         .map(|file| {
             let matched = matches.get(&file.sha512).cloned();
-            client::MatchedFile { file, matched }
+            let marked = marks.contains(&enabled_name(&file.file_name));
+            client::MatchedFile {
+                file,
+                matched,
+                marked,
+            }
         })
         .collect();
     let requirements = client::client_requirements(folder.loader, &files);
     let mut mods: Vec<InstalledMod> = files
         .into_iter()
         .zip(requirements)
-        .map(|(f, (requirement, required_by))| {
-            InstalledMod::with_requirement(
+        .map(|(f, (requirement, required_by))| InstalledMod {
+            client_marked: f.marked,
+            ..InstalledMod::with_requirement(
                 f.file,
                 f.matched.map(|(m, _)| m),
                 requirement,

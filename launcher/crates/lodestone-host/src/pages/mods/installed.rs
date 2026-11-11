@@ -14,7 +14,7 @@ use launcher_core::cores::admin::mods::{
 };
 use lodestone_ui::{
     components::{
-        Button, ButtonSize, ButtonVariant, Icon, IconButton, LoadingDots, Toast, Toggle,
+        Button, ButtonSize, ButtonVariant, Checkbox, Icon, IconButton, LoadingDots, Toast, Toggle,
         settings::{card, tag},
         text_tooltip,
     },
@@ -45,9 +45,11 @@ pub(super) fn mod_icon(url: Option<&str>, size: f32, cx: &mut Context<ModsPage>)
 }
 
 /// Whether players need an installed mod (`ClientRequirementLabel`): optional mods
-/// show nothing.
-fn requirement_label(id: SharedString, m: &InstalledMod) -> Option<AnyElement> {
+/// show nothing. With `marks` (Fabric, where the row has "For players"), the box says
+/// "players need this" instead of a tag.
+fn requirement_label(id: SharedString, m: &InstalledMod, marks: bool) -> Option<AnyElement> {
     match m.client_requirement {
+        ClientRequirement::Required if marks => None,
         ClientRequirement::Required => {
             let label = tag(t(M::ModsPlayersNeed), colors::BLUE_200);
             Some(if m.required_by.is_empty() {
@@ -129,6 +131,40 @@ impl ModsPage {
                     };
                     this.toast(Toast::error(message), cx);
                 }
+                this.reload(cx);
+            })
+            .ok();
+        });
+        self.push(task);
+    }
+
+    /// Marks a mod as needed by players, or takes the mark off: the client pack gives
+    /// it to them the next time they join.
+    fn set_client_mark(&mut self, m: &InstalledMod, required: bool, cx: &mut Context<Self>) {
+        let file = m.file_name.clone();
+        let name = m.name().to_string();
+        if !self.busy_files.insert(file.clone()) {
+            return;
+        }
+        cx.notify();
+        let admin = self.state.read(cx).admin.clone();
+        let uuid = self.uuid.clone();
+        let task = cx.spawn(async move |this, cx| {
+            let result = {
+                let file = file.clone();
+                cx.background_spawn(
+                    async move { admin.set_client_mark(&uuid, &file, required).await },
+                )
+                .await
+            };
+            this.update(cx, |this, cx| {
+                this.busy_files.remove(&file);
+                let toast = match result {
+                    Ok(()) if required => Toast::success(tr!(M::ModsMarkedForPlayers, name = name)),
+                    Ok(()) => Toast::success(tr!(M::ModsUnmarkedForPlayers, name = name)),
+                    Err(err) => Toast::error(tr!(M::ModsMarkFailed, name = name, error = err)),
+                };
+                this.toast(toast.key("mods-client-mark"), cx);
                 this.reload(cx);
             })
             .ok();
@@ -602,7 +638,11 @@ impl ModsPage {
         let update = m.modrinth.as_ref().and_then(|m| m.update.clone());
         let name = m.name().to_string();
         let id = |part: &str| SharedString::from(format!("mod-{index}-{part}"));
-        let (toggled, updated, deleted) = (m.clone(), m.clone(), m.clone());
+        let (toggled, updated, deleted, marked) = (m.clone(), m.clone(), m.clone(), m.clone());
+        // client packs are Fabric's: there, the owner can mark a mod for players
+        let marks = target.loader == InstalledModLoader::Fabric && !target.is_plugin();
+        let required_anyway =
+            m.client_requirement == ClientRequirement::Required && !m.client_marked;
         div()
             .flex()
             .flex_row()
@@ -646,7 +686,7 @@ impl ModsPage {
                             })
                             // players never install plugins
                             .when(!target.is_plugin(), |this| {
-                                this.children(requirement_label(id("requirement"), m))
+                                this.children(requirement_label(id("requirement"), m, marks))
                             }),
                     )
                     .child(
@@ -692,6 +732,33 @@ impl ModsPage {
                                 .label(t(M::ModsViewOnModrinth))
                                 .on_click(move |_, _, cx| cx.open_url(&url)),
                         )
+                    })
+                    .when(marks, |this| {
+                        let checkbox = Checkbox::new(
+                            id("players"),
+                            m.client_marked || required_anyway,
+                            t(M::ModsForPlayers),
+                        )
+                        .disabled(!can_write || busy || required_anyway)
+                        .on_change(cx.listener(
+                            move |this, on: &bool, _, cx| this.set_client_mark(&marked, *on, cx),
+                        ));
+                        let tip = if required_anyway && !m.required_by.is_empty() {
+                            tr!(M::ModsNeededBy, mods = format::list(&m.required_by))
+                        } else if required_anyway {
+                            t(M::ModsForPlayersAlready).to_string()
+                        } else {
+                            t(M::ModsForPlayersHint).to_string()
+                        };
+                        this.child(if can_write {
+                            div()
+                                .id(id("players-tip"))
+                                .child(checkbox)
+                                .tooltip(text_tooltip(tip))
+                                .into_any_element()
+                        } else {
+                            why_not(id("players-why"), can_write, checkbox)
+                        })
                     })
                     .child(why_not(
                         id("toggle-why"),

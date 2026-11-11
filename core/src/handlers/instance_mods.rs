@@ -11,6 +11,7 @@ use axum::{Json, Router};
 use color_eyre::eyre::{eyre, Context};
 use serde::Deserialize;
 use tokio::io::AsyncWriteExt;
+use ts_rs::TS;
 
 use super::global_fs::{multipart_error, register_download, DownloadScope};
 use super::instance::sanitize_instance_dir_name;
@@ -321,7 +322,39 @@ async fn delete_mod(
     let lock = state.mods.lock_for(&uuid);
     let _guard = lock.lock().await;
     crate::mods::delete(&folder, &file_name).await?;
+    if let Err(e) = crate::mods::client::forget_mark(&folder, &file_name).await {
+        tracing::warn!(
+            "Failed to unmark {file_name} after deleting it: {}",
+            e.source
+        );
+    }
     note_change(&state, &uuid, &instance).await;
+    Ok(Json(()))
+}
+
+#[derive(Deserialize, TS)]
+#[ts(export)]
+pub struct SetClientMark {
+    /// Whether players need the mod: `true` marks it, `false` takes the mark off.
+    pub required: bool,
+}
+
+/// `PUT /instance/{uuid}/mods/{file_name}/client`: marks a mod as needed by players, so
+/// the client pack gives it to them (with the mods it needs), or takes the mark off.
+/// Players' copies change the next time they join; the server needs no restart.
+async fn set_client_mark(
+    State(state): State<AppState>,
+    Path((uuid, file_name)): Path<(InstanceUuid, String)>,
+    requester: AuthedUser,
+    Json(body): Json<SetClientMark>,
+) -> Result<Json<()>, Error> {
+    requester
+        .require(&state, UserAction::WriteInstanceFile(uuid.clone()))
+        .await?;
+    let (_, folder) = mod_folder(&state, &uuid).await?;
+    let lock = state.mods.lock_for(&uuid);
+    let _guard = lock.lock().await;
+    crate::mods::client::set_marked(&folder, &file_name, body.required).await?;
     Ok(Json(()))
 }
 
@@ -388,6 +421,10 @@ pub fn get_instance_mods_routes(state: AppState) -> Router {
         .route(
             "/instance/{uuid}/mods/{file_name}/disable",
             put(disable_mod),
+        )
+        .route(
+            "/instance/{uuid}/mods/{file_name}/client",
+            put(set_client_mark),
         )
         .with_state(state)
 }
