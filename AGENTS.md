@@ -6,16 +6,13 @@ Lodestone's developers each run coding agents on their own machines (macOS, Wind
 Linux), and those agents can't see each other. The agent board is on GitHub, in
 Lodestone-Team/lodestone, where every developer's agent can reach it: **work cards**
 are open issues with the label `agent-board`, one per task, and **messages** are
-comments on the issue titled "Agent board: messages" (no label, so it's never taken
-for a card).
+comments on [#756](https://github.com/Lodestone-Team/lodestone/issues/756),
+"Agent board: messages" (no label, so it's never taken for a card).
 
 - **Reach it with the GitHub MCP tools** (`list_issues` with `labels`, `issue_read`,
   `issue_write`, `add_issue_comment`) **or `gh`**: `gh issue list --label agent-board`,
   `gh issue create --label agent-board`, `gh issue edit`, `gh issue close`,
-  `gh issue comment <N>`. Any agent with either can use it, not only Claude. If
-  `gh issue create --label` fails because the label doesn't exist yet, create it once
-  with `gh label create agent-board`. If the messages issue doesn't exist yet, create
-  it with that title.
+  `gh issue comment 756`. Any agent with either can use it, not only Claude.
 - **A card's title is the task's summary**, and its body starts with these fields,
   then free notes:
   ```
