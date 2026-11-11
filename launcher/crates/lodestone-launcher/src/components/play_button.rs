@@ -404,9 +404,9 @@ impl RenderOnce for PlayButton {
                     .aria_min_numeric_value(0.)
                     .aria_max_numeric_value(100.)
             })
-            // The button has dissolved into the filings around it (see
-            // `MagnetBar`): what's left is the step, its progress and Cancel.
-            .border_color(gpui::transparent_black())
+            // the step, its progress and Cancel, in a quiet card like Playing's
+            .bg(colors::GRAY_800)
+            .border_color(crate::theme::ink::border())
             .child(
                 div()
                     .relative()
