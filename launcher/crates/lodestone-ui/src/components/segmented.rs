@@ -86,8 +86,9 @@ pub fn segmented<T: Clone + PartialEq + 'static>(
                 is_selected,
                 item,
                 move |this, t| {
+                    // dim, but still readable (3:1)
                     let rest = if disabled {
-                        colors::GRAY_600
+                        colors::GRAY_500
                     } else {
                         crate::theme::ink::muted()
                     };

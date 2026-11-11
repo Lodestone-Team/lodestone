@@ -1362,7 +1362,7 @@ impl Element for TextElement {
 
         // `placeholder:text-white/30`
         let (display_text, text_color): (SharedString, Hsla) = if input.content.is_empty() {
-            (input.placeholder.get(), colors::WHITE.opacity(30).into())
+            (input.placeholder.get(), crate::theme::ink::faint().into())
         } else {
             (input.display_content(), style.color)
         };

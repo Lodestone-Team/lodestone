@@ -339,7 +339,7 @@ fn placeholder(message: impl Into<SharedString>) -> impl IntoElement {
         .border_2()
         .border_dashed()
         .border_color(colors::GRAY_FADED.opacity(10))
-        .text_color(colors::GRAY_FADED.opacity(30))
+        .text_color(crate::theme::ink::faint())
         .font_weight(weights::BOLD.into())
         .child(message.into())
 }

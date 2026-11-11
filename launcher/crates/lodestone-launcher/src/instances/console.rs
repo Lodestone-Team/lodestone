@@ -62,7 +62,7 @@ fn pick(shown: &mut BTreeSet<Level>, level: Level) {
 
 pub fn level_color(level: Level) -> Color {
     match level {
-        Level::Trace | Level::Debug => colors::GRAY_500,
+        Level::Trace | Level::Debug => crate::theme::ink::muted(),
         Level::Info => colors::GRAY_300,
         Level::Warn => colors::YELLOW,
         Level::Error | Level::Fatal => colors::RED_200,
@@ -283,7 +283,7 @@ fn row_element(
             div()
                 .w(px(58.))
                 .flex_none()
-                .text_color(colors::GRAY_550)
+                .text_color(crate::theme::ink::faint())
                 .children(row.time.clone()),
         )
         .child(
@@ -303,7 +303,7 @@ fn row_element(
                     .text_color(if row.stream == Stream::Launcher {
                         crate::theme::accent::light()
                     } else {
-                        colors::GRAY_500
+                        crate::theme::ink::muted()
                     })
                     .child(source),
             )
@@ -382,7 +382,7 @@ impl Render for Console {
                             .text_color(level_color(level))
                     } else {
                         this.border_color(colors::GRAY_FADED.opacity(20))
-                            .text_color(colors::GRAY_550)
+                            .text_color(crate::theme::ink::faint())
                     }
                 })
                 .on_press(cx.listener(move |this, _, _, cx| this.toggle(level, cx)))
@@ -395,7 +395,7 @@ impl Render for Console {
                 .items_center()
                 .justify_center()
                 .size_full()
-                .text_color(colors::GRAY_FADED.opacity(30))
+                .text_color(crate::theme::ink::faint())
                 .font_weight(weights::BOLD.into())
                 .px_8()
                 .text_center()
@@ -513,7 +513,7 @@ impl Render for Console {
                 div()
                     .text_size(theme::text_size(text::CAPTION))
                     .font_weight(weights::BOLD.into())
-                    .text_color(colors::GRAY_550)
+                    .text_color(crate::theme::ink::faint())
                     .child(trn!(
                         if self.follow {
                             P::LinesShownFollowing

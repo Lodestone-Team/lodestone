@@ -1997,7 +1997,7 @@ impl InstanceSettings {
             )
         } else {
             row.child(value(inherited, true))
-                .child(tag(t(CommonMsg::Default), colors::GRAY_500))
+                .child(tag(t(CommonMsg::Default), crate::theme::ink::muted()))
                 .child(
                     link(
                         SharedString::from(format!("change-{}", setting.id())),
@@ -2354,7 +2354,7 @@ impl Render for InstanceSettings {
             });
         let java_note: Option<(SharedString, theme::Color)> = match &self.java_check {
             JavaCheck::None => None,
-            JavaCheck::Checking => Some((t(M::Checking).into(), colors::GRAY_500)),
+            JavaCheck::Checking => Some((t(M::Checking).into(), crate::theme::ink::muted())),
             JavaCheck::Found(info) => match required_java {
                 Some(needed) if info.major < needed => Some((
                     tr!(

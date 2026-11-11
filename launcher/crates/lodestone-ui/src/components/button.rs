@@ -107,11 +107,11 @@ impl ButtonVariant {
                 disabled_bg: Some(colors::GRAY_800),
             },
             ButtonVariant::Ghost => Colors {
-                text: colors::WHITE.opacity(50),
+                text: crate::theme::ink::muted(),
                 weight: weights::MEDIUM,
                 bg: None,
                 outline: None,
-                hover_text: colors::WHITE.opacity(50),
+                hover_text: crate::theme::ink::muted(),
                 hover_bg: Some(colors::GRAY_800),
                 hover_outline: None,
                 active_bg: Some(colors::GRAY_850),

@@ -1053,7 +1053,7 @@ impl Servers {
                         .child(
                             div()
                                 .font_weight(weights::BOLD.into())
-                                .text_color(colors::GRAY_FADED.opacity(50))
+                                .text_color(crate::theme::ink::faint())
                                 .child(t(M::NoOtherCores)),
                         )
                         .child(small(t(M::NoServersHint)).text_color(crate::theme::ink::muted())),

@@ -309,7 +309,7 @@ impl ModsPage {
             ModrinthVersionType::Release => (t(M::ModsRelease), colors::GREEN),
             ModrinthVersionType::Beta => (t(M::ModsBeta), colors::YELLOW),
             ModrinthVersionType::Alpha => (t(M::ModsAlpha), colors::RED_200),
-            ModrinthVersionType::Unknown => ("?", colors::GRAY_500),
+            ModrinthVersionType::Unknown => ("?", lodestone_ui::theme::ink::muted()),
         };
         let shown: Vec<&str> = version
             .game_versions

@@ -295,7 +295,7 @@ impl Servers {
                 } else {
                     dot.border_1()
                         .border_color(colors::GRAY_600)
-                        .text_color(colors::GRAY_500)
+                        .text_color(crate::theme::ink::muted())
                         .child(number)
                 }
             });

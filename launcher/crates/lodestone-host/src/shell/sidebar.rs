@@ -26,7 +26,8 @@ pub fn state_color(state: InstanceState) -> Color {
         InstanceState::Running => colors::GREEN,
         InstanceState::Starting | InstanceState::Stopping => colors::YELLOW,
         InstanceState::Error => colors::RED,
-        InstanceState::Stopped | InstanceState::Unknown => colors::GRAY_500,
+        // also the colour of its name on the state pill, so it is readable there
+        InstanceState::Stopped | InstanceState::Unknown => ink::muted(),
     }
 }
 
