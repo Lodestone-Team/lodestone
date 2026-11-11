@@ -89,6 +89,7 @@ fn main() {
 }
 
 /// `--screenshot <file.png> [--wait <seconds>] [--select-first] [--tab <tab>] [--toasts] [--demo]`
+/// `[--power-menu]` (the selected instance's power menu open)
 /// `[--friends <scene>] [--settings-search <text>]`,
 /// with the `screenshot` feature: renders the window offscreen after the wait (10 s by
 /// default: the core starts and the Host signs in), optionally with the first instance
@@ -131,7 +132,9 @@ mod screenshot {
         let toasts = std::env::args().any(|arg| arg == "--toasts");
         let demo = std::env::args().any(|arg| arg == "--demo");
         let share = std::env::args().any(|arg| arg == "--share");
-        let select_first = select_first || share;
+        // `--power-menu`: the selected instance's power menu open, in the sidebar
+        let power_menu = std::env::args().any(|arg| arg == "--power-menu");
+        let select_first = select_first || share || power_menu;
         // `--owner <username>`: set up the owner account to share the core, as a user
         // would (the password from LODESTONE_E2E_PASSWORD); `--share-core` stops at its
         // dialog. Both on Settings › General.
@@ -164,6 +167,22 @@ mod screenshot {
                 window
                     .update(cx, |app, _, cx| app.select_first_instance(cx))
                     .ok();
+                if power_menu {
+                    window
+                        .update(cx, |app, _, cx| {
+                            let shell = app.shell()?;
+                            shell.update(cx, |shell, cx| {
+                                if let lodestone_host::routes::Route::Instance { uuid, .. } =
+                                    shell.route.clone()
+                                {
+                                    shell.power_menu = Some(uuid);
+                                    cx.notify();
+                                }
+                            });
+                            Some(())
+                        })
+                        .ok();
+                }
                 // `--share`: the sidebar's Share button on that instance
                 if share {
                     window
