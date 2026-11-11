@@ -445,7 +445,22 @@ impl Servers {
                 }
             }));
         }
-        self.highlight_server(&id, "", cx);
+        if !new {
+            // saved before: say so, rather than seeming to do nothing
+            let name = file.friends[index].name.clone();
+            self.notice = Some(Notice::info(move || {
+                let title = if name.is_empty() {
+                    t(M::AlreadyAddedTitle).to_string()
+                } else {
+                    tr!(M::AlreadyAddedNamed, name = name)
+                };
+                (title, t(M::AlreadyAddedBody).to_string())
+            }));
+        }
+        // its row: in "Other hosts and servers", or, for a server on a core here,
+        // under that core or as the core's own row of it
+        let (_, core, server) = self.link_target(&id, "");
+        self.highlight_server(&core, &server, cx);
         if !self.preview {
             self.check_friend(&id, cx);
         }

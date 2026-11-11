@@ -410,6 +410,11 @@ pub fn text(message: M) -> &'static str {
         M::AddedNotAnswered => {
             "Ajouté. Son nom et sa version s’afficheront quand son hôte répondra."
         }
+        M::AlreadyAddedTitle => "Déjà ajouté",
+        M::AlreadyAddedNamed => "{name} est déjà ajouté",
+        M::AlreadyAddedBody => {
+            "Ce lien mène à un serveur de cette page. Sa ligne est mise en évidence."
+        }
         M::OnYourNetwork => "Sur votre réseau",
         M::OnYourNetworkHint => "Les mondes ouverts en LAN sur ce réseau.",
         M::JoinWorld => "Rejoindre {world}",
