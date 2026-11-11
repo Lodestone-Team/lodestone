@@ -57,6 +57,7 @@ pub const SCENES: &[&str] = &[
     "servers-highlight-friend",
     "servers-highlight-here",
     "servers-friends",
+    "servers-friends-added",
     "servers-friends-relay",
     "servers-join-paste",
     "servers-join-connecting",
@@ -843,6 +844,17 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
         shell.go_back(cx);
     }
     // an instance page's "Linked to …" pressed: the server's row flashes
+    // "Add" in the paste dialog: a server saved without joining, its host not heard
+    // from yet
+    if scene == "servers-friends-added" {
+        let invite = Invite::parse(&format!(
+            "https://connect.lodestone.cc/j/NEWSRV2345#{}.{}",
+            "cd".repeat(32),
+            "02".repeat(16)
+        ))
+        .expect("a made-up invite");
+        servers.update(cx, |servers, cx| servers.add_invite(invite, cx));
+    }
     if scene == "servers-highlight" {
         servers.update(cx, |servers, cx| {
             servers.highlight_server("home", "creative", cx)

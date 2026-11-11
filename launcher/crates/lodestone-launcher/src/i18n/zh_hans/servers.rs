@@ -332,6 +332,10 @@ pub fn text(message: M) -> &'static str {
         }
         M::LanWorld => "局域网世界",
         M::Join => "加入",
+        M::AddInvite => "添加",
+        M::AddAndJoin => "添加并加入",
+        M::ServerFromLink => "来自 {link} 的服务器",
+        M::AddedNotAnswered => "已添加。主机响应后会显示名称和版本。",
         M::OnYourNetwork => "你的网络",
         M::OnYourNetworkHint => "此网络中对局域网开放的世界。",
         M::JoinWorld => "加入 {world}",
@@ -357,9 +361,10 @@ pub fn text(message: M) -> &'static str {
         M::ViaLocalNetwork => "通过局域网",
         M::ViaIpv6 => "通过 IPv6",
         M::ViaInternet => "通过互联网",
-        M::JoinFriendTitle => "加入好友的服务器",
+        M::JoinFriendTitle => "加入服务器",
+        M::AddServerTitle => "添加服务器",
         M::JoinFriendIntro => {
-            "粘贴好友发给你的邀请链接。它以 https://connect.lodestone.cc/j/ 开头。"
+            "粘贴别人发给你的邀请链接，它以 https://connect.lodestone.cc/j/ 开头。即使服务器现在离线，“添加”也会保存它。"
         }
         M::InvitePlaceholder => "邀请链接（https://connect.lodestone.cc/j/…）",
         M::NotAnInvite => {

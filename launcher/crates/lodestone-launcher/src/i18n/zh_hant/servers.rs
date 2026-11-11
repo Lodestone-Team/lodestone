@@ -336,6 +336,10 @@ pub fn text(message: M) -> &'static str {
         }
         M::LanWorld => "區域網路世界",
         M::Join => "加入",
+        M::AddInvite => "新增",
+        M::AddAndJoin => "新增並加入",
+        M::ServerFromLink => "來自 {link} 的伺服器",
+        M::AddedNotAnswered => "已新增。主機回應後會顯示名稱和版本。",
         M::OnYourNetwork => "你的網路",
         M::OnYourNetworkHint => "此網路上已在區域網路上公開的世界。",
         M::JoinWorld => "加入 {world}",
@@ -361,9 +365,10 @@ pub fn text(message: M) -> &'static str {
         M::ViaLocalNetwork => "透過區域網路",
         M::ViaIpv6 => "透過 IPv6",
         M::ViaInternet => "透過網際網路",
-        M::JoinFriendTitle => "加入好友的伺服器",
+        M::JoinFriendTitle => "加入伺服器",
+        M::AddServerTitle => "新增伺服器",
         M::JoinFriendIntro => {
-            "貼上好友傳給你的邀請連結。它以 https://connect.lodestone.cc/j/ 開頭。"
+            "貼上別人傳給你的邀請連結，它以 https://connect.lodestone.cc/j/ 開頭。即使伺服器目前離線，「新增」也會儲存它。"
         }
         M::InvitePlaceholder => "邀請連結（https://connect.lodestone.cc/j/…）",
         M::NotAnInvite => {

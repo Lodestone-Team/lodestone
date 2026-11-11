@@ -35,6 +35,13 @@ use crate::{
 };
 
 /// A small Copy button that puts `value` on the clipboard.
+/// A public invite link without its scheme: `connect.lodestone.cc/j/ABCDEFGH23`.
+fn short_link(link: &str) -> &str {
+    link.strip_prefix("https://")
+        .or_else(|| link.strip_prefix("http://"))
+        .unwrap_or(link)
+}
+
 pub(super) fn copy_button(id: impl Into<SharedString>, value: String) -> Button {
     Button::new(id.into(), t(CommonMsg::Copy))
         .size(ButtonSize::Slim)
@@ -219,9 +226,16 @@ impl Servers {
                             .truncate()
                             .font_weight(weights::BOLD.into())
                             .text_color(crate::theme::ink::text())
-                            .child(saved.name.clone()),
+                            .child(if saved.never_answered() {
+                                // added without joining: its host hasn't answered yet
+                                tr!(M::ServerFromLink, link = short_link(&saved.link))
+                            } else {
+                                saved.name.clone()
+                            }),
                     )
-                    .child(note(if here {
+                    .child(note(if saved.never_answered() {
+                        t(M::AddedNotAnswered).to_string()
+                    } else if here {
                         // under the core that shares it
                         server_detail(&as_server)
                     } else {
@@ -398,7 +412,13 @@ pub fn join_dialog(servers: &Entity<Servers>, prompt: &JoinPrompt, cx: &App) -> 
     let this = servers.read(cx);
     let close = servers.clone();
     let cancel = servers.clone();
-    let dialog = Dialog::new("join-friend", t(M::JoinFriendTitle), prompt.focus.clone())
+    // pasting a link adds a server; the other stages join one
+    let title = if matches!(prompt.stage, JoinStage::Paste { .. }) {
+        t(M::AddServerTitle)
+    } else {
+        t(M::JoinFriendTitle)
+    };
+    let dialog = Dialog::new("join-friend", title, prompt.focus.clone())
         .width(px(560.))
         .on_close(move |_, cx| close.update(cx, |this, cx| this.close_join(cx)));
     let cancel_button = move |label: &'static str| {
@@ -422,7 +442,7 @@ pub fn join_dialog(servers: &Entity<Servers>, prompt: &JoinPrompt, cx: &App) -> 
                             div()
                                 .on_key_down(move |event: &KeyDownEvent, _, cx| {
                                     if event.keystroke.key == "enter" {
-                                        enter.update(cx, |this, cx| this.submit_invite(cx));
+                                        enter.update(cx, |this, cx| this.submit_invite_add(cx));
                                         cx.stop_propagation();
                                     }
                                 })
@@ -434,9 +454,18 @@ pub fn join_dialog(servers: &Entity<Servers>, prompt: &JoinPrompt, cx: &App) -> 
                                 .text_color(colors::RED_200)
                         })),
                 )
+                // Add saves it without joining, even while its host is offline
                 .footer(
-                    Button::new("join-friend-submit", t(M::Join))
+                    Button::new("join-friend-add", t(M::AddInvite))
                         .variant(ButtonVariant::Primary)
+                        .on_click({
+                            let add = submit.clone();
+                            move |_, _, cx| add.update(cx, |this, cx| this.submit_invite_add(cx))
+                        }),
+                )
+                .footer(
+                    Button::new("join-friend-submit", t(M::AddAndJoin))
+                        .variant(ButtonVariant::Secondary)
                         .on_click(move |_, _, cx| {
                             submit.update(cx, |this, cx| this.submit_invite(cx))
                         }),

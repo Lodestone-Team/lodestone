@@ -332,6 +332,13 @@ crate::i18n::messages! {
         /// A world opened to LAN that gives no name.
         LanWorld = "LAN world",
         Join = "Join",
+        /// In the paste dialog: saves the server without joining it.
+        AddInvite = "Add",
+        AddAndJoin = "Add and join",
+        /// A server added from a link whose host hasn't answered yet; {link} is the
+        /// link without its secret part.
+        ServerFromLink = "Server from {link}",
+        AddedNotAnswered = "Added. Its name and version show once its host answers.",
         OnYourNetwork = "On your network",
         OnYourNetworkHint = "Worlds opened to LAN on this network.",
         JoinWorld = "Join {world}",
@@ -364,8 +371,10 @@ crate::i18n::messages! {
         ViaLocalNetwork = "over your local network",
         ViaIpv6 = "over IPv6",
         ViaInternet = "over the internet",
-        JoinFriendTitle = "Join a friend's server",
-        JoinFriendIntro = "Paste the invite link your friend sent you. It starts with https://connect.lodestone.cc/j/.",
+        JoinFriendTitle = "Join a server",
+        /// The paste dialog's title, from "Add server".
+        AddServerTitle = "Add a server",
+        JoinFriendIntro = "Paste the invite link someone sent you. It starts with https://connect.lodestone.cc/j/. Add saves the server even if it's offline right now.",
         InvitePlaceholder = "Invite link (https://connect.lodestone.cc/j/…)",
         NotAnInvite = "That isn't a Lodestone invite link. Invite links start with https://connect.lodestone.cc/j/.",
         PasteInviteFirst = "Paste an invite link first.",

@@ -404,6 +404,12 @@ pub fn text(message: M) -> &'static str {
         }
         M::LanWorld => "Monde en LAN",
         M::Join => "Rejoindre",
+        M::AddInvite => "Ajouter",
+        M::AddAndJoin => "Ajouter et rejoindre",
+        M::ServerFromLink => "Serveur de {link}",
+        M::AddedNotAnswered => {
+            "Ajouté. Son nom et sa version s’afficheront quand son hôte répondra."
+        }
         M::OnYourNetwork => "Sur votre réseau",
         M::OnYourNetworkHint => "Les mondes ouverts en LAN sur ce réseau.",
         M::JoinWorld => "Rejoindre {world}",
@@ -433,9 +439,10 @@ pub fn text(message: M) -> &'static str {
         M::ViaLocalNetwork => "par votre réseau local",
         M::ViaIpv6 => "par IPv6",
         M::ViaInternet => "par Internet",
-        M::JoinFriendTitle => "Rejoindre le serveur d’un ami",
+        M::JoinFriendTitle => "Rejoindre un serveur",
+        M::AddServerTitle => "Ajouter un serveur",
         M::JoinFriendIntro => {
-            "Collez le lien d’invitation que votre ami vous a envoyé. Il commence par https://connect.lodestone.cc/j/."
+            "Collez le lien d’invitation qu’on vous a envoyé. Il commence par https://connect.lodestone.cc/j/. Ajouter enregistre le serveur même s’il est hors ligne pour l’instant."
         }
         M::InvitePlaceholder => "Lien d’invitation (https://connect.lodestone.cc/j/…)",
         M::NotAnInvite => {
