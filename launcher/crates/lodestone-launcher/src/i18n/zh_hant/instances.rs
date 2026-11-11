@@ -177,6 +177,9 @@ pub fn text(message: M) -> &'static str {
         M::FinderManual => {
             "遊戲是在你遊玩時當機的，所以每次嘗試都需要你來玩。重複之前造成當機的操作。如果再次當機，下一次嘗試會自動開始；如果沒有，請按「沒有當機」。"
         }
+        M::FinderByHand => {
+            "玩每一次嘗試，做之前讓遊戲當機的操作。如果當機，下一次嘗試會自動開始；如果沒有，請按「沒有當機」。"
+        }
         M::FinderStart => "開始",
         M::FinderReading => "正在檢查你的模組",
         M::FinderTry => "第 {number} 次嘗試",

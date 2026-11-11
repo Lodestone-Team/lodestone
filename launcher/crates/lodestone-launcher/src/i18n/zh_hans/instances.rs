@@ -177,6 +177,9 @@ pub fn text(message: M) -> &'static str {
         M::FinderManual => {
             "游戏是在你游玩时崩溃的，所以每次尝试都需要你来玩。重复之前导致崩溃的操作。如果再次崩溃，下一次尝试会自动开始；如果没有，请按“没有崩溃”。"
         }
+        M::FinderByHand => {
+            "玩每一次尝试，做之前让游戏崩溃的操作。如果崩溃，下一次尝试会自动开始；如果没有，请按“没有崩溃”。"
+        }
         M::FinderStart => "开始",
         M::FinderReading => "正在检查你的模组",
         M::FinderTry => "第 {number} 次尝试",

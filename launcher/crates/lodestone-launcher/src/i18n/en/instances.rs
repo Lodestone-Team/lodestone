@@ -198,6 +198,8 @@ crate::i18n::messages! {
         FinderIntro = "Lodestone Launcher will start the game a few times, turning off half of the mods that might be causing the crash each time, until only one is left. Afterwards, your mods go back to how they were.",
         FinderAutomatic = "The game crashed during startup, so you don't need to do anything. Each try ends when the game crashes or gets to the main menu.",
         FinderManual = "The game crashed while you were playing, so you'll need to play each try. Do whatever made it crash before. If it crashes again, the next try starts on its own. If it doesn't, press It didn't crash.",
+        /// The finder started from Settings, not after a crash.
+        FinderByHand = "Play each try and do whatever made the game crash. If it crashes, the next try starts on its own. If it doesn't, press It didn't crash.",
         FinderStart = "Start",
         FinderReading = "Checking your mods",
         /// A heading: the try being played, 1, 2, 3…

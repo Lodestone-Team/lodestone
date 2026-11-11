@@ -86,6 +86,9 @@ pub struct DeleteRequested(pub String);
 /// "Host on a Lodestone core…" was clicked for this instance.
 pub struct HostRequested(pub String);
 
+/// "Find a crashing mod" was clicked for this instance: the shell opens the mod finder.
+pub struct FindModRequested(pub String);
+
 /// "Share…" was clicked for this instance: the shell opens the share code dialog.
 pub struct ShareRequested(pub String);
 
@@ -230,6 +233,7 @@ pub struct InstanceSettings {
 
 impl EventEmitter<DeleteRequested> for InstanceSettings {}
 impl EventEmitter<HostRequested> for InstanceSettings {}
+impl EventEmitter<FindModRequested> for InstanceSettings {}
 impl EventEmitter<super::snapshots::SnapshotRequested> for InstanceSettings {}
 impl EventEmitter<ShareRequested> for InstanceSettings {}
 impl EventEmitter<LoaderChangePrompt> for InstanceSettings {}
@@ -2500,6 +2504,25 @@ impl Render for InstanceSettings {
         // Maintenance.
         let id = self.instance_id.clone();
         let duplicating = self.instances.read(cx).file_op(&id) == Some(super::FileOp::Duplicate);
+        // the mod finder, for an instance with a mod loader (a crash dialog offers it
+        // too, after a crash)
+        let modded = self
+            .instance(cx)
+            .is_some_and(|i| i.loader != launcher_core::instances::Loader::None);
+        let find_mod = modded.then(|| {
+            SettingRow::new(t(M::FindCrashingMod))
+                .hint(t(M::FindCrashingModHint))
+                .keywords(t(M::FindCrashingModKeywords))
+                .child(
+                    Button::new("find-crashing-mod-settings", t(M::FindCrashingModButton))
+                        .variant(ButtonVariant::Secondary)
+                        .size(ButtonSize::Slim)
+                        .disabled(busy)
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            cx.emit(FindModRequested(this.instance_id.clone()))
+                        })),
+                )
+        });
         let maintenance = [
             SettingRow::new(t(M::VerifyGameFiles))
                 .hint(t(M::VerifyHint))
@@ -2578,6 +2601,14 @@ impl Render for InstanceSettings {
                         ),
                 ),
         ];
+        let maintenance: Vec<SettingRow> = {
+            let mut rows: Vec<SettingRow> = maintenance.into_iter().collect();
+            // after Verify game files: the other thing to try when the game won't run
+            if let Some(row) = find_mod {
+                rows.insert(1, row);
+            }
+            rows
+        };
         push_section(
             &mut sections,
             t(M::Maintenance).into(),
