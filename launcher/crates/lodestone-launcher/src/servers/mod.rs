@@ -1583,6 +1583,38 @@ impl Servers {
         })
     }
 
+    /// Where the row of an instance's linked server (`core`, `server`, as the link
+    /// names them) is: whether on the Friends page, and the core and server ids its
+    /// row is highlighted by. A server joined with an invite link whose core runs on
+    /// this computer is on the Lodestone Host page: under that core, or in the core's
+    /// own row of the same server.
+    pub fn link_target(&self, core: &str, server: &str) -> (bool, String, String) {
+        use launcher_core::cores::friends::{Placement, is_friend_id, is_friend_list_id};
+        let same = || (core.to_string(), server.to_string());
+        if !is_friend_id(core) {
+            let (c, s) = same();
+            return (false, c, s);
+        }
+        if is_friend_list_id(core) {
+            let (c, s) = same();
+            return (true, c, s);
+        }
+        let Some(entry) = self
+            .friends
+            .list
+            .iter()
+            .find(|entry| entry.saved.id == core)
+        else {
+            let (c, s) = same();
+            return (true, c, s);
+        };
+        match entry.saved.placement(&self.local_cores()) {
+            Placement::Friends => (true, core.to_string(), server.to_string()),
+            Placement::Local(_) => (false, core.to_string(), server.to_string()),
+            Placement::CoreRow(on) => (false, on, entry.saved.instance_uuid.clone()),
+        }
+    }
+
     /// Shows the list (closing a server's page) with the row of server `server` on
     /// core `core` scrolled into sight and flashed.
     pub fn highlight_server(&mut self, core: &str, server: &str, cx: &mut Context<Self>) {

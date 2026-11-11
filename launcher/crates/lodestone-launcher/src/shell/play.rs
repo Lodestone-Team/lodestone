@@ -301,15 +301,20 @@ fn linked_to(link: &InstanceLink, cx: &mut Context<LauncherShell>) -> impl IntoE
                 .cursor_pointer()
                 .hover(|style| style.underline())
                 .on_press(cx.listener(move |this, _, _, cx| {
-                    // a friend's server is on the Friends page
-                    let page = if launcher_core::cores::friends::is_friend_id(&core) {
-                        Page::Friends
-                    } else {
-                        Page::Servers
-                    };
-                    this.show(page, cx);
+                    // the page its row is on: a friend's server is on the Friends page,
+                    // unless it runs on this computer
+                    let (friends, row_core, row_server) =
+                        this.servers.read(cx).link_target(&core, &server);
+                    this.show(
+                        if friends {
+                            Page::Friends
+                        } else {
+                            Page::Servers
+                        },
+                        cx,
+                    );
                     this.servers.update(cx, |servers, cx| {
-                        servers.highlight_server(&core, &server, cx)
+                        servers.highlight_server(&row_core, &row_server, cx)
                     });
                 }))
                 .child(label),
