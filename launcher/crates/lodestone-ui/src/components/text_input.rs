@@ -1075,6 +1075,12 @@ impl EntityInputHandler for TextInput {
         if self.disabled {
             return;
         }
+        // one line: Enter's newline (which the field's owner handles as a key) isn't
+        // text, and a line break typed or sent any other way becomes a space
+        let Some(new_text) = single_line(new_text) else {
+            return;
+        };
+        let new_text = new_text.as_ref();
         let range = range_utf16
             .as_ref()
             .map(|range_utf16| self.range_from_utf16(range_utf16))
@@ -1099,6 +1105,10 @@ impl EntityInputHandler for TextInput {
         if self.disabled {
             return;
         }
+        let Some(new_text) = single_line(new_text) else {
+            return;
+        };
+        let new_text = new_text.as_ref();
         let range = range_utf16
             .as_ref()
             .map(|range_utf16| self.range_from_utf16(range_utf16))
@@ -1535,9 +1545,32 @@ fn scroll_to_show(
     scroll_x.clamp(Pixels::ZERO, max)
 }
 
+/// Text for a one-line field: None for nothing but line breaks (Enter), else the text
+/// with each line break as a space. GPUI can't draw a line with a newline in it.
+fn single_line(text: &str) -> Option<std::borrow::Cow<'_, str>> {
+    if !text.contains(['\r', '\n']) {
+        return Some(std::borrow::Cow::Borrowed(text));
+    }
+    if text.chars().all(|c| c == '\r' || c == '\n') {
+        return None;
+    }
+    Some(std::borrow::Cow::Owned(
+        text.replace("\r\n", " ").replace(['\r', '\n'], " "),
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn one_line_fields_take_no_line_breaks() {
+        assert_eq!(single_line("abc").as_deref(), Some("abc"));
+        assert_eq!(single_line("\n"), None);
+        assert_eq!(single_line("\r\n"), None);
+        assert_eq!(single_line("a\nb").as_deref(), Some("a b"));
+        assert_eq!(single_line("a\r\nb").as_deref(), Some("a b"));
+    }
 
     #[test]
     fn secondary_shortcuts_follow_the_platform() {
