@@ -396,6 +396,7 @@ impl FriendServer {
             state: None,
             player_count: None,
             max_player_count: None,
+            online_mode: None,
         }
     }
 }
@@ -854,6 +855,7 @@ mod tests {
             state: Some("Running".into()),
             player_count: Some(1),
             max_player_count: Some(10),
+            online_mode: None,
         }
     }
 
@@ -1536,5 +1538,4 @@ mod tests {
         assert_eq!(file.friends[index].instance_uuid, "server");
         assert_eq!(file.friends[index].last_joined, None);
     }
-
 }

@@ -651,6 +651,7 @@ pub(crate) async fn shared_server_of(state: &AppState, instance: PublicInstance)
         state: instance.state.as_ref().map(as_text),
         player_count: instance.player_count.flatten(),
         max_player_count: instance.max_player_count.flatten(),
+        online_mode: None,
     }
 }
 

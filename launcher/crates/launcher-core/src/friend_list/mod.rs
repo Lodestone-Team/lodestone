@@ -22,6 +22,7 @@
 //! never reads as an empty list, and [`Friends::modify`] never writes a new one.
 
 pub mod core_sync;
+pub mod lan;
 /// A Minecraft account in a person's state, for friends' whitelists.
 pub use lodestone_connect::friend::state::StatePlayer;
 pub mod ops;
@@ -98,6 +99,10 @@ pub struct FriendState {
     /// them).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub players: Vec<StatePlayer>,
+    /// Which of `cores` are their Launcher, sharing the worlds they open to LAN
+    /// (fingerprints, 64 hex digits): see [`lan`].
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub launchers: Vec<String>,
 }
 
 /// A friend.
@@ -189,6 +194,15 @@ impl Friend {
         self.public_key()
             .map(|key| key.safety_code())
             .unwrap_or_default()
+    }
+
+    /// Whether their core `fingerprint` is their Launcher, sharing the worlds they open
+    /// to LAN, rather than a Lodestone core.
+    pub fn is_launcher(&self, fingerprint: &[u8; 32]) -> bool {
+        let fingerprint = hex(fingerprint);
+        self.state
+            .as_ref()
+            .is_some_and(|state| state.launchers.contains(&fingerprint))
     }
 
     /// The cores of theirs that can be joined now: from a state that hasn't expired.
@@ -343,6 +357,16 @@ impl Book {
     pub(crate) fn new_state(&mut self) {
         self.state_seq = (self.state_seq + 1).max(now());
         self.state_issued = 0;
+    }
+
+    /// The fingerprints of this person's cores that are this Launcher sharing LAN
+    /// worlds ([`lan::LAN_SOURCE`]), as a state lists them.
+    pub fn state_launchers(&self) -> Vec<[u8; 32]> {
+        self.my_cores
+            .iter()
+            .filter(|core| core.source.as_deref() == Some(lan::LAN_SOURCE))
+            .filter_map(|core| unhex32(&core.fingerprint))
+            .collect()
     }
 
     /// This person's cores, as a state lists them.

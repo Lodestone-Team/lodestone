@@ -612,6 +612,7 @@ mod tests {
             state: state.map(str::to_string),
             player_count: Some(2),
             max_player_count: Some(20),
+            online_mode: None,
         }
     }
 

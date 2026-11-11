@@ -9,7 +9,7 @@ use gpui::{
 };
 use launcher_core::{
     cores::connect::{SharedServer, server_instance},
-    friend_list::{Friend, FriendStatus as Status, ops::LinkReply},
+    friend_list::{Friend, FriendStatus as Status, lan, ops::LinkReply},
     ui_skin::SurfaceId,
 };
 
@@ -23,7 +23,7 @@ use super::{
 };
 use crate::{
     components::{
-        Button, ButtonSize, ButtonVariant, Checkbox, Dialog, Icon, LoadingDots,
+        Button, ButtonSize, ButtonVariant, Checkbox, Dialog, Icon, LoadingDots, Toggle,
         a11y::{Accessible, Role},
     },
     i18n::{CommonMsg, FriendListMsg as M, FriendListPlural as P, ServersMsg, format, t, tr, trn},
@@ -312,22 +312,18 @@ impl Servers {
         for core in &book.my_cores {
             let id = format!("friend-list-core-{}", short(&core.fingerprint));
             let fingerprint = core.fingerprint.clone();
+            let label: String = if core.source.as_deref() == Some(lan::LAN_SOURCE) {
+                t(M::LanFromHere).into()
+            } else {
+                tr!(M::SharingFrom, core = core.name)
+            };
             body.push(
                 row()
                     .id(SharedString::from(id.clone()))
-                    .accessible(
-                        Role::Group,
-                        id.clone(),
-                        tr!(M::SharingFrom, core = core.name),
-                    )
+                    .accessible(Role::Group, id.clone(), label.clone())
                     .pl_8()
                     .child(Icon::Server.render(px(13.), colors::GRAY_400))
-                    .child(
-                        note(tr!(M::SharingFrom, core = core.name))
-                            .flex_1()
-                            .min_w_0()
-                            .truncate(),
-                    )
+                    .child(note(label).flex_1().min_w_0().truncate())
                     .child(
                         Button::new(SharedString::from(format!("{id}-retire")), t(M::RetireCore))
                             .size(ButtonSize::Slim)
@@ -339,6 +335,7 @@ impl Servers {
                     .into_any_element(),
             );
         }
+        body.push(self.render_lan_share(cx));
         if let Some(error) = &list.open_error {
             body.push(
                 row()
@@ -402,6 +399,91 @@ impl Servers {
             .surface(SurfaceId::Card)
             .child(header)
             .children(body)
+            .into_any_element()
+    }
+
+    /// "Share LAN worlds with friends": the switch, and what's shared now.
+    fn render_lan_share(&self, cx: &mut Context<Self>) -> AnyElement {
+        let share = &self.lan_share;
+        let on = share.enabled;
+        let mut details = div().flex().flex_col().gap_1().flex_1().min_w_0().child(
+            div()
+                .font_weight(weights::BOLD.into())
+                .text_color(crate::theme::ink::text())
+                .child(t(M::ShareLan)),
+        );
+        if !on {
+            details = details.child(note(t(M::ShareLanBody)));
+        } else if let Some(problem) = &share.problem {
+            let problem = if problem == super::friend_list::NO_LIST {
+                t(M::LanNoList).to_string()
+            } else {
+                tr!(M::LanProblem, error = problem)
+            };
+            details = details.child(note(problem).text_color(colors::YELLOW));
+        } else if share.open.is_empty() {
+            details = details.child(note(t(M::LanNoneOpen)));
+        } else {
+            for world in &share.open {
+                let name = if world.name.is_empty() {
+                    t(M::LanWorld).to_string()
+                } else {
+                    world.name.clone()
+                };
+                details = details.child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap_2()
+                        .child(
+                            div()
+                                .flex_none()
+                                .size(px(6.))
+                                .rounded_full()
+                                .bg(colors::GREEN_200),
+                        )
+                        .child(
+                            note(tr!(M::LanSharing, world = name))
+                                .text_color(crate::theme::ink::text())
+                                .truncate(),
+                        ),
+                );
+            }
+            match &share.state {
+                Some(lan::LanHostState::Sharing { connected }) if *connected > 0 => {
+                    details = details.child(note(trn!(P::LanFriendsJoined, *connected)));
+                }
+                Some(lan::LanHostState::Problem(error)) => {
+                    details = details
+                        .child(note(tr!(M::LanProblem, error = error)).text_color(colors::YELLOW));
+                }
+                Some(lan::LanHostState::Starting) | None => {
+                    details = details.child(note(t(M::LanStarting)));
+                }
+                _ => {}
+            }
+            if share.open.iter().any(|w| w.online_mode == Some(true)) {
+                details = details.child(note(t(M::LanOnlineMode)));
+            }
+        }
+        row()
+            .id("friend-list-lan")
+            .accessible(Role::Group, "friend-list-lan", t(M::ShareLan))
+            .items_start()
+            .child(
+                div()
+                    .pt(px(2.))
+                    .child(Icon::Cube.render(px(14.), colors::GRAY_400)),
+            )
+            .child(details)
+            .child(
+                Toggle::new("friend-list-lan-toggle", on)
+                    .label(t(M::ShareLan))
+                    .on_change(cx.listener(|this, value: &bool, _, cx| {
+                        this.set_share_lan_worlds(*value, cx)
+                    })),
+            )
             .into_any_element()
     }
 
@@ -573,19 +655,31 @@ impl Servers {
             Status::Active if cores.is_empty() => (colors::GRAY_500, t(M::SharesNothing).into()),
             Status::Active => match online {
                 Some(true) => {
-                    let names: Vec<String> = cores
+                    let online: Vec<_> = cores
                         .iter()
                         .filter(|c| {
                             list.presence
                                 .get(&(friend.key.clone(), hex(&c.fingerprint)))
                                 == Some(&true)
                         })
-                        .map(|c| c.name.clone())
                         .collect();
-                    (
-                        colors::GREEN_200,
-                        tr!(M::OnlineOn, cores = format::list(&names)),
-                    )
+                    // their launcher is online only while a world is open to LAN
+                    let names: Vec<String> = online
+                        .iter()
+                        .map(|c| {
+                            if friend.is_launcher(&c.fingerprint) {
+                                t(M::LanWorlds).to_string()
+                            } else {
+                                c.name.clone()
+                            }
+                        })
+                        .collect();
+                    let status = if online.iter().all(|c| friend.is_launcher(&c.fingerprint)) {
+                        t(M::LanOpenStatus).to_string()
+                    } else {
+                        tr!(M::OnlineOn, cores = format::list(&names))
+                    };
+                    (colors::GREEN_200, status)
                 }
                 // A core only answers friends it shares something with, so this is
                 // also what a running core that shares nothing with them looks like.
@@ -712,9 +806,21 @@ impl Servers {
             let slot = (friend.key.clone(), fingerprint.clone());
             let online = list.presence.get(&slot).copied();
             let core_id = format!("{id}-{}", &fingerprint[..8]);
+            // their launcher: worlds open to LAN, shown only while one is
+            let lan_host = friend
+                .is_launcher(&core.fingerprint)
+                .then(|| friend.display_name().to_string());
+            if lan_host.is_some() && online != Some(true) {
+                continue;
+            }
+            let core_name: String = if lan_host.is_some() {
+                t(M::LanWorlds).into()
+            } else {
+                core.name.clone()
+            };
             let mut block = div()
                 .id(SharedString::from(core_id.clone()))
-                .accessible(Role::Group, core_id.clone(), core.name.clone())
+                .accessible(Role::Group, core_id.clone(), core_name.clone())
                 .flex()
                 .flex_col()
                 .rounded(radius::LG)
@@ -729,7 +835,14 @@ impl Servers {
                         .gap_2()
                         .px_3()
                         .py_2()
-                        .child(Icon::Server.render(px(13.), colors::GRAY_400))
+                        .child(
+                            if lan_host.is_some() {
+                                Icon::Cube
+                            } else {
+                                Icon::Server
+                            }
+                            .render(px(13.), colors::GRAY_400),
+                        )
                         .child(
                             div()
                                 .flex_1()
@@ -737,7 +850,7 @@ impl Servers {
                                 .truncate()
                                 .font_weight(weights::BOLD.into())
                                 .text_color(crate::theme::ink::text())
-                                .child(core.name.clone()),
+                                .child(core_name.clone()),
                         )
                         .child(
                             note(match online {
@@ -775,6 +888,7 @@ impl Servers {
                             &core_id,
                             server,
                             joining,
+                            lan_host.as_deref(),
                             cx,
                         ));
                     }
@@ -865,6 +979,7 @@ impl Servers {
         panel.into_any_element()
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn friend_server_row(
         &self,
         key: &str,
@@ -872,9 +987,35 @@ impl Servers {
         core_id: &str,
         server: &SharedServer,
         joining: bool,
+        // the friend's name, for a world they opened to LAN
+        lan_host: Option<&str>,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let as_server = server_instance(server);
+        let detail = match lan_host {
+            Some(_) if server.game_version.is_empty() => t(M::OpenNow).to_string(),
+            Some(_) => format!("{} · {}", server.game_version, t(M::OpenNow)),
+            None => format!(
+                "{} · {}",
+                server_detail(&as_server),
+                status_label(&as_server)
+            ),
+        };
+        // what a friend needs to know before Play: while it's open, the account, the
+        // version, the mods
+        let mut lan_notes: Vec<String> = Vec::new();
+        if let Some(host) = lan_host {
+            lan_notes.push(tr!(M::LanJoinNote, name = host));
+            if server.online_mode == Some(true) {
+                lan_notes.push(t(M::LanNeedsMicrosoft).into());
+            }
+            if !server.game_version.is_empty() {
+                lan_notes.push(tr!(M::LanNeedsVersion, version = server.game_version));
+            }
+            if !matches!(server.loader.as_str(), "vanilla" | "") {
+                lan_notes.push(tr!(M::LanModded, loader = server_detail(&as_server)));
+            }
+        }
         let instance: String = server
             .instance_uuid
             .chars()
@@ -935,15 +1076,26 @@ impl Servers {
                     .min_w_0()
                     .child(
                         div()
-                            .truncate()
-                            .text_color(crate::theme::ink::text())
-                            .child(server.name.clone()),
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap_2()
+                            .when(lan_host.is_some(), |this| {
+                                this.child(badge(t(M::LanWorld), colors::GREEN_300))
+                            })
+                            .child(
+                                div()
+                                    .truncate()
+                                    .text_color(crate::theme::ink::text())
+                                    .child(if server.name.is_empty() {
+                                        t(M::LanWorld).to_string()
+                                    } else {
+                                        server.name.clone()
+                                    }),
+                            ),
                     )
-                    .child(note(format!(
-                        "{} · {}",
-                        server_detail(&as_server),
-                        status_label(&as_server)
-                    )))
+                    .child(note(detail))
+                    .children(lan_notes.into_iter().map(note))
                     // the tunnel's address on this computer, the same every time
                     .children(magic_port.map(|port| {
                         let address = launcher_core::cores::friends::game_address(port);

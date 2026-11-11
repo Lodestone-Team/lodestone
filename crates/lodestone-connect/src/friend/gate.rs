@@ -239,10 +239,10 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn stun_answers_reach_the_host_while_quic_owns_the_socket() {
-        let certified = rcgen::generate_simple_self_signed(vec!["x".into()]).unwrap();
+        let made = crate::cert::self_signed("x").unwrap();
         let server = crate::tunnel::server_config_for(
-            certified.cert.der(),
-            &certified.signing_key.serialize_der(),
+            &made.cert_der,
+            &made.key_der,
             crate::tunnel::FRIEND_ALPN,
         )
         .unwrap();

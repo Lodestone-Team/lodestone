@@ -111,6 +111,27 @@ pub fn text(message: M) -> &'static str {
             "你将看不到对方的服务器，对方也看不到你的。你的主机下次同步时，会停止与对方共享。要重新成为好友，需要其中一人创建新的好友链接。"
         }
         M::RemoveFriend => "移除好友",
+        M::ShareLan => "与好友分享局域网世界",
+        M::ShareLanBody => {
+            "当你把单人世界对局域网开放时，好友会在这里看到它，并可在它开放期间通过 Lodestone Connect 加入。你对其隐藏的好友看不到它。"
+        }
+        M::LanNoneOpen => {
+            "目前没有对局域网开放的世界。在游戏中打开一个世界，然后选择“对局域网开放”。"
+        }
+        M::LanSharing => "已与好友分享：{world}",
+        M::LanStarting => "正在准备分享…",
+        M::LanProblem => "无法分享你的局域网世界：{error}",
+        M::LanNoList => "请先添加好友：只有好友列表中的人能看到你的局域网世界。",
+        M::LanOnlineMode => "好友需要 Microsoft 账户才能加入：局域网世界使用你游戏的正版验证模式。",
+        M::LanFromHere => "正在从这个启动器分享局域网世界",
+        M::LanWorlds => "局域网世界",
+        M::LanWorld => "局域网世界",
+        M::OpenNow => "现已开放",
+        M::LanOpenStatus => "有一个开放中的局域网世界",
+        M::LanJoinNote => "仅在 {name} 的游戏开放它时可以加入。",
+        M::LanNeedsMicrosoft => "需要 Microsoft 账户：这个世界处于正版验证模式。",
+        M::LanNeedsVersion => "请使用 Minecraft {version} 游玩。",
+        M::LanModded => "它使用 {loader}：你需要相同的模组。",
     }
 }
 
@@ -119,5 +140,6 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::AnsweredTimes => {
             ["这个链接收到了 {count} 个回复。可能有其他人拿到了这个链接：接受前请核对安全码。"; 2]
         }
+        P::LanFriendsJoined => ["{count} 位好友已加入"; 2],
     }
 }

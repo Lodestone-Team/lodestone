@@ -110,6 +110,7 @@ impl FriendHandler for Streams {
                 state: Some("Running".into()),
                 player_count: Some(0),
                 max_player_count: Some(20),
+                online_mode: None,
             }])
             .unwrap();
             let _ = stream
@@ -209,6 +210,7 @@ async fn friends_pair_and_join_without_links() {
             name: "Ana's PC".into(),
         }],
         retired: false,
+        launchers: Vec::new(),
         players: Vec::new(),
     };
     let id = slot_id(&pair, &ana.public(), &ben.public());

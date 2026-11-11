@@ -422,6 +422,8 @@ impl LauncherShell {
                 }
                 InstancesEvent::GameWindowOpened(_) => this.game_window_opened(cx),
                 InstancesEvent::GameExited(_) => this.game_exited(cx),
+                // the Friends page's LAN sharing listens for it itself
+                InstancesEvent::LanOpened { .. } => {}
             }),
         ];
         let console = cx.new(|cx| Console::new(instances.clone(), cx));

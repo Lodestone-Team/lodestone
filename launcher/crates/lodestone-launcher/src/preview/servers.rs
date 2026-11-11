@@ -78,6 +78,8 @@ pub const SCENES: &[&str] = &[
     "servers-friend-list-retire-core",
     "servers-friend-list-offline",
     "servers-friend-list-pending",
+    "servers-friend-list-lan",
+    "servers-friend-list-lan-off",
 ];
 
 /// Made-up fingerprints.
@@ -536,6 +538,7 @@ fn shared(name: &str, loader: &str, version: Option<&str>, modpack: bool) -> Sha
         state: Some("Running".into()),
         player_count: Some(3),
         max_player_count: Some(20),
+        online_mode: None,
     }
 }
 

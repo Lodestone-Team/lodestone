@@ -26,6 +26,7 @@ mod friends_view;
 pub mod host;
 mod host_offer;
 pub mod lan;
+pub mod lan_share;
 pub mod local;
 pub mod view;
 // What the control API (`crate::control`) does with cores and servers.
@@ -542,6 +543,10 @@ pub struct Servers {
     host_download: Option<Task<()>>,
     /// Closes a friend's tunnel when its game exits.
     _instances_changed: Option<Subscription>,
+    /// "Share LAN worlds with friends": the person's own open worlds.
+    pub lan_share: lan_share::LanShare,
+    /// Games opening worlds to LAN, and exiting, for [`lan_share`].
+    _instances_events: Option<Subscription>,
 }
 
 impl EventEmitter<ServersEvent> for Servers {}
@@ -590,9 +595,24 @@ impl Servers {
             friend_list: friend_list::FriendList::new(&data_root),
             host_download: None,
             _instances_changed: None,
+            lan_share: lan_share::LanShare::default(),
+            _instances_events: None,
         };
-        this._instances_changed =
-            Some(cx.observe(&this.instances, |this, _, cx| this.friend_games_changed(cx)));
+        this._instances_changed = Some(cx.observe(&this.instances, |this, _, cx| {
+            this.friend_games_changed(cx);
+            this.lan_share_apply_setting(cx);
+        }));
+        this._instances_events = Some(cx.subscribe(&this.instances, |this, _, event, cx| {
+            this.lan_share_event(event, cx)
+        }));
+        // once the window is set up (the offscreen screenshots say so first)
+        this.tasks.push(cx.spawn(async move |this, cx| {
+            cx.background_executor()
+                .timer(std::time::Duration::from_millis(500))
+                .await;
+            this.update(cx, |this, cx| this.lan_share_apply_setting(cx))
+                .ok();
+        }));
         this.load(cx);
         this.load_friends();
         this.reload_links(cx);

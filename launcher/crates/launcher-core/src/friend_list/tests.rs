@@ -475,6 +475,7 @@ fn only_active_friends_with_a_live_state_can_be_joined() {
     };
     let mut friend = Friend {
         state: Some(FriendState {
+            launchers: Vec::new(),
             players: Vec::new(),
             seq: 1,
             expires: 1000,
@@ -502,6 +503,7 @@ fn states_numbered_far_ahead_are_refused() {
         cores: Vec::new(),
         retired: false,
         players: Vec::new(),
+        launchers: Vec::new(),
     };
     assert_eq!(ops::implausible_state(&state(now, now), now), None);
     // a few changes within a second put the number a little ahead

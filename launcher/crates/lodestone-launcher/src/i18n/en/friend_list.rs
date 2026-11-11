@@ -145,6 +145,38 @@ crate::i18n::messages! {
         RemoveTitle = "Remove {name}?",
         RemoveBody = "You stop seeing their servers, and they stop seeing yours. Your hosts stop sharing with them the next time they sync. To be friends again, one of you makes a new friend link.",
         RemoveFriend = "Remove friend",
+
+        // ===== LAN worlds =====
+        /// The switch under "You" that shares the person's LAN worlds.
+        ShareLan = "Share LAN worlds with friends",
+        ShareLanBody = "When you open a singleplayer world to LAN, your friends see it here and can join it through Lodestone Connect while it's open. Friends you hide from don't see it.",
+        /// While sharing is on and no world is open to LAN.
+        LanNoneOpen = "No world is open to LAN right now. In the game, open a world and choose Open to LAN.",
+        /// {world} is the world's name as the game announces it.
+        LanSharing = "Shared with your friends: {world}",
+        LanStarting = "Getting ready to share…",
+        /// {error} is what went wrong.
+        LanProblem = "Couldn't share your LAN worlds: {error}",
+        LanNoList = "Add a friend first: only people on your friend list see your LAN worlds.",
+        /// Under the person's own shared world, when they play with a Microsoft account.
+        LanOnlineMode = "Friends need a Microsoft account to join: a LAN world uses your game's online mode.",
+        /// Under "You": this launcher, which friends see sharing LAN worlds.
+        LanFromHere = "Sharing LAN worlds from this launcher",
+        /// Over a friend's LAN worlds (their launcher, as one of their hosts).
+        LanWorlds = "LAN worlds",
+        /// The tag on a friend's world opened to LAN.
+        LanWorld = "LAN world",
+        /// After a friend's LAN world's version: it can be joined now.
+        OpenNow = "open now",
+        /// Under a friend who has a world open to LAN.
+        LanOpenStatus = "Has a LAN world open",
+        /// Under a friend's LAN world; {name} is the friend's name.
+        LanJoinNote = "Joinable while {name}'s game has it open.",
+        LanNeedsMicrosoft = "Needs a Microsoft account: the world is in online mode.",
+        /// {version} is a Minecraft version, such as 1.21.4.
+        LanNeedsVersion = "Play it with Minecraft {version}.",
+        /// {loader} is a mod loader, such as Fabric.
+        LanModded = "It runs {loader}: you need the same mods.",
     }
 
     pub enum FriendListPlural {
@@ -153,5 +185,7 @@ crate::i18n::messages! {
             "This link was answered {count} time. Someone else may have this link: compare safety codes before you accept.",
             "This link was answered {count} times. Someone else may have this link: compare safety codes before you accept."
         ),
+        /// Under the person's own shared LAN worlds: friends playing in them now.
+        LanFriendsJoined = ("{count} friend joined", "{count} friends joined"),
     }
 }
