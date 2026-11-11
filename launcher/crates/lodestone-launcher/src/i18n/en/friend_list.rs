@@ -20,43 +20,14 @@ crate::i18n::messages! {
         NoNameYet = "Choose the name your friends will see, then add them with a friend link.",
         ChooseName = "Choose name",
         EditName = "Edit name",
+        /// After the person's name in their own row, when it is their Minecraft
+        /// account's player name (they didn't choose another).
+        MinecraftNameNote = "your Minecraft name",
         OpenFailed = "Couldn't open your friend list",
         ActionFailed = "Couldn't update your friend list",
         NoFriendsYet = "No friends yet. Make a friend link and send it to someone you know.",
         /// Problems while checking on friends: {error} is what went wrong.
         RefreshProblem = "Some friends couldn't be checked: {error}",
-
-        // ===== How to add a friend: the steps, ticked as they're done =====
-        StepsTitle = "How to add a friend",
-        /// {done} and {total} are numbers of steps.
-        StepsProgress = "{done} of {total} done",
-        HideSteps = "Hide steps",
-        ShowSteps = "Show steps",
-        /// For screen readers, after a step's title.
-        StepDone = "done",
-        StepNext = "next",
-        StepLater = "not yet",
-        StepName = "Choose your name",
-        StepNameDetail = "Your friends see this name.",
-        StepLink = "Send a friend link, or open theirs",
-        StepLinkDetail = "Choose Add friend to make a link and send it to your friend any way you like. If they sent you a link, open it, or paste it under Add friend.",
-        StepLinkWaiting = "Your link is ready and works once, for 24 hours. Send it to your friend, then wait for them to open it.",
-        StepAccept = "Accept each other",
-        /// {name} is the name of the person who answered.
-        StepAcceptReply = "{name} answered your link. If it's really them, choose Accept below.",
-        /// {name} is the friend whose link this person answered.
-        StepAcceptPending = "{name} still needs to accept. They show up here once they do.",
-        StepCompare = "Compare safety codes",
-        /// {name} is a friend's name.
-        StepCompareDetail = "Read your codes to each other on a call or in person. If they match, you're talking to the real {name}.",
-        StepShare = "Get a server shared with you",
-        /// {name} is a friend's name.
-        StepShareDetail = "Ask {name} to share a server. In Lodestone Host, they open the server, go to Settings › Friends and tick your name. You can share yours the same way.",
-        StepPlay = "Play",
-        /// {name} is a friend's name.
-        StepPlayDetail = "When {name} is online, open them in the list below and choose Play on their server.",
-        /// {name} is a friend who is online now.
-        StepPlayOnline = "{name} is online. Open them in the list below and choose Play on their server.",
 
         // ===== Friend links and their answers =====
         LinksTitle = "Your friend links",
@@ -118,6 +89,10 @@ crate::i18n::messages! {
         PreviewFrom = "This link is from {name}",
         PreviewCompare = "Once you're friends, compare safety codes with {name} by voice or in person. Only add people you know.",
         AlreadyFriends = "You're already friends with {name}.",
+        /// Beside the skin of the Minecraft profile a friend link's sender (or someone
+        /// who answered) says they play as. {name} is that profile's player name.
+        /// Nothing checks it, so it must not read as proof of who they are.
+        PlaysAs = "Their launcher says they play Minecraft as {name}. Lodestone doesn't check this: only the safety code shows it's really them.",
         Added = "{name} is in your friend list. Nothing is shared until they confirm.",
         NeedNameFirst = "Choose your name first: your friend sees it with your answer.",
 
@@ -126,6 +101,8 @@ crate::i18n::messages! {
         NameBody = "Friends see this name. If you change it, they see the new one the next time their launcher checks.",
         NamePlaceholder = "Your name",
         NameEmpty = "Choose a name your friends will see.",
+        /// In the Your name dialog: go back to the Minecraft account's player name.
+        UseMinecraftName = "Use my Minecraft name",
 
         // ===== Compare codes =====
         /// {name} is the friend's name.
@@ -168,6 +145,38 @@ crate::i18n::messages! {
         RemoveTitle = "Remove {name}?",
         RemoveBody = "You stop seeing their servers, and they stop seeing yours. Your hosts stop sharing with them the next time they sync. To be friends again, one of you makes a new friend link.",
         RemoveFriend = "Remove friend",
+
+        // ===== LAN worlds =====
+        /// The switch under "You" that shares the person's LAN worlds.
+        ShareLan = "Share LAN worlds with friends",
+        ShareLanBody = "When you open a singleplayer world to LAN, your friends see it here and can join it through Lodestone Connect while it's open. Friends you hide from don't see it.",
+        /// While sharing is on and no world is open to LAN.
+        LanNoneOpen = "No world is open to LAN right now. In the game, open a world and choose Open to LAN.",
+        /// {world} is the world's name as the game announces it.
+        LanSharing = "Shared with your friends: {world}",
+        LanStarting = "Getting ready to share…",
+        /// {error} is what went wrong.
+        LanProblem = "Couldn't share your LAN worlds: {error}",
+        LanNoList = "Add a friend first: only people on your friend list see your LAN worlds.",
+        /// Under the person's own shared world, when they play with a Microsoft account.
+        LanOnlineMode = "Friends need a Microsoft account to join: a LAN world uses your game's online mode.",
+        /// Under "You": this launcher, which friends see sharing LAN worlds.
+        LanFromHere = "Sharing LAN worlds from this launcher",
+        /// Over a friend's LAN worlds (their launcher, as one of their hosts).
+        LanWorlds = "LAN worlds",
+        /// The tag on a friend's world opened to LAN.
+        LanWorld = "LAN world",
+        /// After a friend's LAN world's version: it can be joined now.
+        OpenNow = "open now",
+        /// Under a friend who has a world open to LAN.
+        LanOpenStatus = "Has a LAN world open",
+        /// Under a friend's LAN world; {name} is the friend's name.
+        LanJoinNote = "Joinable while {name}'s game has it open.",
+        LanNeedsMicrosoft = "Needs a Microsoft account: the world is in online mode.",
+        /// {version} is a Minecraft version, such as 1.21.4.
+        LanNeedsVersion = "Play it with Minecraft {version}.",
+        /// {loader} is a mod loader, such as Fabric.
+        LanModded = "It runs {loader}: you need the same mods.",
     }
 
     pub enum FriendListPlural {
@@ -176,5 +185,7 @@ crate::i18n::messages! {
             "This link was answered {count} time. Someone else may have this link: compare safety codes before you accept.",
             "This link was answered {count} times. Someone else may have this link: compare safety codes before you accept."
         ),
+        /// Under the person's own shared LAN worlds: friends playing in them now.
+        LanFriendsJoined = ("{count} friend joined", "{count} friends joined"),
     }
 }

@@ -62,6 +62,7 @@ fn server() -> SharedServer {
         state: Some("Running".into()),
         player_count: Some(1),
         max_player_count: Some(20),
+        online_mode: None,
     }
 }
 

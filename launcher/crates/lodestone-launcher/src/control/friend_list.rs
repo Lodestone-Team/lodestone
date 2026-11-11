@@ -21,7 +21,7 @@ use gpui::{App, AsyncApp, Entity, Task};
 use launcher_control::{ErrorObject, codes};
 use launcher_core::{
     cores::connect::SharedServer,
-    friend_list::{Friend, now, ops::LinkReply},
+    friend_list::{Friend, StatePlayer, now, ops::LinkReply},
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -37,6 +37,32 @@ use crate::servers::{
 
 fn failed(message: String) -> ErrorObject {
     api_error(codes::FAILED, message)
+}
+
+/// A UUID as `8-4-4-4-12` hex digits.
+fn hyphenated(uuid: &[u8; 16]) -> String {
+    let hex = hex(uuid);
+    format!(
+        "{}-{}-{}-{}-{}",
+        &hex[..8],
+        &hex[8..12],
+        &hex[12..16],
+        &hex[16..20],
+        &hex[20..]
+    )
+}
+
+/// The Minecraft profile someone says they play as: their launcher's claim, which
+/// nothing checks (`null` when they sent none).
+fn minecraft_json(player: Option<&StatePlayer>) -> Value {
+    match player.filter(|p| !p.offline) {
+        Some(player) => json!({
+            "name": player.name,
+            "uuid": hyphenated(&player.uuid),
+            "verified": false,
+        }),
+        None => Value::Null,
+    }
 }
 
 fn friend_json(friend: &Friend, servers: &Servers) -> Value {
@@ -66,11 +92,12 @@ fn friend_json(friend: &Friend, servers: &Servers) -> Value {
         "online": list.online(friend),
         "cores": cores,
         "same_name_as": list.snapshot.name_clashes.get(&friend.key).cloned().unwrap_or_default(),
+        "minecraft": minecraft_json(friend.minecraft()),
     })
 }
 
 /// What a read-only method answers when there's no friend list.
-const NO_LIST_NOTE: &str = "No friend list yet: choose a name first (`friend-list set-name`).";
+const NO_LIST_NOTE: &str = "No friend list yet: choose a name first (`friend-list set-name`), or make a friend link (signed in with Microsoft, your Minecraft name is used).";
 
 fn no_list() -> ErrorObject {
     api_error(codes::NOT_FOUND, NO_LIST_NOTE)
@@ -85,12 +112,15 @@ fn reply_json(reply: &LinkReply) -> Value {
         "answers": reply.answers,
         "someone_else_may_have_the_link": reply.answers > 1,
         "same_name_as": reply.same_name_as,
+        "minecraft": minecraft_json(reply.player.as_ref()),
     })
 }
 
 fn me_json(snapshot: &Snapshot) -> Value {
     json!({
         "name": snapshot.book.name,
+        "name_from_minecraft": snapshot.book.name_from_profile,
+        "minecraft": minecraft_json(snapshot.book.profile()),
         "safety_code": snapshot.safety_code,
         "key": snapshot.key,
         "friends": snapshot.book.friends.len(),
@@ -262,6 +292,7 @@ pub fn preview_link(call: Call, cx: &mut App) -> Reply {
                 "key": preview.key,
                 "already_friends": preview.already_friends,
                 "same_name_as": preview.same_name_as,
+                "minecraft": minecraft_json(preview.player.as_ref()),
             }))
         },
     )

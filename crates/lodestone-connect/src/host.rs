@@ -118,12 +118,10 @@ struct IdentityFile {
 impl HostIdentity {
     /// A new certificate (ECDSA P-256) and token, and no invite yet.
     pub fn generate() -> Result<Self> {
-        let certified =
-            rcgen::generate_simple_self_signed(vec![tunnel::SERVER_NAME.to_string()])
-                .map_err(|err| Error::Other(format!("Couldn't make a certificate: {err}")))?;
+        let made = crate::cert::self_signed(tunnel::SERVER_NAME)?;
         Ok(Self {
-            cert_der: certified.cert.der().to_vec(),
-            key_der: certified.signing_key.serialize_der(),
+            cert_der: made.cert_der,
+            key_der: made.key_der,
             token: crate::random()?,
             invite: None,
         })

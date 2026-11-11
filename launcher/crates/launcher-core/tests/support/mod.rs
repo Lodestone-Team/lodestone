@@ -29,6 +29,8 @@ use url::Url;
 pub const CLIENT_ID: &str = "test-client-id";
 pub const PROFILE_ID: &str = "069a79f444e94726a5befca90e38aaf5";
 pub const SKIN_HASH: &str = "abc123def456";
+/// A profile on the session server with no skin of its own.
+pub const STEVE_ID: &str = "8667ba71b85a4004af54457a9734eed7";
 pub const AUTH_CODE: &str = "auth-code-SECRET";
 pub const MS_ACCESS: &str = "ms-access-SECRET";
 pub const XBL_TOKEN: &str = "xbl-token-SECRET";
@@ -380,6 +382,40 @@ fn route(state: &mut State, request: &tiny_http::Request, body: &str) -> (u16, R
             200,
             Response::Bytes(skin::encode_png(&skin::sample_skin(true)).unwrap()),
         ),
+        // the public session server: anyone's profile by UUID, its textures in base64
+        ("GET", path) if path == format!("/sessions/session/minecraft/profile/{PROFILE_ID}") => {
+            let textures = json!({
+                "timestamp": 1,
+                "profileId": PROFILE_ID,
+                "profileName": "Notch",
+                "textures": {
+                    "SKIN": {"url": format!("http://textures.minecraft.net/texture/{SKIN_HASH}")},
+                },
+            });
+            let value = base64::engine::general_purpose::STANDARD
+                .encode(serde_json::to_vec(&textures).unwrap());
+            (
+                200,
+                Response::Json(json!({
+                    "id": PROFILE_ID,
+                    "name": "Notch",
+                    "properties": [{"name": "textures", "value": value}],
+                })),
+            )
+        }
+        // a profile with the default skin
+        ("GET", path) if path == format!("/sessions/session/minecraft/profile/{STEVE_ID}") => (
+            200,
+            Response::Json(json!({
+                "id": STEVE_ID,
+                "name": "Steve",
+                "properties": [{"name": "textures", "value": base64::engine::general_purpose::STANDARD.encode(br#"{"textures":{}}"#)}],
+            })),
+        ),
+        // no such profile
+        ("GET", path) if path.starts_with("/sessions/session/minecraft/profile/") => {
+            (204, Response::Bytes(Vec::new()))
+        }
         _ => not_found,
     }
 }

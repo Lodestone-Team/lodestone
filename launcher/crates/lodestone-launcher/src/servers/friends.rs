@@ -394,18 +394,91 @@ impl Servers {
         self.set_join_stage(stage, focus, cx);
     }
 
-    /// "Join" in the paste stage.
+    /// "Add and join" in the paste stage.
     pub fn submit_invite(&mut self, cx: &mut Context<Self>) {
+        if let Some(invite) = self.pasted_invite(cx) {
+            self.connect_invite(invite, false, cx);
+        }
+    }
+
+    /// "Add" in the paste stage: saves the server without joining it, even while its
+    /// host is offline, then checks it in the background.
+    pub fn submit_invite_add(&mut self, cx: &mut Context<Self>) {
+        if let Some(invite) = self.pasted_invite(cx) {
+            self.close_join(cx);
+            self.add_invite(invite, cx);
+        }
+    }
+
+    /// Saves the server of `invite` (the file, and the link in the Keychain) without
+    /// opening a tunnel, shows its row, and checks it once: what its host says fills
+    /// in its name and version. A server saved already is just checked.
+    pub fn add_invite(&mut self, invite: Invite, cx: &mut Context<Self>) {
+        let mut file = FriendsFile {
+            friends: self.friends.list.iter().map(|f| f.saved.clone()).collect(),
+        };
+        let (index, new) = file.add(&invite, now());
+        let saved = file.friends[index].clone();
+        let id = saved.id.clone();
+        if new {
+            self.friends.list.push(FriendEntry {
+                saved,
+                status: FriendStatus::Unknown,
+            });
+            self.save_friends();
+        }
+        self.friends.invites.insert(id.clone(), invite.clone());
+        if new && !self.preview {
+            let secrets = self.accounts.read(cx).secrets().clone();
+            let save_as = id.clone();
+            self.tasks.push(cx.spawn(async move |this, cx| {
+                let store = secrets.store(cx);
+                if let Err(err) = friends::write_invite(&*store, &save_as, &invite).await {
+                    let err = err.to_string();
+                    this.update(cx, |this, cx| {
+                        this.notice = Some(Notice::new(move || {
+                            (t(M::FriendsSaveFailed).into(), err.clone())
+                        }));
+                        cx.notify();
+                    })
+                    .ok();
+                }
+            }));
+        }
+        if !new {
+            // saved before: say so, rather than seeming to do nothing
+            let name = file.friends[index].name.clone();
+            self.notice = Some(Notice::info(move || {
+                let title = if name.is_empty() {
+                    t(M::AlreadyAddedTitle).to_string()
+                } else {
+                    tr!(M::AlreadyAddedNamed, name = name)
+                };
+                (title, t(M::AlreadyAddedBody).to_string())
+            }));
+        }
+        // its row: in "Other hosts and servers", or, for a server on a core here,
+        // under that core or as the core's own row of it
+        let (_, core, server) = self.link_target(&id, "");
+        self.highlight_server(&core, &server, cx);
+        if !self.preview {
+            self.check_friend(&id, cx);
+        }
+        cx.notify();
+    }
+
+    /// The invite in the paste stage's field, or None with the field's error set.
+    fn pasted_invite(&mut self, cx: &mut Context<Self>) -> Option<Invite> {
         let Some(JoinPrompt {
             stage: JoinStage::Paste { input, .. },
             ..
         }) = self.friends.join.current()
         else {
-            return;
+            return None;
         };
         let text = input.read(cx).text().to_string();
         match Invite::parse(&text) {
-            Ok(invite) => self.connect_invite(invite, false, cx),
+            Ok(invite) => Some(invite),
             Err(_) => {
                 if let Some(JoinPrompt {
                     stage: JoinStage::Paste { error, .. },
@@ -422,6 +495,7 @@ impl Servers {
                     );
                 }
                 cx.notify();
+                None
             }
         }
     }
@@ -1125,11 +1199,24 @@ impl Servers {
                 if let Some(invite) = read {
                     this.friends.invites.insert(check_id.clone(), invite);
                 }
+                let mut learned = false;
                 if let Some(entry) = this.friends.get_mut(&check_id) {
+                    // what the host says now: its name and version, kept in the file
+                    if let Ok(FriendStatus::Online { server, .. }) = &result {
+                        let mut updated = entry.saved.clone();
+                        updated.learn(server);
+                        if updated != entry.saved {
+                            entry.saved = updated;
+                            learned = true;
+                        }
+                    }
                     entry.status = match result {
                         Ok(status) => status,
                         Err(error) => FriendStatus::Offline(error),
                     };
+                }
+                if learned {
+                    this.save_friends();
                 }
                 cx.notify();
             })

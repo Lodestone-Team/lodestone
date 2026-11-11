@@ -21,12 +21,12 @@ mod detail_view;
 pub mod extras;
 pub mod friend_list;
 mod friend_list_view;
-mod friend_steps;
 pub mod friends;
 mod friends_view;
 pub mod host;
 mod host_offer;
 pub mod lan;
+pub mod lan_share;
 pub mod local;
 pub mod view;
 // What the control API (`crate::control`) does with cores and servers.
@@ -543,6 +543,10 @@ pub struct Servers {
     host_download: Option<Task<()>>,
     /// Closes a friend's tunnel when its game exits.
     _instances_changed: Option<Subscription>,
+    /// "Share LAN worlds with friends": the person's own open worlds.
+    pub lan_share: lan_share::LanShare,
+    /// Games opening worlds to LAN, and exiting, for [`lan_share`].
+    _instances_events: Option<Subscription>,
 }
 
 impl EventEmitter<ServersEvent> for Servers {}
@@ -591,9 +595,24 @@ impl Servers {
             friend_list: friend_list::FriendList::new(&data_root),
             host_download: None,
             _instances_changed: None,
+            lan_share: lan_share::LanShare::default(),
+            _instances_events: None,
         };
-        this._instances_changed =
-            Some(cx.observe(&this.instances, |this, _, cx| this.friend_games_changed(cx)));
+        this._instances_changed = Some(cx.observe(&this.instances, |this, _, cx| {
+            this.friend_games_changed(cx);
+            this.lan_share_apply_setting(cx);
+        }));
+        this._instances_events = Some(cx.subscribe(&this.instances, |this, _, event, cx| {
+            this.lan_share_event(event, cx)
+        }));
+        // once the window is set up (the offscreen screenshots say so first)
+        this.tasks.push(cx.spawn(async move |this, cx| {
+            cx.background_executor()
+                .timer(std::time::Duration::from_millis(500))
+                .await;
+            this.update(cx, |this, cx| this.lan_share_apply_setting(cx))
+                .ok();
+        }));
         this.load(cx);
         this.load_friends();
         this.reload_links(cx);
@@ -1585,33 +1604,23 @@ impl Servers {
 
     /// Where the row of an instance's linked server (`core`, `server`, as the link
     /// names them) is: whether on the Friends page, and the core and server ids its
-    /// row is highlighted by. A server joined with an invite link whose core runs on
-    /// this computer is on the Lodestone Host page: under that core, or in the core's
-    /// own row of the same server.
+    /// row is highlighted by. Only servers from the friend list are on the Friends
+    /// page. One joined with an invite link is on the Lodestone Host page: in "Other
+    /// hosts and servers", or, when its core runs on this computer, under that core or
+    /// in the core's own row of the same server.
     pub fn link_target(&self, core: &str, server: &str) -> (bool, String, String) {
-        use launcher_core::cores::friends::{Placement, is_friend_id, is_friend_list_id};
-        let same = || (core.to_string(), server.to_string());
-        if !is_friend_id(core) {
-            let (c, s) = same();
-            return (false, c, s);
-        }
+        use launcher_core::cores::friends::{Placement, is_friend_list_id};
         if is_friend_list_id(core) {
-            let (c, s) = same();
-            return (true, c, s);
+            return (true, core.to_string(), server.to_string());
         }
-        let Some(entry) = self
+        let entry = self
             .friends
             .list
             .iter()
-            .find(|entry| entry.saved.id == core)
-        else {
-            let (c, s) = same();
-            return (true, c, s);
-        };
-        match entry.saved.placement(&self.local_cores()) {
-            Placement::Friends => (true, core.to_string(), server.to_string()),
-            Placement::Local(_) => (false, core.to_string(), server.to_string()),
-            Placement::CoreRow(on) => (false, on, entry.saved.instance_uuid.clone()),
+            .find(|entry| entry.saved.id == core);
+        match entry.map(|entry| (entry, entry.saved.placement(&self.local_cores()))) {
+            Some((entry, Placement::CoreRow(on))) => (false, on, entry.saved.instance_uuid.clone()),
+            _ => (false, core.to_string(), server.to_string()),
         }
     }
 

@@ -15,6 +15,7 @@ pub fn text(message: M) -> &'static str {
         }
         M::ChooseName => "Choisir un nom",
         M::EditName => "Modifier le nom",
+        M::MinecraftNameNote => "votre nom Minecraft",
         M::OpenFailed => "Impossible d’ouvrir votre liste d’amis",
         M::ActionFailed => "Impossible de mettre à jour votre liste d’amis",
         M::NoFriendsYet => {
@@ -51,44 +52,6 @@ pub fn text(message: M) -> &'static str {
         M::NoServersShared => "Rien sur cet ordinateur n’est partagé avec vous.",
         M::ServersFailed => "Impossible de lister les serveurs\u{a0}: {error}",
         M::ShowServers => "Afficher les serveurs",
-        M::StepsTitle => "Comment ajouter un ami",
-        M::StepsProgress => "{done} sur {total} faites",
-        M::HideSteps => "Masquer les étapes",
-        M::ShowSteps => "Afficher les étapes",
-        M::StepDone => "faite",
-        M::StepNext => "à faire",
-        M::StepLater => "plus tard",
-        M::StepName => "Choisissez votre nom",
-        M::StepNameDetail => "C’est le nom que voient vos amis.",
-        M::StepLink => "Envoyez un lien d’ami, ou ouvrez le sien",
-        M::StepLinkDetail => {
-            "Choisissez Ajouter un ami pour créer un lien, puis envoyez-le à votre ami comme vous voulez. S’il vous a envoyé un lien, ouvrez-le, ou collez-le dans Ajouter un ami."
-        }
-        M::StepLinkWaiting => {
-            "Votre lien est prêt et ne sert qu’une fois, pendant 24\u{a0}heures. Envoyez-le à votre ami, puis attendez qu’il l’ouvre."
-        }
-        M::StepAccept => "Acceptez-vous mutuellement",
-        M::StepAcceptReply => {
-            "{name} a répondu à votre lien. Si c’est bien cette personne, choisissez Accepter plus bas."
-        }
-        M::StepAcceptPending => {
-            "{name} doit encore accepter. Cette personne apparaîtra ici une fois que ce sera fait."
-        }
-        M::StepCompare => "Comparez vos codes de sécurité",
-        M::StepCompareDetail => {
-            "Lisez-vous vos codes par téléphone ou en personne. S’ils correspondent, vous parlez bien à {name}."
-        }
-        M::StepShare => "Faites-vous partager un serveur",
-        M::StepShareDetail => {
-            "Demandez à {name} de partager un serveur. Dans Lodestone Host, il ouvre le serveur, va dans Paramètres › Amis et coche votre nom. Vous pouvez partager le vôtre de la même façon."
-        }
-        M::StepPlay => "Jouez",
-        M::StepPlayDetail => {
-            "Quand {name} est en ligne, ouvrez son nom dans la liste ci-dessous et choisissez Jouer sur son serveur."
-        }
-        M::StepPlayOnline => {
-            "{name} est en ligne. Ouvrez son nom dans la liste ci-dessous et choisissez Jouer sur son serveur."
-        }
         M::AddTitle => "Ajouter un ami",
         M::SendLinkTitle => "Envoyez-lui un lien d’ami",
         M::SendLinkBody => {
@@ -113,6 +76,9 @@ pub fn text(message: M) -> &'static str {
             "Une fois amis, comparez vos codes de sécurité avec {name} de vive voix ou en personne. N’ajoutez que des personnes que vous connaissez."
         }
         M::AlreadyFriends => "Vous êtes déjà ami avec {name}.",
+        M::PlaysAs => {
+            "Son lanceur indique que cette personne joue à Minecraft sous le nom {name}. Lodestone ne le vérifie pas\u{a0}: seul le code de sécurité montre que c’est bien elle."
+        }
         M::Added => {
             "{name} est dans votre liste d’amis. Rien n’est partagé tant qu’il n’a pas confirmé."
         }
@@ -125,6 +91,7 @@ pub fn text(message: M) -> &'static str {
         }
         M::NamePlaceholder => "Votre nom",
         M::NameEmpty => "Choisissez un nom que verront vos amis.",
+        M::UseMinecraftName => "Utiliser mon nom Minecraft",
         M::VerifyTitle => "Comparer les codes de sécurité avec {name}",
         M::VerifyBody => {
             "Appelez {name} ou retrouvez-le, et lisez-vous vos codes. S’ils sont identiques, personne ne s’est interposé quand vous êtes devenus amis. Ne les comparez pas dans la discussion par laquelle le lien est passé."
@@ -164,6 +131,33 @@ pub fn text(message: M) -> &'static str {
             "Vous ne voyez plus ses serveurs, et il ne voit plus les vôtres. Vos hôtes cessent de partager avec lui la prochaine fois qu’ils se synchronisent. Pour redevenir amis, l’un de vous crée un nouveau lien d’ami."
         }
         M::RemoveFriend => "Retirer cet ami",
+        M::ShareLan => "Partager les mondes LAN avec mes amis",
+        M::ShareLanBody => {
+            "Quand vous ouvrez un monde solo en LAN, vos amis le voient ici et peuvent le rejoindre via Lodestone Connect tant qu’il est ouvert. Les amis à qui vous êtes masqué ne le voient pas."
+        }
+        M::LanNoneOpen => {
+            "Aucun monde n’est ouvert en LAN pour l’instant. Dans le jeu, ouvrez un monde et choisissez Ouvrir au LAN."
+        }
+        M::LanSharing => "Partagé avec vos amis\u{a0}: {world}",
+        M::LanStarting => "Préparation du partage…",
+        M::LanProblem => "Impossible de partager vos mondes LAN\u{a0}: {error}",
+        M::LanNoList => {
+            "Ajoutez d’abord un ami\u{a0}: seules les personnes de votre liste d’amis voient vos mondes LAN."
+        }
+        M::LanOnlineMode => {
+            "Vos amis ont besoin d’un compte Microsoft pour rejoindre\u{a0}: un monde LAN utilise le mode en ligne de votre jeu."
+        }
+        M::LanFromHere => "Partage des mondes LAN depuis ce launcher",
+        M::LanWorlds => "Mondes LAN",
+        M::LanWorld => "Monde LAN",
+        M::OpenNow => "ouvert maintenant",
+        M::LanOpenStatus => "A un monde LAN ouvert",
+        M::LanJoinNote => "Accessible tant que le jeu de {name} le garde ouvert.",
+        M::LanNeedsMicrosoft => {
+            "Nécessite un compte Microsoft\u{a0}: le monde est en mode en ligne."
+        }
+        M::LanNeedsVersion => "Jouez-y avec Minecraft {version}.",
+        M::LanModded => "Il utilise {loader}\u{a0}: il vous faut les mêmes mods.",
     }
 }
 
@@ -173,5 +167,6 @@ pub fn plural(message: P) -> [&'static str; 2] {
             "Ce lien a reçu {count} réponse. Quelqu’un d’autre a peut-être ce lien\u{a0}: comparez les codes de sécurité avant d’accepter.",
             "Ce lien a reçu {count} réponses. Quelqu’un d’autre a peut-être ce lien\u{a0}: comparez les codes de sécurité avant d’accepter.",
         ],
+        P::LanFriendsJoined => ["{count} ami connecté", "{count} amis connectés"],
     }
 }

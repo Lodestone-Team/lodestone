@@ -81,6 +81,34 @@ longer reveal the pair secret (forward secrecy).
 formatting characters removed. The list shows a local nickname the owner can change, and
 warns when a new friend's name matches an existing friend's.
 
+A person signed in with a Microsoft account isn't asked for a name: theirs is their
+Minecraft profile's player name (the active Microsoft account, else the first), and it
+follows that profile until they choose another with **Edit name** ("Use my Minecraft
+name" goes back). With only offline accounts they choose one, as before. Lists from
+before this keep the name that was chosen (`Book::name_from_profile` is false for them).
+
+**Minecraft profiles.** A card or reply may also carry `player`: the profile its sender
+plays as (`{name, uuid}`, the state's `StatePlayer`), signed apart as `player_sig` over
+`("card-player" | "reply-player", everything the card's or reply's signature covers,
+name, uuid, offline)`. A card or reply with a `player` and no valid `player_sig` is
+refused. Launchers from before it ignore the unknown fields and check the first
+signature as always, and a launcher sends neither field when it has no Microsoft
+account, so its bytes are exactly the old ones. Once a friend's state arrives, its first
+Microsoft account (`players`, with the profile first) takes over from the card's.
+
+The launcher shows that profile's face (the skin's head, as in the account box) beside
+the name in the card, the answer, and the friend's row. It asks Mojang's public session
+server (`sessionserver.mojang.com/session/minecraft/profile/<uuid>`) which skin the
+profile has, at most once a day per profile (cached in `cache/avatars/profiles`), and
+draws the head from textures.minecraft.net as the account box does. Nothing waits for
+it; without a profile, or when the fetch fails, the row looks as it did before.
+
+The profile is a claim: nothing checks that the sender owns that Minecraft account, and
+anyone can name anyone's UUID, which would draw that player's skin. So the card and the
+answer say "Their launcher says they play Minecraft as …; Lodestone doesn't check this",
+and look-alike warnings also compare Minecraft names (against names, nicknames and other
+friends' Minecraft names) and flag two friends claiming the same UUID.
+
 **Nothing is shared by default.** A new friend sees no servers until the owner shares an
 instance with them by name.
 
@@ -112,6 +140,12 @@ offline accounts, which can't join there. In offline mode every player goes in w
 offline UUID. Players already listed, by UUID or name, aren't added twice, and
 unsharing removes nobody. The Host shows each friend's players under their box, so the
 owner sees who sharing would whitelist.
+A state may also list `launchers`: the fingerprints of those of its `cores` that are the
+person's Launcher sharing LAN worlds (see "LAN worlds"), signed apart as
+`launchers_sig` over `("state-launchers", everything the state's signature covers, the
+fingerprints)`. Each must be one of the cores. A state with launchers and no valid
+`launchers_sig` is refused; launchers from before it see those cores as cores.
+
 Receivers keep the highest `seq` seen and refuse lower ones. A state expires 90 days after
 it was issued; launchers issue a new one weekly while they run. A friend's cores in an
 expired state aren't joined.
@@ -299,6 +333,60 @@ with it (which drops every friend connection), and answers `200` with the same J
 and what's shared stay. Friends reach the core again once the owner's launcher lists the
 new fingerprint in its next state.
 
+## LAN worlds
+
+With **Share LAN worlds with friends** on (a switch under "You" on the Friends page; off
+by default, setting `share_lan_worlds`), the worlds the person opens to LAN show on their
+friends' Friends pages while they're open, and friends join them as they join a friend's
+server: a tunnel, a Magic localhost address, and the matching instance.
+
+**Detecting** (`launcher-core/src/cores/lan_open.rs`). Two things name a world: a LAN
+announcement (224.0.2.60:4445) from an address of this computer (any game, whoever
+launched it), and `Started serving on <port>` in the log of a game the Launcher started,
+which also gives its instance's version, loader and account. The log works where
+announcements don't arrive (macOS without the Local Network permission). Either way the
+world counts only once `127.0.0.1:<port>` answers a Minecraft status ping, asked again
+every 15 seconds; it closes when its announcements stop (6 seconds), its game exits, or
+two pings in a row fail. A world's id is `lan-` and 12 hex digits of its name's SHA-256,
+so a friend's Magic localhost port stays the same each time it opens.
+
+**Publishing.** The Launcher shares as a core does. It has a friend certificate of its
+own (`<data>/friend_lan_host.json`, sealed with the friend file's key, 0600), and turning
+the switch on lists it once in the person's state as a core (`MyCore::source`
+`lodestone-launcher:lan-worlds`, name "Lodestone Launcher") marked in `launchers`.
+Worlds opening and closing need no new state: the Launcher runs its friend host only
+while a world is open, so a friend's presence check on its lookup id is "open now", and
+the worlds themselves come over the info stream. Turning the switch off takes it out of
+the state (not retired: turning it on again lists the same certificate). Retiring it
+from "You" works as for a core; the Launcher then makes a new certificate.
+
+**Serving** (`launcher-core/src/friend_list/lan.rs`, `lodestone-launcher/src/servers/lan_share.rs`).
+The friend host is `lodestone_connect`'s, with the Launcher's certificate, so everything
+under "Finding a friend's core" and "Joining" holds: records per friend, knocks, gated
+QUIC, the friend hello. It shares with friends who accepted (not pending or retired) and
+whom the person doesn't hide from, at most 120; hiding or removing a friend disconnects
+them at once. Info answers only `GET /api/v1/friend/servers`, with the open worlds as
+`SharedServer`s (`state: Running`, no client pack, `online_mode` when known). Game
+streams go to `127.0.0.1:<the world's port>` for an open world's id, never anywhere
+else. It runs whichever page is shown, and never with the switch off.
+
+**Joining.** Friends' launchers show their friend's launcher as **LAN worlds**, only
+while it's online, each world tagged **LAN world** with its name (its MOTD,
+`<player> - <world>`), version and "open now", and Play as for any friend's server.
+Under it: joinable only while the friend's game has it open; a Microsoft account is
+needed when the world is in online mode (it is when the host plays with a Microsoft
+account, which the Launcher knows for games it started); the Minecraft version; and,
+for a modded world, that the same mods are needed (there's no client pack).
+
+Launchers from before this see the Launcher as one more core of their friend's (offline
+while no world is open) and its worlds as servers on it, which they can join.
+
+What it doesn't protect against, beyond the above: a world's port is a local Minecraft
+server; whoever can make this computer announce a port (a program running here, or
+someone on the network spoofing this computer's address) can have it shared only if it
+answers a status ping, so it's at most another Minecraft server of this computer, and
+only friends reach it.
+
 ## Mods
 
 - Trust stays per server, tied to its certificate (`trusted_as`). A friend's server
@@ -319,7 +407,8 @@ new fingerprint in its next state.
 - Keychain items can be read by any program running as the same user (on Windows, DPAPI
   protects them with the user's sign-in). That's the boundary.
 - **Who makes it.** Only the Launcher starts a friend list, when the person first
-  chooses a name or makes or answers a friend link. Opening the Servers page, looking up
+  chooses a name or makes or answers a friend link (with their Minecraft name, when they
+  have a Microsoft account and chose none). Opening the Servers page, looking up
   a friend link (pasted, or opened from outside the Launcher), and the read-only control
   methods (`friend_list.list`, `links`) make no key and no file.
 - **Changes.** Every change takes an operating system lock on `friend_list.lock` (the
@@ -424,6 +513,7 @@ A core registers one **session** with all its records, and waits on one WebSocke
 | The friend file goes missing (retired, deleted, moved) | Changes stop; the file is never written again with old keys, and the Host never empties its core for it. |
 | An agent using the control API ticks "Codes match" | `friend_list.verify` needs `"confirm": true`, only on the user's word that they compared codes aloud. |
 | Name tricks | Names are cleaned and shown beside local nicknames; duplicates are flagged. |
+| A friend claims someone else's Minecraft profile (to show their skin) | The profile is signed by the claimer's key but never presented as proof; the UI says the launcher claims it, and a UUID or Minecraft name matching another friend's is flagged like a name. Safety codes are the check. |
 
 ## What this doesn't protect against
 
@@ -454,6 +544,8 @@ A core registers one **session** with all its records, and waits on one WebSocke
   They can also list someone else's Minecraft name among their players, and sharing
   with them would whitelist it. The Host shows those names under the friend's box before
   you share.
+- **Mojang sees whose skins you look at.** Fetching a friend's face asks Mojang's
+  session server about their UUID from your address (once a day per friend at most).
 - **Networks that can't punch through** still fail (`NoPath`).
 - **A friend whose connection comes from an address not in their knock** gets no
   answer: the core lets in only the addresses the knock named. Some carrier-grade NATs
@@ -474,7 +566,9 @@ A core registers one **session** with all its records, and waits on one WebSocke
   file, pairing, states, presence and joining (`ops.rs`), and `core_sync.rs`, which
   puts the friend list on a core for the app with an owner session to it.
 - Launcher: the Friends section of the Servers page, the friend deep link, and CLI
-  commands. Host: sharing an instance with chosen friends, and syncing its core.
+  commands. LAN worlds: `launcher-core/src/cores/lan_open.rs` (detecting),
+  `launcher-core/src/friend_list/lan.rs` (the certificate, the state, the host) and
+  `lodestone-launcher/src/servers/lan_share.rs`. Host: sharing an instance with chosen friends, and syncing its core.
 
 The Launcher and the Host share one friend list: the file in the Launcher's data folder
 and the Keychain items `friend-identity` and `friend-list-key` (account "Lodestone
@@ -485,7 +579,10 @@ person's real identity.
 
 Tests: `crates/lodestone-connect/tests/friends.rs` pairs, publishes and joins through an
 in-process service (or the real Worker with `CONNECT_TEST_SERVICE`);
-`services/connect/test/friends.test.js` checks the v2 routes; the core's
+`services/connect/test/friends.test.js` checks the v2 routes;
+`launcher/crates/launcher-core/tests/lan_worlds.rs` shares a fake LAN world between two
+friend lists and exchanges bytes through the tunnel (in-process service, or
+`CONNECT_TEST_SERVICE`); the core's
 `connect::tests` check the owner-only routes and the friend info routes; and
 launcher-core's `friend_list::tests` check the sealed file and, with
 `CONNECT_TEST_SERVICE`, the whole flow between two people.

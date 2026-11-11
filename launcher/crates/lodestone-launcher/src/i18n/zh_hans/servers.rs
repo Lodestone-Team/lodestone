@@ -44,10 +44,10 @@ pub fn text(message: M) -> &'static str {
         M::ClaimInvalid => "主机发送了 Lodestone Launcher 无法理解的内容：{error}",
         M::AddServer => "添加主机",
         M::Dismiss => "关闭",
-        M::OtherCoresTitle => "其他主机",
-        M::OtherCoresHint => "你按地址添加的其他电脑上的主机：你自己的，或朋友的。",
-        M::NoOtherCores => "还没有其他主机",
-        M::NoServersHint => "按地址添加主机。不登录时，你能看到其所有者公开列出的服务器。",
+        M::OtherCoresTitle => "其他主机和服务器",
+        M::OtherCoresHint => "你通过地址添加的其他电脑上的主机，以及你通过邀请链接加入的服务器。",
+        M::NoOtherCores => "还没有其他主机或服务器",
+        M::NoServersHint => "通过地址添加主机，或用别人发给你的邀请链接添加服务器。",
 
         M::CoreMoreActions => "{name} 的更多操作",
         M::CopyOwnerApiKey => "复制所有者 API 密钥",
@@ -332,6 +332,13 @@ pub fn text(message: M) -> &'static str {
         }
         M::LanWorld => "局域网世界",
         M::Join => "加入",
+        M::AddInvite => "添加",
+        M::AddAndJoin => "添加并加入",
+        M::ServerFromLink => "来自 {link} 的服务器",
+        M::AddedNotAnswered => "已添加。主机响应后会显示名称和版本。",
+        M::AlreadyAddedTitle => "已添加",
+        M::AlreadyAddedNamed => "{name} 已添加",
+        M::AlreadyAddedBody => "此链接指向本页上的一个服务器，它的那一行已突出显示。",
         M::OnYourNetwork => "你的网络",
         M::OnYourNetworkHint => "此网络中对局域网开放的世界。",
         M::JoinWorld => "加入 {world}",
@@ -340,12 +347,9 @@ pub fn text(message: M) -> &'static str {
         }
         M::NoInstancesYet => "你还没有实例。请先创建一个。",
 
-        M::FriendsTitle => "好友的服务器",
-        M::FriendsHint => "好友通过 Lodestone Connect 邀请链接与你共享的服务器。",
-        M::JoinAFriend => "加入好友",
-        M::NoFriendsYet => {
-            "好友在 Lodestone Host 中共享服务器后，会得到一个邀请链接。打开该链接，或点击“加入好友”将其粘贴到这里。"
-        }
+        M::FriendsTitle => "来自邀请链接的服务器",
+        M::FriendsHint => "别人通过 Lodestone Connect 邀请链接与你共享的服务器。",
+        M::JoinAFriend => "添加服务器",
         M::SharedBy => "由 {name} 共享",
         M::SharedWithFriends => "已与好友共享",
         M::SharedWithFriendsHint => "你通过它们的邀请链接加入过这些服务器。",
@@ -360,9 +364,10 @@ pub fn text(message: M) -> &'static str {
         M::ViaLocalNetwork => "通过局域网",
         M::ViaIpv6 => "通过 IPv6",
         M::ViaInternet => "通过互联网",
-        M::JoinFriendTitle => "加入好友的服务器",
+        M::JoinFriendTitle => "加入服务器",
+        M::AddServerTitle => "添加服务器",
         M::JoinFriendIntro => {
-            "粘贴好友发给你的邀请链接。它以 https://connect.lodestone.cc/j/ 开头。"
+            "粘贴别人发给你的邀请链接，它以 https://connect.lodestone.cc/j/ 开头。即使服务器现在离线，“添加”也会保存它。"
         }
         M::InvitePlaceholder => "邀请链接（https://connect.lodestone.cc/j/…）",
         M::NotAnInvite => {
@@ -423,7 +428,7 @@ pub fn text(message: M) -> &'static str {
         }
         M::FriendsReadFailed => "无法读取好友的服务器",
         M::FriendsSaveFailed => "无法保存好友的服务器",
-        M::FriendAddress => "地址：{address}（连接时可用）",
+        M::FriendAddress => "Magic localhost：{address}（连接时可用）",
         M::FriendPortTaken => "端口 {port} 已被占用",
         M::FriendPortTakenBody => {
             "这台电脑上的其他程序正在使用它，所以这次的地址是 {address}。下次 Lodestone Launcher 会再次尝试端口 {port}。"

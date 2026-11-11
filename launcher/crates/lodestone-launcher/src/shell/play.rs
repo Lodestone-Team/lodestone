@@ -301,8 +301,8 @@ fn linked_to(link: &InstanceLink, cx: &mut Context<LauncherShell>) -> impl IntoE
                 .cursor_pointer()
                 .hover(|style| style.underline())
                 .on_press(cx.listener(move |this, _, _, cx| {
-                    // the page its row is on: a friend's server is on the Friends page,
-                    // unless it runs on this computer
+                    // the page its row is on: the Friends page for a server from the
+                    // friend list, the Lodestone Host page for the others
                     let (friends, row_core, row_server) =
                         this.servers.read(cx).link_target(&core, &server);
                     this.show(

@@ -57,6 +57,8 @@ pub const SCENES: &[&str] = &[
     "servers-highlight-friend",
     "servers-highlight-here",
     "servers-friends",
+    "servers-friends-added",
+    "servers-friends-added-again",
     "servers-friends-relay",
     "servers-join-paste",
     "servers-join-connecting",
@@ -74,12 +76,10 @@ pub const SCENES: &[&str] = &[
     "servers-friend-list-remove",
     "servers-friend-list-retire",
     "servers-friend-list-retire-core",
-    "servers-friend-steps-link",
-    "servers-friend-steps-accept",
-    "servers-friend-steps-pending",
-    "servers-friend-steps-compare",
-    "servers-friend-steps-share",
-    "servers-friend-steps-play",
+    "servers-friend-list-offline",
+    "servers-friend-list-pending",
+    "servers-friend-list-lan",
+    "servers-friend-list-lan-off",
 ];
 
 /// Made-up fingerprints.
@@ -490,10 +490,7 @@ fn apply_servers(scene: &str, servers: &mut Servers, cx: &mut Context<Servers>) 
                 cx,
             );
         }
-        scene
-            if scene.starts_with("servers-friend-list")
-                || scene.starts_with("servers-friend-steps") =>
-        {
+        scene if scene.starts_with("servers-friend-list") => {
             servers.preview(Vec::new(), Vec::new());
             super::friend_list::apply(scene, servers, cx);
         }
@@ -502,7 +499,8 @@ fn apply_servers(scene: &str, servers: &mut Servers, cx: &mut Context<Servers>) 
         | "servers-history-back"
         | "servers-highlight"
         | "servers-highlight-friend"
-        | "servers-highlight-here" => apply_rows(servers),
+        | "servers-highlight-here"
+        | "servers-friends-added-again" => apply_rows(servers),
         "servers-shared-local" | "servers-shared-local-gone" => {
             apply_shared_local(scene == "servers-shared-local", servers)
         }
@@ -540,6 +538,7 @@ fn shared(name: &str, loader: &str, version: Option<&str>, modpack: bool) -> Sha
         state: Some("Running".into()),
         player_count: Some(3),
         max_player_count: Some(20),
+        online_mode: None,
     }
 }
 
@@ -829,9 +828,9 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
     let servers = shell.servers().clone();
     servers.update(cx, |servers, cx| apply_servers(scene, servers, cx));
     // friends' servers and the friend list are on the Friends page
-    let friends = scene.starts_with("servers-friend")
-        || scene.starts_with("servers-join")
-        || scene == "servers-highlight-friend";
+    // the friend list is on the Friends page; servers from invite links ("Add
+    // server") on the Lodestone Host page
+    let friends = scene.starts_with("servers-friend-list");
     shell.show(
         if friends {
             Page::Friends
@@ -850,6 +849,27 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
         shell.go_back(cx);
     }
     // an instance page's "Linked to …" pressed: the server's row flashes
+    // "Add" in the paste dialog: a server saved without joining, its host not heard
+    // from yet
+    if scene == "servers-friends-added" {
+        let invite = Invite::parse(&format!(
+            "https://connect.lodestone.cc/j/NEWSRV2345#{}.{}",
+            "cd".repeat(32),
+            "02".repeat(16)
+        ))
+        .expect("a made-up invite");
+        servers.update(cx, |servers, cx| servers.add_invite(invite, cx));
+    }
+    // "Add" with the link of a server saved already, shown as a core's own row here
+    if scene == "servers-friends-added-again" {
+        let invite = Invite::parse(&format!(
+            "https://connect.lodestone.cc/j/HMCRTV2345#{}.{}",
+            "ab".repeat(32),
+            "01".repeat(16)
+        ))
+        .expect("a made-up invite");
+        servers.update(cx, |servers, cx| servers.add_invite(invite, cx));
+    }
     if scene == "servers-highlight" {
         servers.update(cx, |servers, cx| {
             servers.highlight_server("home", "creative", cx)

@@ -82,10 +82,12 @@ pub struct Settings {
     /// show it again). Left out of the file until then.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub host_offer_dismissed: bool,
-    /// The Friends section's "How to add a friend" steps were hidden ("Show steps"
-    /// brings them back). Left out of the file until then.
+    /// Friends page > "Share LAN worlds with friends": the worlds this person opens to
+    /// LAN show on their friends' Friends pages, and friends can join them while they're
+    /// open (launcher/docs/friends.md, "LAN worlds"). Off by default; left out of the
+    /// file while off.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub friend_steps_hidden: bool,
+    pub share_lan_worlds: bool,
     /// The interface's zoom, from Ctrl/⌘ + and −: 1.0 is 100%. Left out of the file
     /// at 100%.
     #[serde(default = "one", skip_serializing_if = "is_one")]
@@ -121,7 +123,7 @@ impl Default for Settings {
             main_instance_offered: false,
             narrator_offered: false,
             host_offer_dismissed: false,
-            friend_steps_hidden: false,
+            share_lan_worlds: false,
             zoom: 1.0,
             skin: None,
             sidebar_width: None,

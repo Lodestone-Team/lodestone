@@ -1,11 +1,18 @@
 //! Skin heads for the account box: the 8×8 face of a skin with its hat layer on
 //! top, scaled up without smoothing and cached as a PNG in the data directory.
+//!
+//! Friends' heads come the same way, from the skin their Minecraft profile has on
+//! Mojang's public session server ([`cached_profile_head`]): which skin a profile has
+//! is cached for a day beside the heads, so the session server is asked about each
+//! friend at most once a day.
 
 use std::{
     io::Cursor,
     path::{Path, PathBuf},
+    time::{Duration, SystemTime},
 };
 
+use base64::Engine as _;
 use http_client::HttpClient;
 use image::{ImageFormat, ImageReader, Rgba, RgbaImage, imageops};
 use url::Url;
@@ -66,11 +73,122 @@ pub async fn cached_head(
     skin_url: &str,
 ) -> Result<PathBuf, SkinError> {
     let hash = texture_hash(skin_url).ok_or(SkinError::UntrustedUrl)?;
-    let path = head_path(cache_dir, &hash);
+    head_for_hash(client, textures, cache_dir, &hash).await
+}
+
+/// How long which skin a profile has is believed before the session server is asked
+/// again.
+pub const PROFILE_FRESH_FOR: Duration = Duration::from_secs(24 * 60 * 60);
+
+/// Where which skin the profile `uuid` has is cached: its texture hash, or nothing
+/// for a profile without a skin of its own.
+fn profile_path(cache_dir: &Path, uuid: &[u8; 16]) -> PathBuf {
+    cache_dir.join("profiles").join(hex_uuid(uuid))
+}
+
+fn hex_uuid(uuid: &[u8; 16]) -> String {
+    uuid.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// The skin URL of the Minecraft profile `uuid`, from the session server at
+/// `sessions` (`https://sessionserver.mojang.com`): `None` when there's no such
+/// profile, or it has no skin of its own (Steve or Alex).
+pub async fn profile_skin_url(
+    client: &dyn HttpClient,
+    sessions: &Url,
+    uuid: &[u8; 16],
+) -> Result<Option<String>, SkinError> {
+    let url = http::join(
+        sessions,
+        &format!("session/minecraft/profile/{}", hex_uuid(uuid)),
+    );
+    let request = http::get(&url, None).map_err(|err| SkinError::Download(err.to_string()))?;
+    let response = http::send(client, request)
+        .await
+        .map_err(|err| SkinError::Download(err.to_string()))?;
+    // no such profile: 204 with no body, or 404
+    if response.status == 204 || response.status == 404 {
+        return Ok(None);
+    }
+    if !response.is_success() {
+        return Err(SkinError::Download(format!("HTTP {}", response.status)));
+    }
+    let invalid = |what: &str| SkinError::Invalid(format!("the profile's {what}"));
+    let profile: serde_json::Value = response.json().map_err(|_| invalid("JSON"))?;
+    let Some(textures) = profile["properties"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|p| p["name"] == "textures")
+        .and_then(|p| p["value"].as_str())
+    else {
+        return Ok(None);
+    };
+    let textures = base64::engine::general_purpose::STANDARD
+        .decode(textures)
+        .map_err(|_| invalid("textures"))?;
+    let textures: serde_json::Value =
+        serde_json::from_slice(&textures).map_err(|_| invalid("textures"))?;
+    Ok(textures["textures"]["SKIN"]["url"]
+        .as_str()
+        .map(str::to_string))
+}
+
+/// The cached head of the skin the Minecraft profile `uuid` has, asking the session
+/// server which one that is at most once a [`PROFILE_FRESH_FOR`] (an answer from
+/// before is used when it can't be asked). `None` for a profile with no skin of its
+/// own, or none at all.
+pub async fn cached_profile_head(
+    client: &dyn HttpClient,
+    textures: &Url,
+    sessions: &Url,
+    cache_dir: &Path,
+    uuid: &[u8; 16],
+) -> Result<Option<PathBuf>, SkinError> {
+    let path = profile_path(cache_dir, uuid);
+    let cached = std::fs::read_to_string(&path).ok();
+    let fresh = std::fs::metadata(&path)
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|at| SystemTime::now().duration_since(at).ok())
+        .is_some_and(|age| age < PROFILE_FRESH_FOR);
+    let hash = match cached {
+        Some(hash) if fresh => hash,
+        cached => match profile_skin_url(client, sessions, uuid).await {
+            Ok(url) => {
+                // a skin somewhere other than the textures host is never fetched
+                let hash = url.as_deref().and_then(texture_hash).unwrap_or_default();
+                storage::write_atomic(&path, hash.as_bytes())?;
+                hash
+            }
+            Err(err) => match cached {
+                Some(hash) => hash,
+                None => return Err(err),
+            },
+        },
+    };
+    let hash = hash.trim();
+    if hash.is_empty() || !hash.bytes().all(|b| b.is_ascii_hexdigit()) || hash.len() > 128 {
+        return Ok(None);
+    }
+    head_for_hash(client, textures, cache_dir, hash)
+        .await
+        .map(Some)
+}
+
+/// The cached head for the skin with texture hash `hash`, downloading and rendering
+/// it from `textures` if needed.
+async fn head_for_hash(
+    client: &dyn HttpClient,
+    textures: &Url,
+    cache_dir: &Path,
+    hash: &str,
+) -> Result<PathBuf, SkinError> {
+    let path = head_path(cache_dir, hash);
     if path.is_file() {
         return Ok(path);
     }
-    let request = http::get(&download_url(textures, &hash), None)
+    let request = http::get(&download_url(textures, hash), None)
         .map_err(|err| SkinError::Download(err.to_string()))?;
     let response = http::send(client, request)
         .await

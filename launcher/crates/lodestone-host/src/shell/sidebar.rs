@@ -184,7 +184,8 @@ pub fn render(shell: &HostShell, cx: &mut Context<HostShell>) -> impl IntoElemen
             .text_size(text::MEDIUM)
             .text_color(ink::muted())
             .child(Icon::Expand.render(px(20.), ink::faint()))
-            .child(t(ShellMsg::NoInstanceSelected))
+            // centred under the icon, also when it wraps in a narrow sidebar
+            .child(div().text_center().child(t(ShellMsg::NoInstanceSelected)))
             .into_any_element(),
     };
 
@@ -604,9 +605,11 @@ fn selected_card(
                     .full_width()
                     .on_click(cx.listener(move |this, _, _, cx| {
                         let uuid = uuid.clone();
-                        // an Overview already open hears it through the state
+                        // an Overview already open hears it through the state; it only
+                        // goes to Share, as the dashboard's button does
                         this.state.update(cx, |state, cx| {
                             state.share_requested = Some(uuid.clone());
+                            state.share_start = false;
                             cx.notify();
                         });
                         this.navigate(

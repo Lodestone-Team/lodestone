@@ -2998,6 +2998,7 @@ dependencies = [
  "dirs",
  "flate2",
  "futures",
+ "futures-util",
  "http_client",
  "http_client_tls",
  "image",
@@ -3020,6 +3021,7 @@ dependencies = [
  "thiserror 2.0.17",
  "tiny_http",
  "tokio",
+ "tokio-tungstenite",
  "trash",
  "tungstenite",
  "url",
@@ -3222,6 +3224,7 @@ name = "lodestone_connect"
 version = "0.5.1"
 dependencies = [
  "aws-lc-rs",
+ "futures-util",
  "quinn",
  "ring",
  "rustls",
@@ -3233,6 +3236,7 @@ dependencies = [
  "thiserror 2.0.17",
  "tokio",
  "tokio-rustls",
+ "tokio-tungstenite",
  "tracing",
  "url",
  "webpki-roots",
@@ -5919,7 +5923,19 @@ dependencies = [
  "mio",
  "pin-project-lite",
  "socket2",
+ "tokio-macros",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "tokio-macros"
+version = "2.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "385a6cb71ab9ab790c5fe8d67f1645e6c450a7ce006a33de03daa956cf70a496"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.117",
 ]
 
 [[package]]
@@ -5942,6 +5958,18 @@ dependencies = [
  "futures-util",
  "thiserror 1.0.69",
  "tokio",
+]
+
+[[package]]
+name = "tokio-tungstenite"
+version = "0.28.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d25a406cddcc431a75d3d9afc6a7c0f7428d4891dd973e4d54c56b46127bf857"
+dependencies = [
+ "futures-util",
+ "log",
+ "tokio",
+ "tungstenite",
 ]
 
 [[package]]

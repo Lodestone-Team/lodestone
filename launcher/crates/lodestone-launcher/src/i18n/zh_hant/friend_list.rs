@@ -11,6 +11,7 @@ pub fn text(message: M) -> &'static str {
         M::NoNameYet => "先選擇好友會看到的名稱，再用好友連結新增他們。",
         M::ChooseName => "選擇名稱",
         M::EditName => "修改名稱",
+        M::MinecraftNameNote => "你的 Minecraft 名稱",
         M::OpenFailed => "無法開啟你的好友清單",
         M::ActionFailed => "無法更新你的好友清單",
         M::NoFriendsYet => "還沒有好友。建立一個好友連結，傳給你認識的人。",
@@ -43,40 +44,6 @@ pub fn text(message: M) -> &'static str {
         M::NoServersShared => "這台電腦上沒有與你分享的內容。",
         M::ServersFailed => "無法列出伺服器：{error}",
         M::ShowServers => "顯示伺服器",
-        M::StepsTitle => "如何新增好友",
-        M::StepsProgress => "已完成 {done}/{total}",
-        M::HideSteps => "隱藏步驟",
-        M::ShowSteps => "顯示步驟",
-        M::StepDone => "已完成",
-        M::StepNext => "下一步",
-        M::StepLater => "尚未開始",
-        M::StepName => "選擇你的名字",
-        M::StepNameDetail => "好友會看到這個名字。",
-        M::StepLink => "傳送好友連結，或開啟對方的連結",
-        M::StepLinkDetail => {
-            "選擇「新增好友」產生連結，然後用任何方式傳給好友。如果好友傳了連結給你，開啟它，或貼到「新增好友」中。"
-        }
-        M::StepLinkWaiting => {
-            "你的連結已準備好，只能使用一次，24 小時內有效。把它傳給好友，然後等對方開啟。"
-        }
-        M::StepAccept => "互相接受",
-        M::StepAcceptReply => "{name} 回應了你的連結。如果確實是對方，請在下方選擇「接受」。",
-        M::StepAcceptPending => "還在等 {name} 接受。對方接受後會出現在這裡。",
-        M::StepCompare => "核對安全碼",
-        M::StepCompareDetail => {
-            "透過通話或當面互相念出安全碼。如果一致，你聯絡的就是真正的 {name}。"
-        }
-        M::StepShare => "讓好友分享伺服器",
-        M::StepShareDetail => {
-            "請 {name} 分享一個伺服器：在 Lodestone Host 中開啟伺服器，進入「設定 › 好友」，勾選你的名字。你也可以用同樣的方式分享自己的伺服器。"
-        }
-        M::StepPlay => "開始遊戲",
-        M::StepPlayDetail => {
-            "當 {name} 上線時，在下方清單中開啟對方，然後在對方的伺服器上選擇「開始遊戲」。"
-        }
-        M::StepPlayOnline => {
-            "{name} 已上線。在下方清單中開啟對方，然後在對方的伺服器上選擇「開始遊戲」。"
-        }
         M::AddTitle => "新增好友",
         M::SendLinkTitle => "傳送好友連結給對方",
         M::SendLinkBody => {
@@ -97,12 +64,16 @@ pub fn text(message: M) -> &'static str {
         M::PreviewFrom => "這個連結來自 {name}",
         M::PreviewCompare => "成為好友後，請透過語音或當面與 {name} 核對安全碼。只新增你認識的人。",
         M::AlreadyFriends => "你和 {name} 已經是好友了。",
+        M::PlaysAs => {
+            "對方的啟動器顯示其 Minecraft 玩家名稱為 {name}。Lodestone 不會核實這一點：只有安全碼才能證明確實是對方本人。"
+        }
         M::Added => "{name} 已在你的好友清單中。對方確認前不會分享任何內容。",
         M::NeedNameFirst => "請先選擇你的名稱：好友會在你的回覆中看到它。",
         M::NameTitle => "你的名稱",
         M::NameBody => "好友會看到這個名稱。如果你修改了它，好友的啟動器下次查看時會看到新名稱。",
         M::NamePlaceholder => "你的名稱",
         M::NameEmpty => "請選擇一個好友會看到的名稱。",
+        M::UseMinecraftName => "使用我的 Minecraft 名稱",
         M::VerifyTitle => "與 {name} 核對安全碼",
         M::VerifyBody => {
             "打電話給 {name} 或當面見面，互相念出你們的安全碼。如果相符，表示你們成為好友時沒有人從中冒充。不要在傳送連結的那個聊天裡核對。"
@@ -140,6 +111,29 @@ pub fn text(message: M) -> &'static str {
             "你將看不到對方的伺服器，對方也看不到你的。你的主機下次同步時，會停止與對方分享。要重新成為好友，需要其中一人建立新的好友連結。"
         }
         M::RemoveFriend => "移除好友",
+        M::ShareLan => "與好友分享區域網路世界",
+        M::ShareLanBody => {
+            "當你把單人世界對區域網路開放時，好友會在這裡看到它，並可在它開放期間透過 Lodestone Connect 加入。你對其隱藏的好友看不到它。"
+        }
+        M::LanNoneOpen => {
+            "目前沒有對區域網路開放的世界。在遊戲中開啟一個世界，然後選擇「對區域網路開放」。"
+        }
+        M::LanSharing => "已與好友分享：{world}",
+        M::LanStarting => "正在準備分享…",
+        M::LanProblem => "無法分享你的區域網路世界：{error}",
+        M::LanNoList => "請先新增好友：只有好友名單中的人能看到你的區域網路世界。",
+        M::LanOnlineMode => {
+            "好友需要 Microsoft 帳號才能加入：區域網路世界使用你遊戲的正版驗證模式。"
+        }
+        M::LanFromHere => "正在從這個啟動器分享區域網路世界",
+        M::LanWorlds => "區域網路世界",
+        M::LanWorld => "區域網路世界",
+        M::OpenNow => "現已開放",
+        M::LanOpenStatus => "有一個開放中的區域網路世界",
+        M::LanJoinNote => "僅在 {name} 的遊戲開放它時可以加入。",
+        M::LanNeedsMicrosoft => "需要 Microsoft 帳號：這個世界處於正版驗證模式。",
+        M::LanNeedsVersion => "請使用 Minecraft {version} 遊玩。",
+        M::LanModded => "它使用 {loader}：你需要相同的模組。",
     }
 }
 
@@ -148,5 +142,6 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::AnsweredTimes => {
             ["這個連結收到了 {count} 個回覆。可能有其他人拿到了這個連結：接受前請核對安全碼。"; 2]
         }
+        P::LanFriendsJoined => ["{count} 位好友已加入"; 2],
     }
 }

@@ -11,12 +11,22 @@
 //! The pair secret comes from an X25519 exchange and the link's secret, bound to both
 //! messages. Once both sides delete their exchange keys, nothing the service stored,
 //! nor the link itself, reveals it.
+//!
+//! A card or reply may also carry the Minecraft profile its sender plays as
+//! ([`StatePlayer`]: a player name and UUID), so the other side can show their skin
+//! while deciding. It's signed apart (`player_sig`, over everything the first signature
+//! covers and the profile), as states sign their players, so copies from before it
+//! still check the first signature and ignore the field. It's a claim made by the
+//! sender's launcher: nobody checks that the sender owns that Minecraft account.
 
 use serde::{Deserialize, Serialize};
 
-use super::crypto::{
-    self, crockford, sha256, transcript, ExchangeKey, PersonKey, PublicKey, Role, Secret,
-    PUBLIC_KEY_LEN,
+use super::{
+    crypto::{
+        self, crockford, sha256, transcript, ExchangeKey, PersonKey, PublicKey, Role, Secret,
+        PUBLIC_KEY_LEN,
+    },
+    state::StatePlayer,
 };
 use crate::{hex, service::Service, unhex, Error, LinkError, Result};
 
@@ -261,6 +271,12 @@ struct CardWire {
     code: String,
     expires: u64,
     sig: String,
+    /// The Minecraft profile the sender plays as (from launchers that send it).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    player: Option<StatePlayer>,
+    /// Over [`player_message`] of the card's message; present when `player` is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    player_sig: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -270,6 +286,11 @@ struct ReplyWire {
     exchange: String,
     name: String,
     sig: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    player: Option<StatePlayer>,
+    /// Over [`player_message`] of the reply's message; present when `player` is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    player_sig: Option<String>,
 }
 
 /// The inviter's card, as checked.
@@ -278,6 +299,9 @@ pub struct Card {
     pub key: PublicKey,
     pub name: String,
     pub expires: u64,
+    /// The Minecraft profile the sender says they play as, signed by them. Not
+    /// checked against Mojang: anyone can name any profile.
+    pub player: Option<StatePlayer>,
     exchange: [u8; PUBLIC_KEY_LEN],
     /// The card as sent: what the reply and the pair secret are bound to.
     bytes: Vec<u8>,
@@ -288,6 +312,8 @@ pub struct Card {
 pub struct Reply {
     pub key: PublicKey,
     pub name: String,
+    /// As [`Card::player`].
+    pub player: Option<StatePlayer>,
     exchange: [u8; PUBLIC_KEY_LEN],
     bytes: Vec<u8>,
 }
@@ -319,6 +345,55 @@ fn reply_message(card_hash: &[u8; 32], key: &PublicKey, exchange: &[u8], name: &
         exchange,
         name.as_bytes(),
     ])
+}
+
+/// What `player_sig` signs: the card's or reply's own signed message, then the
+/// profile. Signed with the context `card-player` or `reply-player`.
+fn player_message(base: &[u8], player: &StatePlayer) -> Vec<u8> {
+    transcript(&[
+        base,
+        player.name.as_bytes(),
+        &player.uuid,
+        &[u8::from(player.offline)],
+    ])
+}
+
+/// The profile in a card or reply, checked: signed over `base` with `context`, and
+/// with a name a player can have. `None` when there's none.
+fn checked_player(
+    key: &PublicKey,
+    context: &str,
+    base: &[u8],
+    player: Option<StatePlayer>,
+    player_sig: Option<&str>,
+) -> Result<Option<StatePlayer>, ()> {
+    let Some(player) = player else {
+        return Ok(None);
+    };
+    let sig = player_sig.and_then(unhex).ok_or(())?;
+    if !StatePlayer::is_name(&player.name)
+        || !key.verify(context, &player_message(base, &player), &sig)
+    {
+        return Err(());
+    }
+    Ok(Some(player))
+}
+
+/// The profile to send, and its signature over `base`; nothing for `None` or a name
+/// a player can't have.
+fn signed_player(
+    me: &PersonKey,
+    context: &str,
+    base: &[u8],
+    player: Option<&StatePlayer>,
+) -> (Option<StatePlayer>, Option<String>) {
+    match player.filter(|p| StatePlayer::is_name(&p.name)) {
+        Some(player) => (
+            Some(player.clone()),
+            Some(hex(&me.sign(context, &player_message(base, player)))),
+        ),
+        None => (None, None),
+    }
 }
 
 fn pair_secret(shared: &Secret, link_secret: &Secret, card: &[u8], reply: &[u8]) -> Secret {
@@ -382,10 +457,19 @@ pub fn open_card(link: &FriendLink, sealed: &[u8], now: u64) -> Result<Card> {
     if name.is_empty() || name != wire.name {
         return Err(bad("name"));
     }
+    let player = checked_player(
+        &key,
+        "card-player",
+        &message,
+        wire.player,
+        wire.player_sig.as_deref(),
+    )
+    .map_err(|()| bad("Minecraft profile"))?;
     Ok(Card {
         key,
         name,
         expires: wire.expires,
+        player,
         exchange,
         bytes,
     })
@@ -401,6 +485,17 @@ pub struct Answer {
 /// reply bound to the card, and computes the pair secret. The exchange key is dropped
 /// here, so it's never stored.
 pub fn answer(me: &PersonKey, name: &str, link: &FriendLink, card: &Card) -> Result<Answer> {
+    answer_with_player(me, name, None, link, card)
+}
+
+/// [`answer`], also saying which Minecraft profile `me` plays as.
+pub fn answer_with_player(
+    me: &PersonKey,
+    name: &str,
+    player: Option<&StatePlayer>,
+    link: &FriendLink,
+    card: &Card,
+) -> Result<Answer> {
     let name = clean_name(name);
     if name.is_empty() {
         return Err(Error::Other("Choose a name your friend will see.".into()));
@@ -411,16 +506,17 @@ pub fn answer(me: &PersonKey, name: &str, link: &FriendLink, card: &Card) -> Res
     let exchange = ExchangeKey::generate()?;
     let exchange_public = exchange.public()?;
     let key = me.public();
-    let sig = me.sign(
-        "reply",
-        &reply_message(&sha256(&card.bytes), &key, &exchange_public, &name),
-    );
+    let message = reply_message(&sha256(&card.bytes), &key, &exchange_public, &name);
+    let sig = me.sign("reply", &message);
+    let (player, player_sig) = signed_player(me, "reply-player", &message, player);
     let bytes = serde_json::to_vec(&ReplyWire {
         v: VERSION,
         key: key.to_hex(),
         exchange: hex(&exchange_public),
         name,
         sig: hex(&sig),
+        player,
+        player_sig,
     })
     .expect("serializable");
     let shared = exchange.agree(&card.exchange)?;
@@ -473,6 +569,17 @@ impl Invitation {
         service: Service,
         now: u64,
     ) -> Result<(Self, Vec<u8>)> {
+        Self::create_with_player(me, name, None, service, now)
+    }
+
+    /// [`Invitation::create`], with the Minecraft profile `me` plays as on the card.
+    pub fn create_with_player(
+        me: &PersonKey,
+        name: &str,
+        player: Option<&StatePlayer>,
+        service: Service,
+        now: u64,
+    ) -> Result<(Self, Vec<u8>)> {
         let name = clean_name(name);
         if name.is_empty() {
             return Err(Error::Other("Choose a name your friend will see.".into()));
@@ -482,17 +589,16 @@ impl Invitation {
         let exchange = ExchangeKey::generate()?;
         let exchange_public = exchange.public()?;
         let expires = now + LINK_LIFETIME_SECS;
-        let sig = me.sign(
-            "card",
-            &card_message(
-                &key,
-                &exchange_public,
-                &name,
-                &link.code,
-                expires,
-                &link.secret,
-            ),
+        let message = card_message(
+            &key,
+            &exchange_public,
+            &name,
+            &link.code,
+            expires,
+            &link.secret,
         );
+        let sig = me.sign("card", &message);
+        let (player, player_sig) = signed_player(me, "card-player", &message, player);
         let card = serde_json::to_vec(&CardWire {
             v: VERSION,
             key: key.to_hex(),
@@ -501,6 +607,8 @@ impl Invitation {
             code: link.code.clone(),
             expires,
             sig: hex(&sig),
+            player,
+            player_sig,
         })
         .expect("serializable");
         let sealed = crypto::seal(&link.secret, Role::Card, link.code.as_bytes(), &card)?;
@@ -541,20 +649,26 @@ impl Invitation {
         }
         let exchange = key32(&wire.exchange).ok_or_else(|| bad("key"))?;
         let sig = unhex(&wire.sig).ok_or_else(|| bad("signature"))?;
-        if !key.verify(
-            "reply",
-            &reply_message(&sha256(&self.card), &key, &exchange, &wire.name),
-            &sig,
-        ) {
+        let message = reply_message(&sha256(&self.card), &key, &exchange, &wire.name);
+        if !key.verify("reply", &message, &sig) {
             return Err(bad("signature"));
         }
         let name = clean_name(&wire.name);
         if name.is_empty() || name != wire.name {
             return Err(bad("name"));
         }
+        let player = checked_player(
+            &key,
+            "reply-player",
+            &message,
+            wire.player,
+            wire.player_sig.as_deref(),
+        )
+        .map_err(|()| bad("Minecraft profile"))?;
         Ok(Reply {
             key,
             name,
+            player,
             exchange,
             bytes,
         })
@@ -707,6 +821,216 @@ mod tests {
         assert_eq!(link.access().len(), 64);
         assert_eq!(link.access_hash().len(), 64);
         assert!(!format!("{link:?}").contains(&link.secret.to_hex()));
+    }
+
+    fn steve() -> StatePlayer {
+        StatePlayer {
+            name: "Steve_1".into(),
+            uuid: [0x5a; 16],
+            offline: false,
+        }
+    }
+
+    #[test]
+    fn cards_and_replies_carry_a_signed_minecraft_profile() {
+        let ana = PersonKey::generate().unwrap();
+        let ben = PersonKey::generate().unwrap();
+        let ana_player = steve();
+        let (invitation, sealed_card) =
+            Invitation::create_with_player(&ana, "Ana", Some(&ana_player), Service::default(), NOW)
+                .unwrap();
+        let link = invitation.link.clone();
+        let card = open_card(&link, &sealed_card, NOW).unwrap();
+        assert_eq!(card.player.as_ref(), Some(&ana_player));
+
+        let ben_player = StatePlayer {
+            name: "Ben".into(),
+            uuid: [0x0b; 16],
+            offline: false,
+        };
+        let answer = answer_with_player(&ben, "Ben", Some(&ben_player), &link, &card).unwrap();
+        let reply = invitation
+            .open_reply(&ana.public(), &answer.sealed)
+            .unwrap();
+        assert_eq!(reply.player.as_ref(), Some(&ben_player));
+        assert_eq!(invitation.accept(&reply).unwrap(), answer.pair);
+
+        // without one, nothing is sent: the bytes are what older launchers send
+        let (plain, sealed_plain) =
+            Invitation::create(&ana, "Ana", Service::default(), NOW).unwrap();
+        let bytes = crypto::open(
+            &plain.link.secret,
+            Role::Card,
+            plain.link.code.as_bytes(),
+            &sealed_plain,
+        )
+        .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert!(json.get("player").is_none() && json.get("player_sig").is_none());
+        assert!(open_card(&plain.link, &sealed_plain, NOW)
+            .unwrap()
+            .player
+            .is_none());
+        // a name no player can have isn't sent
+        let odd = StatePlayer {
+            name: "not a name".into(),
+            ..steve()
+        };
+        let (odd_link, sealed_odd) =
+            Invitation::create_with_player(&ana, "Ana", Some(&odd), Service::default(), NOW)
+                .unwrap();
+        assert!(open_card(&odd_link.link, &sealed_odd, NOW)
+            .unwrap()
+            .player
+            .is_none());
+        // the largest card still fits the service's mailbox (4096 hex digits)
+        let longest = StatePlayer {
+            name: "x".repeat(16),
+            ..steve()
+        };
+        let (_, sealed_long) = Invitation::create_with_player(
+            &ana,
+            &"🙂".repeat(MAX_NAME_CHARS),
+            Some(&longest),
+            Service::default(),
+            NOW,
+        )
+        .unwrap();
+        assert!(sealed_long.len() * 2 <= 4096, "{}", sealed_long.len());
+    }
+
+    /// A launcher from before profiles reads a card or reply with one: the fields it
+    /// doesn't know are ignored, and its signature checks as before.
+    #[test]
+    fn older_launchers_ignore_the_profile() {
+        #[derive(Deserialize)]
+        struct OldCardWire {
+            v: u32,
+            key: String,
+            exchange: String,
+            name: String,
+            code: String,
+            expires: u64,
+            sig: String,
+        }
+        #[derive(Deserialize)]
+        struct OldReplyWire {
+            v: u32,
+            key: String,
+            exchange: String,
+            name: String,
+            sig: String,
+        }
+        let ana = PersonKey::generate().unwrap();
+        let ben = PersonKey::generate().unwrap();
+        let (invitation, sealed) =
+            Invitation::create_with_player(&ana, "Ana", Some(&steve()), Service::default(), NOW)
+                .unwrap();
+        let link = invitation.link.clone();
+        let bytes = crypto::open(&link.secret, Role::Card, link.code.as_bytes(), &sealed).unwrap();
+        let old: OldCardWire = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(old.v, VERSION);
+        let key = PublicKey(key32(&old.key).unwrap());
+        let exchange = key32(&old.exchange).unwrap();
+        assert!(key.verify(
+            "card",
+            &card_message(
+                &key,
+                &exchange,
+                &old.name,
+                &old.code,
+                old.expires,
+                &link.secret
+            ),
+            &unhex(&old.sig).unwrap(),
+        ));
+
+        let card = open_card(&link, &sealed, NOW).unwrap();
+        let answer = answer_with_player(&ben, "Ben", Some(&steve()), &link, &card).unwrap();
+        let bytes = crypto::open(
+            &link.secret,
+            Role::Reply,
+            link.code.as_bytes(),
+            &answer.sealed,
+        )
+        .unwrap();
+        let old: OldReplyWire = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(old.v, VERSION);
+        let key = PublicKey(key32(&old.key).unwrap());
+        let exchange = key32(&old.exchange).unwrap();
+        assert!(key.verify(
+            "reply",
+            &reply_message(&sha256(&card.bytes), &key, &exchange, &old.name),
+            &unhex(&old.sig).unwrap(),
+        ));
+        // and an old reply (no profile) still opens for a new inviter
+        let plain = super::answer(&ben, "Ben", &link, &card).unwrap();
+        let reply = invitation.open_reply(&ana.public(), &plain.sealed).unwrap();
+        assert!(reply.player.is_none());
+        assert_eq!(invitation.accept(&reply).unwrap(), plain.pair);
+    }
+
+    #[test]
+    fn a_profile_someone_else_put_in_is_refused() {
+        let ana = PersonKey::generate().unwrap();
+        let ben = PersonKey::generate().unwrap();
+        let (invitation, sealed) =
+            Invitation::create_with_player(&ana, "Ana", Some(&steve()), Service::default(), NOW)
+                .unwrap();
+        let link = invitation.link.clone();
+        // whoever has the link (the page's server, say) swaps the profile and seals the
+        // card again: the profile's signature no longer checks
+        let reseal = |edit: &dyn Fn(&mut serde_json::Value)| {
+            let bytes =
+                crypto::open(&link.secret, Role::Card, link.code.as_bytes(), &sealed).unwrap();
+            let mut json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+            edit(&mut json);
+            crypto::seal(
+                &link.secret,
+                Role::Card,
+                link.code.as_bytes(),
+                &serde_json::to_vec(&json).unwrap(),
+            )
+            .unwrap()
+        };
+        let swapped = reseal(&|json| json["player"]["uuid"] = serde_json::json!("09".repeat(16)));
+        assert!(open_card(&link, &swapped, NOW).is_err());
+        let unsigned = reseal(&|json| {
+            json.as_object_mut().unwrap().remove("player_sig");
+        });
+        assert!(open_card(&link, &unsigned, NOW).is_err());
+        // a renamed profile
+        let renamed = reseal(&|json| json["player"]["name"] = serde_json::json!("Notch"));
+        assert!(open_card(&link, &renamed, NOW).is_err());
+        // dropping the profile is allowed (it's what an older launcher would send), but
+        // changes the card, so the pair secret can't match a reply to the real one
+        let dropped = reseal(&|json| {
+            let object = json.as_object_mut().unwrap();
+            object.remove("player");
+            object.remove("player_sig");
+        });
+        assert!(open_card(&link, &dropped, NOW).unwrap().player.is_none());
+
+        // a reply's profile is checked the same way
+        let card = open_card(&link, &sealed, NOW).unwrap();
+        let answer = answer_with_player(&ben, "Ben", Some(&steve()), &link, &card).unwrap();
+        let bytes = crypto::open(
+            &link.secret,
+            Role::Reply,
+            link.code.as_bytes(),
+            &answer.sealed,
+        )
+        .unwrap();
+        let mut json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        json["player"]["name"] = serde_json::json!("Ana");
+        let forged = crypto::seal(
+            &link.secret,
+            Role::Reply,
+            link.code.as_bytes(),
+            &serde_json::to_vec(&json).unwrap(),
+        )
+        .unwrap();
+        assert!(invitation.open_reply(&ana.public(), &forged).is_err());
     }
 
     #[test]

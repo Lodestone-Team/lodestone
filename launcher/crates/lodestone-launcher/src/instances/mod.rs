@@ -325,6 +325,12 @@ pub enum InstancesEvent {
     GameWindowOpened(String),
     /// A game exited, after any [`InstancesEvent::Crashed`] for it.
     GameExited(String),
+    /// The game of the instance opened a world to LAN on `port`: its log said
+    /// `Started serving on <port>` (shared with friends when the person chose to).
+    LanOpened {
+        id: String,
+        port: u16,
+    },
     /// A new instance, with no main instance yet: offer to make it the main one.
     OfferMain(String),
     /// `id` is to become the main instance, but `current` is: ask first.
@@ -604,10 +610,9 @@ impl Instances {
         }
     }
 
-    /// Hides or shows the Friends section's "How to add a friend" steps.
-    pub fn set_friend_steps_hidden(&mut self, hidden: bool, cx: &mut Context<Self>) {
-        if let Err(err) = self.update_settings(|settings| settings.friend_steps_hidden = hidden, cx)
-        {
+    /// Friends page > "Share LAN worlds with friends".
+    pub fn set_share_lan_worlds(&mut self, on: bool, cx: &mut Context<Self>) {
+        if let Err(err) = self.update_settings(|settings| settings.share_lan_worlds = on, cx) {
             self.notice = Some(err.into());
         }
     }
@@ -1895,6 +1900,16 @@ impl Instances {
                                     if !run.reached_menu && crash::reached_menu(&line.message) {
                                         run.reached_menu = true;
                                         milestones.push(InstancesEvent::ReachedMenu(id.clone()));
+                                    }
+                                    if let Some(port) =
+                                        launcher_core::cores::lan_open::started_serving_port(
+                                            &line.message,
+                                        )
+                                    {
+                                        milestones.push(InstancesEvent::LanOpened {
+                                            id: id.clone(),
+                                            port,
+                                        });
                                     }
                                     if !run.mods_refused
                                         && (crash::mods_refused(&line.message)

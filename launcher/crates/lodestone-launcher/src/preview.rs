@@ -658,6 +658,11 @@ pub fn accounts(scene: &str, cx: &mut App) -> Entity<Accounts> {
         if scene == "signed-out" {
             return accounts;
         }
+        if scene == "servers-friend-list-offline" {
+            // no Microsoft account: no Minecraft name to use
+            accounts.insert_for_preview(Account::offline("Dev_Steve").expect("a valid name"));
+            return accounts;
+        }
         let mut microsoft = microsoft_account();
         if matches!(scene.as_str(), "sign-in-launcher" | "account-menu-launcher") {
             accounts.preview_launcher_identity(true);

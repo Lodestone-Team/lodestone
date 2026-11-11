@@ -24,6 +24,12 @@
 //! - **Adding** never happens without the person's click: a pasted or opened link shows
 //!   the card's name and safety code first ([`AddFriend`]), and answers to this person's
 //!   own links wait for Accept.
+//! - **Names and skins.** Signed in with Microsoft, the person's name is their
+//!   Minecraft name until they choose another ([`Friends::set_players`], before every
+//!   change that needs a name), and their card and answers say which Minecraft profile
+//!   they play as. Friends' faces come from Mojang's session server by that profile's
+//!   UUID ([`Servers::request_friend_heads`]), cached on disk, in the background: the
+//!   list never waits for them, and without one it looks as before.
 //! - **Playing** on a friend's server opens a tunnel through the friend list and goes
 //!   on as the invite flow does (`super::friends`, `Source::FriendList`). Such a server
 //!   is a `FriendServer` with the id `friend:<core fingerprint>/<instance>`; its mods
@@ -42,7 +48,9 @@ use futures::{
     future::{BoxFuture, LocalBoxFuture, Shared},
     lock::Mutex,
 };
-use gpui::{App, AppContext as _, AsyncApp, Context, Entity, FocusHandle, SharedString, Task};
+use gpui::{
+    App, AppContext as _, AsyncApp, Context, Entity, FocusHandle, RenderImage, SharedString, Task,
+};
 use launcher_core::{
     SecretStore,
     accounts::AccountKind,
@@ -54,8 +62,10 @@ use launcher_core::{
         self, Book, Friend, FriendStatus as Status, Friends, FriendsError, Opened, StatePlayer,
         StoredKeys,
         ops::{self, CorePresence, LinkPreview, LinkReply, Refreshed},
+        profile_of,
     },
     paths::DataDir,
+    skin,
 };
 
 pub use launcher_core::friend_list::{hex, service, unhex32};
@@ -67,8 +77,7 @@ use crate::{
 };
 
 /// What an operation says when there's no friend list (yet, or any more).
-const NO_LIST: &str =
-    "You have no friend list yet. Choose the name your friends will see to start one.";
+pub(super) const NO_LIST: &str = "You have no friend list yet. Add a friend to start one.";
 
 /// How often the section checks on friends while it is shown.
 pub const REFRESH_EVERY: Duration = Duration::from_secs(5 * 60);
@@ -162,6 +171,16 @@ async fn start_list(
     let keys = friend_list::make_keys(&data, &*store, keys).await?;
     cx.background_spawn(async move { Friends::start_with(&data, &keys, service()) })
         .await
+}
+
+/// A Minecraft profile's face, for the friend list: by the profile's UUID.
+#[derive(Clone)]
+pub enum Head {
+    Loading,
+    Ready(Arc<RenderImage>),
+    /// No skin of its own, or it couldn't be fetched: the list draws what it drew
+    /// before. Asked again when the launcher next starts.
+    None,
 }
 
 /// The servers of one of a friend's cores, once asked.
@@ -266,6 +285,9 @@ pub struct FriendList {
     pub dialog: DialogSlot<Servers, FriendPrompt>,
     /// Friends or answers being changed: their keys.
     pub busy: HashSet<String>,
+    /// Faces of the Minecraft profiles friends (and people answering) say they play
+    /// as, by UUID.
+    pub heads: HashMap<[u8; 16], Head>,
     poller: Option<Task<()>>,
     refresh_task: Option<Task<()>>,
 }
@@ -289,6 +311,7 @@ impl FriendList {
             made: None,
             dialog: DialogSlot::new(|this: &mut Servers| &mut this.friend_list.dialog),
             busy: HashSet::new(),
+            heads: HashMap::new(),
             poller: None,
             refresh_task: None,
         }
@@ -339,6 +362,15 @@ impl FriendList {
     /// `Some(false)` when none is, `None` before the first check.
     pub fn online(&self, friend: &Friend) -> Option<bool> {
         friend_online(friend, &self.presence)
+    }
+
+    /// The face of the Minecraft profile `player`, once fetched.
+    pub fn head(&self, player: Option<&StatePlayer>) -> Option<Arc<RenderImage>> {
+        let player = player.filter(|p| !p.offline)?;
+        match self.heads.get(&player.uuid) {
+            Some(Head::Ready(image)) => Some(image.clone()),
+            _ => None,
+        }
     }
 }
 
@@ -531,6 +563,7 @@ impl Servers {
                 if first && this.visible {
                     this.friend_list_visible(true, cx);
                 }
+                this.request_friend_heads(cx);
                 cx.notify();
             })
             .ok();
@@ -555,6 +588,7 @@ impl Servers {
                 this.update(cx, |this, cx| {
                     this.friend_list.open_error = None;
                     this.friend_list.snapshot = snapshot;
+                    this.request_friend_heads(cx);
                     cx.notify();
                 })
                 .ok();
@@ -613,10 +647,19 @@ impl Servers {
     }
 
     /// This launcher's Minecraft accounts as friends see them, so their Hosts can put
-    /// them on a server's whitelist: Microsoft accounts first.
-    fn my_players(&self, cx: &App) -> Vec<StatePlayer> {
-        let mut accounts: Vec<_> = self.accounts.read(cx).accounts().to_vec();
-        accounts.sort_by_key(|account| account.kind == AccountKind::Offline);
+    /// them on a server's whitelist: Microsoft accounts first, the active one first of
+    /// all. The first Microsoft one is the person's profile: its name is their name
+    /// until they choose one, and its skin is shown beside it.
+    pub(super) fn my_players(&self, cx: &App) -> Vec<StatePlayer> {
+        let accounts = self.accounts.read(cx);
+        let active = accounts.active().map(|account| account.id.clone());
+        let mut accounts: Vec<_> = accounts.accounts().to_vec();
+        accounts.sort_by_key(|account| {
+            (
+                account.kind == AccountKind::Offline,
+                Some(&account.id) != active.as_ref(),
+            )
+        });
         accounts
             .into_iter()
             .map(|account| StatePlayer {
@@ -625,6 +668,88 @@ impl Servers {
                 offline: account.kind == AccountKind::Offline,
             })
             .collect()
+    }
+
+    /// The Minecraft profile this person shows friends (see [`Self::my_players`]).
+    pub(super) fn my_profile(&self, cx: &App) -> Option<StatePlayer> {
+        profile_of(&self.my_players(cx)).cloned()
+    }
+
+    /// Whether the person must choose a name before adding a friend: they have none,
+    /// and no Microsoft account whose Minecraft name would be it.
+    pub(super) fn needs_friend_name(&self, cx: &App) -> bool {
+        self.friend_list.snapshot.book.name.is_empty() && self.my_profile(cx).is_none()
+    }
+
+    /// Fetches, in the background, the faces of the Minecraft profiles the friend list
+    /// shows: friends', the answers to this person's links, and a looked-up link's
+    /// sender. Each profile is asked once a run (and its skin is cached on disk);
+    /// nothing waits for it.
+    pub fn request_friend_heads(&mut self, cx: &mut Context<Self>) {
+        if self.preview {
+            return;
+        }
+        let list = &self.friend_list;
+        let mut wanted: Vec<[u8; 16]> = list
+            .snapshot
+            .book
+            .friends
+            .iter()
+            .filter_map(|f| f.minecraft())
+            .chain(list.replies.iter().filter_map(|r| r.player.as_ref()))
+            .filter(|p| !p.offline)
+            .map(|p| p.uuid)
+            .collect();
+        if let Some(FriendDialog::Add(add)) = list.dialog.current().map(|p| &p.dialog)
+            && let Some((_, preview)) = &add.preview
+            && let Some(player) = preview.player.as_ref().filter(|p| !p.offline)
+        {
+            wanted.push(player.uuid);
+        }
+        wanted.retain(|uuid| !list.heads.contains_key(uuid));
+        wanted.sort_unstable();
+        wanted.dedup();
+        if wanted.is_empty() {
+            return;
+        }
+        let accounts = self.accounts.read(cx);
+        let http = accounts.http();
+        let endpoints = accounts.authenticator().config().endpoints.clone();
+        let cache_dir = accounts.data_dir().avatar_cache_dir();
+        for uuid in wanted {
+            self.friend_list.heads.insert(uuid, Head::Loading);
+            let (http, endpoints, cache_dir) = (http.clone(), endpoints.clone(), cache_dir.clone());
+            let load = cx.background_spawn(async move {
+                let path = skin::cached_profile_head(
+                    &*http,
+                    &endpoints.textures,
+                    &endpoints.sessions,
+                    &cache_dir,
+                    &uuid,
+                )
+                .await?;
+                match path {
+                    Some(path) => crate::images::decode_png(&std::fs::read(path)?).map(Some),
+                    None => Ok(None),
+                }
+            });
+            cx.spawn(async move |this, cx| {
+                let head = match load.await {
+                    Ok(Some(image)) => Head::Ready(image),
+                    Ok(None) => Head::None,
+                    Err(err) => {
+                        eprintln!("lodestone-launcher: loading a friend's skin: {err:#}");
+                        Head::None
+                    }
+                };
+                this.update(cx, |this, cx| {
+                    this.friend_list.heads.insert(uuid, head);
+                    cx.notify();
+                })
+                .ok();
+            })
+            .detach();
+        }
     }
 
     /// Reads friends' states (confirming pending friends, dropping retired cores),
@@ -667,8 +792,11 @@ impl Servers {
                 this.friend_list.refreshed_at = Some(Instant::now());
                 match &result {
                     Ok(report) => this.apply_refresh(report),
+                    // no list yet is how everyone starts, not a failure
+                    Err(err) if err == NO_LIST => this.friend_list.problem = None,
                     Err(err) => this.friend_list.problem = Some(err.clone()),
                 }
+                this.request_friend_heads(cx);
                 cx.notify();
             })
             .ok();
@@ -757,10 +885,17 @@ impl Servers {
 
     /// Opens the list (making the keys on first use) and answers with its copy.
     pub fn friend_me(&mut self, cx: &mut Context<Self>) -> Task<Result<Snapshot, String>> {
+        let players = self.my_players(cx);
         let task = self.friend_op(
             cx,
             true,
-            Box::new(|friends| async move { Ok(Snapshot::of(friends)) }.boxed()),
+            Box::new(|friends| {
+                async move {
+                    friends.set_players(players)?;
+                    Ok(Snapshot::of(friends))
+                }
+                .boxed()
+            }),
         );
         cx.spawn(async move |_, _| task.await)
     }
@@ -770,11 +905,13 @@ impl Servers {
         name: String,
         cx: &mut Context<Self>,
     ) -> Task<Result<(), String>> {
+        let players = self.my_players(cx);
         self.friend_op(
             cx,
             true,
             Box::new(move |friends| {
                 async move {
+                    friends.set_players(players)?;
                     friends.set_name(&name)?;
                     // friends see the new name with the next state
                     let _ = friends.publish_states().await;
@@ -785,12 +922,36 @@ impl Servers {
         )
     }
 
+    /// Goes back to the Minecraft name, and follows it from now on.
+    pub fn friend_use_minecraft_name(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<(), String>> {
+        let players = self.my_players(cx);
+        self.friend_op(
+            cx,
+            true,
+            Box::new(move |friends| {
+                async move {
+                    friends.set_players(players)?;
+                    friends.use_profile_name()?;
+                    let _ = friends.publish_states().await;
+                    Ok(())
+                }
+                .boxed()
+            }),
+        )
+    }
+
     pub fn friend_create_link(&mut self, cx: &mut Context<Self>) -> Task<Result<MadeLink, String>> {
+        // the Minecraft name is the name, without asking, when there's no other
+        let players = self.my_players(cx);
         let task = self.friend_op(
             cx,
             true,
             Box::new(|friends| {
                 async move {
+                    friends.set_players(players)?;
                     let link = friends.create_link().await?;
                     let expires = friends.book.links.last().map_or(0, |l| l.expires);
                     Ok(MadeLink { link, expires })
@@ -857,6 +1018,7 @@ impl Servers {
                 let replies = replies.clone();
                 this.update(cx, |this, cx| {
                     this.friend_list.replies = replies;
+                    this.request_friend_heads(cx);
                     cx.notify();
                 })
                 .ok();
@@ -936,10 +1098,17 @@ impl Servers {
         link: String,
         cx: &mut Context<Self>,
     ) -> Task<Result<String, String>> {
+        let players = self.my_players(cx);
         self.friend_op(
             cx,
             true,
-            Box::new(move |friends| async move { friends.answer_link(&link).await }.boxed()),
+            Box::new(move |friends| {
+                async move {
+                    friends.set_players(players)?;
+                    friends.answer_link(&link).await
+                }
+                .boxed()
+            }),
         )
     }
 
@@ -1249,7 +1418,10 @@ impl Servers {
     }
 
     fn name_input(&self, cx: &mut Context<Self>) -> Entity<TextInput> {
-        let name = self.friend_list.snapshot.book.name.clone();
+        let mut name = self.friend_list.snapshot.book.name.clone();
+        if name.is_empty() {
+            name = self.my_profile(cx).map(|p| p.name).unwrap_or_default();
+        }
         cx.new(|cx| {
             TextInput::new(cx)
                 .with_placeholder(M::NamePlaceholder)
@@ -1305,6 +1477,21 @@ impl Servers {
         .detach();
     }
 
+    /// "Use my Minecraft name" in the Name dialog.
+    pub fn use_minecraft_name(&mut self, cx: &mut Context<Self>) {
+        self.set_name_state(true, None, cx);
+        let task = self.friend_use_minecraft_name(cx);
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            this.update(cx, |this, cx| match result {
+                Ok(()) => this.close_friend_dialog(cx),
+                Err(err) => this.set_name_state(false, Some(err.into()), cx),
+            })
+            .ok();
+        })
+        .detach();
+    }
+
     fn set_name_state(
         &mut self,
         busy: bool,
@@ -1341,13 +1528,7 @@ impl Servers {
                 .with_automation_id("friend-link-input")
                 .with_text(text.clone())
         });
-        let name_input = self
-            .friend_list
-            .snapshot
-            .book
-            .name
-            .is_empty()
-            .then(|| self.name_input(cx));
+        let name_input = self.needs_friend_name(cx).then(|| self.name_input(cx));
         // a link for another service is refused before anything is sent to it
         let (error, other_service, look_up) = match &parsed {
             Some(Ok(parsed)) if parsed.service == service() => (None, None, true),
@@ -1469,6 +1650,7 @@ impl Servers {
                         Err(err) => add.error = Some(err.into()),
                     }
                 }
+                this.request_friend_heads(cx);
                 cx.notify();
             })
             .ok();
@@ -1821,6 +2003,9 @@ pub struct PreviewFriendList {
     pub expanded: Vec<(String, Vec<(String, CoreServers)>)>,
     pub made: Option<MadeLink>,
     pub opened: bool,
+    /// Minecraft profiles whose faces show: a made-up skin's head for each (with a
+    /// hat or without).
+    pub heads: Vec<([u8; 16], bool)>,
 }
 
 /// The Add friend dialog in an offscreen screenshot.
@@ -1839,6 +2024,17 @@ impl Servers {
         list.presence = preview.presence.into_iter().collect();
         list.made = preview.made;
         list.refreshed_at = Some(Instant::now());
+        for (uuid, hat) in preview.heads {
+            // through the same code as real skins
+            let image = skin::encode_png(&skin::sample_skin(hat))
+                .and_then(|png| skin::render_head(&png, skin::HEAD_SCALE))
+                .and_then(|head| skin::encode_png(&head))
+                .ok()
+                .and_then(|png| crate::images::decode_png(&png).ok());
+            if let Some(image) = image {
+                list.heads.insert(uuid, Head::Ready(image));
+            }
+        }
         for (key, cores) in preview.expanded {
             for (fingerprint, servers) in cores {
                 list.servers.insert((key.clone(), fingerprint), servers);
@@ -1972,6 +2168,7 @@ mod tests {
         };
         alex.status = Status::Active;
         alex.state = Some(FriendState {
+            launchers: Vec::new(),
             players: Vec::new(),
             seq: 1,
             expires: friend_list::now() + 3600,
