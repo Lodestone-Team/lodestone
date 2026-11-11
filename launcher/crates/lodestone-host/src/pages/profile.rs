@@ -4,19 +4,17 @@
 //! §7.3 and §1.8). The appearance is saved on this computer ([`crate::prefs`]).
 
 use gpui::{
-    AnyElement, AppContext as _, Context, Entity, InteractiveElement as _, IntoElement,
-    ParentElement, Render, SharedString, StatefulInteractiveElement as _, Styled, Subscription,
-    Window, div, prelude::FluentBuilder as _,
+    AnyElement, AppContext as _, Context, Entity, IntoElement, ParentElement, Render, SharedString,
+    StatefulInteractiveElement as _, Styled, Subscription, Window, div,
+    prelude::FluentBuilder as _,
 };
 use launcher_core::settings::Language;
-use lodestone_ui::components::menu_toggle;
 use lodestone_ui::{
     components::{
-        Button, ButtonSize, DialogSlot, ListRow, Toggle,
+        Button, ButtonSize, DialogSlot, Dropdown, ListRow, Toggle,
         a11y::Accessible as _,
         settings::{
-            SearchRow, SettingRow, SettingsQuery, SettingsSearch, popover, popover_panel,
-            select_button,
+            SearchRow, SettingRow, SettingsQuery, SettingsSearch, popover_panel, select_button,
         },
         window_layer,
     },
@@ -222,26 +220,12 @@ impl ProfilePage {
         .expandable(open, move |_, cx| {
             page.update(cx, |this, cx| this.toggle_menu(menu, cx)).ok();
         })
-        .on_press(cx.listener(move |this, event, _, cx| {
-            if menu_toggle::toggles(&format!("{menu:?}"), event) {
-                this.toggle_menu(menu, cx)
-            }
-        }));
-        div()
-            .flex()
-            .flex_col()
-            .items_end()
-            .child(button)
+        .on_press(cx.listener(move |this, _, _, cx| this.toggle_menu(menu, cx)));
+        Dropdown::new(button)
+            .align_end()
             .when(open, |this| {
-                let mut panel = popover_panel(SharedString::from(format!("{id}-list")))
-                    .min_w(px(200.))
-                    .on_mouse_down_out(cx.listener(|this, event, _, cx| {
-                        if let Some(menu) = this.menu {
-                            menu_toggle::closed_by(format!("{menu:?}"), event);
-                        }
-                        this.menu = None;
-                        cx.notify();
-                    }));
+                let mut panel =
+                    popover_panel(SharedString::from(format!("{id}-list"))).min_w(px(200.));
                 for (index, (value, name)) in options.into_iter().enumerate() {
                     panel = panel.child(
                         ListRow::new(SharedString::from(format!("{id}-option-{index}")), name)
@@ -254,7 +238,7 @@ impl ProfilePage {
                     );
                 }
                 let page = cx.entity().downgrade();
-                this.child(popover(
+                this.popover(
                     SharedString::from(format!("{id}-menu")),
                     panel,
                     move |_, cx| {
@@ -264,9 +248,20 @@ impl ProfilePage {
                         })
                         .ok();
                     },
-                ))
+                )
             })
             .into_any_element()
+    }
+
+    /// For screenshots: opens the `language` or `theme` list.
+    #[cfg(feature = "screenshot")]
+    pub fn open_menu_for_screenshot(&mut self, name: &str, cx: &mut Context<Self>) {
+        self.menu = Some(if name == "theme" {
+            Menu::Theme
+        } else {
+            Menu::Language
+        });
+        cx.notify();
     }
 
     fn toggle_menu(&mut self, menu: Menu, cx: &mut Context<Self>) {

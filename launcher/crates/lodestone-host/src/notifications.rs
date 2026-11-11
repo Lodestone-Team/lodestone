@@ -10,7 +10,7 @@
 
 use gpui::{
     AnyElement, App, Context, Entity, IntoElement, MouseButton, ParentElement, Render,
-    SharedString, Styled, Subscription, Window, anchored, deferred, div, point, prelude::*,
+    SharedString, Styled, Subscription, Window, div, point, prelude::*,
 };
 use launcher_core::cores::admin::{
     ClientEvent, EventInner, InstanceState,
@@ -18,9 +18,8 @@ use launcher_core::cores::admin::{
         EventLevel, InstanceEventInner, ProgressionEndValue, ProgressionEventInner, UserEventInner,
     },
 };
-use lodestone_ui::components::menu_toggle;
 use lodestone_ui::{
-    components::{Icon, IconButton, Toast},
+    components::{Dropdown, Icon, IconButton, Toast},
     theme::{colors, fonts, ink, px, radius, shadow, text, weights},
 };
 
@@ -521,7 +520,7 @@ impl Notifications {
             .child(text_)
     }
 
-    fn panel(&self, window: &Window, cx: &mut Context<Self>) -> AnyElement {
+    fn panel(&self, window: &Window) -> AnyElement {
         let height = window.viewport_size().height * 0.8;
         let mut body = div()
             .id("notifications-list")
@@ -585,10 +584,6 @@ impl Notifications {
                 spread_radius: px(0.),
                 inset: false,
             }])
-            .on_mouse_down_out(cx.listener(|this, event, _, cx| {
-                menu_toggle::closed_by("notifications", event);
-                this.close(cx)
-            }))
             .child(
                 div()
                     .font_family(fonts::heading())
@@ -605,22 +600,8 @@ impl Notifications {
 impl Render for Notifications {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let dot = self.unseen || !self.list.ongoing.is_empty();
-        let panel = self.open.then(|| {
-            let panel = self.panel(window, cx);
-            // under the bell, at the window's right edge
-            let corner = point(
-                window.viewport_size().width - px(12.),
-                gpui::px(crate::TOP_BAR_HEIGHT + 4.0),
-            );
-            deferred(
-                anchored()
-                    .position(corner)
-                    .anchor(gpui::Anchor::TopRight)
-                    .snap_to_window_with_margin(px(8.))
-                    .child(panel),
-            )
-            .with_priority(3)
-        });
+        let panel = self.open.then(|| self.panel(window));
+        let dismiss = cx.entity().downgrade();
         let close = cx.entity().downgrade();
         let beta = self.beta.render(window, |focus| {
             let close = close.clone();
@@ -645,37 +626,42 @@ impl Render for Notifications {
             .items_end()
             .children(beta)
             .child(
-                div()
-                    .id("notifications-bell")
-                    .relative()
-                    // The bell sits in the top bar, which moves the window: it is not
-                    // part of the caption (on Windows the bar answers the hit test as
-                    // the caption, which swallows the click), and pressing it doesn't
-                    // arm the bar's drag.
-                    .occlude()
-                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                    .child(
-                        IconButton::new("notifications", Icon::Bell)
-                            .label(SharedString::from(t(CoreMsg::Notifications)))
-                            .on_click(cx.listener(|this, event, _, cx| {
-                                if menu_toggle::toggles("notifications", event) {
-                                    this.toggle(cx)
-                                }
-                            })),
-                    )
-                    .when(dot, |this| {
-                        this.child(
-                            div()
-                                .absolute()
-                                .top(px(4.))
-                                .right(px(4.))
-                                .size(px(8.))
-                                .rounded_full()
-                                .bg(colors::RED_200),
+                // over the window's dialogs
+                Dropdown::new(
+                    div()
+                        .id("notifications-bell")
+                        .relative()
+                        // The bell sits in the top bar, which moves the window: it is not
+                        // part of the caption (on Windows the bar answers the hit test as
+                        // the caption, which swallows the click), and pressing it doesn't
+                        // arm the bar's drag.
+                        .occlude()
+                        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                        .child(
+                            IconButton::new("notifications", Icon::Bell)
+                                .label(SharedString::from(t(CoreMsg::Notifications)))
+                                .on_click(cx.listener(|this, _, _, cx| this.toggle(cx))),
                         )
-                    }),
+                        .when(dot, |this| {
+                            this.child(
+                                div()
+                                    .absolute()
+                                    .top(px(4.))
+                                    .right(px(4.))
+                                    .size(px(8.))
+                                    .rounded_full()
+                                    .bg(colors::RED_200),
+                            )
+                        }),
+                )
+                .align_end()
+                .priority(3)
+                .when_some(panel, |this, panel| {
+                    this.popover("notifications-menu", panel, move |_, cx| {
+                        dismiss.update(cx, |this, cx| this.close(cx)).ok();
+                    })
+                }),
             )
-            .children(panel)
     }
 }
 

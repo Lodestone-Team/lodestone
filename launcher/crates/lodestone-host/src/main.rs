@@ -393,6 +393,38 @@ mod screenshot {
                     .timer(Duration::from_millis(500))
                     .await;
             }
+            // `--open-menu <name>`: opens a dropdown: on the Settings dialog's Profile
+            // page `language` or `theme`, on its Users page the first user's menu; on an
+            // instance's Settings tab (`--tab settings`) a sample Difficulty list; in the
+            // "New server" dialog (`--create`) its first list, or the modpack search's
+            // sort
+            if let Some(name) = arg_after("--open-menu") {
+                // a page is made when it's drawn
+                gpui::AppContext::update_window(cx, window.into(), |_, window, cx| {
+                    window.refresh();
+                    window.draw(cx).clear(cx);
+                })
+                .ok();
+                // and fetches what it shows: let that answer first
+                cx.background_executor()
+                    .timer(Duration::from_millis(1500))
+                    .await;
+                window
+                    .update(cx, |app, _, cx| {
+                        let shell = app.shell()?.read(cx);
+                        if let Some(dialog) = shell.create_dialog() {
+                            dialog.update(cx, |dialog, cx| dialog.open_menu_for_screenshot(cx));
+                            return Some(());
+                        }
+                        let view = shell.settings_view().or_else(|| shell.page_view())?;
+                        lodestone_host::pages::open_menu_for_screenshot(&view, &name, cx);
+                        Some(())
+                    })
+                    .ok();
+                cx.background_executor()
+                    .timer(Duration::from_millis(800))
+                    .await;
+            }
             // `--settings-search <text>`: types into the search field of the open Settings
             // (with `--settings <page>`), or of the instance Settings tab (with `--tab
             // settings`)

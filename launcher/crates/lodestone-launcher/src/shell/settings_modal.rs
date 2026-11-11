@@ -10,7 +10,6 @@ use launcher_core::accounts::AccountKind;
 use launcher_core::settings::AfterLaunch;
 use launcher_core::ui_skin::SurfaceId;
 use launcher_core::update::UpdateChannel;
-use lodestone_ui::components::menu_toggle;
 
 use super::{LauncherShell, account_box, developer};
 use crate::components::{
@@ -20,9 +19,10 @@ use crate::components::{
 use crate::{
     accounts::SessionState,
     components::{
-        Button, ButtonSize, ButtonVariant, Dialog, Icon, IconButton, ListRow, Toggle, segmented,
+        Button, ButtonSize, ButtonVariant, Dialog, Dropdown, Icon, IconButton, ListRow, Toggle,
+        segmented,
         settings::{
-            SettingRow, content_width, left_overlay, link, muted_link, popover, popover_panel,
+            SettingRow, content_width, left_overlay, link, muted_link, popover_panel,
             select_button, tag, unsaved_bar,
         },
     },
@@ -159,6 +159,11 @@ impl LauncherShell {
     /// Opens the pages over the page in a narrow window, for the offscreen screenshots.
     pub fn preview_settings_nav_open(&mut self) {
         self.settings_nav_open = true;
+    }
+
+    /// Opens Settings › General's Language list, for the `settings-language` scene.
+    pub fn preview_language_menu_open(&mut self) {
+        self.language_menu_open = true;
     }
 
     pub fn close_settings(&mut self, cx: &mut Context<Self>) {
@@ -512,49 +517,43 @@ impl LauncherShell {
             other => i18n::resolve(other).native_name().to_string(),
         };
         let language_row = SettingRow::new(t(ShellMsg::Language)).child(
-            div()
-                .flex()
-                .flex_col()
-                .items_end()
-                .child(
-                    select_button(
-                        "language",
-                        div()
-                            .font_weight(weights::BOLD.into())
-                            .child(current.clone()),
-                    )
-                    .aria_label(t(ShellMsg::Language))
-                    .aria_value(current)
-                    .expandable(self.language_menu_open, {
-                        let shell = cx.entity().downgrade();
-                        move |_, cx| {
-                            shell
-                                .update(cx, |this, cx| {
-                                    this.language_menu_open = !this.language_menu_open;
-                                    cx.notify();
-                                })
-                                .ok();
-                        }
-                    })
-                    .on_press(cx.listener(|this, event, _, cx| {
-                        if !menu_toggle::toggles("language", event) {
-                            return;
-                        }
-                        this.language_menu_open = !this.language_menu_open;
-                        cx.notify();
-                    })),
+            Dropdown::new(
+                select_button(
+                    "language",
+                    div()
+                        .font_weight(weights::BOLD.into())
+                        .child(current.clone()),
                 )
-                .when(self.language_menu_open, |this| {
-                    let close = cx.listener(|this, _: &(), _, cx| {
-                        this.language_menu_open = false;
-                        cx.notify();
-                    });
-                    this.child(popover(
-                        "language-popover",
-                        self.render_language_list(language, cx),
-                        move |window, cx| close(&(), window, cx),
-                    ))
-                }),
+                .aria_label(t(ShellMsg::Language))
+                .aria_value(current)
+                .expandable(self.language_menu_open, {
+                    let shell = cx.entity().downgrade();
+                    move |_, cx| {
+                        shell
+                            .update(cx, |this, cx| {
+                                this.language_menu_open = !this.language_menu_open;
+                                cx.notify();
+                            })
+                            .ok();
+                    }
+                })
+                .on_press(cx.listener(|this, _, _, cx| {
+                    this.language_menu_open = !this.language_menu_open;
+                    cx.notify();
+                })),
+            )
+            .align_end()
+            .when(self.language_menu_open, |this| {
+                let close = cx.listener(|this, _: &(), _, cx| {
+                    this.language_menu_open = false;
+                    cx.notify();
+                });
+                this.popover(
+                    "language-popover",
+                    self.render_language_list(language, cx),
+                    move |window, cx| close(&(), window, cx),
+                )
+            }),
         );
         let zoom = theme::zoom::get();
         let levels = theme::zoom::LEVELS;
@@ -820,13 +819,7 @@ impl LauncherShell {
         selected: Language,
         cx: &mut Context<Self>,
     ) -> impl IntoElement + use<> {
-        let mut list = popover_panel("language-list")
-            .w(px(240.))
-            .on_mouse_down_out(cx.listener(|this, event, _, cx| {
-                menu_toggle::closed_by("language", event);
-                this.language_menu_open = false;
-                cx.notify();
-            }));
+        let mut list = popover_panel("language-list").w(px(240.));
         for (index, language) in Language::ALL.into_iter().enumerate() {
             let label: SharedString = match language {
                 Language::System => t(ShellMsg::LanguageSystem).into(),

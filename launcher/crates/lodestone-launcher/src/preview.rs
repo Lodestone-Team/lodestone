@@ -75,6 +75,7 @@ pub const SCENES: &[&str] = &[
     "remove",
     "new-instance",
     "new-instance-fabric",
+    "new-instance-loader-versions",
     "new-instance-versions",
     "new-instance-versions-failed",
     "play-progress",
@@ -98,6 +99,7 @@ pub const SCENES: &[&str] = &[
     "rosetta",
     "content-mods",
     "content-browse",
+    "content-sort",
     "content-browse-idle",
     "content-filters",
     "content-filters-packs",
@@ -132,6 +134,7 @@ pub const SCENES: &[&str] = &[
     "screenshots",
     "screenshot-view",
     "shared-settings",
+    "shared-settings-sync",
     "instance-shared-settings",
     "import",
     "import-progress",
@@ -139,6 +142,7 @@ pub const SCENES: &[&str] = &[
     "instance-linked",
     "settings",
     "settings-general",
+    "settings-language",
     "undo-toast",
     "narrator-offer",
     "settings-accounts",
@@ -984,7 +988,7 @@ pub use shared::{window_height, window_width};
 pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherShell>) {
     match scene {
         "new-instance" => shell.open_new_instance_with(Some(("Survival", "")), None, cx),
-        "new-instance-fabric" | "new-instance-versions" => {
+        "new-instance-fabric" | "new-instance-loader-versions" | "new-instance-versions" => {
             let search = if scene == "new-instance-versions" {
                 "26"
             } else {
@@ -993,8 +997,14 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
             shell.open_new_instance_with(Some(("", search)), None, cx);
             if let Some(dialog) = shell.new_instance_dialog().cloned() {
                 dialog.update(cx, |dialog, cx| {
-                    if scene == "new-instance-fabric" {
+                    if scene != "new-instance-versions" {
                         dialog.choose_loader(launcher_core::game::loaders::LoaderKind::Fabric, cx);
+                        if scene == "new-instance-loader-versions" {
+                            dialog
+                                .loader_picker()
+                                .clone()
+                                .update(cx, |picker, cx| picker.preview_open(cx));
+                        }
                     } else {
                         dialog.open_versions(cx);
                     }
@@ -1161,6 +1171,13 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
             }
         }
         "narrator-offer" => shell.preview_narrator_offer(cx),
+        "shared-settings-sync" => {
+            shell.open_settings(Some(crate::shell::SettingsPage::Shared), None, cx);
+            shell
+                .shared_settings()
+                .clone()
+                .update(cx, |shared, cx| shared.preview_sync_from_open(cx));
+        }
         "shared-settings" => {
             shell.open_settings(Some(crate::shell::SettingsPage::Shared), None, cx);
             shell.shared_settings().clone().update(cx, |shared, cx| {
@@ -1272,9 +1289,10 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
                 shell.preview_settings_nav_open();
             }
         }
-        "settings" | "settings-general" | "settings-accounts" | "settings-developer" => {
+        "settings" | "settings-general" | "settings-language" | "settings-accounts"
+        | "settings-developer" => {
             let page = match scene {
-                "settings-general" => crate::shell::SettingsPage::General,
+                "settings-general" | "settings-language" => crate::shell::SettingsPage::General,
                 "settings-accounts" => crate::shell::SettingsPage::Accounts,
                 "settings-developer" => crate::shell::SettingsPage::Developer,
                 _ => crate::shell::SettingsPage::Defaults,
@@ -1283,6 +1301,9 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
                 preview_control(cx);
             }
             shell.open_settings(Some(page), None, cx);
+            if scene == "settings-language" {
+                shell.preview_language_menu_open();
+            }
         }
         // Settings > Developer's "Connect service (relay)": as it is,
         // pointed at the dev service, and with a URL it refuses.

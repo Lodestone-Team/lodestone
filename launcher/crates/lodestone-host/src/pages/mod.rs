@@ -129,6 +129,26 @@ pub fn demo(view: &AnyView, cx: &mut App) {
     }
 }
 
+/// Opens a dropdown, for the development screenshots' `--open-menu <name>`: on the
+/// Settings dialog's Profile page `language` or `theme`, on its Users page the
+/// first user's menu; on an instance's Settings tab `difficulty`, a sample
+/// Difficulty list.
+#[cfg(feature = "screenshot")]
+pub fn open_menu_for_screenshot(view: &AnyView, name: &str, cx: &mut App) {
+    if let Ok(page) = view.clone().downcast::<profile::ProfilePage>() {
+        page.update(cx, |page, cx| page.open_menu_for_screenshot(name, cx));
+    }
+    if let Ok(page) = view.clone().downcast::<users::UsersPage>() {
+        page.update(cx, |page, cx| page.open_menu_for_screenshot(cx));
+    }
+    if let Ok(page) = view
+        .clone()
+        .downcast::<instance_settings::InstanceSettingsPage>()
+    {
+        page.update(cx, |page, cx| page.difficulty_for_screenshot(cx));
+    }
+}
+
 /// Puts sample friends on the Settings tab's Friends section (development
 /// screenshots' `--friends none|loading|off|retired|shared|confirm|renew|certificate|certificate-manual|error`, with `--tab settings`).
 #[cfg(feature = "screenshot")]

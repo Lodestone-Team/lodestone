@@ -256,6 +256,15 @@ impl ModpackFlow {
     }
 
     /// Shows a project's versions.
+    /// For screenshots: opens the search's sort list.
+    #[cfg(feature = "screenshot")]
+    pub fn open_sort_for_screenshot(&mut self, cx: &mut Context<Self>) {
+        self.search.update(cx, |search, cx| {
+            search.sort_open = true;
+            cx.notify();
+        });
+    }
+
     fn open_project(&mut self, id: String, hit: Option<ModrinthSearchHit>, cx: &mut Context<Self>) {
         self.project_id = Some(id.clone());
         self.picked_hit = hit;

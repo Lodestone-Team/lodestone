@@ -10,7 +10,6 @@
 //! Maintenance buttons) happen at once.
 
 use crate::theme::px;
-use lodestone_ui::components::menu_toggle;
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use gpui::{
@@ -41,12 +40,12 @@ use crate::components::{
 };
 use crate::{
     components::{
-        Button, ButtonSize, ButtonVariant, Icon, IconButton, LoadingDots, TextInput, Toggle,
-        segmented,
+        Button, ButtonSize, ButtonVariant, Dropdown, Icon, IconButton, LoadingDots, TextInput,
+        Toggle, segmented,
         settings::{
             FindSetting, SearchRow, SectionNav, SettingRow, SettingsQuery, SettingsSearch,
             SettingsSearchChanged, Toast, content_width, left_overlay, link, muted_link, nav_width,
-            popover, popover_panel, section_list, section_menu_button, tag, unsaved_bar, value,
+            popover_panel, section_list, section_menu_button, tag, unsaved_bar, value,
         },
     },
     file_dialog,
@@ -1475,11 +1474,6 @@ impl InstanceSettings {
             .w(px(400.))
             .p_3()
             .gap_3()
-            .on_mouse_down_out(cx.listener(|this, event, _, cx| {
-                menu_toggle::closed_by("background-picker", event);
-                this.background_picker = false;
-                cx.notify();
-            }))
             .child(tabs)
             .child(body)
             .into_any_element()
@@ -1668,11 +1662,6 @@ impl InstanceSettings {
             .w(px(392.))
             .p_3()
             .gap_3()
-            .on_mouse_down_out(cx.listener(|this, event, _, cx| {
-                menu_toggle::closed_by("icon-picker", event);
-                this.icon_picker = None;
-                cx.notify();
-            }))
             .child(
                 div()
                     .flex()
@@ -2194,49 +2183,39 @@ impl Render for InstanceSettings {
             SettingRow::new(t(M::Icon)).child(
                 div()
                     .flex()
-                    .flex_col()
-                    .items_end()
+                    .flex_row()
+                    .items_center()
+                    .gap_3()
+                    .children(instance.as_ref().map(|instance| {
+                        appearance::instance_icon(self.instances.read(cx), instance, px(36.))
+                    }))
                     .child(
-                        div()
-                            .flex()
-                            .flex_row()
-                            .items_center()
-                            .gap_3()
-                            .children(instance.as_ref().map(|instance| {
-                                appearance::instance_icon(
-                                    self.instances.read(cx),
-                                    instance,
-                                    px(36.),
-                                )
-                            }))
-                            .child(
-                                Button::new("choose-icon", t(CommonMsg::Change))
-                                    .variant(ButtonVariant::Secondary)
-                                    .size(ButtonSize::Slim)
-                                    .on_click(cx.listener(|this, event, _, cx| {
-                                        if !menu_toggle::toggles("icon-picker", event) {
-                                            return;
-                                        }
-                                        this.icon_picker = match this.icon_picker {
-                                            Some(_) => None,
-                                            None => Some(IconTab::Library),
-                                        };
-                                        cx.notify();
-                                    })),
-                            ),
-                    )
-                    .when_some(self.icon_picker, |this, tab| {
-                        let current = instance.as_ref().and_then(|i| i.icon.clone());
-                        let close = cx.listener(|this, _: &(), _, cx| {
-                            this.icon_picker = None;
-                            cx.notify();
-                        });
-                        this.child(popover(
-                            "icon-picker-popover",
-                            self.icon_picker_panel(tab, current.as_deref(), cx),
-                            move |window, cx| close(&(), window, cx),
-                        ))
-                    }),
+                        Dropdown::new(
+                            Button::new("choose-icon", t(CommonMsg::Change))
+                                .variant(ButtonVariant::Secondary)
+                                .size(ButtonSize::Slim)
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.icon_picker = match this.icon_picker {
+                                        Some(_) => None,
+                                        None => Some(IconTab::Library),
+                                    };
+                                    cx.notify();
+                                })),
+                        )
+                        .align_end()
+                        .when_some(self.icon_picker, |this, tab| {
+                            let current = instance.as_ref().and_then(|i| i.icon.clone());
+                            let close = cx.listener(|this, _: &(), _, cx| {
+                                this.icon_picker = None;
+                                cx.notify();
+                            });
+                            this.popover(
+                                "icon-picker-popover",
+                                self.icon_picker_panel(tab, current.as_deref(), cx),
+                                move |window, cx| close(&(), window, cx),
+                            )
+                        }),
+                    ),
             ),
             SettingRow::new(t(M::PlayBackground))
                 .keywords(t(M::PlayBackgroundKeywords))
@@ -2258,31 +2237,26 @@ impl Render for InstanceSettings {
                         .into_any_element(),
                 })
                 .child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .items_end()
-                        .child(
-                            Button::new("choose-background", t(CommonMsg::Change))
-                                .variant(ButtonVariant::Secondary)
-                                .size(ButtonSize::Slim)
-                                .on_click(cx.listener(|this, event, _, cx| {
-                                    if menu_toggle::toggles("background-picker", event) {
-                                        this.toggle_background_picker(cx)
-                                    }
-                                })),
+                    Dropdown::new(
+                        Button::new("choose-background", t(CommonMsg::Change))
+                            .variant(ButtonVariant::Secondary)
+                            .size(ButtonSize::Slim)
+                            .on_click(
+                                cx.listener(|this, _, _, cx| this.toggle_background_picker(cx)),
+                            ),
+                    )
+                    .align_end()
+                    .when(self.background_picker, |this| {
+                        let close = cx.listener(|this, _: &(), _, cx| {
+                            this.background_picker = false;
+                            cx.notify();
+                        });
+                        this.popover(
+                            "background-picker-popover",
+                            self.background_picker_panel(has_background, cx),
+                            move |window, cx| close(&(), window, cx),
                         )
-                        .when(self.background_picker, |this| {
-                            let close = cx.listener(|this, _: &(), _, cx| {
-                                this.background_picker = false;
-                                cx.notify();
-                            });
-                            this.child(popover(
-                                "background-picker-popover",
-                                self.background_picker_panel(has_background, cx),
-                                move |window, cx| close(&(), window, cx),
-                            ))
-                        }),
+                    }),
                 ),
             self.color_override_row(true, instance.as_ref().and_then(|i| i.play_color), cx),
             self.color_override_row(false, instance.as_ref().and_then(|i| i.accent), cx),
