@@ -143,7 +143,7 @@ crate::i18n::messages! {
         // ===== Remove =====
         /// {name} is the friend's name.
         RemoveTitle = "Remove {name}?",
-        RemoveBody = "You stop seeing their servers, and they stop seeing yours. Your hosts stop sharing with them the next time they sync. To be friends again, one of you makes a new friend link.",
+        RemoveBody = "You stop seeing their servers, and they stop seeing yours. Your hosts stop sharing with them the next time they sync. To be friends again, one of you makes a new friend link. Invite links you sent them keep working until you make new ones in Lodestone Host.",
         RemoveFriend = "Remove friend",
 
         // ===== LAN worlds =====

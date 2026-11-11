@@ -88,6 +88,42 @@ fn the_launcher_is_needed_without_a_name_or_active_friends() {
 }
 
 #[test]
+fn friends_taken_off_the_core_or_hidden_from_are_removed() {
+    let named = |list: Vec<(char, &str, bool)>| CoreFriends {
+        fingerprint: "0".repeat(64),
+        version: 1,
+        friends: list
+            .into_iter()
+            .map(|(key, name, hidden)| CoreFriend {
+                key: key.to_string().repeat(64),
+                name: name.into(),
+                hidden,
+                ..Default::default()
+            })
+            .collect(),
+        host: None,
+    };
+    let before = named(vec![
+        ('a', "Ana", false),
+        ('b', "Ben", false),
+        ('c', "Cal", true),
+    ]);
+    // Ben was removed, Ana is still there, Cal was already hidden from
+    let after = named(vec![('a', "Ana", false), ('c', "Cal", true)]);
+    assert_eq!(removed_from(&before, &after), vec!["Ben".to_string()]);
+    // hiding from Ana counts: the core serves her nothing now
+    let after = named(vec![('a', "Ana", true), ('b', "Ben", false)]);
+    assert_eq!(removed_from(&before, &after), vec!["Ana".to_string()]);
+    // a new friend is nobody removed
+    let after = named(vec![
+        ('a', "Ana", false),
+        ('b', "Ben", false),
+        ('d', "Dee", false),
+    ]);
+    assert!(removed_from(&before, &after).is_empty());
+}
+
+#[test]
 fn sharing_adds_or_removes_one_instance_and_keeps_the_rest() {
     let current = core(vec![('a', vec!["one", "two"], false), ('b', vec![], false)]);
     assert_eq!(
@@ -492,8 +528,24 @@ fn the_host_keeps_its_core_in_step_with_the_friend_list() {
         check(),
     ));
     assert!(removed.needs_launcher);
+    // he may still have an invite link: the Host says so
+    assert_eq!(removed.removed.len(), 1, "{:?}", removed.removed);
     let core = removed.core.unwrap().expect("synced after the removal");
     assert!(core.friends.is_empty(), "{core:?}");
+
+    // New link: the server's invite link is replaced (only against a local service,
+    // LODESTONE_CONNECT_SERVICE, never the real one)
+    if config.connect_service.is_some() {
+        let first = block_on(admin.start_share(instance)).expect("shared by link");
+        let first_link = first.link.expect("a link");
+        let renewed = block_on(new_link(&admin, instance)).expect("a new link");
+        assert!(renewed.sharing);
+        let new = renewed.link.expect("a new link");
+        assert_ne!(new, first_link, "the link changed");
+        block_on(admin.stop_share(instance)).unwrap();
+    } else {
+        eprintln!("New link skipped: set LODESTONE_CONNECT_SERVICE to the local service");
+    }
 
     // a retired identity: the Host sees it, and empties the core on purpose
     block_on(async { ana.lock().await.retire_identity().await }).unwrap();
