@@ -1118,7 +1118,8 @@ impl Servers {
                 )
                 .size(ButtonSize::Slim)
                 .variant(ButtonVariant::Primary)
-                .disabled(joining)
+                // a stopped or starting server can't be joined yet
+                .disabled(joining || super::friends::Liveness::of_shared(server).blocks_play())
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.play_friend_server(&play_key, &play_fp, &play_server, cx)
                 })),
