@@ -347,6 +347,13 @@ pub struct AppState {
 }
 
 impl AppState {
+    /// Drops the buffered console output of one instance. Other instances' buffers and the
+    /// events buffer are untouched, and lines the instance prints afterwards are buffered
+    /// again.
+    pub async fn clear_console_buffer(&self, uuid: &InstanceUuid) {
+        self.console_out_buffer.lock().await.remove(uuid);
+    }
+
     /// Whether safe mode is on. Unlike `global_settings.lock().await.safe_mode()`, this
     /// takes no lock.
     pub fn safe_mode(&self) -> bool {
