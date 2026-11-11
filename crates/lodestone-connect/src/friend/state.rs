@@ -9,6 +9,10 @@
 //! Host can put them on a server's whitelist. They're signed apart (`players_sig`, over
 //! everything the first signature covers and the accounts), so copies from before them
 //! still check the first signature and ignore them.
+//!
+//! It may also say which of its cores are the person's Launcher sharing their open LAN
+//! worlds ([`State::launchers`]) rather than a Lodestone core. The same rule holds: they're
+//! signed apart (`launchers_sig`), and copies from before them see those cores as cores.
 
 use serde::{Deserialize, Serialize};
 
@@ -78,6 +82,10 @@ pub struct State {
     pub retired: bool,
     /// Their Minecraft accounts, at most [`MAX_PLAYERS`].
     pub players: Vec<StatePlayer>,
+    /// The fingerprints of the cores in `cores` that are the person's Launcher, sharing
+    /// the worlds they open to LAN (launcher/docs/friends.md, "LAN worlds"). Each must
+    /// be in `cores`.
+    pub launchers: Vec<[u8; 32]>,
 }
 
 impl State {
@@ -101,6 +109,11 @@ struct Wire {
     /// Over [`players_message`]; present when `players` is.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     players_sig: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty", with = "hex32_list")]
+    launchers: Vec<[u8; 32]>,
+    /// Over [`launchers_message`]; present when `launchers` is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    launchers_sig: Option<String>,
 }
 
 fn message(receiver: &PublicKey, state: &State) -> Vec<u8> {
@@ -149,6 +162,27 @@ fn players_message(receiver: &PublicKey, state: &State) -> Vec<u8> {
     transcript(&fields)
 }
 
+/// What `launchers_sig` signs: everything the state's signature does, then the
+/// launchers' fingerprints.
+fn launchers_message(receiver: &PublicKey, state: &State) -> Vec<u8> {
+    let base = message(receiver, state);
+    let count = u32::try_from(state.launchers.len())
+        .unwrap_or(u32::MAX)
+        .to_be_bytes();
+    let mut fields: Vec<&[u8]> = vec![&base, &count];
+    for fingerprint in &state.launchers {
+        fields.push(fingerprint);
+    }
+    transcript(&fields)
+}
+
+/// Every launcher is one of the state's cores, listed once.
+fn launchers_in_bounds(state: &State) -> bool {
+    state.launchers.iter().enumerate().all(|(i, fp)| {
+        state.cores.iter().any(|core| &core.fingerprint == fp) && !state.launchers[..i].contains(fp)
+    })
+}
+
 fn players_in_bounds(players: &[StatePlayer]) -> bool {
     players.len() <= MAX_PLAYERS && players.iter().all(|p| StatePlayer::is_name(&p.name))
 }
@@ -191,6 +225,11 @@ pub fn seal_state(
             "Friends can see at most {MAX_PLAYERS} of your Minecraft accounts."
         )));
     }
+    if !launchers_in_bounds(state) {
+        return Err(Error::Other(
+            "A launcher in your state isn't one of its cores.".into(),
+        ));
+    }
     let mut state = state.clone();
     for core in &mut state.cores {
         core.name = clean_name(&core.name);
@@ -198,6 +237,8 @@ pub fn seal_state(
     let sig = me.sign("state", &message(receiver, &state));
     let players_sig = (!state.players.is_empty())
         .then(|| hex(&me.sign("state-players", &players_message(receiver, &state))));
+    let launchers_sig = (!state.launchers.is_empty())
+        .then(|| hex(&me.sign("state-launchers", &launchers_message(receiver, &state))));
     let bytes = serde_json::to_vec(&Wire {
         v: VERSION,
         seq: state.seq,
@@ -209,6 +250,8 @@ pub fn seal_state(
         sig: hex(&sig),
         players: state.players.clone(),
         players_sig,
+        launchers: state.launchers.clone(),
+        launchers_sig,
     })
     .expect("serializable");
     let id = slot_id(pair, &me.public(), receiver);
@@ -244,6 +287,7 @@ pub fn open_state(
         cores: wire.cores,
         retired: wire.retired,
         players: wire.players,
+        launchers: wire.launchers,
     };
     let sig = unhex(&wire.sig).ok_or_else(|| bad("signature"))?;
     if !sender.verify("state", &message(me, &state), &sig) {
@@ -259,6 +303,21 @@ pub fn open_state(
             || !players_in_bounds(&state.players)
         {
             return Err(bad("accounts"));
+        }
+    }
+    if !state.launchers.is_empty() {
+        let launchers_sig = wire
+            .launchers_sig
+            .as_deref()
+            .and_then(unhex)
+            .ok_or_else(|| bad("signature"))?;
+        if !sender.verify(
+            "state-launchers",
+            &launchers_message(me, &state),
+            &launchers_sig,
+        ) || !launchers_in_bounds(&state)
+        {
+            return Err(bad("launchers"));
         }
     }
     if state.cores.len() > MAX_CORES
@@ -286,6 +345,27 @@ mod hex16 {
         crate::unhex(&text)
             .and_then(|bytes| bytes.try_into().ok())
             .ok_or_else(|| serde::de::Error::custom("expected 32 hex digits"))
+    }
+}
+
+mod hex32_list {
+    use serde::{Deserialize as _, Deserializer, Serializer};
+
+    pub fn serialize<S: Serializer>(list: &[[u8; 32]], serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.collect_seq(list.iter().map(|bytes| crate::hex(bytes)))
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Vec<[u8; 32]>, D::Error> {
+        Vec::<String>::deserialize(deserializer)?
+            .iter()
+            .map(|text| {
+                crate::unhex(text)
+                    .and_then(|bytes| bytes.try_into().ok())
+                    .ok_or_else(|| serde::de::Error::custom("expected 64 hex digits"))
+            })
+            .collect()
     }
 }
 
@@ -320,6 +400,7 @@ mod tests {
             }],
             retired: false,
             players: Vec::new(),
+            launchers: Vec::new(),
         }
     }
 
@@ -383,6 +464,82 @@ mod tests {
         let mut odd = state(6);
         odd.players = vec![player("not a name")];
         assert!(seal_state(&ana, &ben.public(), &pair, &odd).is_err());
+    }
+
+    #[test]
+    fn launchers_are_signed_and_older_copies_still_open_the_state() {
+        let ana = PersonKey::generate().unwrap();
+        let ben = PersonKey::generate().unwrap();
+        let pair = Secret::random().unwrap();
+        let mut with = state(4);
+        with.cores.push(StateCore {
+            fingerprint: [8; 32],
+            name: "Lodestone Launcher".into(),
+        });
+        with.launchers = vec![[8; 32]];
+        with.players = vec![player("Ana_mc")];
+        let sealed = seal_state(&ana, &ben.public(), &pair, &with).unwrap();
+        let opened = open_state(&ana.public(), &ben.public(), &pair, &sealed).unwrap();
+        assert_eq!(opened, with);
+
+        // a copy from before launchers reads the same bytes as a state with two cores:
+        // its fields parse (unknown ones are ignored) and its signature checks
+        #[derive(serde::Deserialize)]
+        struct OldWire {
+            v: u32,
+            cores: Vec<StateCore>,
+            sig: String,
+            #[serde(default)]
+            players: Vec<StatePlayer>,
+            players_sig: Option<String>,
+        }
+        let id = slot_id(&pair, &ana.public(), &ben.public());
+        let bytes = crypto::open(&pair, Role::State, &id, &sealed).unwrap();
+        let old: OldWire = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(old.v, VERSION);
+        assert_eq!(old.cores.len(), 2);
+        let as_old = State {
+            launchers: Vec::new(),
+            ..with.clone()
+        };
+        assert!(ana.public().verify(
+            "state",
+            &message(&ben.public(), &as_old),
+            &unhex(&old.sig).unwrap()
+        ));
+        assert_eq!(old.players.len(), 1);
+        assert!(ana.public().verify(
+            "state-players",
+            &players_message(&ben.public(), &as_old),
+            &unhex(old.players_sig.as_deref().unwrap()).unwrap()
+        ));
+
+        // a state from before launchers (none listed) has neither field, so its bytes
+        // are what they always were, and it opens with no launchers
+        let plain = seal_state(&ana, &ben.public(), &pair, &state(5)).unwrap();
+        let plain_bytes = crypto::open(&pair, Role::State, &id, &plain).unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&plain_bytes).unwrap();
+        assert!(json.get("launchers").is_none() && json.get("launchers_sig").is_none());
+        assert!(open_state(&ana.public(), &ben.public(), &pair, &plain)
+            .unwrap()
+            .launchers
+            .is_empty());
+
+        // launchers added without their signature, or with another state's, are refused
+        let mut json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        let reseal = |json: &serde_json::Value| {
+            crypto::seal(&pair, Role::State, &id, &serde_json::to_vec(json).unwrap()).unwrap()
+        };
+        let sig = json["launchers_sig"].take();
+        assert!(open_state(&ana.public(), &ben.public(), &pair, &reseal(&json)).is_err());
+        json["launchers_sig"] = sig;
+        json["launchers"] = serde_json::json!(["07".repeat(32)]);
+        assert!(open_state(&ana.public(), &ben.public(), &pair, &reseal(&json)).is_err());
+
+        // a launcher must be one of the cores
+        let mut stray = state(6);
+        stray.launchers = vec![[3; 32]];
+        assert!(seal_state(&ana, &ben.public(), &pair, &stray).is_err());
     }
 
     #[test]

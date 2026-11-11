@@ -9,10 +9,11 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
-# Lodestone Core uses the `host` feature and Lodestone Launcher (launcher/) the `join`
-# feature. The launcher's dependencies must be crates and versions in Zed stable's
-# Cargo.lock, so the requirements below are the lowest versions both lockfiles have, and
-# the crates only a host needs (rcgen, tokio-tungstenite) are behind `host`.
+# Lodestone Core uses the `host` feature, and Lodestone Launcher (launcher/) both `join`
+# and `host` (it shares LAN worlds with friends). The launcher's dependencies must be
+# crates and versions in Zed stable's Cargo.lock, so the requirements below are the
+# lowest versions both lockfiles have, and the crates only a host needs
+# (tokio-tungstenite) are behind `host`. Certificates are made with `ring` (cert.rs).
 [dependencies]
 # Static X25519 for pairing (ring only has ephemeral keys). Already built into both the
 # launcher (through rustls) and the core, at these versions.
@@ -35,8 +36,9 @@ zeroize = "1.8.2"
 
 # Host only.
 futures-util = { version = "0.3.34", default-features = false, features = ["sink", "std"], optional = true }
-rcgen = { version = "0.14.10", default-features = false, features = ["ring"], optional = true }
-tokio-tungstenite = { version = "0.29.0", default-features = false, features = ["handshake"], optional = true }
+# 0.28 is the version in Zed's Cargo.lock (the launcher's); the core locks 0.29. Only
+# their MSRV and header checks differ.
+tokio-tungstenite = { version = ">=0.28.0, <0.30.0", default-features = false, features = ["handshake"], optional = true }
 
 [dev-dependencies]
 tokio = { version = "1.52.1", features = ["rt-multi-thread", "macros", "net", "io-util", "time", "sync", "signal"] }
@@ -44,7 +46,7 @@ tokio = { version = "1.52.1", features = ["rt-multi-thread", "macros", "net", "i
 [features]
 default = []
 # Sharing a server: makes the certificate, registers invites and waits for joins.
-host = ["dep:rcgen", "dep:tokio-tungstenite", "dep:futures-util", "tokio/macros"]
+host = ["dep:tokio-tungstenite", "dep:futures-util", "tokio/macros"]
 # Joining a shared server with an invite link.
 join = []
 

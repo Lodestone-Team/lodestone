@@ -52,6 +52,11 @@ pub struct SharedServer {
     pub player_count: Option<u32>,
     #[serde(default)]
     pub max_player_count: Option<u32>,
+    /// Whether players need a Microsoft account to join, when known. A LAN world (a
+    /// friend's Launcher, launcher/docs/friends.md) is in online mode when its host
+    /// plays with a Microsoft account.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub online_mode: Option<bool>,
 }
 
 /// An HTTP/1.1 answer's status and body (de-chunked). `None` if it isn't one.
