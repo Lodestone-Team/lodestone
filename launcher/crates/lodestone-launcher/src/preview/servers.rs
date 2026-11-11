@@ -738,6 +738,20 @@ pub fn apply_linked_instance(shell: &mut LauncherShell, cx: &mut Context<Launche
     shell.show(crate::shell::Page::Instance, cx);
 }
 
+/// The selected instance made for a friend's server, whose game was playing on it when
+/// it stopped: the launcher waits to rejoin it.
+pub fn apply_linked_friend_rejoin(shell: &mut LauncherShell, cx: &mut Context<LauncherShell>) {
+    apply_linked_friend(shell, Some("Stopped"), cx);
+    let Some(id) = shell.instances().read(cx).selected().map(|i| i.id.clone()) else {
+        return;
+    };
+    let smp = shared("Alex's SMP", "fabric", Some("0.16.14"), true);
+    let friend = friend_entry("ABCDEFGH23", &smp, true, Some(31234)).id;
+    shell.servers().clone().update(cx, |servers, _| {
+        servers.preview_rejoin(&id, &friend, &smp.instance_uuid)
+    });
+}
+
 /// The selected instance made for a friend's server joined with an invite link, whose
 /// host last said its server is `state` (`None`: not asked yet).
 pub fn apply_linked_friend(

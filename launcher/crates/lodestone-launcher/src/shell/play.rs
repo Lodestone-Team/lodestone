@@ -17,7 +17,7 @@ use crate::{
     i18n::{ServersMsg, ShellMsg as M, t, tr},
     instances::appearance::{Background, scrim_layers},
     instances::{Ago, PlayState, play_time},
-    servers::{InstanceLink, friends::Liveness},
+    servers::{InstanceLink, RejoinPhase, friends::Liveness},
     theme::{self, colors, fonts, leading, radius, text, weights},
 };
 
@@ -83,7 +83,11 @@ pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl In
                                 .font_weight(weights::BOLD.into())
                                 .child(subtitle),
                         )
-                        .children(link.as_ref().map(|link| linked_to(link, cx))),
+                        .children(
+                            link.as_ref()
+                                .zip(instance.as_ref())
+                                .map(|(link, instance)| linked_to(link, &instance.id, cx)),
+                        ),
                 )
                 .child(
                     Tabs::new("instance-tabs", InstanceTab::ALL.map(InstanceTab::label))
@@ -262,7 +266,11 @@ fn hero(
 /// "Linked to Survival SMP on Peter's core", under the instance's name. Pressing it
 /// opens the Lodestone Host page with that server's row scrolled into sight and
 /// flashed.
-fn linked_to(link: &InstanceLink, cx: &mut Context<LauncherShell>) -> impl IntoElement + use<> {
+fn linked_to(
+    link: &InstanceLink,
+    instance_id: &str,
+    cx: &mut Context<LauncherShell>,
+) -> impl IntoElement + use<> {
     let label = tr!(
         if link.core_known {
             M::LinkedTo
@@ -298,8 +306,20 @@ fn linked_to(link: &InstanceLink, cx: &mut Context<LauncherShell>) -> impl IntoE
                 Some((t(M::ServerUnreachable), colors::RED_200)),
             ),
         };
+    // "Don't rejoin": stops waiting for the server to come back after it stopped
+    let instance = instance_id.to_string();
+    let dont_rejoin = link.rejoin.is_some().then(|| {
+        Button::new("linked-server-dont-rejoin", t(M::DontRejoin))
+            .size(ButtonSize::Slim)
+            .variant(ButtonVariant::Ghost)
+            .on_click(cx.listener(move |this, _, _, cx| {
+                this.servers
+                    .update(cx, |servers, cx| servers.cancel_rejoin(&instance, cx))
+            }))
+    });
     // "Check" asks a friend's server again, when it isn't running
     let check = (link.friend
+        && link.rejoin.is_none()
         && matches!(
             link.live,
             Liveness::Stopped | Liveness::Starting | Liveness::Unreachable
@@ -375,6 +395,7 @@ fn linked_to(link: &InstanceLink, cx: &mut Context<LauncherShell>) -> impl IntoE
                 .child(format!("· {word}"))
         }))
         .children(check)
+        .children(dont_rejoin)
 }
 
 /// "Minecraft 1.20.1", or "Minecraft 1.20.1 with Fabric 0.16.14".
@@ -446,6 +467,22 @@ impl LauncherShell {
         let busy = servers.instance_busy(id).map(|busy| busy.label());
         let joins = link.is_some() && matches!(state, PlayButtonState::Ready);
         let (state, caption) = match (&link, busy) {
+            // the server restarts: the game closes and joins again once it runs
+            (Some(link), _) if link.rejoin.is_some() => (
+                if joins && link.blocks_play {
+                    PlayButtonState::Disabled
+                } else {
+                    state
+                },
+                Some(tr!(
+                    if link.rejoin == Some(RejoinPhase::Waiting) {
+                        M::RejoinWaitingCaption
+                    } else {
+                        M::RejoiningCaption
+                    },
+                    server = link.server_name
+                )),
+            ),
             (Some(_), Some(busy)) if joins => (PlayButtonState::Disabled, Some(busy)),
             // a friend's server that is stopped or starting: Minecraft couldn't join it
             // ("Play without joining" still plays)
