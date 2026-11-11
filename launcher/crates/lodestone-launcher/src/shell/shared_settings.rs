@@ -2,7 +2,6 @@
 //! from, "Copy from instance…", "Reset", and the shared values themselves.
 
 use crate::theme::px;
-use lodestone_ui::components::menu_toggle;
 use std::{collections::BTreeSet, path::PathBuf};
 
 use gpui::{
@@ -13,10 +12,10 @@ use launcher_core::shared_options::{self, Category, Profile, Row};
 
 use crate::{
     components::{
-        Button, ButtonSize, ButtonVariant, Icon, ListRow, TextInput, Toggle,
+        Button, ButtonSize, ButtonVariant, Dropdown, Icon, ListRow, TextInput, Toggle,
         a11y::Accessible,
         settings::{
-            SearchRow, SettingRow, SettingsSearch, Toast, link, muted_link, popover, popover_panel,
+            SearchRow, SettingRow, SettingsSearch, Toast, link, muted_link, popover_panel,
             select_button, value,
         },
     },
@@ -109,6 +108,12 @@ impl SharedSettings {
     }
 
     /// Opens value lists, for the offscreen screenshots.
+    /// Opens the Sync from list, for the `shared-settings-sync` scene.
+    pub fn preview_sync_from_open(&mut self, cx: &mut Context<Self>) {
+        self.picker = Some(Picker::SyncFrom);
+        cx.notify();
+    }
+
     pub fn preview_expand(&mut self, categories: &[Category], cx: &mut Context<Self>) {
         self.expanded.extend(categories.iter().copied());
         cx.notify();
@@ -285,16 +290,7 @@ impl SharedSettings {
         })
         .w(px(320.))
         .max_h(px(320.))
-        .overflow_y_scroll()
-        .on_mouse_down_out(cx.listener(|this, event, _, cx| {
-            let menu = match this.picker {
-                Some(Picker::SyncFrom) => "sync-from",
-                _ => "copy-from",
-            };
-            menu_toggle::closed_by(menu, event);
-            this.picker = None;
-            cx.notify();
-        }));
+        .overflow_y_scroll();
         if picker == Picker::SyncFrom {
             list = list.child(
                 ListRow::new("sync-none", t(M::NoInstance))
@@ -427,76 +423,66 @@ impl Render for SharedSettings {
         };
 
         let sync = SettingRow::new(t(M::SyncFrom)).hint(sync_hint).child(
-            div()
-                .flex()
-                .flex_col()
-                .items_end()
-                .child(
-                    select_button(
-                        "sync-from",
-                        div().font_weight(weights::BOLD.into()).child(
-                            preferred_name
-                                .clone()
-                                .unwrap_or_else(|| t(M::NoInstance).into()),
-                        ),
-                    )
-                    .aria_label(t(M::SyncFrom))
-                    .aria_value(preferred_name.unwrap_or_else(|| t(M::NoInstance).into()))
-                    .when(has_instances, |button| {
-                        let shell = cx.entity().downgrade();
-                        button.expandable(self.picker == Some(Picker::SyncFrom), move |_, cx| {
-                            shell
-                                .update(cx, |this, cx| this.toggle_picker(Picker::SyncFrom, cx))
-                                .ok();
-                        })
-                    })
-                    .when(has_instances, |button| {
-                        button.on_press(cx.listener(|this, event, _, cx| {
-                            if menu_toggle::toggles("sync-from", event) {
-                                this.toggle_picker(Picker::SyncFrom, cx)
-                            }
-                        }))
-                    }),
+            Dropdown::new(
+                select_button(
+                    "sync-from",
+                    div().font_weight(weights::BOLD.into()).child(
+                        preferred_name
+                            .clone()
+                            .unwrap_or_else(|| t(M::NoInstance).into()),
+                    ),
                 )
-                .when(self.picker == Some(Picker::SyncFrom), |this| {
-                    let close = cx.listener(|this, _: &(), _, cx| {
-                        this.picker = None;
-                        cx.notify();
-                    });
-                    this.child(popover(
-                        "syncfrom-popover",
-                        self.picker_list(Picker::SyncFrom, cx),
-                        move |window, cx| close(&(), window, cx),
-                    ))
+                .aria_label(t(M::SyncFrom))
+                .aria_value(preferred_name.unwrap_or_else(|| t(M::NoInstance).into()))
+                .when(has_instances, |button| {
+                    let shell = cx.entity().downgrade();
+                    button.expandable(self.picker == Some(Picker::SyncFrom), move |_, cx| {
+                        shell
+                            .update(cx, |this, cx| this.toggle_picker(Picker::SyncFrom, cx))
+                            .ok();
+                    })
+                })
+                .when(has_instances, |button| {
+                    button.on_press(
+                        cx.listener(|this, _, _, cx| this.toggle_picker(Picker::SyncFrom, cx)),
+                    )
                 }),
+            )
+            .align_end()
+            .when(self.picker == Some(Picker::SyncFrom), |this| {
+                let close = cx.listener(|this, _: &(), _, cx| {
+                    this.picker = None;
+                    cx.notify();
+                });
+                this.popover(
+                    "syncfrom-popover",
+                    self.picker_list(Picker::SyncFrom, cx),
+                    move |window, cx| close(&(), window, cx),
+                )
+            }),
         );
         let copy = SettingRow::new(t(M::StartFromInstance)).child(
-            div()
-                .flex()
-                .flex_col()
-                .items_end()
-                .child(
-                    Button::new("copy-from-instance", t(M::CopyFromInstance))
-                        .variant(ButtonVariant::Secondary)
-                        .size(ButtonSize::Slim)
-                        .disabled(!has_instances)
-                        .on_click(cx.listener(|this, event, _, cx| {
-                            if menu_toggle::toggles("copy-from", event) {
-                                this.toggle_picker(Picker::CopyFrom, cx)
-                            }
-                        })),
+            Dropdown::new(
+                Button::new("copy-from-instance", t(M::CopyFromInstance))
+                    .variant(ButtonVariant::Secondary)
+                    .size(ButtonSize::Slim)
+                    .disabled(!has_instances)
+                    .on_click(
+                        cx.listener(|this, _, _, cx| this.toggle_picker(Picker::CopyFrom, cx)),
+                    ),
+            )
+            .align_end()
+            .when(self.picker == Some(Picker::CopyFrom), |this| {
+                let close = cx.listener(|this, _: &(), _, cx| {
+                    this.picker = None;
+                    cx.notify();
+                });
+                this.popover(
+                    "copyfrom-popover",
+                    self.picker_list(Picker::CopyFrom, cx),
+                    move |window, cx| close(&(), window, cx),
                 )
-                .when(self.picker == Some(Picker::CopyFrom), |this| {
-                    let close = cx.listener(|this, _: &(), _, cx| {
-                        this.picker = None;
-                        cx.notify();
-                    });
-                    this.child(popover(
-                        "copyfrom-popover",
-                        self.picker_list(Picker::CopyFrom, cx),
-                        move |window, cx| close(&(), window, cx),
-                    ))
-                }),
+            }),
         );
         let reset = SettingRow::new(t(M::ClearShared))
             .danger()

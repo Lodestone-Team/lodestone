@@ -23,11 +23,11 @@ use super::{
 };
 use crate::{
     components::{
-        Button, ButtonSize, ButtonVariant, Dialog, DialogSlot, Icon, IconButton, KeyboardFocus,
-        ListRow, LoadingDots, Toggle,
+        Button, ButtonSize, ButtonVariant, Dialog, DialogSlot, Dropdown, Icon, IconButton,
+        KeyboardFocus, ListRow, LoadingDots, Toggle,
         a11y::{Accessible, Role},
         power_name, power_toggle,
-        settings::{popover, popover_panel},
+        settings::popover_panel,
         text_tooltip,
     },
     i18n::{CommonMsg, ServersMsg as M, ServersPlural as P, format, t, tr, trn},
@@ -726,22 +726,18 @@ impl Servers {
             .is_some_and(|credentials| credentials.api_key.is_some());
         let signed_in = core.signed_in();
         let pinned = core.saved.certificate.is_some();
+        let button = IconButton::new(
+            SharedString::from(format!("core-menu-{index}")),
+            Icon::Ellipsis,
+        )
+        .label(tr!(M::CoreMoreActions, name = core.saved.name.clone()))
+        .on_click(cx.listener(move |this, _, _, cx| this.toggle_core_menu(&uuid, cx)));
         div()
-            .relative()
             .flex_none()
-            .child(
-                IconButton::new(
-                    SharedString::from(format!("core-menu-{index}")),
-                    Icon::Ellipsis,
-                )
-                .label(tr!(M::CoreMoreActions, name = core.saved.name.clone()))
-                .on_click(cx.listener(move |this, _, _, cx| this.toggle_core_menu(&uuid, cx))),
-            )
-            .when(open, |this| {
+            .child(Dropdown::new(button).align_end().when(open, |this| {
                 let mut panel =
                     popover_panel(SharedString::from(format!("core-menu-list-{index}")))
-                        .w(px(220.))
-                        .on_mouse_down_out(cx.listener(|this, _, _, cx| this.close_core_menu(cx)));
+                        .w(px(220.));
                 if has_key {
                     panel = panel.child(
                         ListRow::new(
@@ -803,22 +799,12 @@ impl Servers {
                     );
                 }
                 let close = cx.listener(|this, _: &(), _, cx| this.close_core_menu(cx));
-                // In a box as wide as the list, under the button and out of the
-                // header's layout: the popover starts where its parent does, so the
-                // list's right edge lines up with the button's.
-                this.child(
-                    div()
-                        .absolute()
-                        .top_full()
-                        .right_0()
-                        .w(px(220.))
-                        .child(popover(
-                            SharedString::from(format!("core-menu-popover-{index}")),
-                            panel,
-                            move |window, cx| close(&(), window, cx),
-                        )),
+                this.popover(
+                    SharedString::from(format!("core-menu-popover-{index}")),
+                    panel,
+                    move |window, cx| close(&(), window, cx),
                 )
-            })
+            }))
     }
 
     /// "Connect as owner" for the core the scan found as row `found_index`.

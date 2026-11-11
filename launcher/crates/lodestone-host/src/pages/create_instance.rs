@@ -402,6 +402,31 @@ impl CreateInstance {
         cx.notify();
     }
 
+    /// For screenshots (`--open-menu`): opens the modpack search's sort list, or the
+    /// first list field of the step shown.
+    #[cfg(feature = "screenshot")]
+    pub fn open_menu_for_screenshot(&mut self, cx: &mut Context<Self>) {
+        if let Some(modpack) = &self.modpack {
+            modpack.update(cx, |modpack, cx| modpack.open_sort_for_screenshot(cx));
+            return;
+        }
+        let fields = if self.step >= SERVER {
+            self.server
+                .iter_mut()
+                .flat_map(|(_, fields)| fields.iter_mut())
+                .collect::<Vec<_>>()
+        } else {
+            self.basic.iter_mut().collect()
+        };
+        if let Some(open) = fields.into_iter().find_map(|field| match &mut field.input {
+            fields::Input::Choice { open, .. } => Some(open),
+            _ => None,
+        }) {
+            *open = true;
+            cx.notify();
+        }
+    }
+
     /// For screenshots: moves the dialog on to `step` (`games`, `basic`, `server`,
     /// `auto`, `modpack`) as soon as what it needs has loaded.
     pub fn advance_for_screenshot(&mut self, step: &str, cx: &mut Context<Self>) {

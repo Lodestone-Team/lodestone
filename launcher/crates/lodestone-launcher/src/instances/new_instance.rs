@@ -10,7 +10,6 @@ use gpui::{
     uniform_list,
 };
 use lodestone_minecraft::versions::mojang::{MojangVersion, MojangVersionType};
-use lodestone_ui::components::menu_toggle;
 
 use launcher_core::content::{
     ContentKind,
@@ -20,14 +19,14 @@ use launcher_core::game::loaders::LoaderKind;
 
 use super::{Instances, Versions, loader_picker::LoaderPicker, modpack_browser::ModpackBrowser};
 use crate::components::{
-    KeyboardFocus,
+    Dropdown, KeyboardFocus,
     a11y::{Accessible, Role, Toggled},
 };
 use crate::{
     components::{
         Button, ButtonVariant, Dialog, Icon, LoadingDots, TextInput,
         motion::Animated,
-        settings::{popover, popover_panel, select_button},
+        settings::{popover_panel, select_button},
     },
     file_dialog,
     i18n::{
@@ -1046,42 +1045,33 @@ impl NewInstanceDialog {
                 .child(t(M::LoadingVersionList))
                 .into_any_element(),
         };
-        div()
-            .flex()
-            .flex_col()
-            .items_start()
-            .child(
-                select_button("game-version-select", label)
-                    .aria_label(t(M::MinecraftVersion))
-                    .aria_value(chosen_text)
-                    .expandable(self.versions_open, toggle)
-                    .w(px(300.))
-                    .justify_between()
-                    .on_press(cx.listener(|this, event, window, cx| {
-                        if !menu_toggle::toggles("game-version", event) {
-                            return;
-                        }
-                        this.versions_open = !this.versions_open;
-                        if this.versions_open {
-                            // Type to search straight away.
-                            this.search.focus_handle(cx).focus(window, cx);
-                        }
-                        cx.notify();
-                    })),
-            )
-            .when(self.versions_open, |this| {
-                let close = cx.listener(|this, _: &(), _, cx| {
-                    this.versions_open = false;
+        Dropdown::new(
+            select_button("game-version-select", label)
+                .aria_label(t(M::MinecraftVersion))
+                .aria_value(chosen_text)
+                .expandable(self.versions_open, toggle)
+                .w(px(300.))
+                .justify_between()
+                .on_press(cx.listener(|this, _, window, cx| {
+                    this.versions_open = !this.versions_open;
+                    if this.versions_open {
+                        // Type to search straight away.
+                        this.search.focus_handle(cx).focus(window, cx);
+                    }
                     cx.notify();
-                });
-                // In a box of its own under the button: the popover starts where
-                // its parent does.
-                this.child(div().child(popover(
-                    "game-version-popover",
-                    self.version_panel(cx),
-                    move |window, cx| close(&(), window, cx),
-                )))
-            })
+                })),
+        )
+        .when(self.versions_open, |this| {
+            let close = cx.listener(|this, _: &(), _, cx| {
+                this.versions_open = false;
+                cx.notify();
+            });
+            this.popover(
+                "game-version-popover",
+                self.version_panel(cx),
+                move |window, cx| close(&(), window, cx),
+            )
+        })
     }
 
     fn version_panel(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -1114,11 +1104,6 @@ impl NewInstanceDialog {
         popover_panel("game-version-list")
             .w(px(420.))
             .gap_2()
-            .on_mouse_down_out(cx.listener(|this, event, _, cx| {
-                menu_toggle::closed_by("game-version", event);
-                this.versions_open = false;
-                cx.notify();
-            }))
             .child(self.search.clone())
             .child(
                 div()

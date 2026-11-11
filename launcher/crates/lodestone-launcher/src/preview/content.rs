@@ -253,6 +253,7 @@ pub fn fill(instance_dir: &Path, scene: &str) {
         "content-mods"
             | "content-shaders"
             | "content-browse"
+            | "content-sort"
             | "content-browse-idle"
             | "content-filters"
             | "content-project"
@@ -664,7 +665,7 @@ pub fn apply(scene: &str, view: &mut ContentView, cx: &mut Context<ContentView>)
                 view.set_view(ContentKind::ResourcePack, ListView::Modrinth, cx);
             }
         }
-        "content-browse" | "content-browse-idle" | "content-filters" => {
+        "content-browse" | "content-sort" | "content-browse-idle" | "content-filters" => {
             view.preview_state(ContentKind::Mod, None, HashMap::new(), icons(), cx);
             let hits = [
                 (
@@ -729,6 +730,8 @@ pub fn apply(scene: &str, view: &mut ContentView, cx: &mut Context<ContentView>)
             .expect("a valid response");
             // Typed "so", or browsing with nothing typed (with the filter panel open).
             let text = if scene == "content-browse" { "so" } else { "" };
+            // The sort list open, under its button in the toolbar.
+            view.sort_open = scene == "content-sort";
             view.preview_results(ContentKind::Mod, text, response.normalize(), cx);
             view.set_view(ContentKind::Mod, ListView::Modrinth, cx);
             if scene == "content-filters" {

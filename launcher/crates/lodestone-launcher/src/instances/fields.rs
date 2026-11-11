@@ -11,7 +11,6 @@ use launcher_core::{
     instances::{Resolution, WindowSettings, format_env, parse_env},
     settings::max_ram_is_high,
 };
-use lodestone_ui::components::menu_toggle;
 
 use crate::{
     components::TextInput,
@@ -244,9 +243,9 @@ pub fn window_controls<V: 'static>(
     cx: &mut Context<V>,
 ) -> impl IntoElement + use<V> {
     use crate::components::{
-        ListRow, Toggle,
+        Dropdown, ListRow, Toggle,
         a11y::Accessible as _,
-        settings::{popover, popover_panel, select_button},
+        settings::{popover_panel, select_button},
     };
     let screen = screen_size(window, cx);
     let resolution = fields.resolution(cx);
@@ -282,78 +281,63 @@ pub fn window_controls<V: 'static>(
                     .child(detail),
             )
         });
-    let list = div()
-        .flex()
-        .flex_col()
-        .items_end()
-        .child(
-            select_button(SharedString::from(format!("{id}-size")), button_label)
-                .aria_label(t(M::WindowSize))
-                .aria_value(label)
-                .expandable(open, toggle_menu.clone())
-                .on_press(move |event, window, cx| {
-                    if menu_toggle::toggles("memory-size", event) {
-                        toggle_menu(window, cx)
-                    }
-                }),
-        )
-        .when(open, |this| {
-            let close = cx.listener(move |this, _: &(), _, cx| {
-                get(this).size_menu_open = false;
-                cx.notify();
-            });
-            let mut panel = popover_panel(SharedString::from(format!("{id}-size-list")))
-                .w(px(240.))
-                .on_mouse_down_out(cx.listener(move |this, event, _, cx| {
-                    menu_toggle::closed_by("memory-size", event);
-                    get(this).size_menu_open = false;
-                    cx.notify();
-                }));
-            for (index, option) in options.iter().enumerate() {
-                let (label, detail) = size_option_text(option);
-                let resolution = option.resolution;
-                panel = panel.child(
-                    ListRow::new(SharedString::from(format!("{id}-size-{index}")), label)
-                        .when_some(detail, |row, detail| row.detail(detail))
-                        .selected(selected == Some(index))
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            let fields = get(this);
-                            fields.size_menu_open = false;
-                            fields.custom_size = false;
-                            fields.set_resolution(resolution, cx);
-                            cx.notify();
-                        })),
-                );
-            }
-            panel = panel.child(
-                ListRow::new(
-                    SharedString::from(format!("{id}-size-custom")),
-                    t(M::WindowSizeCustom),
-                )
-                .selected(selected.is_none())
-                .on_click(cx.listener(move |this, _, window, cx| {
-                    let fields = get(this);
-                    fields.size_menu_open = false;
-                    fields.custom_size = true;
-                    // Start from the size it was, written out, to change from there.
-                    if Fields::text(&fields.width, cx).is_empty()
-                        && Fields::text(&fields.height, cx).is_empty()
-                    {
-                        fields.set_resolution(Some(GAME_DEFAULT_SIZE), cx);
-                    }
-                    let width = fields.width.read(cx).focus_handle(cx);
-                    window.focus(&width, cx);
-                    cx.notify();
-                })),
-            );
-            // In a box of its own under the button: the popover starts where its
-            // parent does.
-            this.child(div().child(popover(
-                SharedString::from(format!("{id}-size-popover")),
-                panel,
-                move |window, cx| close(&(), window, cx),
-            )))
+    let list = Dropdown::new(
+        select_button(SharedString::from(format!("{id}-size")), button_label)
+            .aria_label(t(M::WindowSize))
+            .aria_value(label)
+            .expandable(open, toggle_menu.clone())
+            .on_press(move |_, window, cx| toggle_menu(window, cx)),
+    )
+    .align_end()
+    .when(open, |this| {
+        let close = cx.listener(move |this, _: &(), _, cx| {
+            get(this).size_menu_open = false;
+            cx.notify();
         });
+        let mut panel = popover_panel(SharedString::from(format!("{id}-size-list"))).w(px(240.));
+        for (index, option) in options.iter().enumerate() {
+            let (label, detail) = size_option_text(option);
+            let resolution = option.resolution;
+            panel = panel.child(
+                ListRow::new(SharedString::from(format!("{id}-size-{index}")), label)
+                    .when_some(detail, |row, detail| row.detail(detail))
+                    .selected(selected == Some(index))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        let fields = get(this);
+                        fields.size_menu_open = false;
+                        fields.custom_size = false;
+                        fields.set_resolution(resolution, cx);
+                        cx.notify();
+                    })),
+            );
+        }
+        panel = panel.child(
+            ListRow::new(
+                SharedString::from(format!("{id}-size-custom")),
+                t(M::WindowSizeCustom),
+            )
+            .selected(selected.is_none())
+            .on_click(cx.listener(move |this, _, window, cx| {
+                let fields = get(this);
+                fields.size_menu_open = false;
+                fields.custom_size = true;
+                // Start from the size it was, written out, to change from there.
+                if Fields::text(&fields.width, cx).is_empty()
+                    && Fields::text(&fields.height, cx).is_empty()
+                {
+                    fields.set_resolution(Some(GAME_DEFAULT_SIZE), cx);
+                }
+                let width = fields.width.read(cx).focus_handle(cx);
+                window.focus(&width, cx);
+                cx.notify();
+            })),
+        );
+        this.popover(
+            SharedString::from(format!("{id}-size-popover")),
+            panel,
+            move |window, cx| close(&(), window, cx),
+        )
+    });
     let sized = |input: &Entity<TextInput>| div().w(px(72.)).child(input.clone());
     div()
         .flex()

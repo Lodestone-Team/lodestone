@@ -3,19 +3,15 @@
 
 use crate::skin::Skinned;
 use crate::theme::px;
-use gpui::{
-    AnyElement, Context, IntoElement, Pixels, SharedString, anchored, deferred, div, img,
-    prelude::*,
-};
+use gpui::{AnyElement, Context, IntoElement, Pixels, SharedString, div, img, prelude::*};
 use launcher_core::accounts::{Account, AccountKind};
 use launcher_core::ui_skin::SurfaceId;
-use lodestone_ui::components::menu_toggle;
 
 use super::LauncherShell;
 use crate::{
     accounts::{Accounts, SessionState},
     components::{
-        FocusScope, Icon, KeyboardFocus, LoadingDots,
+        Dropdown, Icon, KeyboardFocus, LoadingDots,
         a11y::{Accessible, Role, Toggled, automation_id},
     },
     i18n::{CommonMsg, ShellMsg as M, t, tr},
@@ -129,15 +125,9 @@ pub fn render_compact(shell: &LauncherShell, cx: &mut Context<LauncherShell>) ->
             }
         })
         .tooltip(crate::components::text_tooltip(name))
-        .on_press(cx.listener(move |this, event, _, cx| {
-            if menu_toggle::toggles("account", event) {
-                this.set_account_menu(!menu_open, cx)
-            }
-        }))
+        .on_press(cx.listener(move |this, _, _, cx| this.set_account_menu(!menu_open, cx)))
         .child(avatar(accounts, active.as_ref(), px(32.)));
-    div()
-        .child(button)
-        .when(menu_open, |this| this.child(menu(shell, cx)))
+    div().child(with_menu(button, menu_open, shell, cx))
 }
 
 pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoElement {
@@ -186,11 +176,7 @@ pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl In
                     .hover(|style| style.bg(crate::skin::sidebar_inks().fill))
             }
         })
-        .on_press(cx.listener(move |this, event, _, cx| {
-            if menu_toggle::toggles("account", event) {
-                this.set_account_menu(!menu_open, cx)
-            }
-        }))
+        .on_press(cx.listener(move |this, _, _, cx| this.set_account_menu(!menu_open, cx)))
         .child(avatar)
         .child(
             div()
@@ -227,8 +213,7 @@ pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl In
 
     div()
         .w_full()
-        .child(button)
-        .when(menu_open, |this| this.child(menu(shell, cx)))
+        .child(with_menu(button, menu_open, shell, cx))
 }
 
 /// One row of the menu. An account's name is cut short beside its status; an
@@ -302,7 +287,22 @@ fn icon_slot(icon: Icon, color: theme::Color) -> AnyElement {
         .into_any_element()
 }
 
-fn menu(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoElement {
+/// The account box `button`, and its menu under it while `open`.
+fn with_menu(
+    button: impl IntoElement,
+    open: bool,
+    shell: &LauncherShell,
+    cx: &mut Context<LauncherShell>,
+) -> impl IntoElement {
+    let close = cx.listener(|this, _: &(), _, cx| this.set_account_menu(false, cx));
+    Dropdown::new(button).when(open, |this| {
+        this.popover("account-menu-scope", menu(shell, cx), move |window, cx| {
+            close(&(), window, cx)
+        })
+    })
+}
+
+fn menu(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoElement + use<> {
     let accounts = shell.accounts.read(cx);
     let active_id = accounts.active().map(|a| a.id.clone());
     let offline_enabled = accounts.offline_enabled();
@@ -366,7 +366,7 @@ fn menu(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoElem
     let has_accounts = !rows.is_empty();
     let active_offline = active.as_ref().is_some_and(Account::is_offline);
 
-    let panel = div()
+    div()
         .id("account-menu")
         .role(Role::Menu)
         .accessibility_id("account-menu")
@@ -374,7 +374,6 @@ fn menu(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoElem
         .flex()
         .flex_col()
         .w(layout::sidebar_width() - px(16.))
-        .mt_1p5()
         .py_2()
         .px_1p5()
         .rounded(radius::DEFAULT)
@@ -389,10 +388,6 @@ fn menu(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoElem
             spread_radius: px(0.),
             inset: false,
         }])
-        .on_mouse_down_out(cx.listener(|this, event, _, cx| {
-            menu_toggle::closed_by("account", event);
-            this.set_account_menu(false, cx)
-        }))
         .children(rows)
         .when(active_offline, |this| {
             this.child(
@@ -457,18 +452,5 @@ fn menu(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoElem
                     this.confirm_remove(&id, Some(window), cx)
                 })),
             )
-        });
-
-    // Drawn above the rest of the window, under the account box. It takes focus, and
-    // Escape closes it.
-    let close = cx.listener(|this, _: &(), _, cx| this.set_account_menu(false, cx));
-    deferred(
-        anchored().child(
-            FocusScope::new("account-menu-scope")
-                .arrow_keys()
-                .on_dismiss(move |window, cx| close(&(), window, cx))
-                .child(panel),
-        ),
-    )
-    .with_priority(1)
+        })
 }

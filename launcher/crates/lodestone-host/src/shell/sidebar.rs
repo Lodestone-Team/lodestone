@@ -10,10 +10,8 @@ use launcher_core::cores::admin::{
 };
 use lodestone_ui::{
     components::{
-        Align, Button, ButtonSize, ButtonVariant, Icon, IconButton, ListRow, PowerButtons,
-        menu_toggle, power_name,
-        settings::{PopoverMotion, popover_panel},
-        text_tooltip,
+        Align, Button, ButtonSize, ButtonVariant, Dropdown, Icon, IconButton, ListRow,
+        PowerButtons, power_name, settings::popover_panel, text_tooltip,
     },
     theme::{Color, colors, ink, px, radius, text, weights},
 };
@@ -489,7 +487,7 @@ fn pill_colors(state: InstanceState) -> (Color, Color) {
     }
 }
 
-/// The name the power menu goes by for `menu_toggle`.
+/// The power menu's id.
 const POWER_MENU: &str = "power-menu";
 
 /// The power menu's icon for `power`, after the dashboard's.
@@ -538,10 +536,7 @@ fn selected_card(
             .label(tr!(ShellMsg::PowerMenu, state = state_name(instance.state)))
             .color(power_color(instance.state))
             .disabled(powers.is_empty())
-            .on_click(cx.listener(move |this, event, _, cx| {
-                if !menu_toggle::toggles(POWER_MENU, event) {
-                    return;
-                }
+            .on_click(cx.listener(move |this, _, _, cx| {
                 this.power_menu = match this.power_menu {
                     Some(ref open) if *open == uuid => None,
                     _ => Some(uuid.clone()),
@@ -576,37 +571,18 @@ fn selected_card(
             panel.child(item)
         },
     );
-    let panel = if menu_open {
-        panel.on_mouse_down_out(cx.listener(|this, event, _, cx| {
-            menu_toggle::closed_by(POWER_MENU, event);
-            this.power_menu = None;
-            cx.notify();
-        }))
-    } else {
-        panel
-    };
     let close = cx.listener(|this, _: &(), _, cx| {
         this.power_menu = None;
         cx.notify();
     });
     let power = div()
-        .relative()
         .flex_none()
-        .child(power_button)
-        // under the button, its right edge on the button's
-        .child(
-            div()
-                .absolute()
-                .top_full()
-                .right_0()
-                .w(px(128.))
-                .child(PopoverMotion::new(
-                    POWER_MENU,
-                    menu_open,
-                    panel,
-                    move |window, cx| close(&(), window, cx),
-                )),
-        );
+        .child(Dropdown::new(power_button).align_end().animated_popover(
+            POWER_MENU,
+            menu_open,
+            panel,
+            move |window, cx| close(&(), window, cx),
+        ));
 
     // Share opens the Overview's Share section, which Minecraft Java servers have, for
     // those who may change them

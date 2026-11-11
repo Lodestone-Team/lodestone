@@ -6,7 +6,6 @@
 use crate::skin::Skinned;
 use crate::theme::px;
 use launcher_core::ui_skin::SurfaceId;
-use lodestone_ui::components::menu_toggle;
 use std::sync::Arc;
 
 use gpui::{
@@ -36,10 +35,10 @@ use crate::components::{
 use crate::i18n::{CommonMsg, ContentMsg as M, ContentPlural as P, format, t, tr, trn};
 use crate::{
     components::{
-        Button, ButtonSize, ButtonVariant, Icon, IconButton, ListRow, LoadingDots, RichText,
-        ScrollSource as _, Scrollbar, Toggle,
+        Button, ButtonSize, ButtonVariant, Dropdown, Icon, IconButton, ListRow, LoadingDots,
+        RichText, ScrollSource as _, Scrollbar, Toggle,
         focus::Dismiss,
-        settings::{popover, popover_panel, select_button},
+        settings::{popover_panel, select_button},
     },
     theme::{self, colors, fonts, leading, radius, text, weights},
 };
@@ -560,73 +559,57 @@ impl ContentView {
     fn render_menu(&mut self, kind: ContentKind, cx: &mut Context<Self>) -> impl IntoElement {
         let can_check = (self.modrinth(cx).is_some() || self.curseforge(cx).is_some())
             && !self.section(kind).items().is_empty();
-        div()
-            .flex()
-            .flex_col()
-            .items_end()
-            .child(
-                IconButton::new(("content-menu", kind as usize), Icon::Ellipsis)
-                    .label(format!("{}: {}", t(CommonMsg::Menu), kind.label()))
-                    .on_click(cx.listener(|this, event, _, cx| {
-                        if !menu_toggle::toggles("content-menu", event) {
-                            return;
-                        }
-                        this.menu_open = !this.menu_open;
-                        cx.notify();
-                    })),
-            )
-            .when(self.menu_open, |this| {
-                let close = cx.listener(|this, _: &(), _, cx| {
-                    this.menu_open = false;
+        Dropdown::new(
+            IconButton::new(("content-menu", kind as usize), Icon::Ellipsis)
+                .label(format!("{}: {}", t(CommonMsg::Menu), kind.label()))
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.menu_open = !this.menu_open;
                     cx.notify();
-                });
-                let mut panel = popover_panel("content-menu-list")
-                    .w(px(220.))
-                    .on_mouse_down_out(cx.listener(|this, event, _, cx| {
-                        menu_toggle::closed_by("content-menu", event);
-                        this.menu_open = false;
-                        cx.notify();
-                    }));
-                if can_check {
-                    panel = panel.child(
-                        ListRow::new("menu-check-updates", t(M::CheckForUpdates))
-                            .icon(Icon::CircleUp)
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.menu_open = false;
-                                this.check_updates(kind, cx);
-                            })),
-                    );
-                }
-                panel = panel
-                    .children(
-                        super::add_rows(kind, cx.can_select_mixed_files_and_dirs())
-                            .into_iter()
-                            .map(|(id, label, pick)| {
-                                ListRow::new(id, t(label))
-                                    .icon(Icon::Upload)
-                                    .on_click(cx.listener(move |this, _, _, cx| {
-                                        this.menu_open = false;
-                                        this.pick_files(kind, pick, cx);
-                                    }))
-                            }),
-                    )
-                    .child(
-                        ListRow::new("menu-open-folder", t(CommonMsg::OpenFolder))
-                            .icon(Icon::ArrowUpRightFromSquare)
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.menu_open = false;
-                                this.open_folder(kind, cx);
-                                cx.notify();
-                            })),
-                    );
-                // In a box of its own under the button: the popover starts where its
-                // parent does.
-                this.child(div().child(popover(
-                    "content-menu-popover",
-                    panel,
-                    move |window, cx| close(&(), window, cx),
-                )))
+                })),
+        )
+        .align_end()
+        .when(self.menu_open, |this| {
+            let close = cx.listener(|this, _: &(), _, cx| {
+                this.menu_open = false;
+                cx.notify();
+            });
+            let mut panel = popover_panel("content-menu-list").w(px(220.));
+            if can_check {
+                panel = panel.child(
+                    ListRow::new("menu-check-updates", t(M::CheckForUpdates))
+                        .icon(Icon::CircleUp)
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.menu_open = false;
+                            this.check_updates(kind, cx);
+                        })),
+                );
+            }
+            panel = panel
+                .children(
+                    super::add_rows(kind, cx.can_select_mixed_files_and_dirs())
+                        .into_iter()
+                        .map(|(id, label, pick)| {
+                            ListRow::new(id, t(label))
+                                .icon(Icon::Upload)
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.menu_open = false;
+                                    this.pick_files(kind, pick, cx);
+                                }))
+                        }),
+                )
+                .child(
+                    ListRow::new("menu-open-folder", t(CommonMsg::OpenFolder))
+                        .icon(Icon::ArrowUpRightFromSquare)
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.menu_open = false;
+                            this.open_folder(kind, cx);
+                            cx.notify();
+                        })),
+                );
+            this.popover("content-menu-popover", panel, move |window, cx| {
+                close(&(), window, cx)
             })
+        })
     }
 
     fn render_banners(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -2070,64 +2053,47 @@ impl ContentView {
             .iter()
             .find(|(i, _)| *i == index)
             .map_or(M::SortRelevance, |(_, label)| *label);
-        let sort = div()
-            .flex()
-            .flex_col()
-            .items_end()
-            .child(
-                select_button(
-                    ("modrinth-sort", kind as usize),
-                    small(t(current)).font_weight(weights::BOLD.into()),
-                )
-                .aria_value(t(current))
-                .expandable(self.sort_open, {
-                    let view = cx.entity().downgrade();
-                    move |_: &mut Window, cx: &mut gpui::App| {
-                        view.update(cx, |this, cx| {
-                            this.sort_open = !this.sort_open;
-                            cx.notify();
-                        })
-                        .ok();
-                    }
-                })
-                .on_press(cx.listener(|this, event, _, cx| {
-                    if !menu_toggle::toggles("content-sort", event) {
-                        return;
-                    }
-                    this.sort_open = !this.sort_open;
-                    cx.notify();
-                })),
+        let sort = Dropdown::new(
+            select_button(
+                ("modrinth-sort", kind as usize),
+                small(t(current)).font_weight(weights::BOLD.into()),
             )
-            .when(self.sort_open, |this| {
-                let close = cx.listener(|this, _: &(), _, cx| {
-                    this.sort_open = false;
-                    cx.notify();
-                });
-                let mut panel = popover_panel("modrinth-sort-list")
-                    .w(px(180.))
-                    .on_mouse_down_out(cx.listener(|this, event, _, cx| {
-                        menu_toggle::closed_by("content-sort", event);
-                        this.sort_open = false;
+            .aria_value(t(current))
+            .expandable(self.sort_open, {
+                let view = cx.entity().downgrade();
+                move |_: &mut Window, cx: &mut gpui::App| {
+                    view.update(cx, |this, cx| {
+                        this.sort_open = !this.sort_open;
                         cx.notify();
-                    }));
-                for (i, (value, label)) in indexes.into_iter().enumerate() {
-                    panel = panel.child(
-                        ListRow::new(("modrinth-sort-choice", i), t(label))
-                            .selected(value == index)
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.sort_open = false;
-                                this.set_index(kind, value, cx);
-                            })),
-                    );
+                    })
+                    .ok();
                 }
-                // In a box of its own under the button: the popover starts where its
-                // parent does.
-                this.child(div().child(popover(
-                    "modrinth-sort-popover",
-                    panel,
-                    move |window, cx| close(&(), window, cx),
-                )))
+            })
+            .on_press(cx.listener(|this, _, _, cx| {
+                this.sort_open = !this.sort_open;
+                cx.notify();
+            })),
+        )
+        .when(self.sort_open, |this| {
+            let close = cx.listener(|this, _: &(), _, cx| {
+                this.sort_open = false;
+                cx.notify();
             });
+            let mut panel = popover_panel("modrinth-sort-list").w(px(180.));
+            for (i, (value, label)) in indexes.into_iter().enumerate() {
+                panel = panel.child(
+                    ListRow::new(("modrinth-sort-choice", i), t(label))
+                        .selected(value == index)
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.sort_open = false;
+                            this.set_index(kind, value, cx);
+                        })),
+                );
+            }
+            this.popover("modrinth-sort-popover", panel, move |window, cx| {
+                close(&(), window, cx)
+            })
+        });
         let chip = self.compat_chip(kind, cx);
         // Filters, with how many are picked; opens the panel under the heading.
         let browse = &self.section(kind).browse;

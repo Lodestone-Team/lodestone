@@ -149,6 +149,48 @@ pub struct InstanceSettingsPage {
 }
 
 impl InstanceSettingsPage {
+    /// For screenshots: a sample Game section with its Difficulty list open, as a
+    /// Minecraft server's settings show it.
+    #[cfg(feature = "screenshot")]
+    pub fn difficulty_for_screenshot(&mut self, cx: &mut Context<Self>) {
+        let setting = |id: &str, name: &str, value: serde_json::Value, kind: serde_json::Value| {
+            serde_json::json!({
+                "setting_id": id, "name": name, "description": "",
+                "value": value, "value_type": kind, "default_value": null,
+                "is_secret": false, "is_required": true, "is_mutable": true,
+            })
+        };
+        let json = serde_json::json!({
+            "auto_start": false, "restart_on_crash": false,
+            "setting_sections": { "game": {
+                "section_id": "game", "name": "Game", "description": "", "settings": {
+                    "difficulty": setting(
+                        "difficulty", "Difficulty",
+                        serde_json::json!({ "type": "Enum", "value": "easy" }),
+                        serde_json::json!({ "type": "Enum",
+                            "options": ["peaceful", "easy", "normal", "hard"] }),
+                    ),
+                    "gamemode": setting(
+                        "gamemode", "Game mode",
+                        serde_json::json!({ "type": "Enum", "value": "survival" }),
+                        serde_json::json!({ "type": "Enum",
+                            "options": ["survival", "creative", "adventure", "spectator"] }),
+                    ),
+                    "pvp": setting(
+                        "pvp", "PvP",
+                        serde_json::json!({ "type": "Boolean", "value": true }),
+                        serde_json::json!({ "type": "Boolean" }),
+                    ),
+                },
+            } },
+        });
+        if let Ok(manifest) = serde_json::from_value::<ConfigurableManifest>(json) {
+            self.manifest = Load::Ready(manifest);
+            self.open_menu = Some(("game".to_string(), "difficulty".to_string()));
+            cx.notify();
+        }
+    }
+
     pub fn new(state: Entity<HostState>, uuid: String, cx: &mut Context<Self>) -> Self {
         let search = cx.new(|cx| SettingsSearch::new("instance-settings-search", cx));
         let mut subscriptions = vec![

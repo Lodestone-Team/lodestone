@@ -6,19 +6,18 @@
 //! their passwords and permissions, and sees their API keys and Minecraft accounts.
 //! Everyone else sees that only the owner manages users.
 
-use lodestone_ui::components::menu_toggle;
 use std::rc::Rc;
 
 use gpui::{
-    AnyElement, AppContext as _, Context, Entity, FocusHandle, IntoElement, ParentElement, Render,
-    SharedString, Styled, Subscription, Window, div, prelude::*,
+    AnyElement, App, AppContext as _, Context, Entity, FocusHandle, IntoElement, ParentElement,
+    Render, SharedString, Styled, Subscription, Window, div, prelude::*,
 };
 use launcher_core::cores::admin::{
     EventInner, PublicUser, events::UserEventInner, users::Permission,
 };
 use lodestone_ui::{
     components::{
-        Button, ButtonVariant, DialogSlot, Icon, IconButton,
+        Button, ButtonVariant, DialogSlot, Dropdown, Icon, IconButton,
         settings::{self, SettingRow, SettingsQuery, SettingsSearch},
         window_layer,
     },
@@ -169,6 +168,15 @@ impl UsersPage {
             })
         });
         cx.notify();
+    }
+
+    /// For screenshots: opens the first user's menu.
+    #[cfg(feature = "screenshot")]
+    pub fn open_menu_for_screenshot(&mut self, cx: &mut Context<Self>) {
+        if let Some(Ok(users)) = &self.users {
+            self.menu = users.first().map(|user| user.uid.clone());
+            cx.notify();
+        }
     }
 
     fn open_dialog(&mut self, uid: Option<String>, cx: &mut Context<Self>) {
@@ -337,17 +345,10 @@ impl UsersPage {
         let menu = menu_open.then(|| {
             let password_uid = uid.clone();
             let delete_user = user.clone();
-            settings::popover(
+            (
                 SharedString::from(format!("user-menu-{uid}")),
                 settings::popover_panel(SharedString::from(format!("user-menu-panel-{uid}")))
                     .w(px(200.))
-                    .on_mouse_down_out(cx.listener(|this, event, _, cx| {
-                        if let Some(uid) = &this.menu {
-                            menu_toggle::closed_by(format!("user-menu-{uid}"), event);
-                        }
-                        this.menu = None;
-                        cx.notify();
-                    }))
                     .child(
                         Button::new(
                             SharedString::from(format!("user-password-{uid}")),
@@ -382,7 +383,7 @@ impl UsersPage {
                     ),
                 {
                     let this = cx.entity().downgrade();
-                    move |_, cx| {
+                    move |_: &mut Window, cx: &mut App| {
                         this.update(cx, |this, cx| {
                             this.menu = None;
                             cx.notify();
@@ -411,31 +412,25 @@ impl UsersPage {
                 .on_click(cx.listener(move |this, _, _, cx| this.select(Some(open.clone()), cx))),
             )
             .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .items_end()
-                    .child(
-                        IconButton::new(
-                            SharedString::from(format!("user-more-{uid}")),
-                            Icon::Ellipsis,
-                        )
-                        .label(t(CommonMsg::MoreActions))
-                        .on_click(cx.listener(
-                            move |this, event, _, cx| {
-                                if !menu_toggle::toggles(&format!("user-menu-{menu_uid}"), event) {
-                                    return;
-                                }
-                                this.menu = if this.menu.as_deref() == Some(&menu_uid) {
-                                    None
-                                } else {
-                                    Some(menu_uid.clone())
-                                };
-                                cx.notify();
-                            },
-                        )),
+                Dropdown::new(
+                    IconButton::new(
+                        SharedString::from(format!("user-more-{uid}")),
+                        Icon::Ellipsis,
                     )
-                    .children(menu),
+                    .label(t(CommonMsg::MoreActions))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.menu = if this.menu.as_deref() == Some(&menu_uid) {
+                            None
+                        } else {
+                            Some(menu_uid.clone())
+                        };
+                        cx.notify();
+                    })),
+                )
+                .align_end()
+                .when_some(menu, |this, (id, panel, dismiss)| {
+                    this.popover(id, panel, dismiss)
+                }),
             )
     }
 

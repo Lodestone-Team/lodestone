@@ -11,7 +11,11 @@ const OPTIONS_1_8_9: &str = include_str!("../../../launcher-core/testdata/option
 pub fn is_scene(scene: &str) -> bool {
     matches!(
         scene,
-        "shared-settings" | "instance-shared-settings" | "focus-popover" | "focus-escape"
+        "shared-settings"
+            | "shared-settings-sync"
+            | "instance-shared-settings"
+            | "focus-popover"
+            | "focus-escape"
     )
 }
 

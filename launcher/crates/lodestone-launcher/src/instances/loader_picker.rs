@@ -10,7 +10,6 @@ use gpui::{
     UniformListScrollHandle, Window, div, prelude::*, uniform_list,
 };
 use launcher_core::game::loaders::{LoaderChoice, LoaderKind, LoaderVersion};
-use lodestone_ui::components::menu_toggle;
 
 use super::{Instances, LoaderVersions};
 use crate::components::{
@@ -19,8 +18,8 @@ use crate::components::{
 };
 use crate::{
     components::{
-        LoadingDots,
-        settings::{SettingRow, popover, popover_panel, select_button, tag},
+        Dropdown, LoadingDots,
+        settings::{SettingRow, popover_panel, select_button, tag},
     },
     i18n::{InstanceSettingsMsg as M, t, tr},
     theme::{self, colors, radius, text, weights},
@@ -44,6 +43,12 @@ pub struct LoaderPicker {
 }
 
 impl LoaderPicker {
+    /// Opens the list of versions, for the `new-instance-loader-versions` scene.
+    pub fn preview_open(&mut self, cx: &mut Context<Self>) {
+        self.open = true;
+        cx.notify();
+    }
+
     pub fn new(
         instances: Entity<Instances>,
         game_version: Option<String>,
@@ -363,82 +368,58 @@ impl LoaderPicker {
         // In the dialog's form the dropdown lines up on the left; in the Settings
         // rows, on the right.
         let form = !self.compact;
-        div()
-            .flex()
-            .flex_col()
-            .map(|this| {
-                if form {
-                    this.items_start()
-                } else {
-                    this.items_end()
-                }
-            })
-            .child(
-                select_button("loader-version-select", label)
-                    .aria_label(t(M::LoaderVersion))
-                    .aria_value(chosen_text)
-                    .expandable(self.open, toggle)
-                    .when(form, |this| this.w(px(300.)).justify_between())
-                    .on_press(cx.listener(|this, event, _, cx| {
-                        if !menu_toggle::toggles("loader-version", event) {
-                            return;
-                        }
-                        this.open = !this.open;
-                        cx.notify();
-                    })),
-            )
-            .when(self.open, |this| {
-                let close = cx.listener(|this, _: &(), _, cx| {
-                    this.open = false;
+        Dropdown::new(
+            select_button("loader-version-select", label)
+                .aria_label(t(M::LoaderVersion))
+                .aria_value(chosen_text)
+                .expandable(self.open, toggle)
+                .when(form, |this| this.w(px(300.)).justify_between())
+                .on_press(cx.listener(|this, _, _, cx| {
+                    this.open = !this.open;
                     cx.notify();
-                });
-                let popover = popover(
-                    "loader-version-popover",
-                    popover_panel("loader-version-list")
-                        .w(px(if form { 300. } else { 280. }))
-                        .h(px(panel_height))
-                        .on_mouse_down_out(cx.listener(|this, event, _, cx| {
-                            menu_toggle::closed_by("loader-version", event);
-                            this.open = false;
-                            cx.notify();
-                        }))
-                        .child(
-                            uniform_list(
-                                "loader-versions",
-                                rows,
-                                cx.processor(move |this, range: std::ops::Range<usize>, _, cx| {
-                                    range
-                                        .filter_map(|index| list.get(index).map(|v| (index, v)))
-                                        .map(|(index, version)| {
-                                            let selected =
-                                                this.selected.as_deref() == Some(&version.id);
-                                            let id = version.id.clone();
-                                            version_row(index, version, selected).on_press(
-                                                cx.listener(move |this, _, _, cx| {
-                                                    this.selected = Some(id.clone());
-                                                    this.touched = true;
-                                                    this.open = false;
-                                                    cx.notify();
-                                                }),
-                                            )
-                                        })
-                                        .collect()
-                                }),
-                            )
-                            .track_scroll(&self.scroll)
-                            .size_full(),
-                        ),
-                    move |window, cx| close(&(), window, cx),
-                );
-                // In the form, in a box of its own under the button: the popover
-                // starts where its parent does.
-                if form {
-                    this.child(div().child(popover))
-                } else {
-                    this.child(popover)
-                }
-            })
-            .into_any_element()
+                })),
+        )
+        .when(!form, |this| this.align_end())
+        .when(self.open, |this| {
+            let close = cx.listener(|this, _: &(), _, cx| {
+                this.open = false;
+                cx.notify();
+            });
+            this.popover(
+                "loader-version-popover",
+                popover_panel("loader-version-list")
+                    .w(px(if form { 300. } else { 280. }))
+                    .h(px(panel_height))
+                    .child(
+                        uniform_list(
+                            "loader-versions",
+                            rows,
+                            cx.processor(move |this, range: std::ops::Range<usize>, _, cx| {
+                                range
+                                    .filter_map(|index| list.get(index).map(|v| (index, v)))
+                                    .map(|(index, version)| {
+                                        let selected =
+                                            this.selected.as_deref() == Some(&version.id);
+                                        let id = version.id.clone();
+                                        version_row(index, version, selected).on_press(cx.listener(
+                                            move |this, _, _, cx| {
+                                                this.selected = Some(id.clone());
+                                                this.touched = true;
+                                                this.open = false;
+                                                cx.notify();
+                                            },
+                                        ))
+                                    })
+                                    .collect()
+                            }),
+                        )
+                        .track_scroll(&self.scroll)
+                        .size_full(),
+                    ),
+                move |window, cx| close(&(), window, cx),
+            )
+        })
+        .into_any_element()
     }
 
     fn render_compact(&mut self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
