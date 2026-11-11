@@ -140,6 +140,9 @@ pub const SCENES: &[&str] = &[
     "import-progress",
     "import-stop",
     "instance-linked",
+    "instance-linked-friend-running",
+    "instance-linked-friend-starting",
+    "instance-linked-friend-stopped",
     "settings",
     "settings-general",
     "settings-language",
@@ -560,7 +563,7 @@ fn has_instances(scene: &str) -> bool {
         || scene.starts_with("instance-settings-window")
         || scene.starts_with("import")
         || servers::has_instances(scene)
-        || scene == "instance-linked"
+        || scene.starts_with("instance-linked")
         || is_appearance_scene(scene)
         || scene.starts_with("skin-")
         || matches!(
@@ -809,7 +812,8 @@ pub fn instances(scene: &str, accounts: &Entity<Accounts>, cx: &mut App) -> Enti
         );
         let wanted = match scene.as_str() {
             "content-shaders-vanilla" => Some("Latest release"),
-            "instance-shared-settings" | "instance-linked" => Some("Survival 1.20.1"),
+            "instance-shared-settings" => Some("Survival 1.20.1"),
+            scene if scene.starts_with("instance-linked") => Some("Survival 1.20.1"),
             scene if groups::is_scene(scene) => Some(groups::SELECTED),
             scene if is_appearance_scene(scene) => Some("Survival 1.20.1"),
             scene
@@ -1568,6 +1572,15 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
                 .update(cx, |instances, cx| instances.set_auto_groups(false, cx));
         }
         "instance-linked" => servers::apply_linked_instance(shell, cx),
+        "instance-linked-friend-running" => {
+            servers::apply_linked_friend(shell, Some("Running"), cx)
+        }
+        "instance-linked-friend-starting" => {
+            servers::apply_linked_friend(shell, Some("Starting"), cx)
+        }
+        "instance-linked-friend-stopped" => {
+            servers::apply_linked_friend(shell, Some("Stopped"), cx)
+        }
         "account-menu" | "needs-sign-in" | "account-menu-launcher" => shell.open_account_menu(cx),
         "launcher-identity" => shell.preview_enable_launcher_identity(cx),
         "sign-in-launcher" => shell.open_sign_in_at(Stage::Choose, None, cx),

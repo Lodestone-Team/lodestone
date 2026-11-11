@@ -94,6 +94,16 @@ crate::i18n::messages! {
         /// Under PLAY, for an instance made for a server.
         AndJoin = "and join {server}",
         PlayWithoutJoining = "Play without joining",
+        /// Under a greyed-out PLAY, for an instance made for a friend's server that
+        /// isn't running. {server} is the server's name.
+        ServerStoppedCaption = "{server} is stopped",
+        ServerStartingCaption = "{server} is starting",
+        /// After "Linked to {server} on {core}": whether that server runs now.
+        ServerOnline = "Online",
+        ServerStarting = "Starting",
+        ServerStopped = "Stopped",
+        ServerUnreachable = "Can't reach it",
+        ServerChecking = "Checking…",
         /// The Play button over an instance's icon in the sidebar, for assistive technology.
         PlayNamed = "Play {name}",
 

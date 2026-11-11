@@ -482,8 +482,10 @@ pub fn text(message: M) -> &'static str {
         }
         M::FriendServerStopped => "Le serveur est arrêté",
         M::FriendServerStoppedBody => {
-            "Demandez à votre ami de le démarrer. Minecraft ne peut pas le rejoindre tant qu’il ne tourne pas."
+            "Demandez à votre ami de le démarrer. Jouer s’active dès qu’il tourne."
         }
+        M::FriendServerStarting => "Le serveur démarre",
+        M::FriendServerStartingBody => "Jouer s’active dès qu’il tourne.",
         M::FriendStarting => "Préparation du jeu…",
         M::FriendInstanceBusy => "Cette instance est déjà lancée. Quittez d’abord le jeu.",
         M::FriendLinkEnded => "Votre ami a arrêté de partager ce serveur",

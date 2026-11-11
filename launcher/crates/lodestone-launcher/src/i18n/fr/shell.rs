@@ -67,6 +67,13 @@ pub fn text(message: M) -> &'static str {
         M::NoInstances => "Aucune instance",
         M::AndJoin => "et rejoindre {server}",
         M::PlayWithoutJoining => "Jouer sans rejoindre",
+        M::ServerStoppedCaption => "{server} est arrêté",
+        M::ServerStartingCaption => "{server} démarre",
+        M::ServerOnline => "En ligne",
+        M::ServerStarting => "Démarrage",
+        M::ServerStopped => "Arrêté",
+        M::ServerUnreachable => "Injoignable",
+        M::ServerChecking => "Vérification…",
         M::PlayNamed => "Jouer à {name}",
 
         M::DeleteNamed => "Supprimer {name}\u{202F}?",

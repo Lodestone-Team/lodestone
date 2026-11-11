@@ -63,6 +63,7 @@ pub const SCENES: &[&str] = &[
     "servers-join-paste",
     "servers-join-connecting",
     "servers-join-ready",
+    "servers-join-ready-stopped",
     "servers-join-ready-mods",
     "servers-join-port-taken",
     "servers-join-failed",
@@ -691,6 +692,16 @@ fn apply_join(scene: &str, servers: &mut Servers, cx: &mut Context<Servers>) {
             port: 36017,
             taken_port: None,
         },
+        "servers-join-ready-stopped" => PreviewJoin::Ready {
+            server: SharedServer {
+                state: Some("Stopped".into()),
+                player_count: None,
+                ..shared("Creative build", "vanilla", None, false)
+            },
+            kind: ConnectionKind::LocalNetwork,
+            port: 36017,
+            taken_port: None,
+        },
         "servers-join-ready-mods" => PreviewJoin::Ready {
             server: shared("Alex's SMP", "fabric", Some("0.16.14"), true),
             kind: ConnectionKind::Internet,
@@ -723,6 +734,39 @@ pub fn apply_linked_instance(shell: &mut LauncherShell, cx: &mut Context<Launche
     let servers = shell.servers().clone();
     servers.update(cx, |servers, _| {
         servers.preview(vec![home(true)], vec![("home".into(), "smp".into(), id)])
+    });
+    shell.show(crate::shell::Page::Instance, cx);
+}
+
+/// The selected instance made for a friend's server joined with an invite link, whose
+/// host last said its server is `state` (`None`: not asked yet).
+pub fn apply_linked_friend(
+    shell: &mut LauncherShell,
+    state: Option<&str>,
+    cx: &mut Context<LauncherShell>,
+) {
+    let Some(id) = shell.instances().read(cx).selected().map(|i| i.id.clone()) else {
+        return;
+    };
+    let mut smp = shared("Alex's SMP", "fabric", Some("0.16.14"), true);
+    smp.state = state.map(str::to_string);
+    let entry = friend_entry("ABCDEFGH23", &smp, true, Some(31234));
+    let friend = entry.id.clone();
+    let status = match state {
+        Some(_) => FriendStatus::Online {
+            server: Box::new(smp.clone()),
+            kind: ConnectionKind::Internet,
+            rtt: std::time::Duration::from_millis(34),
+        },
+        None => FriendStatus::Unknown,
+    };
+    let servers = shell.servers().clone();
+    servers.update(cx, |servers, _| {
+        servers.preview_friends(vec![(entry, status)]);
+        servers.preview(
+            vec![home(true)],
+            vec![(friend, smp.instance_uuid.clone(), id)],
+        );
     });
     shell.show(crate::shell::Page::Instance, cx);
 }

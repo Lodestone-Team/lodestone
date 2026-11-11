@@ -458,6 +458,13 @@ type RowKey = (String, String);
 pub struct InstanceLink {
     pub server_name: String,
     pub core_name: String,
+    /// Whether the server runs, when the launcher knows.
+    pub live: friends::Liveness,
+    /// Play would fail to join: the server is stopped or still starting.
+    pub blocks_play: bool,
+    /// A friend's server, whose state "Check" asks again; `checking` while it does.
+    pub friend: bool,
+    pub checking: bool,
     /// The core is still in the launcher.
     pub core_known: bool,
     /// The core and server, to find the server's row on the Lodestone Host page.
@@ -745,6 +752,16 @@ impl Servers {
         for index in 0..self.cores.len() {
             self.refresh(index, cx);
         }
+        // the servers joined with invite links: whether they run (those from the
+        // friend list come with their friend's servers)
+        let invites = self
+            .friends
+            .list
+            .iter()
+            .filter(|entry| !entry.saved.is_friend_list())
+            .map(|entry| entry.saved.id.clone())
+            .collect();
+        self.recheck_friends(invites, cx);
     }
 
     /// Finds the launcher instances made for a server, off the window's thread: it
@@ -1582,8 +1599,13 @@ impl Servers {
             let owner = cores::friends::is_friend_list_id(&link.core_uuid)
                 .then(|| self.instance_owner(instance_id))
                 .flatten();
+            let live = self.friend_liveness(&link.core_uuid);
             return Some(InstanceLink {
                 server_name: link.server_name.clone(),
+                live,
+                blocks_play: live.blocks_play(),
+                friend: true,
+                checking: self.friend_checking(&link.core_uuid),
                 core_uuid: link.core_uuid.clone(),
                 server_uuid: link.server_uuid.clone(),
                 core_known: friend.is_some() || owner.is_some(),
@@ -1593,8 +1615,29 @@ impl Servers {
             });
         }
         let core = self.cores.iter().find(|c| c.saved.uuid == link.core_uuid);
+        // as the core listed it last (Play starts a stopped server when it may)
+        let live = match core.map(|c| &c.status) {
+            None | Some(CoreStatus::Loading) => friends::Liveness::Unknown,
+            Some(CoreStatus::Failed(_)) => friends::Liveness::Unreachable,
+            Some(CoreStatus::Online(list)) => list
+                .instances
+                .iter()
+                .find(|s| s.uuid == link.server_uuid)
+                .map_or(friends::Liveness::Unknown, |s| match s.state {
+                    ServerState::Running => friends::Liveness::Running,
+                    ServerState::Starting => friends::Liveness::Starting,
+                    ServerState::Stopping | ServerState::Stopped | ServerState::Error => {
+                        friends::Liveness::Stopped
+                    }
+                    ServerState::Hidden | ServerState::Unknown => friends::Liveness::Unknown,
+                }),
+        };
         Some(InstanceLink {
             server_name: link.server_name.clone(),
+            live,
+            blocks_play: false,
+            friend: false,
+            checking: false,
             core_name: core.map_or_else(|| link.core_url.clone(), |c| c.saved.name.clone()),
             core_known: core.is_some(),
             core_uuid: link.core_uuid.clone(),
@@ -2593,15 +2636,20 @@ impl Servers {
         self.instance_links = links
             .iter()
             .filter_map(|(core, server, instance)| {
-                // a server joined from the friend list: no saved core
-                if cores::friends::is_friend_list_id(core) {
+                // a friend's server (from the friend list, or an invite link): no
+                // saved core
+                if cores::friends::is_friend_id(core) {
+                    let name = self
+                        .friends
+                        .get(core)
+                        .map_or_else(|| server.clone(), |f| f.saved.name.clone());
                     return Some((
                         instance.clone(),
                         ServerLink {
                             core_uuid: core.clone(),
                             core_url: String::new(),
                             server_uuid: server.clone(),
-                            server_name: server.clone(),
+                            server_name: name,
                             pack_etag: None,
                         },
                     ));
