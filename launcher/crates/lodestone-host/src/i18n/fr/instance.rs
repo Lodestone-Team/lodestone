@@ -282,6 +282,11 @@ pub fn text(message: M) -> &'static str {
             "Vos amis ne voient plus ce core. Ce core ne peut pas créer lui-même un nouveau certificat : quittez Lodestone Host, supprimez {path}, puis rouvrez-le."
         }
         M::FriendsCancel => "Annuler",
+        M::MemoryKeywords => "mémoire RAM",
+        M::JvmArgsKeywords => "JVM Java arguments options",
+        M::WhitelistKeywords => "liste blanche joueurs autorisés",
+        M::MotdKeywords => "MOTD message du jour description du serveur",
+        M::AutoStartKeywords => "démarrage lancement automatique",
     }
 }
 

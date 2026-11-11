@@ -17,7 +17,7 @@ use crate::{
     components::{
         Button, ButtonSize, ButtonVariant, Icon, KeyboardFocus,
         a11y::{Accessible, Role, Toggled, automation_id},
-        settings::{Toast, muted_link, section},
+        settings::{SearchRow, SettingsSearch, Toast, muted_link},
     },
     file_dialog::Pick,
     i18n::{ShellMsg as M, t, tr},
@@ -40,6 +40,8 @@ pub struct SkinSettings {
     /// While a pack is being imported or exported. The work runs in the
     /// background, so the window keeps answering; its buttons wait for it.
     busy: bool,
+    /// The Settings dialog's search.
+    search: Option<Entity<SettingsSearch>>,
     _prompt: Option<Task<()>>,
 }
 
@@ -56,10 +58,17 @@ impl SkinSettings {
             confirm_delete: false,
             toast: Toast::default(),
             busy: false,
+            search: None,
             _prompt: None,
         };
         this.refresh(cx);
         this
+    }
+
+    /// Filters the page by the Settings dialog's search: skins by name, the rest by
+    /// its section's title.
+    pub fn set_search(&mut self, search: Entity<SettingsSearch>) {
+        self.search = Some(search);
     }
 
     pub fn toast(&self) -> &Toast {
@@ -397,11 +406,19 @@ impl Render for SkinSettings {
         let look = crate::skin::look(cx);
         let spec = look.spec.clone();
         let builtin = launcher_core::ui_skin::built_in(&look.id).is_some();
+        let query = self
+            .search
+            .as_ref()
+            .map(|search| search.read(cx).query())
+            .unwrap_or_default();
+        let gallery_title = t(M::SkinGallery);
+        let all_skins = query.matches([gallery_title]);
 
         // the gallery
         let cards: Vec<AnyElement> = self
             .entries
             .iter()
+            .filter(|entry| all_skins || query.matches([entry.spec.name.as_str()]))
             .map(|entry| {
                 let id = entry.id.clone();
                 gallery_card(entry, entry.id == look.id)
@@ -487,35 +504,58 @@ impl Render for SkinSettings {
                 .to_string(),
             banners = spec.banners.len().to_string()
         );
-        let editor = section(t(M::SkinEditorTitle), None).child(
-            div()
-                .flex()
-                .flex_row()
-                .flex_wrap()
-                .items_center()
-                .gap_4()
-                .child(
-                    Button::new("skin-pop-out", t(M::SkinPopOut))
-                        .variant(ButtonVariant::Primary)
-                        .size(ButtonSize::Slim)
-                        .icon(Icon::ArrowUpRightFromSquare)
-                        .on_click(cx.listener(|this, _, _, cx| this.pop_out(cx))),
-                )
-                .child(div().text_color(crate::theme::ink::muted()).child(summary)),
-        );
+        let editor_texts = [t(M::SkinPopOut).to_string(), summary.clone()];
+        let editor = query
+            .section(t(M::SkinEditorTitle), None)
+            .row(SearchRow::new(
+                div()
+                    .flex()
+                    .flex_row()
+                    .flex_wrap()
+                    .items_center()
+                    .gap_4()
+                    .child(
+                        Button::new("skin-pop-out", t(M::SkinPopOut))
+                            .variant(ButtonVariant::Primary)
+                            .size(ButtonSize::Slim)
+                            .icon(Icon::ArrowUpRightFromSquare)
+                            .on_click(cx.listener(|this, _, _, cx| this.pop_out(cx))),
+                    )
+                    .child(div().text_color(crate::theme::ink::muted()).child(summary)),
+                editor_texts,
+            ));
 
         let accent_adjusted = spec.accent.is_some_and(crate::theme::accent::adjusted);
-        let readable = section(t(M::SkinReadability), None)
-            .child(super::skin_checks::render(
-                &crate::skin::checks(&look),
-                !builtin,
-                "skin-fix",
-                |this: &mut Self, fix, cx| this.apply_fix(fix, cx),
-                cx,
+        let readable = query
+            .section(t(M::SkinReadability), None)
+            .row(SearchRow::new(
+                super::skin_checks::render(
+                    &crate::skin::checks(&look),
+                    !builtin,
+                    "skin-fix",
+                    |this: &mut Self, fix, cx| this.apply_fix(fix, cx),
+                    cx,
+                ),
+                [t(M::SkinReadability)],
             ))
             .when(accent_adjusted, |this| {
                 this.child(div().text_color(colors::YELLOW).child(t(M::SkinAdjusted)))
             });
+        let skin_count = cards.len();
+        let gallery = query
+            .section(gallery_title, None)
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_3()
+                    .child(div().flex().flex_row().flex_wrap().gap_2().children(cards))
+                    .child(actions),
+            )
+            .add_found(skin_count)
+            .finish();
+        let editor = editor.finish();
+        let readable = readable.finish();
 
         div()
             .flex()
@@ -525,27 +565,21 @@ impl Render for SkinSettings {
             .when_some(notice, |this, (notice, color)| {
                 this.child(div().text_color(color).child(notice))
             })
-            .child(
-                section(t(M::SkinGallery), None).child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .gap_3()
-                        .child(div().flex().flex_row().flex_wrap().gap_2().children(cards))
-                        .child(actions),
-                ),
-            )
-            .child(editor)
-            .child(readable)
-            .child(
-                div().flex().child(
-                    Button::new("skin-reset", t(M::SkinReset))
-                        .variant(ButtonVariant::Secondary)
-                        .size(ButtonSize::Slim)
-                        .disabled(look.id == "default")
-                        .on_click(cx.listener(|this, _, _, cx| this.use_skin(None, cx))),
-                ),
-            )
+            .children(query.status())
+            .children(gallery)
+            .children(editor)
+            .children(readable)
+            .when(!query.is_active(), |this| {
+                this.child(
+                    div().flex().child(
+                        Button::new("skin-reset", t(M::SkinReset))
+                            .variant(ButtonVariant::Secondary)
+                            .size(ButtonSize::Slim)
+                            .disabled(look.id == "default")
+                            .on_click(cx.listener(|this, _, _, cx| this.use_skin(None, cx))),
+                    ),
+                )
+            })
     }
 }
 

@@ -12,6 +12,12 @@ crate::i18n::messages! {
         Change = "Change…",
         /// The × at the end of a search field, which empties it.
         Clear = "Clear",
+        /// The search field at the top of a Settings page, and its name.
+        SearchSettings = "Search settings",
+        /// A Settings page's search found nothing; `{query}` is what was typed.
+        NoSettingsMatch = "No settings match “{query}”",
+        /// The button under "No settings match", which empties the search field.
+        ClearSearch = "Clear search",
         Close = "Close",
         Continue = "Continue",
         Copy = "Copy",
@@ -106,5 +112,7 @@ crate::i18n::messages! {
     pub enum CommonPlural {
         Instances = ("{count} instance", "{count} instances"),
         Files = ("{count} file", "{count} files"),
+        /// How many settings a Settings page's search shows.
+        SettingsFound = ("{count} setting found", "{count} settings found"),
     }
 }

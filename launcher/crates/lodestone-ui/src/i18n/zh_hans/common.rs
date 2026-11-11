@@ -9,6 +9,9 @@ pub fn text(message: M) -> &'static str {
         M::Cancel => "取消",
         M::Change => "更改…",
         M::Clear => "清除",
+        M::SearchSettings => "搜索设置",
+        M::NoSettingsMatch => "没有与“{query}”匹配的设置",
+        M::ClearSearch => "清除搜索",
         M::Close => "关闭",
         M::Continue => "继续",
         M::Copy => "复制",
@@ -124,5 +127,6 @@ pub fn plural(message: P) -> [&'static str; 2] {
     match message {
         P::Instances => ["{count} 个实例"; 2],
         P::Files => ["{count} 个文件"; 2],
+        P::SettingsFound => ["找到 {count} 项设置"; 2],
     }
 }

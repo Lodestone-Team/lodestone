@@ -69,6 +69,7 @@ pub fn init(cx: &mut App) {
     // the messages shared with the launcher name this app
     launcher_core::wording::set_app_name(APP_NAME);
     lodestone_ui::init(cx);
+    lodestone_ui::components::settings::set_english_lookup(i18n::english_of);
     prefs::Prefs::init(cx);
     updater::Updater::init(cx);
     pages::init(cx);

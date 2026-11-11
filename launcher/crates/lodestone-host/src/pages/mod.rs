@@ -48,7 +48,10 @@ use gpui::{
     AnyElement, AnyView, App, AppContext as _, Entity, IntoElement, ParentElement, Styled, div,
     prelude::FluentBuilder as _,
 };
-use lodestone_ui::theme::{ink, px, text};
+use lodestone_ui::{
+    components::settings::SettingsSearch,
+    theme::{ink, px, text},
+};
 
 use crate::{
     i18n::{ShellMsg, t},
@@ -89,15 +92,25 @@ pub fn open(route: &Route, state: Entity<HostState>, cx: &mut App) -> AnyView {
     }
 }
 
-/// A page of the Settings dialog (`crate::shell::settings`).
-pub fn open_settings(page: SettingsPage, state: Entity<HostState>, cx: &mut App) -> AnyView {
+/// A page of the Settings dialog (`crate::shell::settings`), filtered by the dialog's
+/// `search`.
+pub fn open_settings(
+    page: SettingsPage,
+    state: Entity<HostState>,
+    search: Entity<SettingsSearch>,
+    cx: &mut App,
+) -> AnyView {
     match page {
         SettingsPage::General => cx
-            .new(|cx| core_settings::CoreSettingsPage::new(state, cx))
+            .new(|cx| core_settings::CoreSettingsPage::new(state, search, cx))
             .into(),
-        SettingsPage::Users => cx.new(|cx| users::UsersPage::new(state, cx)).into(),
-        SettingsPage::Profile => cx.new(|cx| profile::ProfilePage::new(state, cx)).into(),
-        SettingsPage::Updates => cx.new(|cx| updates::UpdatesPage::new(state, cx)).into(),
+        SettingsPage::Users => cx.new(|cx| users::UsersPage::new(state, search, cx)).into(),
+        SettingsPage::Profile => cx
+            .new(|cx| profile::ProfilePage::new(state, search, cx))
+            .into(),
+        SettingsPage::Updates => cx
+            .new(|cx| updates::UpdatesPage::new(state, search, cx))
+            .into(),
     }
 }
 

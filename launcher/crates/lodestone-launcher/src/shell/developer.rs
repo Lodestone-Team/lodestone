@@ -9,7 +9,7 @@ use crate::{components::segmented, theme::colors};
 use crate::{
     components::{
         Button, ButtonSize, ButtonVariant, Dialog, Icon, Toggle,
-        settings::{SettingRow, card, section},
+        settings::{SearchRow, SettingRow, SettingsQuery},
     },
     i18n::{CommonMsg, ShellMsg as M, ShellPlural as P, format, t, tr, trn},
     theme::{self, fonts, leading, radius, text, weights},
@@ -52,8 +52,9 @@ fn paragraph(text: impl Into<SharedString>) -> impl IntoElement {
 /// Settings > Developer: the command line's settings and connected programs, then
 /// "Sign in as the Minecraft Launcher".
 pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoElement {
+    let query = shell.settings_search.read(cx).query();
     let enabled = shell.accounts.read(cx).launcher_identity_enabled();
-    let sign_in = card([SettingRow::new(t(M::SignInAsLauncher))
+    let sign_in = [SettingRow::new(t(M::SignInAsLauncher))
         .hint(t(M::SignInAsLauncherHint))
         .child(
             Toggle::new("launcher-identity", enabled)
@@ -61,11 +62,10 @@ pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl In
                 .on_change(cx.listener(|this, value: &bool, window, cx| {
                     this.request_launcher_identity(*value, window, cx)
                 })),
-        )
-        .into_any_element()]);
+        )];
     let accounts = shell.accounts.read(cx);
     let (offline_on, offline_forced) = (accounts.offline_enabled(), accounts.offline_forced());
-    let offline = card([SettingRow::new(t(M::OfflineAccountsSetting))
+    let offline = [SettingRow::new(t(M::OfflineAccountsSetting))
         .hint(if offline_forced {
             SharedString::from(t(M::OfflineAccountsAlwaysOn))
         } else {
@@ -82,69 +82,77 @@ pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl In
                         .update(cx, |accounts, cx| accounts.set_offline_accounts(on, cx));
                     this.show_save_error(saved, cx);
                 })),
-        )
-        .into_any_element()]);
+        )];
+    let sections = [
+        query
+            .section(t(M::CommandLineSection), Some(t(M::CommandLineLead).into()))
+            .card(command_line(shell, cx))
+            .finish(),
+        // near the top: testers switch it often
+        query
+            .section(t(M::ConnectSection), None)
+            .row(SearchRow::new(
+                shell.connect_service.clone(),
+                [t(M::ConnectService), t(M::ConnectServiceHint)],
+            ))
+            .finish(),
+        query
+            .section(
+                t(M::CodingAgentsSection),
+                Some(t(M::CodingAgentsLead).into()),
+            )
+            .card(coding_agents(shell, cx))
+            .finish(),
+        clients(&query, cx),
+        query
+            .section(t(M::DiagnosticsSection), None)
+            .card([SettingRow::new(t(M::PerfMonitor))
+                .hint(t(M::PerfMonitorHint))
+                .child(
+                    Button::new("open-perf-monitor", t(M::PerfOpen))
+                        .size(ButtonSize::Slim)
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            let sources = this.perf_sources();
+                            super::perf_monitor::open(sources, cx);
+                        })),
+                )])
+            .finish(),
+        query
+            .section(t(M::SignInSection), None)
+            .card(sign_in)
+            .finish(),
+        query.section(t(M::Accounts), None).card(offline).finish(),
+        query
+            .section(t(M::FirstTimeSetupSection), None)
+            .card([SettingRow::new(t(M::ResetFirstTimeSetup))
+                .hint(t(M::ResetFirstTimeSetupHint))
+                .child(
+                    Button::new("reset-first-time-setup", t(CommonMsg::Reset))
+                        .size(ButtonSize::Slim)
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.instances
+                                .update(cx, |instances, cx| instances.reset_first_time_setup(cx));
+                            this.undo_toast.show(
+                                t(M::FirstTimeSetupReset),
+                                false,
+                                |this: &mut LauncherShell| &mut this.undo_toast,
+                                cx,
+                            );
+                        })),
+                )])
+            .finish(),
+    ];
     div()
         .flex()
         .flex_col()
         .gap_8()
         .w_full()
-        .child(
-            section(t(M::CommandLineSection), Some(t(M::CommandLineLead).into()))
-                .child(command_line(shell, cx)),
-        )
-        // near the top: testers switch it often
-        .child(section(t(M::ConnectSection), None).child(shell.connect_service.clone()))
-        .child(
-            section(
-                t(M::CodingAgentsSection),
-                Some(t(M::CodingAgentsLead).into()),
-            )
-            .child(coding_agents(shell, cx)),
-        )
-        .children(clients(cx))
-        .child(
-            section(t(M::DiagnosticsSection), None).child(card([SettingRow::new(t(
-                M::PerfMonitor,
-            ))
-            .hint(t(M::PerfMonitorHint))
-            .child(
-                Button::new("open-perf-monitor", t(M::PerfOpen))
-                    .size(ButtonSize::Slim)
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        let sources = this.perf_sources();
-                        super::perf_monitor::open(sources, cx);
-                    })),
-            )
-            .into_any_element()])),
-        )
-        .child(section(t(M::SignInSection), None).child(sign_in))
-        .child(section(t(M::Accounts), None).child(offline))
-        .child(
-            section(t(M::FirstTimeSetupSection), None).child(card([SettingRow::new(t(
-                M::ResetFirstTimeSetup,
-            ))
-            .hint(t(M::ResetFirstTimeSetupHint))
-            .child(
-                Button::new("reset-first-time-setup", t(CommonMsg::Reset))
-                    .size(ButtonSize::Slim)
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.instances
-                            .update(cx, |instances, cx| instances.reset_first_time_setup(cx));
-                        this.undo_toast.show(
-                            t(M::FirstTimeSetupReset),
-                            false,
-                            |this: &mut LauncherShell| &mut this.undo_toast,
-                            cx,
-                        );
-                    })),
-            )
-            .into_any_element()])),
-        )
+        .children(query.status())
+        .children(sections.into_iter().flatten())
 }
 
 /// Settings > Developer > Command line.
-fn command_line(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> AnyElement {
+fn command_line(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> Vec<SettingRow> {
     let cli = shell.instances.read(cx).cli_settings();
     let status = crate::control::status(cx).map(|status| status.read(cx).clone());
     let socket = status
@@ -176,14 +184,13 @@ fn command_line(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> AnyEl
     } else {
         format!("{} · {}", t(M::SocketClosed), path_text).into()
     };
-    card([
+    vec![
         SettingRow::new(t(M::AllowCli))
             .hint(t(M::AllowCliHint))
             .note_opt(note)
             .child(
                 Toggle::new("cli-enabled", cli.enabled).on_change(set(|cli, on| cli.enabled = on)),
-            )
-            .into_any_element(),
+            ),
         SettingRow::new(t(M::CliAccess))
             .hint(t(M::CliAccessHint))
             .child(segmented(
@@ -204,55 +211,46 @@ fn command_line(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> AnyEl
                         });
                     }
                 },
-            ))
-            .into_any_element(),
+            )),
         SettingRow::new(t(M::DebugTraces))
             .hint(t(M::DebugTracesHint))
-            .child(Toggle::new("cli-traces", cli.traces).on_change(set(|cli, on| cli.traces = on)))
-            .into_any_element(),
+            .child(Toggle::new("cli-traces", cli.traces).on_change(set(|cli, on| cli.traces = on))),
         SettingRow::new(t(M::CliGameLogs))
             .hint(t(M::CliGameLogsHint))
             .child(
                 Toggle::new("cli-game-logs", cli.game_logs)
                     .on_change(set(|cli, on| cli.game_logs = on)),
-            )
-            .into_any_element(),
-        SettingRow::new(t(M::SocketPath))
-            .hint(socket_hint)
-            .child(
-                div()
-                    .flex()
-                    .flex_row()
-                    .gap_2()
-                    .child(
-                        Button::new("cli-copy-socket", t(M::CopyPath))
-                            .size(ButtonSize::Slim)
-                            .on_click(move |_, _, cx| {
-                                cx.write_to_clipboard(ClipboardItem::new_string(
-                                    path_text.to_string(),
-                                ))
-                            }),
-                    )
-                    .child(
-                        Button::new("cli-open-data", t(M::OpenDataFolder))
-                            .size(ButtonSize::Slim)
-                            .on_click(move |_, _, cx| cx.open_with_system(&root)),
-                    ),
-            )
-            .into_any_element(),
-    ])
-    .into_any_element()
+            ),
+        SettingRow::new(t(M::SocketPath)).hint(socket_hint).child(
+            div()
+                .flex()
+                .flex_row()
+                .gap_2()
+                .child(
+                    Button::new("cli-copy-socket", t(M::CopyPath))
+                        .size(ButtonSize::Slim)
+                        .on_click(move |_, _, cx| {
+                            cx.write_to_clipboard(ClipboardItem::new_string(path_text.to_string()))
+                        }),
+                )
+                .child(
+                    Button::new("cli-open-data", t(M::OpenDataFolder))
+                        .size(ButtonSize::Slim)
+                        .on_click(move |_, _, cx| cx.open_with_system(&root)),
+                ),
+        ),
+    ]
 }
 
 /// Settings > Developer > Connected programs, while the socket is open.
-fn clients(cx: &mut Context<LauncherShell>) -> Option<AnyElement> {
+fn clients(query: &SettingsQuery, cx: &mut Context<LauncherShell>) -> Option<gpui::Div> {
     let status = crate::control::status(cx)?.read(cx).clone();
     if !status.running {
         return None;
     }
     let today = chrono::Local::now().date_naive();
-    let rows: Vec<AnyElement> = if status.clients.is_empty() {
-        vec![SettingRow::new(t(M::NoClients)).into_any_element()]
+    let rows: Vec<SettingRow> = if status.clients.is_empty() {
+        vec![SettingRow::new(t(M::NoClients))]
     } else {
         status
             .clients
@@ -275,26 +273,22 @@ fn clients(cx: &mut Context<LauncherShell>) -> Option<AnyElement> {
                     facts.push(trn!(P::Subscriptions, client.subscriptions));
                 }
                 let connection = client.connection;
-                SettingRow::new(name)
-                    .hint(facts.join(" · "))
-                    .child(
-                        Button::new(
-                            SharedString::from(format!("cli-disconnect-{connection}")),
-                            t(M::Disconnect),
-                        )
-                        .size(ButtonSize::Slim)
-                        .variant(ButtonVariant::Danger)
-                        .on_click(move |_, _, cx| crate::control::disconnect(connection, cx)),
+                SettingRow::new(name).hint(facts.join(" · ")).child(
+                    Button::new(
+                        SharedString::from(format!("cli-disconnect-{connection}")),
+                        t(M::Disconnect),
                     )
-                    .into_any_element()
+                    .size(ButtonSize::Slim)
+                    .variant(ButtonVariant::Danger)
+                    .on_click(move |_, _, cx| crate::control::disconnect(connection, cx)),
+                )
             })
             .collect()
     };
-    Some(
-        section(t(M::ConnectedClients), None)
-            .child(card(rows))
-            .into_any_element(),
-    )
+    query
+        .section(t(M::ConnectedClients), None)
+        .card(rows)
+        .finish()
 }
 
 impl LauncherShell {
@@ -486,7 +480,7 @@ impl LauncherShell {
 
 /// Settings > Developer > Coding agents: where the skills are, and the prompt that sets
 /// an agent up with the command line.
-fn coding_agents(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> AnyElement {
+fn coding_agents(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> Vec<SearchRow> {
     let data = shell.accounts.read(cx).data_dir().clone();
     let skills = crate::agent_skills::dir(&data);
     let custom = std::env::var_os("LODESTONE_LAUNCHER_DATA_DIR")
@@ -500,7 +494,7 @@ fn coding_agents(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> AnyE
     .into();
     let copied = shell.agent_prompt_copied;
     let skills_text: SharedString = skills.display().to_string().into();
-    card([
+    vec![
         SettingRow::new(t(M::AgentSkills))
             .hint(skills_text)
             .child(
@@ -508,7 +502,7 @@ fn coding_agents(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> AnyE
                     .size(ButtonSize::Slim)
                     .on_click(move |_, _, cx| cx.open_with_system(&skills)),
             )
-            .into_any_element(),
+            .into(),
         SettingRow::new(t(M::AgentPrompt))
             .hint(t(M::AgentPromptHint))
             .child(
@@ -542,12 +536,10 @@ fn coding_agents(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> AnyE
                     })
                 }),
             )
-            .into_any_element(),
+            .into(),
         // The prompt itself, to read (and select) before pasting it.
-        div()
-            .px_6()
-            .pb_5()
-            .child(
+        SearchRow::new(
+            div().px_6().pb_5().child(
                 div()
                     .p_3()
                     .rounded(radius::LG)
@@ -560,8 +552,8 @@ fn coding_agents(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> AnyE
                     .text_color(crate::theme::ink::secondary())
                     .whitespace_normal()
                     .child(crate::components::RichText::new(prompt).id("agent-prompt-text")),
-            )
-            .into_any_element(),
-    ])
-    .into_any_element()
+            ),
+            [t(M::AgentPrompt), t(M::AgentPromptHint)],
+        ),
+    ]
 }

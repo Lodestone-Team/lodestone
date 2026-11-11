@@ -388,6 +388,10 @@ pub fn text(message: M) -> &'static str {
         M::PasswordTooShort => "密码至少需要 12 个字符。",
         M::SetPassword => "设置密码",
         M::NoPasswordYet => "还没有密码。只有这台电脑上的应用可以使用这个核心。",
+        M::RemoteAccessKeywords => "远程 局域网 网络 共享",
+        M::DomainKeywords => "地址 主机名 网址",
+        M::OpenPortKeywords => "端口转发 路由器 UPnP 防火墙",
+        M::ThemeKeywords => "深色 浅色 模式 外观 颜色",
     }
 }
 

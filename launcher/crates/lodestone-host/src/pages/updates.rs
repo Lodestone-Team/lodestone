@@ -13,7 +13,7 @@ use launcher_core::cores::admin::InstanceState;
 use lodestone_ui::{
     components::{
         Button, ButtonVariant, Dialog, DialogSlot, Toggle,
-        settings::{self, SettingRow},
+        settings::{SearchRow, SettingRow, SettingsSearch},
         window_layer,
     },
     theme::{colors, ink, leading, text},
@@ -34,6 +34,8 @@ pub struct UpdatesPage {
     confirm: DialogSlot<Self, FocusHandle>,
     /// Developer › "Connect service (relay)".
     connect_service: Entity<super::connect_service::ConnectServiceSetting>,
+    /// The Settings' search field: the page shows the settings that match it.
+    search: Entity<SettingsSearch>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -54,12 +56,17 @@ pub fn running_servers(state: &HostState) -> usize {
 }
 
 impl UpdatesPage {
-    pub fn new(state: Entity<HostState>, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        state: Entity<HostState>,
+        search: Entity<SettingsSearch>,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let updater = Updater::global(cx);
-        let subscriptions = updater
+        let mut subscriptions: Vec<Subscription> = updater
             .iter()
             .map(|updater| cx.observe(updater, |_, _, cx| cx.notify()))
             .collect();
+        subscriptions.push(cx.observe(&search, |_, _, cx| cx.notify()));
         let connect_service = {
             let state = state.clone();
             cx.new(|cx| super::connect_service::ConnectServiceSetting::new(state, cx))
@@ -69,6 +76,7 @@ impl UpdatesPage {
             updater,
             confirm: DialogSlot::new(|this: &mut Self| &mut this.confirm),
             connect_service,
+            search,
             _subscriptions: subscriptions,
         }
     }
@@ -256,31 +264,38 @@ impl Render for UpdatesPage {
                             dev_changed(cx);
                         }),
                 )
-                .into_any_element()
         });
+        let query = self.search.read(cx).query();
         // Developer: the Connect service, for developers and testers only
-        let developer = super::connect_service::offered(cx).then(|| {
-            settings::section(t(CoreMsg::DeveloperSection), None)
-                .child(self.connect_service.clone())
-                .into_any_element()
-        });
-        let page = parts::page(
-            [settings::section(
+        let developer = super::connect_service::offered(cx)
+            .then(|| {
+                query
+                    .section(t(CoreMsg::DeveloperSection), None)
+                    .row(SearchRow::new(
+                        self.connect_service.clone(),
+                        [t(CoreMsg::ConnectService), t(CoreMsg::ConnectServiceHint)],
+                    ))
+                    .finish()
+            })
+            .flatten()
+            .map(IntoElement::into_any_element);
+        let updates = query
+            .section(
                 t(CoreMsg::UpdatesTitle),
                 Some(t(CoreMsg::UpdatesLead).into()),
             )
-            .child(settings::card(
+            .card(
                 [
                     SettingRow::new(t(CoreMsg::ThisVersion))
                         .hint(status)
                         .children_opt(action)
+                        .search_text(version.clone())
                         .below(
                             div()
                                 .text_size(text::SMALL)
                                 .text_color(ink::muted())
                                 .child(version),
-                        )
-                        .into_any_element(),
+                        ),
                     SettingRow::new(t(CoreMsg::UpdateAutomatically))
                         .hint(t(CoreMsg::UpdateAutomaticallyHint))
                         .child(
@@ -292,8 +307,7 @@ impl Render for UpdatesPage {
                                     Prefs::update(cx, |p| p.auto_update = value);
                                     auto_changed(cx);
                                 }),
-                        )
-                        .into_any_element(),
+                        ),
                     SettingRow::new(t(CoreMsg::BetaBuilds))
                         .hint(t(CoreMsg::BetaBuildsHint))
                         .child(
@@ -306,15 +320,16 @@ impl Render for UpdatesPage {
                                     Prefs::update(cx, |p| p.beta_builds = value);
                                     beta_changed(cx);
                                 }),
-                        )
-                        .into_any_element(),
+                        ),
                 ]
                 .into_iter()
                 .chain(dev_row),
-            ))
-            .into_any_element()]
-            .into_iter()
-            .chain(developer),
+            )
+            .finish()
+            .map(IntoElement::into_any_element);
+        let page = parts::page(
+            // the sections are built: the status counts what they show
+            query.status().into_iter().chain(updates).chain(developer),
         )
         .text_color(colors::GRAY_300);
         let dialogs = self

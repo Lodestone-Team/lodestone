@@ -170,6 +170,12 @@ pub const SCENES: &[&str] = &[
     "instance-settings-window-custom",
     "settings-unsaved-prompt",
     "instance-settings-unsaved",
+    "settings-search",
+    "settings-search-empty",
+    "settings-search-defaults",
+    "settings-search-memory",
+    "instance-settings-search",
+    "instance-settings-search-narrow",
     "focus-dialog",
     "focus-settings-row",
     "focus-home",
@@ -545,6 +551,7 @@ fn has_instances(scene: &str) -> bool {
         || shared::is_scene(scene)
         || scene.starts_with("instance-settings-narrow")
         || scene == "instance-settings-unsaved"
+        || scene.starts_with("instance-settings-search")
         || scene.starts_with("instance-settings-window")
         || scene.starts_with("import")
         || servers::has_instances(scene)
@@ -1228,6 +1235,30 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
             shell.select_tab(InstanceTab::Settings, cx);
             if let Some(settings) = shell.settings_view().cloned() {
                 settings.update(cx, |settings, cx| settings.preview_change(cx));
+            }
+        }
+        // A search typed in Settings: General by "update", nothing found, Instance
+        // defaults by "ram" (a keyword of Memory) and by "memory" (with `--lang fr`,
+        // found through the English).
+        "settings-search"
+        | "settings-search-empty"
+        | "settings-search-defaults"
+        | "settings-search-memory" => {
+            let (page, text) = match scene {
+                "settings-search" => (crate::shell::SettingsPage::General, "update"),
+                "settings-search-empty" => (crate::shell::SettingsPage::General, "zzqx"),
+                "settings-search-defaults" => (crate::shell::SettingsPage::Defaults, "ram"),
+                _ => (crate::shell::SettingsPage::Defaults, "memory"),
+            };
+            shell.open_settings(Some(page), None, cx);
+            shell.preview_settings_search(text, cx);
+        }
+        // An instance's Settings tab searched for "java": the list shows only the
+        // sections that match.
+        "instance-settings-search" | "instance-settings-search-narrow" => {
+            shell.select_tab(InstanceTab::Settings, cx);
+            if let Some(settings) = shell.settings_view().cloned() {
+                settings.update(cx, |settings, cx| settings.preview_search("java", cx));
             }
         }
         "settings-narrow" | "settings-narrow-open" => {

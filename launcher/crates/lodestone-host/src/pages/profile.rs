@@ -14,7 +14,10 @@ use lodestone_ui::{
     components::{
         Button, ButtonSize, DialogSlot, ListRow, Toggle,
         a11y::Accessible as _,
-        settings::{self, SettingRow, popover, popover_panel, select_button},
+        settings::{
+            SearchRow, SettingRow, SettingsQuery, SettingsSearch, popover, popover_panel,
+            select_button,
+        },
         window_layer,
     },
     i18n::Locale,
@@ -76,12 +79,18 @@ pub struct ProfilePage {
     username: Entity<TextSetting>,
     api_keys: Entity<ApiKeysSection>,
     links: Entity<MinecraftLinksSection>,
+    /// The Settings' search field: the page shows the settings that match it.
+    search: Entity<SettingsSearch>,
     dialog: DialogSlot<Self, Entity<AccountDialog>>,
     _subscriptions: Vec<Subscription>,
 }
 
 impl ProfilePage {
-    pub fn new(state: Entity<HostState>, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        state: Entity<HostState>,
+        search: Entity<SettingsSearch>,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let name = state.read(cx).me.username.clone();
         let username = cx.new(|cx| {
             TextSetting::new(
@@ -95,10 +104,19 @@ impl ProfilePage {
                 cx,
             )
         });
-        let api_keys = cx.new(|cx| ApiKeysSection::new(state.clone(), api_keys::Owner::Me, cx));
-        let links =
-            cx.new(|cx| MinecraftLinksSection::new(state.clone(), minecraft_links::Owner::Me, cx));
+        let api_keys = cx.new(|cx| {
+            let mut section = ApiKeysSection::new(state.clone(), api_keys::Owner::Me, cx);
+            section.set_search(search.clone());
+            section
+        });
+        let links = cx.new(|cx| {
+            let mut section =
+                MinecraftLinksSection::new(state.clone(), minecraft_links::Owner::Me, cx);
+            section.set_search(search.clone());
+            section
+        });
         let subscriptions = vec![
+            cx.observe(&search, |_, _, cx| cx.notify()),
             cx.subscribe(&username, |this, _, event, cx| {
                 let TextSettingEvent::Submit(name) = event;
                 this.rename(name.clone(), cx);
@@ -116,6 +134,7 @@ impl ProfilePage {
             username,
             api_keys,
             links,
+            search,
             dialog: DialogSlot::new(|this: &mut Self| &mut this.dialog),
             _subscriptions: subscriptions,
         }
@@ -259,7 +278,7 @@ impl ProfilePage {
         cx.notify();
     }
 
-    fn appearance(&self, cx: &mut Context<Self>) -> AnyElement {
+    fn appearance(&self, query: &SettingsQuery, cx: &mut Context<Self>) -> Option<AnyElement> {
         let prefs = Prefs::get(cx).clone();
         let language = self.dropdown(
             Menu::Language,
@@ -326,43 +345,48 @@ impl ProfilePage {
                     .disabled((zoom_value - 1.0).abs() < 1e-3)
                     .on_click(|_, _, cx| Prefs::update(cx, |p| p.zoom = 1.0)),
             );
-        settings::section(
-            t(CoreMsg::Appearance),
-            Some(t(CoreMsg::AppearanceLead).into()),
-        )
-        .child(settings::card([
-            SettingRow::new(t(CoreMsg::Language))
-                .child(language)
-                .into_any_element(),
-            SettingRow::new(t(CoreMsg::Theme))
-                .hint(theme_name(prefs.theme).1)
-                .child(theme)
-                .into_any_element(),
-            SettingRow::new(t(CoreMsg::Zoom))
-                .hint(tr!(CoreMsg::ZoomHint, modifier = modifier))
-                .child(zoom_control)
-                .into_any_element(),
-            SettingRow::new(t(CoreMsg::ColoredConsole))
-                .child(
+        query
+            .section(
+                t(CoreMsg::Appearance),
+                Some(t(CoreMsg::AppearanceLead).into()),
+            )
+            .card([
+                SettingRow::new(t(CoreMsg::Language))
+                    .search_text(language_name(prefs.language))
+                    .child(language),
+                SettingRow::new(t(CoreMsg::Theme))
+                    .hint(theme_name(prefs.theme).1)
+                    .keywords(t(CoreMsg::ThemeKeywords))
+                    .child(theme),
+                SettingRow::new(t(CoreMsg::Zoom))
+                    .hint(tr!(CoreMsg::ZoomHint, modifier = modifier))
+                    .child(zoom_control),
+                SettingRow::new(t(CoreMsg::ColoredConsole)).child(
                     Toggle::new("colored-console", prefs.colored_console)
                         .label(t(CoreMsg::ColoredConsole))
                         .on_change(|value, _, cx| {
                             let value = *value;
                             Prefs::update(cx, |p| p.colored_console = value)
                         }),
-                )
-                .into_any_element(),
-        ]))
-        .into_any_element()
+                ),
+            ])
+            .finish()
+            .map(IntoElement::into_any_element)
     }
 }
 
 impl Render for ProfilePage {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let no_password = account_dialogs::needs_owner_account(self.state.read(cx));
-        let account = settings::section(t(CoreMsg::Account), None)
-            .child(settings::card([
-                self.username.clone().into_any_element(),
+        let query = self.search.read(cx).query();
+        let username = self.state.read(cx).me.username.clone();
+        let account = query
+            .section(t(CoreMsg::Account), None)
+            .card([
+                SearchRow::new(
+                    self.username.clone(),
+                    [t(CoreMsg::ProfileUsername), username.as_str()],
+                ),
                 SettingRow::new(t(CoreMsg::ProfilePassword))
                     .hint_opt(no_password.then(|| t(CoreMsg::NoPasswordYet)))
                     .child(
@@ -376,20 +400,33 @@ impl Render for ProfilePage {
                         )
                         .on_click(cx.listener(|this, _, _, cx| this.change_password(cx))),
                     )
-                    .into_any_element(),
-            ]))
-            .into_any_element();
+                    .into(),
+            ])
+            .finish()
+            .map(IntoElement::into_any_element);
+        let appearance = self.appearance(&query, cx);
+        // the API keys and accounts are drawn by views of their own, which match
+        // what is typed themselves; their count is added here for the status line
+        if query.is_active() {
+            query.add_found(self.api_keys.read(cx).found(&query));
+            query.add_found(self.links.read(cx).found(&query));
+        }
         let dialog = window_layer(
             window,
             self.dialog
                 .render(window, |dialog| Some(dialog.clone().into_any_element())),
         );
-        parts::page([
-            account,
-            self.appearance(cx),
-            self.api_keys.clone().into_any_element(),
-            self.links.clone().into_any_element(),
-        ])
+        parts::page(
+            query
+                .status()
+                .into_iter()
+                .chain(account)
+                .chain(appearance)
+                .chain([
+                    self.api_keys.clone().into_any_element(),
+                    self.links.clone().into_any_element(),
+                ]),
+        )
         .text_size(text::MEDIUM)
         .children(dialog)
     }

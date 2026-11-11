@@ -777,6 +777,8 @@ pub fn text(message: M) -> &'static str {
         M::StorageDeleteAllLogsBody => {
             "这将释放 {size}。所有日志和崩溃报告都会被永久删除，正在运行的游戏的除外。"
         }
+        M::ZoomKeywords => "比例 大小 放大 缩小 文字",
+        M::WhenAGameStartsKeywords => "启动后 最小化 隐藏 关闭 退出",
     }
 }
 

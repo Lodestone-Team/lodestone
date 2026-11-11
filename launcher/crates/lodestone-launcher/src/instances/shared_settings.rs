@@ -10,7 +10,7 @@ use std::{
 };
 
 use gpui::{
-    AnyElement, Context, Entity, IntoElement, Render, SharedString, Subscription, Window, div,
+    AnyElement, App, Context, Entity, IntoElement, Render, SharedString, Subscription, Window, div,
     prelude::*,
 };
 use launcher_core::{
@@ -26,7 +26,9 @@ use super::{Instances, shared_options_i18n};
 use crate::{
     components::{
         Button, ButtonSize, ButtonVariant, Slider, TextInput, Toggle, segmented,
-        settings::{SettingRow, card, link, muted_link, section, tag, value},
+        settings::{
+            SearchRow, SettingRow, SettingsQuery, SettingsSearch, link, muted_link, tag, value,
+        },
     },
     i18n::{
         CommonMsg, InstanceSettingsMsg as M, InstanceSettingsPlural as P, Text, format, t, tr, trn,
@@ -146,6 +148,8 @@ pub struct InstanceSharedSettings {
     active: bool,
     /// [`Instances::shared_revision`] at the last load.
     shared_revision: u64,
+    /// The Settings tab's search.
+    search: Option<Entity<SettingsSearch>>,
     _observe: Subscription,
 }
 
@@ -178,10 +182,57 @@ impl InstanceSharedSettings {
             message: None,
             active,
             shared_revision,
+            search: None,
             _observe: observe,
         };
         this.reload(cx);
         this
+    }
+
+    /// Filters the section by the Settings tab's search.
+    pub fn set_search(&mut self, search: Entity<SettingsSearch>) {
+        self.search = Some(search);
+    }
+
+    fn query(&self, cx: &App) -> SettingsQuery {
+        self.search
+            .as_ref()
+            .map(|search| search.read(cx).query())
+            .unwrap_or_default()
+    }
+
+    /// The options this version has: a value in its file, or a key it knows.
+    fn visible_rows(&self) -> Vec<Row> {
+        let dv = self.state.dv;
+        shared_options::rows(
+            &self.state.profile,
+            Some((&self.state.sharing, &self.state.local)),
+        )
+        .into_iter()
+        .filter(|row| {
+            row.local.is_some() || dv.is_none_or(|dv| shared_options::exists_at(&row.key, dv))
+        })
+        .collect()
+    }
+
+    /// How many of the section's settings `query` finds, for the Settings tab to know
+    /// whether to show it: its switches, and each category by its name, description
+    /// or options.
+    pub fn found(&self, query: &SettingsQuery) -> usize {
+        if !query.is_active() || query.matches([t(M::SharedGameSettings)]) {
+            return 1;
+        }
+        let mut found = usize::from(query.matches([t(M::UseSharedSettings)]));
+        if self.state.sharing.enabled {
+            found += usize::from(query.matches([t(M::MainInstance), t(M::MainInstanceHint)]));
+            let rows = self.visible_rows();
+            for category in Category::ALL {
+                let texts =
+                    category_texts(category, rows.iter().filter(|r| r.category == category));
+                found += usize::from(query.matches(texts.iter().map(SharedString::as_ref)));
+            }
+        }
+        found
     }
 
     /// Opens categories, for the offscreen screenshots.
@@ -491,6 +542,23 @@ impl InstanceSharedSettings {
 }
 
 /// A category's name, in the current language.
+/// What a search finds a category by: its name and description, and its options'
+/// names and keys in options.txt.
+fn category_texts<'a>(
+    category: Category,
+    rows: impl Iterator<Item = &'a Row>,
+) -> Vec<SharedString> {
+    let mut texts: Vec<SharedString> = vec![
+        category_label(category).into(),
+        category_description(category).into(),
+    ];
+    for row in rows {
+        texts.push(shared_options_i18n::label(row).into());
+        texts.push(row.key.clone().into());
+    }
+    texts
+}
+
 pub fn category_label(category: Category) -> &'static str {
     t(match category {
         Category::Controls => M::CategoryControls,
@@ -545,19 +613,11 @@ impl Render for InstanceSharedSettings {
                     .and_then(|id| instances.instance_name(id)),
             )
         };
+        let query = self.query(cx);
         let enabled = self.state.sharing.enabled;
         let is_preferred = self.state.profile.preferred.as_deref() == Some(&self.instance_id);
         // Only what this version has: a value in its file, or a key it knows.
-        let dv = self.state.dv;
-        let rows: Vec<Row> = shared_options::rows(
-            &self.state.profile,
-            Some((&self.state.sharing, &self.state.local)),
-        )
-        .into_iter()
-        .filter(|row| {
-            row.local.is_some() || dv.is_none_or(|dv| shared_options::exists_at(&row.key, dv))
-        })
-        .collect();
+        let rows = self.visible_rows();
         let changed = self.state.sharing.changed.clone();
 
         let source = if !enabled {
@@ -571,7 +631,7 @@ impl Render for InstanceSharedSettings {
             }
         };
 
-        let mut items: Vec<AnyElement> = vec![
+        let mut items: Vec<SearchRow> = vec![
             SettingRow::new(t(M::UseSharedSettings))
                 .hint(source)
                 .child(
@@ -585,7 +645,7 @@ impl Render for InstanceSharedSettings {
                 .when(busy, |row| {
                     row.note(t(M::StopGameToChange), colors::GRAY_400)
                 })
-                .into_any_element(),
+                .into(),
         ];
         if enabled {
             // The main instance: its in-game changes are copied to the others.
@@ -603,21 +663,38 @@ impl Render for InstanceSharedSettings {
                                 .on_click(cx.listener(|this, _, _, cx| this.make_main(cx))),
                         )
                     })
-                    .into_any_element(),
+                    .into(),
             );
             for category in Category::ALL {
                 let in_category: Vec<&Row> =
                     rows.iter().filter(|r| r.category == category).collect();
-                items.push(self.category(category, &in_category, busy, cx));
-                if self.expanded.contains(&category) && self.state.profile.shares(category) {
+                let texts = category_texts(category, in_category.iter().copied());
+                // A search that finds an option opens its category.
+                let values_match = query.is_active()
+                    && in_category.iter().any(|row| {
+                        query.matches([shared_options_i18n::label(row).as_str(), &row.key])
+                    });
+                items.push(SearchRow::new(
+                    self.category(category, &in_category, busy, cx),
+                    texts,
+                ));
+                if (self.expanded.contains(&category) || values_match)
+                    && self.state.profile.shares(category)
+                {
                     for (index, row) in in_category.iter().enumerate() {
-                        items.push(self.row(category, index, row, busy, cx));
+                        items.push(SearchRow::new(
+                            self.row(category, index, row, busy, cx),
+                            [
+                                SharedString::from(shared_options_i18n::label(row)),
+                                row.key.clone().into(),
+                            ],
+                        ));
                     }
                 }
             }
         }
 
-        let mut body = section(t(M::SharedGameSettings), Some(t(M::SharedLead).into()));
+        let mut body = query.section(t(M::SharedGameSettings), Some(t(M::SharedLead).into()));
         if !changed.is_empty() && enabled {
             let count = changed.len();
             body = body.child(
@@ -661,7 +738,7 @@ impl Render for InstanceSharedSettings {
             .as_ref()
             .map(|(message, error)| (message.get(), *error))
             .or(self.state.error.clone().map(|e| (e, true)));
-        body.child(card(items))
+        body.card(items)
             .when_some(message, |this, (message, error)| {
                 this.child(super::fields::status(
                     message,
@@ -672,6 +749,8 @@ impl Render for InstanceSharedSettings {
                     },
                 ))
             })
+            .finish()
+            .map_or_else(|| div().into_any_element(), IntoElement::into_any_element)
     }
 }
 
