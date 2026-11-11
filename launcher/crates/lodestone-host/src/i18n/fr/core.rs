@@ -455,14 +455,14 @@ pub fn text(message: M) -> &'static str {
         }
         M::RemoteAccess => "Autoriser l’accès depuis d’autres appareils",
         M::RemoteAccessHintOff => {
-            "Désactivé : seules les applications de cet ordinateur peuvent utiliser ce core (Lodestone Host, Lodestone Launcher et Lodestone CLI). Activez-le pour utiliser le tableau de bord web depuis d’autres appareils, ajouter des utilisateurs ou créer des clés API. Le partage de serveurs avec des amis fonctionne dans les deux cas."
+            "Désactivé : seules les applications de cet ordinateur peuvent utiliser ce core (Lodestone Host, Lodestone Launcher et Lodestone CLI). Activez-le pour utiliser le tableau de bord web depuis d’autres appareils, ajouter des utilisateurs ou créer des clés API. Le partage de serveurs fonctionne dans les deux cas."
         }
         M::RemoteAccessHintOn => {
             "D’autres appareils peuvent se connecter à ce core avec un nom d’utilisateur et un mot de passe, en HTTPS."
         }
         M::RemoteAccessOffTitle => "Désactiver l’accès depuis d’autres appareils ?",
         M::RemoteAccessOffBody => {
-            "Seules les applications de cet ordinateur pourront utiliser ce core. Les autres appareils, les autres utilisateurs et les clés API utilisées ailleurs cesseront de fonctionner jusqu’à ce que vous le réactiviez. Le partage de serveurs avec des amis continue de fonctionner."
+            "Seules les applications de cet ordinateur pourront utiliser ce core. Les autres appareils, les autres utilisateurs et les clés API utilisées ailleurs cesseront de fonctionner jusqu’à ce que vous le réactiviez. Le partage de serveurs continue de fonctionner."
         }
         M::LocalClaimNeedsPassword => {
             "Configurez d’abord le compte propriétaire : sans mot de passe, c’est le seul moyen de se connecter."

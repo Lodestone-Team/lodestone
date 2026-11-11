@@ -163,18 +163,19 @@ crate::i18n::messages! {
         PlayersSortByName = "NAME",
         PlayersLinkedUser = "The Lodestone user who linked this Minecraft account",
         PlayersNone = "No players online",
-        /// Share with friends (Lodestone Connect).
-        ShareTitle = "Share with friends",
+        /// The Overview's Share section (Lodestone Connect): the friend list and the invite link.
+        ShareTitle = "Share",
         ShareLead = "Pick friends from your friend list, or send anyone a link",
-        /// Above the friends to tick on the Overview's "Share with friends".
+        /// Above the friends to tick on the Overview's "Share".
         ShareFriendsHeading = "Your friends",
         ShareFriendsNote = "No link needed. They see this server in Lodestone Launcher, under your name, while it runs.",
         /// When there are no friends to tick yet.
         ShareFriendsNone = "Add friends in Lodestone Launcher (Lodestone Host page, Friends) to share with them without a link.",
         /// Above the invite link part, under the friends.
         ShareLinkHeading = "Or send an invite link",
-        ShareOff = "Send friends a link. They open it in Lodestone Launcher, and their game connects straight to this computer. No port forwarding needed.",
-        ShareStart = "Share with friends",
+        ShareOff = "Send a link to anyone you want to play with. They open it in Lodestone Launcher, and their game connects straight to this computer. No port forwarding needed.",
+        /// Starts the invite link.
+        ShareStart = "Share with a link",
         ShareStarting = "Starting…",
         ShareSharing = "Sharing",
         ShareReconnecting = "Reconnecting…",
@@ -183,23 +184,24 @@ crate::i18n::messages! {
         ShareCopy = "Copy link",
         ShareCopied = "Copied the invite link",
         SharePreparing = "Getting the link…",
-        ShareHowFriendsJoin = "Anyone with the link can join this server while it runs. Friends without Lodestone Launcher get a download link.",
-        ShareHardNetwork = "This network's router makes direct connections hard. Some friends may not be able to join.",
-        ShareFriendLine = "over {connection}, {ms} ms",
+        ShareHowToJoin = "Anyone with the link can join this server while it runs. People without Lodestone Launcher get a download link.",
+        ShareHardNetwork = "This network's router makes direct connections hard. Some people may not be able to join.",
+        SharePeerLine = "over {connection}, {ms} ms",
         ShareSameComputer = "this computer",
         ShareLocalNetwork = "the local network",
         ShareIpv6 = "IPv6",
         ShareInternet = "the internet",
         ShareStop = "Stop sharing",
         ShareStopTitle = "Stop sharing?",
-        ShareStopBody = "Friends who are playing are disconnected, and the link stops working. Sharing again makes a new link.",
+        ShareStopBody = "Everyone playing through the link is disconnected, and the link stops working. Sharing again makes a new link.",
+        /// The sidebar card's Share: opens the Overview's Share section.
         ShareShort = "Share",
-        ShareShortHint = "Share this server with friends",
+        ShareShortHint = "Share this server",
     }
 
     pub enum InstancesPlural {
         ModpackShowMore = ("Show more ({count} left)", "Show more ({count} left)"),
-        ShareConnected = ("{count} friend connected", "{count} friends connected"),
+        ShareConnected = ("{count} person connected", "{count} people connected"),
         ShareJoins = ("({count} join so far)", "({count} joins so far)"),
     }
 }

@@ -24,7 +24,7 @@ import {
   isAxiosError,
 } from 'utils/util';
 import axios from 'axios';
-import { jwtDecode } from 'jwt-decode';
+import { tokenClaims } from 'utils/token';
 import CoreSelectExisting from 'pages/login/CoreSelectExisting';
 import CoreConnect, { CORE_QUERY_PARAMS } from 'pages/login/CoreConnect';
 import UserSelectExisting from 'pages/login/UserSelectExisting';
@@ -142,21 +142,15 @@ const SETTINGS_PATHS = new Set(
 // setTimeout's longest delay (about 24.8 days); longer timers fire at once
 const MAX_TIMEOUT_MS = 2 ** 31 - 1;
 
-/** The claims of a JWT, or an Error if it is malformed. Not verified. */
-const decodeToken = (token: string): { uid: string; exp: number } | Error => {
-  let payload: { exp?: unknown; uid?: unknown };
-  try {
-    payload = jwtDecode(token);
-  } catch {
-    return new Error(t('shell.token.invalid'));
-  }
-  if (typeof payload !== 'object' || payload === null)
-    return new Error(t('shell.token.invalid'));
-  if (typeof payload.exp !== 'number')
-    return new Error(t('shell.token.invalidExp'));
-  if (typeof payload.uid !== 'string')
-    return new Error(t('shell.token.invalidUid'));
-  return { uid: payload.uid, exp: payload.exp };
+/** The claims of a session token (see [`tokenClaims`]), or an Error saying why it
+ * can't be used. */
+const decodeToken = (
+  token: string,
+  keyUid?: string
+): { uid: string; exp: number } | Error => {
+  const claims = tokenClaims(token, keyUid);
+  if (typeof claims === 'string') return new Error(t(`shell.token.${claims}`));
+  return claims;
 };
 
 const sameCore = (a: CoreConnectionInfo, b: CoreConnectionInfo) =>
@@ -309,18 +303,34 @@ export default function App() {
     'tokens',
     {}
   ); //TODO: clear all outdated tokens
+  // the user each API-key session acts as, by core: a key carries no claims
+  const [keyUids, setKeyUids] = useLocalStorage<Record<string, string>>(
+    'tokenUids',
+    {}
+  );
   const token = tokens[socket] ?? '';
-  const claims = useMemo(() => (token ? decodeToken(token) : null), [token]);
+  const keyUid = keyUids[socket];
+  const claims = useMemo(
+    () => (token ? decodeToken(token, keyUid) : null),
+    [token, keyUid]
+  );
   // empty when logged out, so it can't outlive the token
   const uid = claims && !(claims instanceof Error) ? claims.uid : '';
   // the token and core the query cache holds data for
   const lastSession = useRef<string | null>(null);
   const setToken = useCallback(
-    (token: string, coreSocket: string) => {
+    (token: string, coreSocket: string, uid?: string) => {
+      // the uid first: the token's change reads it
+      setKeyUids((old) => {
+        const next = { ...old };
+        if (token.startsWith('lsk_') && uid) next[coreSocket] = uid;
+        else delete next[coreSocket];
+        return next;
+      });
       // update from the latest map, not the one from this render
       setTokens((oldTokens) => ({ ...oldTokens, [coreSocket]: token }));
     },
-    [setTokens]
+    [setTokens, setKeyUids]
   );
   useLayoutEffect(() => {
     let logoutTimer: ReturnType<typeof setTimeout> | undefined;

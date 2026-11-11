@@ -51,7 +51,10 @@ crate::i18n::messages! {
         StateStopped = "Stopped",
         StateError = "Crashed",
         StateUnknown = "Unknown",
-        PlayersOnline = "{online}/{max} players",
+        /// The selected instance's players pill, as the dashboard's card: "3/20 Online".
+        PlayersOnline = "{online}/{max} Online",
+        /// The selected instance's power button, which opens Start, Stop, Restart or Kill; {state} is its state.
+        PowerMenu = "Power: {state}",
         /// The connection to the core, in the footer.
         Connected = "Connected",
         Connecting = "Connecting…",

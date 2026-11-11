@@ -87,9 +87,12 @@ pub struct HostState {
     pub creating: Vec<Creating>,
     /// Why the last list or power request failed.
     pub error: Option<String>,
-    /// An instance whose Overview should start sharing it with friends when it opens
-    /// (the sidebar's "Share" button).
+    /// An instance whose Overview should scroll to its Share section, and start the
+    /// invite link unless there are friends to pick (the sidebar's "Share" button).
     pub share_requested: Option<String>,
+    /// The scroll of the page beside the sidebar, so a page can bring a section into
+    /// view (the Overview's Share).
+    pub page_scroll: gpui::ScrollHandle,
     /// Sharing with friends: only for this computer's core, signed in as its owner
     /// (set by the window, `crate::app`).
     pub friends: Option<Entity<crate::friends::FriendSharing>>,
@@ -122,6 +125,7 @@ impl HostState {
             toasts: cx.new(|_| Toasts::new()),
             _stream: None,
             share_requested: None,
+            page_scroll: gpui::ScrollHandle::new(),
             friends: None,
             own_file_toasts: Vec::new(),
             #[cfg(feature = "screenshot")]

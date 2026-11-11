@@ -62,6 +62,8 @@ pub struct HostShell {
     /// empty block keeps its space and nothing under it moves (the dashboard's fixed
     /// `h-[17.625rem]`).
     pub selected_block_height: Option<gpui::Pixels>,
+    /// The instance whose power menu is open, on the sidebar's selected-instance card.
+    pub power_menu: Option<String>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -108,6 +110,7 @@ impl HostShell {
             sidebar_dragging: false,
             top_bar_drag_pending: false,
             selected_block_height: None,
+            power_menu: None,
             _subscriptions: subscriptions,
         }
     }
@@ -356,6 +359,7 @@ impl Render for HostShell {
         let heading = self.heading(cx);
         let error = self.state.read(cx).error.clone();
         let toasts = self.state.read(cx).toasts.clone();
+        let page_scroll = self.state.read(cx).page_scroll.clone();
         let title = self.title(cx);
         if self.title != title {
             window.set_window_title(&title);
@@ -482,6 +486,7 @@ impl Render for HostShell {
                             .child(
                                 div()
                                     .id("main")
+                                    .track_scroll(&page_scroll)
                                     .flex_1()
                                     .min_w_0()
                                     .h_full()

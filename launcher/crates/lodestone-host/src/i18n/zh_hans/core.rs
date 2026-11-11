@@ -371,12 +371,12 @@ pub fn text(message: M) -> &'static str {
         M::RemoteSignedOut => "你已从 {name} 退出登录。Lodestone Host 已回到这台电脑的核心。",
         M::RemoteAccess => "允许其他设备访问",
         M::RemoteAccessHintOff => {
-            "关闭：只有这台电脑上的应用可以使用这个核心（Lodestone Host、Lodestone Launcher 和 Lodestone CLI）。打开后可以在其他设备上使用网页控制台、添加用户或创建 API 密钥。无论开关如何，都可以和朋友分享服务器。"
+            "关闭：只有这台电脑上的应用可以使用这个核心（Lodestone Host、Lodestone Launcher 和 Lodestone CLI）。打开后可以在其他设备上使用网页控制台、添加用户或创建 API 密钥。无论开关如何，都可以分享服务器。"
         }
         M::RemoteAccessHintOn => "其他设备可以通过 HTTPS 用用户名和密码登录这个核心。",
         M::RemoteAccessOffTitle => "关闭其他设备的访问？",
         M::RemoteAccessOffBody => {
-            "只有这台电脑上的应用可以使用这个核心。其他设备、其他用户和在别处使用的 API 密钥将无法使用，直到你重新打开。和朋友分享服务器仍然可用。"
+            "只有这台电脑上的应用可以使用这个核心。其他设备、其他用户和在别处使用的 API 密钥将无法使用，直到你重新打开。分享服务器仍然可用。"
         }
         M::LocalClaimNeedsPassword => "请先设置所有者账户：没有密码时，这是唯一的登录方式。",
         M::OwnerAccountTitle => "设置所有者账户以分享这个核心",

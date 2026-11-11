@@ -108,7 +108,8 @@ python3 scripts/host_dev_bundle.py --open             # "Lodestone Host Dev.app"
   `--notifications`, `--create games|basic|server|auto|modpack`, `--demo` (sample data
   on the Console, Files and Overview), `--select-lines` (a selection across the
   Console's lines, with `--tab console --demo`), `--find <text>` (the editor's find bar, with
-  `--tab files --demo`), `--degraded` (the "live updates stopped" banner), `--height <px>`.
+  `--tab files --demo`), `--degraded` (the "live updates stopped" banner), `--power-menu` (the sidebar's power
+  menu open on the selected instance), `--height <px>`.
   For a run that acts as a user would: `--share-core` flips Settings › General's "Allow
   access from other devices" (the owner account dialog opens), `--owner <name>` also
   fills that dialog in and sends it (the password comes from `LODESTONE_E2E_PASSWORD`),

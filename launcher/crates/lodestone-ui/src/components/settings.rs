@@ -424,6 +424,72 @@ pub fn popover(
     .with_priority(1)
 }
 
+/// How long a [`PopoverMotion`] menu takes to open or close (the dashboard's menus
+/// take 150 ms to open).
+pub const POPOVER_MOTION: Duration = Duration::from_millis(150);
+/// How far it slides down as it opens (the dashboard's `-translate-y-1`).
+const POPOVER_SLIDE: f32 = 4.;
+
+type DismissHandler = Rc<dyn Fn(&mut Window, &mut App)>;
+
+/// A [`popover`] that fades in, sliding down a little, as it opens, and fades out
+/// as it closes; with reduced motion it only fades (the dashboard's power menu).
+///
+/// Render it in the same place whether the menu is open or not: it draws nothing
+/// while closed, and keeps the panel on screen while it fades out. A closing panel
+/// still takes clicks for that moment, so give its items their handlers, and
+/// `on_mouse_down_out`, only while it is open.
+#[derive(IntoElement)]
+pub struct PopoverMotion {
+    id: SharedString,
+    open: bool,
+    panel: Stateful<Div>,
+    on_dismiss: DismissHandler,
+}
+
+impl PopoverMotion {
+    pub fn new(
+        id: impl Into<SharedString>,
+        open: bool,
+        panel: Stateful<Div>,
+        on_dismiss: impl Fn(&mut Window, &mut App) + 'static,
+    ) -> Self {
+        Self {
+            id: id.into(),
+            open,
+            panel,
+            on_dismiss: Rc::new(on_dismiss),
+        }
+    }
+}
+
+impl RenderOnce for PopoverMotion {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let shown = super::motion::tween_even_reduced(
+            ElementId::Name(format!("{}-motion", self.id).into()),
+            if self.open { 1. } else { 0. },
+            POPOVER_MOTION,
+            window,
+            cx,
+        );
+        if !self.open && shown <= 0. {
+            return div().into_any_element();
+        }
+        let slide = if super::prefers_reduced_motion() {
+            0.
+        } else {
+            POPOVER_SLIDE
+        };
+        let panel = self
+            .panel
+            .relative()
+            .opacity(shown)
+            .top(px(-slide * (1. - shown)));
+        let on_dismiss = self.on_dismiss;
+        popover(self.id, panel, move |window, cx| on_dismiss(window, cx)).into_any_element()
+    }
+}
+
 /// The box a popover's list sits in.
 pub fn popover_panel(id: impl Into<ElementId>) -> Stateful<Div> {
     let id = id.into();
