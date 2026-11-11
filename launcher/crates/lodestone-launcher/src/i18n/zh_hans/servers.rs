@@ -3,6 +3,7 @@ use crate::i18n::{ServersMsg as M, ServersPlural as P};
 pub fn text(message: M) -> &'static str {
     match message {
         M::ServersTitle => "Lodestone Host",
+        M::FriendsPageTitle => "好友",
         M::OnThisComputer => "这台电脑上",
         M::Rescan => "重新扫描",
         M::ScanningLocal => "正在查找这台电脑上的主机…",

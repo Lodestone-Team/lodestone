@@ -694,8 +694,11 @@ impl Default for SidebarInks {
         Self {
             primary: colors::GRAY_300,
             secondary: colors::GRAY_400,
-            muted: colors::GRAY_500,
-            faint: colors::GRAY_FADED.opacity(30),
+            // a subtitle under a name: 6.5:1 on the sidebar (GRAY_500 was 3.9:1)
+            muted: Color::rgb(0x9FA1A8),
+            // the section labels (Last played, Instances, a group's name): 4.8:1 (a
+            // 30% grey was 1.9:1)
+            faint: Color::rgb(0x84868D),
             icon: colors::GRAY_FADED.opacity(50),
             fill: colors::GRAY_800,
             ghost: colors::WHITE.opacity(50),

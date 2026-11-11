@@ -301,7 +301,13 @@ fn linked_to(link: &InstanceLink, cx: &mut Context<LauncherShell>) -> impl IntoE
                 .cursor_pointer()
                 .hover(|style| style.underline())
                 .on_press(cx.listener(move |this, _, _, cx| {
-                    this.show(Page::Servers, cx);
+                    // a friend's server is on the Friends page
+                    let page = if launcher_core::cores::friends::is_friend_id(&core) {
+                        Page::Friends
+                    } else {
+                        Page::Servers
+                    };
+                    this.show(page, cx);
                     this.servers.update(cx, |servers, cx| {
                         servers.highlight_server(&core, &server, cx)
                     });

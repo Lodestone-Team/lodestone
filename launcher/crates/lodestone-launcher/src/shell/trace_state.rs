@@ -53,6 +53,7 @@ fn page_name(page: Page) -> &'static str {
     match page {
         Page::Instance => "instance",
         Page::Servers => "servers",
+        Page::Friends => "friends",
     }
 }
 

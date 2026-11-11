@@ -163,6 +163,7 @@ fn rail(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoElem
         .collect();
     let settings_open = shell.settings_open();
     let servers_open = shell.page == Page::Servers;
+    let friends_open = shell.page == Page::Friends;
     div()
         .flex()
         .flex_col()
@@ -265,6 +266,22 @@ fn rail(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoElem
                                 Page::Instance
                             } else {
                                 Page::Servers
+                            },
+                            cx,
+                        )
+                    }),
+                ))
+                .child(rail_button(
+                    "friends",
+                    Glyph::Icon(Icon::UserGroup),
+                    t(M::Friends),
+                    friends_open,
+                    cx.listener(move |this, _, _, cx| {
+                        this.show(
+                            if friends_open {
+                                Page::Instance
+                            } else {
+                                Page::Friends
                             },
                             cx,
                         )
@@ -1066,11 +1083,12 @@ fn page_link(
         }))
 }
 
-/// Servers and Settings, pinned to the bottom, and the version. As tall as the
-/// Play bar beside it, so their top lines meet.
+/// Lodestone Host, then Friends with Settings' gear beside it, pinned to the bottom,
+/// and the version. As tall as the Play bar beside it, so their top lines meet.
 fn footer(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoElement {
     let settings_open = shell.settings_open();
     let servers_open = shell.page == Page::Servers;
+    let friends_open = shell.page == Page::Friends;
     div()
         .flex()
         .flex_col()
@@ -1093,35 +1111,42 @@ fn footer(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoEl
         ))
         .child(
             div()
-                .id("settings")
-                .accessible(Role::Button, "settings", t(M::Settings))
-                .keyboard_focus()
                 .flex()
                 .flex_row()
                 .items_center()
-                .gap_2()
-                .px_2()
-                .py_1p5()
-                .rounded(radius::MD)
-                .cursor_pointer()
-                .font_weight(weights::BOLD.into())
-                .map(|this| {
-                    if settings_open {
-                        this.bg(crate::skin::sidebar_inks().fill)
-                            .text_color(crate::skin::sidebar_inks().primary)
-                    } else {
-                        this.text_color(crate::skin::sidebar_inks().secondary)
-                            .hover(|style| {
-                                style
-                                    .bg(crate::skin::sidebar_inks().fill)
-                                    .text_color(crate::skin::sidebar_inks().primary)
-                            })
-                    }
-                })
-                .child(Icon::Gear.render(px(14.), crate::skin::sidebar_inks().icon))
-                .child(div().min_w_0().truncate().child(t(M::Settings)))
-                .on_press(
-                    cx.listener(|this, _, window, cx| this.open_settings(None, Some(window), cx)),
+                .gap_1()
+                .child(div().flex_1().min_w_0().child(page_link(
+                    "friends",
+                    t(M::Friends),
+                    Glyph::Icon(Icon::UserGroup),
+                    Page::Friends,
+                    friends_open,
+                    cx,
+                )))
+                .child(
+                    div()
+                        .id("settings")
+                        .accessible(Role::Button, "settings", t(M::Settings))
+                        .keyboard_focus()
+                        .tooltip(crate::components::text_tooltip(t(M::Settings)))
+                        .flex()
+                        .flex_none()
+                        .items_center()
+                        .justify_center()
+                        .size(px(30.))
+                        .rounded(radius::MD)
+                        .cursor_pointer()
+                        .map(|this| {
+                            if settings_open {
+                                this.bg(crate::skin::sidebar_inks().fill)
+                            } else {
+                                this.hover(|style| style.bg(crate::skin::sidebar_inks().fill))
+                            }
+                        })
+                        .child(Icon::Gear.render(px(14.), crate::skin::sidebar_inks().icon))
+                        .on_press(cx.listener(|this, _, window, cx| {
+                            this.open_settings(None, Some(window), cx)
+                        })),
                 ),
         )
         .child(

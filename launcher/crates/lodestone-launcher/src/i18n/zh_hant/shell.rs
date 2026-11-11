@@ -33,6 +33,7 @@ pub fn text(message: M) -> &'static str {
         M::NewInstance => "新增實例…",
         M::ImportInstances => "匯入實例…",
         M::Servers => "Lodestone Host",
+        M::Friends => "好友",
         M::AppVersion => "Lodestone Launcher v{version}",
         M::PlayedInTotal => "{when} · 共 {time}",
         M::ImportProgress => "{percent} · {label}",

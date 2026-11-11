@@ -34,7 +34,7 @@ impl Place {
                 tab,
                 server: None,
             },
-            Page::Servers => Self {
+            Page::Servers | Page::Friends => Self {
                 page,
                 instance: None,
                 tab: InstanceTab::default(),

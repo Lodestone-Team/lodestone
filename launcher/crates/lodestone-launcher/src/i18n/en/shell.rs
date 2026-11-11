@@ -53,6 +53,8 @@ crate::i18n::messages! {
         NewInstance = "New instance…",
         ImportInstances = "Import instances…",
         Servers = "Lodestone Host",
+        /// The sidebar link to the Friends page.
+        Friends = "Friends",
         /// Under the sidebar and the Settings pages.
         AppVersion = "Lodestone Launcher v{version}",
         /// A row's tooltip: {when} is "Played 2 hours ago", {time} "2 h 5 min".
