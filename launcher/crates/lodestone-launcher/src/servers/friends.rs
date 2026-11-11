@@ -46,7 +46,7 @@
 //! tunnel as for any friend's server. "Check" always tries the invite link.
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     path::{Path, PathBuf},
     time::{Duration, Instant},
 };
@@ -258,6 +258,9 @@ pub struct Friends {
     /// Redraws the dialog while it connects.
     ticker: Option<Task<()>>,
     checks: HashMap<String, Task<()>>,
+    /// The checks someone asked for (Check, adding a server), which show as checking.
+    /// The launcher's own rechecks don't: "Check" stays as it is while they run.
+    asked: HashSet<String>,
     /// When each server's status was last learned, for asking again ([`recheck_after`]).
     checked: HashMap<String, Instant>,
     /// Reads the state of the server whose tunnel the dialog has open, by its id.
@@ -280,6 +283,7 @@ impl Friends {
             attempt: 0,
             ticker: None,
             checks: HashMap::new(),
+            asked: HashSet::new(),
             checked: HashMap::new(),
             session_poll: None,
             watched: None,
@@ -1318,8 +1322,23 @@ impl Servers {
     }
 
     /// "Check": opens the tunnel once to see whether the server is shared now and who
-    /// plays, then closes it.
+    /// plays, then closes it. Shows as checking until the answer comes, also when the
+    /// launcher was already asking.
     pub fn check_friend(&mut self, id: &str, cx: &mut Context<Self>) {
+        if self.friends.asked.insert(id.to_string()) && self.friends.checks.contains_key(id) {
+            cx.notify();
+        }
+        self.start_check(id, cx);
+        if !self.friends.checks.contains_key(id) {
+            // answered at once, or nothing to ask
+            self.friends.asked.remove(id);
+        }
+    }
+
+    /// Asks whether the friend's server `id` runs, as [`Self::check_friend`] does, for
+    /// the launcher itself ([`Self::recheck_friends`]): it draws nothing new unless the
+    /// answer changes what shows.
+    fn start_check(&mut self, id: &str, cx: &mut Context<Self>) {
         if self.friends.checks.contains_key(id) {
             return;
         }
@@ -1332,9 +1351,11 @@ impl Servers {
             );
             self.friends
                 .set_status(id, FriendStatus::Online { server, kind, rtt });
+            self.friends.asked.remove(id);
             cx.notify();
             return;
         }
+        let before = self.friend_liveness(id);
         let Some(entry) = self.friends.get_mut(id) else {
             return;
         };
@@ -1342,6 +1363,7 @@ impl Servers {
         if matches!(entry.status, FriendStatus::Unknown) {
             entry.status = FriendStatus::Checking;
         }
+        let shows_start = self.check_shows(id, before, self.friend_liveness(id));
         let secrets = self.accounts.read(cx).secrets().clone();
         let check_id = id.to_string();
         let cached = self.friends.invites.get(id).cloned();
@@ -1381,6 +1403,9 @@ impl Servers {
                 _ => Err(JoinError::Failed(t(M::FriendLinkMissing).into())),
             };
             this.update(cx, |this, cx| {
+                let before = this.friend_liveness(&check_id);
+                // asked for: "Check" shows again, whatever the answer
+                let asked = this.friends.asked.remove(&check_id);
                 this.friends.checks.remove(&check_id);
                 if let Some(invite) = read {
                     this.friends.invites.insert(check_id.clone(), invite);
@@ -1407,12 +1432,31 @@ impl Servers {
                 if learned {
                     this.save_friends();
                 }
-                cx.notify();
+                if learned
+                    || asked
+                    || this.check_shows(&check_id, before, this.friend_liveness(&check_id))
+                {
+                    cx.notify();
+                }
             })
             .ok();
         });
         self.friends.checks.insert(id.to_string(), task);
-        cx.notify();
+        if shows_start {
+            cx.notify();
+        }
+    }
+
+    /// Whether a check of the friend's server `id`, which took its state from `before`
+    /// to `after`, changes what the window shows, so it must be drawn again. The
+    /// Lodestone Host and Friends pages show all of it (the round trip, who plays), so
+    /// always while they are shown. Elsewhere (an instance page's "Online" or
+    /// "Unreachable", its Play) only the state shows, and the check itself only when
+    /// someone asked for it. Redrawing the whole window takes the main thread about
+    /// 10 ms, and an instance page left open asks its friend's server again every
+    /// minute or two.
+    fn check_shows(&self, id: &str, before: Liveness, after: Liveness) -> bool {
+        self.visible || before != after || self.friends.asked.contains(id)
     }
 
     /// Forgets a friend's server: its row, and its link in the Keychain. Instances made
@@ -1435,6 +1479,7 @@ impl Servers {
             }
         }
         self.friends.checks.remove(id);
+        self.friends.asked.remove(id);
         self.friends.invites.remove(id);
         self.save_friends();
         if self.preview || friends::is_friend_list_id(id) {
@@ -1468,7 +1513,7 @@ impl Servers {
 
     /// Whether "Check" (or a re-check) is asking the friend's server `id` now.
     pub fn friend_checking(&self, id: &str) -> bool {
-        self.friends.checks.contains_key(id)
+        self.friends.checks.contains_key(id) && self.friends.asked.contains(id)
     }
 
     /// Asks again whether the friend's servers `ids` run, for those whose answer is
@@ -1503,7 +1548,7 @@ impl Servers {
             })
             .collect();
         for id in due {
-            self.check_friend(&id, cx);
+            self.start_check(&id, cx);
         }
     }
 
