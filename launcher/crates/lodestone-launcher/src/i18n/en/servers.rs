@@ -339,6 +339,10 @@ crate::i18n::messages! {
         /// link without its secret part.
         ServerFromLink = "Server from {link}",
         AddedNotAnswered = "Added. Its name and version show once its host answers.",
+        /// "Add" with a link to a server that is saved already (its row is highlighted).
+        AlreadyAddedTitle = "Already added",
+        AlreadyAddedNamed = "{name} is already added",
+        AlreadyAddedBody = "This link is for a server on this page. Its row is highlighted.",
         OnYourNetwork = "On your network",
         OnYourNetworkHint = "Worlds opened to LAN on this network.",
         JoinWorld = "Join {world}",

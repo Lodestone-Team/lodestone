@@ -58,6 +58,7 @@ pub const SCENES: &[&str] = &[
     "servers-highlight-here",
     "servers-friends",
     "servers-friends-added",
+    "servers-friends-added-again",
     "servers-friends-relay",
     "servers-join-paste",
     "servers-join-connecting",
@@ -496,7 +497,8 @@ fn apply_servers(scene: &str, servers: &mut Servers, cx: &mut Context<Servers>) 
         | "servers-history-back"
         | "servers-highlight"
         | "servers-highlight-friend"
-        | "servers-highlight-here" => apply_rows(servers),
+        | "servers-highlight-here"
+        | "servers-friends-added-again" => apply_rows(servers),
         "servers-shared-local" | "servers-shared-local-gone" => {
             apply_shared_local(scene == "servers-shared-local", servers)
         }
@@ -851,6 +853,16 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
             "https://connect.lodestone.cc/j/NEWSRV2345#{}.{}",
             "cd".repeat(32),
             "02".repeat(16)
+        ))
+        .expect("a made-up invite");
+        servers.update(cx, |servers, cx| servers.add_invite(invite, cx));
+    }
+    // "Add" with the link of a server saved already, shown as a core's own row here
+    if scene == "servers-friends-added-again" {
+        let invite = Invite::parse(&format!(
+            "https://connect.lodestone.cc/j/HMCRTV2345#{}.{}",
+            "ab".repeat(32),
+            "01".repeat(16)
         ))
         .expect("a made-up invite");
         servers.update(cx, |servers, cx| servers.add_invite(invite, cx));
