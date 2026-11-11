@@ -133,7 +133,7 @@ pub fn demo(view: &AnyView, cx: &mut App) {
 /// screenshots' `--friends none|loading|off|retired|shared|confirm|renew|certificate|certificate-manual|error`, with `--tab settings`).
 #[cfg(feature = "screenshot")]
 pub fn friends_demo(view: &AnyView, scene: &str, cx: &mut App) {
-    // the Overview's "Share with friends", with the same friends
+    // the Overview's "Share", with the same friends
     if let Ok(page) = view.clone().downcast::<overview::OverviewPage>() {
         let (state, uuid) = {
             let page = page.read(cx);

@@ -161,7 +161,7 @@ pub fn text(message: M) -> &'static str {
         M::PlayersSortByName => "名称",
         M::PlayersLinkedUser => "关联此 Minecraft 账户的 Lodestone 用户",
         M::PlayersNone => "没有在线玩家",
-        M::ShareTitle => "与好友共享",
+        M::ShareTitle => "共享",
         M::ShareLead => "从好友列表中选择好友，或给任何人发送链接",
         M::ShareFriendsHeading => "你的好友",
         M::ShareFriendsNote => {
@@ -172,9 +172,9 @@ pub fn text(message: M) -> &'static str {
         }
         M::ShareLinkHeading => "或发送邀请链接",
         M::ShareOff => {
-            "把链接发给好友。他们在 Lodestone Launcher 中打开后，游戏会直接连接到这台电脑，无需端口转发。"
+            "把链接发给你想一起玩的人。他们在 Lodestone Launcher 中打开后，游戏会直接连接到这台电脑，无需端口转发。"
         }
-        M::ShareStart => "与好友共享",
+        M::ShareStart => "通过链接共享",
         M::ShareStarting => "正在启动…",
         M::ShareSharing => "共享中",
         M::ShareReconnecting => "正在重新连接…",
@@ -183,27 +183,27 @@ pub fn text(message: M) -> &'static str {
         M::ShareCopy => "复制链接",
         M::ShareCopied => "已复制邀请链接",
         M::SharePreparing => "正在获取链接…",
-        M::ShareHowFriendsJoin => {
-            "服务器运行期间，任何拥有此链接的人都能加入。没有 Lodestone Launcher 的好友会看到下载链接。"
+        M::ShareHowToJoin => {
+            "服务器运行期间，任何拥有此链接的人都能加入。没有 Lodestone Launcher 的人会看到下载链接。"
         }
-        M::ShareHardNetwork => "此网络的路由器难以建立直接连接，部分好友可能无法加入。",
-        M::ShareFriendLine => "通过{connection}，{ms} 毫秒",
+        M::ShareHardNetwork => "此网络的路由器难以建立直接连接，部分玩家可能无法加入。",
+        M::SharePeerLine => "通过{connection}，{ms} 毫秒",
         M::ShareSameComputer => "这台电脑",
         M::ShareLocalNetwork => "局域网",
         M::ShareIpv6 => "IPv6",
         M::ShareInternet => "互联网",
         M::ShareStop => "停止共享",
         M::ShareStopTitle => "停止共享？",
-        M::ShareStopBody => "正在游戏的好友会断开连接，链接也将失效。再次共享会生成新链接。",
+        M::ShareStopBody => "通过链接游戏的人都会断开连接，链接也将失效。再次共享会生成新链接。",
         M::ShareShort => "分享",
-        M::ShareShortHint => "与好友分享此服务器",
+        M::ShareShortHint => "分享此服务器",
     }
 }
 
 pub fn plural(message: P) -> [&'static str; 2] {
     match message {
         P::ModpackShowMore => ["显示更多（还剩 {count} 个）", "显示更多（还剩 {count} 个）"],
-        P::ShareConnected => ["{count} 位好友已连接", "{count} 位好友已连接"],
+        P::ShareConnected => ["{count} 人已连接", "{count} 人已连接"],
         P::ShareJoins => ["（目前共加入 {count} 次）", "（目前共加入 {count} 次）"],
     }
 }

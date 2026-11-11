@@ -893,11 +893,11 @@ export const en = {
   'server.settingField.unknownType': 'Submission Error: Unknown value type.',
 
   // PublicListingSetting: what a server shows without signing in
-  'server.share.title': 'Share with friends',
-  'server.share.lead': 'Friends join from Lodestone Launcher with a link',
+  'server.share.title': 'Share',
+  'server.share.lead': 'People with the link join from Lodestone Launcher',
   'server.share.off':
-    'Send friends a link. They open it in Lodestone Launcher, and their game connects straight to this computer. No port forwarding needed.',
-  'server.share.start': 'Share with friends',
+    'Send a link to anyone you want to play with. They open it in Lodestone Launcher, and their game connects straight to this computer. No port forwarding needed.',
+  'server.share.start': 'Share',
   'server.share.state.starting': 'Starting…',
   'server.share.state.sharing': 'Sharing',
   'server.share.state.reconnecting': 'Reconnecting…',
@@ -907,20 +907,20 @@ export const en = {
   'server.share.copied': 'Copied the invite link',
   'server.share.copyFailed': "Couldn't copy. Select the link and copy it.",
   'server.share.preparing': 'Getting the link…',
-  'server.share.howFriendsJoin':
-    'Anyone with the link can join this server while it runs. Friends without Lodestone Launcher get a download link.',
+  'server.share.howToJoin':
+    'Anyone with the link can join this server while it runs. People without Lodestone Launcher get a download link.',
   'server.share.hardNetwork':
-    "This network's router makes direct connections hard. Some friends may not be able to join.",
+    "This network's router makes direct connections hard. Some people may not be able to join.",
   'server.share.connected': {
-    one: '{count} friend connected',
-    other: '{count} friends connected',
+    one: '{count} person connected',
+    other: '{count} people connected',
   },
   'server.share.joins': {
     one: '({count} join so far)',
     other: '({count} joins so far)',
   },
   /** {connection} is one of server.share.connection.*, {ms} the round trip time */
-  'server.share.friendLine': 'over {connection}, {ms} ms',
+  'server.share.peerLine': 'over {connection}, {ms} ms',
   'server.share.connection.same_computer': 'this computer',
   'server.share.connection.local_network': 'the local network',
   'server.share.connection.ipv6': 'IPv6',
@@ -928,7 +928,7 @@ export const en = {
   'server.share.stop': 'Stop sharing',
   'server.share.stopTitle': 'Stop sharing?',
   'server.share.stopBody':
-    'Friends who are playing are disconnected, and the link stops working. Sharing again makes a new link.',
+    'Everyone playing through the link is disconnected, and the link stops working. Sharing again makes a new link.',
   'server.publicListing.title': 'Sharing',
   'server.publicListing.lead': 'Who can find this server without signing in.',
   'server.publicListing.listedPublicly': 'Listed publicly',
@@ -988,8 +988,11 @@ export const en = {
     'This core was built without scripting support (Deno), so atom servers aren’t available.',
   'server.card.codeExecutionDisabled':
     'Code execution is disabled on this core',
-  /** copies the server's address */
+  /** copies the server's address (servers that can't be shared) */
   'server.card.copyIp': 'Copy IP',
+  /** opens the Overview's Share section */
+  'server.card.share': 'Share',
+  'server.card.shareHint': 'Share this server with a link',
   /** online players / maximum, e.g. "3/20 Online" */
   'server.card.online': '{players}/{max} Online',
 

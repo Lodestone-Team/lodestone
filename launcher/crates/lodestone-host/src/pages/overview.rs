@@ -96,6 +96,8 @@ pub struct OverviewPage {
     share_busy: bool,
     /// Start sharing as soon as the status arrives (the sidebar's "Share").
     share_on_load: bool,
+    /// Bring the Share section into view once it is drawn (the sidebar's "Share").
+    scroll_to_share: bool,
     stop_prompt: DialogSlot<Self, StopPrompt>,
     /// Oldest first, at most [`SAMPLES`].
     reports: VecDeque<PerformanceReport>,
@@ -125,6 +127,7 @@ impl OverviewPage {
                 let requested = state.read(cx).share_requested.as_deref() == Some(&this.uuid);
                 if requested {
                     state.update(cx, |state, _| state.share_requested = None);
+                    this.scroll_to_share = true;
                     this.request_share(cx);
                 }
                 cx.notify()
@@ -136,7 +139,7 @@ impl OverviewPage {
                 }
             }),
         ];
-        // the friends to share with, in "Share with friends"
+        // the friends to share with, in "Share"
         if let Some(friends) = state.read(cx).friends.clone() {
             subscriptions.push(cx.observe(&friends, |_, _, cx| cx.notify()));
         }
@@ -150,6 +153,7 @@ impl OverviewPage {
             share,
             share_busy: false,
             share_on_load,
+            scroll_to_share: share_on_load,
             stop_prompt: DialogSlot::new(|this: &mut Self| &mut this.stop_prompt),
             reports: VecDeque::new(),
             received: None,
@@ -229,7 +233,7 @@ impl OverviewPage {
         self.received = Some(self.received.unwrap_or(0) + 1);
     }
 
-    // ---- Share with friends ----
+    // ---- Share ----
 
     /// Fetches the share status, and again every 5 s while sharing (2 s while it
     /// starts or reconnects), as the dashboard does. A failure hides the card.
@@ -288,7 +292,7 @@ impl OverviewPage {
     /// Starts sharing unless the server is shared already; before the first answer
     /// about sharing, once it comes.
     /// The sidebar's Share: starts the invite link, unless there are friends to tick
-    /// in "Share with friends" instead (the person picks there, or starts the link).
+    /// in "Share" instead (the person picks there, or starts the link).
     fn request_share(&mut self, cx: &mut Context<Self>) {
         if self.has_friends_to_pick(cx) {
             return;
@@ -300,7 +304,7 @@ impl OverviewPage {
         }
     }
 
-    /// Whether "Share with friends" lists friends to share with without a link.
+    /// Whether "Share" lists friends to share with without a link.
     fn has_friends_to_pick(&self, cx: &App) -> bool {
         self.state.read(cx).friends.as_ref().is_some_and(|sharing| {
             let sharing = sharing.read(cx);
@@ -567,7 +571,7 @@ pub fn share_poll_interval(share: &InstanceShare) -> Option<Duration> {
 }
 
 /// A section's title and the line under it.
-/// A part's title inside the "Share with friends" card.
+/// A part's title inside the "Share" card.
 fn subheading(title: &'static str) -> gpui::Div {
     div()
         .text_size(text::MEDIUM)
@@ -576,7 +580,7 @@ fn subheading(title: &'static str) -> gpui::Div {
         .child(title)
 }
 
-/// A small grey line inside the "Share with friends" card.
+/// A small grey line inside the "Share" card.
 fn share_note(text_: &'static str) -> gpui::Div {
     div()
         .text_size(text::SMALL)
@@ -936,7 +940,7 @@ impl OverviewPage {
                                 .child(friend.address.clone()),
                         )
                         .child(div().text_color(ink::muted()).child(tr!(
-                            M::ShareFriendLine,
+                            M::SharePeerLine,
                             connection = connection,
                             ms = friend.rtt_ms
                         )))
@@ -970,7 +974,7 @@ impl OverviewPage {
                     this.child(note(relay, colors::YELLOW))
                 })
                 .child(note(
-                    t(M::ShareHowFriendsJoin).into(),
+                    t(M::ShareHowToJoin).into(),
                     lodestone_ui::theme::ink::muted(),
                 ))
                 .when_some(share.problem.clone(), |this, problem| {
@@ -1028,11 +1032,33 @@ impl OverviewPage {
                 .into_any_element()
         };
         let friends = self.share_friends(cx);
+        // the sidebar's Share: scroll the page so the section starts near its top
+        let scroll_here = self.scroll_to_share.then(|| {
+            let page = self.state.read(cx).page_scroll.clone();
+            let this = cx.entity().downgrade();
+            gpui::canvas(
+                move |bounds, window, cx| {
+                    let viewport = page.bounds();
+                    let offset = page.offset();
+                    let below_top = bounds.top() - viewport.top() - px(16.);
+                    let y = (offset.y - below_top).max(-page.max_offset().y).min(px(0.));
+                    page.set_offset(gpui::point(offset.x, y));
+                    window.refresh();
+                    this.update(cx, |this, _| this.scroll_to_share = false).ok();
+                },
+                |_, _, _, _| {},
+            )
+            .absolute()
+            .size_full()
+        });
         Some(
             div()
+                .id("share")
+                .relative()
                 .flex()
                 .flex_col()
                 .gap(px(16.))
+                .children(scroll_here)
                 .child(heading(t(M::ShareTitle), t(M::ShareLead)))
                 .child(
                     card()
