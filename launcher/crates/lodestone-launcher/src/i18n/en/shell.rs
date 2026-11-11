@@ -850,6 +850,12 @@ crate::i18n::messages! {
         StorageDeleteOldLogsBody = "This frees {size}. Logs and crash reports older than 30 days are deleted for good.",
         StorageDeleteAllLogsTitle = "Delete all logs?",
         StorageDeleteAllLogsBody = "This frees {size}. Every log and crash report is deleted for good, except a running game's.",
+        /// Words a search of the settings finds Zoom by, besides its name; never
+        /// shown.
+        ZoomKeywords = "scale size bigger smaller text",
+        /// Words a search of the settings finds "When a game starts" by, besides its name; never
+        /// shown.
+        WhenAGameStartsKeywords = "after launch minimize hide close quit",
     }
 
     pub enum ShellPlural {

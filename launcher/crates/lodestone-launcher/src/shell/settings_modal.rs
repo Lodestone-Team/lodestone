@@ -22,8 +22,8 @@ use crate::{
     components::{
         Button, ButtonSize, ButtonVariant, Dialog, Icon, IconButton, ListRow, Toggle, segmented,
         settings::{
-            SettingRow, card, content_width, left_overlay, link, muted_link, popover,
-            popover_panel, section, select_button, tag, unsaved_bar,
+            SettingRow, content_width, left_overlay, link, muted_link, popover, popover_panel,
+            select_button, tag, unsaved_bar,
         },
     },
     i18n::{self, CommonMsg, Language, ShellMsg, ShellMsg as M, t, tr},
@@ -329,6 +329,12 @@ impl LauncherShell {
                                             .text_color(crate::theme::ink::muted())
                                             .child(lead)
                                     })),
+                            )
+                            .child(
+                                div()
+                                    .flex_none()
+                                    .w(px(if small { 200. } else { 240. }))
+                                    .child(self.settings_search.clone()),
                             ),
                     )
                     .child(
@@ -559,6 +565,7 @@ impl LauncherShell {
         };
         let zoom_row = SettingRow::new(t(ShellMsg::Zoom))
             .hint(format!("{key}+  {key}−  {key}0"))
+            .keywords(t(M::ZoomKeywords))
             .child(
                 Button::new("zoom-out", "−")
                     .accessible_label(t(ShellMsg::ZoomOut))
@@ -593,9 +600,10 @@ impl LauncherShell {
                     )),
                 )
             });
-        let general = card([
-            language_row.into_any_element(),
-            zoom_row.into_any_element(),
+        let query = self.settings_search.read(cx).query();
+        let general = query.card([
+            language_row,
+            zoom_row,
             SettingRow::new(t(M::GroupAutomatically))
                 .hint(t(M::GroupAutomaticallyHint))
                 .child(
@@ -606,9 +614,9 @@ impl LauncherShell {
                             this.instances
                                 .update(cx, |instances, cx| instances.set_auto_groups(on, cx));
                         })),
-                )
-                .into_any_element(),
+                ),
             SettingRow::new(t(M::WhenAGameStarts))
+                .keywords(t(M::WhenAGameStartsKeywords))
                 .hint_opt(match after_launch {
                     AfterLaunch::Stay => Some(t(M::AfterLaunchStayHint)),
                     AfterLaunch::Minimize => None,
@@ -636,21 +644,25 @@ impl LauncherShell {
                                 .update(cx, |instances, cx| instances.set_after_launch(choice, cx));
                         }
                     },
-                ))
-                .into_any_element(),
+                )),
         ]);
+        let updates = query
+            .section(t(M::UpdatesSection), None)
+            .card(self.update_rows(cx))
+            .finish();
         div()
             .flex()
             .flex_col()
             .gap_8()
             .w_full()
-            .child(general)
-            .child(section(t(M::UpdatesSection), None).child(self.render_updates(cx)))
+            .children(query.status())
+            .children(general)
+            .children(updates)
     }
 
     /// Settings > General > Updates: "Update automatically", and the running build
     /// with where updating stands and what can be done about it.
-    fn render_updates(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+    fn update_rows(&self, cx: &mut Context<Self>) -> Vec<SettingRow> {
         let auto_update = self.instances.read(cx).auto_update();
         let channel = self.instances.read(cx).update_channel();
         let dev = channel == UpdateChannel::Dev;
@@ -759,51 +771,47 @@ impl LauncherShell {
                                 .update(cx, |updater, cx| updater.channel_changed(cx));
                         })),
                 )
-                .into_any_element()
         });
-        card(
-            [
-                SettingRow::new(t(M::UpdateAutomatically))
-                    .hint(t(M::UpdateAutomaticallyHint))
-                    .child(
-                        Toggle::new("auto-update", auto_update)
-                            .label(t(M::UpdateAutomatically))
-                            .disabled(build.is_none())
-                            .on_change(cx.listener(|this, value: &bool, _, cx| {
-                                let on = *value;
-                                this.instances
-                                    .update(cx, |instances, cx| instances.set_auto_update(on, cx));
-                                this.updater
-                                    .update(cx, |updater, cx| updater.automatic_changed(cx));
-                            })),
-                    )
-                    .into_any_element(),
-                SettingRow::new(t(M::BetaBuilds))
-                    .hint(t(M::BetaBuildsHint))
-                    .child(
-                        // Developer builds include betas.
-                        Toggle::new("beta-builds", channel != UpdateChannel::Stable)
-                            .label(t(M::BetaBuilds))
-                            .disabled(build.is_none() || dev)
-                            .on_change(cx.listener(|this, value: &bool, _, cx| {
-                                let channel = if *value {
-                                    UpdateChannel::Beta
-                                } else {
-                                    UpdateChannel::Stable
-                                };
-                                this.instances.update(cx, |instances, cx| {
-                                    instances.set_update_channel(channel, cx)
-                                });
-                                this.updater
-                                    .update(cx, |updater, cx| updater.channel_changed(cx));
-                            })),
-                    )
-                    .into_any_element(),
-            ]
-            .into_iter()
-            .chain(dev_row)
-            .chain([status_row.into_any_element()]),
-        )
+        [
+            SettingRow::new(t(M::UpdateAutomatically))
+                .hint(t(M::UpdateAutomaticallyHint))
+                .child(
+                    Toggle::new("auto-update", auto_update)
+                        .label(t(M::UpdateAutomatically))
+                        .disabled(build.is_none())
+                        .on_change(cx.listener(|this, value: &bool, _, cx| {
+                            let on = *value;
+                            this.instances
+                                .update(cx, |instances, cx| instances.set_auto_update(on, cx));
+                            this.updater
+                                .update(cx, |updater, cx| updater.automatic_changed(cx));
+                        })),
+                ),
+            SettingRow::new(t(M::BetaBuilds))
+                .hint(t(M::BetaBuildsHint))
+                .child(
+                    // Developer builds include betas.
+                    Toggle::new("beta-builds", channel != UpdateChannel::Stable)
+                        .label(t(M::BetaBuilds))
+                        .disabled(build.is_none() || dev)
+                        .on_change(cx.listener(|this, value: &bool, _, cx| {
+                            let channel = if *value {
+                                UpdateChannel::Beta
+                            } else {
+                                UpdateChannel::Stable
+                            };
+                            this.instances.update(cx, |instances, cx| {
+                                instances.set_update_channel(channel, cx)
+                            });
+                            this.updater
+                                .update(cx, |updater, cx| updater.channel_changed(cx));
+                        })),
+                ),
+        ]
+        .into_iter()
+        .chain(dev_row)
+        .chain([status_row])
+        .collect()
     }
 
     /// The Language list: System, then each language in its own name.
@@ -843,7 +851,8 @@ impl LauncherShell {
         let accounts = self.accounts.read(cx);
         let active_id = accounts.active().map(|a| a.id.clone());
         let offline_enabled = accounts.offline_enabled();
-        let mut rows: Vec<AnyElement> = Vec::new();
+        let query = self.settings_search.read(cx).query();
+        let mut rows: Vec<SettingRow> = Vec::new();
         for (index, account) in accounts.accounts().iter().enumerate() {
             let in_use = active_id.as_deref() == Some(account.id.as_str());
             let needs_sign_in = matches!(
@@ -891,8 +900,7 @@ impl LauncherShell {
                                 this.confirm_remove(&remove_id, Some(window), cx)
                             }),
                         ),
-                    )
-                    .into_any_element(),
+                    ),
             );
         }
         rows.push(
@@ -914,9 +922,15 @@ impl LauncherShell {
                                 this.open_offline(None, Some(window), cx)
                             })),
                     )
-                })
-                .into_any_element(),
+                }),
         );
-        card(rows)
+        let card = query.card(rows);
+        div()
+            .flex()
+            .flex_col()
+            .gap_6()
+            .w_full()
+            .children(query.status())
+            .children(card)
     }
 }

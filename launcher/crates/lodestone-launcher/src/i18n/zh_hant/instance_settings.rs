@@ -300,6 +300,14 @@ pub fn text(message: M) -> &'static str {
         M::InstallModpack => "安裝模組包",
         M::ImportMrpack => "匯入 .mrpack…",
         M::Import => "匯入",
+        M::MemoryKeywords => "RAM 記憶體 Xmx Xms",
+        M::JavaKeywords => "JDK JRE 執行環境 路徑",
+        M::JvmArgumentsKeywords => "Java 參數 選項",
+        M::WindowKeywords => "解析度 寬度 高度 全螢幕 尺寸",
+        M::EnvironmentKeywords => "env 環境變數 PATH",
+        M::PlayBackgroundKeywords => "桌布 圖片 背景 幻燈片",
+        M::DeleteKeywords => "刪除 移除 解除安裝",
+        M::LoaderKeywords => "模組載入器 Fabric Forge NeoForge Quilt",
     }
 }
 

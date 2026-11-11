@@ -238,6 +238,11 @@ pub fn text(message: M) -> &'static str {
             "好友現在看不到此核心。此核心無法自行產生新憑證：請結束 Lodestone Host，刪除 {path}，然後重新開啟。"
         }
         M::FriendsCancel => "取消",
+        M::MemoryKeywords => "記憶體 RAM",
+        M::JvmArgsKeywords => "JVM Java 參數 選項",
+        M::WhitelistKeywords => "白名單 玩家",
+        M::MotdKeywords => "MOTD 伺服器描述 訊息",
+        M::AutoStartKeywords => "開機 啟動 自動",
     }
 }
 

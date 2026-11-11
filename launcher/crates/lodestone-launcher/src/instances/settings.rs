@@ -14,8 +14,9 @@ use lodestone_ui::components::menu_toggle;
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use gpui::{
-    AnyElement, App, Context, Entity, EventEmitter, IntoElement, ObjectFit, PathPromptOptions,
-    Render, RenderImage, SharedString, Subscription, Task, Window, div, img, prelude::*,
+    AnyElement, App, Context, Entity, EventEmitter, Focusable as _, IntoElement, ObjectFit,
+    PathPromptOptions, Render, RenderImage, SharedString, Subscription, Task, Window, div, img,
+    prelude::*,
 };
 use launcher_core::{
     content::loader_change::{self, LoaderChangeCheck},
@@ -43,9 +44,9 @@ use crate::{
         Button, ButtonSize, ButtonVariant, Icon, IconButton, LoadingDots, TextInput, Toggle,
         segmented,
         settings::{
-            SectionNav, SettingRow, Toast, card, content_width, left_overlay, link, muted_link,
-            popover, popover_panel, section, section_list, section_menu_button, tag, unsaved_bar,
-            value,
+            FindSetting, SearchRow, SectionNav, SettingRow, SettingsQuery, SettingsSearch,
+            SettingsSearchChanged, Toast, content_width, left_overlay, link, muted_link, nav_width,
+            popover, popover_panel, section_list, section_menu_button, tag, unsaved_bar, value,
         },
     },
     file_dialog,
@@ -209,6 +210,8 @@ pub struct InstanceSettings {
     /// A loader change is waiting for the shell's dialog.
     prompting: bool,
     nav: SectionNav,
+    /// The search field over the list of sections.
+    search: Entity<SettingsSearch>,
     /// A section to go to on the next frame, for the offscreen screenshots.
     preview_section: Option<SharedString>,
     /// The list of sections is open over the settings, in a narrow window.
@@ -333,9 +336,16 @@ impl InstanceSettings {
             "java-path",
             "Java",
         );
+        let search = cx.new(|cx| SettingsSearch::new("instance-settings-search", cx));
+        shared.update(cx, |shared, _| shared.set_search(search.clone()));
         let mut observe = vec![
             cx.observe(&loader, |_, _, cx| cx.notify()),
             cx.observe(&servers, |_, _, cx| cx.notify()),
+            // a new search starts at the top of what it finds
+            cx.subscribe(&search, |this, _, _: &SettingsSearchChanged, cx| {
+                this.nav.reset();
+                cx.notify();
+            }),
         ];
         for input in [
             &name,
@@ -390,6 +400,7 @@ impl InstanceSettings {
             _banners_task: None,
             prompting: false,
             nav: SectionNav::default(),
+            search,
             preview_section: None,
             nav_open: false,
             toast: Toast::default(),
@@ -1474,6 +1485,18 @@ impl InstanceSettings {
             .into_any_element()
     }
 
+    /// The search field over the list of sections.
+    pub fn search(&self) -> &Entity<SettingsSearch> {
+        &self.search
+    }
+
+    /// Types `text` in the search, for the offscreen screenshots.
+    pub fn preview_search(&mut self, text: &str, cx: &mut Context<Self>) {
+        let text = text.to_owned();
+        self.search
+            .update(cx, |search, cx| search.set_text(text, cx));
+    }
+
     /// Goes to the section titled `title`, for the offscreen screenshots.
     pub fn preview_section(&mut self, title: impl Into<SharedString>) {
         self.preview_section = Some(title.into());
@@ -1811,7 +1834,12 @@ impl InstanceSettings {
     }
 
     /// The Modpack section, for an instance made from a pack.
-    fn modpack_section(&self, busy: bool, cx: &mut Context<Self>) -> Option<AnyElement> {
+    fn modpack_section(
+        &self,
+        query: &SettingsQuery,
+        busy: bool,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
         let record = self.modpack.clone()?;
         let update_job = self
             .instances
@@ -1908,25 +1936,20 @@ impl InstanceSettings {
                         link("modpack-page", t(M::ViewOnModrinth))
                             .on_press(move |_, _, cx| cx.open_url(&page)),
                     )
-                })
-                .into_any_element(),
+                }),
         ];
         if let Some(update) = update {
-            rows.push(
-                SettingRow::new(t(M::CheckForUpdates))
-                    .child(update)
-                    .into_any_element(),
-            );
+            rows.push(SettingRow::new(t(M::CheckForUpdates)).child(update));
         }
-        Some(
-            section(t(M::Modpack), None)
-                .child(card(rows))
-                .into_any_element(),
-        )
+        query
+            .section(t(M::Modpack), None)
+            .card(rows)
+            .finish()
+            .map(IntoElement::into_any_element)
     }
 
     /// The Linked server section, for an instance made for a server on a core.
-    fn server_section(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+    fn server_section(&self, query: &SettingsQuery, cx: &mut Context<Self>) -> Option<AnyElement> {
         let link = self.servers.read(cx).instance_link(&self.instance_id)?;
         let hint = if link.core_known {
             tr!(M::LinkedServerHint, core = link.core_name)
@@ -1961,11 +1984,11 @@ impl InstanceSettings {
                 })),
             )
         };
-        Some(
-            section(t(M::LinkedServer), None)
-                .child(card([row.into_any_element()]))
-                .into_any_element(),
-        )
+        query
+            .section(t(M::LinkedServer), None)
+            .card([row])
+            .finish()
+            .map(IntoElement::into_any_element)
     }
 
     /// A row for a setting the instance can take from the launcher: the launcher's
@@ -1986,7 +2009,8 @@ impl InstanceSettings {
             Setting::Window => self.overrides.window,
             Setting::Env => self.overrides.env,
         };
-        let row = SettingRow::new(label);
+        // the launcher's value is found too, as the row shows it
+        let row = SettingRow::new(label).search_text(inherited.clone());
         if overridden {
             row.child(editor).child(
                 muted_link(
@@ -2017,7 +2041,7 @@ impl InstanceSettings {
         play: bool,
         value: Option<launcher_core::ui_skin::Rgb>,
         cx: &mut Context<Self>,
-    ) -> AnyElement {
+    ) -> SettingRow {
         use crate::shell::skin_settings::{BRIGHT, swatch, swatch_none};
         use launcher_core::ui_skin::Rgb;
         let pick = move |this: &mut Self, rgb: Option<Rgb>, cx: &mut Context<Self>| {
@@ -2069,7 +2093,6 @@ impl InstanceSettings {
                 .gap_1p5()
                 .children(choices),
         )
-        .into_any_element()
     }
 }
 
@@ -2142,9 +2165,10 @@ impl Render for InstanceSettings {
             .as_ref()
             .is_some_and(|i| matches!(i.background_mode(), BackgroundMode::Slideshow(_)));
         let overrides = self.overrides;
+        let query = self.search.read(cx).query();
         let mut sections: Vec<(SharedString, AnyElement)> = Vec::new();
 
-        if let Some(modpack) = self.modpack_section(busy, cx) {
+        if let Some(modpack) = self.modpack_section(&query, busy, cx) {
             sections.push((t(M::Modpack).into(), modpack));
         }
 
@@ -2160,66 +2184,62 @@ impl Render for InstanceSettings {
         };
         self.group
             .update(cx, |input, cx| input.set_placeholder(group_placeholder, cx));
-        let general = card([
+        let general = [
             SettingRow::new(t(M::Name))
                 .child(sized(&self.name, 260.))
                 .when(name_empty, |row| {
                     row.note(t(M::NameMissing), colors::RED_200)
-                })
-                .into_any_element(),
-            SettingRow::new(t(M::Group))
-                .child(sized(&self.group, 260.))
-                .into_any_element(),
-            SettingRow::new(t(M::Icon))
-                .child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .items_end()
-                        .child(
-                            div()
-                                .flex()
-                                .flex_row()
-                                .items_center()
-                                .gap_3()
-                                .children(instance.as_ref().map(|instance| {
-                                    appearance::instance_icon(
-                                        self.instances.read(cx),
-                                        instance,
-                                        px(36.),
-                                    )
-                                }))
-                                .child(
-                                    Button::new("choose-icon", t(CommonMsg::Change))
-                                        .variant(ButtonVariant::Secondary)
-                                        .size(ButtonSize::Slim)
-                                        .on_click(cx.listener(|this, event, _, cx| {
-                                            if !menu_toggle::toggles("icon-picker", event) {
-                                                return;
-                                            }
-                                            this.icon_picker = match this.icon_picker {
-                                                Some(_) => None,
-                                                None => Some(IconTab::Library),
-                                            };
-                                            cx.notify();
-                                        })),
-                                ),
-                        )
-                        .when_some(self.icon_picker, |this, tab| {
-                            let current = instance.as_ref().and_then(|i| i.icon.clone());
-                            let close = cx.listener(|this, _: &(), _, cx| {
-                                this.icon_picker = None;
-                                cx.notify();
-                            });
-                            this.child(popover(
-                                "icon-picker-popover",
-                                self.icon_picker_panel(tab, current.as_deref(), cx),
-                                move |window, cx| close(&(), window, cx),
-                            ))
-                        }),
-                )
-                .into_any_element(),
+                }),
+            SettingRow::new(t(M::Group)).child(sized(&self.group, 260.)),
+            SettingRow::new(t(M::Icon)).child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .items_end()
+                    .child(
+                        div()
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap_3()
+                            .children(instance.as_ref().map(|instance| {
+                                appearance::instance_icon(
+                                    self.instances.read(cx),
+                                    instance,
+                                    px(36.),
+                                )
+                            }))
+                            .child(
+                                Button::new("choose-icon", t(CommonMsg::Change))
+                                    .variant(ButtonVariant::Secondary)
+                                    .size(ButtonSize::Slim)
+                                    .on_click(cx.listener(|this, event, _, cx| {
+                                        if !menu_toggle::toggles("icon-picker", event) {
+                                            return;
+                                        }
+                                        this.icon_picker = match this.icon_picker {
+                                            Some(_) => None,
+                                            None => Some(IconTab::Library),
+                                        };
+                                        cx.notify();
+                                    })),
+                            ),
+                    )
+                    .when_some(self.icon_picker, |this, tab| {
+                        let current = instance.as_ref().and_then(|i| i.icon.clone());
+                        let close = cx.listener(|this, _: &(), _, cx| {
+                            this.icon_picker = None;
+                            cx.notify();
+                        });
+                        this.child(popover(
+                            "icon-picker-popover",
+                            self.icon_picker_panel(tab, current.as_deref(), cx),
+                            move |window, cx| close(&(), window, cx),
+                        ))
+                    }),
+            ),
             SettingRow::new(t(M::PlayBackground))
+                .keywords(t(M::PlayBackgroundKeywords))
                 .child(match (&background, has_background) {
                     _ if slideshow => tag(t(M::BackgroundSlideshow), crate::theme::accent::light())
                         .into_any_element(),
@@ -2263,25 +2283,33 @@ impl Render for InstanceSettings {
                                 move |window, cx| close(&(), window, cx),
                             ))
                         }),
-                )
-                .into_any_element(),
+                ),
             self.color_override_row(true, instance.as_ref().and_then(|i| i.play_color), cx),
             self.color_override_row(false, instance.as_ref().and_then(|i| i.accent), cx),
-        ]);
-        sections.push((
+        ];
+        push_section(
+            &mut sections,
             t(M::General).into(),
-            section(t(M::General), None)
-                .child(general)
-                .into_any_element(),
-        ));
+            query.section(t(M::General), None).card(general).finish(),
+        );
 
         // Game & loader.
-        let game = card([
+        let loader_name = instance.as_ref().map(loader_label).unwrap_or_default();
+        let game: [SearchRow; 3] = [
             SettingRow::new("Minecraft")
                 .hint(t(M::GameVersionHint))
+                .search_text(self.game_version.clone())
                 .child(value(self.game_version.clone(), false))
-                .into_any_element(),
-            self.loader.clone().into_any_element(),
+                .into(),
+            SearchRow::new(
+                self.loader.clone(),
+                [
+                    t(M::ModLoader).to_string(),
+                    t(M::LoaderVersion).to_string(),
+                    t(M::LoaderKeywords).to_string(),
+                    loader_name,
+                ],
+            ),
             SettingRow::new(t(M::PrereleaseUpdates))
                 .hint(t(M::PrereleaseUpdatesHint))
                 .child(
@@ -2292,16 +2320,15 @@ impl Render for InstanceSettings {
                             cx.notify();
                         })),
                 )
-                .into_any_element(),
-        ]);
-        sections.push((
+                .into(),
+        ];
+        push_section(
+            &mut sections,
             t(M::GameAndLoader).into(),
-            section(t(M::GameAndLoader), None)
-                .child(game)
-                .into_any_element(),
-        ));
+            query.section(t(M::GameAndLoader), None).card(game).finish(),
+        );
 
-        if let Some(server) = self.server_section(cx) {
+        if let Some(server) = self.server_section(&query, cx) {
             sections.push((t(M::LinkedServer).into(), server));
         }
 
@@ -2340,6 +2367,7 @@ impl Render for InstanceSettings {
                 cx,
             )
             .hint_opt(memory_hint)
+            .keywords(t(M::MemoryKeywords))
             .when(overrides.memory, |row| {
                 row.note_opt(
                     memory_check
@@ -2380,6 +2408,7 @@ impl Render for InstanceSettings {
         };
         let java = self
             .default_row(Setting::Java, "Java", mojang_java, div(), cx)
+            .keywords(t(M::JavaKeywords))
             .when(overrides.java, |row| {
                 row.below(
                     div()
@@ -2403,12 +2432,14 @@ impl Render for InstanceSettings {
                 )
                 .note_opt(java_note)
             });
-        sections.push((
+        push_section(
+            &mut sections,
             t(M::JavaAndMemory).into(),
-            section(t(M::JavaAndMemory), Some(t(M::JavaMemoryLead).into()))
-                .child(card([memory.into_any_element(), java.into_any_element()]))
-                .into_any_element(),
-        ));
+            query
+                .section(t(M::JavaAndMemory), Some(t(M::JavaMemoryLead).into()))
+                .card([memory, java])
+                .finish(),
+        );
 
         // Launch options.
         let window_check = overrides
@@ -2419,13 +2450,15 @@ impl Render for InstanceSettings {
             .env
             .then(|| self.fields.env(cx))
             .and_then(Result::err);
-        let jvm = self.default_row(
-            Setting::JvmArgs,
-            t(M::JvmArguments),
-            or_none(&defaults.jvm_args),
-            sized(&self.fields.jvm_args, 280.),
-            cx,
-        );
+        let jvm = self
+            .default_row(
+                Setting::JvmArgs,
+                t(M::JvmArguments),
+                or_none(&defaults.jvm_args),
+                sized(&self.fields.jvm_args, 280.),
+                cx,
+            )
+            .keywords(t(M::JvmArgumentsKeywords));
         let game_args = self.default_row(
             Setting::GameArgs,
             t(M::GameArguments),
@@ -2447,6 +2480,7 @@ impl Render for InstanceSettings {
                 ),
                 cx,
             )
+            .keywords(t(M::WindowKeywords))
             .note_opt(window_check.map(|e| (e.into(), colors::RED_200)));
         let env_text = if defaults.env.is_empty() {
             t(M::NoVariables).to_string()
@@ -2461,34 +2495,38 @@ impl Render for InstanceSettings {
                 sized(&self.fields.env, 280.),
                 cx,
             )
+            .keywords(t(M::EnvironmentKeywords))
             .note_opt(env_check.map(|e| (e.into(), colors::RED_200)));
-        sections.push((
+        push_section(
+            &mut sections,
             t(M::LaunchOptions).into(),
-            section(t(M::LaunchOptions), None)
-                .child(card([
-                    jvm.into_any_element(),
-                    game_args.into_any_element(),
-                    window_row.into_any_element(),
-                    env.into_any_element(),
-                ]))
-                .into_any_element(),
-        ));
+            query
+                .section(t(M::LaunchOptions), None)
+                .card([jvm, game_args, window_row, env])
+                .finish(),
+        );
 
-        sections.push((
-            t(M::SharedGameSettings).into(),
-            self.shared.clone().into_any_element(),
-        ));
+        // Shared game settings: a view of its own, which filters itself.
+        let shared_found = self.shared.read(cx).found(&query);
+        if !query.is_active() || shared_found > 0 {
+            query.add_found(shared_found);
+            sections.push((
+                t(M::SharedGameSettings).into(),
+                self.shared.clone().into_any_element(),
+            ));
+        }
 
         // Snapshots.
-        sections.push((
+        push_section(
+            &mut sections,
             t(M::InstanceSnapshots).into(),
-            self.render_snapshots(cx).into_any_element(),
-        ));
+            self.render_snapshots(&query, cx),
+        );
 
         // Maintenance.
         let id = self.instance_id.clone();
         let duplicating = self.instances.read(cx).file_op(&id) == Some(super::FileOp::Duplicate);
-        let maintenance = card([
+        let maintenance = [
             SettingRow::new(t(M::VerifyGameFiles))
                 .hint(t(M::VerifyHint))
                 .child(
@@ -2502,55 +2540,47 @@ impl Render for InstanceSettings {
                                 .update(cx, |instances, cx| instances.verify(&id, cx));
                             this.set_message(t(M::VerifyStarted), false, cx);
                         })),
-                )
-                .into_any_element(),
-            SettingRow::new(t(M::Export))
-                .hint(t(M::ExportHint))
-                .child(
-                    Button::new("export-instance", t(M::ExportButton))
-                        .variant(ButtonVariant::Secondary)
-                        .size(ButtonSize::Slim)
-                        .on_click(cx.listener(|this, _, _, cx| this.export(cx))),
-                )
-                .into_any_element(),
-            SettingRow::new(t(M::ShareCodeRow))
-                .child(
-                    Button::new("share-instance", t(M::ShareButton))
-                        .variant(ButtonVariant::Secondary)
-                        .size(ButtonSize::Slim)
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            cx.emit(ShareRequested(this.instance_id.clone()))
-                        })),
-                )
-                .into_any_element(),
-            SettingRow::new(t(M::Duplicate))
-                .child(
-                    Button::new(
-                        "duplicate-instance",
-                        t(if duplicating {
-                            M::Duplicating
-                        } else {
-                            M::Duplicate
-                        }),
-                    )
+                ),
+            SettingRow::new(t(M::Export)).hint(t(M::ExportHint)).child(
+                Button::new("export-instance", t(M::ExportButton))
                     .variant(ButtonVariant::Secondary)
                     .size(ButtonSize::Slim)
-                    .disabled(duplicating)
+                    .on_click(cx.listener(|this, _, _, cx| this.export(cx))),
+            ),
+            SettingRow::new(t(M::ShareCodeRow)).child(
+                Button::new("share-instance", t(M::ShareButton))
+                    .variant(ButtonVariant::Secondary)
+                    .size(ButtonSize::Slim)
                     .on_click(cx.listener(|this, _, _, cx| {
-                        let id = this.instance_id.clone();
-                        let task = this
-                            .instances
-                            .update(cx, |instances, cx| instances.duplicate(&id, cx));
-                        cx.spawn(async move |this, cx| {
-                            if let Err(err) = task.await {
-                                this.update(cx, |this, cx| this.set_message(err, true, cx))
-                                    .ok();
-                            }
-                        })
-                        .detach();
+                        cx.emit(ShareRequested(this.instance_id.clone()))
                     })),
+            ),
+            SettingRow::new(t(M::Duplicate)).child(
+                Button::new(
+                    "duplicate-instance",
+                    t(if duplicating {
+                        M::Duplicating
+                    } else {
+                        M::Duplicate
+                    }),
                 )
-                .into_any_element(),
+                .variant(ButtonVariant::Secondary)
+                .size(ButtonSize::Slim)
+                .disabled(duplicating)
+                .on_click(cx.listener(|this, _, _, cx| {
+                    let id = this.instance_id.clone();
+                    let task = this
+                        .instances
+                        .update(cx, |instances, cx| instances.duplicate(&id, cx));
+                    cx.spawn(async move |this, cx| {
+                        if let Err(err) = task.await {
+                            this.update(cx, |this, cx| this.set_message(err, true, cx))
+                                .ok();
+                        }
+                    })
+                    .detach();
+                })),
+            ),
             SettingRow::new(t(M::HostOnCore))
                 .hint(t(M::HostHint))
                 .child(
@@ -2560,10 +2590,10 @@ impl Render for InstanceSettings {
                         .on_click(cx.listener(|this, _, _, cx| {
                             cx.emit(HostRequested(this.instance_id.clone()))
                         })),
-                )
-                .into_any_element(),
+                ),
             SettingRow::new(t(M::DeleteInstance))
                 .danger()
+                .keywords(t(M::DeleteKeywords))
                 .hint(t(M::DeleteHint))
                 .child(
                     Button::new("delete-instance", t(M::DeleteButton))
@@ -2572,15 +2602,16 @@ impl Render for InstanceSettings {
                         .on_click(
                             cx.listener(move |_, _, _, cx| cx.emit(DeleteRequested(id.clone()))),
                         ),
-                )
-                .into_any_element(),
-        ]);
-        sections.push((
+                ),
+        ];
+        push_section(
+            &mut sections,
             t(M::Maintenance).into(),
-            section(t(M::Maintenance), None)
-                .child(maintenance)
-                .into_any_element(),
-        ));
+            query
+                .section(t(M::Maintenance), None)
+                .card(maintenance)
+                .finish(),
+        );
 
         let titles: Vec<SharedString> = sections.iter().map(|(title, _)| title.clone()).collect();
         if let Some(title) = self.preview_section.take()
@@ -2623,6 +2654,12 @@ impl Render for InstanceSettings {
             .overflow_y_scroll()
             .track_scroll(&self.nav.scroll)
             .on_scroll(cx.listener(|this, _, _, _| this.nav.scrolled()))
+            // what the search found, or that it found nothing
+            .children(
+                query
+                    .status()
+                    .map(|status| div().w_full().max_w(content_width()).child(status)),
+            )
             .children(
                 sections
                     .into_iter()
@@ -2632,19 +2669,38 @@ impl Render for InstanceSettings {
             .relative()
             .flex()
             .size_full()
-            .line_height(theme::line_height(text::MEDIUM, leading::NORMAL));
+            .line_height(theme::line_height(text::MEDIUM, leading::NORMAL))
+            .on_action(cx.listener(|this, _: &FindSetting, window, cx| {
+                let handle = this.search.read(cx).focus_handle(cx);
+                window.focus(&handle, cx);
+            }));
         let root = if narrow {
             let title = titles.get(active).cloned().unwrap_or_default();
             root.flex_col()
                 .gap_3()
-                .child(div().flex().flex_row().child(
-                    section_menu_button("instance-settings-menu", title).on_press(cx.listener(
-                        |this, _, _, cx| {
-                            this.nav_open = !this.nav_open;
-                            cx.notify();
-                        },
-                    )),
-                ))
+                .child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap_3()
+                        .child(
+                            section_menu_button("instance-settings-menu", title).on_press(
+                                cx.listener(|this, _, _, cx| {
+                                    this.nav_open = !this.nav_open;
+                                    cx.notify();
+                                }),
+                            ),
+                        )
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .max_w(px(280.))
+                                .ml_auto()
+                                .child(self.search.clone()),
+                        ),
+                )
                 .child(content)
                 .when(self.nav_open, |this| {
                     this.child(left_overlay(
@@ -2657,7 +2713,19 @@ impl Render for InstanceSettings {
                     ))
                 })
         } else {
-            root.flex_row().gap_8().child(list).child(content)
+            root.flex_row()
+                .gap_8()
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .flex_none()
+                        .gap_3()
+                        .w(nav_width())
+                        .child(self.search.clone())
+                        .child(list),
+                )
+                .child(content)
         };
         let bar = self.has_changes(cx).then(|| {
             unsaved_bar(
@@ -2674,6 +2742,17 @@ impl Render for InstanceSettings {
             Some(bar) => root.pb_16().child(bar),
             None => root.children(self.toast.render()),
         }
+    }
+}
+
+/// Adds a section to the page, unless a search left nothing of it.
+fn push_section(
+    sections: &mut Vec<(SharedString, AnyElement)>,
+    title: SharedString,
+    section: Option<gpui::Div>,
+) {
+    if let Some(section) = section {
+        sections.push((title, section.into_any_element()));
     }
 }
 
@@ -2710,7 +2789,11 @@ fn note(text_: &'static str) -> AnyElement {
 
 impl InstanceSettings {
     /// The instance's snapshots, newest first, with a button to take one.
-    fn render_snapshots(&mut self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+    fn render_snapshots(
+        &mut self,
+        query: &SettingsQuery,
+        cx: &mut Context<Self>,
+    ) -> Option<gpui::Div> {
         use super::snapshots::{SnapshotRequest, SnapshotRequested, contents_line, when};
         let id = self.instance_id.clone();
         let rows = self.instances.update(cx, |instances, cx| {
@@ -2727,14 +2810,11 @@ impl InstanceSettings {
         let mut items = vec![
             SettingRow::new(t(M::TakeSnapshotTitle))
                 .hint(t(M::SnapshotsHint))
-                .child(take)
-                .into_any_element(),
+                .child(take),
         ];
         match rows {
-            None => items.push(SettingRow::new(t(M::NoSnapshots)).into_any_element()),
-            Some(rows) if rows.is_empty() => {
-                items.push(SettingRow::new(t(M::NoSnapshots)).into_any_element())
-            }
+            None => items.push(SettingRow::new(t(M::NoSnapshots))),
+            Some(rows) if rows.is_empty() => items.push(SettingRow::new(t(M::NoSnapshots))),
             Some(rows) => {
                 for (index, row) in rows.into_iter().enumerate() {
                     let name = row.name.clone();
@@ -2756,44 +2836,38 @@ impl InstanceSettings {
                         })
                     };
                     items.push(
-                        SettingRow::new(name)
-                            .hint(hint)
-                            .child(
-                                div()
-                                    .flex()
-                                    .flex_row()
-                                    .gap_1()
-                                    .child(
-                                        Button::new(
-                                            ("snapshot-revert", index),
-                                            t(M::RevertEllipsis),
-                                        )
+                        SettingRow::new(name).hint(hint).child(
+                            div()
+                                .flex()
+                                .flex_row()
+                                .gap_1()
+                                .child(
+                                    Button::new(("snapshot-revert", index), t(M::RevertEllipsis))
                                         .variant(ButtonVariant::Secondary)
                                         .size(ButtonSize::Slim)
                                         .on_click(request(SnapshotRequest::Revert)),
-                                    )
-                                    .child(
-                                        Button::new(("snapshot-share", index), t(M::ShareEllipsis))
-                                            .variant(ButtonVariant::Secondary)
-                                            .size(ButtonSize::Slim)
-                                            .on_click(request(SnapshotRequest::Share)),
-                                    )
-                                    .child(
-                                        Button::new(
-                                            ("snapshot-delete", index),
-                                            t(CommonMsg::Delete),
-                                        )
+                                )
+                                .child(
+                                    Button::new(("snapshot-share", index), t(M::ShareEllipsis))
+                                        .variant(ButtonVariant::Secondary)
+                                        .size(ButtonSize::Slim)
+                                        .on_click(request(SnapshotRequest::Share)),
+                                )
+                                .child(
+                                    Button::new(("snapshot-delete", index), t(CommonMsg::Delete))
                                         .variant(ButtonVariant::Ghost)
                                         .size(ButtonSize::Slim)
                                         .on_click(request(SnapshotRequest::Delete)),
-                                    ),
-                            )
-                            .into_any_element(),
+                                ),
+                        ),
                     );
                 }
             }
         }
-        section(t(M::InstanceSnapshots), None).child(card(items))
+        query
+            .section(t(M::InstanceSnapshots), None)
+            .card(items)
+            .finish()
     }
 }
 

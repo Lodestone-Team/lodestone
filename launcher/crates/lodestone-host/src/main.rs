@@ -89,7 +89,7 @@ fn main() {
 }
 
 /// `--screenshot <file.png> [--wait <seconds>] [--select-first] [--tab <tab>] [--toasts] [--demo]`
-/// `[--friends <scene>]`,
+/// `[--friends <scene>] [--settings-search <text>]`,
 /// with the `screenshot` feature: renders the window offscreen after the wait (10 s by
 /// default: the core starts and the Host signs in), optionally with the first instance
 /// selected (on its `--tab`: `console`, `files`, …), sample toasts shown and the page
@@ -145,13 +145,14 @@ mod screenshot {
                 window
                     .update(cx, |app, _, cx| {
                         let state = app.shell()?.read(cx).state.clone();
-                        let info = serde_json::from_value(serde_json::json!({
+                        let info: launcher_core::cores::admin::InstanceInfo = serde_json::from_value(serde_json::json!({
                             "uuid": "fake-smp", "name": "Survival SMP", "port": 25565,
                             "state": "Running", "version": "1.21.4",
                             "game_type": { "type": "MinecraftJava", "variant": { "type": "Fabric" } },
                         }))
                         .ok()?;
                         state.update(cx, |state, cx| {
+                            state.fake_instances.push(info.clone());
                             state.instances.get_or_insert_with(Vec::new).push(info);
                             cx.notify();
                         });
@@ -370,6 +371,38 @@ mod screenshot {
                     .ok();
                 cx.background_executor()
                     .timer(Duration::from_millis(500))
+                    .await;
+            }
+            // `--settings-search <text>`: types into the search field of the open Settings
+            // (with `--settings <page>`), or of the instance Settings tab (with `--tab
+            // settings`)
+            if let Some(query) = arg_after("--settings-search") {
+                // the tab's page is made when it's drawn
+                gpui::AppContext::update_window(cx, window.into(), |_, window, cx| {
+                    window.refresh();
+                    window.draw(cx).clear(cx);
+                })
+                .ok();
+                window
+                    .update(cx, |app, _, cx| {
+                        let shell = app.shell()?.read(cx);
+                        let search = if shell.settings_open().is_some() {
+                            shell.settings_search().clone()
+                        } else {
+                            shell
+                                .page_view()?
+                                .downcast::<lodestone_host::pages::instance_settings::InstanceSettingsPage>()
+                                .ok()?
+                                .read(cx)
+                                .search()
+                                .clone()
+                        };
+                        search.update(cx, |search, cx| search.set_text(query.clone(), cx));
+                        Some(())
+                    })
+                    .ok();
+                cx.background_executor()
+                    .timer(Duration::from_millis(800))
                     .await;
             }
             // `--degraded`: the banner shown while live updates stopped

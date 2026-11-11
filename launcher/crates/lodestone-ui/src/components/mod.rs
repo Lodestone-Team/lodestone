@@ -68,6 +68,7 @@ pub fn init(cx: &mut App) {
     log_view::init(cx);
     text_input::init(cx);
     text_editor::init(cx);
+    settings::init(cx);
 }
 
 /// Emits `ui.click` (or another `ui.*` topic) for a shared control, with its element

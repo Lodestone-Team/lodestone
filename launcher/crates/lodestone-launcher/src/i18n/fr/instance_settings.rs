@@ -324,6 +324,14 @@ pub fn text(message: M) -> &'static str {
         M::InstallModpack => "Installer le modpack",
         M::ImportMrpack => "Importer un .mrpack…",
         M::Import => "Importer",
+        M::MemoryKeywords => "RAM mémoire vive Xmx Xms",
+        M::JavaKeywords => "JDK JRE environnement d’exécution chemin",
+        M::JvmArgumentsKeywords => "Java options paramètres",
+        M::WindowKeywords => "résolution largeur hauteur plein écran taille",
+        M::EnvironmentKeywords => "env PATH",
+        M::PlayBackgroundKeywords => "fond d’écran image photo diaporama",
+        M::DeleteKeywords => "supprimer retirer désinstaller",
+        M::LoaderKeywords => "chargeur de mods Fabric Forge NeoForge Quilt",
     }
 }
 
