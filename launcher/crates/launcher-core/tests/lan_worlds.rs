@@ -8,6 +8,8 @@
 //! the Worker at CONNECT_TEST_SERVICE (`npm run dev` in services/connect, or the dev
 //! Worker). Both sides are on this computer, so they offer only loopback addresses.
 
+// formatted by the root workspace (edition 2021), not this one
+#[rustfmt::skip]
 #[allow(dead_code)]
 #[path = "../../../../crates/lodestone-connect/tests/support/fake_service.rs"]
 mod fake_service;
