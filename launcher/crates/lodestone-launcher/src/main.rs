@@ -51,11 +51,14 @@ fn main() {
         }
     });
     app.run(move |cx| {
+        trace.mark("app started");
         // Decode the bundled images first, in the background, while the rest of
         // the app starts; the window opens once they are ready, so its first frame
-        // has them.
-        let decoding = images::decode(cx);
+        // has them. Renders from an earlier start are read back from the cache,
+        // which the offscreen scenes leave alone.
+        let decoding = images::decode(cx, if scene { None } else { images::cache_dir() });
         lodestone_launcher::init(cx);
+        trace.mark("launcher set up");
         let options = lodestone_launcher::window_options(APP_NAME, 1200., 760., cx);
 
         // `--scene <name>` shows a prepared state with made-up accounts, for the
@@ -102,6 +105,7 @@ fn main() {
 
         let accounts = accounts::create(cx);
         let instances = lodestone_launcher::instances::create(&accounts, cx);
+        trace.mark("accounts and instances loaded");
         // The coding-agent skills, in the data folder (Settings > Developer).
         // Not into a moved data folder that isn't there (the window says so).
         let data_dir = accounts.read(cx).data_dir().clone();
