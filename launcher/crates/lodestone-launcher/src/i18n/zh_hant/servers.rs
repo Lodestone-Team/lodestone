@@ -44,10 +44,10 @@ pub fn text(message: M) -> &'static str {
         M::ClaimInvalid => "主機傳送了 Lodestone Launcher 無法理解的內容：{error}",
         M::AddServer => "新增主機",
         M::Dismiss => "關閉",
-        M::OtherCoresTitle => "其他主機",
-        M::OtherCoresHint => "你依位址新增的其他電腦上的主機：你自己的，或朋友的。",
-        M::NoOtherCores => "還沒有其他主機",
-        M::NoServersHint => "依位址新增主機。不登入時，你會看到其擁有者公開列出的伺服器。",
+        M::OtherCoresTitle => "其他主機和伺服器",
+        M::OtherCoresHint => "你透過位址新增的其他電腦上的主機，以及你透過邀請連結加入的伺服器。",
+        M::NoOtherCores => "還沒有其他主機或伺服器",
+        M::NoServersHint => "透過位址新增主機，或用別人傳給你的邀請連結新增伺服器。",
 
         M::CoreMoreActions => "{name} 的更多動作",
         M::CopyOwnerApiKey => "複製擁有者 API 金鑰",
@@ -344,12 +344,9 @@ pub fn text(message: M) -> &'static str {
         }
         M::NoInstancesYet => "你還沒有任何實例。請先建立一個。",
 
-        M::FriendsTitle => "好友的伺服器",
-        M::FriendsHint => "好友透過 Lodestone Connect 邀請連結與你共享的伺服器。",
-        M::JoinAFriend => "加入好友",
-        M::NoFriendsYet => {
-            "好友在 Lodestone Host 中共享伺服器後，會得到一個邀請連結。開啟該連結，或點選「加入好友」將其貼上到這裡。"
-        }
+        M::FriendsTitle => "來自邀請連結的伺服器",
+        M::FriendsHint => "別人透過 Lodestone Connect 邀請連結與你分享的伺服器。",
+        M::JoinAFriend => "新增伺服器",
         M::SharedBy => "由 {name} 共享",
         M::SharedWithFriends => "已與好友分享",
         M::SharedWithFriendsHint => "你透過它們的邀請連結加入過這些伺服器。",
@@ -427,7 +424,7 @@ pub fn text(message: M) -> &'static str {
         }
         M::FriendsReadFailed => "無法讀取好友的伺服器",
         M::FriendsSaveFailed => "無法儲存好友的伺服器",
-        M::FriendAddress => "位址：{address}（連線時可用）",
+        M::FriendAddress => "Magic localhost：{address}（連線時可用）",
         M::FriendPortTaken => "連接埠 {port} 已被占用",
         M::FriendPortTakenBody => {
             "這台電腦上的其他程式正在使用它，所以這次的位址是 {address}。下次 Lodestone Launcher 會再試一次連接埠 {port}。"

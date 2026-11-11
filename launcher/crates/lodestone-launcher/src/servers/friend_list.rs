@@ -792,6 +792,8 @@ impl Servers {
                 this.friend_list.refreshed_at = Some(Instant::now());
                 match &result {
                     Ok(report) => this.apply_refresh(report),
+                    // no list yet is how everyone starts, not a failure
+                    Err(err) if err == NO_LIST => this.friend_list.problem = None,
                     Err(err) => this.friend_list.problem = Some(err.clone()),
                 }
                 this.request_friend_heads(cx);

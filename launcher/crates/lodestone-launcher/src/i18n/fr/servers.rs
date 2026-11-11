@@ -54,13 +54,13 @@ pub fn text(message: M) -> &'static str {
         }
         M::AddServer => "Ajouter un hôte",
         M::Dismiss => "Masquer",
-        M::OtherCoresTitle => "Autres hôtes",
+        M::OtherCoresTitle => "Autres hôtes et serveurs",
         M::OtherCoresHint => {
-            "Les hôtes d’autres ordinateurs que vous avez ajoutés par leur adresse\u{202F}: les vôtres, ou ceux d’un ami."
+            "Les hôtes d’autres ordinateurs ajoutés par leur adresse, et les serveurs rejoints avec un lien d’invitation."
         }
-        M::NoOtherCores => "Aucun autre hôte pour l’instant",
+        M::NoOtherCores => "Aucun autre hôte ni serveur pour l’instant",
         M::NoServersHint => {
-            "Ajoutez un hôte par son adresse. Sans vous connecter, vous voyez les serveurs que son propriétaire liste publiquement."
+            "Ajoutez un hôte par son adresse, ou un serveur avec le lien d’invitation qu’on vous a envoyé."
         }
 
         M::CoreMoreActions => "Plus d’actions pour {name}",
@@ -412,14 +412,11 @@ pub fn text(message: M) -> &'static str {
         }
         M::NoInstancesYet => "Vous n’avez pas encore d’instance. Créez-en une d’abord.",
 
-        M::FriendsTitle => "Serveurs d’amis",
+        M::FriendsTitle => "Serveurs des liens d’invitation",
         M::FriendsHint => {
-            "Les serveurs que vos amis partagent avec vous grâce aux liens d’invitation Lodestone Connect."
+            "Les serveurs qu’on vous a partagés par un lien d’invitation Lodestone Connect."
         }
-        M::JoinAFriend => "Rejoindre un ami",
-        M::NoFriendsYet => {
-            "Quand un ami partage un serveur depuis Lodestone Host, il obtient un lien d’invitation. Ouvrez-le, ou collez-le ici avec Rejoindre un ami."
-        }
+        M::JoinAFriend => "Ajouter un serveur",
         M::SharedBy => "Partagé par {name}",
         M::SharedWithFriends => "Partagé avec des amis",
         M::SharedWithFriendsHint => "Vous les avez rejoints avec leur lien d’invitation.",
@@ -513,7 +510,7 @@ pub fn text(message: M) -> &'static str {
         }
         M::FriendsReadFailed => "Impossible de lire les serveurs de vos amis",
         M::FriendsSaveFailed => "Impossible d’enregistrer les serveurs de vos amis",
-        M::FriendAddress => "Adresse\u{a0}: {address} (une fois connecté)",
+        M::FriendAddress => "Magic localhost\u{a0}: {address} (une fois connecté)",
         M::FriendPortTaken => "Le port {port} était occupé",
         M::FriendPortTakenBody => {
             "Un autre programme de cet ordinateur l’utilise, donc cette fois l’adresse est {address}. La prochaine fois, Lodestone Launcher essaiera de nouveau le port {port}."

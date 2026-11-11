@@ -383,17 +383,6 @@ impl Servers {
                     .id("friend-list-empty")
                     .py_3()
                     .child(note(t(M::NoFriendsYet)).flex_1().min_w_0())
-                    .when(book.links.is_empty(), |this| {
-                        this.child(
-                            Button::new("friend-list-empty-add", t(M::AddFriend))
-                                .size(ButtonSize::Slim)
-                                .variant(ButtonVariant::Primary)
-                                .icon(Icon::Plus)
-                                .on_click(
-                                    cx.listener(|this, _, _, cx| this.open_add_friend(None, cx)),
-                                ),
-                        )
-                    })
                     .into_any_element(),
             );
         }
@@ -902,6 +891,12 @@ impl Servers {
         // an instance page's link to this server: its link's core is the server's id
         let link_id =
             launcher_core::cores::friends::friend_list_id(fingerprint, &server.instance_uuid);
+        let magic_port = self
+            .friends
+            .list
+            .iter()
+            .find(|entry| entry.saved.id == link_id)
+            .and_then(|entry| entry.saved.game_port);
         let overlay = self
             .highlight
             .as_ref()
@@ -948,7 +943,21 @@ impl Servers {
                         "{} · {}",
                         server_detail(&as_server),
                         status_label(&as_server)
-                    ))),
+                    )))
+                    // the tunnel's address on this computer, the same every time
+                    .children(magic_port.map(|port| {
+                        let address = launcher_core::cores::friends::game_address(port);
+                        div()
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap_2()
+                            .child(note(tr!(ServersMsg::FriendAddress, address = address)))
+                            .child(super::friends_view::copy_button(
+                                format!("copy-address-{id}"),
+                                address,
+                            ))
+                    })),
             )
             .child(
                 Button::new(

@@ -822,9 +822,9 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
     let servers = shell.servers().clone();
     servers.update(cx, |servers, cx| apply_servers(scene, servers, cx));
     // friends' servers and the friend list are on the Friends page
-    let friends = scene.starts_with("servers-friend")
-        || scene.starts_with("servers-join")
-        || scene == "servers-highlight-friend";
+    // the friend list is on the Friends page; servers from invite links ("Add
+    // server") on the Lodestone Host page
+    let friends = scene.starts_with("servers-friend-list");
     shell.show(
         if friends {
             Page::Friends

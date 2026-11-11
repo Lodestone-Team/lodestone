@@ -770,7 +770,7 @@
     if (st === "noName") parts.push(h("div.lx-srvrow", ic("user"), h("div.lx-grow", h("div.lx-muted", fl("You")), h("div.lx-muted", fl("NoNameYet"))), btn(fl("ChooseName"), { sm: true, on: () => ctx.open("friendName") })));
     // signed in with Microsoft: the Minecraft name, without asking
     if (st === "empty") parts.push(h("div.lx-srvrow", ic("user"), h("div.lx-grow", h("div", h("span.lx-muted", { style: { fontSize: "12.5px" } }, fl("You")), " ", h("b", tx("Lodestoner")), " ", h("span.lx-muted", fl("MinecraftNameNote")))), gbtn(fl("EditName"), () => ctx.open("friendName"))));
-    if (st === "noName" || st === "empty") parts.push(h("div.lx-srvrow", h("div.lx-grow.lx-muted", fl("NoFriendsYet")), btn(fl("AddFriend"), { sm: true, icon: "plus", on: () => ctx.open("addFriend") })));
+    if (st === "noName" || st === "empty") parts.push(h("div.lx-srvrow", h("div.lx-grow.lx-muted", fl("NoFriendsYet"))));
     else {
       parts.push(h("div.lx-srvrow", ic("user"), h("div.lx-grow", h("div", h("span.lx-muted", { style: { fontSize: "12.5px" } }, fl("You")), " ", h("b", tx("Peter"))), h("div.lx-mono.lx-muted", fl("YourSafetyCode", { code: "K7Q2-M9XD-4TRW-H3BE" }))),
         gbtn(fl("EditName"), () => ctx.open("friendName")), btn(fl("Retire"), { kind: "d", sm: true, on: () => ctx.open("retire") })),
@@ -822,7 +822,7 @@
           h("div.lx-srvrow", dot("on"), h("div.lx-grow", h("div.lx-srvrow-n", tx("Creative build"), badge(sv("FriendPlayingNow"), "green")), h("div.lx-row-s", sv("SharedBy", { name: "Alex's Lodestone" }), sep(), sv("FriendAddress", { address: "127.0.0.1:36017" }))), pbtn(sv("Play"), () => ctx.open("joinFriend"))),
           h("div.lx-srvrow", dot("off"), h("div.lx-grow", h("div.lx-srvrow-n", tx("Sam's survival")), h("div.lx-row-s", sv("SharedBy", { name: "Sam's Core" }))), btn(sv("FriendCheck"), { sm: true }), h("span.lx-muted", sv("FriendChecking")), gbtn(sv("StopTrusting"))),
           h("div.lx-srvrow", dot("on"), h("div.lx-grow", h("div.lx-srvrow-n", tx("Survival SMP")), h("div.lx-row-s", sv("SharedBy", { name: "Peter's Lodestone Core" }), sep(), sv("DirectConnection"))), pbtn(sv("Play")))]
-          : h("div.lx-srvrow.lx-muted", sv("NoFriendsYet"))),
+          : null),
       h("div.lx-areah", h("div.lx-grow", h("div.lx-areah-t", sv("OtherCoresTitle")), h("div.lx-areah-s", sv("OtherCoresHint"))), gbtn(sv("AddServer"), () => ctx.open("addServer"), "plus")),
       other === "none" ? empty("server", sv("NoOtherCores"), sv("NoServersHint"), [pbtn(sv("AddServer"), () => ctx.open("addServer"), "plus")]) : [
         h("div.lx-corebox", h("div.lx-core", h("span.lx-ibtn", { style: { width: "38px", height: "38px", border: 0, background: "var(--g700)" } }, ic("server")),

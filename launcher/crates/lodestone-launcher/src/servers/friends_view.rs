@@ -35,7 +35,7 @@ use crate::{
 };
 
 /// A small Copy button that puts `value` on the clipboard.
-fn copy_button(id: impl Into<SharedString>, value: String) -> Button {
+pub(super) fn copy_button(id: impl Into<SharedString>, value: String) -> Button {
     Button::new(id.into(), t(CommonMsg::Copy))
         .size(ButtonSize::Slim)
         .variant(ButtonVariant::Ghost)
@@ -70,9 +70,10 @@ fn online_line(status: &FriendStatus) -> Option<String> {
 }
 
 impl Servers {
-    /// "Friends' servers": the ones joined before, and "Join a friend". Those shared
-    /// from a core on this computer show under it in "On this computer" instead.
-    pub(super) fn render_friends(&self, cx: &mut Context<Self>) -> AnyElement {
+    /// "Servers from invite links", in "Other hosts and servers": the ones joined
+    /// before with an invite link from anyone. Those shared from a core on this
+    /// computer show under it in "On this computer" instead. None when there are none.
+    pub(super) fn render_invite_servers(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let local = self.local_cores();
         let rows: Vec<AnyElement> = self
             .friends
@@ -81,8 +82,10 @@ impl Servers {
             .filter(|entry| entry.saved.placement(&local) == Placement::Friends)
             .map(|entry| self.friend_row(entry, false, cx))
             .collect();
-        let empty = rows.is_empty();
-        div()
+        if rows.is_empty() {
+            return None;
+        }
+        let card = div()
             .id("friends-servers")
             .flex()
             .flex_col()
@@ -120,25 +123,11 @@ impl Servers {
                                     .child(t(M::FriendsTitle)),
                             )
                             .child(note(t(M::FriendsHint))),
-                    )
-                    .child(
-                        Button::new("join-friend", t(M::JoinAFriend))
-                            .size(ButtonSize::Slim)
-                            .icon(Icon::Plus)
-                            .on_click(cx.listener(|this, _, _, cx| this.open_join(None, cx))),
                     ),
             )
-            .when(empty, |this| {
-                this.child(
-                    note(t(M::NoFriendsYet))
-                        .px_4()
-                        .py_3()
-                        .border_t_1()
-                        .border_color(crate::theme::ink::border()),
-                )
-            })
             .children(rows)
-            .into_any_element()
+            .into_any_element();
+        Some(card)
     }
 
     /// A friend's server's row. `here`: it is shared from a core on this computer, and

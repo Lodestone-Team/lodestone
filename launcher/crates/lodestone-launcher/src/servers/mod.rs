@@ -1584,33 +1584,23 @@ impl Servers {
 
     /// Where the row of an instance's linked server (`core`, `server`, as the link
     /// names them) is: whether on the Friends page, and the core and server ids its
-    /// row is highlighted by. A server joined with an invite link whose core runs on
-    /// this computer is on the Lodestone Host page: under that core, or in the core's
-    /// own row of the same server.
+    /// row is highlighted by. Only servers from the friend list are on the Friends
+    /// page. One joined with an invite link is on the Lodestone Host page: in "Other
+    /// hosts and servers", or, when its core runs on this computer, under that core or
+    /// in the core's own row of the same server.
     pub fn link_target(&self, core: &str, server: &str) -> (bool, String, String) {
-        use launcher_core::cores::friends::{Placement, is_friend_id, is_friend_list_id};
-        let same = || (core.to_string(), server.to_string());
-        if !is_friend_id(core) {
-            let (c, s) = same();
-            return (false, c, s);
-        }
+        use launcher_core::cores::friends::{Placement, is_friend_list_id};
         if is_friend_list_id(core) {
-            let (c, s) = same();
-            return (true, c, s);
+            return (true, core.to_string(), server.to_string());
         }
-        let Some(entry) = self
+        let entry = self
             .friends
             .list
             .iter()
-            .find(|entry| entry.saved.id == core)
-        else {
-            let (c, s) = same();
-            return (true, c, s);
-        };
-        match entry.saved.placement(&self.local_cores()) {
-            Placement::Friends => (true, core.to_string(), server.to_string()),
-            Placement::Local(_) => (false, core.to_string(), server.to_string()),
-            Placement::CoreRow(on) => (false, on, entry.saved.instance_uuid.clone()),
+            .find(|entry| entry.saved.id == core);
+        match entry.map(|entry| (entry, entry.saved.placement(&self.local_cores()))) {
+            Some((entry, Placement::CoreRow(on))) => (false, on, entry.saved.instance_uuid.clone()),
+            _ => (false, core.to_string(), server.to_string()),
         }
     }
 

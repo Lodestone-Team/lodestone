@@ -48,10 +48,10 @@ crate::i18n::messages! {
         /// Closes the message at the top of the page.
         Dismiss = "Dismiss",
         /// "Other hosts": hosts added by address, on other computers.
-        OtherCoresTitle = "Other hosts",
-        OtherCoresHint = "Hosts on other computers that you added by their address: your own, or a friend's.",
-        NoOtherCores = "No other hosts yet",
-        NoServersHint = "Add a host by its address. Without signing in you see the servers its owner lists publicly.",
+        OtherCoresTitle = "Other hosts and servers",
+        OtherCoresHint = "Hosts on other computers that you added by their address, and servers you joined with an invite link.",
+        NoOtherCores = "No other hosts or servers yet",
+        NoServersHint = "Add a host by its address, or add a server with the invite link someone sent you.",
 
         // ===== A host's card =====
         /// The "…" button on a host's card.
@@ -339,10 +339,9 @@ crate::i18n::messages! {
         NoInstancesYet = "You have no instances yet. Create one first.",
 
         // ===== Friends' servers (Lodestone Connect) =====
-        FriendsTitle = "Friends' servers",
-        FriendsHint = "Servers friends share with you through Lodestone Connect invite links.",
-        JoinAFriend = "Join a friend",
-        NoFriendsYet = "When a friend shares a server from Lodestone Host, they get an invite link. Open it, or paste it here with Join a friend.",
+        FriendsTitle = "Servers from invite links",
+        FriendsHint = "Servers people shared with you through a Lodestone Connect invite link.",
+        JoinAFriend = "Add server",
         /// {name} is the name of the friend's host.
         SharedBy = "Shared by {name}",
         /// Under a host in "On this computer": servers it shares with an invite link that
@@ -414,7 +413,9 @@ crate::i18n::messages! {
         FriendsSaveFailed = "Couldn't save your friends' servers",
         /// On a friend's server's row. {address} is 127.0.0.1:<port>, the same every
         /// time; it works while the launcher is connected to the server.
-        FriendAddress = "Address: {address} (while connected)",
+        /// "Magic localhost" names the feature: a tunnelled server always answers at the
+        /// same address on this computer.
+        FriendAddress = "Magic localhost: {address} (while connected)",
         /// {port} is the server's usual local port.
         FriendPortTaken = "Port {port} was in use",
         /// {address} is this session's 127.0.0.1:<port>; {port} the usual one.
