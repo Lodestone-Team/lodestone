@@ -359,7 +359,8 @@ pub struct LauncherShell {
     /// Shows it shortly after the window opens.
     narrator_offer_pending: Option<Task<()>>,
     _observe: Vec<Subscription>,
-    /// Draws the window again every minute, so "5 minutes ago" stays true.
+    /// Draws the window again once a label like "5 minutes ago" would read differently,
+    /// checking each minute, so it stays true.
     _clock: Task<()>,
 }
 
@@ -608,12 +609,28 @@ impl LauncherShell {
             narrator_offer: None,
             narrator_offer_pending: None,
             _observe: observe,
+            // Redrawing the whole window takes the main thread about 10 ms, so it only
+            // happens when a label changes ("2 hours ago" changes once an hour), not
+            // every minute. Each hour anyway, for anything else that tells the time.
             _clock: cx.spawn(async move |this, cx| {
+                let mut drawn = std::time::Instant::now();
                 loop {
                     cx.background_executor()
                         .timer(std::time::Duration::from_secs(60))
                         .await;
-                    if this.update(cx, |_, cx| cx.notify()).is_err() {
+                    let due = crate::instances::Ago::label_changed(launcher_core::instances::now())
+                        || drawn.elapsed() >= std::time::Duration::from_secs(3600);
+                    if due {
+                        drawn = std::time::Instant::now();
+                    }
+                    if this
+                        .update(cx, |_, cx| {
+                            if due {
+                                cx.notify();
+                            }
+                        })
+                        .is_err()
+                    {
                         return;
                     }
                 }

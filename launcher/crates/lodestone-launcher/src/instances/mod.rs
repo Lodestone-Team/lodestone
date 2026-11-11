@@ -2250,10 +2250,54 @@ pub enum Ago {
     On(String),
 }
 
+/// The earliest time (Unix seconds) at which an "ago" label drawn since the shell's
+/// clock last redrew the window reads differently: see [`Ago::label_changed`].
+static NEXT_AGO_CHANGE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(u64::MAX);
+
 impl Ago {
-    /// How long ago `then` (Unix seconds) was, in this Mac's time zone.
+    /// How long ago `then` (Unix seconds) was, in this computer's time zone. Notes when
+    /// the label will change, for the shell's clock.
     pub fn since(then: u64) -> Self {
-        Self::between(then, launcher_core::instances::now(), &chrono::Local)
+        let now = launcher_core::instances::now();
+        let ago = Self::between(then, now, &chrono::Local);
+        NEXT_AGO_CHANGE.fetch_min(
+            ago.changes_at(then, now, &chrono::Local),
+            std::sync::atomic::Ordering::Relaxed,
+        );
+        ago
+    }
+
+    /// Whether a label drawn since the last call now reads differently, so the window
+    /// should be drawn again. Forgets the labels: drawing them again notes them anew.
+    pub fn label_changed(now: u64) -> bool {
+        use std::sync::atomic::Ordering::Relaxed;
+        if now < NEXT_AGO_CHANGE.load(Relaxed) {
+            return false;
+        }
+        NEXT_AGO_CHANGE.store(u64::MAX, Relaxed);
+        true
+    }
+
+    /// When (Unix seconds) this label, for `then` at `now`, next reads differently: at
+    /// the next minute or hour it counts, or the next midnight in `zone`, whichever
+    /// comes first.
+    pub fn changes_at<Tz: chrono::TimeZone>(&self, then: u64, now: u64, zone: &Tz) -> u64 {
+        let midnight = zone
+            .timestamp_opt(now.min(i64::MAX as u64) as i64, 0)
+            .earliest()
+            .and_then(|time| time.date_naive().succ_opt())
+            .and_then(|day| day.and_hms_opt(0, 0, 0))
+            .and_then(|start| zone.from_local_datetime(&start).earliest())
+            .map(|start| start.timestamp().max(0) as u64)
+            .unwrap_or(now.saturating_add(3600));
+        let counted = match self {
+            Ago::JustNow => then.saturating_add(60),
+            Ago::Minutes(n) => then.saturating_add(60 * (n + 1)),
+            Ago::Hours(n) => then.saturating_add(3600 * (n + 1)),
+            Ago::Yesterday | Ago::Days(_) | Ago::On(_) => u64::MAX,
+        };
+        // never before now: a label that should already have changed changes at once
+        counted.min(midnight).max(now)
     }
 
     /// How long before `now` `then` was, by the calendar of `zone`. A time after
@@ -2367,6 +2411,45 @@ mod tests {
         assert_eq!(ago(now - 7200).played(), "Played 2 hours ago");
         assert_eq!(ago(at(2026, 11, 7, 20, 0)).played(), "Played yesterday");
         assert_eq!(ago(at(2026, 3, 12, 9, 0)).played(), "Played on Mar 12");
+    }
+
+    #[test]
+    fn knows_when_its_label_changes() {
+        use chrono::TimeZone;
+        let utc = chrono::Utc;
+        let at = |y, mo, d, h, mi, s| {
+            utc.with_ymd_and_hms(y, mo, d, h, mi, s)
+                .unwrap()
+                .timestamp() as u64
+        };
+        let now = at(2026, 11, 8, 15, 0, 0);
+        let changes = |then: u64| Ago::between(then, now, &utc).changes_at(then, now, &utc);
+        // "Just now" until a minute has passed, then each minute
+        assert_eq!(changes(now - 10), now + 50);
+        assert_eq!(changes(now - 5 * 60 - 20), now + 40);
+        // each hour, or at midnight if that comes first
+        assert_eq!(changes(now - 2 * 3600 - 600), now + 3000);
+        assert_eq!(
+            changes(at(2026, 11, 8, 0, 30, 0)),
+            at(2026, 11, 8, 15, 30, 0)
+        );
+        let late = at(2026, 11, 8, 23, 40, 0);
+        assert_eq!(
+            Ago::between(late - 3 * 3600, late, &utc).changes_at(late - 3 * 3600, late, &utc),
+            at(2026, 11, 9, 0, 0, 0)
+        );
+        // days and dates: at midnight
+        assert_eq!(changes(at(2026, 11, 7, 12, 0, 0)), at(2026, 11, 9, 0, 0, 0));
+        assert_eq!(changes(at(2026, 3, 12, 9, 0, 0)), at(2026, 11, 9, 0, 0, 0));
+        // a clock that moved back: "Just now" until a minute after `then`
+        assert_eq!(changes(now + 300), now + 360);
+        // the label it gives then really is different, and the one a second before isn't
+        for then in [now - 10, now - 5 * 60 - 20, now - 2 * 3600 - 600] {
+            let change = changes(then);
+            let label = |at: u64| Ago::between(then, at, &utc);
+            assert_eq!(label(change - 1), label(now));
+            assert_ne!(label(change), label(now));
+        }
     }
 
     #[test]
