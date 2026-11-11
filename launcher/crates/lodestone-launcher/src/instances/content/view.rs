@@ -215,7 +215,7 @@ pub(crate) fn pills(
                 item,
                 |this, t| {
                     this.bg(colors::GRAY_700.opacity(0).mix(colors::GRAY_700, t))
-                        .text_color(colors::GRAY_500.mix(colors::GRAY_300, t))
+                        .text_color(crate::theme::ink::muted().mix(colors::GRAY_300, t))
                 },
             )
         }))
@@ -918,7 +918,7 @@ impl ContentView {
                                         this.child(
                                             small_rich(RichText::minecraft(version))
                                                 .flex_none()
-                                                .text_color(colors::WHITE.opacity(50)),
+                                                .text_color(crate::theme::ink::muted()),
                                         )
                                     })
                                     .when(
@@ -954,14 +954,14 @@ impl ContentView {
                                             } else {
                                                 M::NotOnModrinth
                                             }),
-                                            colors::GRAY_500,
+                                            crate::theme::ink::muted(),
                                         ))
                                     }),
                             )
                             .child(
                                 small_rich(RichText::minecraft(detail))
                                     .truncate()
-                                    .text_color(colors::WHITE.opacity(30)),
+                                    .text_color(crate::theme::ink::faint()),
                             )
                             .when_some(
                                 item.file
@@ -1138,7 +1138,7 @@ impl ContentView {
             .border_2()
             .border_dashed()
             .border_color(colors::GRAY_FADED.opacity(10))
-            .text_color(colors::GRAY_FADED.opacity(50))
+            .text_color(crate::theme::ink::faint())
             .font_weight(weights::BOLD.into())
             .child(
                 div()
@@ -1845,7 +1845,7 @@ impl ContentView {
             .text_color(if *warning {
                 colors::YELLOW_300
             } else {
-                colors::GRAY_500
+                crate::theme::ink::muted()
             })
             .into_any_element(),
             Entry::Empty => self.render_empty(kind),
@@ -1967,7 +1967,7 @@ impl ContentView {
                                         .child(t(M::ShadersOff)),
                                 )
                                 .child(
-                                    small(t(M::NormalLook)).text_color(colors::WHITE.opacity(30)),
+                                    small(t(M::NormalLook)).text_color(crate::theme::ink::faint()),
                                 ),
                         )
                         .into_any_element(),
@@ -2489,10 +2489,13 @@ impl ContentView {
                             .child(
                                 small(tr!(M::ByAuthor, author = hit.author))
                                     .flex_none()
-                                    .text_color(colors::WHITE.opacity(50)),
+                                    .text_color(crate::theme::ink::muted()),
                             )
                             .when(client_badge, |this| {
-                                this.child(badge(t(M::OptionalOnServers), colors::GRAY_500))
+                                this.child(badge(
+                                    t(M::OptionalOnServers),
+                                    crate::theme::ink::muted(),
+                                ))
                             }),
                     )
                     .child(
@@ -3070,7 +3073,7 @@ impl ContentView {
                                     format::bytes(size)
                                 ))
                                 .truncate()
-                                .text_color(colors::WHITE.opacity(40)),
+                                .text_color(crate::theme::ink::faint()),
                             )
                             .when_some(problem, |this, problem| {
                                 this.child(small(problem).text_color(colors::YELLOW_300))

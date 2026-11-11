@@ -185,7 +185,7 @@ fn count_tile(label: &'static str, count: usize) -> impl IntoElement {
         .child(
             div()
                 .text_size(theme::text_size(text::SMALL))
-                .text_color(colors::GRAY_500)
+                .text_color(crate::theme::ink::muted())
                 .child(label),
         )
         .child(
@@ -207,7 +207,7 @@ impl Render for ShareDialog {
                 .items_center()
                 .gap_2()
                 .py_6()
-                .text_color(colors::GRAY_500)
+                .text_color(crate::theme::ink::muted())
                 .child(LoadingDots)
                 .child(t(M::ShareReading))
                 .into_any_element(),
@@ -262,7 +262,7 @@ impl Render for ShareDialog {
                                 .child(
                                     div()
                                         .text_size(theme::text_size(text::SMALL))
-                                        .text_color(colors::GRAY_500)
+                                        .text_color(crate::theme::ink::muted())
                                         .child(changes_label(&changes)),
                                 ),
                         )
@@ -327,13 +327,18 @@ impl Render for ShareDialog {
                                         .text_color(colors::GRAY_300)
                                         .child(RichText::minecraft(item.file_name.clone())),
                                 )
-                                .child(div().flex_none().text_color(colors::GRAY_500).child(reason))
+                                .child(
+                                    div()
+                                        .flex_none()
+                                        .text_color(crate::theme::ink::muted())
+                                        .child(reason),
+                                )
                         }))
                         .when(more > 0, |this| {
                             this.child(
                                 div()
                                     .text_size(theme::text_size(text::SMALL))
-                                    .text_color(colors::GRAY_500)
+                                    .text_color(crate::theme::ink::muted())
                                     .child(tr!(M::ShareMore, count = format::number(more as u64))),
                             )
                         })
@@ -378,7 +383,7 @@ impl Render for ShareDialog {
                                 div()
                                     .flex_none()
                                     .text_size(theme::text_size(text::SMALL))
-                                    .text_color(colors::GRAY_500)
+                                    .text_color(crate::theme::ink::muted())
                                     .child(format::bytes(code.len() as u64)),
                             ),
                     )

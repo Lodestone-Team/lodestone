@@ -311,7 +311,7 @@ pub fn link(id: impl Into<ElementId>, label: impl Into<SharedString>) -> Statefu
 
 /// A grey text action, such as "Reset".
 pub fn muted_link(id: impl Into<ElementId>, label: impl Into<SharedString>) -> Stateful<Div> {
-    link_colored(id, label, colors::GRAY_500)
+    link_colored(id, label, crate::theme::ink::muted())
 }
 
 fn link_colored(

@@ -316,7 +316,10 @@ impl LoaderPicker {
                 return note(tr!(M::CouldntLoadVersions, error = error), colors::RED_200);
             }
             LoaderVersions::Ready(list) if list.is_empty() => {
-                return note(tr!(M::NoVersionsFor, game = game), colors::GRAY_500);
+                return note(
+                    tr!(M::NoVersionsFor, game = game),
+                    crate::theme::ink::muted(),
+                );
             }
             LoaderVersions::Ready(list) => list,
         };
