@@ -10,11 +10,14 @@ interface LodestoneContext {
   coreList: CoreConnectionInfo[];
   coreConnectionStatus: CoreConnectionStatus;
   setCoreConnectionStatus: (status: CoreConnectionStatus) => void;
-  /** The JWT token string, where no token is an empty string */
+  /** The session's token: a JWT from signing in, or an API key (`lsk_…`). No token
+   * is an empty string */
   token: string;
   uid: string;
-  /** Sets the JWT token in state and localStorage, where no token is an empty string */
-  setToken: (token: string, coreSocket: string) => void;
+  /** Sets the token in state and localStorage, where no token is an empty string.
+   * An API key carries no claims, so signing in with one also gives the uid of the
+   * user it acts as. */
+  setToken: (token: string, coreSocket: string, uid?: string) => void;
   /** All the tokens, a record from CoreSocket to token */
   tokens: Record<string, string>;
 }

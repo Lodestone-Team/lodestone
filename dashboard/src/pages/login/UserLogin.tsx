@@ -82,8 +82,8 @@ const UserLogin = () => {
   ) => {
     const key = values.apiKey.trim();
     loginWithApiKey(key)
-      .then(() => {
-        setToken(key, socket);
+      .then((user) => {
+        setToken(key, socket, user.uid);
         setPathname('/');
         gaEventTracker('Logged in', 'API key');
         actions.setSubmitting(false);
