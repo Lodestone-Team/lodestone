@@ -10,8 +10,8 @@ use launcher_core::ui_skin::SurfaceId;
 use super::{InstanceTab, LauncherShell, Page, loader_label};
 use crate::{
     components::{
-        Align, Button, ButtonSize, ButtonVariant, Icon, KeyboardFocus, MagnetBar, MagnetLook,
-        PlayButton, PlayButtonState, Tabs,
+        Align, Button, ButtonSize, ButtonVariant, Icon, KeyboardFocus, MagnetLook, PlayButton,
+        PlayButtonState, Tabs,
         a11y::{Accessible, Role},
     },
     i18n::{ShellMsg as M, t, tr},
@@ -506,23 +506,12 @@ fn play_bar(
     let skin = crate::skin::look(cx);
     let resolved = crate::skin::resolve(&skin.spec, instance);
     let magnet = magnet_look(&skin, &resolved, instance);
-    // the line under the step, in the filings' colour, made to read on the bar
+    // the line under the step, in the skin's progress colour, made to read on the bar
     let progress = instance
         .and_then(|i| i.play_color)
         .or(resolved.progress)
         .or(resolved.play.color)
         .map(|c| launcher_core::ui_skin::readable::suggest(c, magnet.backdrop, 3.0));
-    // a dimmed (disabled) button melts from its dimmed look
-    let dimmed = matches!(state, PlayButtonState::Disabled);
-    // how far a launch has come, for the filings around Play
-    let launch = match &state {
-        PlayButtonState::Preparing { step, fraction, .. } => Some(step.overall(*fraction)),
-        _ => None,
-    };
-    // the button writes where it is, for the filings to melt from it alone
-    let anchor = crate::components::MagnetAnchor::default();
-    let magnet_id =
-        SharedString::from(format!("play-magnet-{}", id.as_deref().unwrap_or_default()));
     div()
         .flex()
         .flex_row()
@@ -540,51 +529,41 @@ fn play_bar(
         .bg(colors::GRAY_850)
         .surface(SurfaceId::PlayBar)
         .child(
-            MagnetBar::new(
-                magnet_id,
-                div()
-                    .flex()
-                    .flex_col()
-                    .flex_none()
-                    .items_center()
-                    .gap_1()
-                    .child(
-                        PlayButton::new("play")
-                            .anchor(anchor.clone())
-                            .state(state)
-                            .look(resolved.play, progress)
-                            .layer(resolved.play_layer)
-                            .when_some(caption, |button, caption| button.caption(caption))
+            div()
+                .flex()
+                .flex_col()
+                .flex_none()
+                .items_center()
+                .gap_1()
+                .child(
+                    PlayButton::new("play")
+                        .state(state)
+                        .look(resolved.play, progress)
+                        .layer(resolved.play_layer)
+                        .when_some(caption, |button, caption| button.caption(caption))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            if let Some(id) = &id {
+                                this.press_play(id, joins, cx);
+                            }
+                        }))
+                        .on_stop(cx.listener(move |this, _, _, cx| {
+                            if let Some(id) = &stop_id {
+                                this.instances
+                                    .update(cx, |instances, cx| instances.stop(id, cx));
+                            }
+                        })),
+                )
+                .when(joins, |this| {
+                    this.child(
+                        Button::new("play-without-joining", t(M::PlayWithoutJoining))
+                            .size(ButtonSize::Slim)
+                            .variant(ButtonVariant::Ghost)
                             .on_click(cx.listener(move |this, _, _, cx| {
-                                if let Some(id) = &id {
-                                    this.press_play(id, joins, cx);
-                                }
-                            }))
-                            .on_stop(cx.listener(move |this, _, _, cx| {
-                                if let Some(id) = &stop_id {
-                                    this.instances
-                                        .update(cx, |instances, cx| instances.stop(id, cx));
+                                if let Some(id) = &single_id {
+                                    this.press_play(id, false, cx);
                                 }
                             })),
                     )
-                    .when(joins, |this| {
-                        this.child(
-                            Button::new("play-without-joining", t(M::PlayWithoutJoining))
-                                .size(ButtonSize::Slim)
-                                .variant(ButtonVariant::Ghost)
-                                .on_click(cx.listener(move |this, _, _, cx| {
-                                    if let Some(id) = &single_id {
-                                        this.press_play(id, false, cx);
-                                    }
-                                })),
-                        )
-                    }),
-            )
-            .launch(launch)
-            .look(magnet)
-            .anchor(anchor)
-            .dimmed(dimmed)
-            // to the bar's edges, past its padding
-            .bleed(40., 12.),
+                }),
         )
 }
