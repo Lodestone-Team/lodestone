@@ -619,3 +619,32 @@ fn origin_from_an_uploaded_pack() {
     assert_eq!(origin.version_number.as_deref(), Some("1.2.3"));
     assert_eq!(origin.icon_url, None);
 }
+
+#[tokio::test]
+async fn files_deep_in_a_long_server_path_are_installed() {
+    // Windows' old 260-character limit: a deep config path in a server folder that is
+    // itself deep (as a pack's `modpack_defaults/config/...` can be)
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("a".repeat(60)).join("b".repeat(60));
+    std::fs::create_dir_all(&root).unwrap();
+    let deep = format!(
+        "overrides/config/{}/{}/settings.json",
+        "c".repeat(60),
+        "d".repeat(60)
+    );
+    let p = pack(index(vec![], fabric()), &[Entry::File(&deep, b"deep")]);
+    let parsed = read_pack(&p.path, false).unwrap();
+    install_pack_contents(
+        &FakeModrinth::default(),
+        &parsed,
+        &p.path,
+        &root,
+        false,
+        &|_, _| {},
+    )
+    .await
+    .unwrap();
+    let written = root.join(deep.trim_start_matches("overrides/"));
+    assert!(written.as_os_str().len() > 260);
+    assert_eq!(std::fs::read(&written).unwrap(), b"deep");
+}

@@ -374,6 +374,48 @@ fn is_link(path: &Path) -> bool {
     std::fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_symlink())
 }
 
+/// A file written next to where it goes and moved there once complete, or deleted if
+/// it never is. `tempfile`'s own `persist` can't move a file whose path is longer than
+/// Windows' 260 characters (a pack's deep config path in a server folder can be);
+/// `std::fs` adds the long-path prefix itself.
+struct PartFile {
+    path: PathBuf,
+    moved: bool,
+}
+
+impl PartFile {
+    /// A new, empty file named `<prefix><random>.tmp` in `dir`.
+    fn create(dir: &Path, prefix: &str) -> std::io::Result<(PartFile, std::fs::File)> {
+        loop {
+            let path = dir.join(format!("{prefix}{}.tmp", uuid::Uuid::new_v4().simple()));
+            match std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&path)
+            {
+                Ok(file) => return Ok((PartFile { path, moved: false }, file)),
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(e) => return Err(e),
+            }
+        }
+    }
+
+    /// Moves the file to `target`, replacing what is there.
+    fn persist(mut self, target: &Path) -> std::io::Result<()> {
+        std::fs::rename(&self.path, target)?;
+        self.moved = true;
+        Ok(())
+    }
+}
+
+impl Drop for PartFile {
+    fn drop(&mut self) {
+        if !self.moved {
+            let _ = std::fs::remove_file(&self.path);
+        }
+    }
+}
+
 /// Downloads one file of the pack, trying its URLs in order.
 async fn download_one(
     api: &dyn ModrinthApi,
@@ -392,25 +434,15 @@ async fn download_one(
     }
     let mut last_error = None;
     for url in &download.urls {
-        let temp = tempfile::Builder::new()
-            .prefix(".lodestone-download-")
-            .suffix(".tmp")
-            .tempfile_in(&parent)
-            .context("Failed to create a temporary file")?
-            .into_temp_path();
-        let mut file = tokio::fs::OpenOptions::new()
-            .write(true)
-            .truncate(true)
-            .open(&temp)
-            .await
-            .context("Failed to open a temporary file")?;
+        let (temp, file) = PartFile::create(&parent, ".lodestone-download-")
+            .context("Failed to create a temporary file")?;
+        let mut file = tokio::fs::File::from_std(file);
         let result = api.download(url, &mut file, MAX_PACK_FILE_BYTES).await;
         drop(file);
         match result {
             Ok(hashes) if hashes.sha1 == download.sha1 && hashes.sha512 == download.sha512 => {
-                temp.persist(&target).map_err(|e| {
-                    eyre!("Failed to save {}: {}", download.path.display(), e.error)
-                })?;
+                temp.persist(&target)
+                    .map_err(|e| eyre!("Failed to save {}: {e}", download.path.display()))?;
                 return Ok(());
             }
             Ok(_) => {
@@ -444,14 +476,11 @@ fn write_override<R: Read>(
     if is_link(&target) {
         return Err(unsafe_pack("a path leaves the server folder"));
     }
-    let mut temp = tempfile::Builder::new()
-        .prefix(".lodestone-extract-")
-        .suffix(".tmp")
-        .tempfile_in(&parent)
+    let (temp, mut file) = PartFile::create(&parent, ".lodestone-extract-")
         .context("Failed to create a temporary file")?;
     // never trust the size in the zip header
     let limit = (*budget).min(entry.size()).saturating_add(1);
-    let copied = std::io::copy(&mut entry.take(limit), temp.as_file_mut())
+    let copied = std::io::copy(&mut entry.take(limit), &mut file)
         .map_err(|e| invalid_pack(format!("{} cannot be read ({e})", relative.display())))?;
     if copied > entry.size() || copied > *budget {
         return Err(unsafe_pack(format!(
@@ -460,11 +489,10 @@ fn write_override<R: Read>(
         )));
     }
     *budget -= copied;
-    temp.as_file_mut()
-        .flush()
-        .context("Failed to write a modpack file")?;
+    file.flush().context("Failed to write a modpack file")?;
+    drop(file);
     temp.persist(&target)
-        .map_err(|e| eyre!("Failed to save {}: {}", relative.display(), e.error))?;
+        .map_err(|e| eyre!("Failed to save {}: {e}", relative.display()))?;
     Ok(())
 }
 

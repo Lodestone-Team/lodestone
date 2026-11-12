@@ -82,12 +82,15 @@ fn modrinth_loader(flavour: &Flavour) -> Option<&'static str> {
     }
 }
 
-/// The newest version of `origin`'s modpack for the server's loader, if it is newer than
-/// the server's.
+/// The newest version of `origin`'s modpack for the server's loader and its Minecraft
+/// version `game_version` (or a newer one), if it is newer than the server's. A pack
+/// that keeps a line for an older Minecraft version (14.x for 26.2 beside 15.x for
+/// 26.3) never offers that line to a server on the newer one.
 pub async fn newest_version(
     api: &dyn ModrinthApi,
     origin: &ModpackOrigin,
     flavour: &Flavour,
+    game_version: &str,
 ) -> Result<Option<AvailableUpdate>, Error> {
     if origin.project_id.is_empty() {
         return Ok(None);
@@ -98,8 +101,15 @@ pub async fn newest_version(
     let versions = api
         .project_versions(&origin.project_id, &[loader.to_string()], &[])
         .await?;
+    let for_this_or_newer = |v: &&lodestone_minecraft::modrinth::ModrinthVersion| {
+        v.game_versions.iter().any(|g| {
+            lodestone_minecraft::versions::compare_versions(g, game_version)
+                != std::cmp::Ordering::Less
+        })
+    };
     let Some(newest) = versions
         .iter()
+        .filter(for_this_or_newer)
         .find(|v| v.version_type != ModrinthVersionType::Alpha)
     else {
         return Ok(None);
@@ -146,8 +156,14 @@ pub async fn check_instance(
         state.mods.updates.set(&uuid, None);
         return Ok(None);
     };
-    let (_, flavour) = instance.server_software().await;
-    let found = newest_version(state.mods.modrinth.as_ref(), &origin, &flavour).await?;
+    let (game_version, flavour) = instance.server_software().await;
+    let found = newest_version(
+        state.mods.modrinth.as_ref(),
+        &origin,
+        &flavour,
+        &game_version,
+    )
+    .await?;
     state.mods.updates.set(&uuid, found.clone());
     let Some(update) = &found else {
         return Ok(None);
@@ -241,6 +257,17 @@ mod tests {
         }
     }
 
+    /// `newest_version` for a server on Minecraft 1.20.1.
+    async fn newest(
+        fake: &FakeModrinth,
+        origin: &ModpackOrigin,
+        flavour: &Flavour,
+    ) -> Option<AvailableUpdate> {
+        newest_version(fake, origin, flavour, "1.20.1")
+            .await
+            .unwrap()
+    }
+
     fn fabric() -> Flavour {
         Flavour::Fabric {
             loader_version: Some(FabricLoaderVersion::new("0.15.11".into())),
@@ -264,52 +291,40 @@ mod tests {
         fake.add(version("neo", "2024-04-01T00:00:00Z").loaders(&["neoforge"]));
 
         // the newest for Fabric that isn't an alpha
-        let found = newest_version(&fake, &origin("v1"), &fabric())
-            .await
-            .unwrap()
-            .unwrap();
+        let found = newest(&fake, &origin("v1"), &fabric()).await.unwrap();
         assert_eq!(found.version_id, "v2");
         assert_eq!(found.version_number, "v2-number");
         assert_eq!(found.changelog.as_deref(), Some("- Sodium 0.6.9"));
 
         // nothing newer
-        assert_eq!(
-            newest_version(&fake, &origin("v2"), &fabric())
-                .await
-                .unwrap(),
-            None
-        );
+        assert_eq!(newest(&fake, &origin("v2"), &fabric()).await, None);
         // the server is on the alpha, newer than any release
-        assert_eq!(
-            newest_version(&fake, &origin("v3"), &fabric())
-                .await
-                .unwrap(),
-            None
-        );
+        assert_eq!(newest(&fake, &origin("v3"), &fabric()).await, None);
         // a NeoForge server only gets NeoForge versions
         let neoforge = Flavour::NeoForge {
             build_version: Some(NeoForgeBuildVersion::new("21.1.1".into())),
         };
         assert_eq!(
-            newest_version(&fake, &origin("v1"), &neoforge)
+            newest(&fake, &origin("v1"), &neoforge)
                 .await
-                .unwrap()
                 .unwrap()
                 .version_id,
             "neo"
         );
-        // uploaded packs and plain servers aren't checked
+        // a newer release for an older Minecraft version isn't offered
+        let mut older =
+            FakeVersion::new("pack", "old-line", "p.mrpack").date("2024-05-01T00:00:00Z");
+        older.version.game_versions = vec!["1.19.4".into()];
+        fake.add(older);
         assert_eq!(
-            newest_version(&fake, &origin(""), &Flavour::Vanilla)
-                .await
-                .unwrap(),
-            None
+            newest(&fake, &origin("v2"), &fabric()).await,
+            None,
+            "an older line is never offered"
         );
+        // uploaded packs and plain servers aren't checked
+        assert_eq!(newest(&fake, &origin(""), &Flavour::Vanilla).await, None);
         let mut uploaded = origin("");
         uploaded.project_id.clear();
-        assert_eq!(
-            newest_version(&fake, &uploaded, &fabric()).await.unwrap(),
-            None
-        );
+        assert_eq!(newest(&fake, &uploaded, &fabric()).await, None);
     }
 }
