@@ -220,13 +220,55 @@ main {
 .mark {
   width: 140px;
   height: 140px;
-  margin-bottom: 26px;
+  margin-bottom: 14px;
   filter: drop-shadow(0 12px 30px rgba(47, 111, 168, 0.28));
 }
 
 .mark svg {
   display: block;
   overflow: visible;
+}
+
+/* The two logos take turns: the one leaving turns away and shrinks, the one
+   arriving turns into place, like the gem does on load. */
+.mark-logo {
+  transform-origin: 512px 512px;
+  transition:
+    opacity 0.45s ease,
+    transform 0.7s cubic-bezier(0.2, 0.9, 0.25, 1);
+}
+
+.mark[data-show='launcher'] .mark-host,
+.mark[data-show='host'] .mark-launcher {
+  opacity: 0;
+  transform: rotate(-24deg) scale(0.72);
+}
+
+/* The name of the product the logo shows, under it. */
+.mark-label {
+  display: grid;
+  justify-items: center;
+  margin: 0 0 20px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.mark-label a {
+  grid-area: 1 / 1;
+  color: var(--text-muted);
+  text-decoration: none;
+  transition:
+    opacity 0.45s ease,
+    color 0.15s;
+}
+
+.mark-label a:hover {
+  color: var(--text);
+}
+
+.mark-label a[tabindex='-1'] {
+  opacity: 0;
+  pointer-events: none;
 }
 
 /* On load the gem turns into place and the L rises into it. */
@@ -1277,7 +1319,11 @@ h1 .phrase + .phrase {
   }
 
   .mark {
-    margin-bottom: 22px;
+    margin-bottom: 12px;
+  }
+
+  .mark-label {
+    margin-bottom: 18px;
   }
 
   .hero-inner::before {
@@ -1331,6 +1377,8 @@ h1 .phrase + .phrase {
     animation: none;
   }
 
+  .mark-logo,
+  .mark-label a,
   .launcher-visual img {
     transition: none;
   }

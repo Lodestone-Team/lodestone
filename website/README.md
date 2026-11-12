@@ -30,10 +30,15 @@ To run it on Cloudflare's own runtime instead, build first, then run
 
 ## The home page
 
-- **Logo.** The gem (`src/images/mark.svg`, the launcher's logo), drawn inline
-  in `index.html` so `styles.css` can animate it: the gem turns into place and the
-  L rises into it. The Host card
-  keeps Host's own mark (`src/images/host-mark.svg`, from the dashboard).
+- **Logo.** The launcher's gem (`src/images/mark.svg`) and Host's mark
+  (`src/images/host-mark.svg`) take turns in the hero, every 4.5 seconds while
+  it's on screen (`switchMark()` in `main.js`), with the product's name under
+  it as a link. Both are drawn inline in `index.html` so `styles.css` can
+  animate them: on load the gem turns into place and the L rises into it; at a
+  switch the logo leaving turns away and the one arriving turns in. The
+  switching holds while the pointer is on the logo or its name, and with
+  reduced motion the gem stays. The header shows the wordmark alone
+  (`src/images/wordmark.svg`).
 - **Iron filings.** `main.js` draws a grid of short strokes on a canvas behind
   the pair and turns each one along the field of a magnet at the pair; the
   pointer is a second magnet. It stops drawing while the hero is off screen,

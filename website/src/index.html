@@ -69,7 +69,9 @@
         <canvas class="field" data-field aria-hidden="true"></canvas>
 
         <div class="hero-inner">
-          <div class="mark" data-mark aria-hidden="true">
+          <!-- The hero's logo: the launcher's gem and Host's mark take turns
+               (main.js switchMark), and the iron filings follow its shape. -->
+          <div class="mark" data-mark data-show="launcher" aria-hidden="true">
             <svg viewBox="222 222 580 580" width="140" height="140">
               <defs>
                 <linearGradient id="hg-gem" x1="330" y1="200" x2="700" y2="830" gradientUnits="userSpaceOnUse">
@@ -95,7 +97,20 @@
                 <clipPath id="hg-footclip">
                   <path d="M18,51 H38.5 A9.5,9.5 0 0 1 38.5,70 H18 Z" />
                 </clipPath>
+                <!-- Host's mark (images/host-mark.svg) -->
+                <linearGradient id="hh-bar" x1="0" y1="0" x2="11.4" y2="70" gradientUnits="userSpaceOnUse">
+                  <stop stop-color="#2EF29A" />
+                  <stop offset="1" stop-color="#1FBFA8" />
+                </linearGradient>
+                <linearGradient id="hh-foot" x1="19" y1="0" x2="48" y2="0" gradientUnits="userSpaceOnUse">
+                  <stop stop-color="#FFFFFF" stop-opacity="0" />
+                  <stop offset="1" stop-color="#FFFFFF" stop-opacity="0.105" />
+                </linearGradient>
+                <filter id="hh-crease" x="-20%" y="-20%" width="140%" height="140%">
+                  <feGaussianBlur stdDeviation="1.62" />
+                </filter>
               </defs>
+              <g class="mark-logo mark-launcher">
               <g class="gem-hex">
                 <path d="M470.43,236.00 Q512.00,212.00 553.57,236.00 L730.24,338.00 Q771.81,362.00 771.81,410.00 L771.81,614.00 Q771.81,662.00 730.24,686.00 L553.57,788.00 Q512.00,812.00 470.43,788.00 L293.76,686.00 Q252.19,662.00 252.19,614.00 L252.19,410.00 Q252.19,362.00 293.76,338.00 Z" fill="url(#hg-gem)" />
                 <path d="M470.43,236.00 Q512.00,212.00 553.57,236.00 L730.24,338.00 Q771.81,362.00 771.81,410.00 L771.81,614.00 Q771.81,662.00 730.24,686.00 L553.57,788.00 Q512.00,812.00 470.43,788.00 L293.76,686.00 Q252.19,662.00 252.19,614.00 L252.19,410.00 Q252.19,362.00 293.76,338.00 Z" fill="url(#hg-hl)" />
@@ -120,9 +135,54 @@
                   </g>
                 </g>
               </g>
+              </g>
+              <!-- Host's two Ls, 440 units square in the middle of the gem's
+                   viewBox, drawn smaller than the gem so they look the same size. -->
+              <g class="mark-logo mark-host">
+                <g data-host-tilt>
+                  <g transform="translate(292,292) scale(6.285714)">
+                      <path d="M18,51 H38.5 A9.5,9.5 0 0 1 38.5,70 H18 Z" fill="#1FBFA8" />
+                      <path d="M18,51 H38.5 A9.5,9.5 0 0 1 38.5,70 H18 Z" fill="url(#hh-foot)" />
+                      <g clip-path="url(#hg-footclip)">
+                        <path
+                          d="M0,9.5 A9.5,9.5 0 0 1 19,9.5 V59.835 A10.165,10.165 0 0 0 29.165,70 H9.5 A9.5,9.5 0 0 1 0,60.5 Z"
+                          fill="#033B33"
+                          fill-opacity="0.35"
+                          transform="translate(1.41,0)"
+                          filter="url(#hh-crease)"
+                        />
+                      </g>
+                      <path
+                        d="M0,9.5 A9.5,9.5 0 0 1 19,9.5 V59.835 A10.165,10.165 0 0 0 29.165,70 H9.5 A9.5,9.5 0 0 1 0,60.5 Z"
+                        fill="url(#hh-bar)"
+                      />
+                    <g transform="rotate(180 35 35)">
+                        <path d="M18,51 H38.5 A9.5,9.5 0 0 1 38.5,70 H18 Z" fill="#1FBFA8" />
+                        <path d="M18,51 H38.5 A9.5,9.5 0 0 1 38.5,70 H18 Z" fill="url(#hh-foot)" />
+                        <g clip-path="url(#hg-footclip)">
+                          <path
+                            d="M0,9.5 A9.5,9.5 0 0 1 19,9.5 V59.835 A10.165,10.165 0 0 0 29.165,70 H9.5 A9.5,9.5 0 0 1 0,60.5 Z"
+                            fill="#033B33"
+                            fill-opacity="0.35"
+                            transform="translate(1.41,0)"
+                            filter="url(#hh-crease)"
+                          />
+                        </g>
+                        <path
+                          d="M0,9.5 A9.5,9.5 0 0 1 19,9.5 V59.835 A10.165,10.165 0 0 0 29.165,70 H9.5 A9.5,9.5 0 0 1 0,60.5 Z"
+                          fill="url(#hh-bar)"
+                        />
+                    </g>
+                  </g>
+                </g>
+              </g>
             </svg>
           </div>
 
+          <p class="mark-label" data-mark-label>
+            <a href="/launcher" data-for="launcher">Lodestone Launcher</a>
+            <a href="/host" data-for="host" tabindex="-1">Lodestone Host</a>
+          </p>
           <!-- build.mjs replaces 100k+ with the current count (see stats.mjs). -->
           <p class="eyebrow">
             Free and open source
