@@ -368,10 +368,7 @@ h1 .phrase + .phrase {
   text-decoration: none;
   font-weight: 700;
   font-size: 16px;
-  box-shadow:
-    0 0 0 1px rgba(255, 255, 255, 0.2),
-    -12px 10px 30px rgba(34, 201, 128, 0.2),
-    12px 12px 30px rgba(91, 79, 192, 0.24);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.2);
   transition:
     transform 0.15s,
     box-shadow 0.15s,
@@ -380,10 +377,7 @@ h1 .phrase + .phrase {
 
 .button:hover {
   filter: brightness(1.04);
-  box-shadow:
-    0 0 0 1px rgba(255, 255, 255, 0.3),
-    -14px 14px 40px rgba(34, 201, 128, 0.3),
-    14px 16px 40px rgba(91, 79, 192, 0.34);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.3);
 }
 
 .button:active {
@@ -909,24 +903,6 @@ h1 .phrase + .phrase {
   max-width: 980px;
   margin: clamp(36px, 6vh, 56px) auto 0;
   text-align: left;
-}
-
-.link {
-  position: relative;
-  isolation: isolate;
-}
-
-/* A soft teal glow behind the two computers, in Lodestone Host's colours. */
-.link::before {
-  content: '';
-  position: absolute;
-  inset: -30% 5%;
-  background:
-    radial-gradient(closest-side at 30% 50%, rgba(34, 201, 128, 0.07), transparent),
-    radial-gradient(closest-side at 50% 50%, rgba(31, 191, 168, 0.13), transparent),
-    radial-gradient(closest-side at 70% 50%, rgba(47, 111, 168, 0.08), transparent);
-  z-index: -1;
-  pointer-events: none;
 }
 
 .link-side {

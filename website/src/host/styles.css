@@ -223,9 +223,7 @@ h1 .phrase {
   text-decoration: none;
   font-weight: 700;
   font-size: 16px;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.12),
-    0 8px 24px rgba(23, 134, 111, 0.3);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
   transition: background 0.15s;
 }
 
