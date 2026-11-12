@@ -14,6 +14,10 @@ use crate::theme::{self, colors, text};
 type ChangeHandler = Rc<dyn Fn(f64, &mut Window, &mut App) + 'static>;
 type Formatter = Rc<dyn Fn(f64) -> SharedString + 'static>;
 
+/// The line around the knob on the light theme: the knob is white on both themes, and
+/// on the light theme's white cards only the gap it left in the track showed.
+const KNOB_EDGE: theme::Color = colors::GRAY_FADED.opacity(50);
+
 /// What a slider remembers between frames while it is dragged.
 #[derive(Default)]
 struct Drag {
@@ -166,7 +170,10 @@ impl RenderOnce for Slider {
                     .left(width * fraction - px(7.))
                     .size(px(14.))
                     .rounded_full()
-                    .bg(knob),
+                    .bg(knob)
+                    .when(crate::theme::palette::is_light(), |this| {
+                        this.border_1().border_color(KNOB_EDGE)
+                    }),
             )
             .child({
                 let drag = drag.clone();
@@ -304,7 +311,19 @@ impl RenderOnce for Slider {
 
 #[cfg(test)]
 mod tests {
-    use super::snap;
+    use super::{KNOB_EDGE, snap};
+    use crate::theme::{colors, palette};
+
+    #[test]
+    fn the_knob_has_an_edge_on_the_light_themes_cards() {
+        // the knob stays white on the light theme, where cards are white too
+        assert_eq!(
+            palette::light(colors::WHITE),
+            palette::light(colors::GRAY_800)
+        );
+        // its edge there is a mid gray, 3.9:1 on white
+        assert_eq!(palette::light(KNOB_EDGE).to_hex(), "#7D838E");
+    }
 
     #[test]
     fn snapping_keeps_to_steps_and_ends() {
