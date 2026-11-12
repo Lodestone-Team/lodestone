@@ -1121,10 +1121,6 @@ h1 .phrase + .phrase {
   color: var(--mint);
 }
 
-.together .actions {
-  margin-top: 20px;
-}
-
 /* Questions */
 
 .faq {

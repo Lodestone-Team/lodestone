@@ -45,8 +45,8 @@ To run it on Cloudflare's own runtime instead, build first, then run
   under the steps: it's an extra, not the way in. The two panels are illustrations, not live data. When the
   section scrolls into view, `main.js` fills the launcher's bar once while it
   "gets the server's mods"; without JavaScript or with reduced motion it shows
-  the end. Connect isn't a download of its own, so the section links to the
-  launcher and to Host, which have it built in.
+  the end. Connect isn't a download of its own; the header and the cards
+  below link to the launcher and Host, which have it built in.
 - **Cards.** The Host card's server list and the CLI card's commands are
   illustrations, not live data. The CLI commands are real `lodestone_cli`
   commands; their output is shortened.
