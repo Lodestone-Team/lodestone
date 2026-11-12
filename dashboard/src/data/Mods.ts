@@ -14,6 +14,7 @@ import { ModrinthSearchIndex } from 'bindings/ModrinthSearchIndex';
 import { ModrinthSearchResponse } from 'bindings/ModrinthSearchResponse';
 import { ModrinthUrlTarget } from 'bindings/ModrinthUrlTarget';
 import { ModrinthVersion } from 'bindings/ModrinthVersion';
+import { SetClientMark } from 'bindings/SetClientMark';
 import { fileDownloadUrl } from 'utils/apis';
 import { ApiError, axiosWrapper } from 'utils/util';
 
@@ -227,6 +228,23 @@ export const setModEnabled = (
   axiosWrapper<InstalledMod>({
     method: 'put',
     url: `${modFileUrl(uuid, fileName)}/${enabled ? 'enable' : 'disable'}`,
+  });
+
+/**
+ * Marks a mod as needed by players, or takes the mark off. A marked mod, and
+ * the mods it depends on, go into the client modpack (Fabric only; the core
+ * refuses plugins).
+ * @throws ApiError
+ */
+export const setClientMark = (
+  uuid: string,
+  fileName: string,
+  required: boolean
+) =>
+  axiosWrapper<null>({
+    method: 'put',
+    url: `${modFileUrl(uuid, fileName)}/client`,
+    data: { required } satisfies SetClientMark,
   });
 
 /** @throws ApiError */

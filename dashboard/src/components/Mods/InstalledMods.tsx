@@ -12,6 +12,7 @@ import { InstalledModList } from 'bindings/InstalledModList';
 import { InstalledModKind } from 'bindings/InstalledModKind';
 import { ModInstallResult } from 'bindings/ModInstallResult';
 import Button from 'components/Atoms/Button';
+import Checkbox from 'components/Atoms/Checkbox';
 import ConfirmDialog from 'components/Atoms/ConfirmDialog';
 import {
   Skeleton,
@@ -24,6 +25,7 @@ import {
   deleteMod,
   installMod,
   invalidateInstalledMods,
+  setClientMark,
   setModEnabled,
   uploadMods,
 } from 'data/Mods';
@@ -42,25 +44,30 @@ import {
   InstallResultMessage,
   ModIcon,
   pickFiles,
+  WithTooltip,
 } from './common';
 import ClientPackPanel from './ClientPackPanel';
 
 const ModRow = ({
   uuid,
   kind,
+  marks,
   mod,
   canWrite,
   onDelete,
 }: {
   uuid: string;
   kind: InstalledModKind;
+  /** the row has "For players" (mods of a Fabric server) */
+  marks: boolean;
   mod: InstalledMod;
   canWrite: boolean;
   onDelete: (mod: InstalledMod) => void;
 }) => {
-  const { t, formatBytes } = useI18n();
+  const { t, formatBytes, formatList } = useI18n();
   const queryClient = useQueryClient();
   const [toggling, setToggling] = useState(false);
+  const [marking, setMarking] = useState(false);
   const [updating, setUpdating] = useState(false);
   const name = installedModName(mod);
   const version = installedModVersion(mod);
@@ -80,6 +87,43 @@ const ModRow = ({
     } finally {
       await invalidateInstalledMods(queryClient, uuid);
       setToggling(false);
+    }
+  };
+
+  // players get it whatever the box says: Modrinth or the jar says so, or a
+  // mod they get depends on it
+  const requiredAnyway =
+    mod.client_requirement === 'required' && !mod.client_marked;
+  const markTooltip = !canWrite
+    ? t('mods.noWritePermission')
+    : requiredAnyway && mod.required_by.length > 0
+      ? t('mods.clientRequirement.neededBy', {
+          mods: formatList(mod.required_by),
+        })
+      : requiredAnyway
+        ? t('mods.forPlayers.already')
+        : t('mods.forPlayers.hint');
+
+  const mark = async (required: boolean) => {
+    setMarking(true);
+    try {
+      await setClientMark(uuid, mod.file_name, required);
+      toast.success(
+        required
+          ? translate('mods.forPlayers.marked', { name })
+          : translate('mods.forPlayers.unmarked', { name })
+      );
+    } catch (error) {
+      toast.error(
+        translate('mods.forPlayers.failed', {
+          name,
+          error: errorToString(error),
+        })
+      );
+    } finally {
+      // the client pack panel and the other rows' requirements change too
+      await invalidateInstalledMods(queryClient, uuid);
+      setMarking(false);
     }
   };
 
@@ -133,7 +177,7 @@ const ModRow = ({
             </span>
           )}
           {/* players never install plugins, so plugins show nothing */}
-          {kind === 'mod' && <ClientRequirementLabel mod={mod} />}
+          {kind === 'mod' && <ClientRequirementLabel mod={mod} marks={marks} />}
         </div>
         <div className="truncate text-small text-white/30">
           {mod.file_name} · {formatBytes(mod.size)}
@@ -170,6 +214,17 @@ const ModRow = ({
           >
             <FontAwesomeIcon icon={faArrowUpRightFromSquare} />
           </a>
+        )}
+        {marks && (
+          <WithTooltip message={markTooltip}>
+            <Checkbox
+              label={t('mods.forPlayers.label')}
+              className="mr-2 text-small whitespace-nowrap"
+              checked={mod.client_marked || requiredAnyway}
+              onChange={mark}
+              disabled={!canWrite || marking || requiredAnyway}
+            />
+          </WithTooltip>
         )}
         <DisabledTooltip show={!canWrite} message={t('mods.noWritePermission')}>
           <Toggle
@@ -232,6 +287,8 @@ export default function InstalledMods({
   const [updatingAll, setUpdatingAll] = useState(false);
   const kind = list?.kind ?? 'mod';
   const isPlugin = kind === 'plugin';
+  // only Fabric servers make a client pack, and players never get plugins
+  const marks = !isPlugin && list?.loader === 'fabric';
   const updates = (list?.mods ?? []).filter((mod) => mod.modrinth?.update);
 
   const upload = async (files: File[], overwrite: boolean) => {
@@ -464,6 +521,7 @@ export default function InstalledMods({
               key={mod.file_name}
               uuid={uuid}
               kind={kind}
+              marks={marks}
               mod={mod}
               canWrite={canWrite}
               onDelete={setToDelete}

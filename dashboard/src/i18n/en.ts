@@ -1391,6 +1391,21 @@ export const en = {
     'Modrinth doesn’t say whether players need it; check the mod’s page',
   'mods.clientRequirement.unknownNotOnModrinth':
     'Not on Modrinth; check the mod’s page',
+  /** with the "For players" box (Fabric servers) */
+  'mods.clientRequirement.unknownModrinthMark':
+    'Modrinth doesn’t say whether players need it. Check the mod’s page, and tick For players if they do.',
+  'mods.clientRequirement.unknownNotOnModrinthMark':
+    'Not on Modrinth. Check the mod’s page, and tick For players if players need it.',
+  /** a checkbox on a Fabric server's mod row: players download the mod too */
+  'mods.forPlayers.label': 'For players',
+  'mods.forPlayers.hint':
+    'Players get this mod, and the mods it needs, when they join. Tick it for mods players need that Lodestone can’t tell, such as ones you uploaded.',
+  'mods.forPlayers.already':
+    'Players get this mod already: Modrinth or the mod says they need it.',
+  /** toasts after ticking or unticking the box; {name}: the mod's name */
+  'mods.forPlayers.marked': 'Players get {name} the next time they join',
+  'mods.forPlayers.unmarked': '{name} is no longer marked for players',
+  'mods.forPlayers.failed': 'Couldn’t change {name}: {error}',
   /** a Modrinth version's type, on a small label */
   'mods.versionType.release': 'release',
   'mods.versionType.beta': 'beta',

@@ -1215,6 +1215,19 @@ export const fr: Messages = {
     'Modrinth n’indique pas si les joueurs en ont besoin ; consultez la page du mod',
   'mods.clientRequirement.unknownNotOnModrinth':
     'Absent de Modrinth ; consultez la page du mod',
+  'mods.clientRequirement.unknownModrinthMark':
+    'Modrinth n’indique pas si les joueurs en ont besoin. Consultez la page du mod, et cochez Pour les joueurs si c’est le cas.',
+  'mods.clientRequirement.unknownNotOnModrinthMark':
+    'Absent de Modrinth. Consultez la page du mod, et cochez Pour les joueurs si les joueurs en ont besoin.',
+  'mods.forPlayers.label': 'Pour les joueurs',
+  'mods.forPlayers.hint':
+    'Les joueurs reçoivent ce mod, et les mods dont il a besoin, en rejoignant. Cochez-le pour les mods dont les joueurs ont besoin sans que Lodestone puisse le savoir, comme ceux que vous avez téléversés.',
+  'mods.forPlayers.already':
+    'Les joueurs reçoivent déjà ce mod : Modrinth ou le mod indique qu’ils en ont besoin.',
+  'mods.forPlayers.marked':
+    'Les joueurs recevront {name} la prochaine fois qu’ils rejoindront',
+  'mods.forPlayers.unmarked': '{name} n’est plus marqué pour les joueurs',
+  'mods.forPlayers.failed': 'Impossible de modifier {name} : {error}',
   'mods.versionType.release': 'stable',
   'mods.versionType.beta': 'bêta',
   'mods.versionType.alpha': 'alpha',
