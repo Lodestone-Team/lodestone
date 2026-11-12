@@ -381,7 +381,7 @@ const MODRINTH_TIMEOUT: Duration = Duration::from_secs(30);
 // ---- Modpacks (A) ----
 
 /// What the core found in a modpack (`ModpackInfo`).
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
 pub struct ModpackInfo {
     pub name: String,
     #[serde(default)]
@@ -390,7 +390,7 @@ pub struct ModpackInfo {
     pub summary: Option<String>,
     #[serde(default)]
     pub game_version: String,
-    /// For example `fabric`.
+    /// `fabric`, `forge` or `neoforge`.
     #[serde(default)]
     pub loader: String,
     #[serde(default)]
@@ -406,6 +406,21 @@ pub struct ModpackInfo {
     /// For `create_modpack`, to reuse the downloaded or uploaded pack.
     #[serde(default)]
     pub upload_id: Option<String>,
+}
+
+/// A loader's name as people read it: `neoforge` is "NeoForge". An unknown one is shown
+/// as it is.
+pub fn loader_title(loader: &str) -> String {
+    match loader {
+        "fabric" => "Fabric".into(),
+        "forge" => "Forge".into(),
+        "neoforge" => "NeoForge".into(),
+        "quilt" => "Quilt".into(),
+        "paper" => "Paper".into(),
+        "spigot" => "Spigot".into(),
+        "vanilla" => "Vanilla".into(),
+        other => other.to_string(),
+    }
 }
 
 impl AdminClient {
@@ -450,6 +465,103 @@ impl AdminClient {
 /// Downloading or uploading a modpack: the dashboard sets no limit.
 const MODPACK_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 
+/// What updating a server's modpack will do (`ModpackUpdatePlan`).
+#[derive(Clone, Debug, Default, PartialEq, Deserialize)]
+pub struct ModpackUpdatePlan {
+    /// The new version; `unsupported_reason` is set when the server can't move to it.
+    pub target: ModpackInfo,
+    #[serde(default)]
+    pub current_game_version: String,
+    #[serde(default)]
+    pub current_loader: String,
+    #[serde(default)]
+    pub current_loader_version: Option<String>,
+    /// The Minecraft or loader version changes, so the server software is installed again.
+    #[serde(default)]
+    pub reinstalls_server: bool,
+    #[serde(default)]
+    pub added: Vec<String>,
+    #[serde(default)]
+    pub replaced: Vec<String>,
+    #[serde(default)]
+    pub removed: Vec<String>,
+    /// Pack files the user changed, which stay as they are.
+    #[serde(default)]
+    pub kept: Vec<String>,
+    #[serde(default)]
+    pub skipped: Vec<String>,
+    /// Set when the core has no record of the old pack's files.
+    #[serde(default)]
+    pub note: Option<String>,
+}
+
+impl ModpackUpdatePlan {
+    /// Whether the update changes anything.
+    pub fn changes_anything(&self) -> bool {
+        self.reinstalls_server
+            || !self.added.is_empty()
+            || !self.replaced.is_empty()
+            || !self.removed.is_empty()
+    }
+}
+
+/// What an update did (`ModpackUpdateResult`).
+#[derive(Clone, Debug, Default, PartialEq, Deserialize)]
+pub struct ModpackUpdateResult {
+    #[serde(default)]
+    pub added: u32,
+    #[serde(default)]
+    pub replaced: u32,
+    #[serde(default)]
+    pub removed: u32,
+    #[serde(default)]
+    pub kept: u32,
+    #[serde(default)]
+    pub skipped: Option<String>,
+}
+
+impl AdminClient {
+    /// `POST /instance/{uuid}/modpack/update/plan`: what updating the server to the
+    /// pack `source` will do. The core may download the pack first.
+    pub async fn plan_modpack_update(
+        &self,
+        uuid: &str,
+        source: &super::instances::ModpackSource,
+    ) -> Result<ModpackUpdatePlan, CoreError> {
+        self.modpack_update_call(uuid, "update/plan", source).await
+    }
+
+    /// `POST /instance/{uuid}/modpack/update`: updates the stopped server to the pack
+    /// `source`. Returns once the update is done, which may take minutes.
+    pub async fn update_modpack(
+        &self,
+        uuid: &str,
+        source: &super::instances::ModpackSource,
+    ) -> Result<ModpackUpdateResult, CoreError> {
+        self.modpack_update_call(uuid, "update", source).await
+    }
+
+    async fn modpack_update_call<T: serde::de::DeserializeOwned>(
+        &self,
+        uuid: &str,
+        route: &str,
+        source: &super::instances::ModpackSource,
+    ) -> Result<T, CoreError> {
+        let body = serde_json::to_vec(&serde_json::json!({ "source": source }))
+            .map_err(|err| CoreError::Invalid(err.to_string()))?;
+        let bytes = self
+            .send_slow(
+                Method::POST,
+                &format!("instance/{}/modpack/{route}", super::segment(uuid)),
+                Some((body, "application/json".into())),
+                MAX_JSON_BYTES,
+                MODPACK_TIMEOUT,
+            )
+            .await?;
+        serde_json::from_slice(&bytes).map_err(|err| CoreError::Invalid(err.to_string()))
+    }
+}
+
 // ---- Installed mods and plugins: the Mods tab (C) ----
 
 /// Mods or plugins (`InstalledModKind`).
@@ -468,6 +580,7 @@ pub enum InstalledModLoader {
     #[default]
     Fabric,
     Forge,
+    NeoForge,
     Paper,
     Spigot,
     #[serde(other)]
@@ -479,6 +592,7 @@ impl InstalledModLoader {
         match self {
             InstalledModLoader::Fabric => "fabric",
             InstalledModLoader::Forge => "forge",
+            InstalledModLoader::NeoForge => "neoforge",
             InstalledModLoader::Paper => "paper",
             InstalledModLoader::Spigot => "spigot",
             InstalledModLoader::Unknown => "",
@@ -492,6 +606,7 @@ impl InstalledModLoader {
             InstalledModLoader::Paper => &["paper", "bukkit", "spigot"],
             InstalledModLoader::Fabric => &["fabric"],
             InstalledModLoader::Forge => &["forge"],
+            InstalledModLoader::NeoForge => &["neoforge"],
             InstalledModLoader::Spigot => &["spigot"],
             InstalledModLoader::Unknown => &[],
         }

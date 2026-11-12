@@ -26,13 +26,17 @@ pub enum InstalledModKind {
     Plugin,
 }
 
-// The loader a jar is for. NeoForge mods count as Forge mods, and Quilt mods as Fabric mods.
+// The loader a jar is for, or a server runs. Quilt mods count as Fabric mods. A Forge
+// server and a NeoForge server read the same metadata files, but take different mods
+// from Modrinth.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS))]
 #[serde(rename_all = "snake_case")]
 pub enum InstalledModLoader {
     Fabric,
     Forge,
+    #[serde(rename = "neoforge")]
+    NeoForge,
     Paper,
     Spigot,
 }
@@ -42,6 +46,7 @@ impl InstalledModLoader {
         match self {
             InstalledModLoader::Fabric => "fabric",
             InstalledModLoader::Forge => "forge",
+            InstalledModLoader::NeoForge => "neoforge",
             InstalledModLoader::Paper => "paper",
             InstalledModLoader::Spigot => "spigot",
         }
@@ -49,7 +54,9 @@ impl InstalledModLoader {
 
     pub fn kind(&self) -> InstalledModKind {
         match self {
-            InstalledModLoader::Fabric | InstalledModLoader::Forge => InstalledModKind::Mod,
+            InstalledModLoader::Fabric
+            | InstalledModLoader::Forge
+            | InstalledModLoader::NeoForge => InstalledModKind::Mod,
             InstalledModLoader::Paper | InstalledModLoader::Spigot => InstalledModKind::Plugin,
         }
     }
@@ -78,6 +85,8 @@ pub fn metadata_files(loader: InstalledModLoader) -> &'static [&'static str] {
             "META-INF/neoforge.mods.toml",
             "mcmod.info",
         ],
+        // NeoForge 20.5 and later read neoforge.mods.toml; older ones mods.toml
+        InstalledModLoader::NeoForge => &["META-INF/neoforge.mods.toml", "META-INF/mods.toml"],
         InstalledModLoader::Paper => &["paper-plugin.yml", "plugin.yml"],
         InstalledModLoader::Spigot => &["plugin.yml"],
     }

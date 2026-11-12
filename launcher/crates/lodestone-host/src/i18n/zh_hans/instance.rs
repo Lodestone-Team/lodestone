@@ -163,6 +163,26 @@ pub fn text(message: M) -> &'static str {
         M::ModsImportHint => {
             "将其导入 Prism Launcher、Modrinth App 或 ATLauncher，即可获得所有正确版本的内容。"
         }
+        M::ModpackFrom => "此服务器使用整合包 {pack}。",
+        M::ModpackCheck => "检查更新",
+        M::ModpackCheckFailed => "无法检查更新：{error}",
+        M::ModpackUpToDate => "已是最新版本。",
+        M::ModpackUpdateTo => "更新到 {version}",
+        M::ModpackFromFile => "从文件更新",
+        M::ModpackFilePrompt => "更新",
+        M::ModpackNotMrpack => "{name} 不是 .mrpack 文件。",
+        M::ModpackPlanFailed => "无法准备更新：{error}",
+        M::ModpackDialogTitle => "更新整合包？",
+        M::ModpackDialogIntro => "{pack} 将从 {from} 更新到 {to}。",
+        M::ModpackDialogReinstall => "服务器将改用 {software} 并重新安装。",
+        M::ModpackDialogKept => "你修改过的文件将保持不变：{files}",
+        M::ModpackDialogNothing => "没有文件会改变。",
+        M::ModpackDialogStop => "请先停止服务器：服务器运行时无法更新。",
+        M::ModpackDialogUnsupported => "无法使用此版本：{reason}",
+        M::ModpackUpdate => "更新",
+        M::ModpackUpdated => "已将 {pack} 更新到 {version}。",
+        M::ModpackUpdateFailed => "无法更新整合包：{error}",
+        M::ModpackUnknownVersion => "未知版本",
         M::ModsProjectFailed => "无法加载项目：{error}",
         M::ModsSource => "源代码",
         M::ModsIssues => "问题反馈",
@@ -279,6 +299,9 @@ pub fn plural(message: P) -> [&'static str; 2] {
         ],
         P::ModsShowMore => ["显示更多（还有 {count} 个）", "显示更多（还有 {count} 个）"],
         P::ModsMoreGameVersions => ["还有 {count} 个", "还有 {count} 个"],
+        P::ModpackAdded => ["已添加 {count} 个文件", "已添加 {count} 个文件"],
+        P::ModpackReplaced => ["已替换 {count} 个文件", "已替换 {count} 个文件"],
+        P::ModpackRemoved => ["已删除 {count} 个文件", "已删除 {count} 个文件"],
         P::FriendsConnectedCount => ["{count} 位好友已连接", "{count} 位好友已连接"],
     }
 }

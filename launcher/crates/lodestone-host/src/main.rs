@@ -152,6 +152,10 @@ mod screenshot {
                             "uuid": "fake-smp", "name": "Survival SMP", "port": 25565,
                             "state": "Running", "version": "1.21.4",
                             "game_type": { "type": "MinecraftJava", "variant": { "type": "Fabric" } },
+                            "modpack": {
+                                "project_id": "1KVo5zza", "version_id": "fake-version",
+                                "name": "Fabulously Optimized", "version_number": "6.4.0",
+                            },
                         }))
                         .ok()?;
                         state.update(cx, |state, cx| {

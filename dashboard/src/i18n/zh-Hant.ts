@@ -891,13 +891,16 @@ export const zhHant: Messages = {
   'create.gameType.subtitle': '你的伺服器要用來做什麼？',
   'create.gameType.new': '新功能',
   'create.gameType.modpack': 'Modrinth 模組包',
-  'create.gameType.modpackDescription': '從 Modrinth 模組包建立 Fabric 伺服器',
+  'create.gameType.modpackDescription':
+    '從 Modrinth 模組包建立 Fabric、Forge 或 NeoForge 伺服器',
 
   // GameTypeMappings: games' titles and descriptions
   'create.game.genericTitle': '{name}（通用）',
   'create.game.vanillaDescription': 'Mojang 官方的標準原版 Minecraft 伺服器。',
   'create.game.forgeDescription':
     '模組框架，可用來安裝模組並自訂你的 Minecraft 體驗。',
+  'create.game.neoforgeDescription':
+    '社群維護的 Forge 分支，有自己的模組，適用於 Minecraft 1.20.2 及更新版本。',
   'create.game.fabricDescription': '輕量級的 Minecraft 模組工具鏈。',
   'create.game.paperDescription':
     '高效能的 Spigot 分支，旨在修正遊戲玩法與機制上的不一致。',
@@ -913,7 +916,7 @@ export const zhHant: Messages = {
   // ModpackCreateForm: creating a server from a Modrinth modpack
   'create.modpack.sourceTitle': '選擇模組包',
   'create.modpack.sourceDescription':
-    '搜尋 Modrinth、貼上 Modrinth 連結，或上傳 .mrpack 檔案。僅支援 Fabric 模組包。',
+    '搜尋 Modrinth、貼上 Modrinth 連結，或上傳 .mrpack 檔案。支援 Fabric、Forge 和 NeoForge 模組包。',
   'create.modpack.searchPlaceholder': '搜尋模組包，或貼上 Modrinth 連結',
   'create.modpack.onlyFabric': '僅顯示 Fabric 模組包',
   'create.modpack.upload': '上傳 .mrpack',

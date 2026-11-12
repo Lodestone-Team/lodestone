@@ -61,10 +61,15 @@ pub fn text(message: M) -> &'static str {
         M::GameTypeSubtitle => "À quoi servira votre serveur ?",
         M::GameTypeNew => "Nouveau",
         M::GameTypeModpack => "Modpack Modrinth",
-        M::GameTypeModpackDescription => "Créer un serveur Fabric à partir d’un modpack Modrinth",
+        M::GameTypeModpackDescription => {
+            "Créer un serveur Fabric, Forge ou NeoForge à partir d’un modpack Modrinth"
+        }
         M::GameVanillaDescription => "Serveur Minecraft vanilla standard de Mojang.",
         M::GameForgeDescription => {
             "Framework de modding pour installer des mods et personnaliser votre expérience Minecraft."
+        }
+        M::GameNeoForgeDescription => {
+            "Fork communautaire de Forge, avec ses propres mods, pour Minecraft 1.20.2 et versions ultérieures."
         }
         M::GameFabricDescription => "Chaîne d’outils de modding légère pour Minecraft.",
         M::GamePaperDescription => {
@@ -78,10 +83,9 @@ pub fn text(message: M) -> &'static str {
         M::GameGenericDescription => "Jeu inconnu : {name}",
         M::ModpackSourceTitle => "Choisissez un modpack",
         M::ModpackSourceDescription => {
-            "Recherchez sur Modrinth, collez un lien Modrinth ou importez un fichier .mrpack. Seuls les modpacks Fabric sont pris en charge."
+            "Recherchez sur Modrinth, collez un lien Modrinth ou importez un fichier .mrpack. Les modpacks Fabric, Forge et NeoForge sont pris en charge."
         }
         M::ModpackSearchPlaceholder => "Rechercher des modpacks ou coller un lien Modrinth",
-        M::ModpackOnlyFabric => "Afficher uniquement les modpacks Fabric",
         M::ModpackUpload => "Importer un .mrpack",
         M::ModpackVersionTitle => "Choisissez une version",
         M::ModpackVersionUploaded => "Le modpack importé.",

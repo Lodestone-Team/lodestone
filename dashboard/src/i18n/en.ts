@@ -1132,7 +1132,7 @@ export const en = {
   'create.gameType.new': 'New',
   'create.gameType.modpack': 'Modrinth modpack',
   'create.gameType.modpackDescription':
-    'Create a Fabric server from a Modrinth modpack',
+    'Create a Fabric, Forge or NeoForge server from a Modrinth modpack',
 
   // GameTypeMappings: games' titles and descriptions
   /** {name}: the game's name, as the core sends it */
@@ -1141,6 +1141,8 @@ export const en = {
     'Standard vanilla Minecraft server from Mojang.',
   'create.game.forgeDescription':
     'Modding framework that allows you to install mods and customize your Minecraft experience.',
+  'create.game.neoforgeDescription':
+    'Community fork of Forge with its own mods, for Minecraft 1.20.2 and later.',
   'create.game.fabricDescription':
     'Lightweight modding toolchain for Minecraft.',
   'create.game.paperDescription':
@@ -1159,7 +1161,7 @@ export const en = {
   // ModpackCreateForm: creating a server from a Modrinth modpack
   'create.modpack.sourceTitle': 'Select a modpack',
   'create.modpack.sourceDescription':
-    'Search Modrinth, paste a Modrinth link, or upload a .mrpack file. Only Fabric modpacks are supported.',
+    'Search Modrinth, paste a Modrinth link, or upload a .mrpack file. Fabric, Forge and NeoForge modpacks are supported.',
   'create.modpack.searchPlaceholder':
     'Search modpacks, or paste a Modrinth link',
   'create.modpack.onlyFabric': 'Only show Fabric modpacks',

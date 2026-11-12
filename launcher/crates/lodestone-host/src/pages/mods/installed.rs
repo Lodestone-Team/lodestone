@@ -1,5 +1,5 @@
-//! The Installed view (`InstalledMods.tsx`, `ClientPackPanel.tsx`): the client modpack
-//! of a Fabric server, the toolbar (update all, check for updates, upload), and a row
+//! The Installed view (`InstalledMods.tsx`, `ClientPackPanel.tsx`): the modpack panel
+//! (see [`super::modpack`]), the client modpack of a Fabric server, the toolbar (update all, check for updates, upload), and a row
 //! per mod with its update, Modrinth link, switch and delete.
 
 use std::path::PathBuf;
@@ -927,6 +927,7 @@ impl ModsPage {
             .flex()
             .flex_col()
             .gap(px(16.))
+            .children(self.modpack_panel(cx))
             .when(!first_load, |this| {
                 this.children(self.client_pack_panel(cx))
             })

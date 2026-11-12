@@ -201,6 +201,7 @@ impl ModFolder {
             Game::MinecraftJava { variant } => match variant {
                 MinecraftVariant::Fabric => InstalledModLoader::Fabric,
                 MinecraftVariant::Forge => InstalledModLoader::Forge,
+                MinecraftVariant::NeoForge => InstalledModLoader::NeoForge,
                 MinecraftVariant::Paper => InstalledModLoader::Paper,
                 MinecraftVariant::Spigot => InstalledModLoader::Spigot,
                 _ => return Err(unsupported_instance()),

@@ -74,6 +74,8 @@ pub enum ServerLoader {
     Vanilla,
     Fabric,
     Forge,
+    #[serde(rename = "neoforge")]
+    NeoForge,
     Paper,
     Spigot,
     #[serde(other)]
@@ -86,6 +88,7 @@ impl ServerLoader {
             ServerLoader::Vanilla => "Vanilla",
             ServerLoader::Fabric => "Fabric",
             ServerLoader::Forge => "Forge",
+            ServerLoader::NeoForge => "NeoForge",
             ServerLoader::Paper => "Paper",
             ServerLoader::Spigot => "Spigot",
             ServerLoader::Other => "Other",

@@ -199,6 +199,28 @@ pub fn text(message: M) -> &'static str {
         M::ModsImportHint => {
             "Importez-le dans Prism Launcher, l’application Modrinth ou ATLauncher pour tout obtenir dans les bonnes versions."
         }
+        M::ModpackFrom => "Ce serveur utilise le modpack {pack}.",
+        M::ModpackCheck => "Rechercher une mise à jour",
+        M::ModpackCheckFailed => "Impossible de rechercher une mise à jour : {error}",
+        M::ModpackUpToDate => "C’est la version la plus récente.",
+        M::ModpackUpdateTo => "Mettre à jour vers {version}",
+        M::ModpackFromFile => "Mettre à jour depuis un fichier",
+        M::ModpackFilePrompt => "Mettre à jour",
+        M::ModpackNotMrpack => "{name} n’est pas un fichier .mrpack.",
+        M::ModpackPlanFailed => "Impossible de préparer la mise à jour : {error}",
+        M::ModpackDialogTitle => "Mettre à jour le modpack ?",
+        M::ModpackDialogIntro => "{pack} passe de {from} à {to}.",
+        M::ModpackDialogReinstall => "Le serveur passe à {software}, qui est réinstallé.",
+        M::ModpackDialogKept => "Les fichiers que vous avez modifiés restent tels quels : {files}",
+        M::ModpackDialogNothing => "Aucun fichier ne change.",
+        M::ModpackDialogStop => {
+            "Arrêtez d’abord le serveur : il ne peut pas être mis à jour pendant qu’il tourne."
+        }
+        M::ModpackDialogUnsupported => "Cette version ne peut pas être utilisée : {reason}",
+        M::ModpackUpdate => "Mettre à jour",
+        M::ModpackUpdated => "{pack} mis à jour vers {version}.",
+        M::ModpackUpdateFailed => "Impossible de mettre à jour le modpack : {error}",
+        M::ModpackUnknownVersion => "version inconnue",
         M::ModsProjectFailed => "Impossible de charger le projet : {error}",
         M::ModsSource => "Code source",
         M::ModsIssues => "Tickets",
@@ -328,6 +350,9 @@ pub fn plural(message: P) -> [&'static str; 2] {
             "Afficher plus ({count} restantes)",
         ],
         P::ModsMoreGameVersions => ["+{count} autre", "+{count} autres"],
+        P::ModpackAdded => ["{count} fichier ajouté", "{count} fichiers ajoutés"],
+        P::ModpackReplaced => ["{count} fichier remplacé", "{count} fichiers remplacés"],
+        P::ModpackRemoved => ["{count} fichier supprimé", "{count} fichiers supprimés"],
         P::FriendsConnectedCount => ["{count} ami connecté", "{count} amis connectés"],
     }
 }

@@ -887,13 +887,16 @@ export const zhHans: Messages = {
   'create.gameType.subtitle': '你的服务器将用于什么？',
   'create.gameType.new': '新功能',
   'create.gameType.modpack': 'Modrinth 整合包',
-  'create.gameType.modpackDescription': '从 Modrinth 整合包创建 Fabric 服务器',
+  'create.gameType.modpackDescription':
+    '从 Modrinth 整合包创建 Fabric、Forge 或 NeoForge 服务器',
 
   // GameTypeMappings: games' titles and descriptions
   'create.game.genericTitle': '{name}（通用）',
   'create.game.vanillaDescription': 'Mojang 官方的标准原版 Minecraft 服务器。',
   'create.game.forgeDescription':
     '模组框架，可用于安装模组并自定义你的 Minecraft 体验。',
+  'create.game.neoforgeDescription':
+    '社区维护的 Forge 分支，有自己的模组，适用于 Minecraft 1.20.2 及更高版本。',
   'create.game.fabricDescription': '轻量级的 Minecraft 模组工具链。',
   'create.game.paperDescription':
     '高性能的 Spigot 分支，旨在修复游戏玩法和机制上的不一致。',
@@ -909,7 +912,7 @@ export const zhHans: Messages = {
   // ModpackCreateForm: creating a server from a Modrinth modpack
   'create.modpack.sourceTitle': '选择整合包',
   'create.modpack.sourceDescription':
-    '搜索 Modrinth、粘贴 Modrinth 链接，或上传 .mrpack 文件。仅支持 Fabric 整合包。',
+    '搜索 Modrinth、粘贴 Modrinth 链接，或上传 .mrpack 文件。支持 Fabric、Forge 和 NeoForge 整合包。',
   'create.modpack.searchPlaceholder': '搜索整合包，或粘贴 Modrinth 链接',
   'create.modpack.onlyFabric': '仅显示 Fabric 整合包',
   'create.modpack.upload': '上传 .mrpack',

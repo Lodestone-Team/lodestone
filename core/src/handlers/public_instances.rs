@@ -65,6 +65,7 @@ fn loader_of(variant: &MinecraftVariant) -> PublicLoader {
         MinecraftVariant::Vanilla => PublicLoader::Vanilla,
         MinecraftVariant::Fabric => PublicLoader::Fabric,
         MinecraftVariant::Forge => PublicLoader::Forge,
+        MinecraftVariant::NeoForge => PublicLoader::NeoForge,
         MinecraftVariant::Paper => PublicLoader::Paper,
         MinecraftVariant::Spigot => PublicLoader::Spigot,
         MinecraftVariant::Other { .. } => PublicLoader::Other,

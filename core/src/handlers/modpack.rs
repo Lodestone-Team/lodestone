@@ -1,4 +1,5 @@
 //! Modpacks: `/modpack/inspect`, `/modpack/upload` and `/instance/create_modpack`.
+//! Updating a server's modpack is in [`super::modpack_update`].
 //!
 //! All need `CreateInstance`. An uploaded pack can hold any jar (in its overrides, or from
 //! GitHub), so uploading one, and creating an instance from an upload, also needs
@@ -18,13 +19,11 @@ use super::util::AuthedUser;
 use crate::auth::user::UserAction;
 use crate::error::{Error, ErrorKind};
 use crate::events::Event;
-use crate::implementations::minecraft::{
-    validate_new_instance_name, FabricLoaderVersion, Flavour, SetupConfig,
-};
+use crate::implementations::minecraft::{validate_new_instance_name, SetupConfig};
 use crate::modpack::store::StoredPack;
 use crate::modpack::{
-    describe_skipped, install_pack_contents, read_pack_async, write_port, ModpackInfo,
-    ModpackOrigin, MAX_PACK_FILE_BYTES,
+    describe_skipped, install_pack_contents, read_pack_async, server_flavour, write_port,
+    ModpackInfo, ModpackOrigin, MAX_PACK_FILE_BYTES,
 };
 use crate::modrinth::links::check_api_segment;
 use crate::modrinth::CDN_HOST;
@@ -73,7 +72,7 @@ pub struct CreateModpackInstanceRequest {
 }
 
 /// The pack of a Modrinth modpack version: a stored copy, or a new download.
-async fn modrinth_pack(state: &AppState, version_id: &str) -> Result<StoredPack, Error> {
+pub(super) async fn modrinth_pack(state: &AppState, version_id: &str) -> Result<StoredPack, Error> {
     let version_id = check_api_segment(version_id, "version id")?;
     if let Some(pack) = state.mods.packs.find_version(version_id) {
         return Ok(pack);
@@ -123,6 +122,40 @@ async fn modrinth_pack(state: &AppState, version_id: &str) -> Result<StoredPack,
         .packs
         .get(&id)
         .ok_or_else(|| eyre!("The modpack was removed right after it was stored").into())
+}
+
+/// The pack `source` names: a Modrinth version (downloaded, or the stored copy), or a pack
+/// this user uploaded. Using an uploaded pack needs `WriteGlobalFile`, since it can hold
+/// any jar.
+pub(super) async fn stored_pack(
+    state: &AppState,
+    requester: &AuthedUser,
+    source: &ModpackSource,
+) -> Result<StoredPack, Error> {
+    Ok(match source {
+        ModpackSource::Modrinth { version_id } => modrinth_pack(state, version_id).await?,
+        ModpackSource::Upload { upload_id } => {
+            let stored = state
+                .mods
+                .packs
+                .get(upload_id)
+                .filter(|p| p.uploader.is_none() || p.uploader.as_ref() == Some(&requester.uid))
+                .ok_or_else(|| Error {
+                    kind: ErrorKind::NotFound,
+                    source: eyre!(
+                        "The modpack was not found. Packs are kept for one hour; upload it again"
+                    ),
+                })?;
+            // an `upload_id` from `/modpack/inspect` is a Modrinth pack; only packs that
+            // were really uploaded need the permission to add any jar
+            if stored.uploader.is_some() {
+                requester
+                    .require(state, UserAction::WriteGlobalFile)
+                    .await?;
+            }
+            stored
+        }
+    })
 }
 
 /// The info of a stored pack; only supported packs get an `upload_id`.
@@ -230,30 +263,7 @@ async fn create_modpack_instance(
         .require(&state, UserAction::CreateInstance)
         .await?;
     check_settings(&request)?;
-    let stored = match &request.source {
-        ModpackSource::Modrinth { version_id } => modrinth_pack(&state, version_id).await?,
-        ModpackSource::Upload { upload_id } => {
-            let stored = state
-                .mods
-                .packs
-                .get(upload_id)
-                .filter(|p| p.uploader.is_none() || p.uploader.as_ref() == Some(&requester.uid))
-                .ok_or_else(|| Error {
-                    kind: ErrorKind::NotFound,
-                    source: eyre!(
-                        "The modpack was not found. Packs are kept for one hour; upload it again"
-                    ),
-                })?;
-            // an `upload_id` from `/modpack/inspect` is a Modrinth pack; only packs that
-            // were really uploaded need the permission to add any jar
-            if stored.uploader.is_some() {
-                requester
-                    .require(&state, UserAction::WriteGlobalFile)
-                    .await?;
-            }
-            stored
-        }
-    };
+    let stored = stored_pack(&state, &requester, &request.source).await?;
     // scripts in a pack are only copied for the owner, while code execution is on
     let allow_scripts = requester.is_owner && state.code_execution_enabled();
     let pack = read_pack_async(stored.path(), allow_scripts).await?;
@@ -266,19 +276,12 @@ async fn create_modpack_instance(
         }
         None => ModpackOrigin::from_upload(&pack.info),
     };
-    let loader_version = pack
-        .info
-        .loader_version
-        .clone()
-        .ok_or_else(|| bad_request("The modpack does not say which Fabric loader it needs"))?;
+    let flavour = server_flavour(&pack.info).await?;
     let port = request.port;
     let setup_config = SetupConfig {
         name: request.name.clone(),
         version: pack.info.game_version.clone(),
-        flavour: Flavour::Fabric {
-            loader_version: Some(FabricLoaderVersion::new(loader_version)),
-            installer_version: None,
-        },
+        flavour,
         port,
         cmd_args: Vec::new(),
         description: request.description.clone(),
@@ -339,5 +342,13 @@ pub fn get_modpack_routes(state: AppState) -> Router {
             post(upload_modpack).layer(DefaultBodyLimit::disable()),
         )
         .route("/instance/create_modpack", post(create_modpack_instance))
+        .route(
+            "/instance/{uuid}/modpack/update/plan",
+            post(super::modpack_update::plan_update),
+        )
+        .route(
+            "/instance/{uuid}/modpack/update",
+            post(super::modpack_update::update_modpack),
+        )
         .with_state(state)
 }

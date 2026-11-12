@@ -37,6 +37,7 @@ impl InstanceState {
 pub enum MinecraftVariant {
     Vanilla,
     Forge,
+    NeoForge,
     Fabric,
     Paper,
     Spigot,
@@ -72,6 +73,7 @@ impl Game {
             Game::MinecraftJava { variant } => match variant {
                 MinecraftVariant::Vanilla => "Minecraft".into(),
                 MinecraftVariant::Forge => "Forge (Minecraft)".into(),
+                MinecraftVariant::NeoForge => "NeoForge (Minecraft)".into(),
                 MinecraftVariant::Fabric => "Fabric (Minecraft)".into(),
                 MinecraftVariant::Paper => "Paper (Minecraft)".into(),
                 MinecraftVariant::Spigot => "Spigot (Minecraft)".into(),
