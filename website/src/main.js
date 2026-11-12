@@ -436,16 +436,13 @@ function typeTerminal() {
 }
 
 // The Connect section's join: when it scrolls into view, the launcher's bar
-// fills while it gets the server's mods, then says it joined. Without
-// JavaScript, or with reduced motion, it shows the end.
+// fills once while it gets the server's mods. Without JavaScript, or with
+// reduced motion, it shows full.
 function playJoin() {
   const link = document.querySelector('[data-link]');
   if (!link || reducedMotion) return;
   const bar = link.querySelector('[data-join-bar]');
-  const text = link.querySelector('[data-join-text]');
-  const done = text.textContent;
   bar.style.transform = 'scaleX(0)';
-  text.textContent = 'Getting 3 mods from the server…';
 
   let started = false;
   new IntersectionObserver(
@@ -454,7 +451,6 @@ function playJoin() {
       started = true;
       bar.style.transition = 'transform 1.8s cubic-bezier(0.4, 0, 0.2, 1) 0.4s';
       requestAnimationFrame(() => (bar.style.transform = 'scaleX(1)'));
-      bar.addEventListener('transitionend', () => (text.textContent = done), { once: true });
     },
     { threshold: 0.6 },
   ).observe(link);

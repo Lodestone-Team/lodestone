@@ -1017,11 +1017,6 @@ h1 .phrase + .phrase {
   transform-origin: left;
 }
 
-.join-text {
-  color: var(--text-muted);
-  font-size: 13px;
-}
-
 .wire {
   position: relative;
   height: 28px;
@@ -1140,7 +1135,7 @@ h1 .phrase + .phrase {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  margin: 14px 0 0;
+  margin: clamp(32px, 5vh, 48px) 0 0;
   color: var(--text-faint);
   font-size: 14px;
 }

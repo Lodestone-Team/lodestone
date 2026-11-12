@@ -56,6 +56,21 @@ To run it on Cloudflare's own runtime instead, build first, then run
 - **Social preview.** `src/images/og.jpg` is a 1200×630 capture of the hero.
 - **Download count and star count** work as on the launcher page (below).
 
+## Speed sections
+
+The launcher and Host pages each end with a comparison ("Faster than the rest",
+"Light enough to run beside your game"). Every number has a source, named in
+the section's footnote; change one only with a new measurement.
+
+- **Launcher:** the six-launcher benchmark on one Windows 11 PC (Ryzen 9
+  9950X3D, 64 GB), 10 and 11 November 2026: window on screen, ready, CPU at
+  idle, installed size. Prism uses slightly less memory at idle, and the
+  footnote says so.
+- **Host:** published download sizes only (GitHub releases and Docker Hub,
+  12 November 2026). Lodestone Host's is the new Host app's developer build 3845;
+  update it when a host-v release is out. Nothing has been benchmarked against
+  other server managers yet.
+
 ## The Host page
 
 The launcher page's layout in Host's green, with the dashboard's logo.

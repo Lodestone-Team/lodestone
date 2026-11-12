@@ -384,6 +384,129 @@ a:focus-visible {
   font-weight: 600;
 }
 
+/* How fast it is next to the others: one chart per measure, our row in the
+   page's accent and the others in grey. Text stays in text colours. */
+
+.speed {
+  width: 100%;
+  max-width: 1080px;
+  margin: clamp(56px, 10vh, 96px) 0 0;
+  text-align: left;
+}
+
+.speed h2 {
+  margin: 0;
+  font-family: 'Clash Grotesk', 'Satoshi', system-ui, sans-serif;
+  font-size: clamp(28px, 4vw, 44px);
+  font-weight: 600;
+  line-height: 1.08;
+  letter-spacing: -0.02em;
+  text-align: center;
+}
+
+.speed-lede {
+  max-width: 56ch;
+  margin: 12px auto 0;
+  color: var(--text-muted);
+  font-size: 17px;
+  text-align: center;
+}
+
+.speed-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 32px;
+}
+
+.speed-chart {
+  margin: 0;
+  padding: 20px 22px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--bg-raised);
+}
+
+.speed-chart figcaption {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 14px;
+}
+
+.speed-chart figcaption b {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.speed-chart figcaption span {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.speed-chart ul {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.speed-chart li {
+  display: grid;
+  grid-template-columns: 112px minmax(0, 1fr) 76px;
+  align-items: center;
+  gap: 12px;
+  color: var(--text-muted);
+  font-size: 13.5px;
+}
+
+.speed-chart li.is-us {
+  color: var(--text);
+  font-weight: 700;
+}
+
+.speed-bar {
+  height: 8px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.05);
+  overflow: hidden;
+}
+
+.speed-bar i {
+  display: block;
+  height: 100%;
+  min-width: 3px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.22);
+}
+
+.is-us .speed-bar i {
+  background: var(--accent);
+}
+
+.speed-value {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.speed-value.is-note {
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.speed-foot {
+  max-width: 80ch;
+  margin: 16px auto 0;
+  color: var(--text-faint);
+  font-size: 13px;
+  text-align: center;
+}
+
+.speed-foot a {
+  color: var(--text-muted);
+}
+
 /* Footer */
 
 .foot {
@@ -408,6 +531,15 @@ a:focus-visible {
 }
 
 @media (max-width: 560px) {
+  .speed-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .speed-chart li {
+    grid-template-columns: 92px minmax(0, 1fr) 64px;
+    gap: 8px;
+  }
+
   .top {
     padding: 16px;
   }
