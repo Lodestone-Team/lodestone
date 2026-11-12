@@ -836,9 +836,9 @@ h1 .phrase + .phrase {
 
 .card-icon-connect {
   border-radius: 6px;
-  background: linear-gradient(160deg, #262540, #16151f);
+  background: linear-gradient(160deg, #123430, #0e1a18);
   box-shadow: inset 0 0 0 1px var(--border-strong);
-  color: var(--lilac);
+  color: var(--mint);
 }
 
 /* The launcher's Play button, in the launcher's blue. */
@@ -873,7 +873,7 @@ h1 .phrase + .phrase {
   align-items: center;
   gap: 10px;
   margin: 0 0 16px;
-  color: var(--lilac);
+  color: var(--mint);
   font-size: 13px;
   font-weight: 700;
   letter-spacing: 0.12em;
@@ -916,14 +916,14 @@ h1 .phrase + .phrase {
   isolation: isolate;
 }
 
-/* A soft violet glow behind the two computers, from the gem. */
+/* A soft teal glow behind the two computers, in Lodestone Host's colours. */
 .link::before {
   content: '';
   position: absolute;
   inset: -30% 5%;
   background:
     radial-gradient(closest-side at 30% 50%, rgba(34, 201, 128, 0.07), transparent),
-    radial-gradient(closest-side at 50% 50%, rgba(91, 79, 192, 0.14), transparent),
+    radial-gradient(closest-side at 50% 50%, rgba(31, 191, 168, 0.13), transparent),
     radial-gradient(closest-side at 70% 50%, rgba(47, 111, 168, 0.08), transparent);
   z-index: -1;
   pointer-events: none;
@@ -1034,7 +1034,7 @@ h1 .phrase + .phrase {
   top: 50%;
   height: 2px;
   translate: 0 -50%;
-  background: linear-gradient(90deg, rgba(46, 242, 154, 0.5), rgba(154, 143, 245, 0.7), rgba(106, 174, 238, 0.5));
+  background: linear-gradient(90deg, rgba(46, 242, 154, 0.5), rgba(31, 191, 168, 0.85), rgba(46, 242, 154, 0.5));
 }
 
 .wire-dot {
@@ -1046,7 +1046,7 @@ h1 .phrase + .phrase {
   margin: -3px 0 0 -3px;
   border-radius: 50%;
   background: #fff;
-  box-shadow: 0 0 10px rgba(154, 143, 245, 0.9);
+  box-shadow: 0 0 10px rgba(46, 242, 154, 0.9);
   opacity: 0;
   animation: travel 2.4s linear infinite;
 }
@@ -1080,10 +1080,10 @@ h1 .phrase + .phrase {
   width: 28px;
   height: 28px;
   translate: -50% -50%;
-  border: 1px solid rgba(154, 143, 245, 0.5);
+  border: 1px solid rgba(31, 191, 168, 0.55);
   border-radius: 50%;
-  background: #16151f;
-  color: var(--lilac);
+  background: #0e1a18;
+  color: var(--mint);
 }
 
 .steps {
@@ -1111,7 +1111,7 @@ h1 .phrase + .phrase {
   margin-bottom: 12px;
   border: 1px solid var(--border-strong);
   border-radius: 50%;
-  color: var(--lilac);
+  color: var(--mint);
   font-size: 13px;
   font-weight: 700;
 }
@@ -1147,7 +1147,7 @@ h1 .phrase + .phrase {
 
 .together-note svg {
   flex: none;
-  color: var(--lilac);
+  color: var(--mint);
 }
 
 .together .actions {
@@ -1264,7 +1264,7 @@ h1 .phrase + .phrase {
     width: 2px;
     height: auto;
     translate: -50% 0;
-    background: linear-gradient(180deg, rgba(46, 242, 154, 0.5), rgba(154, 143, 245, 0.7), rgba(106, 174, 238, 0.5));
+    background: linear-gradient(180deg, rgba(46, 242, 154, 0.5), rgba(31, 191, 168, 0.85), rgba(46, 242, 154, 0.5));
   }
 
   .wire-dot {
