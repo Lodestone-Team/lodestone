@@ -178,6 +178,19 @@ const ModRow = ({
           )}
           {/* players never install plugins, so plugins show nothing */}
           {kind === 'mod' && <ClientRequirementLabel mod={mod} marks={marks} />}
+          {/* by the name, so the controls on the right line up on every row */}
+          {mod.modrinth && (
+            <a
+              href={modrinthProjectUrl(kind, mod.modrinth.slug)}
+              target="_blank"
+              rel="noreferrer noopener"
+              title={t('mods.installed.viewOnModrinth')}
+              aria-label={t('mods.installed.viewOnModrinth')}
+              className="-my-1.5 shrink-0 rounded-sm p-1.5 text-white/50 hover:text-white/75 focus-visible:ring-4 focus-visible:ring-blue-faded/50 focus-visible:outline-hidden"
+            >
+              <FontAwesomeIcon icon={faArrowUpRightFromSquare} />
+            </a>
+          )}
         </div>
         <div className="truncate text-small text-white/30">
           {mod.file_name} · {formatBytes(mod.size)}
@@ -202,18 +215,6 @@ const ModRow = ({
               onClick={runUpdate}
             />
           </DisabledTooltip>
-        )}
-        {mod.modrinth && (
-          <a
-            href={modrinthProjectUrl(kind, mod.modrinth.slug)}
-            target="_blank"
-            rel="noreferrer noopener"
-            title={t('mods.installed.viewOnModrinth')}
-            aria-label={t('mods.installed.viewOnModrinth')}
-            className="rounded-sm p-1.5 text-white/50 hover:text-white/75 focus-visible:ring-4 focus-visible:ring-blue-faded/50 focus-visible:outline-hidden"
-          >
-            <FontAwesomeIcon icon={faArrowUpRightFromSquare} />
-          </a>
         )}
         {marks && (
           <WithTooltip message={markTooltip}>
