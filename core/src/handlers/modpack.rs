@@ -302,6 +302,12 @@ async fn create_modpack_instance(
     let api = state.mods.modrinth.clone();
     let event_broadcaster = state.event_broadcaster.clone();
     let game_version = pack.info.game_version.clone();
+    let changelog = match &stored.version_id {
+        Some(version_id) => {
+            crate::modpack::modrinth_changelog(state.mods.modrinth.as_ref(), version_id).await
+        }
+        None => None,
+    };
     let post_setup: PostSetupStep = Box::new(move |root, event_id| {
         Box::pin(async move {
             // `stored` keeps the pack file until the instance is set up
@@ -325,13 +331,14 @@ async fn create_modpack_instance(
             // the first entry of the history, which later updates can go back to
             let mut history = History::default();
             history.remember_downloads(&report.files);
-            let entry = entry_as_is(
+            let mut entry = entry_as_is(
                 HistoryKind::Install,
                 origin,
                 game_version,
                 flavour,
                 &record_of(&report.files),
             );
+            entry.changelog = changelog;
             history.push(&root, entry);
             if let Err(e) = history.save(&root).await {
                 tracing::warn!("Could not start the modpack history: {e}");

@@ -200,6 +200,7 @@ crate::i18n::messages! {
         ModpackUpdateFailed = "Couldn’t update the modpack: {error}",
         ModpackUnknownVersion = "unknown version",
         /// The modpack's history (Mods tab): {version} is a modpack version, {size} a size.
+        ModpackWhatsNew = "What’s new",
         ModpackOut = "{version} is out",
         ModpackHistory = "History",
         ModpackHistoryFailed = "Couldn’t load the modpack’s history: {error}",

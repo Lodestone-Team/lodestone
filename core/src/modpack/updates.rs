@@ -1,7 +1,8 @@
 //! Checking for newer versions of the modpacks servers were made from.
 //!
 //! [`watch`] checks every server whose modpack is on Modrinth soon after the core starts
-//! and then every [`CHECK_EVERY`]. A newer version is one for the server's loader that
+//! and then every [`CHECK_EVERY`], while the `check_modpack_updates` setting is on (it is
+//! by default). "Check for an update" ([`check_instance`]) works either way. A newer version is one for the server's loader that
 //! is newer than the server's (alphas aren't offered). The first time a version is
 //! found, a `ModpackUpdateAvailable` event says so; [`NOTIFIED_FILE`] remembers it, so
 //! a restart doesn't say it again.
@@ -43,6 +44,8 @@ pub struct AvailableUpdate {
     pub game_versions: Vec<String>,
     /// As Modrinth gives it (RFC 3339).
     pub date_published: String,
+    /// What the modpack's author wrote about it (Markdown), if anything.
+    pub changelog: Option<String>,
 }
 
 /// The newest versions found, by instance.
@@ -123,6 +126,7 @@ pub async fn newest_version(
         name: newest.name.clone(),
         game_versions: newest.game_versions.clone(),
         date_published: newest.date_published.clone(),
+        changelog: newest.changelog.clone(),
     }))
 }
 
@@ -195,10 +199,14 @@ pub fn forget(state: &AppState, uuid: &InstanceUuid) {
 }
 
 /// Checks every server made from a Modrinth modpack, soon after the core starts and
-/// then every [`CHECK_EVERY`].
+/// then every [`CHECK_EVERY`], unless the setting is off.
 pub async fn watch(state: AppState) {
     tokio::time::sleep(FIRST_CHECK_AFTER).await;
     loop {
+        if !state.global_settings.lock().await.check_modpack_updates() {
+            tokio::time::sleep(CHECK_EVERY).await;
+            continue;
+        }
         let instances: Vec<GameInstance> = state
             .instances
             .iter()
@@ -245,7 +253,11 @@ mod tests {
         let fake = FakeModrinth::default();
         let version = |id: &str, date: &str| FakeVersion::new("pack", id, "p.mrpack").date(date);
         fake.add(version("v1", "2024-01-01T00:00:00Z"));
-        fake.add(version("v2", "2024-02-01T00:00:00Z").beta());
+        fake.add(
+            version("v2", "2024-02-01T00:00:00Z")
+                .beta()
+                .changelog("- Sodium 0.6.9"),
+        );
         let mut alpha = version("v3", "2024-03-01T00:00:00Z");
         alpha.version.version_type = ModrinthVersionType::Alpha;
         fake.add(alpha);
@@ -258,6 +270,7 @@ mod tests {
             .unwrap();
         assert_eq!(found.version_id, "v2");
         assert_eq!(found.version_number, "v2-number");
+        assert_eq!(found.changelog.as_deref(), Some("- Sodium 0.6.9"));
 
         // nothing newer
         assert_eq!(

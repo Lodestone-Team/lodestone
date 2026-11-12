@@ -460,6 +460,11 @@ pub fn text(message: M) -> &'static str {
         M::NoPasswordYet => {
             "Pas encore de mot de passe. Seules les applications de cet ordinateur peuvent utiliser ce core."
         }
+        M::ModpackChecks => "Rechercher les mises à jour des modpacks",
+        M::ModpackChecksHint => {
+            "Toutes les quelques heures, chercher sur Modrinth de nouvelles versions des modpacks dont les serveurs sont issus, et le signaler. « Rechercher une mise à jour » dans l’onglet Mods d’un serveur fonctionne toujours quand c’est désactivé."
+        }
+        M::ModpackChecksKeywords => "modpack mise à jour notification Modrinth automatique",
         M::RemoteAccessKeywords => "à distance réseau LAN partager",
         M::DomainKeywords => "adresse nom d’hôte URL",
         M::OpenPortKeywords => "redirection de port routeur UPnP pare-feu",

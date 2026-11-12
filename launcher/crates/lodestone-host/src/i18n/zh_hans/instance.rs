@@ -183,6 +183,7 @@ pub fn text(message: M) -> &'static str {
         M::ModpackUpdated => "已将 {pack} 更新到 {version}。",
         M::ModpackUpdateFailed => "无法更新整合包：{error}",
         M::ModpackUnknownVersion => "未知版本",
+        M::ModpackWhatsNew => "更新内容",
         M::ModpackOut => "{version} 已发布",
         M::ModpackHistory => "历史",
         M::ModpackHistoryFailed => "无法加载整合包的历史：{error}",

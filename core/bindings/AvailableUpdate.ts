@@ -11,4 +11,8 @@ name: string, game_versions: Array<string>,
 /**
  * As Modrinth gives it (RFC 3339).
  */
-date_published: string, };
+date_published: string, 
+/**
+ * What the modpack's author wrote about it (Markdown), if anything.
+ */
+changelog: string | null, };

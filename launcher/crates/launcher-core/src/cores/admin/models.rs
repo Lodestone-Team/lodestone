@@ -299,6 +299,10 @@ pub struct GlobalSettingsData {
     /// cores don't say: they always allow it.
     #[serde(default = "yes")]
     pub allow_remote_access: bool,
+    /// Whether the core looks for newer versions of servers' modpacks in the background.
+    /// Older cores don't have the check.
+    #[serde(default = "yes")]
+    pub check_modpack_updates: bool,
 }
 
 /// Where the core's HTTPS certificate comes from (`TlsMode`).

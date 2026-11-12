@@ -129,6 +129,8 @@ struct Prepared {
     plan: FilePlan,
     summary: ModpackUpdatePlan,
     allow_scripts: bool,
+    /// The changelog of the version, for the history.
+    changelog: Option<String>,
 }
 
 /// The files the server's current pack wrote: its record, else the files of the current
@@ -321,6 +323,17 @@ async fn prepare(
         note,
         target,
     };
+    // a restore goes back to a version whose changelog the history has
+    let changelog = match source {
+        UpdateSource::History { entry_id } => {
+            history.entry(*entry_id).and_then(|e| e.changelog.clone())
+        }
+        _ if !origin.version_id.is_empty() => {
+            crate::modpack::modrinth_changelog(state.mods.modrinth.as_ref(), &origin.version_id)
+                .await
+        }
+        _ => None,
+    };
     Ok(Prepared {
         instance,
         kind,
@@ -333,6 +346,7 @@ async fn prepare(
         plan,
         summary,
         allow_scripts,
+        changelog,
     })
 }
 
@@ -431,7 +445,7 @@ async fn record_history(prepared: &Prepared, root: &std::path::Path) -> Result<(
         history.remember_downloads(files);
     }
     let (game_version, flavour) = prepared.instance.server_software().await;
-    let entry = entry_for(
+    let mut entry = entry_for(
         prepared.kind.clone(),
         prepared.origin.clone(),
         game_version,
@@ -439,6 +453,7 @@ async fn record_history(prepared: &Prepared, root: &std::path::Path) -> Result<(
         &before.record,
         &prepared.plan,
     );
+    entry.changelog = prepared.changelog.clone();
     let (root, plan, new_files) = (
         root.to_path_buf(),
         prepared.plan.clone(),

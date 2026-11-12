@@ -93,6 +93,11 @@ pub fn modrinth_cdn_url(url: Option<&str>) -> Option<String> {
     ok.then(|| parsed.to_string())
 }
 
+/// The changelog of the Modrinth version `version_id`, if it has one.
+pub async fn modrinth_changelog(api: &dyn ModrinthApi, version_id: &str) -> Option<String> {
+    api.version(version_id).await.ok()?.changelog
+}
+
 impl ModpackOrigin {
     /// The origin of a pack from the Modrinth version `version_id`: the project's title and
     /// icon, and the version number.

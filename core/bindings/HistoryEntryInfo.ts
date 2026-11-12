@@ -19,4 +19,8 @@ current: boolean,
  * How many of its files Lodestone can't get back: it can only be restored when
  * this is 0.
  */
-missing: number, };
+missing: number, 
+/**
+ * What the modpack's author wrote about this version (Markdown).
+ */
+changelog: string | null, };

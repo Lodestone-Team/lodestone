@@ -100,6 +100,9 @@ pub struct HistoryEntry {
     /// Pack files the user had changed, which this entry left as they were.
     #[serde(default)]
     pub kept: Vec<String>,
+    /// What the modpack's author wrote about the version it installed (Markdown).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub changelog: Option<String>,
 }
 
 /// How to get a file back.
@@ -436,6 +439,7 @@ pub fn entry_for(
         files: plan.record.files.clone(),
         changes,
         kept: plan.kept.clone(),
+        changelog: None,
     }
 }
 
@@ -458,6 +462,7 @@ pub fn entry_as_is(
         files: record.files.clone(),
         changes: Vec::new(),
         kept: Vec::new(),
+        changelog: None,
     }
 }
 
@@ -508,6 +513,8 @@ pub struct HistoryEntryInfo {
     /// How many of its files Lodestone can't get back: it can only be restored when
     /// this is 0.
     pub missing: u32,
+    /// What the modpack's author wrote about this version (Markdown).
+    pub changelog: Option<String>,
 }
 
 /// `GET /instance/{uuid}/modpack/history`.
@@ -622,6 +629,7 @@ impl History {
                     file_count: entry.files.len() as u32,
                     current: current.is_some_and(|c| c.id == entry.id),
                     missing,
+                    changelog: entry.changelog.clone(),
                 }
             })
             .collect();

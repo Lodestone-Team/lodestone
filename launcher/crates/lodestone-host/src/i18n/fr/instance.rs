@@ -221,6 +221,7 @@ pub fn text(message: M) -> &'static str {
         M::ModpackUpdated => "{pack} mis à jour vers {version}.",
         M::ModpackUpdateFailed => "Impossible de mettre à jour le modpack : {error}",
         M::ModpackUnknownVersion => "version inconnue",
+        M::ModpackWhatsNew => "Nouveautés",
         M::ModpackOut => "{version} est disponible",
         M::ModpackHistory => "Historique",
         M::ModpackHistoryFailed => "Impossible de charger l’historique du modpack : {error}",

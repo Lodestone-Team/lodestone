@@ -954,6 +954,7 @@ mod tests {
             downloads: 0,
             files: vec![],
             dependencies: vec![],
+            changelog: None,
         };
         assert_eq!(
             folder.incompatibility(&version(&["bukkit"], &["1.20.1"])),
@@ -987,6 +988,7 @@ mod tests {
             downloads: 0,
             files: vec![],
             dependencies: vec![],
+            changelog: None,
         };
         let old = version("a", "2024-01-01T00:00:00Z");
         let new = version("b", "2024-02-01T00:00:00.123+00:00");

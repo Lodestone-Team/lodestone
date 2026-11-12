@@ -47,6 +47,9 @@ import {
   WithTooltip,
 } from './common';
 import ClientPackPanel from './ClientPackPanel';
+import ModpackPanel, { blameLabel } from './ModpackPanel';
+import { InstanceInfo } from 'bindings/InstanceInfo';
+import { ModpackHistory } from 'bindings/ModpackHistory';
 
 const ModRow = ({
   uuid,
@@ -55,6 +58,7 @@ const ModRow = ({
   mod,
   canWrite,
   onDelete,
+  blame,
 }: {
   uuid: string;
   kind: InstalledModKind;
@@ -63,6 +67,8 @@ const ModRow = ({
   mod: InstalledMod;
   canWrite: boolean;
   onDelete: (mod: InstalledMod) => void;
+  /** the modpack version the file came with ("since 6.4.0") */
+  blame: { label: string; tooltip: string } | null;
 }) => {
   const { t, formatBytes, formatList } = useI18n();
   const queryClient = useQueryClient();
@@ -192,8 +198,18 @@ const ModRow = ({
             </a>
           )}
         </div>
-        <div className="truncate text-small text-white/30">
-          {mod.file_name} · {formatBytes(mod.size)}
+        <div className="flex min-w-0 flex-row items-center gap-1.5">
+          <div className="truncate text-small text-white/30">
+            {mod.file_name} · {formatBytes(mod.size)}
+          </div>
+          {blame && (
+            <span
+              className="shrink-0 text-small text-white/50"
+              title={blame.tooltip}
+            >
+              {blame.label}
+            </span>
+          )}
         </div>
       </div>
       <div className="flex shrink-0 flex-row items-center gap-2">
@@ -263,6 +279,10 @@ const ModRowsSkeleton = () => (
 
 export default function InstalledMods({
   uuid,
+  instance,
+  history,
+  historyError,
+  canUploadPack,
   list,
   isLoading,
   error,
@@ -271,6 +291,11 @@ export default function InstalledMods({
   onCheckUpdates,
 }: {
   uuid: string;
+  instance: InstanceInfo;
+  /** the modpack history, for a server made from a modpack */
+  history: ModpackHistory | undefined;
+  historyError: string | null;
+  canUploadPack: boolean;
   list: InstalledModList | undefined;
   isLoading: boolean;
   error: ApiError | null;
@@ -440,6 +465,13 @@ export default function InstalledMods({
         })}
       </ConfirmDialog>
 
+      <ModpackPanel
+        instance={instance}
+        history={history}
+        historyError={historyError}
+        canWrite={canWrite}
+        canUpload={canUploadPack}
+      />
       {list && !error && <ClientPackPanel uuid={uuid} list={list} />}
       <div className="flex flex-row flex-wrap items-center justify-between gap-2">
         <div className="text-medium text-white/50">
@@ -526,6 +558,7 @@ export default function InstalledMods({
               mod={mod}
               canWrite={canWrite}
               onDelete={setToDelete}
+              blame={blameLabel(history, list.directory, mod.file_name)}
             />
           ))}
         </div>

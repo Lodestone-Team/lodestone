@@ -77,6 +77,51 @@ fn entry_version(entry: &HistoryEntryInfo) -> String {
         .unwrap_or_else(|| t(M::ModpackUnknownVersion).to_string())
 }
 
+/// A changelog (Markdown from Modrinth), in a box that scrolls when it is long.
+fn changelog_box(id: impl Into<SharedString>, changelog: &str) -> AnyElement {
+    let blocks = launcher_core::markdown::parse(changelog);
+    div()
+        .id(id.into())
+        .max_h(px(320.))
+        .overflow_y_scroll()
+        .p(px(10.))
+        .rounded(radius::MD)
+        .bg(colors::GRAY_900)
+        .text_size(text::SMALL)
+        .child(lodestone_ui::markdown::render_sized(
+            "changelog",
+            &blocks,
+            &std::collections::HashMap::new(),
+            "",
+            480.,
+        ))
+        .into_any_element()
+}
+
+/// "What's new", with a chevron that says whether it is open: a quiet link that
+/// shows a changelog only when it is asked for.
+fn whats_new_toggle(id: impl Into<SharedString>, open: bool) -> gpui::Stateful<gpui::Div> {
+    div()
+        .id(id.into())
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap(px(4.))
+        .cursor_pointer()
+        .text_size(text::SMALL)
+        .text_color(colors::BLUE_200)
+        .hover(|style| style.underline())
+        .child(
+            if open {
+                Icon::ChevronDown
+            } else {
+                Icon::ChevronRight
+            }
+            .render(px(8.), colors::BLUE_200),
+        )
+        .child(t(M::ModpackWhatsNew))
+}
+
 /// When an entry happened, as the overview shows times.
 fn entry_time(millis: i64) -> Option<String> {
     let time = chrono::DateTime::from_timestamp_millis(millis)?;
@@ -356,11 +401,21 @@ impl ModsPage {
                 div()
                     .flex()
                     .flex_row()
+                    .flex_wrap()
                     .items_center()
                     .gap(px(6.))
                     .text_color(colors::GREEN)
                     .child(div().size(px(6.)).rounded_full().bg(colors::GREEN))
                     .child(tr!(M::ModpackOut, version = update.version_number))
+                    .when(update.changelog.is_some(), |this| {
+                        let open = self.update_changelog_open;
+                        this.child(whats_new_toggle("modpack-update-changelog", open).on_click(
+                            cx.listener(|this, _, _, cx| {
+                                this.update_changelog_open = !this.update_changelog_open;
+                                cx.notify();
+                            }),
+                        ))
+                    })
                     .into_any_element(),
             ),
             ModpackCheck::Failed(error) => Some(
@@ -472,6 +527,17 @@ impl ModsPage {
                 .border_color(ink::border())
                 .bg(colors::GRAY_850)
                 .child(header)
+                .when_some(
+                    match &self.modpack_check {
+                        ModpackCheck::Available(update) if self.update_changelog_open => {
+                            update.changelog.clone()
+                        }
+                        _ => None,
+                    },
+                    |this, changelog| {
+                        this.child(changelog_box("modpack-update-changelog-text", &changelog))
+                    },
+                )
                 .when(self.history_open, |this| {
                     this.child(self.render_history(can_write, cx))
                 })
@@ -619,7 +685,8 @@ impl ModsPage {
                 why_not(format!("modpack-restore-why-{id}"), can_write, button)
             }
         });
-        let has_changes = !entry.changes.is_empty() || !entry.kept.is_empty();
+        let has_changes =
+            !entry.changes.is_empty() || !entry.kept.is_empty() || entry.changelog.is_some();
         let header = div()
             .id(SharedString::from(format!("modpack-entry-{id}")))
             .flex()
@@ -671,6 +738,32 @@ impl ModsPage {
                 this.child(trn!(P::ModpackKeptCount, entry.kept.len()))
             });
         let changes = open.then(|| self.change_list(entry));
+        // the version's changelog, behind its own toggle in the opened entry
+        let changelog = entry.changelog.as_ref().filter(|_| open).map(|changelog| {
+            let shown = self.changelog_expanded.contains(&id);
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(4.))
+                .mt(px(4.))
+                .child(
+                    whats_new_toggle(format!("modpack-changelog-{id}"), shown).on_click(
+                        cx.listener(move |this, _, _, cx| {
+                            if !this.changelog_expanded.remove(&id) {
+                                this.changelog_expanded.insert(id);
+                            }
+                            cx.notify();
+                        }),
+                    ),
+                )
+                .when(shown, |this| {
+                    this.child(changelog_box(
+                        format!("modpack-changelog-text-{id}"),
+                        changelog,
+                    ))
+                })
+                .into_any_element()
+        });
         div()
             .flex()
             .flex_row()
@@ -701,7 +794,8 @@ impl ModsPage {
                             )
                             .children(restore),
                     )
-                    .children(changes),
+                    .children(changes)
+                    .children(changelog),
             )
             .into_any_element()
     }
@@ -871,6 +965,7 @@ impl ModsPage {
                     "game_version": "1.21.4", "loader": "fabric", "loader_version": "0.16.10",
                     "current": true, "file_count": 64, "missing": 0,
                     "kept": ["config/sodium-options.json"],
+                    "changelog": "## 6.4.0\n\n- Updated **Sodium** to 0.6.9\n- Added Entity Culling\n- Removed Starlight, which Sodium no longer needs",
                     "changes": [
                         { "kind": "added", "path": "mods/entityculling-1.7.3.jar" },
                         { "kind": "updated", "path": "mods/sodium-0.6.9.jar", "old_path": "mods/sodium-0.6.6.jar" },
@@ -906,7 +1001,8 @@ impl ModsPage {
             "stored_bytes": 48_213,
             "update": {
                 "version_id": "fo-650", "version_number": "6.5.0", "name": "6.5.0",
-                "game_versions": ["1.21.4"], "date_published": "2026-11-10T00:00:00Z"
+                "game_versions": ["1.21.4"], "date_published": "2026-11-10T00:00:00Z",
+                "changelog": "## 6.5.0\n\n- Minecraft 1.21.4 hotfixes\n- Lithium 0.15.1"
             }
         }))
         .expect("the sample history reads");
@@ -929,6 +1025,7 @@ impl ModsPage {
         self.modpack_history_error = None;
         self.history_open = true;
         self.history_expanded.insert(3);
+        self.changelog_expanded.insert(3);
         // fetches still under way are for a server the core doesn't have
         self.history_serial += 1;
         self.list_serial += 1;

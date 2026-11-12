@@ -147,6 +147,10 @@ pub struct ModsPage {
     history_open: bool,
     /// History entries whose changes are shown.
     history_expanded: HashSet<u32>,
+    /// The changelog of the version that is out is shown.
+    update_changelog_open: bool,
+    /// History entries whose changelog is shown.
+    changelog_expanded: HashSet<u32>,
     dialog: lodestone_ui::components::DialogSlot<Self, Shown>,
     /// Counts the list's fetches, so only the newest one is kept.
     list_serial: u64,
@@ -178,6 +182,8 @@ impl ModsPage {
             history_serial: 0,
             history_open: false,
             history_expanded: HashSet::new(),
+            update_changelog_open: false,
+            changelog_expanded: HashSet::new(),
             dialog: lodestone_ui::components::DialogSlot::new(|this: &mut Self| &mut this.dialog),
             list_serial: 0,
             _tasks: Vec::new(),

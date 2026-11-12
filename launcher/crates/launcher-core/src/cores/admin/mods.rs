@@ -531,6 +531,9 @@ pub struct AvailableUpdate {
     pub game_versions: Vec<String>,
     #[serde(default)]
     pub date_published: String,
+    /// What the modpack's author wrote about it (Markdown).
+    #[serde(default)]
+    pub changelog: Option<String>,
 }
 
 /// What a history entry was (`HistoryKind`).
@@ -615,6 +618,9 @@ pub struct HistoryEntryInfo {
     /// Files Lodestone can't get back; it can only be restored when this is 0.
     #[serde(default)]
     pub missing: u32,
+    /// What the modpack's author wrote about this version (Markdown).
+    #[serde(default)]
+    pub changelog: Option<String>,
 }
 
 impl HistoryEntryInfo {

@@ -390,6 +390,10 @@ export const fr: Messages = {
     'Le domaine ne peut pas dépasser {max} caractères',
   'settings.core.domain.tooltip':
     'C’est votre IP publique si vous avez configuré une redirection de port. Sinon, laissez tel quel.',
+  'settings.core.modpackChecks.label':
+    'Rechercher les mises à jour des modpacks',
+  'settings.core.modpackChecks.hint':
+    'Toutes les quelques heures, chercher sur Modrinth de nouvelles versions des modpacks dont les serveurs sont issus, et le signaler. « Rechercher une mise à jour » dans l’onglet Mods d’un serveur fonctionne toujours quand c’est désactivé.',
   'settings.core.listPublicly.label': 'Lister les serveurs publiquement',
   'settings.core.listPublicly.hint':
     'Toute personne qui peut joindre ce core voit les serveurs que vous rendez publics ci-dessous.',
@@ -1310,6 +1314,75 @@ export const fr: Messages = {
     'Aucun mod installé pour l’instant. Parcourez Modrinth ou importez un fichier .jar.',
   'mods.installed.empty.plugin':
     'Aucun plugin installé pour l’instant. Parcourez Modrinth ou importez un fichier .jar.',
+
+  'mods.modpack.from': 'Ce serveur utilise le modpack {pack}.',
+  'mods.modpack.check': 'Rechercher une mise à jour',
+  'mods.modpack.checkFailed':
+    'Impossible de rechercher une mise à jour : {error}',
+  'mods.modpack.upToDate': 'C’est la version la plus récente.',
+  'mods.modpack.whatsNew': 'Nouveautés',
+  'mods.modpack.out': '{version} est disponible',
+  'mods.modpack.updateTo': 'Mettre à jour vers {version}',
+  'mods.modpack.fromFile': 'Mettre à jour depuis un fichier',
+  'mods.modpack.notMrpack': '{name} n’est pas un fichier .mrpack.',
+  'mods.modpack.planFailed': 'Impossible de préparer la mise à jour : {error}',
+  'mods.modpack.history': 'Historique',
+  'mods.modpack.historyFailed':
+    'Impossible de charger l’historique du modpack : {error}',
+  'mods.modpack.historyEmpty':
+    'Rien n’est encore enregistré. Les prochaines mises à jour pourront être annulées.',
+  'mods.modpack.kind.install': 'Installé',
+  'mods.modpack.kind.baseline': 'Premier enregistrement',
+  'mods.modpack.kind.update': 'Mis à jour',
+  'mods.modpack.kind.restore': '{version} restauré',
+  'mods.modpack.current': 'Actuelle',
+  'mods.modpack.restore': 'Restaurer',
+  'mods.modpack.restoreMissing':
+    'Lodestone n’a plus certains fichiers de cette version.',
+  'mods.modpack.restoreTitle': 'Restaurer cette version ?',
+  'mods.modpack.updateTitle': 'Mettre à jour le modpack ?',
+  'mods.modpack.update': 'Mettre à jour',
+  'mods.modpack.restored': '{pack} {version} restauré.',
+  'mods.modpack.updated': '{pack} mis à jour vers {version}.',
+  'mods.modpack.restoreFailed': 'Impossible de restaurer le modpack : {error}',
+  'mods.modpack.updateFailed':
+    'Impossible de mettre à jour le modpack : {error}',
+  'mods.modpack.storeSize':
+    'Pour annuler les mises à jour, Lodestone conserve {size} de fichiers qui ne peuvent pas être retéléchargés.',
+  'mods.modpack.since': 'depuis {version}',
+  'mods.modpack.sinceTooltip':
+    'Ce fichier est arrivé avec la version {version} du modpack.',
+  'mods.modpack.unknownVersion': 'version inconnue',
+  'mods.modpack.dialog.intro': '{pack} passe de {from} à {to}.',
+  'mods.modpack.dialog.reinstall':
+    'Le serveur passe à {software}, qui est réinstallé.',
+  'mods.modpack.dialog.kept':
+    'Les fichiers que vous avez modifiés restent tels quels : {files}',
+  'mods.modpack.dialog.nothing': 'Aucun fichier ne change.',
+  'mods.modpack.dialog.stop':
+    'Arrêtez d’abord le serveur : il ne peut pas être mis à jour pendant qu’il tourne.',
+  'mods.modpack.dialog.unsupported':
+    'Cette version ne peut pas être utilisée : {reason}',
+  'mods.modpack.added': {
+    one: '{count} fichier ajouté',
+    other: '{count} fichiers ajoutés',
+  },
+  'mods.modpack.replaced': {
+    one: '{count} fichier remplacé',
+    other: '{count} fichiers remplacés',
+  },
+  'mods.modpack.removed': {
+    one: '{count} fichier supprimé',
+    other: '{count} fichiers supprimés',
+  },
+  'mods.modpack.keptCount': {
+    one: '{count} fichier modifié conservé',
+    other: '{count} fichiers modifiés conservés',
+  },
+  'mods.modpack.moreChanges': {
+    one: 'et {count} autre',
+    other: 'et {count} autres',
+  },
 
   // ClientPackPanel
   'mods.clientPack.loader': 'Fabric Loader {version}',

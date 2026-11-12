@@ -59,6 +59,11 @@ pub struct GlobalSettingsData {
     // before it existed have no field: they keep serving other devices.
     #[serde(default = "default_true")]
     pub allow_remote_access: bool,
+    // Whether the core looks for newer versions of the modpacks servers were made from, in
+    // the background, see `crate::modpack::updates`. On by default, also for files written
+    // before it existed.
+    #[serde(default = "default_true")]
+    pub check_modpack_updates: bool,
 }
 
 /// A lock-free view of the code execution kill switch, shared by everything that runs
@@ -162,6 +167,7 @@ impl Default for GlobalSettingsData {
             // a standalone core is set up from the dashboard with its setup key; Lodestone
             // Host's core turns this off at startup while it has no owner (`crate::run`)
             allow_remote_access: true,
+            check_modpack_updates: true,
         }
     }
 }
@@ -408,6 +414,23 @@ impl GlobalSettings {
 
     pub fn allow_local_claim(&self) -> bool {
         self.global_settings_data.allow_local_claim
+    }
+
+    /// Turns the background check for newer modpack versions on or off.
+    pub async fn set_check_modpack_updates(&mut self, enabled: bool) -> Result<(), Error> {
+        let old = self.global_settings_data.check_modpack_updates;
+        self.global_settings_data.check_modpack_updates = enabled;
+        match self.write_to_file().await {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                self.global_settings_data.check_modpack_updates = old;
+                Err(e)
+            }
+        }
+    }
+
+    pub fn check_modpack_updates(&self) -> bool {
+        self.global_settings_data.check_modpack_updates
     }
 
     /// Lets other devices use the core, or only this computer, see
