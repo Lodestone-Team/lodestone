@@ -77,6 +77,18 @@ button:focus-visible {
   border-radius: 6px;
 }
 
+/* Moving between the home page and a product page, the logo stays where it is
+   and changes into the next page's (where the browser supports it). */
+@view-transition {
+  navigation: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  @view-transition {
+    navigation: none;
+  }
+}
+
 /* Header */
 
 .top {
@@ -221,6 +233,7 @@ main {
   width: 140px;
   height: 140px;
   margin-bottom: 14px;
+  view-transition-name: hero-logo;
   filter: drop-shadow(0 12px 30px rgba(47, 111, 168, 0.28));
 }
 

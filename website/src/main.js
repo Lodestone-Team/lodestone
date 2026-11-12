@@ -206,11 +206,11 @@ function startField() {
     return gemDistance(x, y) * (1 - shapeMix) + hostDistance(x, y) * shapeMix;
   }
 
-  // Distance in px from (x, y) to the edge of Host's mark: a square 440
+  // Distance in px from (x, y) to the edge of Host's mark: a square 400
   // viewBox units across with corners rounded like its Ls (9.5 of its 70).
   function hostDistance(x, y) {
-    const HALF = 220;
-    const ROUND = 59.7;
+    const HALF = 200;
+    const ROUND = 54.3;
     const qx = Math.abs(x - center.x) / gemScale - (HALF - ROUND);
     const qy = Math.abs(y - center.y) / gemScale - (HALF - ROUND);
     const outside = Math.hypot(Math.max(qx, 0), Math.max(qy, 0));

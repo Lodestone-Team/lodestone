@@ -74,6 +74,18 @@ a {
 
 /* Header */
 
+/* Moving between the home page and a product page, the logo stays where it is
+   and changes into the next page's (where the browser supports it). */
+@view-transition {
+  navigation: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  @view-transition {
+    navigation: none;
+  }
+}
+
 .top {
   display: flex;
   align-items: center;
@@ -156,16 +168,19 @@ a {
   width: 100%;
   max-width: 1200px;
   margin: 0 auto;
-  padding: clamp(20px, 5vh, 64px) 24px 0;
+  padding: clamp(28px, 7vh, 88px) 24px 0;
 }
 
-/* The product's own logo, above everything else in the hero, like the gem
-   on the home page. */
+/* The product's own logo, above everything else in the hero: the same box,
+   at the same height, as the home page's logo, so it stays put when someone
+   clicks through from there. */
 .product-mark {
   display: block;
-  width: 96px;
-  height: 96px;
+  box-sizing: border-box;
+  width: 140px;
+  height: 140px;
   margin: 0 0 22px;
+  view-transition-name: hero-logo;
 }
 
 .eyebrow {
@@ -542,9 +557,13 @@ a:focus-visible {
 }
 
 @media (max-width: 560px) {
+  .hero {
+    padding-top: 28px;
+  }
+
   .product-mark {
-    width: 76px;
-    height: 76px;
+    width: 104px;
+    height: 104px;
     margin-bottom: 18px;
   }
 

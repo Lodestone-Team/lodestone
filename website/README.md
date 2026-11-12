@@ -39,6 +39,13 @@ To run it on Cloudflare's own runtime instead, build first, then run
   switching holds while the pointer is on the logo or its name, and with
   reduced motion the gem stays. The header shows the wordmark alone
   (`src/images/wordmark.svg`).
+- **The logo between pages.** The launcher and Host pages show their logo in
+  the same 140px box (104px on phones), at the same height, as the home page's,
+  and Host's mark is drawn 400 of the box's 580 units across on all of them.
+  A cross-document view transition (`view-transition-name: hero-logo`) keeps
+  it in place when someone clicks between the pages, in browsers that support
+  one. Change the size or the hero's top padding on one page, and change it on
+  the others too.
 - **Iron filings.** `main.js` draws a grid of short strokes on a canvas behind
   the logo and turns each one along the field of a magnet at the logo; the
   pointer is a second magnet. The strokes fade out along the edge of the logo
