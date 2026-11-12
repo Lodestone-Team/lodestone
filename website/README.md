@@ -50,6 +50,9 @@ To run it on Cloudflare's own runtime instead, build first, then run
 - **Cards.** The Host card's server list and the CLI card's commands are
   illustrations, not live data. The CLI commands are real `lodestone_cli`
   commands; their output is shortened.
+- **Questions.** Three answers above the footer. Keep them true: the apps send
+  no analytics (the dashboard's `react-ga4` is never initialized), game traffic
+  goes directly between computers, and connect.lodestone.cc only introduces them.
 - **Social preview.** `src/images/og.jpg` is a 1200×630 capture of the hero.
 - **Download count and star count** work as on the launcher page (below).
 

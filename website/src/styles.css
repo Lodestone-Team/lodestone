@@ -1154,6 +1154,49 @@ h1 .phrase + .phrase {
   margin-top: 20px;
 }
 
+/* Questions */
+
+.faq {
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 24px clamp(48px, 8vh, 96px);
+}
+
+.faq-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 28px 40px;
+  margin: 0;
+}
+
+.faq-list > div {
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+}
+
+.faq-list dt {
+  font-family: 'Clash Grotesk', 'Satoshi', system-ui, sans-serif;
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.faq-list dd {
+  margin: 10px 0 0;
+  max-width: 46ch;
+  color: var(--text-muted);
+}
+
+.faq-list a {
+  color: var(--sky);
+  text-decoration: none;
+}
+
+.faq-list a:hover {
+  text-decoration: underline;
+}
+
 /* Footer */
 
 .foot {
@@ -1186,7 +1229,8 @@ h1 .phrase + .phrase {
 }
 
 @media (max-width: 900px) {
-  .grid {
+  .grid,
+  .faq-list {
     grid-template-columns: 1fr;
   }
 
@@ -1250,6 +1294,11 @@ h1 .phrase + .phrase {
 }
 
 @media (max-width: 560px) {
+  .faq {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
   .top {
     padding: 16px;
   }
