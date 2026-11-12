@@ -6,7 +6,7 @@
     <title>Lodestone Launcher</title>
     <meta
       name="description"
-      content="A free, open source Minecraft launcher. Modpacks, mods, shaders and resource packs from Modrinth, in one fast app."
+      content="A free, open source Minecraft launcher. Modpacks, mods, shaders and resource packs from Modrinth, and your friends' servers, in one fast app."
     />
     <meta name="theme-color" content="#1d1e21" />
     <link rel="icon" href="/launcher/favicon.ico" sizes="any" />
@@ -17,7 +17,7 @@
     <meta property="og:title" content="Lodestone Launcher" />
     <meta
       property="og:description"
-      content="A free, open source Minecraft launcher. Modpacks, mods, shaders and resource packs from Modrinth, in one fast app."
+      content="A free, open source Minecraft launcher. Modpacks, mods, shaders and resource packs from Modrinth, and your friends' servers, in one fast app."
     />
     <meta property="og:image" content="https://www.lodestone.cc/launcher/images/og.jpg" />
     <meta name="twitter:card" content="summary_large_image" />
@@ -25,15 +25,50 @@
     <link rel="preload" href="/fonts/Satoshi-Variable.woff2" as="font" type="font/woff2" crossorigin />
     <link rel="preload" href="/fonts/ClashGrotesk-Variable.woff2" as="font" type="font/woff2" crossorigin />
     <link rel="stylesheet" href="/launcher/styles.css" />
+    <link rel="stylesheet" href="/nav.css" />
+    <script src="/nav.js" defer></script>
     <script src="/launcher/main.js" defer></script>
   </head>
   <body>
     <header class="top">
       <a class="brand" href="/" aria-label="Lodestone home">
-        <img src="/launcher/images/logo.svg" alt="Lodestone" width="106" height="22" />
+        <img src="/images/wordmark.svg" alt="Lodestone" width="88" height="22" />
       </a>
       <nav class="nav">
-        <a class="nav-link" href="/host">Lodestone Host</a>
+        <details class="products-menu" data-products-menu>
+          <summary>
+            Products
+            <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
+              <path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+          </summary>
+          <ul class="products-list">
+            <li>
+              <a href="/launcher" aria-current="page">
+                <img src="/launcher/images/icon.svg" alt="" width="32" height="32" />
+                <span><b>Lodestone Launcher</b><small>Play, with mods and friends</small></span>
+              </a>
+            </li>
+            <li>
+              <a href="/host">
+                <img class="is-square" src="/host/images/icon.svg" alt="" width="28" height="28" />
+                <span><b>Lodestone Host</b><small>Host your server</small></span>
+              </a>
+            </li>
+            <li>
+              <a href="/#connect">
+                <span class="products-icon is-square" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" width="14" height="14">
+                    <circle cx="6" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2.2" />
+                    <circle cx="18" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2.2" />
+                    <path d="M9 12h6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" />
+                  </svg>
+                </span>
+                <span><b>Lodestone Connect</b><small>Play together, no port forwarding</small></span>
+              </a>
+            </li>
+          </ul>
+        </details>
         <a
           class="github"
           href="https://github.com/Lodestone-Team/lodestone"
@@ -62,6 +97,7 @@
     </header>
 
     <main class="hero">
+      <img class="product-mark" src="/launcher/images/icon.svg" alt="Lodestone Launcher" width="140" height="140" />
       <!-- build.mjs replaces 100k+ with the current count (see stats.mjs). -->
       <p class="eyebrow">
         <span class="eyebrow-stat"><span data-core-downloads>100k+</span></span>
@@ -69,7 +105,8 @@
       </p>
       <h1><span class="phrase">Deceivingly simple,</span> <span class="phrase">incredibly powerful.</span></h1>
       <p class="lede">
-        A free, open source launcher for Minecraft. Modpacks, mods, shaders and resource packs from Modrinth, in one fast app.
+        A free, open source launcher for Minecraft. Modpacks, mods, shaders and resource packs from Modrinth, and your
+        friends' servers, in one fast app.
       </p>
 
       <div class="download">
@@ -125,6 +162,76 @@
             alt="Lodestone Launcher showing an instance library, with a cherry grove at sunset behind the selected instance"
           />
         </figure>
+      </section>
+
+      <ul class="points" aria-label="Also in Lodestone Launcher">
+        <li><strong>Fast</strong>: built on GPUI, the same technology as Discord's Project Phoenix.</li>
+        <li><strong>Join a friend's server in one click.</strong> Open their invite link, or add them as a friend and skip it: the launcher sets up an instance with the server's mods and connects, without port forwarding.</li>
+        <li><strong>Set up for your computer</strong>: new instances get memory, render distance and settings that suit your computer and their mods.</li>
+        <li><strong>Your own servers too</strong>: start, stop and join Lodestone Host's servers from the launcher.</li>
+      </ul>
+
+      <section class="speed" aria-labelledby="speed-title">
+        <h2 id="speed-title">Faster than the rest</h2>
+        <p class="speed-lede">
+          Built on GPUI, the incredibly fast and lightweight technology that powers Discord's Project Phoenix.
+        </p>
+        <p class="speed-lede">
+          We actually care about your computer and its resources (because we use it too). You can see how it stacks up to
+          the five other launchers on the same PC (spoiler alert: we are the best).
+        </p>
+        <div class="speed-grid">
+          <figure class="speed-chart">
+            <figcaption><b>Window on screen</b><span>From launch, lower is better</span></figcaption>
+            <ul>
+              <li class="is-us" title="Lodestone: 108 ms"><span class="speed-name">Lodestone</span><span class="speed-bar"><i style="width: 7.9%"></i></span><span class="speed-value">108 ms</span></li>
+              <li title="Prism: 249 ms"><span class="speed-name">Prism</span><span class="speed-bar"><i style="width: 18.1%"></i></span><span class="speed-value">249 ms</span></li>
+              <li title="Modrinth App: 617 ms"><span class="speed-name">Modrinth App</span><span class="speed-bar"><i style="width: 44.9%"></i></span><span class="speed-value">617 ms</span></li>
+              <li title="CurseForge: 1,198 ms"><span class="speed-name">CurseForge</span><span class="speed-bar"><i style="width: 87.3%"></i></span><span class="speed-value">1,198 ms</span></li>
+              <li title="GDLauncher: 768 ms"><span class="speed-name">GDLauncher</span><span class="speed-bar"><i style="width: 55.9%"></i></span><span class="speed-value">768 ms</span></li>
+              <li title="ATLauncher: 1,373 ms"><span class="speed-name">ATLauncher</span><span class="speed-bar"><i style="width: 100.0%"></i></span><span class="speed-value">1,373 ms</span></li>
+            </ul>
+          </figure>
+          <figure class="speed-chart">
+            <figcaption><b>Ready to play</b><span>Until it stops using the CPU, lower is better</span></figcaption>
+            <ul>
+              <li class="is-us" title="Lodestone: 0.18 s"><span class="speed-name">Lodestone</span><span class="speed-bar"><i style="width: 1.4%"></i></span><span class="speed-value">0.18 s</span></li>
+              <li title="Prism: 0.33 s"><span class="speed-name">Prism</span><span class="speed-bar"><i style="width: 2.6%"></i></span><span class="speed-value">0.33 s</span></li>
+              <li title="Modrinth App: 6.59 s"><span class="speed-name">Modrinth App</span><span class="speed-bar"><i style="width: 51.9%"></i></span><span class="speed-value">6.59 s</span></li>
+              <li title="CurseForge: 12.70 s"><span class="speed-name">CurseForge</span><span class="speed-bar"><i style="width: 100.0%"></i></span><span class="speed-value">12.70 s</span></li>
+              <li title="GDLauncher: 9.67 s"><span class="speed-name">GDLauncher</span><span class="speed-bar"><i style="width: 76.1%"></i></span><span class="speed-value">9.67 s</span></li>
+              <li title="ATLauncher: 3.35 s"><span class="speed-name">ATLauncher</span><span class="speed-bar"><i style="width: 26.4%"></i></span><span class="speed-value">3.35 s</span></li>
+            </ul>
+          </figure>
+          <figure class="speed-chart">
+            <figcaption><b>CPU while idle</b><span>Share of one core, lower is better</span></figcaption>
+            <ul>
+              <li class="is-us" title="Lodestone: 0.01%"><span class="speed-name">Lodestone</span><span class="speed-bar"><i style="width: 0.6%"></i></span><span class="speed-value">0.01%</span></li>
+              <li title="Prism: 0.27%"><span class="speed-name">Prism</span><span class="speed-bar"><i style="width: 0.8%"></i></span><span class="speed-value">0.27%</span></li>
+              <li title="Modrinth App: 11.95%"><span class="speed-name">Modrinth App</span><span class="speed-bar"><i style="width: 33.3%"></i></span><span class="speed-value">11.95%</span></li>
+              <li title="CurseForge: 35.91%"><span class="speed-name">CurseForge</span><span class="speed-bar"><i style="width: 100.0%"></i></span><span class="speed-value">35.91%</span></li>
+              <li title="GDLauncher: 16.05%"><span class="speed-name">GDLauncher</span><span class="speed-bar"><i style="width: 44.7%"></i></span><span class="speed-value">16.05%</span></li>
+              <li title="ATLauncher: 0.09%"><span class="speed-name">ATLauncher</span><span class="speed-bar"><i style="width: 0.6%"></i></span><span class="speed-value">0.09%</span></li>
+            </ul>
+          </figure>
+          <figure class="speed-chart">
+            <figcaption><b>Size on disk</b><span>Installed, lower is better</span></figcaption>
+            <ul>
+              <li class="is-us" title="Lodestone: 40.3 MB"><span class="speed-name">Lodestone</span><span class="speed-bar"><i style="width: 9.0%"></i></span><span class="speed-value">40.3 MB</span></li>
+              <li title="Prism: 70.4 MB"><span class="speed-name">Prism</span><span class="speed-bar"><i style="width: 15.7%"></i></span><span class="speed-value">70.4 MB</span></li>
+              <li title="Modrinth App: 51.7 MB"><span class="speed-name">Modrinth App</span><span class="speed-bar"><i style="width: 11.5%"></i></span><span class="speed-value">51.7 MB</span></li>
+              <li title="CurseForge: 424.3 MB"><span class="speed-name">CurseForge</span><span class="speed-bar"><i style="width: 94.7%"></i></span><span class="speed-value">424.3 MB</span></li>
+              <li title="GDLauncher: 448.1 MB"><span class="speed-name">GDLauncher</span><span class="speed-bar"><i style="width: 100.0%"></i></span><span class="speed-value">448.1 MB</span></li>
+              <li title="ATLauncher: 155.1 MB"><span class="speed-name">ATLauncher</span><span class="speed-bar"><i style="width: 34.6%"></i></span><span class="speed-value">155.1 MB</span></li>
+            </ul>
+          </figure>
+        </div>
+        <p class="speed-foot">
+          Measured on one Windows 11 PC (Ryzen 9 9950X3D, 64 GB), each launcher signed in to a Microsoft account; medians of
+          5 runs, on 10 and 11 November 2026. Lodestone built from main, Prism 11.1.1, Modrinth App 0.23.1, CurseForge
+          1.326, GDLauncher 2.0.40, ATLauncher 3.4.41.3. Memory at idle: Lodestone 90 MB, Prism 82 MB, the others 206 MB
+          to 1.8 GB. CurseForge and GDLauncher play video ads while idle.
+        </p>
       </section>
     </main>
 

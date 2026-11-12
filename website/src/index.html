@@ -6,7 +6,7 @@
     <title>Lodestone</title>
     <meta
       name="description"
-      content="Free, open source tools for playing and hosting Minecraft: Lodestone Launcher, Lodestone Host and Lodestone CLI."
+      content="Free, open source tools for playing and hosting Minecraft with your friends: Lodestone Launcher, Lodestone Host, Lodestone Connect and Lodestone CLI."
     />
     <meta name="theme-color" content="#0d0f13" />
     <link rel="icon" href="/favicon.ico" sizes="any" />
@@ -17,7 +17,7 @@
     <meta property="og:title" content="Lodestone" />
     <meta
       property="og:description"
-      content="Free, open source tools for playing and hosting Minecraft."
+      content="Free, open source tools for playing and hosting Minecraft with your friends."
     />
     <meta property="og:image" content="https://www.lodestone.cc/images/og.jpg" />
     <meta name="twitter:card" content="summary_large_image" />
@@ -25,16 +25,50 @@
     <link rel="preload" href="/fonts/Satoshi-Variable.woff2" as="font" type="font/woff2" crossorigin />
     <link rel="preload" href="/fonts/ClashGrotesk-Variable.woff2" as="font" type="font/woff2" crossorigin />
     <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="/nav.css" />
+    <script src="/nav.js" defer></script>
     <script src="/main.js" defer></script>
   </head>
   <body>
     <header class="top">
       <a class="brand" href="/" aria-label="Lodestone home">
-        <img src="/images/logo.svg" alt="Lodestone" width="106" height="22" />
+        <img src="/images/wordmark.svg" alt="Lodestone" width="88" height="22" />
       </a>
       <nav class="nav">
-        <a class="nav-link" href="/launcher">Launcher</a>
-        <a class="nav-link" href="/host">Host</a>
+        <details class="products-menu" data-products-menu>
+          <summary>
+            Products
+            <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
+              <path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+          </summary>
+          <ul class="products-list">
+            <li>
+              <a href="/launcher">
+                <img src="/launcher/images/icon.svg" alt="" width="32" height="32" />
+                <span><b>Lodestone Launcher</b><small>Play, with mods and friends</small></span>
+              </a>
+            </li>
+            <li>
+              <a href="/host">
+                <img class="is-square" src="/host/images/icon.svg" alt="" width="28" height="28" />
+                <span><b>Lodestone Host</b><small>Host your server</small></span>
+              </a>
+            </li>
+            <li>
+              <a href="/#connect">
+                <span class="products-icon is-square" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" width="14" height="14">
+                    <circle cx="6" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2.2" />
+                    <circle cx="18" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2.2" />
+                    <path d="M9 12h6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" />
+                  </svg>
+                </span>
+                <span><b>Lodestone Connect</b><small>Play together, no port forwarding</small></span>
+              </a>
+            </li>
+          </ul>
+        </details>
         <a
           class="github"
           href="https://github.com/Lodestone-Team/lodestone"
@@ -68,7 +102,9 @@
         <canvas class="field" data-field aria-hidden="true"></canvas>
 
         <div class="hero-inner">
-          <div class="mark" data-mark aria-hidden="true">
+          <!-- The hero's logo: the launcher's gem and Host's mark take turns
+               (main.js switchMark), and the iron filings follow its shape. -->
+          <div class="mark" data-mark data-show="launcher" aria-hidden="true">
             <svg viewBox="222 222 580 580" width="140" height="140">
               <defs>
                 <linearGradient id="hg-gem" x1="330" y1="200" x2="700" y2="830" gradientUnits="userSpaceOnUse">
@@ -94,12 +130,25 @@
                 <clipPath id="hg-footclip">
                   <path d="M18,51 H38.5 A9.5,9.5 0 0 1 38.5,70 H18 Z" />
                 </clipPath>
+                <!-- Host's mark (images/host-mark.svg) -->
+                <linearGradient id="hh-bar" x1="0" y1="0" x2="11.4" y2="70" gradientUnits="userSpaceOnUse">
+                  <stop stop-color="#2EF29A" />
+                  <stop offset="1" stop-color="#1FBFA8" />
+                </linearGradient>
+                <linearGradient id="hh-foot" x1="19" y1="0" x2="48" y2="0" gradientUnits="userSpaceOnUse">
+                  <stop stop-color="#FFFFFF" stop-opacity="0" />
+                  <stop offset="1" stop-color="#FFFFFF" stop-opacity="0.105" />
+                </linearGradient>
+                <filter id="hh-crease" x="-20%" y="-20%" width="140%" height="140%">
+                  <feGaussianBlur stdDeviation="1.62" />
+                </filter>
               </defs>
+              <g class="mark-logo mark-launcher">
               <g class="gem-hex">
                 <path d="M470.43,236.00 Q512.00,212.00 553.57,236.00 L730.24,338.00 Q771.81,362.00 771.81,410.00 L771.81,614.00 Q771.81,662.00 730.24,686.00 L553.57,788.00 Q512.00,812.00 470.43,788.00 L293.76,686.00 Q252.19,662.00 252.19,614.00 L252.19,410.00 Q252.19,362.00 293.76,338.00 Z" fill="url(#hg-gem)" />
                 <path d="M470.43,236.00 Q512.00,212.00 553.57,236.00 L730.24,338.00 Q771.81,362.00 771.81,410.00 L771.81,614.00 Q771.81,662.00 730.24,686.00 L553.57,788.00 Q512.00,812.00 470.43,788.00 L293.76,686.00 Q252.19,662.00 252.19,614.00 L252.19,410.00 Q252.19,362.00 293.76,338.00 Z" fill="url(#hg-hl)" />
               </g>
-              <g data-gem-tilt>
+              <g>
                 <g class="gem-l">
                   <g transform="translate(415.31,362) scale(4.2857)">
                     <path d="M18,51 H38.5 A9.5,9.5 0 0 1 38.5,70 H18 Z" fill="url(#hg-foot)" />
@@ -119,9 +168,54 @@
                   </g>
                 </g>
               </g>
+              </g>
+              <!-- Host's two Ls, 400 units square in the middle of the gem's
+                   viewBox (the gem is 520 across), so they look a little smaller. -->
+              <g class="mark-logo mark-host">
+                <g>
+                  <g transform="translate(312,312) scale(5.714286)">
+                      <path d="M18,51 H38.5 A9.5,9.5 0 0 1 38.5,70 H18 Z" fill="#1FBFA8" />
+                      <path d="M18,51 H38.5 A9.5,9.5 0 0 1 38.5,70 H18 Z" fill="url(#hh-foot)" />
+                      <g clip-path="url(#hg-footclip)">
+                        <path
+                          d="M0,9.5 A9.5,9.5 0 0 1 19,9.5 V59.835 A10.165,10.165 0 0 0 29.165,70 H9.5 A9.5,9.5 0 0 1 0,60.5 Z"
+                          fill="#033B33"
+                          fill-opacity="0.35"
+                          transform="translate(1.41,0)"
+                          filter="url(#hh-crease)"
+                        />
+                      </g>
+                      <path
+                        d="M0,9.5 A9.5,9.5 0 0 1 19,9.5 V59.835 A10.165,10.165 0 0 0 29.165,70 H9.5 A9.5,9.5 0 0 1 0,60.5 Z"
+                        fill="url(#hh-bar)"
+                      />
+                    <g transform="rotate(180 35 35)">
+                        <path d="M18,51 H38.5 A9.5,9.5 0 0 1 38.5,70 H18 Z" fill="#1FBFA8" />
+                        <path d="M18,51 H38.5 A9.5,9.5 0 0 1 38.5,70 H18 Z" fill="url(#hh-foot)" />
+                        <g clip-path="url(#hg-footclip)">
+                          <path
+                            d="M0,9.5 A9.5,9.5 0 0 1 19,9.5 V59.835 A10.165,10.165 0 0 0 29.165,70 H9.5 A9.5,9.5 0 0 1 0,60.5 Z"
+                            fill="#033B33"
+                            fill-opacity="0.35"
+                            transform="translate(1.41,0)"
+                            filter="url(#hh-crease)"
+                          />
+                        </g>
+                        <path
+                          d="M0,9.5 A9.5,9.5 0 0 1 19,9.5 V59.835 A10.165,10.165 0 0 0 29.165,70 H9.5 A9.5,9.5 0 0 1 0,60.5 Z"
+                          fill="url(#hh-bar)"
+                        />
+                    </g>
+                  </g>
+                </g>
+              </g>
             </svg>
           </div>
 
+          <p class="mark-label" data-mark-label>
+            <a href="/launcher" data-for="launcher">Lodestone Launcher</a>
+            <a href="/host" data-for="host" tabindex="-1">Lodestone Host</a>
+          </p>
           <!-- build.mjs replaces 100k+ with the current count (see stats.mjs). -->
           <p class="eyebrow">
             Free and open source
@@ -132,12 +226,117 @@
             <span class="phrase">From your first world</span>
             <span class="phrase">to your own server.</span>
           </h1>
-          <p class="lede">Lodestone makes free, open source tools for playing and hosting Minecraft.</p>
+          <p class="lede">Lodestone makes free, open source tools for playing and hosting Minecraft with your friends.</p>
           <div class="actions">
             <a class="button" href="/launcher">Get the launcher</a>
-            <a class="button button-quiet" href="#products">See everything</a>
+            <a class="button button-quiet" href="/host">Host your server</a>
           </div>
         </div>
+      </section>
+
+      <section class="together" id="connect" aria-labelledby="connect-title">
+        <div class="together-head">
+          <p class="together-kicker">
+            <span class="card-icon-connect">
+              <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+                <circle cx="6" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2.2" />
+                <circle cx="18" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2.2" />
+                <path d="M9 12h6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" />
+              </svg>
+            </span>
+            Lodestone Connect
+          </p>
+          <h2 id="connect-title">Play together. No port forwarding.</h2>
+          <p class="together-lede">
+            An invite link is all you need to get your friends onto your server.<br />Oh yea, we also sync all the mods too.
+          </p>
+        </div>
+
+        <!-- An illustration, not live data: your Lodestone Host on the left,
+             a friend's launcher on the right. main.js plays the join once when
+             it scrolls into view. -->
+        <div class="link" data-link aria-hidden="true">
+          <figure class="link-side">
+            <div class="panel">
+              <div class="servers-head">
+                <span>Lodestone Host</span>
+                <span class="servers-online"><span class="pulse"></span>Running</span>
+              </div>
+              <ul class="panel-rows">
+                <li>
+                  <img src="/images/fabric.png" alt="" width="28" height="28" />
+                  <span class="server-name">Weekend survival<small>Fabric 26.3</small></span>
+                  <span class="tag">Shared</span>
+                </li>
+                <li class="panel-invite">
+                  <span class="invite">connect.lodestone.cc/j/7KQ2M9XD4T#…</span>
+                  <span class="copy">Copy link</span>
+                </li>
+              </ul>
+            </div>
+            <figcaption>Your computer</figcaption>
+          </figure>
+
+          <div class="wire">
+            <span class="wire-line"></span>
+            <span class="wire-dot"></span>
+            <span class="wire-dot"></span>
+            <span class="wire-lock">
+              <svg viewBox="0 0 16 16" width="12" height="12">
+                <path
+                  fill="currentColor"
+                  d="M4 6V4.5a4 4 0 118 0V6h.5A1.5 1.5 0 0114 7.5v6a1.5 1.5 0 01-1.5 1.5h-9A1.5 1.5 0 012 13.5v-6A1.5 1.5 0 013.5 6H4zm1.5 0h5V4.5a2.5 2.5 0 00-5 0V6z"
+                />
+              </svg>
+            </span>
+          </div>
+
+          <figure class="link-side">
+            <div class="panel">
+              <div class="servers-head">
+                <span>Lodestone Launcher</span>
+                <span class="servers-online">From an invite link</span>
+              </div>
+              <ul class="panel-rows">
+                <li>
+                  <img src="/images/fabric.png" alt="" width="28" height="28" />
+                  <span class="server-name">Weekend survival<small>Fabric 26.3</small></span>
+                  <span class="play">Play</span>
+                </li>
+                <li class="panel-join">
+                  <span class="join-bar"><span data-join-bar></span></span>
+                </li>
+              </ul>
+            </div>
+            <figcaption>Your friend's computer</figcaption>
+          </figure>
+        </div>
+
+        <ol class="steps">
+          <li>
+            <h3>Share your server</h3>
+            <p>Share you server directly in Lodestone Host with a link without port forwarding</p>
+          </li>
+          <li>
+            <h3>Your friend opens it</h3>
+            <p>Lodestone Launcher sets up an instance that syncs all your server's mods.</p>
+          </li>
+          <li>
+            <h3>They start the game</h3>
+            <p>The launcher connects straight to your computer and joins.</p>
+          </li>
+        </ol>
+
+
+        <p class="together-note">
+          <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true">
+            <path
+              fill="currentColor"
+              d="M4 6V4.5a4 4 0 118 0V6h.5A1.5 1.5 0 0114 7.5v6a1.5 1.5 0 01-1.5 1.5h-9A1.5 1.5 0 012 13.5v-6A1.5 1.5 0 013.5 6H4zm1.5 0h5V4.5a2.5 2.5 0 00-5 0V6z"
+            />
+          </svg>
+          <span>Your computers connect directly, end-to-end encrypted..</span>
+        </p>
       </section>
 
       <section class="products" id="products" aria-labelledby="products-title">
@@ -152,8 +351,8 @@
               </div>
               <h3>Lodestone Launcher</h3>
               <p>
-                A fast Minecraft launcher with modpacks, mods, shaders and resource packs from Modrinth built in.
-                Keep every instance tidy and switch between them in a click.
+                A <i>fast</i> Minecraft launcher with modpacks, mods, shaders and resource packs from Modrinth built in.
+                Join a friend's server in one click
               </p>
               <a class="card-link" href="/launcher">Get the launcher <span aria-hidden="true">→</span></a>
             </div>
@@ -186,7 +385,10 @@
                 <p class="kicker">Serve</p>
               </div>
               <h3>Lodestone Host</h3>
-              <p>Run Minecraft servers on your own machine and look after them from a dashboard in your browser.</p>
+              <p>
+                Why pay for server hosting when you already have a powerful gaming PC? Run your servers on it and share
+                them with friends, without port forwarding.
+              </p>
               <div class="card-links">
                 <a class="card-link" href="/host">Get Lodestone Host <span aria-hidden="true">→</span></a>
                 <a class="card-link card-link-quiet" href="/host/app/">Open the dashboard</a>
@@ -202,18 +404,21 @@
                   <li>
                     <img src="/images/fabric.png" alt="" width="28" height="28" />
                     <span class="server-name">Weekend survival<small>Fabric 26.3</small></span>
+                    <span class="tag">Shared</span>
                     <span class="server-players">6/20</span>
                     <span class="status is-on"></span>
                   </li>
                   <li>
                     <img src="/images/vanilla.png" alt="" width="28" height="28" />
                     <span class="server-name">Creative plots<small>Vanilla 26.3</small></span>
+                    <span></span>
                     <span class="server-players">3/10</span>
                     <span class="status is-on"></span>
                   </li>
                   <li>
                     <img src="/images/paper.png" alt="" width="28" height="28" />
                     <span class="server-name">Minigames<small>Paper 26.3</small></span>
+                    <span></span>
                     <span class="server-players">0/50</span>
                     <span class="status"></span>
                   </li>
@@ -244,7 +449,7 @@
                 <p class="kicker">Automate</p>
               </div>
               <h3>Lodestone CLI</h3>
-              <p>Install and update Lodestone Host, then run your servers from the terminal. Scripts and agents get JSON output.</p>
+              <p>Install and manage Lodestone Host for headless servers.</p>
               <a
                 class="card-link"
                 href="https://github.com/Lodestone-Team/lodestone_cli/releases/latest"
@@ -266,7 +471,38 @@
               </div>
             </div>
           </article>
+
         </div>
+      </section>
+
+      <section class="faq" aria-labelledby="faq-title">
+        <h2 class="section-title" id="faq-title">Questions</h2>
+        <dl class="faq-list">
+          <div>
+            <dt>Does Lodestone see our play sessions or data?</dt>
+            <dd>
+              No. Everything including servers and worlds stay on your computers. When your friends join, our service helps the two computers find each other and hand the rest of directly between your machines - we don't do anything beyond that!
+            </dd>
+          </div>
+          <div>
+            <dt>Are all of these completely free?</dt>
+            <dd>
+              Yes. Every Lodestone app is free and open source, and always will be: no subscriptions, no paid tier, no
+              ads. The code is on
+              <a href="https://github.com/Lodestone-Team/lodestone" target="_blank" rel="noopener">GitHub</a> under
+              the AGPL-3.0.
+            </dd>
+          </div>
+          <div>
+            <dt>No, really. There must be a catch!</dt>
+            <dd>
+              No catch. We're a group of tinkerers (🤓 nerds) who like building crap and playing Minecraft together, so we built the
+              tools we've always wanted for ourselves. Say hi on
+              <a href="https://discord.gg/PkHXRQXkf6" target="_blank" rel="noopener">Discord</a>, or buy us a coffee on
+              <a href="https://ko-fi.com/lodestone_team" target="_blank" rel="noopener">Ko-fi</a> to support us.
+            </dd>
+          </div>
+        </dl>
       </section>
     </main>
 

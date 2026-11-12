@@ -10,7 +10,9 @@ The site has four parts, built together by `build.mjs` into `website/dist`:
 | `/host/app` | Lodestone Host web dashboard               | `dashboard/`            |
 
 The three pages are plain HTML, CSS and JavaScript with no build step. They
-share the fonts in `src/fonts`; everything else of the launcher and Host pages'
+share the fonts in `src/fonts` and the header's Products menu (`src/nav.css`,
+`src/nav.js`: a `<details>` listing the launcher, Host and Connect, the page
+you're on marked); everything else of the launcher and Host pages'
 is under `src/launcher` and `src/host`. The
 dashboard is built with `DASHBOARD_BASE_PATH=/host/app`, which sets Next's
 `basePath` and prefixes the dashboard's own `public/` files (see
@@ -30,33 +32,83 @@ To run it on Cloudflare's own runtime instead, build first, then run
 
 ## The home page
 
-- **Logo.** The gem (`src/images/mark.svg`, the launcher's logo), drawn inline
-  in `index.html` so `styles.css` can animate it: the gem turns into place and the
-  L rises into it. The Host card
-  keeps Host's own mark (`src/images/host-mark.svg`, from the dashboard).
+- **Logo.** The launcher's gem (`src/images/mark.svg`) and Host's mark
+  (`src/images/host-mark.svg`) take turns in the hero, every 4.5 seconds while
+  it's on screen (`switchMark()` in `main.js`), with the product's name under
+  it as a link. Both are drawn inline in `index.html` so `styles.css` can
+  animate them: on load the gem turns into place and the L rises into it; at a
+  switch the logo leaving turns away and the one arriving turns in. The
+  switching holds while the pointer is on the logo or its name, and with
+  reduced motion the gem stays. The header shows the wordmark alone
+  (`src/images/wordmark.svg`).
+- **The logo between pages.** The launcher and Host pages show their logo in
+  the same 140px box (104px on phones), at the same height, as the home page's,
+  and Host's mark is drawn 400 of the box's 580 units across on all of them.
+  A cross-document view transition (`view-transition-name: hero-logo`) keeps
+  it in place when someone clicks between the pages, in browsers that support
+  one. Change the size or the hero's top padding on one page, and change it on
+  the others too.
 - **Iron filings.** `main.js` draws a grid of short strokes on a canvas behind
   the logo and turns each one along the field of a magnet at the logo; the
-  pointer is a second magnet. It stops drawing while the hero is off screen,
-  and with reduced motion it draws them once, already lined up.
+  pointer is a second magnet. The strokes fade out along the edge of the logo
+  that shows. When it switches, that edge morphs from the gem's hexagon to
+  Host's square (or back), the colours move toward Host's greens (or back), and
+  a light ripple runs out from the logo: strokes swing a little and brighten
+  as it passes, then settle into line with the new shape. It stops drawing
+  while the hero is off screen, and with reduced motion it draws them once,
+  already lined up.
+- **Lodestone Connect.** Its own section between the hero and the cards
+  (`#connect`, also in the header's Products menu), in Lodestone's
+  teal and green: your Lodestone Host's invite link and a friend's launcher joined by a
+  line, then the three steps of sharing by link. The friend list gets one line
+  under the steps: it's an extra, not the way in. The two panels are illustrations, not live data. When the
+  section scrolls into view, `main.js` fills the launcher's bar once while it
+  "gets the server's mods"; without JavaScript or with reduced motion it shows
+  the end. Connect isn't a download of its own; the header and the cards
+  below link to the launcher and Host, which have it built in.
 - **Cards.** The Host card's server list and the CLI card's commands are
   illustrations, not live data. The CLI commands are real `lodestone_cli`
   commands; their output is shortened.
+- **Questions.** Three answers above the footer. Keep them true: the apps send
+  no analytics (the dashboard's `react-ga4` is never initialized), game traffic
+  goes directly between computers, and connect.lodestone.cc only introduces them.
 - **Social preview.** `src/images/og.jpg` is a 1200×630 capture of the hero.
 - **Download count and star count** work as on the launcher page (below).
+
+## Speed sections
+
+The launcher and Host pages each end with a comparison ("Faster than the rest",
+"Light enough to run beside your game"). Every number has a source, named in
+the section's footnote; change one only with a new measurement.
+
+- **Launcher:** the six-launcher benchmark on one Windows 11 PC (Ryzen 9
+  9950X3D, 64 GB), 10 and 11 November 2026: window on screen, ready, CPU at
+  idle, installed size. Prism uses slightly less memory at idle, and the
+  footnote says so.
+- **Host:** published download sizes only (GitHub releases and Docker Hub,
+  12 November 2026). Lodestone Host's is the new Host app's developer build 3845;
+  update it when a host-v release is out. Nothing has been benchmarked against
+  other server managers yet.
 
 ## The Host page
 
 The launcher page's layout in Host's green, with the dashboard's logo.
 
-- **Download button.** `host/main.js` picks Lodestone CLI for the visitor's
-  platform from the latest `Lodestone-Team/lodestone_cli` release
-  (`lodestone_cli_<os>_<arch>[.exe]`; no Intel Mac build). The CLI installs
-  Host, keeps it updated and starts it. Without JavaScript it links to the
-  Windows build. "Open the dashboard" goes to `/host/app/`.
+- **Download button.** `host/main.js` offers the Lodestone Host app from the
+  newest published stable `host-vX.Y.Z` release: `LodestoneHostSetup.exe` on
+  Windows, `LodestoneHost.dmg` on macOS. Until there is one for the visitor's
+  platform (and on Linux), it picks Lodestone CLI from the latest
+  `Lodestone-Team/lodestone_cli` release (`lodestone_cli_<os>_<arch>[.exe]`; no
+  Intel Mac build), which installs Host, keeps it updated and starts it.
+  Without JavaScript it links to the CLI's Windows build. "Open the dashboard"
+  goes to `/host/app/`.
 - **Claims.** Only what Host does today: Vanilla, Fabric, Forge and Paper
-  servers; Fabric modpacks only; sharing with friends through Lodestone Connect;
-  users and permissions; API keys and the CLI. Docker management and the desktop app aren't finished, so
-  the page leaves them out.
+  servers; Fabric modpacks only; sharing with friends through Lodestone Connect,
+  from the friend list or by invite link; players' launchers getting the
+  server's mods; only this computer's apps reaching it until other devices are
+  allowed; users and permissions; API keys and the CLI. Docker management isn't
+  finished, so the page leaves it out. The page doesn't call Host a desktop app
+  until the download button offers one.
 - **Screenshots.** `src/host/images/<view>.webp` (2240×1400) and
   `<view>-1120.webp`: the dashboard at `/host/app` in Edge, 1493×933 at 150%,
   dark theme, against a local Host with three servers on 26.3 (a Fabric one
@@ -84,6 +136,10 @@ The launcher page's layout in Host's green, with the dashboard's logo.
   in `stats.mjs`, raise it now and then), so the number never drops. Set
   `GITHUB_TOKEN` as a build variable in Cloudflare to avoid the API's
   unauthenticated limit.
+- **Points.** The list under the screenshots: joining a friend's server from
+  an invite link, automatic setup of new instances, Lodestone Host's servers in
+  the launcher, and, last, the friend list (servers and LAN worlds without a
+  link). Invite links lead; the friend list is an extra.
 - **Screenshots.** `src/launcher/images/<view>.webp` (2240×1400) and `<view>-1120.webp`
   (half size), taken from the launcher at 150% zoom in a 1493×933 window. The
   tabs above the screenshot list the views.

@@ -6,7 +6,7 @@
     <title>Lodestone Host</title>
     <meta
       name="description"
-      content="A free, open source Minecraft server manager. Start a server from a modpack, add mods from Modrinth, and run it all from your browser."
+      content="A free, open source Minecraft server manager. Start a server from a modpack, add mods from Modrinth, and play with friends without port forwarding."
     />
     <meta name="theme-color" content="#1d1e21" />
     <link rel="icon" href="/host/favicon.ico" sizes="any" />
@@ -17,7 +17,7 @@
     <meta property="og:title" content="Lodestone Host" />
     <meta
       property="og:description"
-      content="A free, open source Minecraft server manager. Start a server from a modpack, add mods from Modrinth, and run it all from your browser."
+      content="A free, open source Minecraft server manager. Start a server from a modpack, add mods from Modrinth, and play with friends without port forwarding."
     />
     <meta property="og:image" content="https://www.lodestone.cc/host/images/og.jpg" />
     <meta name="twitter:card" content="summary_large_image" />
@@ -25,15 +25,50 @@
     <link rel="preload" href="/fonts/Satoshi-Variable.woff2" as="font" type="font/woff2" crossorigin />
     <link rel="preload" href="/fonts/ClashGrotesk-Variable.woff2" as="font" type="font/woff2" crossorigin />
     <link rel="stylesheet" href="/host/styles.css" />
+    <link rel="stylesheet" href="/nav.css" />
+    <script src="/nav.js" defer></script>
     <script src="/host/main.js" defer></script>
   </head>
   <body>
     <header class="top">
       <a class="brand" href="/" aria-label="Lodestone home">
-        <img src="/host/images/logo.svg" alt="Lodestone" width="106" height="22" />
+        <img src="/images/wordmark.svg" alt="Lodestone" width="88" height="22" />
       </a>
       <nav class="nav">
-        <a class="nav-link" href="/launcher">Lodestone Launcher</a>
+        <details class="products-menu" data-products-menu>
+          <summary>
+            Products
+            <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
+              <path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+          </summary>
+          <ul class="products-list">
+            <li>
+              <a href="/launcher">
+                <img src="/launcher/images/icon.svg" alt="" width="32" height="32" />
+                <span><b>Lodestone Launcher</b><small>Play, with mods and friends</small></span>
+              </a>
+            </li>
+            <li>
+              <a href="/host" aria-current="page">
+                <img class="is-square" src="/host/images/icon.svg" alt="" width="28" height="28" />
+                <span><b>Lodestone Host</b><small>Host your server</small></span>
+              </a>
+            </li>
+            <li>
+              <a href="/#connect">
+                <span class="products-icon is-square" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" width="14" height="14">
+                    <circle cx="6" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2.2" />
+                    <circle cx="18" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2.2" />
+                    <path d="M9 12h6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" />
+                  </svg>
+                </span>
+                <span><b>Lodestone Connect</b><small>Play together, no port forwarding</small></span>
+              </a>
+            </li>
+          </ul>
+        </details>
         <a
           class="github"
           href="https://github.com/Lodestone-Team/lodestone"
@@ -62,6 +97,7 @@
     </header>
 
     <main class="hero">
+      <img class="product-mark" src="/host/images/icon.svg" alt="Lodestone Host" width="140" height="140" />
       <!-- build.mjs replaces 100k+ with the current count (see stats.mjs). -->
       <p class="eyebrow">
         <span class="eyebrow-stat"><span data-core-downloads>100k+</span></span>
@@ -69,15 +105,17 @@
       </p>
       <h1><span class="phrase">Your Minecraft server,</span> <span class="phrase">on your own machine.</span></h1>
       <p class="lede">
-        A free, open source server manager. Start a server from a modpack, add mods from Modrinth, and look after it
-        all from your browser.
+        Why pay for server hosting when you already have a powerful gaming PC? We certainly don't want to do that!<br />Lodestone Host is a free, open source
+        server manager: start a server from a modpack, add mods from Modrinth, and play with friends without port
+        forwarding.
       </p>
 
       <div class="download">
         <div class="actions">
-          <!-- main.js points this at Lodestone CLI for the visitor's platform. The
-               CLI installs Host, keeps it updated and starts it. Without
-               JavaScript it downloads the Windows build. -->
+          <!-- main.js points this at the Lodestone Host app for the visitor's
+               platform, from the newest host-v* release. Until there is one, it
+               points at Lodestone CLI, which installs Host, keeps it updated and
+               starts it. Without JavaScript it downloads the CLI's Windows build. -->
           <a
             class="button"
             data-download
@@ -100,7 +138,12 @@
             >Docker</a
           >
           <span aria-hidden="true">·</span>
-          <a href="https://github.com/Lodestone-Team/lodestone_cli/releases/latest" target="_blank" rel="noopener"
+          <!-- main.js points this at the Host app's releases once there is one. -->
+          <a
+            href="https://github.com/Lodestone-Team/lodestone_cli/releases/latest"
+            target="_blank"
+            rel="noopener"
+            data-all-downloads
             >All downloads</a
           >
         </p>
@@ -130,10 +173,31 @@
 
       <ul class="points" aria-label="Also in Lodestone Host">
         <li><strong>Vanilla, Fabric, Forge and Paper</strong> servers, plus Fabric modpacks from Modrinth.</li>
-        <li><strong>Friends without port forwarding</strong>: share a server with an invite link, through Lodestone Connect.</li>
+        <li><strong>Play together without port forwarding</strong>: share a server with an invite link - that's it.</li>
+        <li><strong>Players get the right mods.</strong> Their Lodestone Launcher installs the mods your server needs and joins in one click.</li>
+        <li><strong>Always private.</strong> Your servers and worlds stay on your machine, and we never see your data or sessions.</li>
         <li><strong>Users and permissions</strong> for everyone who helps run your servers.</li>
         <li><strong>API keys and a CLI</strong> for scripts, bots and agents.</li>
       </ul>
+
+      <section class="speed" aria-labelledby="speed-title">
+        <h2 id="speed-title">Light enough to run beside your game</h2>
+        <p class="speed-lede">A small native app, not a stack of containers. Lodestone Host leaves your PC for Minecraft.</p>
+        <div class="speed-grid speed-grid-one">
+          <figure class="speed-chart">
+            <figcaption><b>Download</b><span>What you get before your first server, lower is better</span></figcaption>
+            <ul>
+              <li class="is-us" title="Lodestone Host: 12 MB"><span class="speed-name">Lodestone Host</span><span class="speed-bar"><i style="width: 1.9%"></i></span><span class="speed-value">12 MB</span></li>
+              <li title="MCSManager: 448 MB"><span class="speed-name">MCSManager</span><span class="speed-bar"><i style="width: 70.1%"></i></span><span class="speed-value">448 MB</span></li>
+              <li title="Crafty Controller: 639 MB"><span class="speed-name">Crafty Controller</span><span class="speed-bar"><i style="width: 100.0%"></i></span><span class="speed-value">639 MB</span></li>
+            </ul>
+          </figure>
+        </div>
+        <p class="speed-foot">
+          Lodestone Host: the Windows installer of the new Host app (developer build 3845). Crafty Controller 4: its Docker image. MCSManager: its web and daemon Docker
+          images together. Compressed download sizes as published on 12 November 2026.
+        </p>
+      </section>
     </main>
 
     <footer class="foot">

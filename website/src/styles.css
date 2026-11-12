@@ -77,6 +77,18 @@ button:focus-visible {
   border-radius: 6px;
 }
 
+/* Moving between the home page and a product page, the logo stays where it is
+   and changes into the next page's (where the browser supports it). */
+@view-transition {
+  navigation: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  @view-transition {
+    navigation: none;
+  }
+}
+
 /* Header */
 
 .top {
@@ -105,18 +117,6 @@ button:focus-visible {
   display: flex;
   align-items: center;
   gap: 22px;
-}
-
-.nav-link {
-  color: var(--text-muted);
-  text-decoration: none;
-  font-weight: 500;
-  font-size: 15px;
-  transition: color 0.15s;
-}
-
-.nav-link:hover {
-  color: var(--text);
 }
 
 .github {
@@ -220,13 +220,61 @@ main {
 .mark {
   width: 140px;
   height: 140px;
-  margin-bottom: 26px;
+  margin-bottom: 14px;
+  view-transition-name: hero-logo;
   filter: drop-shadow(0 12px 30px rgba(47, 111, 168, 0.28));
 }
 
 .mark svg {
   display: block;
   overflow: visible;
+}
+
+/* The two logos take turns: the one leaving turns away and shrinks, the one
+   arriving turns into place, like the gem does on load. */
+.mark-logo {
+  transform-origin: 512px 512px;
+  transition:
+    opacity 0.45s ease,
+    transform 0.7s cubic-bezier(0.2, 0.9, 0.25, 1);
+}
+
+.mark[data-show='launcher'] .mark-host,
+.mark[data-show='host'] .mark-launcher {
+  opacity: 0;
+  transform: rotate(-24deg) scale(0.72);
+}
+
+/* The name of the product the logo shows, under it. */
+.mark-label {
+  display: grid;
+  justify-items: center;
+  margin: 0 0 20px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+/* The filings run behind the name, so it gets a dark halo to stand on. */
+.mark-label a {
+  grid-area: 1 / 1;
+  color: var(--text);
+  text-shadow:
+    0 0 3px var(--bg),
+    0 0 8px var(--bg),
+    0 0 16px var(--bg);
+  text-decoration: none;
+  transition:
+    opacity 0.45s ease,
+    color 0.15s;
+}
+
+.mark-label a:hover {
+  color: #ffffff;
+}
+
+.mark-label a[tabindex='-1'] {
+  opacity: 0;
+  pointer-events: none;
 }
 
 /* On load the gem turns into place and the L rises into it. */
@@ -338,10 +386,7 @@ h1 .phrase + .phrase {
   text-decoration: none;
   font-weight: 700;
   font-size: 16px;
-  box-shadow:
-    0 0 0 1px rgba(255, 255, 255, 0.2),
-    -12px 10px 30px rgba(34, 201, 128, 0.2),
-    12px 12px 30px rgba(91, 79, 192, 0.24);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.2);
   transition:
     transform 0.15s,
     box-shadow 0.15s,
@@ -350,10 +395,7 @@ h1 .phrase + .phrase {
 
 .button:hover {
   filter: brightness(1.04);
-  box-shadow:
-    0 0 0 1px rgba(255, 255, 255, 0.3),
-    -14px 14px 40px rgba(34, 201, 128, 0.3),
-    14px 16px 40px rgba(91, 79, 192, 0.34);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.3);
 }
 
 .button:active {
@@ -678,7 +720,7 @@ h1 .phrase + .phrase {
 
 .servers li {
   display: grid;
-  grid-template-columns: 28px 1fr auto 8px;
+  grid-template-columns: 28px 1fr auto auto 8px;
   align-items: center;
   gap: 12px;
   padding: 8px 14px;
@@ -721,6 +763,16 @@ h1 .phrase + .phrase {
 .status.is-on {
   background: var(--green);
   box-shadow: 0 0 10px rgba(46, 242, 154, 0.7);
+}
+
+/* The Shared tag the launcher and Host put on a server shared with friends. */
+.tag {
+  padding: 1px 7px;
+  border: 1px solid rgba(46, 242, 154, 0.35);
+  border-radius: 6px;
+  color: var(--green);
+  font-size: 11px;
+  font-weight: 600;
 }
 
 .spark {
@@ -794,6 +846,342 @@ h1 .phrase + .phrase {
   }
 }
 
+.card-icon-connect {
+  border-radius: 6px;
+  background: linear-gradient(160deg, #123430, #0e1a18);
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+  color: var(--mint);
+}
+
+/* The launcher's Play button, in the launcher's blue. */
+.play {
+  padding: 4px 12px;
+  border-radius: 7px;
+  background: #13668a;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+/* Lodestone Connect: its own section between the hero and the products. */
+
+.together {
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 24px clamp(64px, 11vh, 120px);
+  scroll-margin-top: 24px;
+  text-align: center;
+}
+
+.together-head {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.together-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 16px;
+  color: var(--mint);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.together-kicker .card-icon-connect {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+}
+
+.together h2 {
+  margin: 0;
+  font-size: clamp(32px, 4.6vw, 56px);
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+}
+
+.together-lede {
+  margin: 16px 0 0;
+  max-width: 46ch;
+  color: var(--text-muted);
+  font-size: clamp(17px, 2vw, 19px);
+}
+
+/* Two computers and the connection between them. */
+.link {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) clamp(80px, 12vw, 160px) minmax(0, 1fr);
+  align-items: center;
+  max-width: 980px;
+  margin: clamp(36px, 6vh, 56px) auto 0;
+  text-align: left;
+}
+
+.link-side {
+  margin: 0;
+}
+
+.link-side figcaption {
+  margin-top: 10px;
+  color: var(--text-faint);
+  font-size: 13px;
+  text-align: center;
+}
+
+.panel {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: linear-gradient(180deg, var(--card-raised), var(--card));
+  overflow: hidden;
+}
+
+.panel-rows {
+  margin: 0;
+  padding: 4px 0;
+  list-style: none;
+}
+
+.panel-rows li {
+  display: grid;
+  grid-template-columns: 28px 1fr auto;
+  align-items: center;
+  gap: 12px;
+  min-height: 52px;
+  padding: 8px 14px;
+}
+
+.panel-rows li img {
+  border-radius: 6px;
+  image-rendering: pixelated;
+}
+
+.panel-rows li + li {
+  border-top: 1px solid var(--border);
+}
+
+.panel-rows .panel-invite {
+  grid-template-columns: 1fr auto;
+}
+
+.invite {
+  overflow: hidden;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: rgba(10, 12, 14, 0.6);
+  color: var(--text-muted);
+  font-size: 13px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.copy {
+  padding: 4px 12px;
+  border-radius: 7px;
+  background: #17866f;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.panel-rows .panel-join {
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+
+.join-bar {
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.join-bar span {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #13668a, var(--sky));
+  transform-origin: left;
+}
+
+.wire {
+  position: relative;
+  height: 28px;
+}
+
+.wire-line {
+  position: absolute;
+  left: -1px;
+  right: -1px;
+  top: 50%;
+  height: 2px;
+  translate: 0 -50%;
+  background: linear-gradient(90deg, rgba(46, 242, 154, 0.5), rgba(31, 191, 168, 0.85), rgba(46, 242, 154, 0.5));
+}
+
+.wire-dot {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 6px;
+  height: 6px;
+  margin: -3px 0 0 -3px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 10px rgba(46, 242, 154, 0.9);
+  opacity: 0;
+  animation: travel 2.4s linear infinite;
+}
+
+.wire-dot + .wire-dot {
+  animation-direction: reverse;
+  animation-delay: -1.2s;
+}
+
+@keyframes travel {
+  0% {
+    left: 0;
+    opacity: 0;
+  }
+  15%,
+  85% {
+    opacity: 1;
+  }
+  100% {
+    left: 100%;
+    opacity: 0;
+  }
+}
+
+.wire-lock {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  translate: -50% -50%;
+  border: 1px solid rgba(31, 191, 168, 0.55);
+  border-radius: 50%;
+  background: #0e1a18;
+  color: var(--mint);
+}
+
+.steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px 40px;
+  max-width: 980px;
+  margin: clamp(40px, 7vh, 64px) auto 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: step;
+  text-align: left;
+}
+
+.steps li {
+  counter-increment: step;
+}
+
+.steps li::before {
+  content: counter(step);
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  margin-bottom: 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  color: var(--mint);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.steps h3 {
+  margin: 0;
+  font-size: 20px;
+  line-height: 1.2;
+}
+
+.steps p {
+  margin: 6px 0 0;
+  color: var(--text-muted);
+}
+
+/* The friend list: a quieter extra under the steps. */
+.together-extra {
+  max-width: 62ch;
+  margin: clamp(28px, 5vh, 40px) auto 0;
+  color: var(--text-muted);
+  font-size: 15px;
+}
+
+.together-note {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin: clamp(32px, 5vh, 48px) 0 0;
+  color: var(--text-faint);
+  font-size: 14px;
+}
+
+.together-note svg {
+  flex: none;
+  color: var(--mint);
+}
+
+/* Questions */
+
+.faq {
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 24px clamp(48px, 8vh, 96px);
+}
+
+.faq-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 28px 40px;
+  margin: 0;
+}
+
+.faq-list > div {
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+}
+
+.faq-list dt {
+  font-family: 'Clash Grotesk', 'Satoshi', system-ui, sans-serif;
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.faq-list dd {
+  margin: 10px 0 0;
+  max-width: 46ch;
+  color: var(--text-muted);
+}
+
+.faq-list a {
+  color: var(--sky);
+  text-decoration: none;
+}
+
+.faq-list a:hover {
+  text-decoration: underline;
+}
+
 /* Footer */
 
 .foot {
@@ -826,7 +1214,8 @@ h1 .phrase + .phrase {
 }
 
 @media (max-width: 900px) {
-  .grid {
+  .grid,
+  .faq-list {
     grid-template-columns: 1fr;
   }
 
@@ -840,7 +1229,61 @@ h1 .phrase + .phrase {
   }
 }
 
+@media (max-width: 760px) {
+  .link {
+    grid-template-columns: 1fr;
+    max-width: 460px;
+  }
+
+  .wire {
+    width: 28px;
+    height: 72px;
+    margin: 4px auto;
+  }
+
+  .wire-line {
+    left: 50%;
+    right: auto;
+    top: -1px;
+    bottom: -1px;
+    width: 2px;
+    height: auto;
+    translate: -50% 0;
+    background: linear-gradient(180deg, rgba(46, 242, 154, 0.5), rgba(31, 191, 168, 0.85), rgba(46, 242, 154, 0.5));
+  }
+
+  .wire-dot {
+    left: 50%;
+    animation-name: travel-down;
+  }
+
+  .steps {
+    grid-template-columns: 1fr;
+    max-width: 460px;
+  }
+}
+
+@keyframes travel-down {
+  0% {
+    top: 0;
+    opacity: 0;
+  }
+  15%,
+  85% {
+    opacity: 1;
+  }
+  100% {
+    top: 100%;
+    opacity: 0;
+  }
+}
+
 @media (max-width: 560px) {
+  .faq {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
   .top {
     padding: 16px;
   }
@@ -849,13 +1292,11 @@ h1 .phrase + .phrase {
     gap: 14px;
   }
 
-  .nav-link {
-    font-size: 14px;
-  }
 
   .github-label {
     display: none;
   }
+
 
   h1 {
     font-size: clamp(30px, 8.6vw, 40px);
@@ -877,14 +1318,19 @@ h1 .phrase + .phrase {
   }
 
   .mark {
-    margin-bottom: 22px;
+    margin-bottom: 12px;
+  }
+
+  .mark-label {
+    margin-bottom: 18px;
   }
 
   .hero-inner::before {
     inset: 90px -20% -8%;
   }
 
-  .products {
+  .products,
+  .together {
     padding-left: 16px;
     padding-right: 16px;
   }
@@ -925,10 +1371,13 @@ h1 .phrase + .phrase {
   .gem-hex,
   .gem-l,
   .pulse::after,
+  .wire-dot,
   .caret {
     animation: none;
   }
 
+  .mark-logo,
+  .mark-label a,
   .launcher-visual img {
     transition: none;
   }
