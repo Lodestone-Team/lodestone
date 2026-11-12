@@ -1,7 +1,7 @@
 // lodestone.cc home page. Everything here is decoration on top of a page that
 // works without it: the star count, the iron filings behind the logo, the
-// tilt of the logo, the light on the cards, the Host card's chart and the CLI
-// card's typing.
+// logo switching between the launcher and Host, the light on the cards, the
+// Host card's chart, the CLI card's typing and the Connect section's join.
 
 const REPO = 'Lodestone-Team/lodestone';
 const CACHE_MS = 60 * 60 * 1000; // the unauthenticated API allows 60 calls an hour
@@ -430,84 +430,6 @@ function startField() {
   document.addEventListener('visibilitychange', () => setRunning(visible && !document.hidden));
 }
 
-// The logo leans toward the pointer. A CSS 3D transform would do this, but the
-// browser draws a 3D-transformed element once as a bitmap and then stretches
-// it, which blurs the logo. Instead the tilt is worked out here and written
-// into the SVG, so the browser redraws it as vectors and it stays sharp: the
-// gem's outline points go through the full perspective, and the L and the
-// gradients get the same tilt as a flat 2D transform about the middle (the L
-// is small enough that perspective barely changes it). Up to 24 degrees each
-// way, with a 600px perspective.
-function tiltMark() {
-  const mark = document.querySelector('[data-mark]');
-  const svg = mark && mark.querySelector('svg');
-  if (!svg || reducedMotion || !finePointer) return;
-  const C = 512; // the gem's middle, in viewBox units
-  const outlines = [...svg.querySelectorAll('.gem-hex path')].map((path) => ({
-    path,
-    d: path.getAttribute('d'),
-  }));
-  const flat = [
-    svg.querySelector('[data-gem-tilt]'),
-    svg.querySelector('[data-host-tilt]'),
-    ...svg.querySelectorAll('#hg-gem, #hg-hl'),
-  ].filter(Boolean);
-  const attr = (el) => (el.tagName === 'linearGradient' ? 'gradientTransform' : 'transform');
-  const target = { x: 0, y: 0 };
-  const tilt = { x: 0, y: 0 };
-  let frame = 0;
-
-  function draw() {
-    // ease toward the target, like a 0.3s transition
-    tilt.x += (target.x - tilt.x) * 0.16;
-    tilt.y += (target.y - tilt.y) * 0.16;
-    const settled = Math.abs(target.x - tilt.x) < 0.01 && Math.abs(target.y - tilt.y) < 0.01;
-    if (settled) {
-      tilt.x = target.x;
-      tilt.y = target.y;
-    }
-
-    const a = (tilt.x * Math.PI) / 180; // rotateX
-    const b = (tilt.y * Math.PI) / 180; // rotateY
-    const ca = Math.cos(a);
-    const sa = Math.sin(a);
-    const cb = Math.cos(b);
-    const sb = Math.sin(b);
-    const depth = 600 / (mark.offsetWidth / 580); // the perspective, in viewBox units
-    // perspective(600px) rotateX(a) rotateY(b) of a point on the flat logo
-    const project = (x, y) => {
-      const px = x - C;
-      const py = y - C;
-      const w = 1 - (py * sa - px * sb * ca) / depth;
-      return [C + (px * cb) / w, C + (py * ca + px * sb * sa) / w];
-    };
-
-    for (const { path, d } of outlines) {
-      path.setAttribute(
-        'd',
-        d.replace(/(-?[\d.]+),(-?[\d.]+)/g, (_, x, y) =>
-          project(+x, +y)
-            .map((v) => v.toFixed(2))
-            .join(',')
-        )
-      );
-    }
-    const m = [cb, sb * sa, 0, ca, C - cb * C, C - (sb * sa + ca) * C].map((v) => +v.toFixed(5));
-    for (const el of flat) el.setAttribute(attr(el), `matrix(${m.join(' ')})`);
-
-    frame = settled ? 0 : requestAnimationFrame(draw);
-  }
-
-  window.addEventListener('pointermove', (e) => {
-    const box = mark.getBoundingClientRect();
-    const dx = (e.clientX - (box.left + box.width / 2)) / window.innerWidth;
-    const dy = (e.clientY - (box.top + box.height / 2)) / window.innerHeight;
-    target.x = -dy * 24;
-    target.y = dx * 24;
-    if (!frame) frame = requestAnimationFrame(draw);
-  });
-}
-
 // A light follows the pointer over each card (see .card::before).
 function lightCards() {
   if (!finePointer) return;
@@ -689,7 +611,6 @@ function switchMark() {
 
 showStars();
 startField();
-tiltMark();
 switchMark();
 lightCards();
 chartHost();

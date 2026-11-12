@@ -249,13 +249,18 @@ main {
   display: grid;
   justify-items: center;
   margin: 0 0 20px;
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 600;
 }
 
+/* The filings run behind the name, so it gets a dark halo to stand on. */
 .mark-label a {
   grid-area: 1 / 1;
-  color: var(--text-muted);
+  color: var(--text);
+  text-shadow:
+    0 0 3px var(--bg),
+    0 0 8px var(--bg),
+    0 0 16px var(--bg);
   text-decoration: none;
   transition:
     opacity 0.45s ease,
@@ -263,7 +268,7 @@ main {
 }
 
 .mark-label a:hover {
-  color: var(--text);
+  color: #ffffff;
 }
 
 .mark-label a[tabindex='-1'] {
