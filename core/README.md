@@ -20,7 +20,6 @@
 -->
 [![Contributors][contributors-shield]][contributors-url]
 [![Issues][issues-shield]][issues-url]
-[![Build][workflow-shield]][workflow-url]
 <!-- [![Forks][forks-shield]][forks-url]
 [![Stargazers][stars-shield]][stars-url] -->
 <!-- [![MIT License][license-shield]][license-url] -->
@@ -244,8 +243,6 @@ Active members of the Lodestone client team:
 [stars-url]: https://github.com/github_username/repo_name/stargazers -->
 [issues-shield]: https://img.shields.io/github/issues/Lodestone-Team/client?style=for-the-badge
 [issues-url]: https://github.com/Lodestone-Team/client/issues
-[workflow-shield]: https://img.shields.io/github/actions/workflow/status/Lodestone-Team/client/push.yml?style=for-the-badge
-[workflow-url]: https://github.com/Lodestone-Team/lodestone_core/actions
 [license-shield]: https://img.shields.io/github/license/github_username/repo_name.svg?style=for-the-badge
 [license-url]: https://github.com/github_username/repo_name/blob/master/LICENSE.txt
 [product-screenshot]: images/screenshot.png
