@@ -69,57 +69,27 @@
         <canvas class="field" data-field aria-hidden="true"></canvas>
 
         <div class="hero-inner">
-          <div class="mark" data-mark aria-hidden="true">
-            <svg viewBox="222 222 580 580" width="140" height="140">
-              <defs>
-                <linearGradient id="hg-gem" x1="330" y1="200" x2="700" y2="830" gradientUnits="userSpaceOnUse">
-                  <stop stop-color="#22C980" />
-                  <stop offset="0.55" stop-color="#2F6FA8" />
-                  <stop offset="1" stop-color="#5B4FC0" />
-                </linearGradient>
-                <linearGradient id="hg-hl" x1="512" y1="200" x2="512" y2="520" gradientUnits="userSpaceOnUse">
-                  <stop stop-color="#FFFFFF" stop-opacity="0.16" />
-                  <stop offset="1" stop-color="#FFFFFF" stop-opacity="0" />
-                </linearGradient>
-                <linearGradient id="hg-bar" x1="0" y1="0" x2="17.1" y2="70" gradientUnits="userSpaceOnUse">
-                  <stop stop-color="#FFFFFF" />
-                  <stop offset="1" stop-color="#E4E9F2" />
-                </linearGradient>
-                <linearGradient id="hg-foot" x1="19" y1="0" x2="48" y2="0" gradientUnits="userSpaceOnUse">
-                  <stop stop-color="#9AA6BC" />
-                  <stop offset="1" stop-color="#DCE3EE" />
-                </linearGradient>
-                <filter id="hg-crease" x="-20%" y="-20%" width="140%" height="140%">
-                  <feGaussianBlur stdDeviation="1.6" />
-                </filter>
-                <clipPath id="hg-footclip">
-                  <path d="M18,51 H38.5 A9.5,9.5 0 0 1 38.5,70 H18 Z" />
-                </clipPath>
-              </defs>
-              <g class="gem-hex">
-                <path d="M470.43,236.00 Q512.00,212.00 553.57,236.00 L730.24,338.00 Q771.81,362.00 771.81,410.00 L771.81,614.00 Q771.81,662.00 730.24,686.00 L553.57,788.00 Q512.00,812.00 470.43,788.00 L293.76,686.00 Q252.19,662.00 252.19,614.00 L252.19,410.00 Q252.19,362.00 293.76,338.00 Z" fill="url(#hg-gem)" />
-                <path d="M470.43,236.00 Q512.00,212.00 553.57,236.00 L730.24,338.00 Q771.81,362.00 771.81,410.00 L771.81,614.00 Q771.81,662.00 730.24,686.00 L553.57,788.00 Q512.00,812.00 470.43,788.00 L293.76,686.00 Q252.19,662.00 252.19,614.00 L252.19,410.00 Q252.19,362.00 293.76,338.00 Z" fill="url(#hg-hl)" />
-                <path class="gem-edge" d="M470.43,236.00 Q512.00,212.00 553.57,236.00 L730.24,338.00 Q771.81,362.00 771.81,410.00 L771.81,614.00 Q771.81,662.00 730.24,686.00 L553.57,788.00 Q512.00,812.00 470.43,788.00 L293.76,686.00 Q252.19,662.00 252.19,614.00 L252.19,410.00 Q252.19,362.00 293.76,338.00 Z" pathLength="100" />
-              </g>
-              <g class="gem-l">
-                <g transform="translate(415.31,362) scale(4.2857)">
-                  <path d="M18,51 H38.5 A9.5,9.5 0 0 1 38.5,70 H18 Z" fill="url(#hg-foot)" />
-                  <g clip-path="url(#hg-footclip)">
-                    <path
-                      d="M0,9.5 A9.5,9.5 0 0 1 19,9.5 V59.835 A10.165,10.165 0 0 0 29.165,70 H9.5 A9.5,9.5 0 0 1 0,60.5 Z"
-                      fill="#0A1530"
-                      fill-opacity="0.3"
-                      transform="translate(1.4,0)"
-                      filter="url(#hg-crease)"
-                    />
-                  </g>
+          <!-- The two products, joined by Lodestone Connect. main.js lines the iron
+               filings up around this, and leans it toward the pointer. -->
+          <div class="pair" data-mark>
+            <a class="pair-item pair-launcher" href="/launcher">
+              <img src="/launcher/images/icon.svg" alt="" width="112" height="112" />
+              <span>Launcher</span>
+            </a>
+            <span class="pair-wire" aria-hidden="true">
+              <span class="pair-lock">
+                <svg viewBox="0 0 16 16" width="12" height="12">
                   <path
-                    d="M0,9.5 A9.5,9.5 0 0 1 19,9.5 V59.835 A10.165,10.165 0 0 0 29.165,70 H9.5 A9.5,9.5 0 0 1 0,60.5 Z"
-                    fill="url(#hg-bar)"
+                    fill="currentColor"
+                    d="M4 6V4.5a4 4 0 118 0V6h.5A1.5 1.5 0 0114 7.5v6a1.5 1.5 0 01-1.5 1.5h-9A1.5 1.5 0 012 13.5v-6A1.5 1.5 0 013.5 6H4zm1.5 0h5V4.5a2.5 2.5 0 00-5 0V6z"
                   />
-                </g>
-              </g>
-            </svg>
+                </svg>
+              </span>
+            </span>
+            <a class="pair-item pair-host" href="/host">
+              <img src="/host/images/icon.svg" alt="" width="100" height="100" />
+              <span>Host</span>
+            </a>
           </div>
 
           <!-- build.mjs replaces 100k+ with the current count (see stats.mjs). -->
