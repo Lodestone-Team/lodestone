@@ -95,6 +95,15 @@ function startField() {
   // When the logo switches, the edge the strokes fade along morphs from one
   // shape to the other over MORPH_MS.
   const MORPH_MS = 700;
+  // ...and a light ripple runs out from the logo: a ring RIPPLE_WIDTH px wide
+  // moving RIPPLE_SPEED px a millisecond, fading out by RIPPLE_REACH px. As it
+  // passes, strokes swing by up to RIPPLE_SWING radians and brighten a little,
+  // then ease back into line.
+  const RIPPLE_SPEED = 0.75;
+  const RIPPLE_WIDTH = 46;
+  const RIPPLE_REACH = 820;
+  const RIPPLE_SWING = 0.55;
+  const RIPPLE_GLOW = 0.22;
   // Filings run right up to the gem and fade out toward its edge: fully shown
   // from GEM_FADE px out, gone at GEM_MARGIN px, following the hexagon.
   const GEM_MARGIN = 3; // px between the gem's edge and the nearest stroke tip
@@ -113,6 +122,7 @@ function startField() {
   let gemScale = 1; // CSS px per unit of the logo's viewBox
   let shapeMix = 0; // 0 = the gem's hexagon, 1 = Host's square
   const morph = { from: 0, to: 0, start: -Infinity };
+  let rippleStart = -Infinity;
   const pointer = { x: 0, y: 0, tx: 0, ty: 0, strength: 0, target: 0 };
   let start = performance.now();
   let running = false;
@@ -157,6 +167,7 @@ function startField() {
           nx: 0,
           ny: 0,
           gemFade: 0,
+          dist: d,
           angle: prev ? prev.angle : Math.random() * Math.PI,
           // the ripple: strokes near the logo line up first
           delay: 250 + d * 0.9,
@@ -269,6 +280,11 @@ function startField() {
       if (k >= 1) morph.start = -Infinity;
     }
 
+    // where the ripple's ring is now, and how strong it still is
+    const rippleR = (now - rippleStart) * RIPPLE_SPEED;
+    const rippleOn = rippleR >= 0 && rippleR < RIPPLE_REACH + RIPPLE_WIDTH * 2;
+    const rippleFade = rippleOn ? Math.max(0, 1 - rippleR / RIPPLE_REACH) : 0;
+
     for (const p of paths) p.length = 0;
 
     for (const f of filings) {
@@ -294,6 +310,14 @@ function startField() {
           target += halfTurn(Math.atan2(pb.y, pb.x) - target) * Math.min(1, near * 1.15);
         }
       }
+      // the ripple: a nudge to one side as the ring passes, which the stroke's
+      // easing turns into a smooth swing and settle
+      let wave = 0;
+      if (rippleOn) {
+        const off = (f.dist - rippleR) / RIPPLE_WIDTH;
+        wave = Math.exp(-off * off) * rippleFade;
+        target += wave * RIPPLE_SWING;
+      }
       const elapsed = now - start - f.delay;
       if (reducedMotion) {
         f.angle = target;
@@ -304,7 +328,10 @@ function startField() {
       const appear = reducedMotion ? 1 : Math.min(1, Math.max(0, elapsed / 600));
       if (appear <= 0) continue;
       const strength = Math.min(1, Math.pow(Math.hypot(b.x, b.y), 0.3) * 0.85);
-      const shown = Math.min(1, (strength * (1 - 0.97 * fade) + 0.42 * ring) * appear * f.gemFade);
+      const shown = Math.min(
+        1,
+        (strength * (1 - 0.97 * fade) + 0.42 * ring + RIPPLE_GLOW * wave) * appear * f.gemFade
+      );
       if (shown < 0.05) continue;
       const level = Math.min(BUCKETS - 1, Math.floor(shown * BUCKETS));
       const ax = Math.cos(f.angle);
@@ -361,6 +388,7 @@ function startField() {
     morph.from = shapeMix;
     morph.to = e.detail === 'host' ? 1 : 0;
     morph.start = performance.now();
+    rippleStart = morph.start;
   });
 
   layout();

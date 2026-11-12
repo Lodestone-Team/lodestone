@@ -40,9 +40,14 @@ To run it on Cloudflare's own runtime instead, build first, then run
   reduced motion the gem stays. The header shows the wordmark alone
   (`src/images/wordmark.svg`).
 - **Iron filings.** `main.js` draws a grid of short strokes on a canvas behind
-  the pair and turns each one along the field of a magnet at the pair; the
-  pointer is a second magnet. It stops drawing while the hero is off screen,
-  and with reduced motion it draws them once, already lined up.
+  the logo and turns each one along the field of a magnet at the logo; the
+  pointer is a second magnet. The strokes fade out along the edge of the logo
+  that shows. When it switches, that edge morphs from the gem's hexagon to
+  Host's square (or back), the colours move toward Host's greens (or back), and
+  a light ripple runs out from the logo: strokes swing a little and brighten
+  as it passes, then settle into line with the new shape. It stops drawing
+  while the hero is off screen, and with reduced motion it draws them once,
+  already lined up.
 - **Lodestone Connect.** Its own section between the hero and the cards
   (`#connect`, also in the header), in Lodestone's
   teal and green: your Lodestone Host's invite link and a friend's launcher joined by a
