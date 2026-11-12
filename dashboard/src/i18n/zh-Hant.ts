@@ -1064,6 +1064,18 @@ export const zhHant: Messages = {
     'Modrinth 未說明玩家是否需要它，請查看該模組的頁面',
   'mods.clientRequirement.unknownNotOnModrinth':
     '不在 Modrinth 上，請查看該模組的頁面',
+  'mods.clientRequirement.unknownModrinthMark':
+    'Modrinth 未說明玩家是否需要它，請查看該模組的頁面。如果玩家需要，請勾選「給玩家」。',
+  'mods.clientRequirement.unknownNotOnModrinthMark':
+    '不在 Modrinth 上，請查看該模組的頁面。如果玩家需要，請勾選「給玩家」。',
+  'mods.forPlayers.label': '給玩家',
+  'mods.forPlayers.hint':
+    '玩家加入時會取得這個模組及其相依的模組。對於 Lodestone 無法判斷但玩家需要的模組（例如你上傳的），請勾選此項。',
+  'mods.forPlayers.already':
+    '玩家已會取得這個模組：Modrinth 或模組本身表明玩家需要它。',
+  'mods.forPlayers.marked': '玩家下次加入時會取得 {name}',
+  'mods.forPlayers.unmarked': '{name} 不再標記為給玩家',
+  'mods.forPlayers.failed': '無法變更 {name}：{error}',
   'mods.versionType.release': '正式版',
   'mods.versionType.beta': '測試版',
   'mods.versionType.alpha': '早期測試版',
