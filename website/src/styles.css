@@ -1282,7 +1282,7 @@ h1 .phrase + .phrase {
     display: none;
   }
 
-  /* The hero's Play with friends button goes there too. */
+  /* The Connect section follows the hero anyway. */
   .nav-link-wide {
     display: none;
   }

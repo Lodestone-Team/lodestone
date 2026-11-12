@@ -39,7 +39,7 @@ To run it on Cloudflare's own runtime instead, build first, then run
   pointer is a second magnet. It stops drawing while the hero is off screen,
   and with reduced motion it draws them once, already lined up.
 - **Lodestone Connect.** Its own section between the hero and the cards
-  (`#connect`, also in the header and the hero's second button), in Lodestone's
+  (`#connect`, also in the header), in Lodestone's
   teal and green: your Lodestone Host's invite link and a friend's launcher joined by a
   line, then the three steps of sharing by link. The friend list gets one line
   under the steps: it's an extra, not the way in. The two panels are illustrations, not live data. When the
