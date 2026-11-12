@@ -21,8 +21,8 @@
   --bg-raised: #26282c;
   --border: #36393f;
   --text: #e3e3e4;
-  --text-muted: #a5a5ac;
-  --text-faint: #767a82;
+  --text-muted: #bcbdc4;
+  --text-faint: #8f939b;
   --accent: #3fdba0;
   --accent-strong: #1fbfa8;
   --button: #17866f;
@@ -201,6 +201,7 @@ h1 .phrase {
   margin: 16px 0 0;
   max-width: 46ch;
   color: var(--text-muted);
+  font-weight: 500;
   font-size: clamp(17px, 2vw, 20px);
 }
 
@@ -269,6 +270,7 @@ a:focus-visible {
   gap: 8px;
   margin: 12px 0 0;
   color: var(--text-faint);
+  font-weight: 500;
   font-size: 14px;
 }
 
@@ -316,7 +318,7 @@ a:focus-visible {
   background: transparent;
   color: var(--text-muted);
   font: inherit;
-  font-weight: 500;
+  font-weight: 600;
   font-size: 14px;
   cursor: pointer;
   transition:
@@ -375,6 +377,7 @@ a:focus-visible {
   padding: 0;
   list-style: none;
   color: var(--text-muted);
+  font-weight: 500;
   font-size: 15px;
   text-align: left;
 }
@@ -397,7 +400,7 @@ a:focus-visible {
 
 .points strong {
   color: var(--text);
-  font-weight: 600;
+  font-weight: 700;
 }
 
 /* How fast it is next to the others: one chart per measure, our row in the
@@ -540,6 +543,7 @@ a:focus-visible {
   margin: 0 auto;
   padding: 40px 24px 28px;
   color: var(--text-faint);
+  font-weight: 500;
   font-size: 14px;
 }
 
