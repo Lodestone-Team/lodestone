@@ -347,6 +347,43 @@ a:focus-visible {
     0 30px 80px rgba(0, 0, 0, 0.5);
 }
 
+/* A few more things the launcher does, under the screenshots */
+
+.points {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 40px;
+  width: 100%;
+  max-width: 880px;
+  margin: clamp(32px, 6vh, 56px) 0 0;
+  padding: 0;
+  list-style: none;
+  color: var(--text-muted);
+  font-size: 15px;
+  text-align: left;
+}
+
+.points li {
+  position: relative;
+  padding-left: 18px;
+}
+
+.points li::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0.62em;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent-strong);
+}
+
+.points strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
 /* Footer */
 
 .foot {
@@ -395,6 +432,10 @@ a:focus-visible {
 
   .shot img {
     border-radius: 8px;
+  }
+
+  .points {
+    grid-template-columns: 1fr;
   }
 
   .foot {

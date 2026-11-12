@@ -6,7 +6,7 @@
     <title>Lodestone Host</title>
     <meta
       name="description"
-      content="A free, open source Minecraft server manager. Start a server from a modpack, add mods from Modrinth, and run it all from your browser."
+      content="A free, open source Minecraft server manager. Start a server from a modpack, add mods from Modrinth, and share it with friends without port forwarding."
     />
     <meta name="theme-color" content="#1d1e21" />
     <link rel="icon" href="/host/favicon.ico" sizes="any" />
@@ -17,7 +17,7 @@
     <meta property="og:title" content="Lodestone Host" />
     <meta
       property="og:description"
-      content="A free, open source Minecraft server manager. Start a server from a modpack, add mods from Modrinth, and run it all from your browser."
+      content="A free, open source Minecraft server manager. Start a server from a modpack, add mods from Modrinth, and share it with friends without port forwarding."
     />
     <meta property="og:image" content="https://www.lodestone.cc/host/images/og.jpg" />
     <meta name="twitter:card" content="summary_large_image" />
@@ -69,15 +69,16 @@
       </p>
       <h1><span class="phrase">Your Minecraft server,</span> <span class="phrase">on your own machine.</span></h1>
       <p class="lede">
-        A free, open source server manager. Start a server from a modpack, add mods from Modrinth, and look after it
-        all from your browser.
+        A free, open source server manager. Start a server from a modpack, add mods from Modrinth, and share it with
+        friends without port forwarding.
       </p>
 
       <div class="download">
         <div class="actions">
-          <!-- main.js points this at Lodestone CLI for the visitor's platform. The
-               CLI installs Host, keeps it updated and starts it. Without
-               JavaScript it downloads the Windows build. -->
+          <!-- main.js points this at the Lodestone Host app for the visitor's
+               platform, from the newest host-v* release. Until there is one, it
+               points at Lodestone CLI, which installs Host, keeps it updated and
+               starts it. Without JavaScript it downloads the CLI's Windows build. -->
           <a
             class="button"
             data-download
@@ -100,7 +101,12 @@
             >Docker</a
           >
           <span aria-hidden="true">·</span>
-          <a href="https://github.com/Lodestone-Team/lodestone_cli/releases/latest" target="_blank" rel="noopener"
+          <!-- main.js points this at the Host app's releases once there is one. -->
+          <a
+            href="https://github.com/Lodestone-Team/lodestone_cli/releases/latest"
+            target="_blank"
+            rel="noopener"
+            data-all-downloads
             >All downloads</a
           >
         </p>
@@ -130,7 +136,9 @@
 
       <ul class="points" aria-label="Also in Lodestone Host">
         <li><strong>Vanilla, Fabric, Forge and Paper</strong> servers, plus Fabric modpacks from Modrinth.</li>
-        <li><strong>Friends without port forwarding</strong>: share a server with an invite link, through Lodestone Connect.</li>
+        <li><strong>Friends without port forwarding</strong>: share a server from your friend list or with an invite link, through Lodestone Connect.</li>
+        <li><strong>Players get the right mods.</strong> Their Lodestone Launcher installs the mods your server needs and joins in one click.</li>
+        <li><strong>Private until you say so.</strong> Only apps on your computer can reach Lodestone Host until you allow other devices.</li>
         <li><strong>Users and permissions</strong> for everyone who helps run your servers.</li>
         <li><strong>API keys and a CLI</strong> for scripts, bots and agents.</li>
       </ul>

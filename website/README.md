@@ -38,9 +38,11 @@ To run it on Cloudflare's own runtime instead, build first, then run
   the logo and turns each one along the field of a magnet at the logo; the
   pointer is a second magnet. It stops drawing while the hero is off screen,
   and with reduced motion it draws them once, already lined up.
-- **Cards.** The Host card's server list and the CLI card's commands are
-  illustrations, not live data. The CLI commands are real `lodestone_cli`
-  commands; their output is shortened.
+- **Cards.** The Host card's server list, the Connect card's friend list and
+  the CLI card's commands are illustrations, not live data. The CLI commands
+  are real `lodestone_cli` commands; their output is shortened. Lodestone
+  Connect isn't a download of its own: its card, in the gem's violet, links to
+  the launcher and to Host, which have it built in.
 - **Social preview.** `src/images/og.jpg` is a 1200×630 capture of the hero.
 - **Download count and star count** work as on the launcher page (below).
 
@@ -48,15 +50,21 @@ To run it on Cloudflare's own runtime instead, build first, then run
 
 The launcher page's layout in Host's green, with the dashboard's logo.
 
-- **Download button.** `host/main.js` picks Lodestone CLI for the visitor's
-  platform from the latest `Lodestone-Team/lodestone_cli` release
-  (`lodestone_cli_<os>_<arch>[.exe]`; no Intel Mac build). The CLI installs
-  Host, keeps it updated and starts it. Without JavaScript it links to the
-  Windows build. "Open the dashboard" goes to `/host/app/`.
+- **Download button.** `host/main.js` offers the Lodestone Host app from the
+  newest published stable `host-vX.Y.Z` release: `LodestoneHostSetup.exe` on
+  Windows, `LodestoneHost.dmg` on macOS. Until there is one for the visitor's
+  platform (and on Linux), it picks Lodestone CLI from the latest
+  `Lodestone-Team/lodestone_cli` release (`lodestone_cli_<os>_<arch>[.exe]`; no
+  Intel Mac build), which installs Host, keeps it updated and starts it.
+  Without JavaScript it links to the CLI's Windows build. "Open the dashboard"
+  goes to `/host/app/`.
 - **Claims.** Only what Host does today: Vanilla, Fabric, Forge and Paper
-  servers; Fabric modpacks only; sharing with friends through Lodestone Connect;
-  users and permissions; API keys and the CLI. Docker management and the desktop app aren't finished, so
-  the page leaves them out.
+  servers; Fabric modpacks only; sharing with friends through Lodestone Connect,
+  from the friend list or by invite link; players' launchers getting the
+  server's mods; only this computer's apps reaching it until other devices are
+  allowed; users and permissions; API keys and the CLI. Docker management isn't
+  finished, so the page leaves it out. The page doesn't call Host a desktop app
+  until the download button offers one.
 - **Screenshots.** `src/host/images/<view>.webp` (2240×1400) and
   `<view>-1120.webp`: the dashboard at `/host/app` in Edge, 1493×933 at 150%,
   dark theme, against a local Host with three servers on 26.3 (a Fabric one
@@ -84,6 +92,9 @@ The launcher page's layout in Host's green, with the dashboard's logo.
   in `stats.mjs`, raise it now and then), so the number never drops. Set
   `GITHUB_TOKEN` as a build variable in Cloudflare to avoid the API's
   unauthenticated limit.
+- **Points.** The list under the screenshots: joining a friend's server,
+  sharing LAN worlds, automatic setup of new instances, and Lodestone Host's
+  servers in the launcher.
 - **Screenshots.** `src/launcher/images/<view>.webp` (2240×1400) and `<view>-1120.webp`
   (half size), taken from the launcher at 150% zoom in a 1493×933 window. The
   tabs above the screenshot list the views.
