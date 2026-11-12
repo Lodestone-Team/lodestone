@@ -31,8 +31,8 @@ To run it on Cloudflare's own runtime instead, build first, then run
 ## The home page
 
 - **Logo.** The gem (`src/images/mark.svg`, the launcher's logo), drawn inline
-  in `index.html` so `styles.css` can animate it: the gem turns into place, the
-  L rises into it, then a glint crosses it every few seconds. The Host card
+  in `index.html` so `styles.css` can animate it: the gem turns into place and the
+  L rises into it. The Host card
   keeps Host's own mark (`src/images/host-mark.svg`, from the dashboard).
 - **Iron filings.** `main.js` draws a grid of short strokes on a canvas behind
   the logo and turns each one along the field of a magnet at the logo; the
