@@ -56,6 +56,7 @@ pub enum HandlerGameType {
     MinecraftJavaVanilla,
     MinecraftFabric,
     MinecraftForge,
+    MinecraftNeoForge,
     MinecraftPaper,
     MinecraftBedrock,
     /// A game a newer core offers. Not shown.
@@ -70,6 +71,7 @@ impl HandlerGameType {
             HandlerGameType::MinecraftJavaVanilla => "MinecraftJavaVanilla",
             HandlerGameType::MinecraftFabric => "MinecraftFabric",
             HandlerGameType::MinecraftForge => "MinecraftForge",
+            HandlerGameType::MinecraftNeoForge => "MinecraftNeoForge",
             HandlerGameType::MinecraftPaper => "MinecraftPaper",
             HandlerGameType::MinecraftBedrock => "MinecraftBedrock",
             HandlerGameType::Unknown => return None,
@@ -84,6 +86,7 @@ impl HandlerGameType {
             HandlerGameType::MinecraftJavaVanilla => java(MinecraftVariant::Vanilla),
             HandlerGameType::MinecraftFabric => java(MinecraftVariant::Fabric),
             HandlerGameType::MinecraftForge => java(MinecraftVariant::Forge),
+            HandlerGameType::MinecraftNeoForge => java(MinecraftVariant::NeoForge),
             HandlerGameType::MinecraftPaper => java(MinecraftVariant::Paper),
             HandlerGameType::MinecraftBedrock => Game::MinecraftBedrock,
             HandlerGameType::Unknown => Game::Unknown,
@@ -236,8 +239,16 @@ impl SetupValue {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ModpackSource {
-    Modrinth { version_id: String },
-    Upload { upload_id: String },
+    Modrinth {
+        version_id: String,
+    },
+    Upload {
+        upload_id: String,
+    },
+    /// An entry of a server's modpack history, to go back to (updates only).
+    History {
+        entry_id: u32,
+    },
 }
 
 /// `POST /instance/create_modpack` (`CreateModpackInstanceRequest`).

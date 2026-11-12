@@ -1,3 +1,9 @@
+import { AvailableUpdate } from 'bindings/AvailableUpdate';
+import { ModpackHistory } from 'bindings/ModpackHistory';
+import { ModpackUpdatePlan } from 'bindings/ModpackUpdatePlan';
+import { ModpackUpdateRequest } from 'bindings/ModpackUpdateRequest';
+import { ModpackUpdateResult } from 'bindings/ModpackUpdateResult';
+import { UpdateSource } from 'bindings/UpdateSource';
 import { ClientPackDownload } from 'bindings/ClientPackDownload';
 import { keepPreviousData, QueryClient, useQuery } from '@tanstack/react-query';
 import { CreateModpackInstanceRequest } from 'bindings/CreateModpackInstanceRequest';
@@ -311,5 +317,58 @@ export const createModpackInstance = (request: CreateModpackInstanceRequest) =>
     method: 'post',
     url: '/instance/create_modpack',
     data: request,
+    timeout: NO_TIMEOUT,
+  });
+
+/* A server's modpack: updates, restores and its history */
+
+export const modpackHistoryKey = (uuid: string) => [
+  'instance',
+  uuid,
+  'modpack',
+  'history',
+];
+
+/**
+ * Every install, update and restore of the server's modpack, newest first,
+ * the version each current file came with, and what the core's last update
+ * check found.
+ */
+export const useModpackHistory = (uuid: string, enabled: boolean) =>
+  useQuery<ModpackHistory, ApiError>({
+    queryKey: modpackHistoryKey(uuid),
+    queryFn: ({ signal }) =>
+      axiosWrapper<ModpackHistory>({
+        method: 'get',
+        url: `/instance/${uuid}/modpack/history`,
+        signal,
+      }),
+    enabled,
+    retry: false,
+  });
+
+/** Looks for a newer version of the server's modpack on Modrinth now. */
+export const checkModpack = (uuid: string) =>
+  axiosWrapper<AvailableUpdate | null>({
+    method: 'post',
+    url: `/instance/${uuid}/modpack/check`,
+    timeout: MODRINTH_TIMEOUT,
+  });
+
+/** What updating (or restoring) the server to `source` would change. */
+export const planModpackUpdate = (uuid: string, source: UpdateSource) =>
+  axiosWrapper<ModpackUpdatePlan>({
+    method: 'post',
+    url: `/instance/${uuid}/modpack/update/plan`,
+    data: { source } satisfies ModpackUpdateRequest,
+    timeout: NO_TIMEOUT,
+  });
+
+/** Updates (or restores) the stopped server to `source`; resolves when done. */
+export const updateModpack = (uuid: string, source: UpdateSource) =>
+  axiosWrapper<ModpackUpdateResult>({
+    method: 'post',
+    url: `/instance/${uuid}/modpack/update`,
+    data: { source } satisfies ModpackUpdateRequest,
     timeout: NO_TIMEOUT,
   });

@@ -23,6 +23,7 @@ use crate::types::InstanceUuid;
 pub enum MinecraftVariant {
     Vanilla,
     Forge,
+    NeoForge,
     Fabric,
     Paper,
     Spigot,
@@ -69,6 +70,9 @@ impl From<Flavour> for Game {
             },
             Flavour::Forge { .. } => Self::MinecraftJava {
                 variant: MinecraftVariant::Forge,
+            },
+            Flavour::NeoForge { .. } => Self::MinecraftJava {
+                variant: MinecraftVariant::NeoForge,
             },
         }
     }

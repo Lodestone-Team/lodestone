@@ -201,6 +201,34 @@ pub async fn change_allow_local_claim(
     Ok(())
 }
 
+/// Turns the background check for newer versions of servers' modpacks on or off. Owner
+/// only. "Check for an update" on a server still works while it is off.
+pub async fn change_check_modpack_updates(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    requester: AuthedUser,
+    Json(enabled): Json<bool>,
+) -> Result<(), Error> {
+    requester.owner_only("turn modpack update checks on or off")?;
+    state
+        .global_settings
+        .lock()
+        .await
+        .set_check_modpack_updates(enabled)
+        .await?;
+    let details = format!(
+        "Checking for modpack updates turned {}",
+        if enabled { "on" } else { "off" }
+    );
+    info!("{details}");
+    state.event_broadcaster.send(Event {
+        event_inner: EventInner::GlobalSettingsChanged,
+        details,
+        snowflake: Snowflake::default(),
+        caused_by: requester.caused_by(),
+    });
+    Ok(())
+}
+
 /// Shows or hides the listed instances at `GET /public/instances`, for Lodestone
 /// Launcher. Owner only.
 pub async fn change_list_instances_publicly(
@@ -288,6 +316,10 @@ pub fn get_global_settings_routes(state: AppState) -> Router {
         .route(
             "/global_settings/allow_remote_access",
             put(change_allow_remote_access),
+        )
+        .route(
+            "/global_settings/check_modpack_updates",
+            put(change_check_modpack_updates),
         )
         .with_state(state)
 }

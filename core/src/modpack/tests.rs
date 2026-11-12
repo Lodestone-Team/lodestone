@@ -8,13 +8,13 @@ use super::*;
 use crate::modrinth::fake::{sha1_hex, sha512_hex, FakeModrinth};
 
 /// A zip entry for [`make_pack`].
-enum Entry<'a> {
+pub(super) enum Entry<'a> {
     File(&'a str, &'a [u8]),
     Dir(&'a str),
     Link(&'a str, &'a str),
 }
 
-fn make_pack(path: &Path, index: &serde_json::Value, entries: &[Entry]) {
+pub(super) fn make_pack(path: &Path, index: &serde_json::Value, entries: &[Entry]) {
     let file = std::fs::File::create(path).unwrap();
     let mut writer = zip::ZipWriter::new(file);
     let options = zip::write::SimpleFileOptions::default();
@@ -35,7 +35,12 @@ fn make_pack(path: &Path, index: &serde_json::Value, entries: &[Entry]) {
     writer.finish().unwrap();
 }
 
-fn file_entry(path: &str, content: &[u8], server: Option<&str>, url: &str) -> serde_json::Value {
+pub(super) fn file_entry(
+    path: &str,
+    content: &[u8],
+    server: Option<&str>,
+    url: &str,
+) -> serde_json::Value {
     let mut entry = json!({
         "path": path,
         "hashes": {"sha1": sha1_hex(content), "sha512": sha512_hex(content)},
@@ -48,7 +53,10 @@ fn file_entry(path: &str, content: &[u8], server: Option<&str>, url: &str) -> se
     entry
 }
 
-fn index(files: Vec<serde_json::Value>, dependencies: serde_json::Value) -> serde_json::Value {
+pub(super) fn index(
+    files: Vec<serde_json::Value>,
+    dependencies: serde_json::Value,
+) -> serde_json::Value {
     json!({
         "formatVersion": 1,
         "game": "minecraft",
@@ -60,17 +68,17 @@ fn index(files: Vec<serde_json::Value>, dependencies: serde_json::Value) -> serd
     })
 }
 
-fn fabric() -> serde_json::Value {
+pub(super) fn fabric() -> serde_json::Value {
     json!({"minecraft": "1.20.1", "fabric-loader": "0.15.11"})
 }
 
-struct TestPack {
+pub(super) struct TestPack {
     /// Keeps the folder of the pack alive.
     _dir: tempfile::TempDir,
-    path: PathBuf,
+    pub(super) path: PathBuf,
 }
 
-fn pack(index: serde_json::Value, entries: &[Entry]) -> TestPack {
+pub(super) fn pack(index: serde_json::Value, entries: &[Entry]) -> TestPack {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("pack.mrpack");
     make_pack(&path, &index, entries);
@@ -135,29 +143,61 @@ fn reads_a_fabric_pack() {
 }
 
 #[test]
+fn reads_forge_and_neoforge_packs() {
+    let cases = [
+        (
+            json!({"minecraft": "1.20.1", "forge": "47.2.0"}),
+            "forge",
+            "47.2.0",
+        ),
+        (
+            json!({"minecraft": "1.21.1", "neoforge": "21.1.209"}),
+            "neoforge",
+            "21.1.209",
+        ),
+        (
+            json!({"minecraft": "1.20.4", "neoforge": "20.4.237"}),
+            "neoforge",
+            "20.4.237",
+        ),
+    ];
+    for (dependencies, loader, version) in cases {
+        let info = read(index(vec![], dependencies.clone()), &[]).unwrap().info;
+        assert_eq!(info.unsupported_reason, None, "{dependencies}");
+        assert_eq!(info.loader, loader);
+        assert_eq!(info.loader_version.as_deref(), Some(version));
+    }
+}
+
+#[test]
 fn reports_unsupported_packs() {
     let cases = [
-        (json!({"minecraft": "1.20.1", "forge": "47.2.0"}), "forge"),
-        (
-            json!({"minecraft": "1.20.1", "neoforge": "20.4.1"}),
-            "neoforge",
-        ),
         (
             json!({"minecraft": "1.20.1", "quilt-loader": "0.20.0"}),
             "quilt-loader",
         ),
         (
             json!({"minecraft": "1.20.1", "fabric-loader": "0.15.0", "forge": "1"}),
-            "forge",
+            "more than one mod loader",
+        ),
+        // NeoForge's own versions name their Minecraft version
+        (
+            json!({"minecraft": "1.20.1", "neoforge": "20.4.1"}),
+            "is for Minecraft 1.20.4",
+        ),
+        // NeoForge for 1.20.1 was a Forge fork
+        (
+            json!({"minecraft": "1.20.1", "neoforge": "47.1.106"}),
+            "1.20.2 or later",
+        ),
+        (
+            json!({"minecraft": "1.20.1", "forge": "47.2.0/../x"}),
+            "not valid",
         ),
     ];
     for (dependencies, needs) in cases {
         let pack = read(index(vec![], dependencies.clone()), &[]).unwrap();
         let reason = pack.info.unsupported_reason.unwrap();
-        assert!(
-            reason.starts_with("Only Fabric modpacks are supported"),
-            "{reason}"
-        );
         assert!(reason.contains(needs), "{dependencies}: {reason}");
     }
     let pack = read(index(vec![], json!({"minecraft": "1.20.1"})), &[]).unwrap();
@@ -578,4 +618,47 @@ fn origin_from_an_uploaded_pack() {
     assert_eq!(origin.name, "Test Pack");
     assert_eq!(origin.version_number.as_deref(), Some("1.2.3"));
     assert_eq!(origin.icon_url, None);
+}
+
+#[tokio::test]
+async fn files_deep_in_a_long_server_path_are_installed() {
+    // Windows' old 260-character limit: a deep config path in a server folder that is
+    // itself deep (as a pack's `modpack_defaults/config/...` can be)
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("a".repeat(60)).join("b".repeat(60));
+    std::fs::create_dir_all(&root).unwrap();
+    let deep = format!(
+        "overrides/config/{}/{}/settings.json",
+        "c".repeat(60),
+        "d".repeat(60)
+    );
+    let p = pack(index(vec![], fabric()), &[Entry::File(&deep, b"deep")]);
+    let parsed = read_pack(&p.path, false).unwrap();
+    install_pack_contents(
+        &FakeModrinth::default(),
+        &parsed,
+        &p.path,
+        &root,
+        false,
+        &|_, _| {},
+    )
+    .await
+    .unwrap();
+    let written = root.join(deep.trim_start_matches("overrides/"));
+    assert!(written.as_os_str().len() > 260);
+    assert_eq!(std::fs::read(&written).unwrap(), b"deep");
+}
+
+#[test]
+fn version_numbers_are_trimmed() {
+    // a real pack (Optimized FPS 2.4.10) says " 2.4.10"
+    let mut padded = index(vec![], fabric());
+    padded["versionId"] = json!(" 2.4.10 ");
+    assert_eq!(
+        read(padded, &[]).unwrap().info.version_number.as_deref(),
+        Some("2.4.10")
+    );
+    let mut blank = index(vec![], fabric());
+    blank["versionId"] = json!("  ");
+    assert_eq!(read(blank, &[]).unwrap().info.version_number, None);
 }

@@ -217,115 +217,43 @@ main {
   pointer-events: none;
 }
 
-/* The two products side by side, joined like the Connect section below. On
-   load they slide in from either side and the line draws between them. */
-.pair {
-  display: flex;
-  align-items: flex-start;
-  margin-bottom: 30px;
-  transform: perspective(600px) rotateX(var(--tilt-x, 0deg)) rotateY(var(--tilt-y, 0deg));
-  transition: transform 0.3s ease-out;
-}
-
-.pair-item {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 12px;
-  width: 150px;
-  color: var(--text-muted);
-  text-decoration: none;
-  font-size: 14px;
-  font-weight: 600;
-  transition: color 0.15s;
-}
-
-.pair-item:hover {
-  color: var(--text);
-}
-
-.pair-item img {
-  display: block;
-  width: 112px;
-  height: 112px;
-}
-
-/* Host's square mark fills its box and the hexagon doesn't, so it is drawn
-   smaller to look the same size. */
-.pair-host img {
-  width: 100px;
-  height: 100px;
-  margin: 6px;
-}
-
-.pair-launcher {
-  animation: pair-left 0.9s cubic-bezier(0.2, 0.9, 0.25, 1) both;
-}
-
-.pair-host {
-  animation: pair-right 0.9s cubic-bezier(0.2, 0.9, 0.25, 1) both;
-}
-
-.pair-wire {
-  position: relative;
-  flex: none;
+.mark {
   width: 140px;
-  height: 112px;
+  height: 140px;
+  margin-bottom: 26px;
+  filter: drop-shadow(0 12px 30px rgba(47, 111, 168, 0.28));
 }
 
-.pair-wire::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 55px;
-  height: 2px;
-  background: linear-gradient(90deg, rgba(106, 174, 238, 0.6), rgba(31, 191, 168, 0.85), rgba(46, 242, 154, 0.6));
-  animation: pair-wire 0.6s cubic-bezier(0.4, 0, 0.2, 1) 0.5s both;
+.mark svg {
+  display: block;
+  overflow: visible;
 }
 
-.pair-lock {
-  position: absolute;
-  left: 50%;
-  top: 56px;
-  display: grid;
-  place-items: center;
-  width: 28px;
-  height: 28px;
-  translate: -50% -50%;
-  border: 1px solid rgba(31, 191, 168, 0.55);
-  border-radius: 50%;
-  background: #0e1a18;
-  color: var(--mint);
-  animation: pair-lock 0.4s ease-out 0.9s both;
+/* On load the gem turns into place and the L rises into it. */
+.gem-hex {
+  transform-origin: 512px 512px;
+  animation: gem-in 1.1s cubic-bezier(0.2, 0.9, 0.25, 1) both;
 }
 
-@keyframes pair-left {
+.gem-l {
+  animation: l-in 0.9s cubic-bezier(0.2, 0.9, 0.25, 1) 0.35s both;
+}
+
+
+@keyframes gem-in {
   from {
     opacity: 0;
-    transform: translateX(28px);
+    transform: rotate(-30deg) scale(0.8);
   }
 }
 
-@keyframes pair-right {
+@keyframes l-in {
   from {
     opacity: 0;
-    transform: translateX(-28px);
+    transform: translateY(70px);
   }
 }
 
-@keyframes pair-wire {
-  from {
-    transform: scaleX(0);
-  }
-}
-
-@keyframes pair-lock {
-  from {
-    opacity: 0;
-    scale: 0.6;
-  }
-}
 
 .eyebrow {
   display: inline-flex;
@@ -1342,36 +1270,14 @@ h1 .phrase + .phrase {
     top: calc(66px + 28px + 52px);
   }
 
-  .pair {
+  .mark,
+  .mark svg {
+    width: 104px;
+    height: 104px;
+  }
+
+  .mark {
     margin-bottom: 22px;
-  }
-
-  .pair-item {
-    width: 110px;
-  }
-
-  .pair-item img {
-    width: 84px;
-    height: 84px;
-  }
-
-  .pair-host img {
-    width: 74px;
-    height: 74px;
-    margin: 5px;
-  }
-
-  .pair-wire {
-    width: 72px;
-    height: 84px;
-  }
-
-  .pair-wire::before {
-    top: 41px;
-  }
-
-  .pair-lock {
-    top: 42px;
   }
 
   .hero-inner::before {
@@ -1417,17 +1323,14 @@ h1 .phrase + .phrase {
     scroll-behavior: auto;
   }
 
-  .pair-launcher,
-  .pair-host,
-  .pair-wire::before,
-  .pair-lock,
+  .gem-hex,
+  .gem-l,
   .pulse::after,
   .wire-dot,
   .caret {
     animation: none;
   }
 
-  .pair,
   .launcher-visual img {
     transition: none;
   }

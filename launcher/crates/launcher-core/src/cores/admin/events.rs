@@ -139,6 +139,12 @@ pub enum InstanceEventInner {
         player: String,
         player_message: String,
     },
+    /// A newer version of the modpack the server was made from is on Modrinth.
+    ModpackUpdateAvailable {
+        modpack: String,
+        version_id: String,
+        version_number: String,
+    },
     #[serde(other)]
     Unknown,
 }

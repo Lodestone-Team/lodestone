@@ -30,13 +30,10 @@ To run it on Cloudflare's own runtime instead, build first, then run
 
 ## The home page
 
-- **Logos.** The hero shows the two products side by side, the launcher's
-  hexagon (`src/launcher/images/icon.svg`) and Host's mark
-  (`src/host/images/icon.svg`), joined by the Connect section's line and lock.
-  Each links to its page. On load they slide in and the line draws between
-  them; the pair leans toward the pointer. The header shows the wordmark alone
-  (`src/images/wordmark.svg`); the gem (`src/images/mark.svg`) stays in the
-  footer and the favicon.
+- **Logo.** The gem (`src/images/mark.svg`, the launcher's logo), drawn inline
+  in `index.html` so `styles.css` can animate it: the gem turns into place and the
+  L rises into it. The Host card
+  keeps Host's own mark (`src/images/host-mark.svg`, from the dashboard).
 - **Iron filings.** `main.js` draws a grid of short strokes on a canvas behind
   the pair and turns each one along the field of a magnet at the pair; the
   pointer is a second magnet. It stops drawing while the hero is off screen,

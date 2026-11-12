@@ -1,5 +1,5 @@
-//! The Installed view (`InstalledMods.tsx`, `ClientPackPanel.tsx`): the client modpack
-//! of a Fabric server, the toolbar (update all, check for updates, upload), and a row
+//! The Installed view (`InstalledMods.tsx`, `ClientPackPanel.tsx`): the modpack panel
+//! (see [`super::modpack`]), the client modpack of a Fabric server, the toolbar (update all, check for updates, upload), and a row
 //! per mod with its update, Modrinth link, switch and delete.
 
 use std::path::PathBuf;
@@ -709,10 +709,30 @@ impl ModsPage {
                     )
                     .child(
                         div()
-                            .truncate()
-                            .text_size(text::SMALL)
-                            .text_color(ink::faint())
-                            .child(format!("{} · {}", m.file_name, format::bytes(m.size))),
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap(px(6.))
+                            .min_w_0()
+                            .child(
+                                div()
+                                    .truncate()
+                                    .text_size(text::SMALL)
+                                    .text_color(ink::faint())
+                                    .child(format!("{} · {}", m.file_name, format::bytes(m.size))),
+                            )
+                            // the modpack version this file came with
+                            .when_some(self.blame_label(&m.file_name), |this, (label, tip)| {
+                                this.child(
+                                    div()
+                                        .id(id("blame"))
+                                        .flex_none()
+                                        .text_size(text::SMALL)
+                                        .text_color(ink::muted())
+                                        .child(label)
+                                        .tooltip(text_tooltip(tip)),
+                                )
+                            }),
                     ),
             )
             .child(
@@ -927,6 +947,7 @@ impl ModsPage {
             .flex()
             .flex_col()
             .gap(px(16.))
+            .children(self.modpack_panel(cx))
             .when(!first_load, |this| {
                 this.children(self.client_pack_panel(cx))
             })

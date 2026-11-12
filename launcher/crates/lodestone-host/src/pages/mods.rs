@@ -1,5 +1,6 @@
 //! An instance's Mods tab, or Plugins for Paper and Spigot (`ModsTab.tsx`): what is
-//! installed (`InstalledMods.tsx`, with the client modpack of a Fabric server), and
+//! installed (`InstalledMods.tsx`, with the client modpack of a Fabric server, and the
+//! update of a server made from a modpack), and
 //! Modrinth through the core to find more (`ModrinthSearch.tsx`,
 //! `ModrinthProjectView.tsx`).
 //!
@@ -9,6 +10,7 @@
 
 mod browse;
 mod installed;
+mod modpack;
 mod project;
 #[cfg(test)]
 mod tests;
@@ -67,6 +69,7 @@ impl Target {
             Game::MinecraftJava { variant } => match variant {
                 MinecraftVariant::Fabric => InstalledModLoader::Fabric,
                 MinecraftVariant::Forge => InstalledModLoader::Forge,
+                MinecraftVariant::NeoForge => InstalledModLoader::NeoForge,
                 MinecraftVariant::Paper => InstalledModLoader::Paper,
                 MinecraftVariant::Spigot => InstalledModLoader::Spigot,
                 _ => InstalledModLoader::Unknown,
@@ -99,6 +102,11 @@ enum Prompt {
     },
     /// A version for another loader or game version.
     Incompatible { version_id: String, body: String },
+    /// Update the server's modpack: what the core says it changes.
+    ModpackUpdate {
+        source: launcher_core::cores::admin::instances::ModpackSource,
+        plan: Box<launcher_core::cores::admin::mods::ModpackUpdatePlan>,
+    },
 }
 
 struct Shown {
@@ -126,6 +134,23 @@ pub struct ModsPage {
     updating_all: bool,
     uploading: bool,
     downloading_pack: bool,
+    /// The check for a newer version of the server's modpack.
+    modpack_check: modpack::ModpackCheck,
+    /// Preparing or running a modpack update.
+    modpack_busy: bool,
+    /// The modpack's history, once fetched.
+    modpack_history: Option<launcher_core::cores::admin::mods::ModpackHistory>,
+    modpack_history_error: Option<String>,
+    /// Counts the history's fetches, so only the newest one is kept.
+    history_serial: u64,
+    /// The history's timeline is shown.
+    history_open: bool,
+    /// History entries whose changes are shown.
+    history_expanded: HashSet<u32>,
+    /// The changelog of the version that is out is shown.
+    update_changelog_open: bool,
+    /// History entries whose changelog is shown.
+    changelog_expanded: HashSet<u32>,
     dialog: lodestone_ui::components::DialogSlot<Self, Shown>,
     /// Counts the list's fetches, so only the newest one is kept.
     list_serial: u64,
@@ -150,12 +175,22 @@ impl ModsPage {
             updating_all: false,
             uploading: false,
             downloading_pack: false,
+            modpack_check: modpack::ModpackCheck::default(),
+            modpack_busy: false,
+            modpack_history: None,
+            modpack_history_error: None,
+            history_serial: 0,
+            history_open: false,
+            history_expanded: HashSet::new(),
+            update_changelog_open: false,
+            changelog_expanded: HashSet::new(),
             dialog: lodestone_ui::components::DialogSlot::new(|this: &mut Self| &mut this.dialog),
             list_serial: 0,
             _tasks: Vec::new(),
             _subscriptions: subscriptions,
         };
         this.reload(cx);
+        this.load_modpack_history(cx);
         this
     }
 
@@ -273,7 +308,15 @@ impl ModsPage {
         use lodestone_ui::components::{Button, ButtonVariant, Dialog};
         let target = self.target(cx);
         let plugin = target.as_ref().is_some_and(Target::is_plugin);
-        let (title, body, confirm) = match &shown.prompt {
+        let text_body = |body: String| {
+            div()
+                .text_size(text::MEDIUM)
+                .line_height(line_height(text::MEDIUM, leading::NORMAL))
+                .text_color(ink::secondary())
+                .child(body)
+                .into_any_element()
+        };
+        let (title, body, confirm, variant, enabled) = match &shown.prompt {
             Prompt::Delete { file_name, name } => (
                 t(if plugin {
                     M::ModsDeleteTitlePlugin
@@ -281,26 +324,56 @@ impl ModsPage {
                     M::ModsDeleteTitleMod
                 })
                 .to_string(),
-                tr!(M::ModsDeleteBody, name = name, fileName = file_name),
+                text_body(tr!(M::ModsDeleteBody, name = name, fileName = file_name)),
                 t(crate::i18n::CommonMsg::Delete).to_string(),
+                ButtonVariant::Danger,
+                true,
             ),
             Prompt::Overwrite { message, .. } => (
                 t(M::ModsOverwriteTitle).to_string(),
-                tr!(
+                text_body(tr!(
                     M::ModsOverwriteBody,
                     message = if message.is_empty() {
                         t(M::ModsOverwriteDefault).to_string()
                     } else {
                         message.clone()
                     }
-                ),
+                )),
                 t(M::ModsOverwrite).to_string(),
+                ButtonVariant::Danger,
+                true,
             ),
             Prompt::Incompatible { body, .. } => (
                 t(M::ModsIncompatibleTitle).to_string(),
-                body.clone(),
+                text_body(body.clone()),
                 t(M::ModsInstallAnyway).to_string(),
+                ButtonVariant::Danger,
+                true,
             ),
+            Prompt::ModpackUpdate { plan, source } => {
+                let (body, may_run) = self.modpack_dialog_body(plan, cx);
+                let restore = matches!(
+                    source,
+                    launcher_core::cores::admin::instances::ModpackSource::History { .. }
+                );
+                (
+                    t(if restore {
+                        M::ModpackRestoreTitle
+                    } else {
+                        M::ModpackDialogTitle
+                    })
+                    .to_string(),
+                    body,
+                    t(if restore {
+                        M::ModpackRestore
+                    } else {
+                        M::ModpackUpdate
+                    })
+                    .to_string(),
+                    ButtonVariant::Primary,
+                    may_run,
+                )
+            }
         };
         Dialog::new("mods-dialog", title, shown.focus.clone())
             .on_close({
@@ -312,16 +385,11 @@ impl ModsPage {
                     .ok();
                 }
             })
-            .child(
-                div()
-                    .text_size(text::MEDIUM)
-                    .line_height(line_height(text::MEDIUM, leading::NORMAL))
-                    .text_color(ink::secondary())
-                    .child(body),
-            )
+            .child(body)
             .footer(
                 Button::new("mods-dialog-confirm", confirm)
-                    .variant(ButtonVariant::Danger)
+                    .variant(variant)
+                    .disabled(!enabled)
                     .on_click(cx.listener(|this, _, _, cx| this.confirm_prompt(cx))),
             )
             .into_any_element()
@@ -342,6 +410,7 @@ impl ModsPage {
             Prompt::Delete { file_name, .. } => self.delete_mod(file_name, cx),
             Prompt::Overwrite { files, .. } => self.upload(files, true, cx),
             Prompt::Incompatible { version_id, .. } => self.install_version(version_id, true, cx),
+            Prompt::ModpackUpdate { source, plan } => self.run_modpack_update(source, *plan, cx),
         }
     }
 }

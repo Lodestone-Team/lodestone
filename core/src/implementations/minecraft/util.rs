@@ -1,4 +1,5 @@
-//! Version and download lookups for Minecraft servers (Mojang, Fabric, Forge, Paper, Adoptium).
+//! Version and download lookups for Minecraft servers (Mojang, Fabric, Forge, NeoForge,
+//! Paper, Adoptium).
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, LazyLock};
@@ -8,15 +9,17 @@ use color_eyre::eyre::{eyre, Context};
 use lodestone_minecraft::versions::fabric::{
     select_fabric_installer, select_fabric_loader, FabricLoaderEntry, FabricStable,
 };
-use lodestone_minecraft::versions::forge::newest_forge_build;
+use lodestone_minecraft::versions::forge::{forge_build_for, newest_forge_build};
 use lodestone_minecraft::versions::mojang::{
     find_mojang_version, jre_major_version, vanilla_server_url, MojangVersion, MojangVersionInfo,
     MojangVersionManifest, VERSION_MANIFEST_URL,
 };
+use lodestone_minecraft::versions::neoforge::{neoforge_installer_url, newest_neoforge_build};
 use serde::Deserialize;
 
 use super::{
-    FabricInstallerVersion, FabricLoaderVersion, Flavour, ForgeBuildVersion, PaperBuildVersion,
+    FabricInstallerVersion, FabricLoaderVersion, Flavour, ForgeBuildVersion, NeoForgeBuildVersion,
+    PaperBuildVersion,
 };
 use crate::error::{Error, ErrorKind};
 
@@ -108,6 +111,7 @@ pub async fn get_server_jar_url(
             source: eyre!("Spigot servers are not supported"),
         }),
         Flavour::Forge { build_version } => get_forge_jar_url(version, build_version).await,
+        Flavour::NeoForge { build_version } => get_neoforge_jar_url(version, build_version).await,
     }
 }
 
@@ -199,6 +203,48 @@ pub async fn get_forge_jar_url(
         ),
         Flavour::Forge {
             build_version: Some(ForgeBuildVersion(build)),
+        },
+    ))
+}
+
+/// The Forge build a modpack names for `version` (`47.2.0` for `1.20.1-47.2.0`), checked
+/// against Forge's version list.
+pub async fn forge_build_for_pack(version: &str, forge_version: &str) -> Result<String, Error> {
+    let metadata: BTreeMap<String, Vec<String>> = get_json(
+        "https://files.minecraftforge.net/net/minecraftforge/forge/maven-metadata.json",
+        "Forge versions",
+    )
+    .await?;
+    Ok(forge_build_for(&metadata, version, forge_version)?)
+}
+
+/// The installer of NeoForge `neoforge_build_version` (else the newest for `version`).
+/// A version that is not for `version` is refused.
+pub async fn get_neoforge_jar_url(
+    version: &str,
+    neoforge_build_version: &Option<NeoForgeBuildVersion>,
+) -> Result<(String, Flavour), Error> {
+    let build = match neoforge_build_version {
+        Some(NeoForgeBuildVersion(b)) => {
+            let game = lodestone_minecraft::versions::neoforge::neoforge_game_version(b);
+            // the version goes into a URL
+            let plain = b
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '+' | '_'));
+            if !plain || game.as_deref() != Some(version) {
+                return Err(Error {
+                    kind: ErrorKind::BadRequest,
+                    source: eyre!("NeoForge {b} is not for Minecraft {version}"),
+                });
+            }
+            b.clone()
+        }
+        None => newest_neoforge_build(&super::forge::get_neoforge_versions().await?, version)?,
+    };
+    Ok((
+        neoforge_installer_url(&build),
+        Flavour::NeoForge {
+            build_version: Some(NeoForgeBuildVersion(build)),
         },
     ))
 }

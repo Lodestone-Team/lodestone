@@ -191,6 +191,18 @@ export const useEventStream = () => {
                   fresh,
                 });
               },
+              ModpackUpdateAvailable: ({ modpack, version_number }) => {
+                dispatch({
+                  title: t('shell.event.modpackUpdate', {
+                    pack: modpack,
+                    version: version_number,
+                    name,
+                  }),
+                  event,
+                  type: 'add',
+                  fresh,
+                });
+              },
             }),
           UserEvent: ({ user_id: uid, user_event_inner: event_inner }) => {
             if (!fresh) return;

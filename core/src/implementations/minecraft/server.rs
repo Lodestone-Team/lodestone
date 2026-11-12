@@ -24,7 +24,9 @@ use crate::types::Snowflake;
 use crate::util::{dont_spawn_terminal, list_dir, local_port_available};
 
 use super::properties::PropertiesDocument;
-use super::{java_binary, Flavour, ForgeBuildVersion, MinecraftInstance, RestoreConfig};
+use super::{
+    java_binary, Flavour, ForgeBuildVersion, MinecraftInstance, NeoForgeBuildVersion, RestoreConfig,
+};
 use tracing::{error, info, warn};
 
 /// Minecraft's default port, used when server.properties has no `server-port`
@@ -125,6 +127,24 @@ async fn forward_lines(
 }
 
 /// The first `.jar` file in `dir` whose name starts with `prefix`
+/// `@<instance>/libraries/<library>/unix_args.txt` (`win_args.txt` on Windows): the
+/// argument file a modern Forge or NeoForge installer writes, which names the server's
+/// main class and class path.
+fn installer_args_file(path_to_instance: &Path, library: &[&str]) -> std::ffi::OsString {
+    let file = match std::env::consts::OS {
+        "windows" => "win_args.txt",
+        _ => "unix_args.txt",
+    };
+    let mut path = path_to_instance.join("libraries");
+    for part in library {
+        path.push(part);
+    }
+    path.push(file);
+    let mut arg = std::ffi::OsString::from("@");
+    arg.push(path.into_os_string());
+    arg
+}
+
 async fn find_jar(dir: &Path, prefix: &str) -> Result<PathBuf, Error> {
     let files = list_dir(dir, Some(false))
         .await
@@ -247,6 +267,16 @@ impl MinecraftInstance {
         command: &mut Command,
         config: &RestoreConfig,
     ) -> Result<(), Error> {
+        if let Flavour::NeoForge { build_version } = &config.flavour {
+            let NeoForgeBuildVersion(build_version) = build_version
+                .as_ref()
+                .ok_or_else(|| eyre!("NeoForge version not found"))?;
+            command.arg(installer_args_file(
+                &self.path_to_instance,
+                &["net", "neoforged", "neoforge", build_version.as_str()],
+            ));
+            return Ok(());
+        }
         let Flavour::Forge { build_version } = &config.flavour else {
             command
                 .arg("-jar")
@@ -270,23 +300,10 @@ impl MinecraftInstance {
             })?;
 
         if 17 <= major_version {
-            let forge_args = match std::env::consts::OS {
-                "windows" => "win_args.txt",
-                _ => "unix_args.txt",
-            };
-            let mut full_forge_args = std::ffi::OsString::from("@");
-            full_forge_args.push(
-                self.path_to_instance
-                    .join("libraries")
-                    .join("net")
-                    .join("minecraftforge")
-                    .join("forge")
-                    .join(build_version.as_str())
-                    .join(forge_args)
-                    .into_os_string()
-                    .as_os_str(),
-            );
-            command.arg(full_forge_args);
+            command.arg(installer_args_file(
+                &self.path_to_instance,
+                &["net", "minecraftforge", "forge", build_version.as_str()],
+            ));
         } else {
             // 1.7 to 1.16 name the jar forge-<version>-...; 1.5 and 1.6 use minecraftforge
             // (1.4 doesn't work since forge doesn't provide an installer)
@@ -615,7 +632,7 @@ impl TServer for MinecraftInstance {
         // Changing the version replaces server.jar, so don't start while it runs.
         let version_guard = self.version_change_lock.try_lock().map_err(|_| Error {
             kind: ErrorKind::BadRequest,
-            source: eyre!("Cannot start the server while its version is being changed"),
+            source: eyre!("Cannot start the server while its version or modpack is being changed"),
         })?;
         // Subscribe first, so a server that exits right away can't be missed.
         let rx = block.then(|| self.event_broadcaster.subscribe());

@@ -84,7 +84,10 @@ function startField() {
     [154, 143, 245],
   ];
   const BANDS = BAND_COLORS.length;
-  const CLEAR_RADIUS = 84; // no filings under the logo
+  // Filings run right up to the gem and fade out toward its edge: fully shown
+  // from GEM_FADE px out, gone at GEM_MARGIN px, following the hexagon.
+  const GEM_MARGIN = 3; // px between the gem's edge and the nearest stroke tip
+  const GEM_FADE = 40; // px from the gem's edge where strokes are fully shown
   const POINTER_REACH = 170; // px; the pointer's pull halves at about this distance
   const POINTER_SPREAD = 2 * (POINTER_REACH / 1.18) ** 2;
   const FADE_REACH = 90; // px; strokes are half faded at about this distance
@@ -96,6 +99,7 @@ function startField() {
   let spacing = 22;
   let filings = [];
   let center = { x: 0, y: 0 };
+  let gemScale = 1; // CSS px per unit of the logo's viewBox
   const pointer = { x: 0, y: 0, tx: 0, ty: 0, strength: 0, target: 0 };
   let start = performance.now();
   let running = false;
@@ -116,23 +120,38 @@ function startField() {
       y: markBox.top + markBox.height / 2 - heroBox.top,
     };
 
+    // the logo's viewBox is 580 units wide
+    gemScale = mark.offsetWidth / 580;
+
     spacing = width < 600 ? 24 : 22;
     const old = filings;
     filings = [];
-    const cols = Math.ceil(width / spacing) + 1;
-    const rows = Math.ceil(height / spacing) + 1;
-    const ox = (width - (cols - 1) * spacing) / 2;
-    const oy = (height - (rows - 1) * spacing) / 2;
+    // line the grid up on the logo, so the fade around it looks the same on every side
+    const ox = center.x - Math.ceil(center.x / spacing) * spacing;
+    const oy = center.y - Math.ceil(center.y / spacing) * spacing;
+    const cols = Math.ceil((width - ox) / spacing) + 1;
+    const rows = Math.ceil((height - oy) / spacing) + 1;
     for (let j = 0; j < rows; j++) {
       for (let i = 0; i < cols; i++) {
         const x = ox + i * spacing;
         const y = oy + j * spacing;
         const d = Math.hypot(x - center.x, y - center.y);
-        if (d < CLEAR_RADIUS) continue;
+        const edge = gemDistance(x, y);
+        const clear = edge - GEM_MARGIN; // room for the stroke before it reaches the gem
+        if (clear < 2) continue;
+        // which way is away from the gem here
+        const nx = gemDistance(x + 0.5, y) - gemDistance(x - 0.5, y);
+        const ny = gemDistance(x, y + 0.5) - gemDistance(x, y - 0.5);
+        // 0 at the gem's edge, 1 from GEM_FADE out, eased so it fades quickly near the gem
+        const t = Math.min(1, edge / GEM_FADE);
         const prev = old[filings.length];
         filings.push({
           x,
           y,
+          clear,
+          nx,
+          ny,
+          gemFade: t * t * (3 - 2 * t),
           angle: prev ? prev.angle : Math.random() * Math.PI,
           // the ripple: strokes near the logo line up first
           delay: 250 + d * 0.9,
@@ -144,6 +163,26 @@ function startField() {
         });
       }
     }
+  }
+
+  // Distance in px from (x, y) to the gem's edge (negative inside): a hexagon
+  // with points at the top and bottom (flat sides 259.8 viewBox units from its
+  // middle, rounded corners), the same shape as the logo's path.
+  function gemDistance(x, y) {
+    const ROUND = 78;
+    const inner = 259.81 - ROUND;
+    // swap x and y so the flat sides are on top for the usual formula
+    let px = Math.abs(y - center.y) / gemScale;
+    let py = Math.abs(x - center.x) / gemScale;
+    const kx = -0.866025404;
+    const ky = 0.5;
+    const fold = 2 * Math.min(kx * px + ky * py, 0);
+    px -= fold * kx;
+    py -= fold * ky;
+    const lim = 0.577350269 * inner;
+    px -= Math.max(-lim, Math.min(lim, px));
+    py -= inner;
+    return (Math.hypot(px, py) * Math.sign(py) - ROUND) * gemScale;
   }
 
   // Field of a dipole with moment (mx, my) and strength k at (cx, cy), at (x, y).
@@ -215,12 +254,16 @@ function startField() {
       const appear = reducedMotion ? 1 : Math.min(1, Math.max(0, elapsed / 600));
       if (appear <= 0) continue;
       const strength = Math.min(1, Math.pow(Math.hypot(b.x, b.y), 0.3) * 0.85);
-      const shown = Math.min(1, (strength * (1 - 0.97 * fade) + 0.42 * ring) * appear);
+      const shown = Math.min(1, (strength * (1 - 0.97 * fade) + 0.42 * ring) * appear * f.gemFade);
       if (shown < 0.05) continue;
       const level = Math.min(BUCKETS - 1, Math.floor(shown * BUCKETS));
-      const half = (spacing * (0.24 + 0.14 * strength)) / 1;
-      const cx = Math.cos(f.angle) * half;
-      const cy = Math.sin(f.angle) * half;
+      const ax = Math.cos(f.angle);
+      const ay = Math.sin(f.angle);
+      // shorten strokes that point at the gem so their tips never touch it
+      const toward = Math.abs(ax * f.nx + ay * f.ny);
+      const half = Math.min(spacing * (0.24 + 0.14 * strength), f.clear / Math.max(toward, 0.001));
+      const cx = ax * half;
+      const cy = ay * half;
       paths[f.band * BUCKETS + level].push(f.x - cx, f.y - cy, f.x + cx, f.y + cy);
     }
 
@@ -299,16 +342,77 @@ function startField() {
   document.addEventListener('visibilitychange', () => setRunning(visible && !document.hidden));
 }
 
-// The logo leans toward the pointer.
+// The logo leans toward the pointer. A CSS 3D transform would do this, but the
+// browser draws a 3D-transformed element once as a bitmap and then stretches
+// it, which blurs the logo. Instead the tilt is worked out here and written
+// into the SVG, so the browser redraws it as vectors and it stays sharp: the
+// gem's outline points go through the full perspective, and the L and the
+// gradients get the same tilt as a flat 2D transform about the middle (the L
+// is small enough that perspective barely changes it). Up to 24 degrees each
+// way, with a 600px perspective.
 function tiltMark() {
   const mark = document.querySelector('[data-mark]');
-  if (!mark || reducedMotion || !finePointer) return;
+  const svg = mark && mark.querySelector('svg');
+  if (!svg || reducedMotion || !finePointer) return;
+  const C = 512; // the gem's middle, in viewBox units
+  const outlines = [...svg.querySelectorAll('.gem-hex path')].map((path) => ({
+    path,
+    d: path.getAttribute('d'),
+  }));
+  const flat = [svg.querySelector('[data-gem-tilt]'), ...svg.querySelectorAll('#hg-gem, #hg-hl')];
+  const attr = (el) => (el.tagName === 'linearGradient' ? 'gradientTransform' : 'transform');
+  const target = { x: 0, y: 0 };
+  const tilt = { x: 0, y: 0 };
+  let frame = 0;
+
+  function draw() {
+    // ease toward the target, like a 0.3s transition
+    tilt.x += (target.x - tilt.x) * 0.16;
+    tilt.y += (target.y - tilt.y) * 0.16;
+    const settled = Math.abs(target.x - tilt.x) < 0.01 && Math.abs(target.y - tilt.y) < 0.01;
+    if (settled) {
+      tilt.x = target.x;
+      tilt.y = target.y;
+    }
+
+    const a = (tilt.x * Math.PI) / 180; // rotateX
+    const b = (tilt.y * Math.PI) / 180; // rotateY
+    const ca = Math.cos(a);
+    const sa = Math.sin(a);
+    const cb = Math.cos(b);
+    const sb = Math.sin(b);
+    const depth = 600 / (mark.offsetWidth / 580); // the perspective, in viewBox units
+    // perspective(600px) rotateX(a) rotateY(b) of a point on the flat logo
+    const project = (x, y) => {
+      const px = x - C;
+      const py = y - C;
+      const w = 1 - (py * sa - px * sb * ca) / depth;
+      return [C + (px * cb) / w, C + (py * ca + px * sb * sa) / w];
+    };
+
+    for (const { path, d } of outlines) {
+      path.setAttribute(
+        'd',
+        d.replace(/(-?[\d.]+),(-?[\d.]+)/g, (_, x, y) =>
+          project(+x, +y)
+            .map((v) => v.toFixed(2))
+            .join(',')
+        )
+      );
+    }
+    const m = [cb, sb * sa, 0, ca, C - cb * C, C - (sb * sa + ca) * C].map((v) => +v.toFixed(5));
+    for (const el of flat) el.setAttribute(attr(el), `matrix(${m.join(' ')})`);
+
+    frame = settled ? 0 : requestAnimationFrame(draw);
+  }
+
   window.addEventListener('pointermove', (e) => {
     const box = mark.getBoundingClientRect();
     const dx = (e.clientX - (box.left + box.width / 2)) / window.innerWidth;
     const dy = (e.clientY - (box.top + box.height / 2)) / window.innerHeight;
-    mark.style.setProperty('--tilt-y', `${(dx * 24).toFixed(2)}deg`);
-    mark.style.setProperty('--tilt-x', `${(-dy * 24).toFixed(2)}deg`);
+    target.x = -dy * 24;
+    target.y = dx * 24;
+    if (!frame) frame = requestAnimationFrame(draw);
   });
 }
 

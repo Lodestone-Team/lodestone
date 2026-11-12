@@ -635,6 +635,7 @@ mod tests {
         assert!(!plain.mods_hidden());
 
         assert_eq!(loader("Forge"), ServerLoader::Forge);
+        assert_eq!(loader("NeoForge"), ServerLoader::NeoForge);
         assert_eq!(loader("something"), ServerLoader::Other);
         assert_eq!(state("Stopped"), ServerState::Stopped);
         assert_eq!(state("nonsense"), ServerState::Unknown);

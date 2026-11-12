@@ -197,7 +197,6 @@ impl ModpackFlow {
                 t(M::ModpackSearchPlaceholder),
                 cx,
             )
-            .with_loader_filter("fabric", t(M::ModpackOnlyFabric), cx)
         });
         let subscription = cx.subscribe(&search, |this, _, event, cx| match event {
             ModrinthSearchEvent::Picked(pick) => this.pick(pick.clone(), cx),
@@ -989,9 +988,10 @@ impl ModpackFlow {
             };
         let line = self.info.as_ref().map(|info| {
             format!(
-                "{} · Minecraft {} · Fabric {}",
+                "{} · Minecraft {} · {} {}",
                 info.name,
                 info.game_version,
+                launcher_core::cores::admin::mods::loader_title(&info.loader),
                 info.loader_version.clone().unwrap_or_default()
             )
         });
