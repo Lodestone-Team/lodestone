@@ -834,75 +834,11 @@ h1 .phrase + .phrase {
   }
 }
 
-/* Connect: the whole width, copy on the left and a friend list on the right. */
-.card-connect {
-  grid-column: 1 / -1;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  align-items: center;
-}
-
-.card-connect .card-copy {
-  padding-bottom: 28px;
-}
-
-.card-connect::before {
-  background: radial-gradient(420px circle at var(--mx) var(--my), rgba(154, 143, 245, 0.1), transparent 60%);
-}
-
-.card-connect .card-link:not(.card-link-quiet) {
-  color: var(--lilac);
-}
-
 .card-icon-connect {
   border-radius: 6px;
   background: linear-gradient(160deg, #262540, #16151f);
   box-shadow: inset 0 0 0 1px var(--border-strong);
   color: var(--lilac);
-}
-
-.card .card-note {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 18px;
-  color: var(--text-faint);
-  font-size: 14px;
-}
-
-.card-note svg {
-  flex: none;
-  color: var(--lilac);
-}
-
-.connect-visual {
-  margin-top: 0;
-  padding: 28px 28px 28px 0;
-}
-
-.friends {
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: rgba(10, 12, 14, 0.55);
-  overflow: hidden;
-}
-
-.friends ul {
-  margin: 0;
-  padding: 4px 0;
-  list-style: none;
-}
-
-.friends li {
-  display: grid;
-  grid-template-columns: 28px 1fr auto;
-  align-items: center;
-  gap: 12px;
-  padding: 8px 14px;
-}
-
-.friends li.is-away {
-  opacity: 0.5;
 }
 
 .avatar {
@@ -926,6 +862,295 @@ h1 .phrase + .phrase {
   color: #fff;
   font-size: 13px;
   font-weight: 700;
+}
+
+/* Lodestone Connect: its own section between the hero and the products. */
+
+.together {
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 24px clamp(64px, 11vh, 120px);
+  scroll-margin-top: 24px;
+  text-align: center;
+}
+
+.together-head {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.together-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 16px;
+  color: var(--lilac);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.together-kicker .card-icon-connect {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+}
+
+.together h2 {
+  margin: 0;
+  font-size: clamp(32px, 4.6vw, 56px);
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+}
+
+.together-lede {
+  margin: 16px 0 0;
+  max-width: 46ch;
+  color: var(--text-muted);
+  font-size: clamp(17px, 2vw, 19px);
+}
+
+/* Two computers and the connection between them. */
+.link {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) clamp(80px, 12vw, 160px) minmax(0, 1fr);
+  align-items: center;
+  max-width: 980px;
+  margin: clamp(36px, 6vh, 56px) auto 0;
+  text-align: left;
+}
+
+.link {
+  position: relative;
+  isolation: isolate;
+}
+
+/* A soft violet glow behind the two computers, from the gem. */
+.link::before {
+  content: '';
+  position: absolute;
+  inset: -30% 5%;
+  background:
+    radial-gradient(closest-side at 30% 50%, rgba(34, 201, 128, 0.07), transparent),
+    radial-gradient(closest-side at 50% 50%, rgba(91, 79, 192, 0.14), transparent),
+    radial-gradient(closest-side at 70% 50%, rgba(47, 111, 168, 0.08), transparent);
+  z-index: -1;
+  pointer-events: none;
+}
+
+.link-side {
+  margin: 0;
+}
+
+.link-side figcaption {
+  margin-top: 10px;
+  color: var(--text-faint);
+  font-size: 13px;
+  text-align: center;
+}
+
+.panel {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: linear-gradient(180deg, var(--card-raised), var(--card));
+  overflow: hidden;
+}
+
+.panel-rows {
+  margin: 0;
+  padding: 4px 0;
+  list-style: none;
+}
+
+.panel-rows li {
+  display: grid;
+  grid-template-columns: 28px 1fr auto;
+  align-items: center;
+  gap: 12px;
+  min-height: 52px;
+  padding: 8px 14px;
+}
+
+.panel-rows li img {
+  border-radius: 6px;
+  image-rendering: pixelated;
+}
+
+.panel-rows li + li {
+  border-top: 1px solid var(--border);
+}
+
+.panel-shared {
+  grid-template-columns: 40px 1fr;
+}
+
+.faces {
+  display: flex;
+}
+
+.faces .avatar {
+  width: 22px;
+  height: 22px;
+  font-size: 11px;
+  box-shadow: 0 0 0 2px var(--card);
+}
+
+.faces .avatar + .avatar {
+  margin-left: -6px;
+}
+
+.panel-rows .panel-join {
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+
+.join-bar {
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.join-bar span {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #13668a, var(--sky));
+  transform-origin: left;
+}
+
+.join-text {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.wire {
+  position: relative;
+  height: 28px;
+}
+
+.wire-line {
+  position: absolute;
+  left: -1px;
+  right: -1px;
+  top: 50%;
+  height: 2px;
+  translate: 0 -50%;
+  background: linear-gradient(90deg, rgba(46, 242, 154, 0.5), rgba(154, 143, 245, 0.7), rgba(106, 174, 238, 0.5));
+}
+
+.wire-dot {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 6px;
+  height: 6px;
+  margin: -3px 0 0 -3px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 10px rgba(154, 143, 245, 0.9);
+  opacity: 0;
+  animation: travel 2.4s linear infinite;
+}
+
+.wire-dot + .wire-dot {
+  animation-direction: reverse;
+  animation-delay: -1.2s;
+}
+
+@keyframes travel {
+  0% {
+    left: 0;
+    opacity: 0;
+  }
+  15%,
+  85% {
+    opacity: 1;
+  }
+  100% {
+    left: 100%;
+    opacity: 0;
+  }
+}
+
+.wire-lock {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  translate: -50% -50%;
+  border: 1px solid rgba(154, 143, 245, 0.5);
+  border-radius: 50%;
+  background: #16151f;
+  color: var(--lilac);
+}
+
+.steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px 40px;
+  max-width: 980px;
+  margin: clamp(40px, 7vh, 64px) auto 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: step;
+  text-align: left;
+}
+
+.steps li {
+  counter-increment: step;
+}
+
+.steps li::before {
+  content: counter(step);
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  margin-bottom: 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  color: var(--lilac);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.steps h3 {
+  margin: 0;
+  font-size: 20px;
+  line-height: 1.2;
+}
+
+.steps p {
+  margin: 6px 0 0;
+  color: var(--text-muted);
+}
+
+.together-note {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin: clamp(32px, 5vh, 48px) 0 0;
+  color: var(--text-faint);
+  font-size: 14px;
+}
+
+.together-note svg {
+  flex: none;
+  color: var(--lilac);
+}
+
+.together .actions {
+  margin-top: 20px;
 }
 
 /* Footer */
@@ -972,18 +1197,54 @@ h1 .phrase + .phrase {
     min-height: 0;
     aspect-ratio: 1.5;
   }
+}
 
-  .card-connect {
+@media (max-width: 760px) {
+  .link {
     grid-template-columns: 1fr;
+    max-width: 460px;
   }
 
-  .card-connect .card-copy {
-    padding-bottom: 0;
+  .wire {
+    width: 28px;
+    height: 72px;
+    margin: 4px auto;
   }
 
-  .connect-visual {
-    margin-top: 28px;
-    padding: 0 28px 28px;
+  .wire-line {
+    left: 50%;
+    right: auto;
+    top: -1px;
+    bottom: -1px;
+    width: 2px;
+    height: auto;
+    translate: -50% 0;
+    background: linear-gradient(180deg, rgba(46, 242, 154, 0.5), rgba(154, 143, 245, 0.7), rgba(106, 174, 238, 0.5));
+  }
+
+  .wire-dot {
+    left: 50%;
+    animation-name: travel-down;
+  }
+
+  .steps {
+    grid-template-columns: 1fr;
+    max-width: 460px;
+  }
+}
+
+@keyframes travel-down {
+  0% {
+    top: 0;
+    opacity: 0;
+  }
+  15%,
+  85% {
+    opacity: 1;
+  }
+  100% {
+    top: 100%;
+    opacity: 0;
   }
 }
 
@@ -1001,6 +1262,11 @@ h1 .phrase + .phrase {
   }
 
   .github-label {
+    display: none;
+  }
+
+  /* The hero's Play with friends button goes there too. */
+  .nav-link-wide {
     display: none;
   }
 
@@ -1031,7 +1297,8 @@ h1 .phrase + .phrase {
     inset: 90px -20% -8%;
   }
 
-  .products {
+  .products,
+  .together {
     padding-left: 16px;
     padding-right: 16px;
   }
@@ -1041,8 +1308,7 @@ h1 .phrase + .phrase {
   }
 
   .host-visual,
-  .cli-visual,
-  .connect-visual {
+  .cli-visual {
     padding: 0 22px 22px;
   }
 
@@ -1074,6 +1340,7 @@ h1 .phrase + .phrase {
   .gem-l,
   .gem-edge,
   .pulse::after,
+  .wire-dot,
   .caret {
     animation: none;
   }

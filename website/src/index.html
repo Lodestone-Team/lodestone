@@ -35,6 +35,7 @@
       <nav class="nav">
         <a class="nav-link" href="/launcher">Launcher</a>
         <a class="nav-link" href="/host">Host</a>
+        <a class="nav-link nav-link-wide" href="#connect">Connect</a>
         <a
           class="github"
           href="https://github.com/Lodestone-Team/lodestone"
@@ -134,8 +135,118 @@
           <p class="lede">Lodestone makes free, open source tools for playing and hosting Minecraft with your friends.</p>
           <div class="actions">
             <a class="button" href="/launcher">Get the launcher</a>
-            <a class="button button-quiet" href="#products">See everything</a>
+            <a class="button button-quiet" href="#connect">Play with friends</a>
           </div>
+        </div>
+      </section>
+
+      <section class="together" id="connect" aria-labelledby="connect-title">
+        <div class="together-head">
+          <p class="together-kicker">
+            <span class="card-icon-connect">
+              <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+                <circle cx="6" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2.2" />
+                <circle cx="18" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2.2" />
+                <path d="M9 12h6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" />
+              </svg>
+            </span>
+            Lodestone Connect
+          </p>
+          <h2 id="connect-title">Play together. No port forwarding.</h2>
+          <p class="together-lede">
+            Add a friend once. Their servers and open LAN worlds show up in your launcher, and Play brings the mods and
+            joins.
+          </p>
+        </div>
+
+        <!-- An illustration, not live data: a friend's Lodestone Host on the left,
+             your launcher on the right. main.js plays the join once when it
+             scrolls into view. -->
+        <div class="link" data-link aria-hidden="true">
+          <figure class="link-side">
+            <div class="panel">
+              <div class="servers-head">
+                <span>Lodestone Host</span>
+                <span class="servers-online"><span class="pulse"></span>Running</span>
+              </div>
+              <ul class="panel-rows">
+                <li>
+                  <img src="/images/fabric.png" alt="" width="28" height="28" />
+                  <span class="server-name">Weekend survival<small>Fabric 26.3</small></span>
+                  <span class="tag">Shared</span>
+                </li>
+                <li class="panel-shared">
+                  <span class="faces"><span class="avatar" style="--hue: 212">B</span><span class="avatar" style="--hue: 32">Y</span></span>
+                  <span class="server-name">Shared with birch_bard and you<small>From the friend list</small></span>
+                </li>
+              </ul>
+            </div>
+            <figcaption>mossy_toast's computer</figcaption>
+          </figure>
+
+          <div class="wire">
+            <span class="wire-line"></span>
+            <span class="wire-dot"></span>
+            <span class="wire-dot"></span>
+            <span class="wire-lock">
+              <svg viewBox="0 0 16 16" width="12" height="12">
+                <path
+                  fill="currentColor"
+                  d="M4 6V4.5a4 4 0 118 0V6h.5A1.5 1.5 0 0114 7.5v6a1.5 1.5 0 01-1.5 1.5h-9A1.5 1.5 0 012 13.5v-6A1.5 1.5 0 013.5 6H4zm1.5 0h5V4.5a2.5 2.5 0 00-5 0V6z"
+                />
+              </svg>
+            </span>
+          </div>
+
+          <figure class="link-side">
+            <div class="panel">
+              <div class="servers-head">
+                <span>Friends</span>
+                <span class="servers-online"><span class="pulse"></span>2 online</span>
+              </div>
+              <ul class="panel-rows">
+                <li>
+                  <span class="avatar" style="--hue: 152">M</span>
+                  <span class="server-name">mossy_toast<small>Weekend survival · Fabric 26.3</small></span>
+                  <span class="play">Play</span>
+                </li>
+                <li class="panel-join">
+                  <span class="join-bar"><span data-join-bar></span></span>
+                  <span class="join-text" data-join-text>3 mods from the server, installed. Joined.</span>
+                </li>
+              </ul>
+            </div>
+            <figcaption>Your launcher</figcaption>
+          </figure>
+        </div>
+
+        <ol class="steps">
+          <li>
+            <h3>Add a friend once</h3>
+            <p>Send them a friend link from the launcher. They stay on your list from then on.</p>
+          </li>
+          <li>
+            <h3>Share a server</h3>
+            <p>Tick their name in Lodestone Host, or send an invite link to anyone.</p>
+          </li>
+          <li>
+            <h3>Press Play</h3>
+            <p>The launcher installs the server's mods and joins. Open LAN worlds work the same way.</p>
+          </li>
+        </ol>
+
+        <p class="together-note">
+          <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true">
+            <path
+              fill="currentColor"
+              d="M4 6V4.5a4 4 0 118 0V6h.5A1.5 1.5 0 0114 7.5v6a1.5 1.5 0 01-1.5 1.5h-9A1.5 1.5 0 012 13.5v-6A1.5 1.5 0 013.5 6H4zm1.5 0h5V4.5a2.5 2.5 0 00-5 0V6z"
+            />
+          </svg>
+          Your computers connect directly, end-to-end encrypted. Built into Lodestone Launcher and Lodestone Host.
+        </p>
+        <div class="actions">
+          <a class="button" href="/launcher">Get the launcher</a>
+          <a class="button button-quiet" href="/host">Share from Lodestone Host</a>
         </div>
       </section>
 
@@ -269,64 +380,6 @@
             </div>
           </article>
 
-          <article class="card card-connect" data-card>
-            <div class="card-copy">
-              <div class="card-head">
-                <span class="card-icon card-icon-tile card-icon-connect">
-                  <svg viewBox="0 0 24 24" width="14" height="14">
-                    <circle cx="6" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2.2" />
-                    <circle cx="18" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2.2" />
-                    <path d="M9 12h6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" />
-                  </svg>
-                </span>
-                <p class="kicker">Connect</p>
-              </div>
-              <h3>Lodestone Connect</h3>
-              <p>
-                Play with friends without port forwarding or IP addresses. Add them once, then join their servers and
-                open LAN worlds from the launcher. The launcher brings the mods each server needs.
-              </p>
-              <p class="card-note">
-                <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true">
-                  <path
-                    fill="currentColor"
-                    d="M4 6V4.5a4 4 0 118 0V6h.5A1.5 1.5 0 0114 7.5v6a1.5 1.5 0 01-1.5 1.5h-9A1.5 1.5 0 012 13.5v-6A1.5 1.5 0 013.5 6H4zm1.5 0h5V4.5a2.5 2.5 0 00-5 0V6z"
-                  />
-                </svg>
-                Direct and end-to-end encrypted. Built into Lodestone Launcher and Lodestone Host.
-              </p>
-              <div class="card-links">
-                <a class="card-link" href="/launcher">Get the launcher <span aria-hidden="true">→</span></a>
-                <a class="card-link card-link-quiet" href="/host">Share a server with Lodestone Host</a>
-              </div>
-            </div>
-            <div class="card-visual connect-visual" aria-hidden="true">
-              <!-- An illustration of the launcher's Friends page, not live data. -->
-              <div class="friends">
-                <div class="servers-head">
-                  <span>Friends</span>
-                  <span class="servers-online"><span class="pulse"></span>2 online</span>
-                </div>
-                <ul>
-                  <li>
-                    <span class="avatar" style="--hue: 152">M</span>
-                    <span class="server-name">mossy_toast<small>Weekend survival · Fabric 26.3</small></span>
-                    <span class="play">Play</span>
-                  </li>
-                  <li>
-                    <span class="avatar" style="--hue: 212">B</span>
-                    <span class="server-name">birch_bard<small>Cliffside, open to LAN</small></span>
-                    <span class="play">Play</span>
-                  </li>
-                  <li class="is-away">
-                    <span class="avatar" style="--hue: 262">Q</span>
-                    <span class="server-name">quietquartz<small>Offline</small></span>
-                    <span></span>
-                  </li>
-                </ul>
-              </div>
-            </div>
-          </article>
         </div>
       </section>
     </main>

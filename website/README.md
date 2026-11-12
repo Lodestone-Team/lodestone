@@ -38,11 +38,17 @@ To run it on Cloudflare's own runtime instead, build first, then run
   the logo and turns each one along the field of a magnet at the logo; the
   pointer is a second magnet. It stops drawing while the hero is off screen,
   and with reduced motion it draws them once, already lined up.
-- **Cards.** The Host card's server list, the Connect card's friend list and
-  the CLI card's commands are illustrations, not live data. The CLI commands
-  are real `lodestone_cli` commands; their output is shortened. Lodestone
-  Connect isn't a download of its own: its card, in the gem's violet, links to
-  the launcher and to Host, which have it built in.
+- **Lodestone Connect.** Its own section between the hero and the cards
+  (`#connect`, also in the header and the hero's second button), in the gem's
+  violet: a friend's Lodestone Host and your launcher joined by a line, then the
+  three steps. The two panels are illustrations, not live data. When the
+  section scrolls into view, `main.js` fills the launcher's bar once while it
+  "gets the server's mods"; without JavaScript or with reduced motion it shows
+  the end. Connect isn't a download of its own, so the section links to the
+  launcher and to Host, which have it built in.
+- **Cards.** The Host card's server list and the CLI card's commands are
+  illustrations, not live data. The CLI commands are real `lodestone_cli`
+  commands; their output is shortened.
 - **Social preview.** `src/images/og.jpg` is a 1200×630 capture of the hero.
 - **Download count and star count** work as on the launcher page (below).
 
