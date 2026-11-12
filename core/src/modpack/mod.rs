@@ -330,8 +330,18 @@ pub fn read_pack(path: &Path, allow_scripts: bool) -> Result<Pack, Error> {
         } else {
             name
         },
-        version_number: index.version_id.clone().filter(|v| !v.trim().is_empty()),
-        summary: index.summary.clone().filter(|v| !v.trim().is_empty()),
+        version_number: index
+            .version_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+            .map(String::from),
+        summary: index
+            .summary
+            .as_deref()
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+            .map(String::from),
         game_version: game_version.unwrap_or_default(),
         loader,
         loader_version,

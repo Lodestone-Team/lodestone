@@ -648,3 +648,17 @@ async fn files_deep_in_a_long_server_path_are_installed() {
     assert!(written.as_os_str().len() > 260);
     assert_eq!(std::fs::read(&written).unwrap(), b"deep");
 }
+
+#[test]
+fn version_numbers_are_trimmed() {
+    // a real pack (Optimized FPS 2.4.10) says " 2.4.10"
+    let mut padded = index(vec![], fabric());
+    padded["versionId"] = json!(" 2.4.10 ");
+    assert_eq!(
+        read(padded, &[]).unwrap().info.version_number.as_deref(),
+        Some("2.4.10")
+    );
+    let mut blank = index(vec![], fabric());
+    blank["versionId"] = json!("  ");
+    assert_eq!(read(blank, &[]).unwrap().info.version_number, None);
+}

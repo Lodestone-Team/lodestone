@@ -107,8 +107,13 @@ pub async fn newest_version(
                 != std::cmp::Ordering::Less
         })
     };
+    // Modrinth's v2 API doesn't apply the loader filter to modpack versions: a pack with
+    // Forge and NeoForge versions sends both
+    let for_this_loader =
+        |v: &&lodestone_minecraft::modrinth::ModrinthVersion| v.loaders.iter().any(|l| l == loader);
     let Some(newest) = versions
         .iter()
+        .filter(for_this_loader)
         .filter(for_this_or_newer)
         .find(|v| v.version_type != ModrinthVersionType::Alpha)
     else {

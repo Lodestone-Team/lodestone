@@ -66,10 +66,19 @@ fn test_pack(version: u8, fake: &FakeModrinth) -> TestPack {
             files,
             json!({"minecraft": "1.20.1", "fabric-loader": "0.15.11"}),
         ),
-        &[
-            Entry::File("overrides/config/pack.toml", config),
-            Entry::File("overrides/config/edited.toml", config),
-        ],
+        &if version == 1 {
+            vec![
+                Entry::File("overrides/config/pack.toml", config),
+                Entry::File("overrides/config/edited.toml", config),
+            ]
+        } else {
+            // a config only version 2 has: going back leaves it, as dropped configs stay
+            vec![
+                Entry::File("overrides/config/pack.toml", config),
+                Entry::File("overrides/config/edited.toml", config),
+                Entry::File("overrides/config/only-v2.toml", b"only in v2"),
+            ]
+        },
     )
 }
 
@@ -185,6 +194,7 @@ async fn updates_are_undone_from_a_small_store() {
     assert_eq!(
         kinds,
         [
+            (ChangeKind::Added, "config/only-v2.toml", None),
             (ChangeKind::Added, "mods/new.jar", None),
             (ChangeKind::Updated, "mods/a-2.jar", Some("mods/a-1.jar")),
             (ChangeKind::Replaced, "config/pack.toml", None),
@@ -193,6 +203,9 @@ async fn updates_are_undone_from_a_small_store() {
     );
     assert_eq!(info.entries[0].kept, ["config/edited.toml"]);
     assert_eq!(info.entries[1].missing, 0, "version 1 can be restored");
+    // nor does version 2 lack anything: the config the user edited is never stored,
+    // but a restore keeps the user's edit anyway
+    assert_eq!(info.entries[0].missing, 0);
 
     // undo: back to version 1, from the store and the downloads
     let back = history.files_of(root, 1, false).unwrap();
@@ -226,7 +239,12 @@ async fn updates_are_undone_from_a_small_store() {
     // the files are the install's again, so blame goes back to it
     assert_eq!(history.blame()["mods/a-1.jar"], restore);
     assert_eq!(history.blame()["mods/keep.jar"], 1);
-    // and version 2 can be restored too: its config was stored on the way back
+    // and version 2 can be restored too: its replaced config was stored on the way
+    // back, and the config only it has is still on the server
+    assert_eq!(
+        read_file(root, "config/only-v2.toml").as_deref(),
+        Some(&b"only in v2"[..])
+    );
     assert_eq!(history.info(root, None).entries[1].missing, 0);
 }
 

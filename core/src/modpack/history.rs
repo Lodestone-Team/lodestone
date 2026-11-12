@@ -593,13 +593,39 @@ fn change_infos(entry: &HistoryEntry) -> Vec<ChangeInfo> {
 }
 
 impl History {
-    /// What the dashboard shows. `root` is used to check which stored copies are there.
+    /// What the dashboard shows. `root` is used to check which stored copies are there,
+    /// and which files are still on the server: a restore leaves the configs a version
+    /// added, so they needn't be got back. Reads files, so call it on a blocking thread.
     pub fn info(
         &self,
         root: &Path,
         update: Option<super::updates::AvailableUpdate>,
     ) -> ModpackHistory {
         let current = self.latest();
+        // the SHA-1 of the file at each pack path on the server, read once
+        let mut disk: HashMap<String, Option<String>> = HashMap::new();
+        // Whether restoring `file` at `path` needs its bytes: as the restore's plan
+        // (`plan_files`) decides, a file the server has is left, and so is one the user
+        // changed; only a missing file, or one the restore replaces, needs them.
+        let mut needs_bytes = |path: &str, file: &RecordedFile| {
+            if record_path(path).is_none() {
+                return false;
+            }
+            let on_disk = disk
+                .entry(path.to_string())
+                .or_insert_with(|| super::update::on_disk(root, path).map(|(_, sha1)| sha1))
+                .clone();
+            match on_disk {
+                None => true,
+                Some(sha1) if sha1.eq_ignore_ascii_case(&file.sha1) => false,
+                Some(sha1) => match current.and_then(|c| c.files.get(path)) {
+                    // the pack's file, unchanged: the restore replaces it
+                    Some(recorded) => recorded.sha1.eq_ignore_ascii_case(&sha1),
+                    // a mod at a pack path is replaced; a config of the user's stays
+                    None => !file.from_overrides,
+                },
+            }
+        };
         let entries = self
             .entries
             .iter()
@@ -609,10 +635,7 @@ impl History {
                     .files
                     .iter()
                     .filter(|(path, file)| {
-                        let on_server = current
-                            .and_then(|c| c.files.get(*path))
-                            .is_some_and(|c| c.sha1.eq_ignore_ascii_case(&file.sha1));
-                        !on_server && !self.can_get_back(root, &file.sha1)
+                        !self.can_get_back(root, &file.sha1) && needs_bytes(path, file)
                     })
                     .count() as u32;
                 HistoryEntryInfo {

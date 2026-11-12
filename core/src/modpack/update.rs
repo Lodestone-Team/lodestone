@@ -237,7 +237,7 @@ impl FilePlan {
 
 /// A file on disk at a pack path: the path itself, or its disabled name for a mod.
 /// Returns the path found and its SHA-1. Links are not followed.
-fn on_disk(root: &Path, path: &str) -> Option<(String, String)> {
+pub(super) fn on_disk(root: &Path, path: &str) -> Option<(String, String)> {
     let mut candidates = vec![path.to_string()];
     if path.to_lowercase().ends_with(".jar") {
         candidates.push(disabled_name(path));
