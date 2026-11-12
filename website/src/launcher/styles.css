@@ -159,6 +159,15 @@ a {
   padding: clamp(20px, 5vh, 64px) 24px 0;
 }
 
+/* The product's own logo, above everything else in the hero, like the gem
+   on the home page. */
+.product-mark {
+  display: block;
+  width: 96px;
+  height: 96px;
+  margin: 0 0 22px;
+}
+
 .eyebrow {
   display: inline-flex;
   flex-wrap: wrap;
@@ -533,6 +542,12 @@ a:focus-visible {
 }
 
 @media (max-width: 560px) {
+  .product-mark {
+    width: 76px;
+    height: 76px;
+    margin-bottom: 18px;
+  }
+
   .speed-grid {
     grid-template-columns: 1fr;
   }
