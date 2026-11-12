@@ -119,18 +119,6 @@ button:focus-visible {
   gap: 22px;
 }
 
-.nav-link {
-  color: var(--text-muted);
-  text-decoration: none;
-  font-weight: 500;
-  font-size: 15px;
-  transition: color 0.15s;
-}
-
-.nav-link:hover {
-  color: var(--text);
-}
-
 .github {
   display: inline-flex;
   align-items: center;
@@ -1304,18 +1292,11 @@ h1 .phrase + .phrase {
     gap: 14px;
   }
 
-  .nav-link {
-    font-size: 14px;
-  }
 
   .github-label {
     display: none;
   }
 
-  /* The Connect section follows the hero anyway. */
-  .nav-link-wide {
-    display: none;
-  }
 
   h1 {
     font-size: clamp(30px, 8.6vw, 40px);

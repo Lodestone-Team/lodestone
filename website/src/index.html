@@ -25,6 +25,8 @@
     <link rel="preload" href="/fonts/Satoshi-Variable.woff2" as="font" type="font/woff2" crossorigin />
     <link rel="preload" href="/fonts/ClashGrotesk-Variable.woff2" as="font" type="font/woff2" crossorigin />
     <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="/nav.css" />
+    <script src="/nav.js" defer></script>
     <script src="/main.js" defer></script>
   </head>
   <body>
@@ -33,9 +35,40 @@
         <img src="/images/wordmark.svg" alt="Lodestone" width="88" height="22" />
       </a>
       <nav class="nav">
-        <a class="nav-link" href="/launcher">Launcher</a>
-        <a class="nav-link" href="/host">Host</a>
-        <a class="nav-link nav-link-wide" href="#connect">Connect</a>
+        <details class="products-menu" data-products-menu>
+          <summary>
+            Products
+            <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
+              <path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+          </summary>
+          <ul class="products-list">
+            <li>
+              <a href="/launcher">
+                <img src="/launcher/images/icon.svg" alt="" width="32" height="32" />
+                <span><b>Lodestone Launcher</b><small>Play, with mods and friends</small></span>
+              </a>
+            </li>
+            <li>
+              <a href="/host">
+                <img class="is-square" src="/host/images/icon.svg" alt="" width="28" height="28" />
+                <span><b>Lodestone Host</b><small>Host your server</small></span>
+              </a>
+            </li>
+            <li>
+              <a href="/#connect">
+                <span class="products-icon is-square" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" width="14" height="14">
+                    <circle cx="6" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2.2" />
+                    <circle cx="18" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2.2" />
+                    <path d="M9 12h6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" />
+                  </svg>
+                </span>
+                <span><b>Lodestone Connect</b><small>Play together, no port forwarding</small></span>
+              </a>
+            </li>
+          </ul>
+        </details>
         <a
           class="github"
           href="https://github.com/Lodestone-Team/lodestone"

@@ -112,17 +112,6 @@ a {
   gap: 20px;
 }
 
-.nav-link {
-  color: var(--text-muted);
-  text-decoration: none;
-  font-weight: 500;
-  font-size: 15px;
-}
-
-.nav-link:hover {
-  color: var(--text);
-}
-
 .github {
   display: inline-flex;
   align-items: center;
@@ -584,9 +573,6 @@ a:focus-visible {
     gap: 12px;
   }
 
-  .nav-link {
-    font-size: 14px;
-  }
 
   .github-label {
     display: none;

@@ -10,7 +10,9 @@ The site has four parts, built together by `build.mjs` into `website/dist`:
 | `/host/app` | Lodestone Host web dashboard               | `dashboard/`            |
 
 The three pages are plain HTML, CSS and JavaScript with no build step. They
-share the fonts in `src/fonts`; everything else of the launcher and Host pages'
+share the fonts in `src/fonts` and the header's Products menu (`src/nav.css`,
+`src/nav.js`: a `<details>` listing the launcher, Host and Connect, the page
+you're on marked); everything else of the launcher and Host pages'
 is under `src/launcher` and `src/host`. The
 dashboard is built with `DASHBOARD_BASE_PATH=/host/app`, which sets Next's
 `basePath` and prefixes the dashboard's own `public/` files (see
@@ -56,7 +58,7 @@ To run it on Cloudflare's own runtime instead, build first, then run
   while the hero is off screen, and with reduced motion it draws them once,
   already lined up.
 - **Lodestone Connect.** Its own section between the hero and the cards
-  (`#connect`, also in the header), in Lodestone's
+  (`#connect`, also in the header's Products menu), in Lodestone's
   teal and green: your Lodestone Host's invite link and a friend's launcher joined by a
   line, then the three steps of sharing by link. The friend list gets one line
   under the steps: it's an extra, not the way in. The two panels are illustrations, not live data. When the
