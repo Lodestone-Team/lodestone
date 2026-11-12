@@ -221,8 +221,6 @@ main {
   width: 140px;
   height: 140px;
   margin-bottom: 26px;
-  transform: perspective(600px) rotateX(var(--tilt-x, 0deg)) rotateY(var(--tilt-y, 0deg));
-  transition: transform 0.3s ease-out;
   filter: drop-shadow(0 12px 30px rgba(47, 111, 168, 0.28));
 }
 
@@ -231,8 +229,7 @@ main {
   overflow: visible;
 }
 
-/* On load the gem turns into place and the L rises into it; then, every few
-   seconds, a short light runs once around the gem's edge. */
+/* On load the gem turns into place and the L rises into it. */
 .gem-hex {
   transform-origin: 512px 512px;
   animation: gem-in 1.1s cubic-bezier(0.2, 0.9, 0.25, 1) both;
@@ -242,16 +239,6 @@ main {
   animation: l-in 0.9s cubic-bezier(0.2, 0.9, 0.25, 1) 0.35s both;
 }
 
-.gem-edge {
-  fill: none;
-  stroke: #ffffff;
-  stroke-width: 5;
-  stroke-linecap: round;
-  stroke-dasharray: 16 84;
-  stroke-dashoffset: 0;
-  opacity: 0;
-  animation: edge 8s cubic-bezier(0.45, 0, 0.25, 1) 1.4s infinite;
-}
 
 @keyframes gem-in {
   from {
@@ -267,23 +254,6 @@ main {
   }
 }
 
-@keyframes edge {
-  from {
-    stroke-dashoffset: 0;
-    opacity: 0;
-  }
-  4% {
-    opacity: 0.55;
-  }
-  26% {
-    opacity: 0.55;
-  }
-  32%,
-  to {
-    stroke-dashoffset: -100;
-    opacity: 0;
-  }
-}
 
 .eyebrow {
   display: inline-flex;
@@ -954,13 +924,11 @@ h1 .phrase + .phrase {
 
   .gem-hex,
   .gem-l,
-  .gem-edge,
   .pulse::after,
   .caret {
     animation: none;
   }
 
-  .mark,
   .launcher-visual img {
     transition: none;
   }
