@@ -18,8 +18,26 @@ struct Cli {
     stop_with_stdin: bool,
 }
 
-#[tokio::main]
-async fn main() {
+/// The most async worker threads the core runs. It mostly waits on the network, the disk and
+/// its servers' processes, and CPU-heavy work goes to tokio's blocking pool, so tokio's
+/// default of one worker per CPU core (16 or more on many machines) only adds idle threads.
+/// `TOKIO_WORKER_THREADS` still sets the number.
+const MAX_WORKER_THREADS: usize = 4;
+
+fn main() {
+    let mut runtime = tokio::runtime::Builder::new_multi_thread();
+    runtime.enable_all();
+    if std::env::var_os("TOKIO_WORKER_THREADS").is_none() {
+        let cpus = std::thread::available_parallelism().map_or(1, |n| n.get());
+        runtime.worker_threads(cpus.min(MAX_WORKER_THREADS));
+    }
+    runtime
+        .build()
+        .expect("Failed to start the async runtime")
+        .block_on(run());
+}
+
+async fn run() {
     let cli = Cli::parse();
     let options = RunOptions {
         port: cli.port,
