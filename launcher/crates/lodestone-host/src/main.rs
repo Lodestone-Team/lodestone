@@ -152,6 +152,10 @@ mod screenshot {
                             "uuid": "fake-smp", "name": "Survival SMP", "port": 25565,
                             "state": "Running", "version": "1.21.4",
                             "game_type": { "type": "MinecraftJava", "variant": { "type": "Fabric" } },
+                            "modpack": {
+                                "project_id": "1KVo5zza", "version_id": "fake-version",
+                                "name": "Fabulously Optimized", "version_number": "6.4.0",
+                            },
                         }))
                         .ok()?;
                         state.update(cx, |state, cx| {
@@ -334,6 +338,13 @@ mod screenshot {
                 cx.background_executor().timer(Duration::from_secs(4)).await;
             }
             if demo {
+                // the shell makes the page when it draws, and a hidden window hasn't
+                // drawn yet
+                gpui::AppContext::update_window(cx, window.into(), |_, window, cx| {
+                    window.refresh();
+                    window.draw(cx).clear(cx);
+                })
+                .ok();
                 window
                     .update(cx, |app, _, cx| {
                         let view = app.shell()?.read(cx).page_view()?;

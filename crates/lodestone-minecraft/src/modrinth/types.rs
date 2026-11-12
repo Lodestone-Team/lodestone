@@ -203,6 +203,26 @@ pub struct ModrinthVersion {
     pub downloads: u64,
     pub files: Vec<ModrinthVersionFile>,
     pub dependencies: Vec<ModrinthDependency>,
+    /// What the author wrote about the version (Markdown), at most
+    /// [`MAX_CHANGELOG_BYTES`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts-rs", ts(optional))]
+    pub changelog: Option<String>,
+}
+
+/// Changelogs longer than this are cut (at a character boundary).
+pub const MAX_CHANGELOG_BYTES: usize = 16 * 1024;
+
+/// `text` cut to at most `max` bytes, at a character boundary.
+pub fn cut_text(text: &str, max: usize) -> String {
+    if text.len() <= max {
+        return text.to_string();
+    }
+    let mut end = max;
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{}…", &text[..end])
 }
 
 impl ModrinthVersion {
@@ -369,6 +389,8 @@ pub struct RawVersion {
     pub files: Vec<RawVersionFile>,
     #[serde(default)]
     pub dependencies: Vec<ModrinthDependency>,
+    #[serde(default)]
+    pub changelog: Option<String>,
 }
 
 impl RawVersion {
@@ -405,6 +427,10 @@ impl From<RawVersion> for ModrinthVersion {
                 })
                 .collect(),
             dependencies: raw.dependencies,
+            changelog: raw
+                .changelog
+                .map(|c| cut_text(c.trim(), MAX_CHANGELOG_BYTES))
+                .filter(|c| !c.is_empty()),
         }
     }
 }
@@ -472,5 +498,18 @@ mod tests {
         assert_eq!(project.discord_url, None);
         assert_eq!(project.gallery[0].title, None);
         assert!(project.gallery[0].featured);
+    }
+}
+
+#[cfg(test)]
+mod changelog_tests {
+    use super::*;
+
+    #[test]
+    fn long_text_is_cut_at_a_character() {
+        assert_eq!(cut_text("short", 10), "short");
+        assert_eq!(cut_text("abcdef", 3), "abc…");
+        // "é" is two bytes: the cut moves back before it
+        assert_eq!(cut_text("aé", 2), "a…");
     }
 }

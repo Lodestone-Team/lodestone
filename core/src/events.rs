@@ -115,6 +115,13 @@ pub enum InstanceEventInner {
         player: String,
         player_message: String,
     },
+    /// A newer version of the modpack the server was made from is on Modrinth. Sent once
+    /// per version.
+    ModpackUpdateAvailable {
+        modpack: String,
+        version_id: String,
+        version_number: String,
+    },
 }
 
 impl AsRef<InstanceEventInner> for InstanceEventInner {

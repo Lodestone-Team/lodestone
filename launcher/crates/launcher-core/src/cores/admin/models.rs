@@ -37,6 +37,7 @@ impl InstanceState {
 pub enum MinecraftVariant {
     Vanilla,
     Forge,
+    NeoForge,
     Fabric,
     Paper,
     Spigot,
@@ -72,6 +73,7 @@ impl Game {
             Game::MinecraftJava { variant } => match variant {
                 MinecraftVariant::Vanilla => "Minecraft".into(),
                 MinecraftVariant::Forge => "Forge (Minecraft)".into(),
+                MinecraftVariant::NeoForge => "NeoForge (Minecraft)".into(),
                 MinecraftVariant::Fabric => "Fabric (Minecraft)".into(),
                 MinecraftVariant::Paper => "Paper (Minecraft)".into(),
                 MinecraftVariant::Spigot => "Spigot (Minecraft)".into(),
@@ -297,6 +299,10 @@ pub struct GlobalSettingsData {
     /// cores don't say: they always allow it.
     #[serde(default = "yes")]
     pub allow_remote_access: bool,
+    /// Whether the core looks for newer versions of servers' modpacks in the background.
+    /// Older cores don't have the check.
+    #[serde(default = "yes")]
+    pub check_modpack_updates: bool,
 }
 
 /// Where the core's HTTPS certificate comes from (`TlsMode`).

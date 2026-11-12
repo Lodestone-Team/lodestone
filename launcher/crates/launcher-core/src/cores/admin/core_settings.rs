@@ -22,6 +22,8 @@ pub enum CoreSwitch {
     /// Other devices may use the core. On needs an owner with a password; off only from
     /// the core's computer.
     AllowRemoteAccess,
+    /// The core looks for newer versions of servers' modpacks in the background.
+    CheckModpackUpdates,
 }
 
 impl CoreSwitch {
@@ -33,6 +35,7 @@ impl CoreSwitch {
             CoreSwitch::AllowLocalClaim => "allow_local_claim",
             CoreSwitch::ListInstancesPublicly => "list_instances_publicly",
             CoreSwitch::AllowRemoteAccess => "allow_remote_access",
+            CoreSwitch::CheckModpackUpdates => "check_modpack_updates",
         }
     }
 
@@ -45,6 +48,7 @@ impl CoreSwitch {
             CoreSwitch::AllowLocalClaim => settings.allow_local_claim,
             CoreSwitch::ListInstancesPublicly => settings.list_instances_publicly,
             CoreSwitch::AllowRemoteAccess => settings.allow_remote_access,
+            CoreSwitch::CheckModpackUpdates => settings.check_modpack_updates,
         }
     }
 
@@ -57,6 +61,7 @@ impl CoreSwitch {
             CoreSwitch::AllowLocalClaim => &mut settings.allow_local_claim,
             CoreSwitch::ListInstancesPublicly => &mut settings.list_instances_publicly,
             CoreSwitch::AllowRemoteAccess => &mut settings.allow_remote_access,
+            CoreSwitch::CheckModpackUpdates => &mut settings.check_modpack_updates,
         };
         *field = value;
     }

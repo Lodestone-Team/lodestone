@@ -1030,6 +1030,8 @@ pub async fn run_with(
     init_app_state(shared_state.clone());
     // mod changes made while an instance runs need a restart; this notices the restart
     tokio::spawn(shared_state.mods.restart.clone().watch(tx.subscribe()));
+    // newer versions of servers' modpacks
+    tokio::spawn(crate::modpack::updates::watch(shared_state.clone()));
 
     // instances shared with friends when the core last stopped
     {

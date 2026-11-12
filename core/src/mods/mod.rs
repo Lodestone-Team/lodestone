@@ -201,6 +201,7 @@ impl ModFolder {
             Game::MinecraftJava { variant } => match variant {
                 MinecraftVariant::Fabric => InstalledModLoader::Fabric,
                 MinecraftVariant::Forge => InstalledModLoader::Forge,
+                MinecraftVariant::NeoForge => InstalledModLoader::NeoForge,
                 MinecraftVariant::Paper => InstalledModLoader::Paper,
                 MinecraftVariant::Spigot => InstalledModLoader::Spigot,
                 _ => return Err(unsupported_instance()),
@@ -664,6 +665,8 @@ pub struct ModsState {
     pub modrinth: Arc<dyn ModrinthApi>,
     pub restart: restart::RestartTracker,
     pub packs: crate::modpack::store::PackStore,
+    /// Newer versions of servers' modpacks.
+    pub updates: crate::modpack::updates::UpdateChecks,
     locks: std::sync::Mutex<HashMap<InstanceUuid, Arc<tokio::sync::Mutex<()>>>>,
 }
 
@@ -673,6 +676,7 @@ impl ModsState {
             modrinth,
             restart: restart::RestartTracker::default(),
             packs,
+            updates: Default::default(),
             locks: Default::default(),
         }
     }
@@ -950,6 +954,7 @@ mod tests {
             downloads: 0,
             files: vec![],
             dependencies: vec![],
+            changelog: None,
         };
         assert_eq!(
             folder.incompatibility(&version(&["bukkit"], &["1.20.1"])),
@@ -983,6 +988,7 @@ mod tests {
             downloads: 0,
             files: vec![],
             dependencies: vec![],
+            changelog: None,
         };
         let old = version("a", "2024-01-01T00:00:00Z");
         let new = version("b", "2024-02-01T00:00:00.123+00:00");

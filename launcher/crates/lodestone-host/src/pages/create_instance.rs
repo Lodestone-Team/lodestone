@@ -524,6 +524,7 @@ fn game_description(game: &HandlerGameType) -> &'static str {
         HandlerGameType::MinecraftJavaVanilla => M::GameVanillaDescription,
         HandlerGameType::MinecraftFabric => M::GameFabricDescription,
         HandlerGameType::MinecraftForge => M::GameForgeDescription,
+        HandlerGameType::MinecraftNeoForge => M::GameNeoForgeDescription,
         HandlerGameType::MinecraftPaper => M::GamePaperDescription,
         HandlerGameType::MinecraftBedrock => M::GameBedrockDescription,
         HandlerGameType::Unknown => M::GameGenericDescription,

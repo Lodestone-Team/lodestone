@@ -56,12 +56,14 @@ pub enum ModSupport {
     Plugins,
 }
 
-/// Mods for Fabric and Forge, plugins for Paper and Spigot (`utils/mods.ts`).
+/// Mods for Fabric, Forge and NeoForge, plugins for Paper and Spigot (`utils/mods.ts`).
 pub fn mod_support(instance: &InstanceInfo) -> Option<ModSupport> {
     use launcher_core::cores::admin::models::Game;
     match &instance.game_type {
         Game::MinecraftJava { variant } => match variant {
-            MinecraftVariant::Fabric | MinecraftVariant::Forge => Some(ModSupport::Mods),
+            MinecraftVariant::Fabric | MinecraftVariant::Forge | MinecraftVariant::NeoForge => {
+                Some(ModSupport::Mods)
+            }
             MinecraftVariant::Paper | MinecraftVariant::Spigot => Some(ModSupport::Plugins),
             _ => None,
         },

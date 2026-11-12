@@ -9,6 +9,7 @@ mod players_manager;
 pub use lodestone_minecraft::properties;
 pub mod server;
 pub mod server_properties;
+mod software;
 pub mod util;
 mod vanilla;
 
@@ -58,7 +59,7 @@ use crate::util::{
 
 use self::configurable::CmdArgSetting;
 use self::fabric::get_fabric_minecraft_versions;
-use self::forge::get_forge_minecraft_versions;
+use self::forge::{get_forge_minecraft_versions, get_neoforge_minecraft_versions};
 use self::paper::get_paper_minecraft_versions;
 use self::players_manager::PlayersManager;
 use self::properties::PropertiesDocument;
@@ -82,6 +83,20 @@ pub struct PaperBuildVersion(i64);
 #[derive(Debug, Clone, TS, Serialize, Deserialize, PartialEq)]
 #[ts(export)]
 pub struct ForgeBuildVersion(String);
+impl ForgeBuildVersion {
+    pub fn new(build: String) -> Self {
+        Self(build)
+    }
+}
+/// A NeoForge version, such as `21.1.209`.
+#[derive(Debug, Clone, TS, Serialize, Deserialize, PartialEq)]
+#[ts(export)]
+pub struct NeoForgeBuildVersion(String);
+impl NeoForgeBuildVersion {
+    pub fn new(version: String) -> Self {
+        Self(version)
+    }
+}
 
 /// A parameter for constructor of `MinecraftInstance`
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, EnumKind)]
@@ -100,6 +115,39 @@ pub enum Flavour {
     Forge {
         build_version: Option<ForgeBuildVersion>,
     },
+    #[serde(rename = "neoforge")]
+    NeoForge {
+        build_version: Option<NeoForgeBuildVersion>,
+    },
+}
+
+impl Flavour {
+    /// Whether the server is installed by running an installer (Forge and NeoForge),
+    /// rather than run from a downloaded `server.jar`.
+    pub fn uses_installer(&self) -> bool {
+        matches!(self, Flavour::Forge { .. } | Flavour::NeoForge { .. })
+    }
+
+    /// The loader or build version: Fabric's loader version, Forge's build
+    /// (`1.20.1-47.2.0`), NeoForge's version or Paper's build.
+    pub fn loader_version(&self) -> Option<String> {
+        match self {
+            Flavour::Fabric {
+                loader_version: Some(FabricLoaderVersion(v)),
+                ..
+            } => Some(v.clone()),
+            Flavour::Forge {
+                build_version: Some(ForgeBuildVersion(b)),
+            } => Some(b.clone()),
+            Flavour::NeoForge {
+                build_version: Some(NeoForgeBuildVersion(b)),
+            } => Some(b.clone()),
+            Flavour::Paper {
+                build_version: Some(PaperBuildVersion(b)),
+            } => Some(b.to_string()),
+            _ => None,
+        }
+    }
 }
 
 impl From<FlavourKind> for Flavour {
@@ -117,6 +165,9 @@ impl From<FlavourKind> for Flavour {
             FlavourKind::Forge => Flavour::Forge {
                 build_version: None,
             },
+            FlavourKind::NeoForge => Flavour::NeoForge {
+                build_version: None,
+            },
         }
     }
 }
@@ -129,6 +180,7 @@ impl ToString for Flavour {
             Flavour::Paper { .. } => "paper".to_string(),
             Flavour::Spigot => "spigot".to_string(),
             Flavour::Forge { .. } => "forge".to_string(),
+            Flavour::NeoForge { .. } => "neoforge".to_string(),
         }
     }
 }
@@ -141,6 +193,7 @@ impl ToString for FlavourKind {
             FlavourKind::Paper => "paper".to_string(),
             FlavourKind::Spigot => "spigot".to_string(),
             FlavourKind::Forge => "forge".to_string(),
+            FlavourKind::NeoForge => "neoforge".to_string(),
         }
     }
 }
@@ -192,19 +245,7 @@ pub struct RestoreConfig {
 impl RestoreConfig {
     /// The [`InstanceDetails`] of an instance with this config.
     pub fn details(&self) -> InstanceDetails {
-        let loader_version = match &self.flavour {
-            Flavour::Fabric {
-                loader_version: Some(FabricLoaderVersion(v)),
-                ..
-            } => Some(v.clone()),
-            Flavour::Forge {
-                build_version: Some(ForgeBuildVersion(b)),
-            } => Some(b.clone()),
-            Flavour::Paper {
-                build_version: Some(PaperBuildVersion(b)),
-            } => Some(b.to_string()),
-            _ => None,
-        };
+        let loader_version = self.flavour.loader_version();
         InstanceDetails {
             icon_url: self
                 .modpack
@@ -480,6 +521,59 @@ async fn tail_of_file(path: &Path, lines: usize) -> String {
     }
 }
 
+/// The file a Forge or NeoForge installer is downloaded to, in the instance folder.
+pub(crate) const INSTALLER_JAR: &str = "forge-installer.jar";
+
+/// Runs the Forge or NeoForge installer at [`INSTALLER_JAR`] in `path_to_instance`, which
+/// puts the server's libraries and its argument files (`unix_args.txt`, `win_args.txt`)
+/// there. The installer's output goes to `forge-installer.log`. `user_jvm_args.txt` is
+/// replaced with a note: Lodestone sets the server's Java arguments itself.
+pub(crate) async fn run_server_installer(
+    jre: &Path,
+    path_to_instance: &Path,
+    flavour_name: &str,
+) -> Result<(), Error> {
+    let log_path = path_to_instance.join("forge-installer.log");
+    let log = std::fs::File::create(&log_path).context("Could not create forge-installer.log")?;
+    let log_stderr = log
+        .try_clone()
+        .context("Could not create forge-installer.log")?;
+    let status = dont_spawn_terminal(
+        Command::new(jre)
+            .arg("-jar")
+            .arg(path_to_instance.join(INSTALLER_JAR))
+            .arg("--installServer")
+            .arg(path_to_instance)
+            .current_dir(path_to_instance),
+    )
+    .stdout(Stdio::from(log))
+    .stderr(Stdio::from(log_stderr))
+    .stdin(Stdio::null())
+    .spawn()
+    .with_context(|| format!("Failed to start the {flavour_name} installer"))?
+    .wait()
+    .await
+    .with_context(|| format!("The {flavour_name} installer failed"))?;
+    if !status.success() {
+        return Err(eyre!(
+            "Failed to install the {flavour_name} server ({status}). The end of {}:
+{}",
+            log_path.display(),
+            tail_of_file(&log_path, 20).await
+        )
+        .into());
+    }
+    tokio::fs::write(
+        path_to_instance.join("user_jvm_args.txt"),
+        "# Generated by Lodestone
+# This file is ignored by Lodestone
+# Please set arguments using Lodestone",
+    )
+    .await
+    .context("Could not create user_jvm_args.txt")?;
+    Ok(())
+}
+
 impl MinecraftInstance {
     /// The versions a flavour supports, newest first. Cached for a few minutes, because
     /// both the setup form and instance creation need them.
@@ -503,6 +597,7 @@ impl MinecraftInstance {
                 })
             }
             FlavourKind::Forge => get_forge_minecraft_versions().await,
+            FlavourKind::NeoForge => get_neoforge_minecraft_versions().await,
         }
         .context("Failed to get minecraft versions")?;
         CACHE
@@ -812,9 +907,10 @@ impl MinecraftInstance {
                 "Could not find a {} server.jar for version {}",
                 flavour_name, config.version
             ))?;
-        let jar_name = match flavour {
-            Flavour::Forge { .. } => "forge-installer.jar",
-            _ => "server.jar",
+        let jar_name = if flavour.uses_installer() {
+            INSTALLER_JAR
+        } else {
+            "server.jar"
         };
 
         download_file(
@@ -853,51 +949,15 @@ impl MinecraftInstance {
         )
         .await?;
         let jre = java_binary(&path_to_runtimes, jre_major_version);
-        // Step 3 (part 2): Forge Setup
-        if let Flavour::Forge { .. } = flavour.clone() {
+        // Step 3 (part 2): Forge or NeoForge setup
+        if flavour.uses_installer() {
+            let flavour_name = flavour.to_string();
             event_broadcaster.send(Event::new_progression_event_update(
                 progression_event_id,
-                "3/4: Installing Forge Server",
+                format!("3/4: Installing the {flavour_name} server"),
                 1.0,
             ));
-
-            let log_path = path_to_instance.join("forge-installer.log");
-            let log =
-                std::fs::File::create(&log_path).context("Could not create forge-installer.log")?;
-            let log_stderr = log
-                .try_clone()
-                .context("Could not create forge-installer.log")?;
-            let status = dont_spawn_terminal(
-                Command::new(&jre)
-                    .arg("-jar")
-                    .arg(path_to_instance.join("forge-installer.jar"))
-                    .arg("--installServer")
-                    .arg(&path_to_instance)
-                    .current_dir(&path_to_instance),
-            )
-            .stdout(Stdio::from(log))
-            .stderr(Stdio::from(log_stderr))
-            .stdin(Stdio::null())
-            .spawn()
-            .context("Failed to start forge-installer.jar")?
-            .wait()
-            .await
-            .context("forge-installer.jar failed")?;
-            if !status.success() {
-                return Err(eyre!(
-                    "Failed to install forge server ({status}). The end of {}:\n{}",
-                    log_path.display(),
-                    tail_of_file(&log_path, 20).await
-                )
-                .into());
-            }
-
-            tokio::fs::write(
-                &path_to_instance.join("user_jvm_args.txt"),
-                "# Generated by Lodestone\n# This file is ignored by Lodestone\n# Please set arguments using Lodestone",
-            )
-            .await
-            .context("Could not create user_jvm_args.txt")?;
+            run_server_installer(&jre, &path_to_instance, &flavour_name).await?;
         }
 
         // Step 4: Finishing Up

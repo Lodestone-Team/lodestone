@@ -199,6 +199,50 @@ pub fn text(message: M) -> &'static str {
         M::ModsImportHint => {
             "Importez-le dans Prism Launcher, l’application Modrinth ou ATLauncher pour tout obtenir dans les bonnes versions."
         }
+        M::ModpackFrom => "Ce serveur utilise le modpack {pack}.",
+        M::ModpackCheck => "Rechercher une mise à jour",
+        M::ModpackCheckFailed => "Impossible de rechercher une mise à jour : {error}",
+        M::ModpackUpToDate => "C’est la version la plus récente.",
+        M::ModpackUpdateTo => "Mettre à jour vers {version}",
+        M::ModpackFromFile => "Mettre à jour depuis un fichier",
+        M::ModpackFilePrompt => "Mettre à jour",
+        M::ModpackNotMrpack => "{name} n’est pas un fichier .mrpack.",
+        M::ModpackPlanFailed => "Impossible de préparer la mise à jour : {error}",
+        M::ModpackDialogTitle => "Mettre à jour le modpack ?",
+        M::ModpackDialogIntro => "{pack} passe de {from} à {to}.",
+        M::ModpackDialogReinstall => "Le serveur passe à {software}, qui est réinstallé.",
+        M::ModpackDialogKept => "Les fichiers que vous avez modifiés restent tels quels : {files}",
+        M::ModpackDialogNothing => "Aucun fichier ne change.",
+        M::ModpackDialogStop => {
+            "Arrêtez d’abord le serveur : il ne peut pas être mis à jour pendant qu’il tourne."
+        }
+        M::ModpackDialogUnsupported => "Cette version ne peut pas être utilisée : {reason}",
+        M::ModpackUpdate => "Mettre à jour",
+        M::ModpackUpdated => "{pack} mis à jour vers {version}.",
+        M::ModpackUpdateFailed => "Impossible de mettre à jour le modpack : {error}",
+        M::ModpackUnknownVersion => "version inconnue",
+        M::ModpackWhatsNew => "Nouveautés",
+        M::ModpackOut => "{version} est disponible",
+        M::ModpackHistory => "Historique",
+        M::ModpackHistoryFailed => "Impossible de charger l’historique du modpack : {error}",
+        M::ModpackHistoryEmpty => {
+            "Rien n’est encore enregistré. Les prochaines mises à jour pourront être annulées."
+        }
+        M::ModpackKindInstall => "Installé",
+        M::ModpackKindBaseline => "Premier enregistrement",
+        M::ModpackKindUpdate => "Mis à jour",
+        M::ModpackKindRestore => "{version} restauré",
+        M::ModpackCurrent => "Actuelle",
+        M::ModpackRestore => "Restaurer",
+        M::ModpackRestoreMissing => "Lodestone n’a plus certains fichiers de cette version.",
+        M::ModpackRestoreTitle => "Restaurer cette version ?",
+        M::ModpackRestored => "{pack} {version} restauré.",
+        M::ModpackRestoreFailed => "Impossible de restaurer le modpack : {error}",
+        M::ModpackStoreSize => {
+            "Pour annuler les mises à jour, Lodestone conserve {size} de fichiers qui ne peuvent pas être retéléchargés."
+        }
+        M::ModpackSince => "depuis {version}",
+        M::ModpackSinceTooltip => "Ce fichier est arrivé avec la version {version} du modpack.",
         M::ModsProjectFailed => "Impossible de charger le projet : {error}",
         M::ModsSource => "Code source",
         M::ModsIssues => "Tickets",
@@ -328,6 +372,14 @@ pub fn plural(message: P) -> [&'static str; 2] {
             "Afficher plus ({count} restantes)",
         ],
         P::ModsMoreGameVersions => ["+{count} autre", "+{count} autres"],
+        P::ModpackAdded => ["{count} fichier ajouté", "{count} fichiers ajoutés"],
+        P::ModpackReplaced => ["{count} fichier remplacé", "{count} fichiers remplacés"],
+        P::ModpackRemoved => ["{count} fichier supprimé", "{count} fichiers supprimés"],
+        P::ModpackKeptCount => [
+            "{count} fichier modifié conservé",
+            "{count} fichiers modifiés conservés",
+        ],
+        P::ModpackMoreChanges => ["et {count} autre", "et {count} autres"],
         P::FriendsConnectedCount => ["{count} ami connecté", "{count} amis connectés"],
     }
 }

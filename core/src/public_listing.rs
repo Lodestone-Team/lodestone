@@ -35,6 +35,8 @@ pub enum PublicLoader {
     Vanilla,
     Fabric,
     Forge,
+    #[serde(rename = "neoforge")]
+    NeoForge,
     Paper,
     Spigot,
     Other,

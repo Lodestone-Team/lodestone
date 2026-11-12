@@ -697,6 +697,19 @@ impl Render for CoreSettingsPage {
                 .into(),
             );
         }
+        if self.supports("check_modpack_updates") {
+            core_rows.push(
+                self.switch_row(
+                    CoreSwitch::CheckModpackUpdates,
+                    CoreMsg::ModpackChecks,
+                    t(CoreMsg::ModpackChecksHint),
+                    owner,
+                    cx,
+                )
+                .keywords(t(CoreMsg::ModpackChecksKeywords))
+                .into(),
+            );
+        }
         sections.extend(
             query
                 .section(t(CoreMsg::SectionCore), None)

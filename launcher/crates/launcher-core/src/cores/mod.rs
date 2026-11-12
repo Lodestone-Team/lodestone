@@ -47,12 +47,13 @@ pub use models::{
 
 use crate::game::loaders::{LoaderChoice, LoaderKind};
 
-/// The loader a launcher instance needs to join `server`: Fabric or Forge at the
+/// The loader a launcher instance needs to join `server`: Fabric, Forge or NeoForge at the
 /// server's version, or none (vanilla) for vanilla, Paper and Spigot servers.
 pub fn matching_loader(server: &ServerInstance) -> Result<Option<LoaderChoice>, String> {
     let kind = match server.loader {
         ServerLoader::Fabric => LoaderKind::Fabric,
         ServerLoader::Forge => LoaderKind::Forge,
+        ServerLoader::NeoForge => LoaderKind::NeoForge,
         ServerLoader::Vanilla | ServerLoader::Paper | ServerLoader::Spigot => return Ok(None),
         ServerLoader::Other => {
             return Err(format!(

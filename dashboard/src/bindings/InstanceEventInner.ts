@@ -15,4 +15,10 @@ export type InstanceEventInner =
       players_joined: Array<Player>;
       players_left: Array<Player>;
     }
-  | { type: 'PlayerMessage'; player: string; player_message: string };
+  | { type: 'PlayerMessage'; player: string; player_message: string }
+  | {
+      type: 'ModpackUpdateAvailable';
+      modpack: string;
+      version_id: string;
+      version_number: string;
+    };

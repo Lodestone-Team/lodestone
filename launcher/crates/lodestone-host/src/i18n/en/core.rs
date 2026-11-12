@@ -240,6 +240,7 @@ crate::i18n::messages! {
         EventStopped = "Server {name} stopped!",
         EventCrashed = "Server {name} encountered an error!",
         WarningToast = "Warning: A server has encountered a warning. This shouldn’t happen, please report this to the developers.",
+        EventModpackUpdate = "{pack} {version} is out for {name}",
         EventWarning = "Server {name} encountered a warning",
         EventError = "Server {name} encountered an error",
         PlayersJoined = "{players} Joined {name}",
@@ -338,6 +339,9 @@ crate::i18n::messages! {
         SetPassword = "Set a password",
         NoPasswordYet = "No password yet. Only apps on this computer can use this core.",
         /// More words a Settings search finds the row by (never shown).
+        ModpackChecks = "Check for modpack updates",
+        ModpackChecksHint = "Every few hours, look on Modrinth for newer versions of the modpacks servers were made from, and say when one is out. Check for an update on a server’s Mods tab still works when this is off.",
+        ModpackChecksKeywords = "modpack update notification Modrinth automatic",
         RemoteAccessKeywords = "remote LAN network share",
         /// More words a Settings search finds the row by (never shown).
         DomainKeywords = "address hostname URL",

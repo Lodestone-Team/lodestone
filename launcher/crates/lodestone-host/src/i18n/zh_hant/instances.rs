@@ -55,9 +55,12 @@ pub fn text(message: M) -> &'static str {
         M::GameTypeSubtitle => "你的伺服器要用來做什麼？",
         M::GameTypeNew => "新功能",
         M::GameTypeModpack => "Modrinth 模組包",
-        M::GameTypeModpackDescription => "從 Modrinth 模組包建立 Fabric 伺服器",
+        M::GameTypeModpackDescription => "從 Modrinth 模組包建立 Fabric、Forge 或 NeoForge 伺服器",
         M::GameVanillaDescription => "Mojang 官方的標準原版 Minecraft 伺服器。",
         M::GameForgeDescription => "模組框架，可用來安裝模組並自訂你的 Minecraft 體驗。",
+        M::GameNeoForgeDescription => {
+            "社群維護的 Forge 分支，有自己的模組，適用於 Minecraft 1.20.2 及更新版本。"
+        }
         M::GameFabricDescription => "輕量級的 Minecraft 模組工具鏈。",
         M::GamePaperDescription => "高效能的 Spigot 分支，旨在修正遊戲玩法與機制上的不一致。",
         M::GameSpigotDescription => {
@@ -68,10 +71,9 @@ pub fn text(message: M) -> &'static str {
         M::GameGenericDescription => "未知的遊戲：{name}",
         M::ModpackSourceTitle => "選擇模組包",
         M::ModpackSourceDescription => {
-            "搜尋 Modrinth、貼上 Modrinth 連結，或上傳 .mrpack 檔案。僅支援 Fabric 模組包。"
+            "搜尋 Modrinth、貼上 Modrinth 連結，或上傳 .mrpack 檔案。支援 Fabric、Forge 和 NeoForge 模組包。"
         }
         M::ModpackSearchPlaceholder => "搜尋模組包，或貼上 Modrinth 連結",
-        M::ModpackOnlyFabric => "僅顯示 Fabric 模組包",
         M::ModpackUpload => "上傳 .mrpack",
         M::ModpackVersionTitle => "選擇版本",
         M::ModpackVersionUploaded => "已上傳的模組包。",

@@ -1184,7 +1184,7 @@
     const content = [
       h("div.hx-muted.hx-italic", { style: { marginTop: "-10px" } }, N("ModpackSourceDescription")),
       input(null, { ph: N("ModpackSearchPlaceholder"), icon: "search" }),
-      h("div.hx-between", check(true, N("ModpackOnlyFabric")), h("div.hx-flex", h("span.hx-muted", N("SortLabel")), input(N("SortRelevance"), { select: true, w: "w240" }))),
+      h("div.hx-between", h("span"), h("div.hx-flex", h("span.hx-muted", N("SortLabel")), input(N("SortRelevance"), { select: true, w: "w240" }))),
       list,
       s.search === "failed" ? h("div.hx-col.hx-gap4", h("div.hx-err-t", N("ModpackUploadFailed", { error: "file too large" })), h("div.hx-err-t", N("ModpackNoUploadId")), h("div.hx-err-t", N("ModpackNotAModpack", { type: "mod" })), h("div.hx-muted", N("ModpackChooseMrpack")), loading(N("ModpackUploading", { name: "pack.mrpack" }))) : null,
     ];
