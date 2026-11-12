@@ -40,8 +40,9 @@ To run it on Cloudflare's own runtime instead, build first, then run
   and with reduced motion it draws them once, already lined up.
 - **Lodestone Connect.** Its own section between the hero and the cards
   (`#connect`, also in the header and the hero's second button), in the gem's
-  violet: a friend's Lodestone Host and your launcher joined by a line, then the
-  three steps. The two panels are illustrations, not live data. When the
+  violet: your Lodestone Host's invite link and a friend's launcher joined by a
+  line, then the three steps of sharing by link. The friend list gets one line
+  under the steps: it's an extra, not the way in. The two panels are illustrations, not live data. When the
   section scrolls into view, `main.js` fills the launcher's bar once while it
   "gets the server's mods"; without JavaScript or with reduced motion it shows
   the end. Connect isn't a download of its own, so the section links to the
@@ -98,9 +99,10 @@ The launcher page's layout in Host's green, with the dashboard's logo.
   in `stats.mjs`, raise it now and then), so the number never drops. Set
   `GITHUB_TOKEN` as a build variable in Cloudflare to avoid the API's
   unauthenticated limit.
-- **Points.** The list under the screenshots: joining a friend's server,
-  sharing LAN worlds, automatic setup of new instances, and Lodestone Host's
-  servers in the launcher.
+- **Points.** The list under the screenshots: joining a friend's server from
+  an invite link, automatic setup of new instances, Lodestone Host's servers in
+  the launcher, and, last, the friend list (servers and LAN worlds without a
+  link). Invite links lead; the friend list is an extra.
 - **Screenshots.** `src/launcher/images/<view>.webp` (2240×1400) and `<view>-1120.webp`
   (half size), taken from the launcher at 150% zoom in a 1493×933 window. The
   tabs above the screenshot list the views.

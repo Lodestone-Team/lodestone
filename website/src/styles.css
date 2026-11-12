@@ -841,19 +841,6 @@ h1 .phrase + .phrase {
   color: var(--lilac);
 }
 
-.avatar {
-  display: grid;
-  place-items: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 6px;
-  background: hsl(var(--hue) 45% 30%);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
-  color: hsl(var(--hue) 70% 85%);
-  font-size: 13px;
-  font-weight: 700;
-}
-
 /* The launcher's Play button, in the launcher's blue. */
 .play {
   padding: 4px 12px;
@@ -984,23 +971,29 @@ h1 .phrase + .phrase {
   border-top: 1px solid var(--border);
 }
 
-.panel-shared {
-  grid-template-columns: 40px 1fr;
+.panel-rows .panel-invite {
+  grid-template-columns: 1fr auto;
 }
 
-.faces {
-  display: flex;
+.invite {
+  overflow: hidden;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: rgba(10, 12, 14, 0.6);
+  color: var(--text-muted);
+  font-size: 13px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
-.faces .avatar {
-  width: 22px;
-  height: 22px;
-  font-size: 11px;
-  box-shadow: 0 0 0 2px var(--card);
-}
-
-.faces .avatar + .avatar {
-  margin-left: -6px;
+.copy {
+  padding: 4px 12px;
+  border-radius: 7px;
+  background: #17866f;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
 }
 
 .panel-rows .panel-join {
@@ -1134,12 +1127,20 @@ h1 .phrase + .phrase {
   color: var(--text-muted);
 }
 
+/* The friend list: a quieter extra under the steps. */
+.together-extra {
+  max-width: 62ch;
+  margin: clamp(28px, 5vh, 40px) auto 0;
+  color: var(--text-muted);
+  font-size: 15px;
+}
+
 .together-note {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
-  margin: clamp(32px, 5vh, 48px) 0 0;
+  margin: 14px 0 0;
   color: var(--text-faint);
   font-size: 14px;
 }
