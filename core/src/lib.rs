@@ -409,6 +409,24 @@ fn api_router(shared_state: AppState) -> Router {
         .layer(trace)
 }
 
+/// Resolves when the system asks the core to stop with SIGTERM, as `docker stop`, systemd
+/// and `kill` do, so the core stops its servers before it exits. Never resolves on Windows,
+/// which has no SIGTERM.
+async fn terminate_signal() {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{signal, SignalKind};
+        match signal(SignalKind::terminate()) {
+            Ok(mut sigterm) => {
+                sigterm.recv().await;
+                return;
+            }
+            Err(e) => error!("Cannot listen for SIGTERM: {e}"),
+        }
+    }
+    std::future::pending::<()>().await
+}
+
 /// How often the API keys' last-used times are saved, at most.
 const API_KEY_FLUSH_INTERVAL: Duration = Duration::from_secs(60);
 
@@ -1095,11 +1113,27 @@ pub async fn run_with(
         let console_out_buffer = shared_state.console_out_buffer.clone();
         let instances = shared_state.instances.clone();
         let docker_bridge = shared_state.docker_bridge.clone();
+        let mut events = tx.subscribe();
         async move {
             let mut interval = tokio::time::interval(Duration::from_secs(1));
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
             let mut ticks: u64 = 0;
             loop {
+                if instances.is_empty() {
+                    // Nothing to monitor: rather than wake every second, wait for an event.
+                    // A new server is added after its creation event, but a stopped server
+                    // has nothing to report, and starting it sends events.
+                    monitor_buffer.lock().await.clear();
+                    prune_console_buffers(&console_out_buffer, &instances, &docker_bridge).await;
+                    // only events from now on, not the backlog from while servers existed
+                    events = events.resubscribe();
+                    while instances.is_empty() {
+                        if let Err(RecvError::Closed) = events.recv().await {
+                            std::future::pending::<()>().await;
+                        }
+                    }
+                    continue;
+                }
                 interval.tick().await;
                 let snapshot = snapshot_instances(&instances);
                 // Query all instances at once, each with a timeout, so one instance that
@@ -1247,6 +1281,7 @@ pub async fn run_with(
                     // once, the receive fails and this branch is never taken
                     Ok(()) = stdin_closed_rx => info!("Stdin closed, shutting down"),
                     _ = tokio::signal::ctrl_c() => info!("Ctrl+C received"),
+                    _ = terminate_signal() => info!("SIGTERM received"),
                 }
                 info!("Shutting down web server");
                 for handle in &axum_server_handles {

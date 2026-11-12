@@ -2,7 +2,8 @@ use color_eyre::eyre::{eyre, Context, ContextCompat};
 use std::collections::HashSet;
 use std::ffi::OsStr;
 use std::io::Write;
-use std::net::{TcpListener, TcpStream};
+use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream};
+use std::time::Duration;
 
 use rand::distr::Alphanumeric;
 use rand::RngExt;
@@ -509,9 +510,15 @@ pub fn local_port_available(port: u16) -> bool {
     TcpListener::bind(("127.0.0.1", port)).is_ok()
 }
 
+/// How long [`port_in_use`] waits for an answer. A listener on this machine answers within
+/// a millisecond. A closed port is refused at once on Linux and macOS, but Windows tries
+/// again for about 2 seconds before it gives up, which would delay every start of the core.
+const PORT_PROBE_TIMEOUT: Duration = Duration::from_millis(100);
+
 /// Returns true if something accepts TCP connections on `port` on this machine.
 pub fn port_in_use(port: u16) -> bool {
-    TcpStream::connect(("127.0.0.1", port)).is_ok()
+    let addr = SocketAddr::from((Ipv4Addr::LOCALHOST, port));
+    TcpStream::connect_timeout(&addr, PORT_PROBE_TIMEOUT).is_ok()
 }
 
 // safe_path only works on linux and messes up on windows
@@ -655,13 +662,15 @@ pub fn dont_spawn_terminal(cmd: &mut tokio::process::Command) -> &mut tokio::pro
 
 pub use lodestone_minecraft::util::{format_byte, format_byte_download};
 
-/// A `System` with CPU and memory information only. `System::new_all()` would also load
-/// every process on the host, including each process's environment variables, which
-/// Lodestone never needs.
+/// A `System` with the CPUs (their names and count, not yet their usage or speed) and the
+/// memory. `System::new_all()` would also load every process on the host, including each
+/// process's environment variables, which Lodestone never needs. Whoever needs the CPUs'
+/// usage refreshes it: setting that up takes about 200 ms on Windows, which every start of
+/// the core paid before.
 pub fn cpu_and_memory_system() -> sysinfo::System {
     sysinfo::System::new_with_specifics(
         sysinfo::RefreshKind::nothing()
-            .with_cpu(sysinfo::CpuRefreshKind::everything())
+            .with_cpu(sysinfo::CpuRefreshKind::nothing())
             .with_memory(sysinfo::MemoryRefreshKind::everything()),
     )
 }
