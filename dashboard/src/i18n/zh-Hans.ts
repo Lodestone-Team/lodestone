@@ -211,6 +211,7 @@ export const zhHans: Messages = {
   'shell.event.playersLeft': '{players} 离开了 {name}',
   'shell.event.playersJoinedAndLeft':
     '{joined} 加入了 {name}，{left} 离开了 {name}',
+  'shell.event.modpackUpdate': '{name} 的 {pack} {version} 已发布',
   'shell.event.playerMessage': '{player} 在 {name} 上说：{message}',
   'shell.event.apiKeyCreated': '已创建 API 密钥“{name}”',
   'shell.event.apiKeyRevoked': '已吊销 API 密钥“{name}”',

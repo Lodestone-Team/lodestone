@@ -124,6 +124,9 @@ pub fn demo(view: &AnyView, cx: &mut App) {
     if let Ok(page) = view.clone().downcast::<overview::OverviewPage>() {
         page.update(cx, |page, cx| page.demo(cx));
     }
+    if let Ok(page) = view.clone().downcast::<mods::ModsPage>() {
+        page.update(cx, |page, cx| page.demo(cx));
+    }
 }
 
 /// Opens a dropdown, for the development screenshots' `--open-menu <name>`: on the

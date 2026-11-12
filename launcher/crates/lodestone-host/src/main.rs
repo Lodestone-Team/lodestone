@@ -338,6 +338,13 @@ mod screenshot {
                 cx.background_executor().timer(Duration::from_secs(4)).await;
             }
             if demo {
+                // the shell makes the page when it draws, and a hidden window hasn't
+                // drawn yet
+                gpui::AppContext::update_window(cx, window.into(), |_, window, cx| {
+                    window.refresh();
+                    window.draw(cx).clear(cx);
+                })
+                .ok();
                 window
                     .update(cx, |app, _, cx| {
                         let view = app.shell()?.read(cx).page_view()?;

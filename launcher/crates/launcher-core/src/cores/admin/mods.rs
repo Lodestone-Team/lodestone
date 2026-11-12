@@ -520,6 +520,165 @@ pub struct ModpackUpdateResult {
     pub skipped: Option<String>,
 }
 
+/// A newer version of a server's modpack (`AvailableUpdate`).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+pub struct AvailableUpdate {
+    pub version_id: String,
+    pub version_number: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub game_versions: Vec<String>,
+    #[serde(default)]
+    pub date_published: String,
+}
+
+/// What a history entry was (`HistoryKind`).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum HistoryKind {
+    Install,
+    Baseline,
+    #[default]
+    Update,
+    Restore {
+        to: u32,
+    },
+    #[serde(other)]
+    Unknown,
+}
+
+/// What a change did to a file (`ChangeKind`). An updated file is a mod whose file
+/// changed name (another version of the same Modrinth project).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ChangeKind {
+    Added,
+    Updated,
+    #[default]
+    Replaced,
+    Removed,
+    #[serde(other)]
+    Unknown,
+}
+
+/// One file a history entry changed (`ChangeInfo`).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+pub struct ChangeInfo {
+    pub kind: ChangeKind,
+    pub path: String,
+    #[serde(default)]
+    pub old_path: Option<String>,
+    #[serde(default)]
+    pub project_id: Option<String>,
+}
+
+impl ChangeInfo {
+    /// The file name, without its folder.
+    pub fn file_name(&self) -> &str {
+        self.path.rsplit('/').next().unwrap_or(&self.path)
+    }
+
+    pub fn old_file_name(&self) -> Option<&str> {
+        let old = self.old_path.as_deref()?;
+        Some(old.rsplit('/').next().unwrap_or(old))
+    }
+}
+
+/// An install, update or restore of a server's modpack (`HistoryEntryInfo`).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+pub struct HistoryEntryInfo {
+    pub id: u32,
+    /// Unix milliseconds.
+    #[serde(default)]
+    pub time: i64,
+    pub kind: HistoryKind,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub version_number: Option<String>,
+    #[serde(default)]
+    pub game_version: String,
+    #[serde(default)]
+    pub loader: String,
+    #[serde(default)]
+    pub loader_version: Option<String>,
+    #[serde(default)]
+    pub changes: Vec<ChangeInfo>,
+    #[serde(default)]
+    pub kept: Vec<String>,
+    #[serde(default)]
+    pub file_count: u32,
+    /// The server is at this entry.
+    #[serde(default)]
+    pub current: bool,
+    /// Files Lodestone can't get back; it can only be restored when this is 0.
+    #[serde(default)]
+    pub missing: u32,
+}
+
+impl HistoryEntryInfo {
+    /// How many changes of `kind` it made.
+    pub fn count(&self, kind: ChangeKind) -> usize {
+        self.changes.iter().filter(|c| c.kind == kind).count()
+    }
+}
+
+/// A server's modpack history (`ModpackHistory`).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+pub struct ModpackHistory {
+    /// Newest first.
+    #[serde(default)]
+    pub entries: Vec<HistoryEntryInfo>,
+    /// For each file of the current pack (its path in the pack), the id of the entry its
+    /// current version came with.
+    #[serde(default)]
+    pub blame: std::collections::BTreeMap<String, u32>,
+    /// The bytes Lodestone keeps to undo updates.
+    #[serde(default)]
+    pub stored_bytes: u64,
+    /// A newer version on Modrinth, when the core's last check found one.
+    #[serde(default)]
+    pub update: Option<AvailableUpdate>,
+}
+
+impl ModpackHistory {
+    pub fn entry(&self, id: u32) -> Option<&HistoryEntryInfo> {
+        self.entries.iter().find(|e| e.id == id)
+    }
+
+    /// The entry a mod file (`mods/x.jar`, or its disabled name) came with.
+    pub fn blame_of(&self, path: &str) -> Option<&HistoryEntryInfo> {
+        let enabled = path
+            .strip_suffix(".disabled")
+            .filter(|p| p.to_lowercase().ends_with(".jar"))
+            .unwrap_or(path);
+        self.entry(*self.blame.get(enabled)?)
+    }
+}
+
+impl AdminClient {
+    /// `GET /instance/{uuid}/modpack/history`.
+    pub async fn modpack_history(&self, uuid: &str) -> Result<ModpackHistory, CoreError> {
+        self.get(&format!("instance/{}/modpack/history", segment(uuid)))
+            .await
+    }
+
+    /// `POST /instance/{uuid}/modpack/check`: looks for a newer version on Modrinth now.
+    pub async fn check_modpack(&self, uuid: &str) -> Result<Option<AvailableUpdate>, CoreError> {
+        let bytes = self
+            .send_slow(
+                Method::POST,
+                &format!("instance/{}/modpack/check", segment(uuid)),
+                None,
+                MAX_JSON_BYTES,
+                MODRINTH_TIMEOUT,
+            )
+            .await?;
+        serde_json::from_slice(&bytes).map_err(|err| CoreError::Invalid(err.to_string()))
+    }
+}
+
 impl AdminClient {
     /// `POST /instance/{uuid}/modpack/update/plan`: what updating the server to the
     /// pack `source` will do. The core may download the pack first.

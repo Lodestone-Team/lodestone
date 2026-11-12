@@ -6,7 +6,7 @@
 //! `WriteGlobalFile`, the permission the file API needs to create `.jar` files.
 
 use axum::extract::{DefaultBodyLimit, Multipart, State};
-use axum::routing::post;
+use axum::routing::{get, post};
 use axum::{Json, Router};
 use color_eyre::eyre::{eyre, Context};
 use serde::{Deserialize, Serialize};
@@ -20,7 +20,9 @@ use crate::auth::user::UserAction;
 use crate::error::{Error, ErrorKind};
 use crate::events::Event;
 use crate::implementations::minecraft::{validate_new_instance_name, SetupConfig};
+use crate::modpack::history::{entry_as_is, History, HistoryKind};
 use crate::modpack::store::StoredPack;
+use crate::modpack::update::record_of;
 use crate::modpack::{
     describe_skipped, install_pack_contents, read_pack_async, server_flavour, write_port,
     ModpackInfo, ModpackOrigin, MAX_PACK_FILE_BYTES,
@@ -281,7 +283,7 @@ async fn create_modpack_instance(
     let setup_config = SetupConfig {
         name: request.name.clone(),
         version: pack.info.game_version.clone(),
-        flavour,
+        flavour: flavour.clone(),
         port,
         cmd_args: Vec::new(),
         description: request.description.clone(),
@@ -290,7 +292,7 @@ async fn create_modpack_instance(
         auto_start: request.auto_start,
         restart_on_crash: request.restart_on_crash,
         backup_period: None,
-        modpack: Some(origin),
+        modpack: Some(origin.clone()),
         accept_eula: request.accept_eula,
     };
     let title = format!(
@@ -299,6 +301,7 @@ async fn create_modpack_instance(
     );
     let api = state.mods.modrinth.clone();
     let event_broadcaster = state.event_broadcaster.clone();
+    let game_version = pack.info.game_version.clone();
     let post_setup: PostSetupStep = Box::new(move |root, event_id| {
         Box::pin(async move {
             // `stored` keeps the pack file until the instance is set up
@@ -319,6 +322,20 @@ async fn create_modpack_instance(
             .await?;
             write_port(&root, port).await?;
             drop(stored);
+            // the first entry of the history, which later updates can go back to
+            let mut history = History::default();
+            history.remember_downloads(&report.files);
+            let entry = entry_as_is(
+                HistoryKind::Install,
+                origin,
+                game_version,
+                flavour,
+                &record_of(&report.files),
+            );
+            history.push(&root, entry);
+            if let Err(e) = history.save(&root).await {
+                tracing::warn!("Could not start the modpack history: {e}");
+            }
             Ok(describe_skipped(&report.skipped))
         })
     });
@@ -349,6 +366,14 @@ pub fn get_modpack_routes(state: AppState) -> Router {
         .route(
             "/instance/{uuid}/modpack/update",
             post(super::modpack_update::update_modpack),
+        )
+        .route(
+            "/instance/{uuid}/modpack/history",
+            get(super::modpack_update::modpack_history),
+        )
+        .route(
+            "/instance/{uuid}/modpack/check",
+            post(super::modpack_update::check_modpack),
         )
         .with_state(state)
 }

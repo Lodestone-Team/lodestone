@@ -274,6 +274,7 @@ export const en = {
   'shell.event.playersJoinedAndLeft':
     '{joined} Joined {name} and {left} Left {name}',
   /** {player} said {message} (a chat message) on the server {name} */
+  'shell.event.modpackUpdate': '{pack} {version} is out for {name}',
   'shell.event.playerMessage': '{player} said {message} on {name}',
   /** {name} is the name of an API key */
   'shell.event.apiKeyCreated': 'API key “{name}” created',

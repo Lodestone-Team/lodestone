@@ -6,8 +6,10 @@
 //! checks are in [`lodestone_minecraft::mrpack`]; the zip crate's own `extract` is never
 //! used.
 
+pub mod history;
 pub mod store;
 pub mod update;
+pub mod updates;
 
 use std::collections::HashMap;
 use std::io::{Read, Write};
@@ -542,6 +544,8 @@ pub struct PackInstallReport {
     pub downloaded: usize,
     pub extracted: usize,
     pub skipped: Vec<SkippedPath>,
+    /// The pack's files, as recorded.
+    pub files: std::collections::BTreeMap<String, update::PackFile>,
 }
 
 /// Puts the server files of a checked pack into the instance folder `root`: downloads
@@ -592,6 +596,7 @@ pub async fn install_pack_contents(
         downloaded: total,
         extracted,
         skipped: pack.skipped.clone(),
+        files,
     })
 }
 

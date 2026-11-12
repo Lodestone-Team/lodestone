@@ -221,6 +221,27 @@ pub fn text(message: M) -> &'static str {
         M::ModpackUpdated => "{pack} mis à jour vers {version}.",
         M::ModpackUpdateFailed => "Impossible de mettre à jour le modpack : {error}",
         M::ModpackUnknownVersion => "version inconnue",
+        M::ModpackOut => "{version} est disponible",
+        M::ModpackHistory => "Historique",
+        M::ModpackHistoryFailed => "Impossible de charger l’historique du modpack : {error}",
+        M::ModpackHistoryEmpty => {
+            "Rien n’est encore enregistré. Les prochaines mises à jour pourront être annulées."
+        }
+        M::ModpackKindInstall => "Installé",
+        M::ModpackKindBaseline => "Premier enregistrement",
+        M::ModpackKindUpdate => "Mis à jour",
+        M::ModpackKindRestore => "{version} restauré",
+        M::ModpackCurrent => "Actuelle",
+        M::ModpackRestore => "Restaurer",
+        M::ModpackRestoreMissing => "Lodestone n’a plus certains fichiers de cette version.",
+        M::ModpackRestoreTitle => "Restaurer cette version ?",
+        M::ModpackRestored => "{pack} {version} restauré.",
+        M::ModpackRestoreFailed => "Impossible de restaurer le modpack : {error}",
+        M::ModpackStoreSize => {
+            "Pour annuler les mises à jour, Lodestone conserve {size} de fichiers qui ne peuvent pas être retéléchargés."
+        }
+        M::ModpackSince => "depuis {version}",
+        M::ModpackSinceTooltip => "Ce fichier est arrivé avec la version {version} du modpack.",
         M::ModsProjectFailed => "Impossible de charger le projet : {error}",
         M::ModsSource => "Code source",
         M::ModsIssues => "Tickets",
@@ -353,6 +374,11 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::ModpackAdded => ["{count} fichier ajouté", "{count} fichiers ajoutés"],
         P::ModpackReplaced => ["{count} fichier remplacé", "{count} fichiers remplacés"],
         P::ModpackRemoved => ["{count} fichier supprimé", "{count} fichiers supprimés"],
+        P::ModpackKeptCount => [
+            "{count} fichier modifié conservé",
+            "{count} fichiers modifiés conservés",
+        ],
+        P::ModpackMoreChanges => ["et {count} autre", "et {count} autres"],
         P::FriendsConnectedCount => ["{count} ami connecté", "{count} amis connectés"],
     }
 }

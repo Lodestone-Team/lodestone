@@ -221,6 +221,7 @@ export const fr: Messages = {
   'shell.event.playersLeft': '{players} a quitté {name}',
   'shell.event.playersJoinedAndLeft':
     '{joined} a rejoint {name} et {left} a quitté {name}',
+  'shell.event.modpackUpdate': '{pack} {version} est disponible pour {name}',
   'shell.event.playerMessage': '{player} a dit {message} sur {name}',
   'shell.event.apiKeyCreated': 'Clé d’API « {name} » créée',
   'shell.event.apiKeyRevoked': 'Clé d’API « {name} » révoquée',

@@ -199,6 +199,24 @@ crate::i18n::messages! {
         ModpackUpdated = "Updated {pack} to {version}.",
         ModpackUpdateFailed = "Couldn’t update the modpack: {error}",
         ModpackUnknownVersion = "unknown version",
+        /// The modpack's history (Mods tab): {version} is a modpack version, {size} a size.
+        ModpackOut = "{version} is out",
+        ModpackHistory = "History",
+        ModpackHistoryFailed = "Couldn’t load the modpack’s history: {error}",
+        ModpackHistoryEmpty = "Nothing is recorded yet. Updates from now on can be undone.",
+        ModpackKindInstall = "Installed",
+        ModpackKindBaseline = "First recorded",
+        ModpackKindUpdate = "Updated",
+        ModpackKindRestore = "Restored {version}",
+        ModpackCurrent = "Current",
+        ModpackRestore = "Restore",
+        ModpackRestoreMissing = "Lodestone no longer has some of this version’s files.",
+        ModpackRestoreTitle = "Restore this version?",
+        ModpackRestored = "Restored {pack} {version}.",
+        ModpackRestoreFailed = "Couldn’t restore the modpack: {error}",
+        ModpackStoreSize = "To undo updates, Lodestone keeps {size} of files that can’t be downloaded again.",
+        ModpackSince = "since {version}",
+        ModpackSinceTooltip = "This file came with {version} of the modpack.",
         /// A Modrinth project.
         ModsProjectFailed = "Couldn’t load the project: {error}",
         ModsSource = "Source",
@@ -301,6 +319,8 @@ crate::i18n::messages! {
         ModpackAdded = ("{count} file added", "{count} files added"),
         ModpackReplaced = ("{count} file replaced", "{count} files replaced"),
         ModpackRemoved = ("{count} file removed", "{count} files removed"),
+        ModpackKeptCount = ("{count} changed file kept", "{count} changed files kept"),
+        ModpackMoreChanges = ("and {count} more", "and {count} more"),
         FriendsConnectedCount = ("{count} friend connected now", "{count} friends connected now"),
     }
 }

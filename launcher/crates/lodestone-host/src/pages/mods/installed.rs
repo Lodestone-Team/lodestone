@@ -709,10 +709,30 @@ impl ModsPage {
                     )
                     .child(
                         div()
-                            .truncate()
-                            .text_size(text::SMALL)
-                            .text_color(ink::faint())
-                            .child(format!("{} · {}", m.file_name, format::bytes(m.size))),
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap(px(6.))
+                            .min_w_0()
+                            .child(
+                                div()
+                                    .truncate()
+                                    .text_size(text::SMALL)
+                                    .text_color(ink::faint())
+                                    .child(format!("{} · {}", m.file_name, format::bytes(m.size))),
+                            )
+                            // the modpack version this file came with
+                            .when_some(self.blame_label(&m.file_name), |this, (label, tip)| {
+                                this.child(
+                                    div()
+                                        .id(id("blame"))
+                                        .flex_none()
+                                        .text_size(text::SMALL)
+                                        .text_color(ink::muted())
+                                        .child(label)
+                                        .tooltip(text_tooltip(tip)),
+                                )
+                            }),
                     ),
             )
             .child(

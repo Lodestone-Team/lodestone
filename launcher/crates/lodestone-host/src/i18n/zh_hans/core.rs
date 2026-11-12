@@ -264,6 +264,7 @@ pub fn text(message: M) -> &'static str {
         M::EventStopped => "服务器 {name} 已停止！",
         M::EventCrashed => "服务器 {name} 出现错误！",
         M::WarningToast => "警告：某个服务器发出了警告。这不应该发生，请向开发者报告此问题。",
+        M::EventModpackUpdate => "{name} 的 {pack} {version} 已发布",
         M::EventWarning => "服务器 {name} 发出了警告",
         M::EventError => "服务器 {name} 出现错误",
         M::PlayersJoined => "{players} 加入了 {name}",

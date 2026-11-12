@@ -240,6 +240,7 @@ crate::i18n::messages! {
         EventStopped = "Server {name} stopped!",
         EventCrashed = "Server {name} encountered an error!",
         WarningToast = "Warning: A server has encountered a warning. This shouldn’t happen, please report this to the developers.",
+        EventModpackUpdate = "{pack} {version} is out for {name}",
         EventWarning = "Server {name} encountered a warning",
         EventError = "Server {name} encountered an error",
         PlayersJoined = "{players} Joined {name}",

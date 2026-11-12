@@ -138,6 +138,15 @@ pub struct ModsPage {
     modpack_check: modpack::ModpackCheck,
     /// Preparing or running a modpack update.
     modpack_busy: bool,
+    /// The modpack's history, once fetched.
+    modpack_history: Option<launcher_core::cores::admin::mods::ModpackHistory>,
+    modpack_history_error: Option<String>,
+    /// Counts the history's fetches, so only the newest one is kept.
+    history_serial: u64,
+    /// The history's timeline is shown.
+    history_open: bool,
+    /// History entries whose changes are shown.
+    history_expanded: HashSet<u32>,
     dialog: lodestone_ui::components::DialogSlot<Self, Shown>,
     /// Counts the list's fetches, so only the newest one is kept.
     list_serial: u64,
@@ -164,12 +173,18 @@ impl ModsPage {
             downloading_pack: false,
             modpack_check: modpack::ModpackCheck::default(),
             modpack_busy: false,
+            modpack_history: None,
+            modpack_history_error: None,
+            history_serial: 0,
+            history_open: false,
+            history_expanded: HashSet::new(),
             dialog: lodestone_ui::components::DialogSlot::new(|this: &mut Self| &mut this.dialog),
             list_serial: 0,
             _tasks: Vec::new(),
             _subscriptions: subscriptions,
         };
         this.reload(cx);
+        this.load_modpack_history(cx);
         this
     }
 
@@ -329,12 +344,26 @@ impl ModsPage {
                 ButtonVariant::Danger,
                 true,
             ),
-            Prompt::ModpackUpdate { plan, .. } => {
+            Prompt::ModpackUpdate { plan, source } => {
                 let (body, may_run) = self.modpack_dialog_body(plan, cx);
+                let restore = matches!(
+                    source,
+                    launcher_core::cores::admin::instances::ModpackSource::History { .. }
+                );
                 (
-                    t(M::ModpackDialogTitle).to_string(),
+                    t(if restore {
+                        M::ModpackRestoreTitle
+                    } else {
+                        M::ModpackDialogTitle
+                    })
+                    .to_string(),
                     body,
-                    t(M::ModpackUpdate).to_string(),
+                    t(if restore {
+                        M::ModpackRestore
+                    } else {
+                        M::ModpackUpdate
+                    })
+                    .to_string(),
                     ButtonVariant::Primary,
                     may_run,
                 )

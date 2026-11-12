@@ -1,7 +1,6 @@
 //! Updating a server to another version of its modpack.
 //!
-//! [`RECORD_FILE`] in the instance folder records every file the pack wrote, with its
-//! SHA-1. Comparing that, the new pack and the files on disk gives the plan, which the
+//! [`RECORD_FILE`] records every file the pack wrote, with its SHA-1. Comparing that, the new pack and the files on disk gives the plan, which the
 //! dashboard shows before anything changes:
 //!
 //! - **The pack's downloaded files** (mods): a file the new pack lists is added when
@@ -22,6 +21,13 @@
 //! new files into place. If that fails part way, the files are put back from the
 //! snapshot. Without a record (a server made before records were kept), the old pack's
 //! files are worked out from the old pack itself when it is on Modrinth.
+//!
+//! Every install, update and restore is kept in the history ([`super::history`]), which
+//! is what makes an update undoable: restoring an earlier entry is an update whose new
+//! files come from the history rather than from a pack.
+//!
+//! Lodestone's files are all in [`MODPACK_DIR`], which packs can't write (their paths
+//! may not start with `.lodestone`).
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Component, Path, PathBuf};
@@ -39,13 +45,14 @@ use crate::error::Error;
 use crate::modrinth::ModrinthApi;
 use crate::mods::{disabled_name, is_disabled_name};
 
-/// The record of the files a pack wrote, in the instance folder. Packs cannot write it:
-/// their paths may not start with `.lodestone`.
-pub const RECORD_FILE: &str = ".lodestone_modpack.json";
+/// The folder, in the instance folder, of the modpack's record, history and stored files.
+pub const MODPACK_DIR: &str = ".lodestone_modpack";
+/// The record of the files the pack wrote.
+pub const RECORD_FILE: &str = ".lodestone_modpack/record.json";
 /// Where new files are downloaded while an update runs.
-const STAGING_DIR: &str = ".lodestone_modpack_update";
+pub(super) const STAGING_DIR: &str = ".lodestone_modpack/staging";
 /// Where replaced and removed files are kept while an update runs.
-const SNAPSHOT_DIR: &str = ".lodestone_modpack_snapshot";
+pub(super) const SNAPSHOT_DIR: &str = ".lodestone_modpack/snapshot";
 /// The folders a dropped override is removed from.
 const CONTENT_DIRS: [&str; 2] = ["mods/", "plugins/"];
 
@@ -82,17 +89,24 @@ impl PackRecord {
 
     pub async fn save(&self, root: &Path) -> Result<(), Error> {
         let json = serde_json::to_vec_pretty(self).context("Failed to write the modpack record")?;
+        tokio::fs::create_dir_all(root.join(MODPACK_DIR))
+            .await
+            .context("Failed to create the modpack folder")?;
         crate::persist::write_atomic(&root.join(RECORD_FILE), json, None).await
     }
 }
 
-/// A file a pack writes, with where it comes from.
-#[derive(Debug, Clone)]
+/// A file a pack writes, with where its bytes come from: a stored copy in the history,
+/// a download, or else the pack's overrides.
+#[derive(Debug, Clone, PartialEq)]
 pub struct PackFile {
     pub sha1: String,
-    /// `None` for an override.
     pub download: Option<PackDownload>,
+    /// From the pack's overrides rather than its downloads.
+    pub from_overrides: bool,
     pub project_id: Option<String>,
+    /// A copy of the file in the history's store.
+    pub stored: Option<PathBuf>,
 }
 
 /// The Modrinth project of a `https://cdn.modrinth.com/data/<project>/versions/...` URL.
@@ -122,7 +136,9 @@ pub fn pack_files(
             PackFile {
                 sha1: download.sha1.to_lowercase(),
                 download: Some(download.clone()),
+                from_overrides: false,
                 project_id: project_of(download),
+                stored: None,
             },
         );
     }
@@ -133,7 +149,9 @@ pub fn pack_files(
             PackFile {
                 sha1,
                 download: None,
+                from_overrides: true,
                 project_id: None,
+                stored: None,
             },
         );
     }
@@ -150,7 +168,7 @@ pub fn record_of(files: &BTreeMap<String, PackFile>) -> PackRecord {
                     path.clone(),
                     RecordedFile {
                         sha1: file.sha1.clone(),
-                        from_overrides: file.download.is_none(),
+                        from_overrides: file.from_overrides,
                         project_id: file.project_id.clone(),
                     },
                 )
@@ -162,7 +180,7 @@ pub fn record_of(files: &BTreeMap<String, PackFile>) -> PackRecord {
 /// `path` from a record, if it is a plain relative path: no `..`, root or drive, and not
 /// one of Lodestone's own files. The record is a file in the instance folder that anyone
 /// who can write the instance's files can edit.
-fn record_path(path: &str) -> Option<PathBuf> {
+pub(super) fn record_path(path: &str) -> Option<PathBuf> {
     let relative = PathBuf::from(path);
     let plain = !path.is_empty()
         && relative
@@ -186,12 +204,14 @@ pub enum FileAction {
 }
 
 /// One change of an update: the pack's path, and the path on disk it changes (the same,
-/// or the disabled name of a disabled mod).
+/// or the disabled name of a disabled mod), with the SHA-1 of the file it replaces or
+/// removes.
 #[derive(Debug, Clone, PartialEq)]
 pub struct FileChange {
     pub path: String,
     pub target: String,
     pub action: FileAction,
+    pub old_sha1: Option<String>,
 }
 
 /// What an update will do to the files.
@@ -266,6 +286,7 @@ pub fn plan_files(root: &Path, old: &PackRecord, new: &BTreeMap<String, PackFile
             path: path.clone(),
             target,
             action: FileAction::Remove,
+            old_sha1: Some(sha1),
         });
     }
     for (path, file) in new {
@@ -284,6 +305,7 @@ pub fn plan_files(root: &Path, old: &PackRecord, new: &BTreeMap<String, PackFile
                         path.clone()
                     },
                     action: FileAction::Add,
+                    old_sha1: None,
                 });
             }
             Some((_, sha1)) if sha1 == file.sha1 => {}
@@ -292,13 +314,14 @@ pub fn plan_files(root: &Path, old: &PackRecord, new: &BTreeMap<String, PackFile
                     Some(recorded) => recorded.sha1 == sha1,
                     // a file the old pack didn't write: a mod at the pack's path is
                     // replaced, a config the user wrote is theirs
-                    None => file.download.is_some(),
+                    None => !file.from_overrides,
                 };
                 if replace {
                     plan.changes.push(FileChange {
                         path: path.clone(),
                         target,
                         action: FileAction::Replace,
+                        old_sha1: Some(sha1),
                     });
                 } else {
                     plan.kept.push(target);
@@ -362,6 +385,11 @@ impl Moves {
     }
 }
 
+/// Where an update keeps the file it took from `target` until it is done.
+pub fn snapshot_path(root: &Path, target: &str) -> PathBuf {
+    root.join(SNAPSHOT_DIR).join(target)
+}
+
 /// Removes the update's staging and snapshot folders, if they are there.
 pub async fn remove_work_dirs(root: &Path) {
     for dir in [STAGING_DIR, SNAPSHOT_DIR] {
@@ -374,10 +402,26 @@ pub async fn remove_work_dirs(root: &Path) {
     }
 }
 
-/// Downloads and extracts the new files of `plan` into the staging folder.
+/// Copies `stored` to `path` in the staging folder, checking that it is still the file
+/// with `sha1`.
+fn copy_stored(staging: &Path, path: &str, stored: &Path, sha1: &str) -> Result<(), Error> {
+    let target = staging.join(path);
+    prepare_parent(staging, &target)?;
+    std::fs::copy(stored, &target)
+        .with_context(|| format!("Failed to copy the stored copy of {path}"))?;
+    let copied = lodestone_minecraft::hash::sha1_of(&target)
+        .with_context(|| format!("Failed to read the stored copy of {path}"))?;
+    if !copied.eq_ignore_ascii_case(sha1) {
+        return Err(eyre!("The stored copy of {path} is damaged").into());
+    }
+    Ok(())
+}
+
+/// Puts the new files of `plan` into the staging folder: stored copies from the history,
+/// then downloads, then the overrides of the pack at `pack_path` (when there is one).
 pub async fn stage_files(
     api: &dyn ModrinthApi,
-    pack_path: &Path,
+    pack_path: Option<&Path>,
     new: &BTreeMap<String, PackFile>,
     plan: &FilePlan,
     root: &Path,
@@ -390,11 +434,31 @@ pub async fn stage_files(
     tokio::fs::create_dir_all(&staging)
         .await
         .context("Failed to create the modpack update folder")?;
-    let downloads: Vec<&PackDownload> = plan
+    let wanted: Vec<(&String, &PackFile)> = plan
         .changes
         .iter()
         .filter(|c| c.action != FileAction::Remove)
-        .filter_map(|c| new.get(&c.path)?.download.as_ref())
+        .filter_map(|c| Some((&c.path, new.get(&c.path)?)))
+        .collect();
+    let stored: Vec<(String, PathBuf, String)> = wanted
+        .iter()
+        .filter_map(|(path, file)| Some(((*path).clone(), file.stored.clone()?, file.sha1.clone())))
+        .collect();
+    if !stored.is_empty() {
+        progress("Copying stored modpack files".to_string());
+        let staging = staging.clone();
+        tokio::task::spawn_blocking(move || {
+            stored
+                .iter()
+                .try_for_each(|(path, from, sha1)| copy_stored(&staging, path, from, sha1))
+        })
+        .await
+        .map_err(|e| eyre!("The modpack task failed: {e}"))??;
+    }
+    let downloads: Vec<&PackDownload> = wanted
+        .iter()
+        .filter(|(_, file)| file.stored.is_none())
+        .filter_map(|(_, file)| file.download.as_ref())
         .collect();
     let total = downloads.len();
     let done = std::sync::atomic::AtomicUsize::new(0);
@@ -409,10 +473,12 @@ pub async fn stage_files(
             }
         })
         .await?;
-    let needs_overrides = plan.changes.iter().any(|c| {
-        c.action != FileAction::Remove && new.get(&c.path).is_some_and(|f| f.download.is_none())
-    });
+    let needs_overrides = wanted
+        .iter()
+        .any(|(_, file)| file.stored.is_none() && file.download.is_none());
     if needs_overrides {
+        let pack_path =
+            pack_path.ok_or_else(|| eyre!("Some files of this version are no longer available"))?;
         progress("Extracting modpack overrides".to_string());
         let (pack_path, staging) = (pack_path.to_path_buf(), staging.clone());
         tokio::task::spawn_blocking(move || extract_overrides(&pack_path, &staging, allow_scripts))

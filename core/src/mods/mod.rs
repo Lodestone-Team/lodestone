@@ -665,6 +665,8 @@ pub struct ModsState {
     pub modrinth: Arc<dyn ModrinthApi>,
     pub restart: restart::RestartTracker,
     pub packs: crate::modpack::store::PackStore,
+    /// Newer versions of servers' modpacks.
+    pub updates: crate::modpack::updates::UpdateChecks,
     locks: std::sync::Mutex<HashMap<InstanceUuid, Arc<tokio::sync::Mutex<()>>>>,
 }
 
@@ -674,6 +676,7 @@ impl ModsState {
             modrinth,
             restart: restart::RestartTracker::default(),
             packs,
+            updates: Default::default(),
             locks: Default::default(),
         }
     }

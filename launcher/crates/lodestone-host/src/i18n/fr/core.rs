@@ -328,6 +328,7 @@ pub fn text(message: M) -> &'static str {
         M::WarningToast => {
             "Avertissement : un serveur a émis un avertissement. Cela ne devrait pas arriver, veuillez le signaler aux développeurs."
         }
+        M::EventModpackUpdate => "{pack} {version} est disponible pour {name}",
         M::EventWarning => "Le serveur {name} a émis un avertissement",
         M::EventError => "Le serveur {name} a rencontré une erreur",
         M::PlayersJoined => "{players} a rejoint {name}",

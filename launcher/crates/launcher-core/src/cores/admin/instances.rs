@@ -239,8 +239,16 @@ impl SetupValue {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ModpackSource {
-    Modrinth { version_id: String },
-    Upload { upload_id: String },
+    Modrinth {
+        version_id: String,
+    },
+    Upload {
+        upload_id: String,
+    },
+    /// An entry of a server's modpack history, to go back to (updates only).
+    History {
+        entry_id: u32,
+    },
 }
 
 /// `POST /instance/create_modpack` (`CreateModpackInstanceRequest`).

@@ -41,7 +41,9 @@ fn download(path: &str, content: &[u8], project: &str) -> PackFile {
             sha512: String::new(),
             size: content.len() as u64,
         }),
+        from_overrides: false,
         project_id: Some(project.to_string()),
+        stored: None,
     }
 }
 
@@ -49,7 +51,9 @@ fn override_file(content: &[u8]) -> PackFile {
     PackFile {
         sha1: sha1_hex(content),
         download: None,
+        from_overrides: true,
         project_id: None,
+        stored: None,
     }
 }
 
@@ -308,7 +312,7 @@ async fn updates_a_server_and_undoes_a_failed_update() {
     assert_eq!(plan.kept, ["config/edited.toml"]);
 
     // a failed placement (a staged file is missing) changes nothing
-    stage_files(&fake2, &v2.path, &new, &plan, root, false, &|_| {})
+    stage_files(&fake2, Some(&v2.path), &new, &plan, root, false, &|_| {})
         .await
         .unwrap();
     std::fs::remove_file(root.join(STAGING_DIR).join("mods/new.jar")).unwrap();
@@ -326,7 +330,7 @@ async fn updates_a_server_and_undoes_a_failed_update() {
     remove_work_dirs(root).await;
 
     // the update
-    stage_files(&fake2, &v2.path, &new, &plan, root, false, &|_| {})
+    stage_files(&fake2, Some(&v2.path), &new, &plan, root, false, &|_| {})
         .await
         .unwrap();
     place_files(root, &plan).unwrap();
@@ -370,7 +374,7 @@ async fn updates_a_server_and_undoes_a_failed_update() {
     let plan = plan_files(root, &record, &back);
     stage_files(
         &fake1_again,
-        &v1_again.path,
+        Some(&v1_again.path),
         &back,
         &plan,
         root,
