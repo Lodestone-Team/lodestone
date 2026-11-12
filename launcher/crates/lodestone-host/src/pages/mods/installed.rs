@@ -687,6 +687,24 @@ impl ModsPage {
                             // players never install plugins
                             .when(!target.is_plugin(), |this| {
                                 this.children(requirement_label(id("requirement"), m, marks))
+                            })
+                            // by the name, so the controls on the right line up on every row
+                            .when_some(m.modrinth.clone(), |this, modrinth| {
+                                let url = modrinth_project_url(
+                                    if target.is_plugin() { "plugin" } else { "mod" },
+                                    &modrinth.slug,
+                                );
+                                this.child(
+                                    // the button is taller than the line: don't push it apart
+                                    div().flex_none().my(px(-6.)).child(
+                                        IconButton::new(
+                                            id("modrinth"),
+                                            Icon::ArrowUpRightFromSquare,
+                                        )
+                                        .label(t(M::ModsViewOnModrinth))
+                                        .on_click(move |_, _, cx| cx.open_url(&url)),
+                                    ),
+                                )
                             }),
                     )
                     .child(
@@ -721,17 +739,6 @@ impl ModsPage {
                                 cx.listener(move |this, _, _, cx| this.update_one(&updated, cx)),
                             ),
                         ))
-                    })
-                    .when_some(m.modrinth.clone(), |this, modrinth| {
-                        let url = modrinth_project_url(
-                            if target.is_plugin() { "plugin" } else { "mod" },
-                            &modrinth.slug,
-                        );
-                        this.child(
-                            IconButton::new(id("modrinth"), Icon::ArrowUpRightFromSquare)
-                                .label(t(M::ModsViewOnModrinth))
-                                .on_click(move |_, _, cx| cx.open_url(&url)),
-                        )
                     })
                     .when(marks, |this| {
                         let checkbox = Checkbox::new(
