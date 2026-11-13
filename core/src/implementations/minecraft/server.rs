@@ -36,9 +36,6 @@ const DEFAULT_PORT: u16 = 25565;
 /// starts (one that began between the crash and the restart) before giving up.
 const CRASH_RESTART_LOCK_WAIT: Duration = Duration::from_secs(60);
 
-/// Set once the core begins shutting down; a crash restart that was waiting checks it.
-pub static SHUTTING_DOWN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-
 /// What start() reads from server.properties
 struct LaunchSettings {
     port: u16,
@@ -619,8 +616,19 @@ impl MinecraftInstance {
         }
         // Only restart servers that started successfully, so a broken setup doesn't loop.
         if did_start && self.config.lock().await.restart_on_crash {
+            if crate::shutdown::has_begun() {
+                info!(
+                    "[{}] Not restarting the server: Lodestone Core is shutting down",
+                    name
+                );
+                return;
+            }
             info!("[{}] Restarting the server because it crashed", name);
             tokio::time::sleep(Duration::from_secs(5)).await;
+            // start() refuses too, but this needs no error in the log
+            if crate::shutdown::has_begun() {
+                return;
+            }
             if self.state().await == State::Stopped {
                 // a backup that began meanwhile holds off starts; wait for it a while
                 if let Err(e) = self
@@ -650,6 +658,8 @@ impl MinecraftInstance {
         lock_wait: Duration,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), Error>> + Send + '_>> {
         Box::pin(async move {
+            // the shutdown stops only the servers it finds running
+            crate::shutdown::refuse_start()?;
             // Minecraft only runs once the user agreed to its EULA; never accept it here.
             super::eula::require_eula_accepted(&self.path_to_instance).await?;
             // Changing the version or modpack, or backing up or restoring the server, holds
@@ -668,12 +678,7 @@ impl MinecraftInstance {
                     .map_err(|_| busy())?;
                 // the core began shutting down while this waited (the backup holding the
                 // lock was cancelled): starting now would leave a server behind
-                if SHUTTING_DOWN.load(Ordering::SeqCst) {
-                    return Err(Error {
-                        kind: ErrorKind::BadRequest,
-                        source: eyre!("Not starting the server: Lodestone is shutting down"),
-                    });
-                }
+                crate::shutdown::refuse_start()?;
                 guard
             };
             // Subscribe first, so a server that exits right away can't be missed.
@@ -681,6 +686,18 @@ impl MinecraftInstance {
             self.transition(StateAction::UserStart, &cause_by, "Starting server")
                 .await?;
             drop(version_guard);
+            // Again, now that the state says Starting: the shutdown, once begun, either sees
+            // this server starting (and kills it), or began first and is refused here.
+            if let Err(e) = crate::shutdown::refuse_start() {
+                self.set_state_if(
+                    &[State::Starting],
+                    State::Stopped,
+                    &cause_by,
+                    "Lodestone Core is shutting down",
+                )
+                .await;
+                return Err(e);
+            }
             self.stop_requested.store(false, Ordering::SeqCst);
 
             let name = self.name().await;
@@ -877,8 +894,9 @@ impl TServer for MinecraftInstance {
     }
 
     async fn monitor(&self) -> MonitorReport {
+        // Only the process is refreshed: the report has none of the system's memory
+        // figures, which would cost a read of the system's memory counters every second.
         let mut sys = self.system.lock().await;
-        sys.refresh_memory();
         if let Some(pid) = self.process.lock().await.as_ref().and_then(|p| p.id()) {
             // Same data the old `refresh_process` refreshed; dead processes are not removed.
             sys.refresh_processes_specifics(

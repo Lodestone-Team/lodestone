@@ -561,6 +561,8 @@ pub struct BackupService {
     object_sizes: StdMutex<HashMap<String, u64>>,
     cancel: CancellationToken,
     tracker: TaskTracker,
+    /// Notified when a schedule is saved, for the scheduler while no server has one.
+    schedule_changed: tokio::sync::Notify,
 }
 
 impl BackupService {
@@ -584,11 +586,18 @@ impl BackupService {
             object_sizes: Default::default(),
             cancel: CancellationToken::new(),
             tracker: TaskTracker::new(),
+            schedule_changed: tokio::sync::Notify::new(),
         }
     }
 
     pub fn store(&self) -> &Store {
         &self.store
+    }
+
+    /// Resolves once a server's schedule was saved since the last call (or is, if none
+    /// was): the scheduler waits on this while no server has scheduled backups on.
+    pub async fn schedule_changed(&self) {
+        self.schedule_changed.notified().await
     }
 
     /// Cancelled when the core shuts down.
@@ -867,6 +876,7 @@ impl BackupService {
         let store = self.store.clone();
         let (id, saved) = (uuid.clone(), policy.clone());
         blocking(move || store.save_policy(&id, &saved)).await?;
+        self.schedule_changed.notify_one();
         Ok(policy)
     }
 

@@ -23,28 +23,17 @@ use super::{
 };
 use crate::error::{Error, ErrorKind};
 
-/// Some APIs (PaperMC) ask clients to identify themselves.
-pub(super) const USER_AGENT: &str = concat!(
-    "Lodestone/",
-    env!("CARGO_PKG_VERSION"),
-    " (https://github.com/Lodestone-Team/lodestone)"
-);
-
 /// How long version lists are cached.
 pub(super) const VERSION_CACHE_TTL: Duration = Duration::from_secs(10 * 60);
 
-/// One HTTP client for all Minecraft API calls, so connections are reused and every request
-/// has a timeout.
-pub(super) fn http_client() -> &'static reqwest::Client {
-    static CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
-        reqwest::Client::builder()
-            .user_agent(USER_AGENT)
-            .connect_timeout(Duration::from_secs(10))
-            .timeout(Duration::from_secs(30))
-            .build()
-            .unwrap_or_else(|_| reqwest::Client::new())
-    });
-    &CLIENT
+/// Minecraft API calls time out after this long.
+const API_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// A GET request for a Minecraft API, on the core's shared client (which sends Lodestone's
+/// user agent, as PaperMC asks) with [`API_TIMEOUT`], since that client has no overall
+/// timeout of its own.
+pub(super) fn api_get(url: impl reqwest::IntoUrl) -> reqwest::RequestBuilder {
+    crate::util::http_client().get(url).timeout(API_TIMEOUT)
 }
 
 fn not_found(message: String) -> Error {
@@ -55,8 +44,7 @@ fn not_found(message: String) -> Error {
 }
 
 async fn get_json<T: serde::de::DeserializeOwned>(url: &str, what: &str) -> Result<T, Error> {
-    Ok(http_client()
-        .get(url)
+    Ok(api_get(url)
         .send()
         .await
         .with_context(|| format!("Failed to get {what}: the request to {url} failed"))?
@@ -295,10 +283,8 @@ pub async fn name_to_uuid(name: &str) -> Option<String> {
     struct Profile {
         id: String,
     }
-    let profile: Profile = http_client()
-        .get(format!(
-            "https://api.mojang.com/users/profiles/minecraft/{name}"
-        ))
+    let url = format!("https://api.mojang.com/users/profiles/minecraft/{name}");
+    let profile: Profile = api_get(url)
         .timeout(Duration::from_secs(5))
         .send()
         .await

@@ -3181,6 +3181,7 @@ dependencies = [
  "walkdir",
  "which",
  "whoami",
+ "windows-sys 0.61.2",
  "zip",
  "zstd",
 ]

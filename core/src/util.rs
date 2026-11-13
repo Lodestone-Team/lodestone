@@ -3,6 +3,7 @@ use std::collections::HashSet;
 use std::ffi::OsStr;
 use std::io::Write;
 use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream};
+use std::sync::LazyLock;
 use std::time::Duration;
 
 use rand::distr::Alphanumeric;
@@ -20,6 +21,37 @@ use tar::Archive;
 
 use crate::error::{Error, ErrorKind};
 use crate::prelude::path_to_tmp;
+
+/// Lodestone's user agent. Some APIs (Modrinth, PaperMC) ask clients to identify
+/// themselves. No personal data.
+pub const USER_AGENT: &str = concat!(
+    "Lodestone/",
+    env!("CARGO_PKG_VERSION"),
+    " (https://github.com/Lodestone-Team/lodestone)"
+);
+
+/// The settings of [`http_client`]: a connection is given up after 10 s and a response
+/// that stalls for 60 s, but there is no overall timeout, since downloads can be large.
+/// Requests that should end sooner set their own with [`reqwest::RequestBuilder::timeout`].
+pub(crate) fn http_client_builder() -> reqwest::ClientBuilder {
+    Client::builder()
+        .user_agent(USER_AGENT)
+        .connect_timeout(Duration::from_secs(10))
+        .read_timeout(Duration::from_secs(60))
+}
+
+/// One HTTP client for the core's outgoing requests, so connections are reused. It is
+/// built on first use, not at startup: building a client reads the system's proxy settings
+/// and CA certificates (on Linux it parses the whole bundle), which a core that makes no
+/// request shouldn't pay for. See [`http_client_builder`] for its timeouts.
+pub fn http_client() -> &'static Client {
+    static CLIENT: LazyLock<Client> = LazyLock::new(|| {
+        http_client_builder()
+            .build()
+            .unwrap_or_else(|_| Client::new())
+    });
+    &CLIENT
+}
 
 #[derive(Debug, Clone)]
 pub struct DownloadProgress {
@@ -69,8 +101,7 @@ pub async fn download_file(
     let mut temp_file = tokio::fs::File::create(&temp_file_path)
         .await
         .context("Failed to create temporary file")?;
-    let client = Client::new();
-    let response = client
+    let response = http_client()
         .get(url)
         .send()
         .await
@@ -653,9 +684,19 @@ pub mod fs {
         Ok(file)
     }
 }
+/// Starts a console program (Java) without a console on Windows. DETACHED_PROCESS rather
+/// than CREATE_NO_WINDOW, which would still give each server a hidden console and a
+/// conhost.exe process of its own. Every caller redirects the stdio, nothing sends the
+/// servers console control events (they are stopped with `stop` on stdin, or killed), and
+/// a Ctrl+C in the terminal the core runs in still reaches only the core, which stops the
+/// servers itself. Java decides its output encoding from whether stdout is a console,
+/// which a pipe never is, so the output reads the same.
 pub fn dont_spawn_terminal(cmd: &mut tokio::process::Command) -> &mut tokio::process::Command {
     #[cfg(target_os = "windows")]
-    cmd.creation_flags(0x08000000);
+    {
+        const DETACHED_PROCESS: u32 = 0x0000_0008;
+        cmd.creation_flags(DETACHED_PROCESS);
+    }
 
     cmd
 }
@@ -985,5 +1026,42 @@ mod tests {
             .is_err());
         #[cfg(unix)]
         assert!(read_to_string_capped("/dev/zero", 1024).await.is_err());
+    }
+
+    /// A program started without a console (as servers are) still reads its piped stdin,
+    /// writes its piped stdout, and sees the end of stdin when the core closes it.
+    /// `findstr` stands in for Java: it echoes every line it reads and exits at the end.
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn a_program_without_a_console_talks_through_its_pipes() {
+        use crate::util::dont_spawn_terminal;
+        use std::process::Stdio;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let mut command = tokio::process::Command::new("findstr");
+        command.arg("^");
+        let mut child = dont_spawn_terminal(&mut command)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut stdin = child.stdin.take().unwrap();
+        stdin.write_all(b"stop\r\n").await.unwrap();
+        drop(stdin);
+        let mut stdout = String::new();
+        child
+            .stdout
+            .take()
+            .unwrap()
+            .read_to_string(&mut stdout)
+            .await
+            .unwrap();
+        let status = tokio::time::timeout(std::time::Duration::from_secs(10), child.wait())
+            .await
+            .expect("findstr did not exit when its stdin closed")
+            .unwrap();
+        assert!(status.success(), "{status}");
+        assert_eq!(stdout.trim(), "stop");
     }
 }

@@ -5,6 +5,9 @@
 //! one is due ([`super::retention::due`]). Each backup runs on its own task, so a long one
 //! doesn't hold up the others. It ends when the service is cancelled at shutdown.
 //!
+//! While no server has scheduled backups on (they're off by default), it stops looking
+//! until a schedule is saved, so an idle core isn't woken for nothing.
+//!
 //! A server that stopped (or crashed) in the last minute isn't backed up while stopped: a
 //! backup of a stopped server holds off starts, and the restart after a crash comes 5
 //! seconds later. The instance records when it stopped, so a server that started and
@@ -45,7 +48,17 @@ pub async fn run(state: AppState) {
             _ = cancel.cancelled() => return,
             _ = interval.tick() => {}
         }
-        seen = tick(&state, &seen).await;
+        let any_scheduled;
+        (seen, any_scheduled) = tick(&state, &seen).await;
+        if !any_scheduled {
+            tokio::select! {
+                _ = cancel.cancelled() => return,
+                _ = state.backups.schedule_changed() => {}
+            }
+            // the states seen before the wait are stale; `stopped_ago` still covers a crash
+            seen.clear();
+            interval.reset();
+        }
     }
 }
 
@@ -60,12 +73,14 @@ fn just_stopped(previous: Option<State>, now: State, stopped_ago: Option<Duratio
 }
 
 /// One look at every server. `seen` is each server's state at the last look; returns the
-/// states now.
+/// states now, and whether any server may have scheduled backups on (a server skipped
+/// before its policy was read counts as one).
 pub(crate) async fn tick(
     state: &AppState,
     seen: &HashMap<InstanceUuid, State>,
-) -> HashMap<InstanceUuid, State> {
+) -> (HashMap<InstanceUuid, State>, bool) {
     let mut now_seen = HashMap::new();
+    let mut any_scheduled = false;
     let service = state.backups.clone();
     let now = Utc::now().timestamp();
     // clones, so no map guard is held across an await
@@ -90,15 +105,18 @@ pub(crate) async fn tick(
             )
             || service.job_running(&uuid)
         {
+            any_scheduled = true;
             continue;
         }
         let policy = match service.policy(&uuid).await {
             Ok(policy) => policy,
             Err(e) => {
                 warn!("Failed to read the backup schedule of {uuid}: {}", e.source);
+                any_scheduled = true;
                 continue;
             }
         };
+        any_scheduled |= policy.enabled;
         if !service.is_due(&uuid, &policy, now).await {
             continue;
         }
@@ -113,7 +131,7 @@ pub(crate) async fn tick(
             service.set_last_attempt(&uuid, now, result.is_err());
         });
     }
-    now_seen
+    (now_seen, any_scheduled)
 }
 
 #[cfg(test)]

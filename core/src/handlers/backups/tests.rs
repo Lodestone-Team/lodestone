@@ -983,6 +983,36 @@ async fn a_server_that_just_stopped_is_not_backed_up_on_schedule() {
     .await;
 }
 
+/// While no server has scheduled backups on, the scheduler says so (and waits); saving a
+/// schedule wakes it.
+#[tokio::test]
+async fn the_scheduler_waits_while_no_schedule_is_on() {
+    let core = core().await;
+    let seen = std::collections::HashMap::new();
+    let (_, any_scheduled) = crate::backups::scheduler::tick(&core.state, &seen).await;
+    assert!(!any_scheduled, "scheduled backups are off by default");
+
+    core.state
+        .backups
+        .set_policy(
+            &core.uuid,
+            BackupPolicy {
+                enabled: true,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        core.state.backups.schedule_changed(),
+    )
+    .await
+    .expect("saving a schedule wakes the scheduler");
+    let (_, any_scheduled) = crate::backups::scheduler::tick(&core.state, &seen).await;
+    assert!(any_scheduled);
+}
+
 /// A download whose request is dropped (the client went away) ends its progression and
 /// stops its zip.
 #[tokio::test]

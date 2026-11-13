@@ -2,7 +2,7 @@
 # Keep .env and dev.db: the sqlx query! macros read DATABASE_URL from .env at compile time.
 .git
 .github
-target
+**/target
 dashboard/node_modules
 dashboard/.next
 dashboard/out

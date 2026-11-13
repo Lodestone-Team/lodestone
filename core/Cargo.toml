@@ -107,6 +107,11 @@ rcgen = { version = "=0.14.10", default-features = false, features = ["aws_lc_rs
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
+# Already in the lockfile through socket2: SO_EXCLUSIVEADDRUSE for the core's port
+# (src/listen.rs), which socket2 has no setter for.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Networking_WinSock"] }
+
 [dev-dependencies]
 # WebSocket client for the API key tests; axum's `ws` feature already locks this version
 tokio-tungstenite = { version = "0.29.0", default-features = false, features = ["connect"] }

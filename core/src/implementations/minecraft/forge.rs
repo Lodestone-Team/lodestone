@@ -11,8 +11,8 @@ use crate::error::Error;
 /// All Minecraft versions Forge has builds for, newest first.
 pub async fn get_forge_minecraft_versions() -> Result<Vec<String>, Error> {
     // IndexMap keeps the order of the metadata file
-    let response: IndexMap<String, Value> = super::util::http_client()
-        .get("https://files.minecraftforge.net/net/minecraftforge/forge/maven-metadata.json")
+    let url = "https://files.minecraftforge.net/net/minecraftforge/forge/maven-metadata.json";
+    let response: IndexMap<String, Value> = super::util::api_get(url)
         .send()
         .await
         .context("Failed to get forge versions, http request failed")?
@@ -27,8 +27,7 @@ pub async fn get_forge_minecraft_versions() -> Result<Vec<String>, Error> {
 
 /// NeoForge's version list, which names each version after its Minecraft version.
 pub async fn get_neoforge_versions() -> Result<NeoForgeVersions, Error> {
-    Ok(super::util::http_client()
-        .get(NEOFORGE_VERSIONS_URL)
+    Ok(super::util::api_get(NEOFORGE_VERSIONS_URL)
         .send()
         .await
         .context("Failed to get NeoForge versions, http request failed")?
