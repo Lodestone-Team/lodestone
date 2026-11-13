@@ -82,13 +82,14 @@ The launcher and Host pages each end with a comparison ("Faster than the rest",
 the section's footnote; change one only with a new measurement.
 
 - **Launcher:** the six-launcher benchmark on one Windows 11 PC (Ryzen 9
-  9950X3D, 64 GB), 10 and 11 November 2026: window on screen, ready, CPU at
-  idle, installed size. Prism uses slightly less memory at idle, and the
-  footnote says so.
-- **Host:** published download sizes only (GitHub releases and Docker Hub,
-  12 November 2026). Lodestone Host's is the new Host app's developer build 3845;
-  update it when a host-v release is out. Nothing has been benchmarked against
-  other server managers yet.
+  9950X3D, 64 GB), 10 to 13 November 2026: window on screen, ready, CPU and
+  memory at idle, time to quit, installed size. Prism sets aside less memory at
+  idle, and the footnote says so.
+- **Host:** the five-panel benchmark on the same PC, 12 and 13 November 2026:
+  Lodestone's core, Crafty, MCSManager, PufferPanel and Pterodactyl in Docker
+  (ready, memory and CPU at idle, download), and AMP against the core on Windows
+  (ready, memory). Above it, "Don't know networking or what Docker is? We got
+  you." lists what Host takes care of for people new to hosting.
 
 ## The Host page
 
