@@ -158,6 +158,11 @@ crate::i18n::messages! {
         Appearance = "Appearance",
         AppearanceLead = "Saved on this computer, not on the core.",
         ColoredConsole = "Colored console",
+        /// Settings › Profile › Startup: the Host opens when the user signs in to the computer. Off unless they turn it on.
+        Startup = "Startup",
+        StartAtLogin = "Open Lodestone Host when I sign in",
+        StartAtLoginHint = "It opens in the background when you sign in to this computer, and starts the servers set to start automatically.",
+        StartAtLoginFailed = "Couldn’t change the startup setting: {error}",
         Language = "Language",
         LanguageAuto = "System default ({language})",
         Theme = "Theme",

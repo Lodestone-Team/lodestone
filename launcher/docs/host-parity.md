@@ -667,6 +667,21 @@ Conventions in the code that every area relies on:
   version_id} | {type:'upload', upload_id}, name, port, description, min_ram, max_ram, auto_start,
   restart_on_crash}` → `InstanceUuid`; progress via progression events.
 
+### 2.4b Import an existing server (Host only)
+**Package: A.**
+
+- [x] Not in the dashboard.
+  - *Host:* the "Existing server" card (`pages/create_instance/import.rs`): choose the
+    server's folder on this computer, which the core reads
+    (`POST /instance/import/inspect`: the Minecraft version, the server software, the
+    port, the size), then the settings (software, version, name, port, RAM) and
+    **Import Server** (`POST /instance/import`). The core makes the server as any
+    other, with its own Java and server software, and copies the folder into it; the
+    folder itself is never changed. Lodestone's own files, the old server's jars,
+    `libraries`, `versions` and caches are left out, as are symbolic links. Purpur,
+    Spigot and the like come in as Paper. Both routes need `CreateInstance` and
+    `ReadGlobalFile` (`core/src/handlers/instance_import.rs`).
+
 ### 2.5 Delete instance — `components/Instance/InstanceSettings.tsx`  
 **Package: C.**
 
@@ -1072,6 +1087,12 @@ Conventions in the code that every area relies on:
 - [x] Password: **Change password** button → dialog (old/new/confirm) → `PUT /user/{uid}/password`.
 - [x] **Appearance**: Language select (§1.8), Theme segmented control (§1.8), "Coloured console" toggle
   (local only).
+- [x] Not in the dashboard: **Startup**.
+  - *Host:* "Open Lodestone Host when I sign in" (`login_item.rs`), off until the user
+    turns it on. The system keeps it (Windows: the user's `Run` key; macOS: a launch
+    agent; Linux: an autostart entry), and it starts the Host with `--background`,
+    which keeps the window hidden. The servers set to start automatically then start
+    with the core. Uninstalling on Windows removes it.
 - [x] **API keys** section (own keys, §7.4).
 - [x] **Minecraft accounts** section (own links, §7.5).
 

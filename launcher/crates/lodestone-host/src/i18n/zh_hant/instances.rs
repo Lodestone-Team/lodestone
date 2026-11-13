@@ -56,6 +56,40 @@ pub fn text(message: M) -> &'static str {
         M::GameTypeNew => "新功能",
         M::GameTypeModpack => "Modrinth 模組包",
         M::GameTypeModpackDescription => "從 Modrinth 模組包建立 Fabric、Forge 或 NeoForge 伺服器",
+        M::GameTypeImport => "現有的伺服器",
+        M::GameTypeImportDescription => "匯入你已有的 Minecraft 伺服器，包含世界、設定、模組和外掛",
+        M::StepChooseFolder => "選擇資料夾",
+        M::ImportFolderTitle => "選擇伺服器的資料夾",
+        M::ImportFolderSubtitle => {
+            "包含 server.properties 和世界的資料夾。Lodestone 會複製它，原資料夾維持不變。"
+        }
+        M::ImportFolderPlaceholder => "資料夾路徑",
+        M::ImportBrowse => "瀏覽…",
+        M::ImportChooseFolder => "請先選擇伺服器的資料夾",
+        M::ImportStopFirst => "如果伺服器正在執行，請先停止它，才能完整複製世界。",
+        M::ImportReading => "正在讀取資料夾",
+        M::ImportReadFailed => "無法讀取資料夾：{error}",
+        M::ImportSettingsSubtitle => "確認 Lodestone 找到的內容，然後匯入。",
+        M::ImportOtherSoftware => {
+            "此伺服器先前使用 {other}。Lodestone 會用 {software} 執行它，兩者使用相同的外掛。"
+        }
+        M::ImportNotOffered => {
+            "此伺服器先前使用 {other}，Lodestone 不提供它。請選擇用來執行它的軟體。"
+        }
+        M::ImportSoftwareUnknown => "Lodestone 無法判斷此伺服器使用的軟體。請在下方選擇。",
+        M::FieldSoftware => "伺服器軟體",
+        M::FieldSoftwareDescription => "執行伺服器的軟體。Lodestone 會重新安裝它。",
+        M::FieldVersion => "Minecraft 版本",
+        M::FieldVersionDescription => "伺服器上次執行的版本",
+        M::ImportLoadingVersions => "正在載入版本",
+        M::ImportVersionsFailed => "無法載入版本：{error}",
+        M::ImportNoVersions => "核心沒有傳回任何版本",
+        M::ImportVersionUnavailable => {
+            "Lodestone 沒有適用於 Minecraft {version} 的 {software} 伺服器。請選擇其他版本。"
+        }
+        M::ImportChooseSoftware => "請選擇伺服器軟體",
+        M::ImportServer => "匯入伺服器",
+        M::ImportFailed => "無法匯入伺服器：{error}",
         M::GameVanillaDescription => "Mojang 官方的標準原版 Minecraft 伺服器。",
         M::GameForgeDescription => "模組框架，可用來安裝模組並自訂你的 Minecraft 體驗。",
         M::GameNeoForgeDescription => {
@@ -221,6 +255,7 @@ pub fn text(message: M) -> &'static str {
 pub fn plural(message: P) -> [&'static str; 2] {
     match message {
         P::ModpackShowMore => ["顯示更多（還有 {count} 個）", "顯示更多（還有 {count} 個）"],
+        P::ImportFiles => ["{count} 個檔案", "{count} 個檔案"],
         P::ShareConnected => ["{count} 人已連線", "{count} 人已連線"],
         P::ShareJoins => ["（目前共加入 {count} 次）", "（目前共加入 {count} 次）"],
     }

@@ -113,6 +113,7 @@ static FILES: &[(&str, &[u8])] = embed!(
     "images/games/minecraft-fabric.png",
     "images/games/minecraft-forge.png",
     "images/games/minecraft-paper.png",
+    "images/games/minecraft-neoforge.svg",
     "images/games/minecraft-missing-texture.svg",
     "images/games/generic.svg",
     "icons/circle-info.svg",

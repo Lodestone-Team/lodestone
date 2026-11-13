@@ -64,6 +64,48 @@ pub fn text(message: M) -> &'static str {
         M::GameTypeModpackDescription => {
             "Créer un serveur Fabric, Forge ou NeoForge à partir d’un modpack Modrinth"
         }
+        M::GameTypeImport => "Serveur existant",
+        M::GameTypeImportDescription => {
+            "Importer un serveur Minecraft que vous avez déjà, avec son monde, ses paramètres, ses mods et ses plugins"
+        }
+        M::StepChooseFolder => "Choisir le dossier",
+        M::ImportFolderTitle => "Choisissez le dossier du serveur",
+        M::ImportFolderSubtitle => {
+            "Le dossier qui contient server.properties et le monde. Lodestone le copie et laisse l’original tel quel."
+        }
+        M::ImportFolderPlaceholder => "Chemin du dossier",
+        M::ImportBrowse => "Parcourir…",
+        M::ImportChooseFolder => "Choisissez d’abord le dossier du serveur",
+        M::ImportStopFirst => {
+            "Si le serveur est en marche, arrêtez-le d’abord pour que son monde soit copié en entier."
+        }
+        M::ImportReading => "Lecture du dossier",
+        M::ImportReadFailed => "Impossible de lire le dossier : {error}",
+        M::ImportSettingsSubtitle => "Vérifiez ce que Lodestone a trouvé, puis importez.",
+        M::ImportOtherSoftware => {
+            "Ce serveur utilisait {other}. Lodestone le fait tourner avec {software}, qui utilise les mêmes plugins."
+        }
+        M::ImportNotOffered => {
+            "Ce serveur utilisait {other}, que Lodestone ne propose pas. Choisissez le logiciel avec lequel le faire tourner."
+        }
+        M::ImportSoftwareUnknown => {
+            "Lodestone n’a pas pu déterminer le logiciel de ce serveur. Choisissez-le ci-dessous."
+        }
+        M::FieldSoftware => "Logiciel serveur",
+        M::FieldSoftwareDescription => {
+            "Ce qui fait tourner le serveur. Lodestone l’installe à nouveau."
+        }
+        M::FieldVersion => "Version de Minecraft",
+        M::FieldVersionDescription => "La dernière version utilisée par le serveur",
+        M::ImportLoadingVersions => "Chargement des versions",
+        M::ImportVersionsFailed => "Impossible de charger les versions : {error}",
+        M::ImportNoVersions => "le core n’a envoyé aucune version",
+        M::ImportVersionUnavailable => {
+            "Lodestone n’a pas de serveur {software} pour Minecraft {version}. Choisissez une autre version."
+        }
+        M::ImportChooseSoftware => "Choisissez le logiciel serveur",
+        M::ImportServer => "Importer le serveur",
+        M::ImportFailed => "Impossible d’importer le serveur : {error}",
         M::GameVanillaDescription => "Serveur Minecraft vanilla standard de Mojang.",
         M::GameForgeDescription => {
             "Framework de modding pour installer des mods et personnaliser votre expérience Minecraft."
@@ -244,6 +286,7 @@ pub fn plural(message: P) -> [&'static str; 2] {
             "Afficher plus ({count} restante)",
             "Afficher plus ({count} restantes)",
         ],
+        P::ImportFiles => ["{count} fichier", "{count} fichiers"],
         P::ShareConnected => ["{count} personne connectée", "{count} personnes connectées"],
         P::ShareJoins => [
             "({count} connexion jusqu’ici)",

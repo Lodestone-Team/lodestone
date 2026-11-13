@@ -10,6 +10,7 @@ pub mod global_settings;
 pub mod instance;
 pub mod instance_config;
 pub mod instance_fs;
+pub mod instance_import;
 pub mod instance_mods;
 pub mod instance_players;
 pub mod instance_server;

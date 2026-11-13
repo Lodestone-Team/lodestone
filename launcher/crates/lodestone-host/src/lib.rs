@@ -20,6 +20,7 @@ pub mod friends;
 pub mod i18n;
 pub mod instance_icons;
 pub mod keychain;
+pub mod login_item;
 pub mod notifications;
 pub mod onboarding;
 pub mod pages;
