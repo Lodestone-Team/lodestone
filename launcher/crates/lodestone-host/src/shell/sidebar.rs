@@ -52,6 +52,7 @@ pub fn tab_name(tab: InstanceTab, instance: &InstanceInfo) -> &'static str {
         InstanceTab::Settings => ShellMsg::TabSettings,
         InstanceTab::Console => ShellMsg::TabConsole,
         InstanceTab::Files => ShellMsg::TabFiles,
+        InstanceTab::Backups => ShellMsg::TabBackups,
         InstanceTab::Mods => match mod_support(instance) {
             Some(ModSupport::Plugins) => ShellMsg::TabPlugins,
             _ => ShellMsg::TabMods,
@@ -68,6 +69,7 @@ pub fn tab_icon(tab: InstanceTab) -> Icon {
         InstanceTab::Settings => Icon::Gear,
         InstanceTab::Console => Icon::Server,
         InstanceTab::Files => Icon::Folder,
+        InstanceTab::Backups => Icon::ClockRotateLeft,
         InstanceTab::Mods => Icon::PuzzlePiece,
         InstanceTab::EventLogs => Icon::Inbox,
     }

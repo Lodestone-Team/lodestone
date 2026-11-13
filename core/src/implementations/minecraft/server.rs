@@ -32,6 +32,13 @@ use tracing::{error, info, warn};
 /// Minecraft's default port, used when server.properties has no `server-port`
 const DEFAULT_PORT: u16 = 25565;
 
+/// How long the restart after a crash waits for a change, backup or restore that holds off
+/// starts (one that began between the crash and the restart) before giving up.
+const CRASH_RESTART_LOCK_WAIT: Duration = Duration::from_secs(60);
+
+/// Set once the core begins shutting down; a crash restart that was waiting checks it.
+pub static SHUTTING_DOWN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 /// What start() reads from server.properties
 struct LaunchSettings {
     port: u16,
@@ -191,6 +198,7 @@ impl MinecraftInstance {
                     .send(self.state_event(&name, new_state, caused_by, details))
             }),
         )?;
+        self.note_state_change(previous, *state);
         Ok(previous)
     }
 
@@ -208,6 +216,7 @@ impl MinecraftInstance {
         if !expected.contains(&*state) {
             return false;
         }
+        self.note_state_change(*state, new_state);
         *state = new_state;
         self.event_broadcaster
             .send(self.state_event(&name, new_state, caused_by, details));
@@ -613,7 +622,11 @@ impl MinecraftInstance {
             info!("[{}] Restarting the server because it crashed", name);
             tokio::time::sleep(Duration::from_secs(5)).await;
             if self.state().await == State::Stopped {
-                if let Err(e) = self.start(CausedBy::System, false).await {
+                // a backup that began meanwhile holds off starts; wait for it a while
+                if let Err(e) = self
+                    .start_waiting(CausedBy::System, false, CRASH_RESTART_LOCK_WAIT)
+                    .await
+                {
                     error!(
                         "[{}] Failed to restart the server after a crash: {}",
                         name, e
@@ -624,40 +637,77 @@ impl MinecraftInstance {
     }
 }
 
+impl MinecraftInstance {
+    /// [`TServer::start`], waiting up to `lock_wait` for a change, backup or restore that
+    /// holds off starts (`lock_stopped`) to end; with a zero wait, failing at once.
+    ///
+    /// Boxed, as `start` is: the crash restart in `watch_output`, which `launch` spawns,
+    /// calls it, and the cycle needs a named `Send` future.
+    fn start_waiting(
+        &self,
+        cause_by: CausedBy,
+        block: bool,
+        lock_wait: Duration,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), Error>> + Send + '_>> {
+        Box::pin(async move {
+            // Minecraft only runs once the user agreed to its EULA; never accept it here.
+            super::eula::require_eula_accepted(&self.path_to_instance).await?;
+            // Changing the version or modpack, or backing up or restoring the server, holds
+            // this (see `lock_stopped`), so don't start meanwhile.
+            let busy = || Error {
+                kind: ErrorKind::BadRequest,
+                source: eyre!(
+                    "Cannot start the server while it is being changed, backed up or restored"
+                ),
+            };
+            let version_guard = if lock_wait.is_zero() {
+                self.version_change_lock.try_lock().map_err(|_| busy())?
+            } else {
+                let guard = tokio::time::timeout(lock_wait, self.version_change_lock.lock())
+                    .await
+                    .map_err(|_| busy())?;
+                // the core began shutting down while this waited (the backup holding the
+                // lock was cancelled): starting now would leave a server behind
+                if SHUTTING_DOWN.load(Ordering::SeqCst) {
+                    return Err(Error {
+                        kind: ErrorKind::BadRequest,
+                        source: eyre!("Not starting the server: Lodestone is shutting down"),
+                    });
+                }
+                guard
+            };
+            // Subscribe first, so a server that exits right away can't be missed.
+            let rx = block.then(|| self.event_broadcaster.subscribe());
+            self.transition(StateAction::UserStart, &cause_by, "Starting server")
+                .await?;
+            drop(version_guard);
+            self.stop_requested.store(false, Ordering::SeqCst);
+
+            let name = self.name().await;
+            if let Err(e) = self.launch(&name, &cause_by).await {
+                error!("[{}] Failed to start server: {}", name, e);
+                self.set_state_if(
+                    &[State::Starting],
+                    State::Stopped,
+                    &cause_by,
+                    "Failed to start server",
+                )
+                .await;
+                return Err(e);
+            }
+
+            match rx {
+                Some(rx) => self.wait_for_state(rx, State::Running).await,
+                None => Ok(()),
+            }
+        })
+    }
+}
+
 #[async_trait::async_trait]
 impl TServer for MinecraftInstance {
     async fn start(&self, cause_by: CausedBy, block: bool) -> Result<(), Error> {
-        // Minecraft only runs once the user agreed to its EULA; never accept it here.
-        super::eula::require_eula_accepted(&self.path_to_instance).await?;
-        // Changing the version replaces server.jar, so don't start while it runs.
-        let version_guard = self.version_change_lock.try_lock().map_err(|_| Error {
-            kind: ErrorKind::BadRequest,
-            source: eyre!("Cannot start the server while its version or modpack is being changed"),
-        })?;
-        // Subscribe first, so a server that exits right away can't be missed.
-        let rx = block.then(|| self.event_broadcaster.subscribe());
-        self.transition(StateAction::UserStart, &cause_by, "Starting server")
-            .await?;
-        drop(version_guard);
-        self.stop_requested.store(false, Ordering::SeqCst);
-
-        let name = self.name().await;
-        if let Err(e) = self.launch(&name, &cause_by).await {
-            error!("[{}] Failed to start server: {}", name, e);
-            self.set_state_if(
-                &[State::Starting],
-                State::Stopped,
-                &cause_by,
-                "Failed to start server",
-            )
-            .await;
-            return Err(e);
-        }
-
-        match rx {
-            Some(rx) => self.wait_for_state(rx, State::Running).await,
-            None => Ok(()),
-        }
+        self.start_waiting(cause_by, block, Duration::ZERO).await
     }
 
     async fn stop(&self, cause_by: CausedBy, block: bool) -> Result<(), Error> {

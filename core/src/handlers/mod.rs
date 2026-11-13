@@ -1,4 +1,5 @@
 pub mod api_keys;
+pub mod backups;
 pub mod checks;
 pub mod connect;
 pub mod core_info;

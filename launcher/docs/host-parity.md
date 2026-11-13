@@ -674,7 +674,8 @@ Conventions in the code that every area relies on:
   undone) → `DELETE /instance/{uuid}`; refetch list, deselect; error toast.
 - [x] Permission: `can_delete_instance` (global) and, for atom instances, owner (atom rule removed).
 - [x] No clone, rename-folder, import-existing, backup or export features exist in the dashboard.
-  - *Host:* Not applicable: not in the dashboard.
+  - *Host:* The Host has backups (its Backups tab, §6.5); deleting a server deletes
+    its backups too, and the delete dialog says so.
 
 ---
 
@@ -964,11 +965,21 @@ Conventions in the code that every area relies on:
   `GET /events/all/buffer` then the live event stream (at most 500 lines).
 
 ### 6.5 Players / whitelist / ops / backups / scheduling  
-**Package: nobody (not in the dashboard).**
+**Package: nobody (not in the dashboard); backups: the backups change.**
 
 - [x] Not present in the dashboard (only the read-only player list on Overview). Any such feature would
   come only through the core's settings manifest.
-  - *Host:* Not applicable: not in the dashboard.
+  - *Host:* Players, whitelist and ops: not applicable, not in the dashboard. Backups
+    are the Host's own (the core's `/instance/{uuid}/backups` routes, §10.6b): a
+    **Backups** tab after Files (`pages/backups.rs`, `cores/admin/backups.rs`,
+    `i18n/*/backups.rs`), for Minecraft Java servers when the user may read their
+    files. It backs up now, keeps the schedule (on/off, how often, only when players
+    were on, and Fewer/Normal/More kept), shows the storage used and the list (tags:
+    Manual, Automatic, Before restore, Live, May be inconsistent, files skipped,
+    Pinned), and restores (everything or only the world, after a safety backup),
+    restores as a new server, downloads a zip, pins and deletes. Progress comes from
+    the job's progression events and the list (fetched again while a job runs, since
+    only owners and admins get updates). The dashboard has no backup UI.
 
 ### 6.6 Ports  
 **Package: C (through the settings manifest).**
@@ -1099,7 +1110,8 @@ Conventions in the code that every area relies on:
 **Package: nobody.**
 
 - [x] No system-stats page (`/system/ram|disk|cpu` hooks and `SystemStat.tsx` exist but are unused
-  **(dead)**), no core updater UI, no global event-log page, no extension management (extensions are removed), no backup UI.
+  **(dead)**), no core updater UI, no global event-log page, no extension management (extensions are removed), no backup UI (the Host has a
+  Backups tab, §6.5).
   Version/info appears only in Core › General › Information and the connection tooltip.
   - *Host:* Not applicable: not in the dashboard.
 
@@ -1340,6 +1352,20 @@ All paths are under `/api/v1`. Bodies are JSON unless noted. Types are in `dashb
 | POST | `/modpack/inspect` | `ModpackInspectRequest {version_id}` | `ModpackInfo` |
 | POST | `/modpack/upload` | multipart `file` | `ModpackInfo` (with `upload_id`) |
 
+### 10.6b Backups (Host only)
+
+| Method | Path | Request | Response |
+|---|---|---|---|
+| GET | `/instance/{uuid}/backups` | – | `BackupList` |
+| POST | `/instance/{uuid}/backups` | `{name?}` | `{task_id}` |
+| PATCH | `/instance/{uuid}/backups/{id}` | `{name?, pinned?}` | `BackupInfo` |
+| DELETE | `/instance/{uuid}/backups/{id}` | – | `{}` |
+| POST | `/instance/{uuid}/backups/{id}/restore` | `RestoreRequest {scope, stop, start_after, safety_backup}` | `{task_id}` |
+| POST | `/instance/{uuid}/backups/{id}/restore_as_new` | `{name?}` | `{task_id}` (the new server comes as `InstanceCreation`) |
+| POST | `/instance/{uuid}/backups/{id}/download` | – | `{key, file_name, size}` → `/file/{key}` |
+| GET | `/instance/{uuid}/backups/policy` | – | `BackupPolicy` |
+| PUT | `/instance/{uuid}/backups/policy` | `BackupPolicy` | `BackupPolicy` |
+
 ### 10.7 Macros / tasks (removed)
 
 These routes are gone from the core, with `/task/*`, `/history/*`, `/extension/*` and
@@ -1389,7 +1415,9 @@ Event variants the dashboard handles (everything else must at least be tolerated
   {progress_message, progress}`, `ProgressionEnd {success, message, inner: ProgressionEndValue
   (InstanceCreation & InstanceInfo | InstanceDelete {instance_uuid} | FSOperationCompleted {instance_uuid,
   success, message})}`.
-  - *Host:* As above.
+  - *Host:* As above, plus the backups' `Backup`/`Restore {instance_uuid}` starts and
+    `BackupCompleted`/`RestoreCompleted {instance_uuid, backup_id, success, message}` ends,
+    which the Backups tab follows.
 - [x] `FSEvent {operation, target}` (ignored).
   - *Host:* Tolerated and ignored.
 - [x] `GlobalSettingsChanged` (no payload).

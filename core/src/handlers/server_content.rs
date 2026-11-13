@@ -110,7 +110,9 @@ pub struct ResourcePackHash {
 /// The world folder for `level_name`, relative to the instance: one or more plain folder
 /// names separated by `/`. Absolute paths, `..`, `.`, empty parts, backslashes, colons,
 /// control characters and names starting with `.` (such as Lodestone's own files) are
-/// refused.
+/// refused, and so are names that may be the Windows short name of a restore's folder
+/// (`LODEST~1`, see [`super::instance_fs::may_be_restore_folder_short_name`]), which
+/// would lead to it.
 pub fn world_folder(level_name: &str) -> Result<PathBuf, Error> {
     let unsafe_name = || {
         bad_request(format!("The world folder {level_name:?} in server.properties is not a plain folder name, so Lodestone won't read it"))
@@ -126,7 +128,11 @@ pub fn world_folder(level_name: &str) -> Result<PathBuf, Error> {
     }
     let mut path = PathBuf::new();
     for part in level_name.split('/') {
-        if part.is_empty() || part.starts_with('.') || part.trim() != part {
+        if part.is_empty()
+            || part.starts_with('.')
+            || part.trim() != part
+            || super::instance_fs::may_be_restore_folder_short_name(part)
+        {
             return Err(unsafe_name());
         }
         path.push(part);
