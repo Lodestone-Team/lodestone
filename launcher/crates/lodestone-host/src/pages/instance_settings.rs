@@ -1248,7 +1248,8 @@ impl InstanceSettingsPage {
                         .text_color(ink::text())
                         .child(t(M::DeleteCannotUndo)),
                 )
-                .child(t(M::DeleteWarning)),
+                .child(t(M::DeleteWarning))
+                .child(div().pt(px(8.)).child(t(M::DeleteBackupsToo))),
         )
         .footer(
             Button::new("delete-instance-confirm", t(M::DeleteConfirm))

@@ -410,7 +410,9 @@ pub(crate) mod tests {
             .await
             .unwrap();
         init_client_events_table(&pool).await.unwrap();
-        write_client_events(&pool, &[fs_event("before")]).await.unwrap();
+        write_client_events(&pool, &[fs_event("before")])
+            .await
+            .unwrap();
         assert_eq!(pool.size(), 1);
         // a connection goes back to the pool in a task of its own
         tokio::time::timeout(Duration::from_secs(5), async {
@@ -427,7 +429,9 @@ pub(crate) mod tests {
         close_idle_connection(&pool).await;
         assert_eq!(pool.size(), 1);
         drop(held);
-        write_client_events(&pool, &[fs_event("after")]).await.unwrap();
+        write_client_events(&pool, &[fs_event("after")])
+            .await
+            .unwrap();
         let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM ClientEvents")
             .fetch_one(&pool)
             .await

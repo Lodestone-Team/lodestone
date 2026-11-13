@@ -28,6 +28,7 @@ pub use lodestone_ui::i18n::{
 };
 
 pub use en::{
+    backups::{BackupsMsg, BackupsPlural},
     console_files::{ConsoleFilesMsg, ConsoleFilesPlural},
     core::{CoreMsg, CorePlural},
     instance::{InstanceMsg, InstancePlural},
@@ -221,6 +222,7 @@ areas! {
     console_files => ConsoleFilesMsg, ConsoleFilesPlural;
     instance => InstanceMsg, InstancePlural;
     core => CoreMsg, CorePlural;
+    backups => BackupsMsg, BackupsPlural;
 }
 
 /// The English of `text`, a message as shown in the current locale, so a Settings

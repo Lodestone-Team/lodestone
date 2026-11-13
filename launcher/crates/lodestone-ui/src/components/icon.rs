@@ -64,10 +64,14 @@ pub enum Icon {
     Inbox,
     Play,
     PowerOff,
+    /// Backups (the Host's Backups tab).
+    ClockRotateLeft,
+    /// A pinned backup, kept until it is unpinned.
+    Thumbtack,
 }
 
 impl Icon {
-    pub const ALL: [Icon; 59] = [
+    pub const ALL: [Icon; 61] = [
         Icon::ArrowDown,
         Icon::ArrowLeft,
         Icon::ArrowUp,
@@ -127,6 +131,8 @@ impl Icon {
         Icon::Inbox,
         Icon::Play,
         Icon::PowerOff,
+        Icon::ClockRotateLeft,
+        Icon::Thumbtack,
     ];
 
     /// The asset path of the icon's SVG.
@@ -191,6 +197,8 @@ impl Icon {
             Icon::Inbox => "icons/inbox.svg",
             Icon::Play => "icons/play.svg",
             Icon::PowerOff => "icons/power-off.svg",
+            Icon::ClockRotateLeft => "icons/clock-rotate-left.svg",
+            Icon::Thumbtack => "icons/thumbtack.svg",
         }
     }
 
@@ -254,7 +262,9 @@ impl Icon {
             | Icon::CodeCompare
             | Icon::Inbox
             | Icon::Play
-            | Icon::PowerOff => return format!("{self:?}").into(),
+            | Icon::PowerOff
+            | Icon::ClockRotateLeft
+            | Icon::Thumbtack => return format!("{self:?}").into(),
         };
         t(message).into()
     }

@@ -112,6 +112,21 @@ mod windows {
         }
     }
 
+    impl Stream {
+        /// Undoes what a socket accepted from a listener under `WSAEventSelect`
+        /// inherits: the event selection, and with it non-blocking mode.
+        pub(crate) fn clear_event_select(&self) -> io::Result<()> {
+            use windows_sys::Win32::Networking::WinSock::{WSAEventSelect, WSAGetLastError};
+            // SAFETY: the socket is a valid handle owned by `self`; no event and no
+            // network events clears its selection.
+            if unsafe { WSAEventSelect(self.0.as_raw_socket() as _, 0, 0) } != 0 {
+                // SAFETY: reads this thread's last Winsock error.
+                return Err(io::Error::from_raw_os_error(unsafe { WSAGetLastError() }));
+            }
+            self.0.set_nonblocking(false)
+        }
+    }
+
     impl AsRawSocket for Stream {
         fn as_raw_socket(&self) -> RawSocket {
             self.0.as_raw_socket()
@@ -164,9 +179,15 @@ mod windows {
             Ok(Listener(socket))
         }
 
-        /// Waits for the next connection.
+        /// Waits for the next connection; with `WSAEventSelect` on the listener, fails
+        /// with [`io::ErrorKind::WouldBlock`] instead when none is waiting.
         pub fn accept(&self) -> io::Result<Stream> {
             self.0.accept().map(|(socket, _)| Stream(socket))
+        }
+
+        /// The socket, for `WSAEventSelect`.
+        pub(crate) fn raw(&self) -> windows_sys::Win32::Networking::WinSock::SOCKET {
+            self.0.as_raw_socket() as _
         }
 
         /// The connections, as they come; never ends.

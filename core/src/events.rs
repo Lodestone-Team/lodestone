@@ -191,6 +191,21 @@ pub enum ProgressionEndValue {
         success: bool,
         message: String,
     },
+    /// A backup ended. `backup_id` is the new backup, or the newest one when nothing had
+    /// changed since it; `None` when the backup failed.
+    BackupCompleted {
+        instance_uuid: InstanceUuid,
+        backup_id: Option<String>,
+        success: bool,
+        message: String,
+    },
+    /// A restore into the server's own folder ended. `backup_id` is the backup restored.
+    RestoreCompleted {
+        instance_uuid: InstanceUuid,
+        backup_id: Option<String>,
+        success: bool,
+        message: String,
+    },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, TS, PartialEq)]
@@ -199,6 +214,8 @@ pub enum ProgressionEndValue {
 pub enum ProgressionStartValue {
     InstanceCreation { instance_uuid: InstanceUuid },
     InstanceDelete { instance_uuid: InstanceUuid },
+    Backup { instance_uuid: InstanceUuid },
+    Restore { instance_uuid: InstanceUuid },
 }
 
 // the backend will keep exactly 1 copy of ProgressionStart, and 1 copy of ProgressionUpdate OR ProgressionEnd

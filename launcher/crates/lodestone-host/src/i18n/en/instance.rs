@@ -22,7 +22,9 @@ crate::i18n::messages! {
         DeleteTitle = "Delete “{name}”",
         DeleteConfirm = "I understand, delete this server",
         DeleteCannotUndo = "This action cannot be undone.",
-        DeleteWarning = "This instance’s settings, worlds and backups will be permanently deleted. Please backup any important data before proceeding.",
+        DeleteWarning = "This instance’s settings and worlds will be permanently deleted. Please backup any important data before proceeding.",
+        /// After DeleteWarning: Lodestone's own backups of the server go with it.
+        DeleteBackupsToo = "Its backups are deleted too.",
         Deleting = "Deleting {name}…",
         /// Why a setting can't be changed.
         CommandLineReadOnly = "Read-only while code execution is disabled on this core.",

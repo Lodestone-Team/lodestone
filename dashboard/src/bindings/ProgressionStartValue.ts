@@ -3,4 +3,6 @@ import type { InstanceUuid } from './InstanceUuid';
 
 export type ProgressionStartValue =
   | { type: 'InstanceCreation'; instance_uuid: InstanceUuid }
-  | { type: 'InstanceDelete'; instance_uuid: InstanceUuid };
+  | { type: 'InstanceDelete'; instance_uuid: InstanceUuid }
+  | { type: 'Backup'; instance_uuid: InstanceUuid }
+  | { type: 'Restore'; instance_uuid: InstanceUuid };

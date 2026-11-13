@@ -25,17 +25,20 @@ pub enum InstanceTab {
     Settings,
     Console,
     Files,
+    /// Backups of a Minecraft Java server (not in the dashboard).
+    Backups,
     /// "Mods" for Fabric and Forge, "Plugins" for Paper and Spigot.
     Mods,
     EventLogs,
 }
 
 impl InstanceTab {
-    pub const ALL: [InstanceTab; 6] = [
+    pub const ALL: [InstanceTab; 7] = [
         InstanceTab::Overview,
         InstanceTab::Settings,
         InstanceTab::Console,
         InstanceTab::Files,
+        InstanceTab::Backups,
         InstanceTab::Mods,
         InstanceTab::EventLogs,
     ];
@@ -78,6 +81,13 @@ impl InstanceTab {
             InstanceTab::Mods => {
                 mod_support(cx.instance).is_some()
                     && cx.me.may(InstancePermission::ReadFiles, &cx.instance.uuid)
+            }
+            // the core backs up Minecraft servers only; listing needs to read files
+            InstanceTab::Backups => {
+                matches!(
+                    cx.instance.game_type,
+                    launcher_core::cores::admin::models::Game::MinecraftJava { .. }
+                ) && cx.me.may(InstancePermission::ReadFiles, &cx.instance.uuid)
             }
             _ => true,
         }
@@ -148,5 +158,29 @@ mod tests {
             "needs to read files"
         );
         assert!(matches!(fabric.game_type, Game::MinecraftJava { .. }));
+        assert!(InstanceTab::Backups.visible(&cx(&owner, &vanilla, None)));
+        assert!(
+            !InstanceTab::Backups.visible(&cx(&user, &vanilla, None)),
+            "needs to read files"
+        );
+        let mut reader = user.clone();
+        reader.permissions.can_read_instance_file.push("i1".into());
+        assert!(InstanceTab::Backups.visible(&cx(&reader, &vanilla, None)));
+        let docker: InstanceInfo = serde_json::from_value(serde_json::json!({
+            "uuid": "DOCKER-abc", "name": "Box", "port": 0, "state": "Running",
+            "game_type": { "type": "Generic", "game_name": "x", "game_display_name": "x" },
+        }))
+        .unwrap();
+        assert!(
+            !InstanceTab::Backups.visible(&cx(&owner, &docker, None)),
+            "only Minecraft servers have backups"
+        );
+        assert_eq!(
+            InstanceTab::ALL
+                .iter()
+                .position(|t| *t == InstanceTab::Backups),
+            Some(4),
+            "after Files"
+        );
     }
 }

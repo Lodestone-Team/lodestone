@@ -39,15 +39,15 @@ publish = false
 # Windows ones onto the new tag, or go back to zed-industries/zed once they're upstream.
 # Bump `rev` together with the `[patch.crates-io]` entries below, which mirror Zed's own
 # at the same tag.
-gpui = { git = "https://github.com/Lodestone-Team/zed", rev = "af8898ba720c60adde225c6959b93281c673f9fb", default-features = false }
-gpui_platform = { git = "https://github.com/Lodestone-Team/zed", rev = "af8898ba720c60adde225c6959b93281c673f9fb", default-features = false }
+gpui = { git = "https://github.com/Lodestone-Team/zed", rev = "6e65bdf7b79aa74ee54adf6eedbc50004ea3689b", default-features = false }
+gpui_platform = { git = "https://github.com/Lodestone-Team/zed", rev = "6e65bdf7b79aa74ee54adf6eedbc50004ea3689b", default-features = false }
 # Zed's HTTP client: the `HttpClient` trait and its reqwest implementation (rustls with
 # the platform verifier), from the same rev as GPUI.
-http_client = { git = "https://github.com/Lodestone-Team/zed", rev = "af8898ba720c60adde225c6959b93281c673f9fb" }
-reqwest_client = { git = "https://github.com/Lodestone-Team/zed", rev = "af8898ba720c60adde225c6959b93281c673f9fb" }
+http_client = { git = "https://github.com/Lodestone-Team/zed", rev = "6e65bdf7b79aa74ee54adf6eedbc50004ea3689b" }
+reqwest_client = { git = "https://github.com/Lodestone-Team/zed", rev = "6e65bdf7b79aa74ee54adf6eedbc50004ea3689b" }
 # The same TLS settings (rustls with the platform verifier) for a core's WebSocket
 # streams, which don't go through the HTTP client.
-http_client_tls = { git = "https://github.com/Lodestone-Team/zed", rev = "af8898ba720c60adde225c6959b93281c673f9fb" }
+http_client_tls = { git = "https://github.com/Lodestone-Team/zed", rev = "6e65bdf7b79aa74ee54adf6eedbc50004ea3689b" }
 
 launcher-core = { path = "crates/launcher-core" }
 # What Lodestone Launcher and Lodestone Host share on screen.
