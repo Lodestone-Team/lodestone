@@ -266,6 +266,90 @@ pub struct CreateModpackRequest {
     pub accept_eula: bool,
 }
 
+/// The server software a Minecraft server runs, as the core names it (`FlavourKind`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ServerSoftware {
+    Vanilla,
+    Paper,
+    Fabric,
+    Forge,
+    NeoForge,
+    /// Software this Host can't make a server with (the core's `Spigot`, or a newer one).
+    #[serde(other)]
+    Unknown,
+}
+
+impl ServerSoftware {
+    /// What the "New server" dialog offers, in its order.
+    pub const ALL: [ServerSoftware; 5] = [
+        ServerSoftware::Vanilla,
+        ServerSoftware::Paper,
+        ServerSoftware::Fabric,
+        ServerSoftware::Forge,
+        ServerSoftware::NeoForge,
+    ];
+
+    /// Its name, which is the same in every language.
+    pub fn title(self) -> &'static str {
+        match self {
+            ServerSoftware::Vanilla => "Vanilla",
+            ServerSoftware::Paper => "Paper",
+            ServerSoftware::Fabric => "Fabric",
+            ServerSoftware::Forge => "Forge",
+            ServerSoftware::NeoForge => "NeoForge",
+            ServerSoftware::Unknown => "",
+        }
+    }
+
+    /// The game type whose setup form lists the Minecraft versions it has.
+    pub fn game_type(self) -> Option<HandlerGameType> {
+        Some(match self {
+            ServerSoftware::Vanilla => HandlerGameType::MinecraftJavaVanilla,
+            ServerSoftware::Paper => HandlerGameType::MinecraftPaper,
+            ServerSoftware::Fabric => HandlerGameType::MinecraftFabric,
+            ServerSoftware::Forge => HandlerGameType::MinecraftForge,
+            ServerSoftware::NeoForge => HandlerGameType::MinecraftNeoForge,
+            ServerSoftware::Unknown => return None,
+        })
+    }
+}
+
+/// What `POST /instance/import/inspect` found in a server folder (`ServerFolderInfo`).
+#[derive(Clone, Debug, Default, PartialEq, Deserialize)]
+#[serde(default)]
+pub struct ServerFolderInfo {
+    /// The folder, with symbolic links resolved.
+    pub path: String,
+    /// A name for the new server.
+    pub name: String,
+    pub version: Option<String>,
+    pub flavour: Option<ServerSoftware>,
+    pub loader_version: Option<String>,
+    /// The server's own software when Lodestone doesn't offer it ("Purpur").
+    pub other_software: Option<String>,
+    pub port: Option<u32>,
+    pub min_ram: Option<u32>,
+    pub max_ram: Option<u32>,
+    pub eula_accepted: bool,
+    pub has_world: bool,
+    pub size_bytes: u64,
+    pub file_count: u64,
+}
+
+/// `POST /instance/import` (`ImportServerRequest`).
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct ImportServerRequest {
+    pub path: String,
+    pub name: String,
+    pub version: String,
+    pub flavour: ServerSoftware,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub loader_version: Option<String>,
+    pub port: u32,
+    pub min_ram: u32,
+    pub max_ram: u32,
+}
+
 impl AdminClient {
     /// `GET /games`: the games the core makes servers for, in its order.
     pub async fn games(&self) -> Result<Vec<HandlerGameType>, CoreError> {
@@ -305,6 +389,28 @@ impl AdminClient {
         request: &CreateModpackRequest,
     ) -> Result<String, CoreError> {
         self.json(Method::POST, "instance/create_modpack", Some(request))
+            .await
+    }
+
+    /// `POST /instance/import/inspect`: what a server folder on the core's machine
+    /// holds. Nothing is changed.
+    pub async fn inspect_server_folder(&self, path: &str) -> Result<ServerFolderInfo, CoreError> {
+        #[derive(Serialize)]
+        struct Request<'a> {
+            path: &'a str,
+        }
+        self.json(
+            Method::POST,
+            "instance/import/inspect",
+            Some(&Request { path }),
+        )
+        .await
+    }
+
+    /// `POST /instance/import`: the new instance's id. The core sets it up and copies
+    /// the folder in the background, as `create_instance`.
+    pub async fn import_server(&self, request: &ImportServerRequest) -> Result<String, CoreError> {
+        self.json(Method::POST, "instance/import", Some(request))
             .await
     }
 

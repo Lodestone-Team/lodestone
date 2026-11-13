@@ -17,8 +17,8 @@ use crate::{
         events::get_events_routes, gateway::get_gateway_routes, global_fs::get_global_fs_routes,
         global_settings::get_global_settings_routes, instance::*,
         instance_config::get_instance_config_routes, instance_fs::get_instance_fs_routes,
-        instance_mods::get_instance_mods_routes, instance_players::get_instance_players_routes,
-        instance_server::get_instance_server_routes,
+        instance_import::get_instance_import_routes, instance_mods::get_instance_mods_routes,
+        instance_players::get_instance_players_routes, instance_server::get_instance_server_routes,
         instance_setup_configs::get_instance_setup_config_routes, modpack::get_modpack_routes,
         modrinth::get_modrinth_routes, monitor::get_monitor_routes, setup::get_setup_route,
         system::get_system_routes, users::get_user_routes,
@@ -376,6 +376,7 @@ fn api_router(shared_state: AppState) -> Router {
         .merge(get_instance_config_routes(shared_state.clone()))
         .merge(get_instance_players_routes(shared_state.clone()))
         .merge(get_instance_routes(shared_state.clone()))
+        .merge(get_instance_import_routes(shared_state.clone()))
         .merge(get_system_routes(shared_state.clone()))
         .merge(get_checks_routes(shared_state.clone()))
         .merge(handlers::connect::get_connect_routes(shared_state.clone()))

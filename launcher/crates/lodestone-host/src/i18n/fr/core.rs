@@ -214,6 +214,12 @@ pub fn text(message: M) -> &'static str {
         M::Appearance => "Apparence",
         M::AppearanceLead => "Enregistré sur cet ordinateur, pas sur le core.",
         M::ColoredConsole => "Console en couleur",
+        M::Startup => "Démarrage",
+        M::StartAtLogin => "Ouvrir Lodestone Host à l’ouverture de ma session",
+        M::StartAtLoginHint => {
+            "Il s’ouvre en arrière-plan quand vous ouvrez votre session sur cet ordinateur, et démarre les serveurs réglés pour démarrer automatiquement."
+        }
+        M::StartAtLoginFailed => "Impossible de modifier le réglage de démarrage : {error}",
         M::Language => "Langue",
         M::LanguageAuto => "Langue du système ({language})",
         M::Theme => "Thème",

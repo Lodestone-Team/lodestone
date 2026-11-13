@@ -109,6 +109,12 @@ Source: "host.ico"; DestDir: "{app}"; Flags: ignoreversion
 Name: "{autoprograms}\{#AppName}"; Filename: "{app}\{#ExeName}"; IconFilename: "{app}\host.ico"
 Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#ExeName}"; IconFilename: "{app}\host.ico"; Tasks: desktopicon
 
+[Registry]
+; Settings > Profile > Startup writes this value (lodestone-host/src/login_item.rs).
+; Setup never makes it; uninstalling removes it, so Windows stops opening a Host
+; that is gone.
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: none; ValueName: "{#AppName}"; Flags: dontcreatekey uninsdeletevalue
+
 [Run]
 Filename: "{app}\{#ExeName}"; Description: "Open {#AppName}"; Flags: nowait postinstall skipifsilent
 

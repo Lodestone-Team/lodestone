@@ -37,7 +37,14 @@ fn main() {
         let window: WindowHandle<HostApp> = cx
             .open_window(options, |window, cx| cx.new(|cx| HostApp::new(window, cx)))
             .expect("could not open the Lodestone Host window");
-        cx.activate(true);
+        // opened at sign-in (Settings › Profile › Startup): the window stays out of the way
+        if !screenshot && lodestone_host::login_item::started_in_background() {
+            window
+                .update(cx, |_, window, cx| lodestone_host::app::hide(window, cx))
+                .ok();
+        } else {
+            cx.activate(true);
+        }
 
         let show = move |cx: &mut gpui::App| {
             cx.activate(true);
