@@ -133,6 +133,31 @@ pub fn get(url: &str, bearer: Option<&Secret>) -> anyhow::Result<Request<AsyncBo
     Ok(request.body(AsyncBody::empty())?)
 }
 
+/// `method` with a bearer token and a body of `content_type`.
+pub fn with_body(
+    method: Method,
+    url: &str,
+    bearer: &Secret,
+    content_type: &str,
+    body: Vec<u8>,
+) -> anyhow::Result<Request<AsyncBody>> {
+    Ok(builder(method, url)
+        .header("Authorization", format!("Bearer {}", bearer.expose()))
+        .header("Content-Type", content_type)
+        .body(AsyncBody::from(body))?)
+}
+
+/// `method` with a bearer token and no body, such as a `DELETE`.
+pub fn without_body(
+    method: Method,
+    url: &str,
+    bearer: &Secret,
+) -> anyhow::Result<Request<AsyncBody>> {
+    Ok(builder(method, url)
+        .header("Authorization", format!("Bearer {}", bearer.expose()))
+        .body(AsyncBody::empty())?)
+}
+
 /// Sends the request and reads the body, up to [`MAX_RESPONSE_BYTES`].
 pub async fn send(
     client: &dyn HttpClient,

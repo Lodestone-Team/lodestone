@@ -1,4 +1,6 @@
-//! The Logs tab: the selected instance's console, live.
+//! The Logs tab: the selected instance's console, live, and the logs and crash
+//! reports its earlier sessions left on disk, picked from the list beside the search
+//! (`launcher_core::game::past_logs`).
 //!
 //! Rows are coloured by level, can be filtered by level and searched, and copied.
 //! Their messages select like one big text field (`components::log_view`): drag
@@ -11,9 +13,12 @@ use std::collections::BTreeSet;
 
 use gpui::{
     ClipboardItem, Context, Entity, IntoElement, Render, ScrollEvent, ScrollStrategy, SharedString,
-    Subscription, UniformListScrollHandle, Window, div, prelude::*, uniform_list,
+    Subscription, Task, UniformListScrollHandle, Window, div, prelude::*, uniform_list,
 };
-use launcher_core::game::log4j::{Level, Stream};
+use launcher_core::game::{
+    log4j::{Level, Stream},
+    past_logs::{self, Kind, LogFile},
+};
 
 use super::{GameLog, Instances, LogRow};
 use crate::components::{
@@ -22,8 +27,11 @@ use crate::components::{
     log_view::{self, LineSource, LogLine, LogSelection, SelectAll},
 };
 use crate::{
-    components::{Button, ButtonSize, ButtonVariant, Icon, Scrollbar, TextInput},
-    i18n::{CommonMsg, InstancesMsg as M, InstancesPlural as P, ShellMsg, t, trn},
+    components::{
+        Button, ButtonSize, ButtonVariant, Dropdown, Icon, ListRow, Scrollbar, TextInput,
+        settings::{popover_panel, select_button},
+    },
+    i18n::{CommonMsg, InstancesMsg as M, InstancesPlural as P, ShellMsg, format, t, tr, trn},
     theme::{self, Color, colors, fonts, radius, text, weights},
 };
 
@@ -69,6 +77,34 @@ pub fn level_color(level: Level) -> Color {
     }
 }
 
+/// A log or crash report from disk, shown in place of the live console.
+struct Past {
+    file: LogFile,
+    log: GameLog,
+    /// The earlier lines of a very long file, which aren't shown.
+    skipped: usize,
+}
+
+/// What a kind of file is called in the list.
+fn kind_label(kind: Kind) -> M {
+    match kind {
+        Kind::Log => M::LogKindLog,
+        Kind::CrashReport => M::LogKindCrash,
+        Kind::JvmCrash => M::LogKindJvm,
+    }
+}
+
+/// A file's line as a console row.
+fn past_row(line: past_logs::Line) -> LogRow {
+    LogRow {
+        level: line.level,
+        time: line.time.map(SharedString::from),
+        source: line.source.map(SharedString::from),
+        text: SharedString::from(line.text.replace('\t', "    ")),
+        stream: Stream::Stdout,
+    }
+}
+
 pub struct Console {
     instances: Entity<Instances>,
     search: Entity<TextInput>,
@@ -80,6 +116,18 @@ pub struct Console {
     seen: (Option<String>, u64),
     copied: bool,
     selection: LogSelection,
+    /// The selected instance's logs and crash reports on disk, listed when the list
+    /// opens, and the instance they are of.
+    files: Vec<LogFile>,
+    files_for: Option<String>,
+    menu_open: bool,
+    /// The file shown instead of the live console.
+    past: Option<Past>,
+    /// The name of the file being read.
+    loading: Option<String>,
+    /// Why the last file couldn't be read.
+    error: Option<String>,
+    _load: Option<Task<()>>,
     _observe: Vec<Subscription>,
 }
 
@@ -141,8 +189,123 @@ impl Console {
             seen: (None, 0),
             copied: false,
             selection,
+            files: Vec::new(),
+            files_for: None,
+            menu_open: false,
+            past: None,
+            loading: None,
+            error: None,
+            _load: None,
             _observe: observe,
         }
+    }
+
+    /// The log shown: a file picked from the list, else the selected instance's
+    /// console.
+    fn log<'a>(&'a self, cx: &'a gpui::App) -> Option<&'a GameLog> {
+        if let Some(past) = &self.past {
+            return Some(&past.log);
+        }
+        let instances = self.instances.read(cx);
+        instances
+            .selected()
+            .and_then(|instance| instances.log(&instance.id))
+    }
+
+    fn selected_id(&self, cx: &gpui::App) -> Option<String> {
+        self.instances
+            .read(cx)
+            .selected()
+            .map(|instance| instance.id.clone())
+    }
+
+    /// Opens or closes the list of files, looking on disk again as it opens.
+    fn toggle_menu(&mut self, cx: &mut Context<Self>) {
+        self.menu_open = !self.menu_open;
+        if self.menu_open {
+            self.files = match self.selected_id(cx) {
+                Some(id) => past_logs::list(&self.instances.read(cx).game_dir(&id)),
+                None => Vec::new(),
+            };
+        }
+        cx.notify();
+    }
+
+    /// Back to the live console.
+    fn show_live(&mut self, cx: &mut Context<Self>) {
+        self.menu_open = false;
+        self.past = None;
+        self.loading = None;
+        self.error = None;
+        self._load = None;
+        self.follow = true;
+        self.selection.clear();
+        cx.notify();
+    }
+
+    /// Reads a log or crash report and shows it.
+    fn open_file(&mut self, file: LogFile, cx: &mut Context<Self>) {
+        let Some(instance) = self.selected_id(cx) else {
+            return;
+        };
+        self.menu_open = false;
+        self.error = None;
+        self.loading = Some(file.name.clone());
+        self.selection.clear();
+        self._load = Some(cx.spawn(async move |this, cx| {
+            let read = cx
+                .background_spawn({
+                    let file = file.clone();
+                    async move { past_logs::read(&file) }
+                })
+                .await;
+            this.update(cx, |this, cx| {
+                // another instance was selected while the file was read
+                if this.selected_id(cx).as_ref() != Some(&instance) {
+                    return;
+                }
+                this.loading = None;
+                match read {
+                    Ok(contents) => this.show_past(file, contents),
+                    Err(error) => {
+                        this.past = None;
+                        this.error = Some(tr!(M::LogReadFailed, name = file.name, error = error));
+                    }
+                }
+                cx.notify();
+            })
+            .ok();
+        }));
+        cx.notify();
+    }
+
+    fn show_past(&mut self, file: LogFile, contents: past_logs::Contents) {
+        self.past = Some(Past {
+            file,
+            skipped: contents.skipped,
+            log: GameLog::from_rows(contents.lines.into_iter().map(past_row)),
+        });
+    }
+
+    /// Shows `text` as the file `name`, with `files` in the list (open or not), for
+    /// the offscreen screenshots.
+    pub fn preview_past(
+        &mut self,
+        files: Vec<LogFile>,
+        shown: usize,
+        text: &str,
+        menu_open: bool,
+        cx: &mut Context<Self>,
+    ) {
+        let (Some(instance), Some(file)) = (self.selected_id(cx), files.get(shown).cloned()) else {
+            return;
+        };
+        let contents = past_logs::parse(text, file.kind);
+        self.files_for = Some(instance);
+        self.files = files;
+        self.menu_open = menu_open;
+        self.show_past(file, contents);
+        cx.notify();
     }
 
     /// Fills in the search, for the offscreen screenshots.
@@ -164,11 +327,7 @@ impl Console {
 
     /// The indices of the rows that pass the filter and search.
     fn visible(&self, cx: &gpui::App) -> Vec<usize> {
-        let instances = self.instances.read(cx);
-        let Some(log) = instances
-            .selected()
-            .and_then(|instance| instances.log(&instance.id))
-        else {
+        let Some(log) = self.log(cx) else {
             return Vec::new();
         };
         let search = self.search.read(cx).text().trim().to_lowercase();
@@ -187,10 +346,8 @@ impl Console {
 
     fn copy(&mut self, cx: &mut Context<Self>) {
         let search = self.search.read(cx).text().trim().to_lowercase();
-        let instances = self.instances.read(cx);
-        let text = instances
-            .selected()
-            .and_then(|instance| instances.log(&instance.id))
+        let text = self
+            .log(cx)
             .map(|log| log.to_text(|row| Self::matches(&self.shown, &search, row)))
             .unwrap_or_default();
         cx.write_to_clipboard(ClipboardItem::new_string(text));
@@ -217,10 +374,7 @@ impl Console {
     /// Runs `f` on the rows shown, for the selection.
     fn with_shown<R>(&self, cx: &gpui::App, f: impl FnOnce(&Shown) -> R) -> Option<R> {
         let visible = self.visible(cx);
-        let instances = self.instances.read(cx);
-        let log = instances
-            .selected()
-            .and_then(|instance| instances.log(&instance.id))?;
+        let log = self.log(cx)?;
         Some(f(&Shown {
             log,
             visible: &visible,
@@ -265,6 +419,7 @@ fn row_element(
     row: &LogRow,
     selection: &LogSelection,
     id: u64,
+    plain: bool,
 ) -> gpui::Stateful<gpui::Div> {
     let color = level_color(row.level);
     div()
@@ -279,21 +434,24 @@ fn row_element(
         .font_family(fonts::mono())
         .text_size(theme::text_size(text::SMALL))
         .hover(|style| style.bg(colors::GRAY_850))
-        .child(
-            div()
-                .w(px(58.))
-                .flex_none()
-                .text_color(crate::theme::ink::faint())
-                .children(row.time.clone()),
-        )
-        .child(
-            div()
-                .w(px(46.))
-                .flex_none()
-                .font_weight(weights::BOLD.into())
-                .text_color(color)
-                .when(row.source.is_some(), |this| this.child(row.level.label())),
-        )
+        // a crash report has no times or levels to line up
+        .when(!plain, |this| {
+            this.child(
+                div()
+                    .w(px(58.))
+                    .flex_none()
+                    .text_color(crate::theme::ink::faint())
+                    .children(row.time.clone()),
+            )
+            .child(
+                div()
+                    .w(px(46.))
+                    .flex_none()
+                    .font_weight(weights::BOLD.into())
+                    .text_color(color)
+                    .when(row.source.is_some(), |this| this.child(row.level.label())),
+            )
+        })
         .when_some(row.source.clone(), |this, source| {
             this.child(
                 div()
@@ -329,34 +487,117 @@ fn row_element(
 
 impl Render for Console {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let instance_id = self.selected_id(cx);
+        // The files, and the one shown, are the instance's they were listed for.
+        if self.files_for != instance_id {
+            self.files_for = instance_id.clone();
+            self.files.clear();
+            self.menu_open = false;
+            self.past = None;
+            self.loading = None;
+            self.error = None;
+            self._load = None;
+        }
         let visible = self.visible(cx);
         let count = visible.len();
-        let (selected_id, revision) = {
-            let instances = self.instances.read(cx);
-            let id = instances.selected().map(|i| i.id.clone());
-            let revision = id
-                .as_ref()
-                .and_then(|id| instances.log(id))
-                .map_or(0, |log| log.revision);
-            (id, revision)
+        // What is shown: the instance, and the file when one is picked.
+        let selected_id = match (&instance_id, &self.past) {
+            (Some(id), Some(past)) => Some(format!("{id}\n{}", past.file.name)),
+            _ => instance_id.clone(),
         };
+        let revision = self.log(cx).map_or(0, |log| log.revision);
         if self.seen.0.is_some() && self.seen.0 != selected_id {
-            // Another instance's log: its row ids are its own.
+            // Another instance's log, or another file: its row ids are its own.
             self.selection.clear();
         }
         // Not while selecting: the rows would move under the pointer.
         if self.seen != (selected_id.clone(), revision) && !self.selection.is_dragging() {
             self.seen = (selected_id.clone(), revision);
             self.copied = false;
-            if self.follow && count > 0 {
+            if self.past.is_some() {
+                // a file is read from its start
+                self.scroll.scroll_to_item(0, ScrollStrategy::Top);
+            } else if self.follow && count > 0 {
                 self.scroll
                     .scroll_to_item(count - 1, ScrollStrategy::Bottom);
             }
         }
-        let total = selected_id
-            .as_ref()
-            .and_then(|id| self.instances.read(cx).log(id))
-            .map_or(0, |log| log.rows().len());
+        let total = self.log(cx).map_or(0, |log| log.rows().len());
+        let live = self.past.is_none();
+        let skipped = self.past.as_ref().map_or(0, |past| past.skipped);
+
+        // The list of what to show: this session, then the files on disk.
+        let current: SharedString = match &self.past {
+            Some(past) => past.file.name.clone().into(),
+            None => t(M::LogThisSession).into(),
+        };
+        let menu = Dropdown::new(
+            select_button(
+                "log-source",
+                div()
+                    .max_w(px(220.))
+                    .truncate()
+                    .text_size(theme::text_size(text::SMALL))
+                    .font_weight(weights::BOLD.into())
+                    .child(current.clone()),
+            )
+            .aria_label(t(M::LogSource))
+            .aria_value(current)
+            .expandable(self.menu_open, {
+                let view = cx.entity().downgrade();
+                move |_: &mut Window, cx: &mut gpui::App| {
+                    view.update(cx, |this, cx| this.toggle_menu(cx)).ok();
+                }
+            })
+            .on_press(cx.listener(|this, _, _, cx| this.toggle_menu(cx))),
+        )
+        .when(self.menu_open, |this| {
+            let close = cx.listener(|this, _: &(), _, cx| {
+                this.menu_open = false;
+                cx.notify();
+            });
+            let mut panel = popover_panel("log-source-list")
+                .w(px(360.))
+                .max_h(px(320.))
+                .overflow_y_scroll()
+                .child(
+                    ListRow::new("log-source-live", t(M::LogThisSession))
+                        .selected(live)
+                        .on_click(cx.listener(|this, _, _, cx| this.show_live(cx))),
+                );
+            if self.files.is_empty() {
+                panel = panel.child(
+                    div()
+                        .px_3()
+                        .py_2()
+                        .text_size(theme::text_size(text::SMALL))
+                        .text_color(crate::theme::ink::faint())
+                        .child(t(M::LogNoFiles)),
+                );
+            }
+            for (i, file) in self.files.iter().enumerate() {
+                let shown = self
+                    .past
+                    .as_ref()
+                    .is_some_and(|past| past.file.path == file.path);
+                let pick = file.clone();
+                panel = panel.child(
+                    ListRow::new(("log-source-file", i), file.name.clone())
+                        .detail(format!(
+                            "{} · {}",
+                            t(kind_label(file.kind)),
+                            format::bytes(file.size)
+                        ))
+                        .selected(shown)
+                        .on_click(
+                            cx.listener(move |this, _, _, cx| this.open_file(pick.clone(), cx)),
+                        ),
+                );
+            }
+            this.popover("log-source-popover", panel, move |window, cx| {
+                close(&(), window, cx)
+            })
+        });
 
         let chips = CHIPS.iter().map(|(level, key, label)| {
             let on = self.shown.contains(level);
@@ -389,7 +630,12 @@ impl Render for Console {
                 .child(t(*label))
         });
 
-        let body = if count == 0 {
+        let notice = match (&self.loading, &self.error) {
+            (Some(name), _) => Some(tr!(M::LogReading, name = name)),
+            (None, Some(error)) => Some(error.clone()),
+            (None, None) => None,
+        };
+        let body = if let Some(notice) = notice {
             div()
                 .flex()
                 .items_center()
@@ -400,7 +646,22 @@ impl Render for Console {
                 .px_8()
                 .text_center()
                 .whitespace_normal()
-                .child(t(if total == 0 {
+                .child(notice)
+                .into_any_element()
+        } else if count == 0 {
+            div()
+                .flex()
+                .items_center()
+                .justify_center()
+                .size_full()
+                .text_color(crate::theme::ink::faint())
+                .font_weight(weights::BOLD.into())
+                .px_8()
+                .text_center()
+                .whitespace_normal()
+                .child(t(if total == 0 && !live {
+                    M::LogFileEmpty
+                } else if total == 0 {
                     M::LogEmpty
                 } else {
                     M::NoLinesMatch
@@ -412,18 +673,24 @@ impl Render for Console {
                 "log-rows",
                 count,
                 cx.processor(move |this, range: std::ops::Range<usize>, _, cx| {
-                    let instances = this.instances.read(cx);
-                    let Some(log) = instances
-                        .selected()
-                        .and_then(|instance| instances.log(&instance.id))
-                    else {
+                    let Some(log) = this.log(cx) else {
                         return Vec::new();
                     };
+                    let plain = this
+                        .past
+                        .as_ref()
+                        .is_some_and(|past| past.file.kind != Kind::Log);
                     range
                         .filter_map(|index| {
                             let at = *visible.get(index)?;
                             let row = log.rows().get(at)?;
-                            Some(row_element(index, row, &this.selection, log.row_id(at)))
+                            Some(row_element(
+                                index,
+                                row,
+                                &this.selection,
+                                log.row_id(at),
+                                plain,
+                            ))
                         })
                         .collect()
                 }),
@@ -469,10 +736,11 @@ impl Render for Console {
                     .flex_row()
                     .items_center()
                     .gap_2()
-                    .child(div().w(px(260.)).child(self.search.clone()))
+                    .child(menu)
+                    .child(div().w(px(220.)).child(self.search.clone()))
                     .children(chips)
                     .child(div().flex_1())
-                    .when(!self.follow, |this| {
+                    .when(!self.follow && live, |this| {
                         this.child(
                             Button::new("log-follow", t(M::JumpToLatest))
                                 .variant(ButtonVariant::Ghost)
@@ -514,15 +782,22 @@ impl Render for Console {
                     .text_size(theme::text_size(text::CAPTION))
                     .font_weight(weights::BOLD.into())
                     .text_color(crate::theme::ink::faint())
-                    .child(trn!(
-                        if self.follow {
-                            P::LinesShownFollowing
+                    .child({
+                        let lines = trn!(
+                            if self.follow && live {
+                                P::LinesShownFollowing
+                            } else {
+                                P::LinesShown
+                            },
+                            total,
+                            shown = super::thousands(count as u64)
+                        );
+                        if skipped > 0 {
+                            format!("{lines} · {}", trn!(P::LogLinesSkipped, skipped))
                         } else {
-                            P::LinesShown
-                        },
-                        total,
-                        shown = super::thousands(count as u64)
-                    )),
+                            lines
+                        }
+                    }),
             )
     }
 }

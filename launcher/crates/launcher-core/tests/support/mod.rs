@@ -31,6 +31,10 @@ pub const PROFILE_ID: &str = "069a79f444e94726a5befca90e38aaf5";
 pub const SKIN_HASH: &str = "abc123def456";
 /// A profile on the session server with no skin of its own.
 pub const STEVE_ID: &str = "8667ba71b85a4004af54457a9734eed7";
+/// The capes the profile owns, as (id, alias).
+pub const CAPES: [(&str, &str); 2] = [("cape-migrator", "Migrator"), ("cape-vanilla", "Vanilla")];
+/// The texture a skin upload gets.
+pub const UPLOADED_SKIN_HASH: &str = "feed5eed";
 pub const AUTH_CODE: &str = "auth-code-SECRET";
 pub const MS_ACCESS: &str = "ms-access-SECRET";
 pub const XBL_TOKEN: &str = "xbl-token-SECRET";
@@ -75,6 +79,14 @@ pub struct State {
     pub login: Login,
     pub entitlements: Vec<&'static str>,
     pub has_profile: bool,
+    /// The skin the profile wears, as (texture hash, variant). `None` is the default
+    /// skin. A skin upload sets it.
+    pub skin: Option<(String, &'static str)>,
+    /// The id of the cape worn, of [`CAPES`].
+    pub active_cape: Option<String>,
+    /// What skin and cape changes answer instead of doing anything: a status, and an
+    /// `errorMessage`.
+    pub wardrobe_error: Option<(u16, &'static str)>,
     /// Refresh tokens the token endpoint accepts.
     pub valid_refresh_tokens: HashSet<String>,
     /// Refresh tokens login.live.com accepts for the Minecraft Launcher's client.
@@ -109,6 +121,9 @@ impl MockServer {
             login: Login::Ok,
             entitlements: vec!["product_minecraft", "game_minecraft"],
             has_profile: true,
+            skin: Some((SKIN_HASH.to_string(), "CLASSIC")),
+            active_cape: None,
+            wardrobe_error: None,
             valid_refresh_tokens: HashSet::new(),
             valid_live_refresh_tokens: HashSet::new(),
             rotate: true,
@@ -125,8 +140,10 @@ impl MockServer {
             std::thread::spawn(move || {
                 // `recv` fails once `unblock` is called on drop.
                 while let Ok(mut request) = server.recv() {
-                    let mut body = String::new();
-                    let _ = request.as_reader().read_to_string(&mut body);
+                    // a skin upload's body isn't text
+                    let mut bytes = Vec::new();
+                    let _ = request.as_reader().read_to_end(&mut bytes);
+                    let body = String::from_utf8_lossy(&bytes).into_owned();
                     let (status, response) = route(&mut state.lock().unwrap(), &request, &body);
                     let response = match response {
                         Response::Json(value) => {
@@ -209,6 +226,32 @@ fn header(request: &tiny_http::Request, name: &'static str) -> Option<String> {
         .iter()
         .find(|h| h.field.equiv(name))
         .map(|h| h.value.as_str().to_string())
+}
+
+/// The profile as the Minecraft services answer it.
+fn profile_json(state: &State) -> Value {
+    let mut skins = vec![json!({
+        "id": "old", "state": "INACTIVE",
+        "url": "http://textures.minecraft.net/texture/0000", "variant": "CLASSIC",
+    })];
+    if let Some((hash, variant)) = &state.skin {
+        skins.push(json!({
+            "id": "s", "state": "ACTIVE",
+            "url": format!("http://textures.minecraft.net/texture/{hash}"), "variant": variant,
+        }));
+    }
+    let capes: Vec<Value> = CAPES
+        .iter()
+        .map(|(id, alias)| {
+            json!({
+                "id": id,
+                "state": if state.active_cape.as_deref() == Some(id) { "ACTIVE" } else { "INACTIVE" },
+                "url": format!("http://textures.minecraft.net/texture/{id}"),
+                "alias": alias,
+            })
+        })
+        .collect();
+    json!({"id": PROFILE_ID, "name": "Notch", "skins": skins, "capes": capes})
 }
 
 fn route(state: &mut State, request: &tiny_http::Request, body: &str) -> (u16, Response) {
@@ -365,18 +408,41 @@ fn route(state: &mut State, request: &tiny_http::Request, body: &str) -> (u16, R
                     })),
                 );
             }
-            (
-                200,
-                Response::Json(json!({
-                    "id": PROFILE_ID,
-                    "name": "Notch",
-                    "skins": [
-                        {"id": "old", "state": "INACTIVE", "url": "http://textures.minecraft.net/texture/0000", "variant": "CLASSIC"},
-                        {"id": "s", "state": "ACTIVE", "url": format!("http://textures.minecraft.net/texture/{SKIN_HASH}"), "variant": "CLASSIC"},
-                    ],
-                    "capes": [],
-                })),
-            )
+            (200, Response::Json(profile_json(state)))
+        }
+        ("POST", "/mc/minecraft/profile/skins")
+        | ("DELETE", "/mc/minecraft/profile/skins/active")
+        | ("PUT", "/mc/minecraft/profile/capes/active")
+        | ("DELETE", "/mc/minecraft/profile/capes/active") => {
+            if bearer.as_deref() != Some(&format!("Bearer {MC_TOKEN}")) {
+                return (401, Response::Json(json!({})));
+            }
+            if let Some((status, message)) = state.wardrobe_error {
+                return (status, Response::Json(json!({"errorMessage": message})));
+            }
+            match (method.as_str(), path.ends_with("/skins")) {
+                ("POST", true) => {
+                    let variant = if body.contains("\r\n\r\nslim\r\n") {
+                        "SLIM"
+                    } else {
+                        "CLASSIC"
+                    };
+                    state.skin = Some((UPLOADED_SKIN_HASH.to_string(), variant));
+                }
+                ("DELETE", _) if path.contains("/skins/") => state.skin = None,
+                ("PUT", _) => {
+                    let id = json_body["capeId"].as_str().unwrap_or_default();
+                    if !CAPES.iter().any(|(cape, _)| *cape == id) {
+                        return (
+                            400,
+                            Response::Json(json!({"errorMessage": "profile does not own cape"})),
+                        );
+                    }
+                    state.active_cape = Some(id.to_string());
+                }
+                _ => state.active_cape = None,
+            }
+            (200, Response::Json(profile_json(state)))
         }
         ("GET", path) if path == format!("/textures/texture/{SKIN_HASH}") => (
             200,

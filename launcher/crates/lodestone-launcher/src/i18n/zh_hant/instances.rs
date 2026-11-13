@@ -86,6 +86,15 @@ pub fn text(message: M) -> &'static str {
         M::NoLinesMatch => "沒有符合篩選條件的行。",
         M::JumpToLatest => "跳至最新",
         M::CopyLog => "複製日誌",
+        M::LogSource => "要顯示的日誌",
+        M::LogThisSession => "本次執行",
+        M::LogNoFiles => "還沒有先前的日誌或當機報告。",
+        M::LogKindLog => "日誌",
+        M::LogKindCrash => "當機報告",
+        M::LogKindJvm => "Java 當機",
+        M::LogReading => "正在讀取 {name}",
+        M::LogReadFailed => "無法讀取 {name}：{error}",
+        M::LogFileEmpty => "此檔案是空的。",
 
         M::ImportTitle => "從其他啟動器匯入",
         M::ImportFromHere => "從這裡匯入",
@@ -239,6 +248,7 @@ pub fn plural(message: P) -> [&'static str; 2] {
                 2]
         }
         P::FilesLeftOut => ["有 {count} 個檔案被略過，例如 {name}。"; 2],
+        P::LogLinesSkipped => ["前 {count} 行未顯示"; 2],
         P::LinesShown => ["顯示 {shown} 行，共 {count} 行"; 2],
         P::LinesShownFollowing => ["顯示 {shown} 行，共 {count} 行 · 自動捲動"; 2],
         P::ProblemAndMore => ["{problem}（另有 {count} 個問題）"; 2],

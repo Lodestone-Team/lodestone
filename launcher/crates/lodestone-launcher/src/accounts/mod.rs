@@ -5,6 +5,7 @@ pub mod auth_errors;
 mod keychain;
 pub mod offline_dialog;
 pub mod sign_in;
+pub mod skin_dialog;
 
 use std::{
     collections::HashMap,
@@ -564,6 +565,26 @@ impl Accounts {
             }
         });
         self.avatar_tasks.insert(id, task);
+    }
+
+    /// The account's skin was changed (the "Change skin" dialog): remembers the new
+    /// one and shows its head.
+    pub fn skin_changed(&mut self, id: &str, skin_url: Option<String>, cx: &mut Context<Self>) {
+        let Some(account) = self.store.get(id).cloned() else {
+            return;
+        };
+        let result = self
+            .store
+            .update_profile(id, &account.username, skin_url.clone());
+        self.report(result);
+        self.load_avatar(
+            &Account {
+                skin_url,
+                ..account
+            },
+            cx,
+        );
+        cx.notify();
     }
 
     /// Shows a cached head for an account without downloading anything. For the

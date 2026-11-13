@@ -320,6 +320,38 @@ pub fn text(message: M) -> &'static str {
         M::AddOfflineAccount => "Ajouter un compte hors ligne",
         M::RemoveNamed => "Retirer {name}",
         M::OfflineNote => "Hors ligne – solo et serveurs en mode hors ligne uniquement",
+        M::ChangePlayerSkin => "Changer de skin…",
+        M::PlayerSkinDialogTitle => "Skin de {name}",
+        M::PlayerSkinLoading => "Minecraft indique ce que vous portez",
+        M::PlayerSkinLoadFailed => "Impossible de charger votre skin : {error}",
+        M::PlayerSkinSection => "Skin",
+        M::PlayerSkinChooseFile => "Choisir un fichier…",
+        M::PlayerSkinUseDefault => "Utiliser le skin par défaut",
+        M::PlayerSkinFileHint => "Un skin est une image PNG de 64×64.",
+        M::PlayerSkinFileChosen => "{name} sera votre skin une fois enregistré.",
+        M::PlayerSkinDefaultChosen => "Vous aurez le skin par défaut une fois enregistré.",
+        M::PlayerSkinDefault => "Skin par défaut",
+        M::PlayerSkinPreview => "Votre personnage, avec le skin",
+        M::PlayerSkinDragHint => "Faites glisser pour tourner",
+        M::PlayerSkinModel => "Bras",
+        M::PlayerSkinModelClassic => "Larges",
+        M::PlayerSkinModelSlim => "Fins",
+        M::PlayerSkinCape => "Cape",
+        M::PlayerSkinNoCape => "Aucune",
+        M::PlayerSkinNoCapes => "Ce compte n’a pas de cape.",
+        M::PlayerSkinFileRefused => "{name} ne peut pas être utilisé : {error}",
+        M::PlayerSkinFileTooLarge => "le fichier dépasse 1 Mo",
+        M::PlayerSkinFileNotPng => "ce n’est pas une image PNG",
+        M::PlayerSkinFileWrongSize => "il fait {width}×{height}, et un skin fait 64×64",
+        M::PlayerSkinNetworkError => "Impossible de joindre les services Minecraft : {error}",
+        M::PlayerSkinRateLimited => {
+            "Les services Minecraft sont occupés. Réessayez dans une minute."
+        }
+        M::PlayerSkinSignedOut => {
+            "Votre connexion a expiré. Reconnectez-vous, puis changez de skin."
+        }
+        M::PlayerSkinRefusedBecause => "Minecraft n’a pas accepté le changement : {reason}",
+        M::PlayerSkinRefused => "Minecraft n’a pas accepté le changement (erreur {status}).",
 
         M::OfflineDialogBody => {
             "Pour le développement et les tests. Le compte n’a pas de connexion Microsoft, et son UUID est celui que les serveurs en mode hors ligne donnent à ce nom."

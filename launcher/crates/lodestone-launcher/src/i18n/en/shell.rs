@@ -315,6 +315,38 @@ crate::i18n::messages! {
         /// Shown wherever an offline account appears.
         OfflineNote = "Offline – single-player and offline-mode servers only",
 
+        // "Change Minecraft skin", from the account menu: the player's skin in the game (not the launcher's own look, Settings > Skin), its arm width and cape.
+        ChangePlayerSkin = "Change skin…",
+        /// {name} is the account's Minecraft username.
+        PlayerSkinDialogTitle = "{name}’s skin",
+        PlayerSkinLoading = "Asking Minecraft what you’re wearing",
+        PlayerSkinLoadFailed = "Couldn’t load your skin: {error}",
+        PlayerSkinSection = "Skin",
+        PlayerSkinChooseFile = "Choose a file…",
+        PlayerSkinUseDefault = "Use the default skin",
+        PlayerSkinFileHint = "A skin is a 64×64 PNG image.",
+        PlayerSkinFileChosen = "{name} will be your skin when you save.",
+        PlayerSkinDefaultChosen = "You’ll have the default skin when you save.",
+        PlayerSkinDefault = "Default skin",
+        PlayerSkinPreview = "Your character, wearing the skin",
+        PlayerSkinDragHint = "Drag to turn",
+        /// The width of the player model's arms.
+        PlayerSkinModel = "Arms",
+        PlayerSkinModelClassic = "Wide",
+        PlayerSkinModelSlim = "Slim",
+        PlayerSkinCape = "Cape",
+        PlayerSkinNoCape = "None",
+        PlayerSkinNoCapes = "This account has no capes.",
+        PlayerSkinFileRefused = "{name} can’t be used: {error}",
+        PlayerSkinFileTooLarge = "the file is larger than 1 MB",
+        PlayerSkinFileNotPng = "it isn’t a PNG image",
+        PlayerSkinFileWrongSize = "it is {width}×{height}, and a skin is 64×64",
+        PlayerSkinNetworkError = "Couldn’t reach the Minecraft services: {error}",
+        PlayerSkinRateLimited = "The Minecraft services are busy. Try again in a minute.",
+        PlayerSkinSignedOut = "Your sign-in has expired. Sign in again, then change the skin.",
+        PlayerSkinRefusedBecause = "Minecraft didn’t accept the change: {reason}",
+        PlayerSkinRefused = "Minecraft didn’t accept the change (error {status}).",
+
         // "Add offline account".
         OfflineDialogBody = "For development and testing. The account has no Microsoft sign-in, and its UUID is the one offline-mode servers give this name.",
         Username = "Username",
