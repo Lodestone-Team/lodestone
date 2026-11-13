@@ -172,7 +172,7 @@
       </section>
 
       <ul class="points" aria-label="Also in Lodestone Host">
-        <li><strong>Vanilla, Fabric, Forge and Paper</strong> servers, plus Fabric modpacks from Modrinth.</li>
+        <li><strong>Vanilla, Fabric, Forge, NeoForge and Paper</strong> servers, plus modpacks from Modrinth.</li>
         <li><strong>Play together without port forwarding</strong>: share a server with an invite link - that's it.</li>
         <li><strong>Players get the right mods.</strong> Their Lodestone Launcher installs the mods your server needs and joins in one click.</li>
         <li><strong>Always private.</strong> Your servers and worlds stay on your machine, and we never see your data or sessions.</li>
@@ -180,22 +180,96 @@
         <li><strong>API keys and a CLI</strong> for scripts, bots and agents.</li>
       </ul>
 
+      <section class="easy" aria-labelledby="easy-title">
+        <h2 id="easy-title">Don't know networking or what Docker is? We got you.</h2>
+        <ul class="easy-list">
+          <li>
+            <h3>No port forwarding</h3>
+            <p>Lodestone takes care of it with an invite link. No router settings, no IP addresses.</p>
+          </li>
+          <li>
+            <h3>No Docker needed</h3>
+            <p>One click install, that's it!</p>
+          </li>
+          <li>
+            <h3>Java, sorted</h3>
+            <p>It downloads the right Java for each server, so you never have to.</p>
+          </li>
+          <li>
+            <h3>Safe by default</h3>
+            <p>Only apps on your computer can reach it until you choose to share it.</p>
+          </li>
+        </ul>
+      </section>
+
       <section class="speed" aria-labelledby="speed-title">
         <h2 id="speed-title">Light enough to run beside your game</h2>
-        <p class="speed-lede">A small native app, not a stack of containers. Lodestone Host leaves your PC for Minecraft.</p>
-        <div class="speed-grid speed-grid-one">
+        <p class="speed-lede">
+          The core behind Lodestone Host waits for players on under 5 MB of memory and almost no CPU, so your PC is left
+          for Minecraft. Here it is next to five other server panels on the same PC.
+        </p>
+        <div class="speed-grid">
           <figure class="speed-chart">
-            <figcaption><b>Download</b><span>What you get before your first server, lower is better</span></figcaption>
+            <figcaption><b>Ready</b><span>From start until it answers, lower is better</span></figcaption>
             <ul>
-              <li class="is-us" title="Lodestone Host: 12 MB"><span class="speed-name">Lodestone Host</span><span class="speed-bar"><i style="width: 1.9%"></i></span><span class="speed-value">12 MB</span></li>
-              <li title="MCSManager: 448 MB"><span class="speed-name">MCSManager</span><span class="speed-bar"><i style="width: 70.1%"></i></span><span class="speed-value">448 MB</span></li>
-              <li title="Crafty Controller: 639 MB"><span class="speed-name">Crafty Controller</span><span class="speed-bar"><i style="width: 100.0%"></i></span><span class="speed-value">639 MB</span></li>
+              <li class="is-us" title="Lodestone: 0.91 s"><span class="speed-name">Lodestone</span><span class="speed-bar"><i style="width: 28.0%"></i></span><span class="speed-value">0.91 s</span></li>
+              <li title="Crafty: 1.06 s"><span class="speed-name">Crafty</span><span class="speed-bar"><i style="width: 32.6%"></i></span><span class="speed-value">1.06 s</span></li>
+              <li title="MCSManager: 0.97 s"><span class="speed-name">MCSManager</span><span class="speed-bar"><i style="width: 29.8%"></i></span><span class="speed-value">0.97 s</span></li>
+              <li title="PufferPanel: 1.91 s"><span class="speed-name">PufferPanel</span><span class="speed-bar"><i style="width: 58.8%"></i></span><span class="speed-value">1.91 s</span></li>
+              <li title="Pterodactyl: 3.25 s"><span class="speed-name">Pterodactyl</span><span class="speed-bar"><i style="width: 100.0%"></i></span><span class="speed-value">3.25 s</span></li>
+            </ul>
+          </figure>
+          <figure class="speed-chart">
+            <figcaption><b>Memory while idle</b><span>Every container, lower is better</span></figcaption>
+            <ul>
+              <li class="is-us" title="Lodestone: 4.6 MB"><span class="speed-name">Lodestone</span><span class="speed-bar"><i style="width: 2.8%"></i></span><span class="speed-value">4.6 MB</span></li>
+              <li title="Crafty: 57.6 MB"><span class="speed-name">Crafty</span><span class="speed-bar"><i style="width: 34.6%"></i></span><span class="speed-value">57.6 MB</span></li>
+              <li title="MCSManager: 111.9 MB"><span class="speed-name">MCSManager</span><span class="speed-bar"><i style="width: 67.1%"></i></span><span class="speed-value">111.9 MB</span></li>
+              <li title="PufferPanel: 21.6 MB"><span class="speed-name">PufferPanel</span><span class="speed-bar"><i style="width: 13.0%"></i></span><span class="speed-value">21.6 MB</span></li>
+              <li title="Pterodactyl: 166.7 MB"><span class="speed-name">Pterodactyl</span><span class="speed-bar"><i style="width: 100.0%"></i></span><span class="speed-value">166.7 MB</span></li>
+            </ul>
+          </figure>
+          <figure class="speed-chart">
+            <figcaption><b>CPU while idle</b><span>Share of one core, lower is better</span></figcaption>
+            <ul>
+              <li class="is-us" title="Lodestone: &lt;0.001%"><span class="speed-name">Lodestone</span><span class="speed-bar"><i style="width: 0.6%"></i></span><span class="speed-value">&lt;0.001%</span></li>
+              <li title="Crafty: 0.083%"><span class="speed-name">Crafty</span><span class="speed-bar"><i style="width: 18.9%"></i></span><span class="speed-value">0.083%</span></li>
+              <li title="MCSManager: 0.243%"><span class="speed-name">MCSManager</span><span class="speed-bar"><i style="width: 55.2%"></i></span><span class="speed-value">0.243%</span></li>
+              <li title="PufferPanel: 0.021%"><span class="speed-name">PufferPanel</span><span class="speed-bar"><i style="width: 4.8%"></i></span><span class="speed-value">0.021%</span></li>
+              <li title="Pterodactyl: 0.440%"><span class="speed-name">Pterodactyl</span><span class="speed-bar"><i style="width: 100.0%"></i></span><span class="speed-value">0.440%</span></li>
+            </ul>
+          </figure>
+          <figure class="speed-chart">
+            <figcaption><b>Download</b><span>Every image it needs, lower is better</span></figcaption>
+            <ul>
+              <li class="is-us" title="Lodestone: 19.6 MB"><span class="speed-name">Lodestone</span><span class="speed-bar"><i style="width: 2.9%"></i></span><span class="speed-value">19.6 MB</span></li>
+              <li title="Crafty: 670.0 MB"><span class="speed-name">Crafty</span><span class="speed-bar"><i style="width: 100.0%"></i></span><span class="speed-value">670.0 MB</span></li>
+              <li title="MCSManager: 469.1 MB"><span class="speed-name">MCSManager</span><span class="speed-bar"><i style="width: 70.0%"></i></span><span class="speed-value">469.1 MB</span></li>
+              <li title="PufferPanel: 56.0 MB"><span class="speed-name">PufferPanel</span><span class="speed-bar"><i style="width: 8.4%"></i></span><span class="speed-value">56.0 MB</span></li>
+              <li title="Pterodactyl: 280.0 MB"><span class="speed-name">Pterodactyl</span><span class="speed-bar"><i style="width: 41.8%"></i></span><span class="speed-value">280.0 MB</span></li>
+            </ul>
+          </figure>
+          <figure class="speed-chart">
+            <figcaption><b>Ready, on Windows</b><span>Without Docker, lower is better</span></figcaption>
+            <ul>
+              <li class="is-us" title="Lodestone: 0.52 s"><span class="speed-name">Lodestone</span><span class="speed-bar"><i style="width: 8.6%"></i></span><span class="speed-value">0.52 s</span></li>
+              <li title="AMP: 6.07 s"><span class="speed-name">AMP</span><span class="speed-bar"><i style="width: 100.0%"></i></span><span class="speed-value">6.07 s</span></li>
+            </ul>
+          </figure>
+          <figure class="speed-chart">
+            <figcaption><b>Memory while idle, on Windows</b><span>RAM in use, lower is better</span></figcaption>
+            <ul>
+              <li class="is-us" title="Lodestone: 19.8 MB"><span class="speed-name">Lodestone</span><span class="speed-bar"><i style="width: 13.4%"></i></span><span class="speed-value">19.8 MB</span></li>
+              <li title="AMP: 148.1 MB"><span class="speed-name">AMP</span><span class="speed-bar"><i style="width: 100.0%"></i></span><span class="speed-value">148.1 MB</span></li>
             </ul>
           </figure>
         </div>
         <p class="speed-foot">
-          Lodestone Host: the Windows installer of the new Host app (developer build 3845). Crafty Controller 4: its Docker image. MCSManager: its web and daemon Docker
-          images together. Compressed download sizes as published on 12 November 2026.
+          Measured on one Windows 11 PC (Ryzen 9 9950X3D) on 12 and 13 November 2026, with no Minecraft server running:
+          medians of 5 starts, idle from 30 seconds after start for 60 seconds. Lodestone's core built from main; Crafty
+          Controller 4.11.0, MCSManager 10.22.1, PufferPanel 3.0.9 and Pterodactyl 1.15.2 (its panel, MariaDB and Redis,
+          without Wings) in Docker from their official images. AMP 2.8's Docker images need a paid licence, so it ran on
+          Windows, next to Lodestone's core started the way Lodestone Host starts it.
         </p>
       </section>
     </main>

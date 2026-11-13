@@ -421,6 +421,56 @@ a:focus-visible {
   font-weight: 700;
 }
 
+/* For people new to hosting: what Lodestone Host takes care of. */
+
+.easy {
+  width: 100%;
+  max-width: 880px;
+  margin: clamp(56px, 10vh, 96px) 0 0;
+  text-align: left;
+}
+
+.easy h2 {
+  margin: 0;
+  font-family: 'Clash Grotesk', 'Satoshi', system-ui, sans-serif;
+  font-size: clamp(28px, 4vw, 44px);
+  font-weight: 600;
+  line-height: 1.08;
+  letter-spacing: -0.02em;
+  text-align: center;
+  text-wrap: balance;
+}
+
+.easy-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin: 32px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.easy-list li {
+  padding: 20px 22px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--bg-raised);
+}
+
+.easy-list h3 {
+  margin: 0;
+  color: var(--text);
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.easy-list p {
+  margin: 6px 0 0;
+  color: var(--text-muted);
+  font-size: 15px;
+  font-weight: 500;
+}
+
 /* How fast it is next to the others: one chart per measure, our row in the
    page's accent and the others in grey. Text stays in text colours. */
 
@@ -454,11 +504,6 @@ a:focus-visible {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px;
   margin-top: 32px;
-}
-
-.speed-grid-one {
-  grid-template-columns: minmax(0, 640px);
-  justify-content: center;
 }
 
 .speed-chart {
@@ -574,6 +619,10 @@ a:focus-visible {
 }
 
 @media (max-width: 560px) {
+  .easy-list {
+    grid-template-columns: 1fr;
+  }
+
   .hero {
     padding-top: 28px;
   }
@@ -588,8 +637,7 @@ a:focus-visible {
     padding: calc(104px * 90 / 580);
   }
 
-  .speed-grid,
-  .speed-grid-one {
+  .speed-grid {
     grid-template-columns: 1fr;
   }
 
