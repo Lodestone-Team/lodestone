@@ -34,6 +34,8 @@
   const NP = (k, v) => tt("host/instances/InstancesPlural/" + k, v);
   const F = (k, v) => tt("host/console_files/ConsoleFilesMsg/" + k, v);
   const FP = (k, v) => tt("host/console_files/ConsoleFilesPlural/" + k, v);
+  const B = (k, v) => tt("host/backups/BackupsMsg/" + k, v);
+  const BP = (k, v) => tt("host/backups/BackupsPlural/" + k, v);
   const M = (k, v) => tt("shared/common/CommonMsg/" + k, v);
   const MP = (k, v) => tt("shared/common/CommonPlural/" + k, v);
   const FM = (k, v) => tt("shared/format/FormatMsg/" + k, v);
@@ -299,6 +301,8 @@
     key: '<circle cx="5" cy="8" r="3"/><path d="M8 8h6M12 8v2.5M10 8v2"/>',
     lock: '<rect x="3" y="7" width="10" height="7" rx="1"/><path d="M5 7V5a3 3 0 016 0v2"/>',
     back: '<path d="M10 3L5 8l5 5"/>',
+    history: '<path d="M2.6 8.6A5.5 5.5 0 102.9 5.2"/><path d="M2.4 2.5v3h3"/><path d="M8 5v3.2l2.2 1.4"/>',
+    pin: '<path d="M5 2h6M6 2v3.5L4 9h8l-2-3.5V2M8 9v5"/>',
   };
   function icon(name, size, color) {
     const s = size || 16;
@@ -434,6 +438,7 @@
       const tabs = [
         ["overview", "chart", S("TabOverview")], ["settings", "gear", S("TabSettings")], ["console", "server", S("TabConsole")],
         ["files", "folder", S("TabFiles")],
+        ["backups", "history", S("TabBackups")],
       ];
       if (supportsMods()) tabs.push(["mods", "puzzle", isPlugins() ? S("TabPlugins") : S("TabMods")]);
       tabs.push(["eventlogs", "inbox", S("TabEventLogs")]);
@@ -936,6 +941,61 @@
     return pageWrap(heading(S("TabEventLogs")), h("div.hx-muted", { style: { marginBottom: "14px" } }, I("EventLogsLead")), h("div", { style: { maxWidth: "866px" } }, body));
   }
 
+  function backupsPage() {
+    const s = st(); const mode = s.backups;
+    const running = mode === "list";
+    const head = h("div.hx-flex", { style: { justifyContent: "space-between", alignItems: "center", gap: "16px", marginBottom: "18px" } },
+      h("div.hx-muted.hx-small", B("Lead")),
+      tip(btn(B("BackUpNow"), { v: "primary", icon: "history", dis: running }), running ? B("JobRunning") : null));
+    if (mode === "failed") return pageWrap(heading(S("TabBackups")), head, h("div.hx-inlineerr", B("LoadFailed", { error: "connection reset" })));
+    const job = running ? h("div.hx-card.hx-pad.hx-col", { style: { gap: "6px", marginBottom: "22px" } },
+      h("div.hx-flex", { style: { justifyContent: "space-between" } }, B("BackingUp"), h("span.hx-muted.hx-small", FM("Percent", { value: 42 }))),
+      h("div.hx-muted.hx-small", tx("Storing files (1,204 of 2,880)")),
+      h("div", { style: { height: "4px", borderRadius: "2px", background: "var(--g700)" } }, h("div", { style: { width: "42%", height: "4px", borderRadius: "2px", background: "var(--blue)" } }))) : null;
+    const on = mode !== "off";
+    const seg = h("div.hx-flex", { style: { gap: "4px" } }, btn(B("KeepFewer"), { sm: true }), btn(B("KeepNormal"), { sm: true, v: "primary" }), btn(B("KeepMore"), { sm: true }), btn(B("KeepCustom"), { sm: true, dis: true }));
+    const schedule = ssec(B("Schedule"), null, rows(
+      srow(B("Automatic"), on ? B("NextBackupIn", { time: FM("HoursMinutes", { hours: 2, minutes: 5 }) }) : B("AutomaticHint"), toggle(on, () => X.set("backups", on ? "off" : "idle"))),
+      on ? srow(B("Interval"), h("span", B("EveryHour"), tx(" · "), B("EveryDay"), tx(" · "), BP("EveryMinutes", { count: 30 }), tx(" · "), BP("EveryDays", { count: 7 })), input(BP("EveryHours", { count: 6 }), { select: true })) : null,
+      on ? srow(B("OnlyWhenActive"), B("OnlyWhenActiveHint"), toggle(true)) : null,
+      on ? srow(B("Keep"), B("KeepHint"), seg) : null));
+    const backup = (title, kind, size, fresh, extra, pinned) => srow(title, B("SizeNew", { size: FM("Gigabytes", { size: size }), new: FM("Megabytes", { size: fresh }) }),
+      h("div.hx-flex", { style: { gap: "6px" } }, tip(btn(B("RestoreAction"), { sm: true, dis: running }), running ? B("JobRunning") : null),
+        tip(btn(icon("download", 14), { sm: true }), B("DownloadLabel")),
+        tip(btn(icon("pin", 14, pinned ? "var(--blue2)" : ""), { sm: true }), pinned ? B("UnpinLabel") : B("PinLabel")),
+        tip(btn(icon("plusSq", 14), { sm: true }), B("RestoreAsNewLabel")),
+        tip(btn(icon("trash", 14, "var(--red2)"), { sm: true }), B("DeleteLabel"))),
+      { below: h("div.hx-flex", { style: { gap: "6px", marginTop: "6px" } }, tag(kind), extra) });
+    const list = mode === "empty" ? h("div.hx-card.hx-pad.hx-muted", B("Empty")) : rows(
+      backup(tx("Before updating to 1.21.4"), B("TagManual"), "1.2", 34, [tip(tag(B("TagPinned"), "blue"), B("TagPinnedHint")), tip(tag(B("TagLive"), "green"), B("TagLiveHint"))], true),
+      backup(FM("TodayAt", { time: "12:00" }), B("TagAutomatic"), "1.2", 18, [tip(tag(B("TagLive"), "green"), B("TagLiveHint")), tip(tag(B("TagInconsistent"), "yellow"), B("TagInconsistentHint")), tip(tag(BP("Skipped", { count: 3 }), "yellow"), B("TagSkippedHint"))]),
+      backup(tx("Before restoring “Nov 9, 18:00”"), B("TagBeforeRestore"), "1.2", 2, []),
+      backup(B("DateAt", { date: FM("ShortDate", { month: FM("November"), day: 9 }), time: "06:00" }), B("TagAutomatic"), "1.2", 41, []));
+    const storage = mode === "empty" ? null : h("div.hx-muted.hx-small", { style: { margin: "22px 0 8px" } },
+      BP("Count", { count: 4 }), tx(" · "), B("StorageFiles", { size: FM("Gigabytes", { size: "4.8" }) }), tx(" · "), B("StorageStored", { size: FM("Gigabytes", { size: "1.3" }) }), tx(" · "), B("StorageFree", { size: FM("Gigabytes", { size: "182" }) }));
+    const toasts = h("div.hx-muted.hx-small", { style: { marginTop: "18px" } }, B("BackupDone"), tx(" · "), B("BackupFailed"), tx(" · "), B("Deleted"), tx(" · "), B("Zipping"), tx(" · "), B("Downloaded", { name: "Survival SMP 20261112-120000-c3d4.zip" }), tx(" · "), B("DownloadFailed", { error: "timed out" }), tx(" · "), B("ScheduleSaveFailed", { error: "timed out" }), tx(" · "), B("NextBackupSoon"), tx(" · "), B("NextBackupWhenPlayerJoins"), tx(" · "), B("Restoring"), tx(" · "), B("NoSettingsPermission"), tx(" · "), B("NoWritePermission"), tx(" · "), B("NoSchedulePermission"));
+    return pageWrap(heading(S("TabBackups")), h("div", { style: { maxWidth: "680px" } }, head, job, schedule, storage, h("div", { style: { marginTop: mode === "empty" ? "22px" : "0" } }, list), toasts));
+  }
+  function backupRestoreDlg() {
+    return dlg({ title: B("RestoreTitle", { name: FM("TodayAt", { time: "12:00" }) }) },
+      h("div.hx-flex", { style: { gap: "4px" } }, btn(B("ScopeEverything"), { sm: true, v: "primary" }), btn(B("ScopeWorld"), { sm: true })),
+      h("div.hx-muted.hx-small", B("ScopeEverythingHint")),
+      h("div.hx-muted.hx-small", B("ScopeWorldHint")),
+      h("div.hx-muted.hx-small", B("NoWorld")),
+      check(true, B("StopFirst")), check(true, B("StartAfter")),
+      h("div.hx-note.hx-yellow", B("MustStop")),
+      h("div", B("SafetyNote")),
+      foot(btn(B("Restore"), { v: "dangerfill", lg: true }), btn(M("Cancel"), { lg: true, on: close })),
+      h("div.hx-muted.hx-small", B("RestoreStarted", { name: FM("TodayAt", { time: "12:00" }) }), tx(" · "), B("RestoreDone"), tx(" · "), B("RestoreFailed")));
+  }
+  function backupNewDlg() {
+    return dlg({ title: B("NewTitle") },
+      h("div", B("NewBody")),
+      field(B("NewName"), input(null, { ph: B("NewDefaultName", { name: sel().name }) })),
+      foot(btn(B("NewCreate"), { v: "primary", lg: true }), btn(M("Cancel"), { lg: true, on: close })),
+      h("div.hx-muted.hx-small", B("NewStarted", { name: sel().name + " (restored)" })));
+  }
+
   function notBuiltPage() {
     return pageWrap(h("div.hx-muted", { style: { fontSize: "16px" } }, S("NotBuilt")), h("div.hx-sec", heading(S("InstanceNotFound"))), h("div.hx-muted", N("NotFound")));
   }
@@ -1270,7 +1330,7 @@
   }
   function deleteInstanceDlg() {
     return dlg({ title: I("DeleteTitle", { name: sel().name }), w: 640 },
-      h("div.hx-note.hx-red", h("div", { style: { fontWeight: 600 } }, I("DeleteCannotUndo")), h("div", I("DeleteWarning"))),
+      h("div.hx-note.hx-red", h("div", { style: { fontWeight: 600 } }, I("DeleteCannotUndo")), h("div", I("DeleteWarning")), h("div", { style: { marginTop: "8px" } }, I("DeleteBackupsToo"))),
       check(false, I("DeleteConfirm")),
       foot(btn(M("Delete"), { v: "dangerfill", lg: true }), btn(M("Cancel"), { lg: true, on: close })),
       h("div.hx-muted.hx-small", I("Deleting", { name: sel().name })));
@@ -1396,7 +1456,7 @@
       h("div.hx-flex.hx-muted", tx("Separators: group "), FM("GroupSeparator"), tx(" decimal "), FM("DecimalSeparator"), tx(" list "), FM("ListSeparator")))));
 
   // ---------------------------------------------------------------- routes
-  const TAB_ROUTES = ["overview", "settings", "console", "files", "mods", "mods-browse", "mods-project", "eventlogs"];
+  const TAB_ROUTES = ["overview", "settings", "console", "files", "backups", "mods", "mods-browse", "mods-project", "eventlogs"];
   const ROUTES = {
     "home": { title: "Home (no instance selected)", group: "Pages", render: homePage },
     "first-run": { title: "First run (no servers yet)", group: "Pages", render: homePage },
@@ -1404,6 +1464,7 @@
     "settings": { title: "Settings", group: "Instance", render: settingsPage },
     "console": { title: "Console", group: "Instance", render: consolePage },
     "files": { title: "Files", group: "Instance", render: filesPage },
+    "backups": { title: "Backups", group: "Instance", render: backupsPage },
     "mods": { title: "Mods: Installed", group: "Instance", render: modsPage },
     "mods-browse": { title: "Mods: Browse", group: "Instance", render: modsBrowsePage },
     "mods-project": { title: "Mods: project page", group: "Instance", render: modsProjectPage },
@@ -1454,6 +1515,9 @@
     "files-rename": { title: "Files: rename", group: "Dialogs", dialog: true, render: () => filesNameDlg("rename") },
     "files-delete": { title: "Files: delete", group: "Dialogs", dialog: true, render: filesDeleteDlg },
     "files-unsaved": { title: "Files: unsaved changes", group: "Dialogs", dialog: true, render: filesUnsavedDlg },
+    "backup-restore": { title: "Backups: restore", group: "Dialogs", dialog: true, render: backupRestoreDlg },
+    "backup-new": { title: "Backups: restore as a new server", group: "Dialogs", dialog: true, render: backupNewDlg },
+    "backup-delete": { title: "Backups: delete", group: "Dialogs", dialog: true, render: () => confirm(B("DeleteTitle"), B("DeleteBody", { name: "Before updating to 1.21.4" }), M("Delete"), "dangerfill") },
     "mods-delete": { title: "Mods: delete", group: "Dialogs", dialog: true, render: modsDeleteDlg },
     "mods-overwrite": { title: "Mods: replace files", group: "Dialogs", dialog: true, render: modsOverwriteDlg },
     "mods-incompatible": { title: "Mods: incompatible version", group: "Dialogs", dialog: true, render: modsIncompatibleDlg },
@@ -1493,6 +1557,7 @@
       browse: { label: "Mods browse", options: opt(["results", "Results"], ["none", "No results"], ["failed", "Search failed"], ["link", "Opening a link"]), default: "results" },
       project: { label: "Mod project page", options: opt(["mod", "A mod"], ["modpack", "A modpack"], ["clientonly", "Client only"], ["wrongtype", "Wrong type"], ["failed", "Couldn't load"]), default: "mod" },
       versions: { label: "Project versions", options: opt(["list", "List"], ["none", "None (show all off)"], ["noneall", "None at all"], ["failed", "Failed"]), default: "list" },
+      backups: { label: "Backups", options: opt(["list", "List, backing up"], ["idle", "List, nothing running"], ["off", "Schedule off"], ["empty", "None yet"], ["failed", "Couldn't load"]), default: "list" },
       eventlogs: { label: "Event logs", options: opt(["some", "Some events"], ["empty", "Empty"], ["failed", "Failed"]), default: "some" },
       createLoad: { label: "Create form", options: opt(["ok", "Loaded"], ["loading", "Loading"], ["failed", "Failed"]), default: "ok" },
       search: { label: "Modpack search", options: opt(["results", "Results"], ["loading", "Loading"], ["none", "No results"], ["failed", "Errors"], ["link", "Opening a link"], ["uploaded", "Uploaded .mrpack"]), default: "results" },

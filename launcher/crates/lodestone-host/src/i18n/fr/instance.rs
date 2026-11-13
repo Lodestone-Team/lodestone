@@ -22,8 +22,9 @@ pub fn text(message: M) -> &'static str {
         M::DeleteConfirm => "Je comprends, supprimer ce serveur",
         M::DeleteCannotUndo => "Cette action est irréversible.",
         M::DeleteWarning => {
-            "Les paramètres, mondes et sauvegardes de cette instance seront définitivement supprimés. Sauvegardez vos données importantes avant de continuer."
+            "Les paramètres et mondes de cette instance seront définitivement supprimés. Sauvegardez vos données importantes avant de continuer."
         }
+        M::DeleteBackupsToo => "Ses sauvegardes sont supprimées aussi.",
         M::Deleting => "Suppression de {name}…",
         M::CommandLineReadOnly => {
             "Lecture seule tant que l’exécution de code est désactivée sur ce core."

@@ -89,7 +89,7 @@ const PROTECTED_DIR_NAMES: [&str; 1] = ["mods"];
 /// Windows would treat specially, such as alternate data streams (`start.bat::$DATA`) and
 /// 8.3 short names (`USER_J~1.TXT`), are always protected because they can point at a
 /// protected file under another name. Anything that cannot be checked is protected.
-fn is_protected(path: &FsPath, is_dir: bool) -> bool {
+pub(crate) fn is_protected(path: &FsPath, is_dir: bool) -> bool {
     let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
         return true;
     };
@@ -108,6 +108,90 @@ fn is_protected(path: &FsPath, is_dir: bool) -> bool {
         // files without an extension, such as `.lodestone_config` or native binaries
         None => true,
     }
+}
+
+/// Folders an in-place restore works in (`.lodestone-restore-staging-…` and
+/// `.lodestone-restore-old-…`, see [`crate::backups::restore`]) start with this. The file
+/// API never reads or changes them, for anyone: startup recovery moves their contents back
+/// into place.
+const RESTORE_FOLDER_PREFIX: &str = ".lodestone-restore";
+
+/// Whether `name` (one path part) names a restore's folder ([`RESTORE_FOLDER_PREFIX`]),
+/// compared the way Windows and macOS resolve names.
+fn names_restore_folder(name: &str) -> bool {
+    name.trim_end_matches(['.', ' '])
+        .to_lowercase()
+        .starts_with(RESTORE_FOLDER_PREFIX)
+}
+
+/// Whether `name` (one path part) may be the Windows 8.3 short name of a restore's folder:
+/// `LODEST~1` (its first 6 letters, without the leading dot), or `LO1F2A~1` (its first 2
+/// and a hash) once there are many alike.
+pub(crate) fn may_be_restore_folder_short_name(name: &str) -> bool {
+    let name = name.trim_end_matches(['.', ' ']).to_lowercase();
+    name.starts_with("lo") && looks_like_short_name(&name)
+}
+
+fn restore_folder_error() -> Error {
+    Error {
+        kind: ErrorKind::PermissionDenied,
+        source: eyre!("This folder belongs to a restore in progress"),
+    }
+}
+
+/// Fails when a part of `path` names a restore's folder ([`names_restore_folder`]).
+fn refuse_restore_folders(path: &FsPath) -> Result<(), Error> {
+    let touches = path
+        .components()
+        .any(|part| part.as_os_str().to_str().is_some_and(names_restore_folder));
+    if touches {
+        return Err(restore_folder_error());
+    }
+    Ok(())
+}
+
+/// Fails when a part of `path` (inside `root`) is a Windows 8.3 short name that leads to a
+/// restore's folder on disk, as `LODEST~1` may. Only such names are looked up, by the long
+/// name the disk has for them; a name that isn't there leads nowhere. Short names don't
+/// exist elsewhere.
+fn refuse_restore_folder_short_names(root: &FsPath, path: &FsPath) -> Result<(), Error> {
+    if !cfg!(windows) {
+        return Ok(());
+    }
+    let Ok(inside) = path.strip_prefix(root) else {
+        return Ok(());
+    };
+    let mut at = root.to_path_buf();
+    for part in inside.components() {
+        let name = part.as_os_str().to_str();
+        if let Some(name) = name.filter(|name| may_be_restore_folder_short_name(name)) {
+            // without a stream (`LODEST~1::$INDEX_ALLOCATION` opens the folder too)
+            let base = name.split(':').next().unwrap_or(name);
+            let long_name = std::fs::canonicalize(at.join(base)).ok().and_then(|real| {
+                real.file_name()
+                    .and_then(|n| n.to_str())
+                    .map(str::to_string)
+            });
+            if long_name.is_some_and(|long| names_restore_folder(&long)) {
+                return Err(restore_folder_error());
+            }
+        }
+        at.push(part.as_os_str());
+    }
+    Ok(())
+}
+
+/// [`scoped_join_win_safe`] for the instance file routes: also refuses a restore's folders,
+/// in the path asked for and in the path it resolves to, also by their short names.
+fn instance_join(root: impl AsRef<FsPath>, relative: impl AsRef<FsPath>) -> Result<PathBuf, Error> {
+    let root = root.as_ref();
+    refuse_restore_folders(relative.as_ref())?;
+    let path = scoped_join_win_safe(root, relative)?;
+    if let Ok(inside) = path.strip_prefix(root) {
+        refuse_restore_folders(inside)?;
+    }
+    refuse_restore_folder_short_names(root, &path)?;
+    Ok(path)
 }
 
 /// Windows 8.3 short names end the stem with `~` and a digit, as in `PROGRA~1`.
@@ -212,7 +296,7 @@ async fn list_instance_files(
     })?;
     let root = real_root(instance.path().await).await;
     drop(instance);
-    let path = scoped_join_win_safe(&root, relative_path)?;
+    let path = instance_join(&root, relative_path)?;
 
     let ret: Vec<FileEntry> = file_entries(list_dir(&path, None).await?)
         .await?
@@ -224,6 +308,8 @@ async fn list_instance_files(
                 .ok()
                 .and_then(|p| p.to_str())
                 .map(|s| s.to_owned())?;
+            // a restore's folders aren't shown either
+            refuse_restore_folders(FsPath::new(&r.path)).ok()?;
             Some(r)
         })
         .collect();
@@ -260,7 +346,7 @@ async fn read_instance_file(
     })?;
     let root = real_root(instance.path().await).await;
     drop(instance);
-    let path = scoped_join_win_safe(root, relative_path)?;
+    let path = instance_join(root, relative_path)?;
 
     let ret = crate::util::fs::read_to_string_capped(&path, MAX_READ_BYTES).await?;
     let caused_by = requester.caused_by();
@@ -307,7 +393,7 @@ async fn write_instance_file(
     })?;
     let root = real_root(instance.path().await).await;
     drop(instance);
-    let path = scoped_join_win_safe(&root, relative_path)?;
+    let path = instance_join(&root, relative_path)?;
     // if target has a protected extension, or no extension, deny
     if !can_write_protected && is_path_protected(&path).await {
         return Err(protected_error(
@@ -351,7 +437,7 @@ async fn make_instance_directory(
     })?;
     let root = real_root(instance.path().await).await;
     drop(instance);
-    let path = scoped_join_win_safe(&root, relative_path)?;
+    let path = instance_join(&root, relative_path)?;
     if is_instance_code_path(&root, &path, true) {
         require_code_write(&state, &requester)?;
     }
@@ -397,10 +483,10 @@ async fn copy_instance_files(
     // join each path to the root
     let paths_source = relative_paths_source
         .iter()
-        .map(|p| scoped_join_win_safe(root.clone(), p))
+        .map(|p| instance_join(root.clone(), p))
         .collect::<Result<Vec<_>, _>>()?;
 
-    let path_dest = scoped_join_win_safe(&root, &relative_path_dest)?;
+    let path_dest = instance_join(&root, &relative_path_dest)?;
 
     // copying a script creates code
     for source in &paths_source {
@@ -580,8 +666,8 @@ async fn move_instance_file(
     })?;
     let root = real_root(instance.path().await).await;
     drop(instance);
-    let path_source = scoped_join_win_safe(&root, relative_path_source)?;
-    let path_dest = scoped_join_win_safe(&root, relative_path_dest)?;
+    let path_source = instance_join(&root, relative_path_source)?;
+    let path_dest = instance_join(&root, relative_path_dest)?;
 
     let relative_path_source = path_source
         .strip_prefix(&root)
@@ -666,7 +752,7 @@ async fn remove_instance_file(
     })?;
     let root = real_root(instance.path().await).await;
     drop(instance);
-    let path = scoped_join_win_safe(root, &relative_path)?;
+    let path = instance_join(root, &relative_path)?;
     let metadata = tokio::fs::symlink_metadata(&path)
         .await
         .context(format!("Failed to find {relative_path}"))?;
@@ -711,7 +797,7 @@ async fn remove_instance_dir(
     })?;
     let root = real_root(instance.path().await).await;
     drop(instance);
-    let path = scoped_join_win_safe(&root, relative_path)?;
+    let path = instance_join(&root, relative_path)?;
     if path == root {
         return Err(Error {
             kind: ErrorKind::PermissionDenied,
@@ -753,7 +839,7 @@ async fn new_instance_file(
     })?;
     let root = real_root(instance.path().await).await;
     drop(instance);
-    let path = scoped_join_win_safe(&root, relative_path)?;
+    let path = instance_join(&root, relative_path)?;
     // if target has a protected extension, or no extension, deny
     if !can_write_protected(&requester) && is_protected(&path, false) {
         return Err(protected_error("File extension is protected"));
@@ -790,7 +876,7 @@ async fn get_instance_file_url(
     })?;
     let root = real_root(instance.path().await).await;
     drop(instance);
-    let path = scoped_join_win_safe(&root, &relative_path)?;
+    let path = instance_join(&root, &relative_path)?;
 
     let is_dir = tokio::fs::metadata(&path)
         .await
@@ -864,7 +950,7 @@ async fn upload_instance_file(
     })?;
     let root = real_root(instance.path().await).await;
     drop(instance);
-    let path_to_dir = scoped_join_win_safe(&root, relative_path)?;
+    let path_to_dir = instance_join(&root, relative_path)?;
     if is_instance_code_path(&root, &path_to_dir, true) {
         require_code_write(&state, &requester)?;
     }
@@ -884,7 +970,7 @@ async fn upload_instance_file(
     let result: Result<(), Error> = async {
         while let Some(mut field) = multipart.next_field().await.map_err(multipart_error)? {
             let name = upload_file_name(&field)?;
-            let path = resolve_path_conflict(scoped_join_win_safe(&path_to_dir, &name)?, None);
+            let path = resolve_path_conflict(instance_join(&path_to_dir, &name)?, None);
             // if the file has a protected extension, or no extension, deny
             if !can_write_protected && is_protected(&path, false) {
                 return Err(protected_error("File extension is protected"));
@@ -1005,6 +1091,10 @@ fn code_entry_check(
     code_execution: CodeExecutionSwitch,
 ) -> Box<UnzipEntryCheck> {
     Box::new(move |relative_path, file_type| {
+        refuse_restore_folders(relative_path)?;
+        for dir in &destinations {
+            refuse_restore_folder_short_names(&root, &dir.join(relative_path))?;
+        }
         if !can_write_protected {
             check_unzipped_entry(relative_path, file_type)?;
         }
@@ -1045,12 +1135,12 @@ pub async fn unzip_instance_file(
     })?;
     let root = real_root(instance.path().await).await;
     drop(instance);
-    let path_to_zip_file = scoped_join_win_safe(&root, &relative_path)?;
+    let path_to_zip_file = instance_join(&root, &relative_path)?;
 
     // a custom destination is relative to the instance root, like every other path here
     let unzip_option = match unzip_option {
         UnzipOption::ToDir(dir) => {
-            let dir = scoped_join_win_safe(&root, dir)?;
+            let dir = instance_join(&root, dir)?;
             if !can_write_protected && is_protected(&dir, true) {
                 return Err(protected_error("Destination is protected"));
             }
@@ -1142,11 +1232,11 @@ async fn zip_instance_files(
         mut destination_relative_path,
     } = zip_request;
 
-    // apply scoped_join_win_safe to all paths
+    // apply instance_join to all paths
     for path in &mut target_relative_paths {
-        *path = scoped_join_win_safe(&root, &*path)?;
+        *path = instance_join(&root, &*path)?;
     }
-    destination_relative_path = scoped_join_win_safe(&root, &destination_relative_path)?;
+    destination_relative_path = instance_join(&root, &destination_relative_path)?;
 
     if !can_write_protected(&requester) && is_protected(&destination_relative_path, false) {
         return Err(protected_error("Destination is protected"));
@@ -1272,6 +1362,54 @@ mod tests {
 
     fn dir(name: &str) -> bool {
         is_protected(FsPath::new(name), true)
+    }
+
+    #[test]
+    fn short_names_of_a_restores_folders() {
+        for name in [
+            "LODEST~1",
+            "lodest~2",
+            "LO1F2A~1",
+            "LODEST~1.",
+            "LODEST~1::$DATA",
+        ] {
+            assert!(may_be_restore_folder_short_name(name), "{name}");
+        }
+        for name in ["world", "world~1", "lodestone", "logs", "LOGS~"] {
+            assert!(!may_be_restore_folder_short_name(name), "{name}");
+        }
+    }
+
+    /// A short name is refused only when it leads to a restore's folder on disk, which only
+    /// happens on Windows, on volumes that make short names.
+    #[test]
+    fn a_restores_folder_is_refused_by_its_short_name() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        std::fs::create_dir_all(root.join(".lodestone-restore-old-0123456789abcdef/world"))
+            .unwrap();
+        std::fs::create_dir_all(root.join("lobby~1")).unwrap();
+        // a real long name that only looks like a short one
+        assert!(instance_join(root, "lobby~1/a.txt").is_ok());
+        assert!(instance_join(root, "LOST~1/a.txt").is_ok(), "not there");
+        assert!(instance_join(root, "world/a.txt").is_ok());
+        if root.join("LODEST~1").is_dir() {
+            for path in ["LODEST~1", "LODEST~1/world/level.dat", "lodest~1./world"] {
+                assert!(instance_join(root, path).is_err(), "{path}");
+            }
+            let check = code_entry_check(
+                root.to_path_buf(),
+                vec![root.to_path_buf()],
+                true,
+                true,
+                CodeExecutionSwitch::new(true),
+            );
+            let file_type = std::fs::symlink_metadata(root.join("lobby~1"))
+                .unwrap()
+                .file_type();
+            assert!(check(FsPath::new("LODEST~1/world"), &file_type).is_err());
+            assert!(check(FsPath::new("lobby~1"), &file_type).is_ok());
+        }
     }
 
     /// A folder reached through a symlink prefixes the paths joined to it.

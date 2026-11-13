@@ -10,4 +10,18 @@ export type ProgressionEndValue =
       instance_uuid: InstanceUuid;
       success: boolean;
       message: string;
+    }
+  | {
+      type: 'BackupCompleted';
+      instance_uuid: InstanceUuid;
+      backup_id: string | null;
+      success: boolean;
+      message: string;
+    }
+  | {
+      type: 'RestoreCompleted';
+      instance_uuid: InstanceUuid;
+      backup_id: string | null;
+      success: boolean;
+      message: string;
     };

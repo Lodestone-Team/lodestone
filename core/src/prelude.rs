@@ -43,6 +43,15 @@ pub fn path_to_tmp() -> &'static PathBuf {
     PATH_TO_TMP.get().unwrap()
 }
 
+/// The backup store (`<lodestone>/backups`), see [`crate::backups`]. Only the file API's
+/// list of Lodestone's own data and `run_with` use it; tests give each core its own store.
+pub fn path_to_backups() -> PathBuf {
+    lodestone_path().join(BACKUPS_DIR)
+}
+
+/// The backup store's folder name in the data folder.
+pub const BACKUPS_DIR: &str = "backups";
+
 static APP_STATE: OnceLock<AppState> = OnceLock::new();
 
 pub fn init_app_state(app_state: AppState) {

@@ -218,17 +218,20 @@ fn touches_lodestone_secret(
 /// What the file API never reads or changes, in the data folder `root` with its `stores`
 /// folder: `stores` (users.json with every user's password hash and token secret, the API
 /// keys), `local_claim`, whose files grant owner access (see [`crate::local_claim`]),
-/// `tls`, the web server's certificate and private key, and `playit.toml`.
+/// `tls`, the web server's certificate and private key, `backups`
+/// ([`crate::prelude::path_to_backups`]: every server's backed-up files, and the restore
+/// journals that startup recovery trusts), and `playit.toml`.
 ///
 /// Compatibility: cores before Lodestone Connect saved a playit.gg secret key in
 /// `playit.toml`. Playit.gg support is gone, but the file can still be on disk (the core
 /// never deletes it), so it stays protected.
-fn lodestone_secret_paths(root: &std::path::Path, stores: &std::path::Path) -> [PathBuf; 4] {
+fn lodestone_secret_paths(root: &std::path::Path, stores: &std::path::Path) -> [PathBuf; 5] {
     [
         stores.to_path_buf(),
         root.join("playit.toml"),
         root.join(crate::local_claim::CLAIM_DIR),
         root.join("tls"),
+        root.join(crate::prelude::BACKUPS_DIR),
     ]
 }
 
@@ -897,6 +900,8 @@ mod tests {
             "/home/u/.lodestone/local_claim/abc/result.json",
             "/home/u/.lodestone/playit.toml",
             "/home/u/.lodestone/tls/key.pem",
+            "/home/u/.lodestone/backups/servers/x/restore-journal.json",
+            "/home/u/.lodestone/backups/objects/ab/abcd",
         ] {
             assert!(
                 touches_lodestone_secret(std::path::Path::new(path), &secrets, false),

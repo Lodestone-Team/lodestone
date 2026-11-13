@@ -4,8 +4,8 @@ use crate::error::ErrorKind;
 use crate::event_broadcaster::EventBroadcaster;
 use crate::migration::migrate;
 use crate::prelude::{
-    init_app_state, lodestone_path, path_to_global_settings, path_to_stores, path_to_tmp,
-    path_to_users, try_init_paths, VERSION,
+    init_app_state, lodestone_path, path_to_backups, path_to_global_settings, path_to_stores,
+    path_to_tmp, path_to_users, try_init_paths, VERSION,
 };
 use crate::traits::t_configurable::GameType;
 use crate::traits::t_server::State;
@@ -88,6 +88,7 @@ macro_rules! export_shared_bindings {
 pub(crate) use export_shared_bindings;
 
 pub mod auth;
+pub mod backups;
 pub mod capabilities;
 mod command_console;
 pub mod connect;
@@ -175,6 +176,11 @@ pub(crate) mod test_util {
         let remote_access = global_settings.remote_access();
         crate::AppState {
             remote_access,
+            // each test core its own store, so parallel tests never share one
+            backups: Arc::new(crate::backups::BackupService::new(
+                dir.join("backups"),
+                dir.join("instances"),
+            )),
             instances: Arc::new(dashmap::DashMap::new()),
             users_manager: Arc::new(RwLock::new(users_manager)),
             events_buffer: Arc::new(Mutex::new(ringbuffer::AllocRingBuffer::new(512))),
@@ -328,6 +334,8 @@ pub struct AppState {
     /// Whether other devices may use the core, kept in sync by [`GlobalSettings`]; see
     /// [`remote_access`].
     remote_access: Arc<remote_access::RemoteAccess>,
+    /// Server backups: the store, its locks and the running backups and restores.
+    backups: Arc<backups::BackupService>,
 }
 
 impl AppState {
@@ -398,6 +406,7 @@ fn api_router(shared_state: AppState) -> Router {
             shared_state.clone(),
         ))
         .merge(handlers::trace::get_trace_routes(shared_state.clone()))
+        .merge(handlers::backups::get_backup_routes(shared_state.clone()))
         .layer(axum::middleware::from_fn(crate::trace::http_middleware))
         // inside CORS, so a dashboard on another origin can read why it was refused (and
         // preflights are answered); before every route, WebSocket upgrades included
@@ -951,12 +960,27 @@ pub async fn run_with(
         None
     };
 
+    // Interrupted restores are undone before the servers are read, so each is read as it
+    // was before the restore.
+    let backups = Arc::new(backups::BackupService::new(
+        path_to_backups(),
+        path_to_instances.clone(),
+    ));
+    {
+        let backups = backups.clone();
+        if let Err(e) = tokio::task::spawn_blocking(move || backups.recover()).await {
+            error!("Backup recovery failed: {e}");
+        }
+    }
+
     let instances = restore_instances(&path_to_instances, tx.clone(), code_execution.clone())
         .await
         .map_err(|_| Error {
             kind: ErrorKind::Internal,
             source: Report::msg("failed to restore instances"),
         })?;
+    // servers whose restore couldn't be undone must not start (auto start included)
+    backups.lock_broken_servers(&instances).await;
 
     let mut allocated_ports = HashSet::new();
     for (_, instance) in snapshot_instances(&instances) {
@@ -966,6 +990,7 @@ pub async fn run_with(
     let local_claims = local_claim::LocalClaims::new(&lodestone_path);
     local_claims.clean_up().await;
     let shared_state = AppState {
+        backups: backups.clone(),
         remote_access: remote_access.clone(),
         local_claims: Arc::new(local_claims),
         connect: Arc::new(connect::ConnectShares::new(
@@ -1050,6 +1075,8 @@ pub async fn run_with(
     tokio::spawn(shared_state.mods.restart.clone().watch(tx.subscribe()));
     // newer versions of servers' modpacks
     tokio::spawn(crate::modpack::updates::watch(shared_state.clone()));
+    // scheduled backups; ends when the backup service is cancelled at shutdown
+    tokio::spawn(backups::scheduler::run(shared_state.clone()));
 
     // instances shared with friends when the core last stopped
     {
@@ -1287,12 +1314,24 @@ pub async fn run_with(
                 for handle in &axum_server_handles {
                     handle.shutdown();
                 }
-                // friends joined through Lodestone Connect hear that sharing stopped
-                let _ = tokio::time::timeout(
-                    std::time::Duration::from_secs(5),
-                    shared_state.connect.stop_all(),
-                )
-                .await;
+                // Backups and restores are cancelled and get a few seconds to stop (saving is
+                // turned back on, staging folders are deleted), while friends joined through
+                // Lodestone Connect hear that sharing stopped. The Host kills the core 20
+                // seconds after asking it to stop.
+                // First, so a crash restart waiting for a cancelled backup's lock doesn't
+                // start its server once the lock is released.
+                implementations::minecraft::server::SHUTTING_DOWN
+                    .store(true, std::sync::atomic::Ordering::SeqCst);
+                let _ = tokio::join!(
+                    tokio::time::timeout(
+                        std::time::Duration::from_secs(5),
+                        shared_state.backups.shutdown(),
+                    ),
+                    tokio::time::timeout(
+                        std::time::Duration::from_secs(5),
+                        shared_state.connect.stop_all(),
+                    ),
+                );
                 if let Err(e) = shared_state
                     .users_manager
                     .read()

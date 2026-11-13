@@ -231,9 +231,14 @@ fn world_folder_names_must_be_plain() {
         "..\\world",
         "world\0",
         " world",
+        // Windows short names of a restore's folders
+        "LODEST~1",
+        "lodest~2",
+        "worlds/LO1F2A~1",
     ] {
         assert!(world_folder(bad).is_err(), "{bad:?}");
     }
+    assert!(world_folder("world~1").is_ok());
 }
 
 #[tokio::test]

@@ -390,6 +390,22 @@ pub mod ink {
     pub fn border() -> Color {
         get(&BORDER, colors::FADE_700)
     }
+
+    /// The strongest text, for a row under the pointer: white on the dark theme, the
+    /// ink on the light one (the dashboard's `text-white`, which is its `--ink`).
+    /// [`colors::WHITE`] is white on both themes, for text on an accent fill, so as
+    /// text on a surface it disappears on the light theme.
+    pub fn strong() -> Color {
+        strong_in(super::palette::is_light())
+    }
+
+    pub(super) fn strong_in(light: bool) -> Color {
+        if light {
+            colors::GRAY_300
+        } else {
+            colors::WHITE
+        }
+    }
 }
 
 /// `theme.fontWeight`, with the dashboard's values.
@@ -1053,6 +1069,25 @@ mod tests {
         }
         // subtitles keep the sidebar's (about) 6.5:1 on the darkest surface
         assert!(contrast(ink::MUTED, GRAY_900) >= 6.4);
+    }
+
+    #[test]
+    fn a_hovered_rows_text_shows_on_both_themes() {
+        use colors::*;
+        // a row under the pointer is gray-700 (`ListRow`)
+        assert!(contrast(ink::strong_in(false), GRAY_700) >= 4.5);
+        let (text, row) = (
+            palette::light(ink::strong_in(true)),
+            palette::light(GRAY_700),
+        );
+        assert!(
+            contrast(text, row) >= 4.5,
+            "{} on {}",
+            text.to_hex(),
+            row.to_hex()
+        );
+        // which plain white, kept white for accent fills, would not
+        assert!(contrast(palette::light(WHITE), row) < 1.5);
     }
 
     #[test]

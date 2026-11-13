@@ -3182,6 +3182,7 @@ dependencies = [
  "which",
  "whoami",
  "zip",
+ "zstd",
 ]
 
 [[package]]
@@ -6245,6 +6246,7 @@ dependencies = [
  "bytes",
  "futures-core",
  "futures-sink",
+ "futures-util",
  "libc",
  "pin-project-lite",
  "tokio",
