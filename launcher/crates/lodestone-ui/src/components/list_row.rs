@@ -128,7 +128,10 @@ impl RenderOnce for ListRow {
                     if danger {
                         style.bg(colors::RED_300.opacity(15))
                     } else {
-                        style.bg(colors::GRAY_700).text_color(colors::WHITE)
+                        // not `colors::WHITE`, which stays white on the light theme
+                        style
+                            .bg(colors::GRAY_700)
+                            .text_color(crate::theme::ink::strong())
                     }
                 })
             })
