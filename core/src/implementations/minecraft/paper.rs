@@ -48,16 +48,9 @@ pub struct PaperDownload {
     pub url: String,
 }
 
-/// PaperMC asks API clients to identify themselves; the shared client sends a Lodestone
-/// user agent and has a timeout.
-fn client() -> Result<&'static reqwest::Client, Error> {
-    Ok(super::util::http_client())
-}
-
 /// All Minecraft versions Paper has builds for, newest first.
 pub async fn get_paper_minecraft_versions() -> Result<Vec<String>, Error> {
-    let response: VersionsResponse = client()?
-        .get(format!("{PAPER_API}/versions"))
+    let response: VersionsResponse = super::util::api_get(format!("{PAPER_API}/versions"))
         .send()
         .await
         .context("Failed to get paper versions")?
@@ -83,8 +76,7 @@ pub async fn get_paper_download(
     version: &str,
     build: Option<i64>,
 ) -> Result<Option<PaperDownload>, Error> {
-    let response = client()?
-        .get(format!("{PAPER_API}/versions/{version}/builds"))
+    let response = super::util::api_get(format!("{PAPER_API}/versions/{version}/builds"))
         .send()
         .await
         .context("Failed to get paper builds")?;

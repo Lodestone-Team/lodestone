@@ -23,7 +23,7 @@ use crate::{
         modrinth::get_modrinth_routes, monitor::get_monitor_routes, setup::get_setup_route,
         system::get_system_routes, users::get_user_routes,
     },
-    util::{port_in_use, rand_alphanumeric},
+    util::rand_alphanumeric,
 };
 
 use auth::user::UsersManager;
@@ -46,13 +46,11 @@ use prelude::GameInstance;
 use ringbuffer::{AllocRingBuffer, RingBuffer};
 
 use semver::Version;
-use sqlx::{sqlite::SqliteConnectOptions, Pool};
 use std::sync::atomic::AtomicBool;
 use std::{
     collections::{HashMap, HashSet},
     net::SocketAddr,
     path::{Path, PathBuf},
-    str::FromStr,
     sync::Arc,
     time::Duration,
 };
@@ -114,6 +112,7 @@ pub mod prelude;
 pub mod product;
 mod public_listing;
 pub mod remote_access;
+mod shutdown;
 pub mod tauri_export;
 mod tls;
 pub mod trace;
@@ -409,22 +408,333 @@ fn api_router(shared_state: AppState) -> Router {
         .layer(trace)
 }
 
-/// Resolves when the system asks the core to stop with SIGTERM, as `docker stop`, systemd
-/// and `kill` do, so the core stops its servers before it exits. Never resolves on Windows,
-/// which has no SIGTERM.
-async fn terminate_signal() {
+/// Binds the core's port on every interface: `port` exactly, or 16662, where a debug
+/// build tries the next ports while one is taken.
+fn bind_port(port: Option<u16>) -> Result<listen::Listeners, Error> {
+    let exact = port.is_some() || cfg!(not(debug_assertions));
+    let mut port = port.unwrap_or(16_662_u16);
+    loop {
+        match listen::bind_all_interfaces(port) {
+            Ok(listeners) => return Ok(listeners),
+            Err(e) if listen::port_taken(&e) && !exact && port < u16::MAX => {
+                // before logging is set up, and only in debug builds
+                eprintln!("Port {port} is already in use, trying next port");
+                port += 1;
+            }
+            Err(e) if listen::port_taken(&e) => {
+                let message = if e.kind() == std::io::ErrorKind::PermissionDenied {
+                    // Windows: a port in a range the system reserved (Hyper-V and WSL
+                    // reserve some), which no program can listen on
+                    format!(
+                        "Port {port} is reserved by Windows or held by another program \
+                         (access denied: {e})"
+                    )
+                } else {
+                    format!("Port {port} is already in use. Is another Lodestone Core running?")
+                };
+                return Err(Error {
+                    kind: ErrorKind::Internal,
+                    source: Report::msg(message),
+                });
+            }
+            Err(e) => {
+                return Err(Error {
+                    kind: ErrorKind::Internal,
+                    source: Report::msg(format!("Failed to listen on port {port}: {e}")),
+                })
+            }
+        }
+    }
+}
+
+/// Why the core was asked to stop, once it was: see [`StopRequests`].
+type StopSignal = tokio::sync::watch::Receiver<Option<&'static str>>;
+
+/// How long a forced quit (a second Ctrl+C or SIGTERM) waits for the servers to be
+/// killed before the core exits anyway.
+const FORCE_QUIT_KILL_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Where a request to stop the core came from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum StopSource {
+    /// Ctrl+C, or SIGTERM on Unix.
+    Signal,
+    /// Stdin closed (`RunOptions::stop_with_stdin`): Lodestone Host quit.
+    Stdin,
+    /// The caller of [`run`] sent its shutdown signal (the Tauri app quitting).
+    Caller,
+    /// Part of the core ended on its own, such as the web server.
+    Core,
+}
+
+/// What had already asked the core to stop when a request came.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum EarlierStop {
+    /// Nothing: this request starts the shutdown.
+    Nothing,
+    /// Something, but never a signal.
+    NoSignal,
+    /// A signal, among others maybe.
+    Signal,
+}
+
+/// The requests to stop the core, wherever they come from (see [`StopSource`]). The first
+/// one starts the shutdown, and from then on no server starts (see [`shutdown`]). A signal
+/// after an earlier signal quits at once; a signal after only other requests (stdin closing
+/// as Lodestone Host quits, then the session manager sending SIGTERM to every process at
+/// logout, say) is taken as the first signal, and the shutdown carries on.
+#[derive(Clone)]
+struct StopRequests {
+    reason: tokio::sync::watch::Sender<Option<&'static str>>,
+    /// Whether a signal asked the core to stop.
+    signalled: Arc<AtomicBool>,
+    /// Marks the core as shutting down, on the first request: [`shutdown::begin`], except
+    /// in tests, which must never mark their process.
+    begin_shutdown: fn(),
+    /// The servers a forced quit kills, once the core has loaded them.
+    instances: Arc<std::sync::OnceLock<Arc<DashMap<InstanceUuid, GameInstance>>>>,
+}
+
+impl StopRequests {
+    fn new() -> (Self, StopSignal) {
+        Self::with_shutdown(shutdown::begin)
+    }
+
+    fn with_shutdown(begin_shutdown: fn()) -> (Self, StopSignal) {
+        let (reason, signal) = tokio::sync::watch::channel(None);
+        let requests = Self {
+            reason,
+            signalled: Arc::default(),
+            begin_shutdown,
+            instances: Arc::default(),
+        };
+        (requests, signal)
+    }
+
+    /// Records that the core was asked to stop, by what and why, and returns what had asked
+    /// before. The first request marks the core as shutting down at once, so no server
+    /// starts from then on, even while the core is still starting.
+    fn request(&self, source: StopSource, reason: &'static str) -> EarlierStop {
+        let earlier_signal = if source == StopSource::Signal {
+            self.signalled
+                .swap(true, std::sync::atomic::Ordering::SeqCst)
+        } else {
+            self.signalled.load(std::sync::atomic::Ordering::SeqCst)
+        };
+        let first = self.reason.send_if_modified(|current| {
+            if current.is_some() {
+                return false;
+            }
+            *current = Some(reason);
+            true
+        });
+        if first {
+            (self.begin_shutdown)();
+            EarlierStop::Nothing
+        } else if earlier_signal {
+            EarlierStop::Signal
+        } else {
+            EarlierStop::NoSignal
+        }
+    }
+
+    /// The servers a forced quit kills.
+    fn set_instances(&self, instances: Arc<DashMap<InstanceUuid, GameInstance>>) {
+        let _ = self.instances.set(instances);
+    }
+
+    /// A signal arrived: the first request starts the shutdown, and the first signal after
+    /// other requests lets it carry on. A signal after an earlier one (the user pressing
+    /// Ctrl+C again while the core starts or stops its servers) kills the servers and
+    /// exits with `exit_code` at once.
+    async fn on_signal(&self, reason: &'static str, exit_code: i32) {
+        match self.request(StopSource::Signal, reason) {
+            EarlierStop::Nothing => return,
+            EarlierStop::NoSignal => {
+                info!("{reason} while already stopping: still stopping the servers");
+                return;
+            }
+            EarlierStop::Signal => {}
+        }
+        // stderr too: the log may not be written before the exit
+        eprintln!("{reason} while already stopping: killing the servers and quitting");
+        warn!("{reason} while already stopping: killing the servers and quitting");
+        if let Some(instances) = self.instances.get() {
+            let all = [
+                State::Starting,
+                State::Running,
+                State::Stopping,
+                State::Error,
+            ];
+            let _ =
+                tokio::time::timeout(FORCE_QUIT_KILL_TIMEOUT, kill_servers(instances, &all)).await;
+        }
+        std::process::exit(exit_code);
+    }
+}
+
+/// Listens for Ctrl+C and, on Unix, SIGTERM (as `docker stop`, systemd and `kill` send),
+/// so the core stops its servers before it exits, and returns where the requests go.
+///
+/// Called first thing in [`run_with`]: the handlers are installed before this returns,
+/// so a stop asked for while the core is still starting is kept, instead of killing the
+/// core on the spot (the systems' default) or going unnoticed. The core then starts no
+/// server and shuts down as soon as it has started. The handlers stay installed: a second
+/// signal (after an earlier signal, not after stdin closing or another kind of stop),
+/// while the core starts or shuts down, kills the servers and exits at once (with 130
+/// for Ctrl+C and 143 for SIGTERM, as shells report those signals).
+fn listen_for_stop_signals() -> (StopRequests, StopSignal) {
+    let (requests, signal) = StopRequests::new();
     #[cfg(unix)]
     {
         use tokio::signal::unix::{signal, SignalKind};
-        match signal(SignalKind::terminate()) {
-            Ok(mut sigterm) => {
-                sigterm.recv().await;
-                return;
+        let listen = |kind: SignalKind, name: &str| {
+            signal(kind)
+                .map_err(|e| eprintln!("Cannot listen for {name}: {e}"))
+                .ok()
+        };
+        let mut interrupt = listen(SignalKind::interrupt(), "Ctrl+C");
+        let mut terminate = listen(SignalKind::terminate(), "SIGTERM");
+        let requests = requests.clone();
+        tokio::spawn(async move {
+            // a signal that cannot be listened for never arrives
+            async fn received(signal: &mut Option<tokio::signal::unix::Signal>) {
+                match signal {
+                    Some(signal) => {
+                        // `None` once the runtime shuts down: never again
+                        if signal.recv().await.is_none() {
+                            std::future::pending::<()>().await;
+                        }
+                    }
+                    None => std::future::pending().await,
+                }
             }
-            Err(e) => error!("Cannot listen for SIGTERM: {e}"),
+            loop {
+                let (reason, exit_code) = select! {
+                    _ = received(&mut interrupt) => ("Ctrl+C received", 130),
+                    _ = received(&mut terminate) => ("SIGTERM received", 143),
+                };
+                requests.on_signal(reason, exit_code).await;
+            }
+        });
+    }
+    #[cfg(windows)]
+    {
+        // Windows has no SIGTERM
+        match tokio::signal::windows::ctrl_c() {
+            Ok(mut ctrl_c) => {
+                let requests = requests.clone();
+                tokio::spawn(async move {
+                    while ctrl_c.recv().await.is_some() {
+                        requests.on_signal("Ctrl+C received", 130).await;
+                    }
+                });
+            }
+            Err(e) => eprintln!("Cannot listen for Ctrl+C: {e}"),
         }
     }
-    std::future::pending::<()>().await
+    (requests, signal)
+}
+
+/// Whether the core has been asked to stop.
+fn stop_requested(stop_signal: &StopSignal) -> bool {
+    stop_signal.borrow().is_some()
+}
+
+/// Kills the servers whose state is one of `states`, all at once, without asking them to
+/// stop first.
+async fn kill_servers(instances: &DashMap<InstanceUuid, GameInstance>, states: &[State]) {
+    let kills = snapshot_instances(instances)
+        .into_iter()
+        .map(|(uuid, instance)| async move {
+            let state = instance.state().await;
+            if !states.contains(&state) {
+                return;
+            }
+            warn!("Killing instance {uuid} ({state:?})");
+            if let Err(e) = instance.kill(CausedBy::System).await {
+                debug!("Killing instance {uuid} : {e}");
+            }
+        });
+    futures::future::join_all(kills).await;
+}
+
+/// How long the core waits on shutdown for its servers to stop, all at once, before it
+/// kills the ones still running. Stopping saves a server's world, which can take a while;
+/// whatever stops the core must wait longer than this: Lodestone Host and the Tauri app
+/// wait 60 s (`STOP_TIMEOUT` in lodestone-host's core_process.rs, `CORE_SHUTDOWN_TIMEOUT`
+/// in dashboard/src-tauri), and core/docker-compose.yml gives Docker a minute.
+const SHUTDOWN_STOP_TIMEOUT: Duration = Duration::from_secs(45);
+
+/// Stops every server for the core's shutdown, all at once, and returns when they have
+/// stopped. A running server is asked to stop, which saves its world, and is killed if it
+/// has not stopped `timeout` from now; a server still starting is killed at once.
+async fn stop_servers_for_shutdown(
+    instances: &DashMap<InstanceUuid, GameInstance>,
+    timeout: Duration,
+) {
+    let deadline = tokio::time::Instant::now() + timeout;
+    let stops = snapshot_instances(instances)
+        .into_iter()
+        // each on a task of its own, so a panic while stopping one cannot end the shutdown
+        .map(|(uuid, instance)| tokio::spawn(stop_server_for_shutdown(uuid, instance, deadline)));
+    futures::future::join_all(stops).await;
+}
+
+async fn stop_server_for_shutdown(
+    uuid: InstanceUuid,
+    instance: GameInstance,
+    deadline: tokio::time::Instant,
+) {
+    let stopped = match instance.state().await {
+        State::Stopped | State::Error => return,
+        State::Starting => {
+            info!("Killing instance that is starting : {uuid}");
+            false
+        }
+        State::Running => {
+            match tokio::time::timeout_at(deadline, instance.stop(CausedBy::System, true)).await {
+                Ok(Ok(())) => true,
+                Ok(Err(e)) => {
+                    error!("Failed to stop instance {uuid} : {e}");
+                    false
+                }
+                Err(_) => {
+                    warn!("Instance {uuid} did not stop in time, killing it");
+                    false
+                }
+            }
+        }
+        // asked to stop just before the shutdown
+        State::Stopping => wait_until_stopped(&instance, deadline).await,
+    };
+    if !stopped && instance.state().await != State::Stopped {
+        match instance.kill(CausedBy::System).await {
+            // The process has exited; the state follows once its output task sees that.
+            // Wait for it, so the sweep after the shutdown doesn't take the server for one
+            // that started meanwhile.
+            Ok(()) => {
+                let soon = tokio::time::Instant::now() + Duration::from_secs(2);
+                wait_until_stopped(&instance, soon).await;
+            }
+            Err(e) => {
+                error!("Failed to kill instance {uuid} : {e}. Instance may need manual cleanup")
+            }
+        }
+    }
+}
+
+/// Waits until `instance` has stopped, or until `deadline`. Returns whether it stopped.
+async fn wait_until_stopped(instance: &GameInstance, deadline: tokio::time::Instant) -> bool {
+    loop {
+        if instance.state().await == State::Stopped {
+            return true;
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return false;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
 }
 
 /// How often the API keys' last-used times are saved, at most.
@@ -448,6 +758,23 @@ async fn flush_api_keys_periodically(users_manager: Arc<RwLock<UsersManager>>) {
 const MONITOR_TIMEOUT: Duration = Duration::from_secs(5);
 /// The console buffers are checked for deleted instances every this many monitor ticks.
 const BUFFER_PRUNE_INTERVAL_TICKS: u64 = 60;
+/// How many monitor reports (one a second) are kept per instance, for `/monitor`
+/// streams to start with.
+const MONITOR_HISTORY: usize = 64;
+
+/// Whether some instance's server process may be running: the monitor has nothing to
+/// report on otherwise.
+async fn any_server_running(instances: &DashMap<InstanceUuid, GameInstance>) -> bool {
+    for (_, instance) in snapshot_instances(instances) {
+        if matches!(
+            instance.state().await,
+            State::Starting | State::Running | State::Stopping
+        ) {
+            return true;
+        }
+    }
+    false
+}
 
 /// Removes console buffers that belong to no instance: deleted instances, or UUIDs a macro
 /// made up. Docker containers are not in `instances`, so watched containers are kept.
@@ -570,10 +897,19 @@ async fn restore_instances(
     Ok(ret)
 }
 
+/// The most log lines waiting for the log file's writer thread.
+const LOG_QUEUE_LINES: usize = 1024;
+
 fn setup_tracing() -> tracing_appender::non_blocking::WorkerGuard {
     let file_appender =
         tracing_appender::rolling::hourly(lodestone_path().join("log"), "lodestone_core.log");
-    let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
+    // The default queue holds 128,000 lines, and its channel allocates and touches every
+    // slot up front: about 4 MB, more than the rest of an idle core. 1,024 lines cover
+    // any normal burst; past that, lines are dropped rather than blocking the core.
+    let (non_blocking, _guard) = tracing_appender::non_blocking::NonBlockingBuilder::default()
+        .buffered_lines_limit(LOG_QUEUE_LINES)
+        .thread_name("lodestone-log")
+        .finish(file_appender);
 
     // set up a subscriber that logs formatted tracing events to stdout without colors without setting it as the default
 
@@ -693,41 +1029,60 @@ fn output_sys_info() {
     );
 }
 
-async fn check_for_core_update() {
-    #[derive(serde::Deserialize)]
-    pub struct Release {
-        pub tag_name: String,
-    }
-    pub async fn get_latest_release() -> Result<Version, Report> {
-        let release_url =
-            "https://api.github.com/repos/Lodestone-Team/lodestone_core/releases/latest";
-        let client = reqwest::Client::builder()
-            .connect_timeout(Duration::from_secs(5))
-            .timeout(Duration::from_secs(15))
-            .build()?;
+/// How long after starting the core looks for a newer version: never while it starts, so
+/// the request (DNS, TLS and its certificate store) stays off the startup path.
+const UPDATE_CHECK_DELAY: Duration = Duration::from_secs(10 * 60);
 
-        let response = client
-            .get(release_url)
-            .header("User-Agent", "lodestone_cli")
+/// A release on GitHub, as listed by its API.
+#[derive(serde::Deserialize)]
+struct GithubRelease {
+    tag_name: String,
+    #[serde(default)]
+    draft: bool,
+}
+
+/// The newest core version among `releases`. The repository also holds Lodestone
+/// Launcher's and Lodestone Host's releases (`launcher-v1.0.0`, `host-v0.6.0`,
+/// developer builds), so only `vX.Y.Z` tags are the core's. Pre-releases count only for
+/// a core that is itself a pre-release.
+fn newest_core_release(releases: &[GithubRelease], include_prereleases: bool) -> Option<Version> {
+    releases
+        .iter()
+        .filter(|release| !release.draft)
+        .filter_map(|release| Version::parse(release.tag_name.strip_prefix('v')?).ok())
+        .filter(|version| include_prereleases || version.pre.is_empty())
+        .max()
+}
+
+/// Logs whether a newer core is released. Only logs: it never updates anything.
+async fn check_for_core_update() {
+    async fn get_releases() -> Result<Vec<GithubRelease>, Report> {
+        // The newest 100 releases, published ones only (drafts need a token). Not
+        // `releases/latest`, which may be a Launcher or Host release.
+        let releases_url =
+            "https://api.github.com/repos/Lodestone-Team/lodestone/releases?per_page=100";
+        // the shared client sends Lodestone's user agent, which GitHub's API requires
+        let response = crate::util::http_client()
+            .get(releases_url)
+            .timeout(Duration::from_secs(15))
             .send()
             .await?;
         response.error_for_status_ref()?;
-
-        let release: Release = response.json().await?;
-        // tag_name is prefixed with a v, so we need to remove it to get the version
-        let tag_name = release.tag_name.trim_start_matches('v');
-        let latest_version = Version::parse(tag_name)?;
-        Ok(latest_version)
+        Ok(response.json().await?)
     }
 
-    let latest_version = match get_latest_release().await {
-        Ok(v) => v,
+    let current_version = VERSION.with(|v| v.clone());
+    let releases = match get_releases().await {
+        Ok(releases) => releases,
         Err(e) => {
-            error!("Failed to get latest release: {}", e);
+            warn!("Failed to look for a newer Lodestone Core: {}", e);
             return;
         }
     };
-    let current_version = VERSION.with(|v| v.clone());
+    let Some(latest_version) = newest_core_release(&releases, !current_version.pre.is_empty())
+    else {
+        return;
+    };
 
     if current_version >= latest_version {
         info!("lodestone_core is up to date");
@@ -735,25 +1090,20 @@ async fn check_for_core_update() {
     }
 
     if latest_version.pre.is_empty() {
-        // we don't want to update to a pre-release
         info!(
             "A new version of lodestone_core is available: {}",
             latest_version
-        );
-        info!(
-            "Read how to update here: {url}",
-            url = "https://github.com/Lodestone-Team/lodestone/wiki/Updating"
         );
     } else {
         info!(
             "A new pre-release version of lodestone_core is available: {}",
             latest_version
         );
-        info!(
-            "Read how to update here: {url}",
-            url = "https://github.com/Lodestone-Team/lodestone/wiki/Updating"
-        );
     }
+    info!(
+        "Read how to update here: {url}",
+        url = "https://github.com/Lodestone-Team/lodestone/wiki/Updating"
+    );
 }
 
 #[derive(Debug, Parser)]
@@ -812,6 +1162,23 @@ pub async fn run_with(
     ),
     Error,
 > {
+    // first, so a stop asked for while the core starts is not lost
+    let (stop_requests, mut stop_signal) = listen_for_stop_signals();
+    // Stdin closing asks the core to stop like a signal does: reading it from the start
+    // notices that it closed (Lodestone Host quitting while the core starts, say) before
+    // the core decides whether to start servers. Commands typed meanwhile wait for the
+    // core's state.
+    let console = command_console::start(options.stop_with_stdin.then(|| {
+        let stop_requests = stop_requests.clone();
+        Box::new(move || {
+            stop_requests.request(StopSource::Stdin, "Stdin closed, shutting down");
+        }) as Box<dyn FnOnce() + Send>
+    }));
+    // Before the slow part of starting, so that clients can connect at once: the system
+    // queues their connections until the web server is ready to take them, instead of
+    // refusing them. A port conflict is reported to the caller of `run` instead of exiting
+    // the process from inside the library.
+    let listeners = bind_port(options.port)?;
     // Crates in the dependency graph can enable different rustls crypto providers, so
     // rustls may not pick a process-wide default on its own and `ClientConfig::builder()` /
     // `ServerConfig::builder()` would panic (the TLS listener, HTTPS requests). Install
@@ -870,8 +1237,15 @@ pub async fn run_with(
         warn!("Lodestone Core is not meant to be run as a standalone program. Please use Lodestone CLI instead.");
         warn!("Download it here: https://github.com/Lodestone-Team/lodestone_cli")
     }
-    // only logs, so it must not hold up startup when GitHub is slow or unreachable
-    tokio::spawn(check_for_core_update());
+    // Lodestone Host updates itself and its core, and the Docker image is updated by
+    // pulling it, so only a core run on its own looks for a newer version. It only logs,
+    // so it waits until the core has long started.
+    if !args.is_host && !in_docker {
+        tokio::spawn(async {
+            tokio::time::sleep(UPDATE_CHECK_DELAY).await;
+            check_for_core_update().await;
+        });
+    }
     output_sys_info();
 
     let lockfile_path = lodestone_path.join("lodestone.lock");
@@ -1010,22 +1384,12 @@ pub async fn run_with(
             .await,
         ),
         global_settings: Arc::new(Mutex::new(global_settings)),
-        sqlite_pool: Pool::connect_with(
-            SqliteConnectOptions::from_str(&format!(
-                "sqlite://{}/data.db",
-                path_to_stores().display()
-            ))
+        sqlite_pool: db::open_event_database(&path_to_stores().join("data.db"))
+            .await
             .map_err(|_| Error {
                 kind: ErrorKind::Internal,
-                source: Report::msg("Failed to create sqlite connection options"),
-            })?
-            .create_if_missing(true),
-        )
-        .await
-        .map_err(|_| Error {
-            kind: ErrorKind::Internal,
-            source: Report::msg("Failed to create sqlite pool"),
-        })?,
+                source: Report::msg("Failed to create sqlite pool"),
+            })?,
         docker_bridge: docker_bridge::DockerBridge::new(
             tx.clone(),
             path_to_stores().join("docker_bridge.json"),
@@ -1040,24 +1404,35 @@ pub async fn run_with(
         shared_state.users_manager.clone(),
     ));
 
-    let (stdin_closed_tx, stdin_closed_rx) = tokio::sync::oneshot::channel::<()>();
-    command_console::init(
-        shared_state.clone(),
-        options.stop_with_stdin.then_some(stdin_closed_tx),
-    );
+    // a second signal kills these
+    stop_requests.set_instances(shared_state.instances.clone());
+
+    // the commands typed so far run now
+    console.ready(shared_state.clone());
     init_app_state(shared_state.clone());
     // mod changes made while an instance runs need a restart; this notices the restart
     tokio::spawn(shared_state.mods.restart.clone().watch(tx.subscribe()));
     // newer versions of servers' modpacks
     tokio::spawn(crate::modpack::updates::watch(shared_state.clone()));
 
+    // Asked to stop while starting: start no server only to stop it again. The shutdown
+    // below runs as soon as the caller runs the core.
+    let stopping = stop_requested(&stop_signal);
+    if stopping {
+        info!("Asked to stop while starting: no server is started");
+    }
+
     // instances shared with friends when the core last stopped
-    {
+    if !stopping {
         let state = shared_state.clone();
         tokio::spawn(async move { state.connect.resume_all(&state).await });
     }
 
     for (_, instance) in snapshot_instances(&shared_state.instances) {
+        // asked to stop meanwhile: start no more
+        if stop_requested(&stop_signal) {
+            break;
+        }
         if instance.auto_start().await {
             let name = instance.name().await;
             info!("Auto starting instance {}", name);
@@ -1118,19 +1493,34 @@ pub async fn run_with(
             let mut interval = tokio::time::interval(Duration::from_secs(1));
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
             let mut ticks: u64 = 0;
+            // Ticks since a server process last ran, up to `MONITOR_HISTORY`. By then the
+            // history holds only empty reports, which clients show as no history.
+            let mut idle_ticks = MONITOR_HISTORY;
             loop {
-                if instances.is_empty() {
-                    // Nothing to monitor: rather than wake every second, wait for an event.
-                    // A new server is added after its creation event, but a stopped server
-                    // has nothing to report, and starting it sends events.
+                if any_server_running(&instances).await {
+                    idle_ticks = 0;
+                } else if idle_ticks < MONITOR_HISTORY {
+                    idle_ticks += 1;
+                } else {
+                    // Nothing to monitor: rather than wake every second, wait until a
+                    // server starts, which sends events. A `/monitor` stream asks its
+                    // instance for reports itself, so it needs no history.
                     monitor_buffer.lock().await.clear();
                     prune_console_buffers(&console_out_buffer, &instances, &docker_bridge).await;
-                    // only events from now on, not the backlog from while servers existed
+                    // only events from now on, not the backlog from while servers ran
                     events = events.resubscribe();
-                    while instances.is_empty() {
-                        if let Err(RecvError::Closed) = events.recv().await {
-                            std::future::pending::<()>().await;
+                    while !any_server_running(&instances).await {
+                        loop {
+                            match events.recv().await {
+                                // console lines (of watched Docker containers) start nothing
+                                Ok(event) if event.is_event_console_message() => {}
+                                Ok(_) | Err(RecvError::Lagged(_)) => break,
+                                Err(RecvError::Closed) => std::future::pending::<()>().await,
+                            }
                         }
+                        // maybe an instance was deleted: its console lines go too
+                        prune_console_buffers(&console_out_buffer, &instances, &docker_bridge)
+                            .await;
                     }
                     continue;
                 }
@@ -1154,7 +1544,7 @@ pub async fn run_with(
                     for (uuid, report) in reports.into_iter().flatten() {
                         monitor_buffer
                             .entry(uuid)
-                            .or_insert_with(|| AllocRingBuffer::new(64))
+                            .or_insert_with(|| AllocRingBuffer::new(MONITOR_HISTORY))
                             .enqueue(report);
                     }
                     // drop the buffers of deleted instances
@@ -1171,28 +1561,6 @@ pub async fn run_with(
     let tls_dir = lodestone_path.join("tls");
     let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
 
-    // Pick the port now, so a port conflict is reported to the caller of `run` instead of
-    // exiting the process from inside the library.
-    let mut port = options.port.unwrap_or(16_662_u16);
-    if options.port.is_some() || cfg!(not(debug_assertions)) {
-        if port_in_use(port) {
-            return Err(Error {
-                kind: ErrorKind::Internal,
-                source: Report::msg(format!(
-                    "Port {port} is already in use. Is another Lodestone Core running?"
-                )),
-            });
-        }
-    } else {
-        while port_in_use(port) {
-            debug!("Port {port} is already in use, trying next port");
-            port += 1;
-        }
-    }
-    let listeners = listen::bind_all_interfaces(port).map_err(|e| Error {
-        kind: ErrorKind::Internal,
-        source: Report::msg(format!("Failed to listen on port {port}: {e}")),
-    })?;
     let listen_description = listeners.describe();
 
     Ok((
@@ -1268,89 +1636,74 @@ pub async fn run_with(
                 });
                 // capture file into the move block
                 let _lock_file = lock_file;
-                select! {
-                    result = server_task => match result {
-                        Ok(Ok(())) => info!("Web server stopped"),
-                        Ok(Err(e)) => error!("Web server failed: {e}"),
-                        Err(e) => error!("Web server task failed: {e}"),
-                    },
-                    _ = event_buffer_task => info!("Event buffer task exited"),
-                    _ = monitor_report_task => info!("Monitor report task exited"),
-                    _ = shutdown_rx => info!("Shutdown signal received"),
-                    // only with `stop_with_stdin`: otherwise the sender is dropped at
-                    // once, the receive fails and this branch is never taken
-                    Ok(()) = stdin_closed_rx => info!("Stdin closed, shutting down"),
-                    _ = tokio::signal::ctrl_c() => info!("Ctrl+C received"),
-                    _ = terminate_signal() => info!("SIGTERM received"),
+                // what stopped the core, and where that came from unless it is already
+                // recorded as a request to stop
+                let (reason, source) = select! {
+                    result = server_task => {
+                        match result {
+                            Ok(Ok(())) => info!("Web server stopped"),
+                            Ok(Err(e)) => error!("Web server failed: {e}"),
+                            Err(e) => error!("Web server task failed: {e}"),
+                        }
+                        ("Web server stopped", Some(StopSource::Core))
+                    }
+                    _ = event_buffer_task => ("Event buffer task exited", Some(StopSource::Core)),
+                    _ = monitor_report_task => {
+                        ("Monitor report task exited", Some(StopSource::Core))
+                    }
+                    _ = shutdown_rx => ("Shutdown signal received", Some(StopSource::Caller)),
+                    // Ctrl+C, SIGTERM or stdin closing (only with `stop_with_stdin`), maybe
+                    // while the core was starting; never fails, since `stop_requests`
+                    // keeps the sender
+                    Ok(reason) = stop_signal.wait_for(Option::is_some) => {
+                        (reason.unwrap_or_default(), None)
+                    }
+                };
+                info!("{reason}");
+                // From here on no server starts (a crashed one restarting, say), and a
+                // signal is a first signal, or a second one only after an earlier signal.
+                if let Some(source) = source {
+                    stop_requests.request(source, reason);
                 }
+                // the first request already marked it; this is only a backstop
+                shutdown::begin();
                 info!("Shutting down web server");
                 for handle in &axum_server_handles {
                     handle.shutdown();
                 }
-                // friends joined through Lodestone Connect hear that sharing stopped
-                let _ = tokio::time::timeout(
-                    std::time::Duration::from_secs(5),
-                    shared_state.connect.stop_all(),
-                )
-                .await;
-                if let Err(e) = shared_state
-                    .users_manager
-                    .read()
-                    .await
-                    .flush_api_keys()
-                    .await
-                {
-                    error!("Failed to save API key last-used times: {e}");
-                }
-                info!("Signalling all instances to stop");
-                // cleanup
-                let mut handles = vec![];
                 shared_state.download_urls.lock().await.clear();
-                let _ = tokio::fs::remove_dir_all(path_to_tmp()).await.map_err(|e| {
-                    error!("Failed to remove tmp dir : {}", e);
-                    e
-                });
-                for (_, instance) in snapshot_instances(&shared_state.instances) {
-                    match instance.state().await {
-                        State::Starting => {
-                            let handle = tokio::spawn({
-                                let instance = instance.clone();
-                                async move {
-                                    info!(
-                                        "Killing instance that is starting : {}",
-                                        instance.uuid().await
-                                    );
-                                    if let Err(e) = instance.kill(CausedBy::System).await {
-                                        error!(
-                                        "Failed to stop instance {} : {}. Instance may need manual cleanup",
-                                        instance.uuid().await,
-                                        e
-                                    );
-                                    }
-                                }
-                            });
-                            handles.push(handle);
+                info!("Signalling all instances to stop");
+                tokio::join!(
+                    stop_servers_for_shutdown(&shared_state.instances, SHUTDOWN_STOP_TIMEOUT),
+                    // friends joined through Lodestone Connect hear that sharing stopped
+                    async {
+                        let _ = tokio::time::timeout(
+                            std::time::Duration::from_secs(5),
+                            shared_state.connect.stop_all(),
+                        )
+                        .await;
+                    },
+                    async {
+                        if let Err(e) = shared_state
+                            .users_manager
+                            .read()
+                            .await
+                            .flush_api_keys()
+                            .await
+                        {
+                            error!("Failed to save API key last-used times: {e}");
                         }
-                        State::Running => {
-                            let handle = tokio::spawn({
-                                let instance = instance.clone();
-                                async move {
-                                    if let Err(e) = instance.stop(CausedBy::System, false).await {
-                                        error!(
-                                        "Failed to stop instance {} : {}. Instance may need manual cleanup",
-                                        instance.uuid().await,
-                                        e
-                                    );
-                                    }
-                                }
-                            });
-                            handles.push(handle);
-                        }
-                        State::Error | State::Stopped | State::Stopping => continue,
+                    },
+                );
+                // Servers refuse to start once the shutdown has begun, so this should find
+                // none; but one that got past that would run on without the core: kill it.
+                kill_servers(&shared_state.instances, &[State::Starting, State::Running]).await;
+                // only now: servers may use temporary files until they stop
+                let tmp = path_to_tmp();
+                if tokio::fs::try_exists(tmp).await.unwrap_or(true) {
+                    if let Err(e) = tokio::fs::remove_dir_all(tmp).await {
+                        error!("Failed to remove tmp dir : {}", e);
                     }
-                }
-                for handle in handles {
-                    let _ = handle.await;
                 }
                 shared_state.instances.clear();
                 info!("Shutdown complete");
@@ -1388,40 +1741,28 @@ mod restore_tests {
         std::fs::write(path, serde_json::to_string_pretty(value).unwrap()).unwrap();
     }
 
-    /// Instances written by an older core that had Deno: an atom instance, and a Minecraft
-    /// instance with a macro and its stored config. The core must start on them: it
-    /// restores the Minecraft instance, skips the atom, and leaves every file as it was.
-    #[tokio::test]
-    async fn atoms_and_macros_on_disk_do_not_stop_startup() {
-        // restoring a Minecraft instance looks up the Lodestone paths, which no other test
-        // sets; never dropped, so the paths stay valid for the whole test run
+    /// Sets the global Lodestone paths, which restoring a Minecraft instance looks up, to a
+    /// temporary folder shared by the tests here. It is never deleted, so the paths stay
+    /// valid for the whole test run.
+    fn init_test_paths() {
         static LODESTONE_DIR: std::sync::OnceLock<tempfile::TempDir> = std::sync::OnceLock::new();
         let lodestone_dir = LODESTONE_DIR.get_or_init(|| tempfile::tempdir().unwrap());
         try_init_paths(lodestone_dir.path().to_owned()).unwrap();
+    }
 
-        let dir = tempfile::tempdir().unwrap();
-        let instances = dir.path().join("instances");
-
-        let atom = instances.join("my atom");
-        std::fs::create_dir_all(&atom).unwrap();
-        let atom_uuid = InstanceUuid::default();
-        write_json(
-            atom.join(".lodestone_config"),
-            &DotLodestoneConfig::new(atom_uuid.clone(), GameType::Generic),
-        );
-        std::fs::write(atom.join("run.ts"), "import * as a from \"./main.ts\";\n").unwrap();
-
-        let server = instances.join("my server");
-        std::fs::create_dir_all(server.join("macros").join("greet")).unwrap();
-        let server_uuid = InstanceUuid::default();
+    /// Writes a stopped Minecraft instance called `name` into `instances`.
+    fn write_minecraft_instance(instances: &Path, name: &str) -> (PathBuf, InstanceUuid) {
+        let server = instances.join(name);
+        std::fs::create_dir_all(&server).unwrap();
+        let uuid = InstanceUuid::default();
         write_json(
             server.join(".lodestone_config"),
-            &DotLodestoneConfig::new(server_uuid.clone(), GameType::MinecraftJava),
+            &DotLodestoneConfig::new(uuid.clone(), GameType::MinecraftJava),
         );
         write_json(
             server.join(".lodestone_minecraft_config.json"),
             &RestoreConfig {
-                name: "my server".to_string(),
+                name: name.to_string(),
                 version: "1.20.1".to_string(),
                 flavour: Flavour::Vanilla,
                 description: String::new(),
@@ -1439,6 +1780,30 @@ mod restore_tests {
             },
         );
         std::fs::write(server.join("server.properties"), "server-port=25565\n").unwrap();
+        (server, uuid)
+    }
+
+    /// Instances written by an older core that had Deno: an atom instance, and a Minecraft
+    /// instance with a macro and its stored config. The core must start on them: it
+    /// restores the Minecraft instance, skips the atom, and leaves every file as it was.
+    #[tokio::test]
+    async fn atoms_and_macros_on_disk_do_not_stop_startup() {
+        init_test_paths();
+
+        let dir = tempfile::tempdir().unwrap();
+        let instances = dir.path().join("instances");
+
+        let atom = instances.join("my atom");
+        std::fs::create_dir_all(&atom).unwrap();
+        let atom_uuid = InstanceUuid::default();
+        write_json(
+            atom.join(".lodestone_config"),
+            &DotLodestoneConfig::new(atom_uuid.clone(), GameType::Generic),
+        );
+        std::fs::write(atom.join("run.ts"), "import * as a from \"./main.ts\";\n").unwrap();
+
+        let (server, server_uuid) = write_minecraft_instance(&instances, "my server");
+        std::fs::create_dir_all(server.join("macros").join("greet")).unwrap();
         std::fs::write(
             server.join("macros").join("greet").join("index.ts"),
             "class LodestoneConfig { greeting: string = \"hi\"; }\n",
@@ -1464,6 +1829,215 @@ mod restore_tests {
         assert_eq!(server_instance.name().await, "my server");
         assert!(!restored.contains_key(&atom_uuid));
         assert_eq!(snapshot_files(&instances), before);
+    }
+
+    /// The shutdown leaves servers that are not running alone, and returns at once.
+    #[tokio::test]
+    async fn the_shutdown_leaves_stopped_servers_alone() {
+        init_test_paths();
+        let dir = tempfile::tempdir().unwrap();
+        let instances = dir.path().join("instances");
+        let (_, uuid) = write_minecraft_instance(&instances, "stopped server");
+        let (tx, mut events) = EventBroadcaster::new(16);
+        let restored = restore_instances(&instances, tx, CodeExecutionSwitch::new(false))
+            .await
+            .unwrap();
+        assert_eq!(restored.len(), 1);
+
+        tokio::time::timeout(
+            Duration::from_secs(10),
+            stop_servers_for_shutdown(&restored, Duration::from_secs(45)),
+        )
+        .await
+        .expect("stopping no running server takes no time");
+        let instance = restored.get(&uuid).unwrap().value().clone();
+        assert_eq!(instance.state().await, State::Stopped);
+        assert!(matches!(
+            events.try_recv(),
+            Err(tokio::sync::broadcast::error::TryRecvError::Empty)
+        ));
+    }
+
+    /// The shutdown kills a server still starting, and the sweep after it kills one that
+    /// started meanwhile, leaving stopped ones alone.
+    #[tokio::test]
+    async fn the_shutdown_kills_servers_that_are_starting() {
+        init_test_paths();
+        let dir = tempfile::tempdir().unwrap();
+        let instances = dir.path().join("instances");
+        let (_, starting) = write_minecraft_instance(&instances, "starting server");
+        let (_, late) = write_minecraft_instance(&instances, "late server");
+        let (_, stopped) = write_minecraft_instance(&instances, "stopped server");
+        let (tx, _events) = EventBroadcaster::new(64);
+        let restored = restore_instances(&instances, tx, CodeExecutionSwitch::new(false))
+            .await
+            .unwrap();
+        let instance = |uuid: &InstanceUuid| restored.get(uuid).unwrap().value().clone();
+        // no process runs: the state alone says starting
+        let set_state = |uuid: &InstanceUuid, state: State| {
+            let GameInstance::MinecraftInstance(minecraft) = instance(uuid);
+            async move { minecraft.set_state_for_test(state).await }
+        };
+        set_state(&starting, State::Starting).await;
+
+        tokio::time::timeout(
+            Duration::from_secs(10),
+            stop_servers_for_shutdown(&restored, Duration::from_secs(45)),
+        )
+        .await
+        .expect("a starting server is killed at once");
+        assert_eq!(instance(&starting).state().await, State::Stopped);
+
+        set_state(&late, State::Running).await;
+        tokio::time::timeout(
+            Duration::from_secs(10),
+            kill_servers(&restored, &[State::Starting, State::Running]),
+        )
+        .await
+        .unwrap();
+        assert_eq!(instance(&late).state().await, State::Stopped);
+        assert_eq!(instance(&stopped).state().await, State::Stopped);
+    }
+}
+
+#[cfg(test)]
+mod stop_request_tests {
+    use super::*;
+
+    // The process's shutdown flag is never set in tests: other tests would then fail to
+    // start servers.
+    fn requests() -> (StopRequests, StopSignal) {
+        StopRequests::with_shutdown(|| {})
+    }
+
+    /// Whatever asks first starts the shutdown, with its reason; a request after it
+    /// changes nothing.
+    #[tokio::test]
+    async fn the_first_request_to_stop_counts() {
+        let (requests, mut signal) = requests();
+        assert!(!stop_requested(&signal));
+        assert_eq!(
+            requests.request(StopSource::Stdin, "Stdin closed, shutting down"),
+            EarlierStop::Nothing
+        );
+        assert!(stop_requested(&signal));
+
+        assert_ne!(
+            requests.request(StopSource::Signal, "Ctrl+C received"),
+            EarlierStop::Nothing,
+            "a second request"
+        );
+        assert_ne!(
+            requests
+                .clone()
+                .request(StopSource::Signal, "SIGTERM received"),
+            EarlierStop::Nothing
+        );
+        // the shutdown, waiting only now, still sees the first request and its reason
+        let reason = tokio::time::timeout(Duration::from_secs(5), signal.wait_for(Option::is_some))
+            .await
+            .unwrap()
+            .map(|reason| *reason)
+            .unwrap();
+        assert_eq!(reason, Some("Stdin closed, shutting down"));
+    }
+
+    /// Only a signal after an earlier signal is a second signal (which force-quits): a
+    /// signal after stdin closed, the caller asked or the web server ended is the first.
+    #[tokio::test]
+    async fn only_a_signal_after_a_signal_is_a_second_signal() {
+        for first in [StopSource::Stdin, StopSource::Caller, StopSource::Core] {
+            let (requests, _signal) = requests();
+            assert_eq!(requests.request(first, "stop"), EarlierStop::Nothing);
+            assert_eq!(
+                requests.request(first, "stop again"),
+                EarlierStop::NoSignal,
+                "{first:?} twice"
+            );
+            assert_eq!(
+                requests.request(StopSource::Signal, "SIGTERM received"),
+                EarlierStop::NoSignal,
+                "a first signal after {first:?}"
+            );
+            assert_eq!(
+                requests.request(StopSource::Caller, "Shutdown signal received"),
+                EarlierStop::Signal
+            );
+            assert_eq!(
+                requests.request(StopSource::Signal, "Ctrl+C received"),
+                EarlierStop::Signal,
+                "a second signal after {first:?}"
+            );
+        }
+
+        let (requests, _signal) = requests();
+        assert_eq!(
+            requests.request(StopSource::Signal, "Ctrl+C received"),
+            EarlierStop::Nothing
+        );
+        assert_eq!(
+            requests.request(StopSource::Signal, "Ctrl+C received"),
+            EarlierStop::Signal
+        );
+    }
+
+    /// The first request marks the core as shutting down at once, so no server starts
+    /// even while the core is still starting; later ones leave it marked.
+    #[test]
+    fn the_first_request_marks_the_shutdown() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        static MARKED: AtomicUsize = AtomicUsize::new(0);
+        fn mark() {
+            MARKED.fetch_add(1, Ordering::SeqCst);
+        }
+        let (requests, _signal) = StopRequests::with_shutdown(mark);
+        assert_eq!(MARKED.load(Ordering::SeqCst), 0);
+        requests.request(StopSource::Stdin, "Stdin closed, shutting down");
+        assert_eq!(MARKED.load(Ordering::SeqCst), 1);
+        requests.request(StopSource::Signal, "SIGTERM received");
+        assert_eq!(MARKED.load(Ordering::SeqCst), 1);
+    }
+}
+
+#[cfg(test)]
+mod update_check_tests {
+    use super::{newest_core_release, GithubRelease};
+    use semver::Version;
+
+    fn release(tag_name: &str, draft: bool) -> GithubRelease {
+        GithubRelease {
+            tag_name: tag_name.to_string(),
+            draft,
+        }
+    }
+
+    #[test]
+    fn only_the_cores_own_releases_count() {
+        // as the Lodestone repository lists them, newest first
+        let releases = [
+            release("launcher-v1.2.0", false),
+            release("host-v0.9.0", false),
+            release("host-dev-3989-c716273", false),
+            release("launcher-latest", false),
+            release("v0.7.0", true),
+            release("v0.6.0-beta.2", false),
+            release("rc", false),
+            release("v0.5.1", false),
+            release("v0.5.0", false),
+            release("v0.0.1-alpha", false),
+        ];
+        assert_eq!(
+            newest_core_release(&releases, false),
+            Some(Version::new(0, 5, 1))
+        );
+        assert_eq!(
+            newest_core_release(&releases, true),
+            Some(Version::parse("0.6.0-beta.2").unwrap())
+        );
+        assert_eq!(
+            newest_core_release(&[release("launcher-v1.0.0", false)], true),
+            None
+        );
     }
 }
 

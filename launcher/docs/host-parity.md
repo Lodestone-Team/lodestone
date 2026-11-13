@@ -23,7 +23,7 @@ be built in parallel with little file overlap. Tick items (`[x]`) as you build t
   builds: `~/.lodestone-host-dev`). `supervisor.rs` waits until `/info` answers,
   restarts a core that exits (giving up after 4 quick exits, showing the end of its
   log), and on Quit closes the core's stdin: the core stops its servers and exits
-  (killed after 20 s). If the Host dies, the system closes the pipe and the core stops
+  (killed after 60 s, longer than the core's 45 s for its servers). If the Host dies, the system closes the pipe and the core stops
   too. The core's output goes to `<host folder>/logs/core.log`.
 - **The Host signs in as the owner without a password**, through the core's local
   claim (`core/src/local_claim.rs`), with `"session": true`: the Host proves it can
@@ -1165,7 +1165,7 @@ Conventions in the code that every area relies on:
   - *Host:* macOS: the menu bar icon (foundation). Windows: a notification area icon with Show and Quit (tray_windows.rs; compile-checked for x86_64-pc-windows-msvc in a scratch crate, not run). Linux: none, see tray.rs.
 - [x] Left click (button up) shows + focuses the main window; on macOS left click also opens the menu.
   - *Host:* Windows: a left click shows the window, a right click opens the menu.
-- [x] Quit: signals core shutdown (stop servers), waits up to 10 s for it, then exits.
+- [x] Quit: signals core shutdown (stop servers), waits up to 60 s for it (the core gives its servers 45 s), then exits.
 
 ### 8.6 Single instance — `main.rs`  
 **Package: foundation (done).**

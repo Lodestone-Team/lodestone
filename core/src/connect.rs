@@ -18,7 +18,10 @@ use std::{
     collections::HashMap,
     net::{Ipv4Addr, SocketAddr},
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
     time::Duration,
 };
 
@@ -207,6 +210,9 @@ enum Slot {
         host: Box<Host>,
         tasks: Vec<JoinHandle<()>>,
     },
+    /// Was starting when the core began shutting down ([`ConnectShares::stop_all`]): the
+    /// start stops its host once it has one, keeping the link.
+    Abandoned,
 }
 
 /// The instances shared with friends.
@@ -217,6 +223,8 @@ pub struct ConnectShares {
     service: Service,
     gather: GatherOptions,
     slots: Mutex<HashMap<InstanceUuid, Slot>>,
+    /// Set by [`Self::stop_all`] as the core shuts down: nothing starts sharing after it.
+    stopping: AtomicBool,
 }
 
 fn external(message: impl Into<String>) -> Error {
@@ -246,6 +254,14 @@ impl ConnectShares {
             service,
             gather,
             slots: Mutex::new(HashMap::new()),
+            stopping: AtomicBool::new(false),
+        }
+    }
+
+    fn shutting_down() -> Error {
+        Error {
+            kind: ErrorKind::Conflict,
+            source: eyre!("Lodestone Core is shutting down"),
         }
     }
 
@@ -291,7 +307,7 @@ impl ConnectShares {
     /// How sharing `uuid` is going.
     pub async fn status(&self, uuid: &InstanceUuid) -> InstanceShare {
         match self.slots.lock().await.get(uuid) {
-            None => InstanceShare::off(),
+            None | Some(Slot::Abandoned) => InstanceShare::off(),
             Some(Slot::Starting) => InstanceShare::starting(),
             Some(Slot::Running { host, .. }) => InstanceShare::of(host.status()),
         }
@@ -314,6 +330,11 @@ impl ConnectShares {
         }
         {
             let mut slots = self.slots.lock().await;
+            // under the lock that `stop_all` drains the slots with, so a share either
+            // starts before it (and is stopped by it) or not at all
+            if self.stopping.load(Ordering::SeqCst) {
+                return Err(Self::shutting_down());
+            }
             if slots.contains_key(uuid) {
                 drop(slots);
                 return Ok(self.status(uuid).await);
@@ -324,8 +345,19 @@ impl ConnectShares {
         let mut slots = self.slots.lock().await;
         match started {
             Ok((host, tasks)) => {
+                if matches!(slots.get(uuid), Some(Slot::Abandoned)) {
+                    // the core began shutting down meanwhile: keep the link, as
+                    // `stop_all` does, to resume with it at the next start
+                    slots.remove(uuid);
+                    drop(slots);
+                    for task in tasks {
+                        task.abort();
+                    }
+                    host.stop(false).await;
+                    return Err(Self::shutting_down());
+                }
                 if !matches!(slots.get(uuid), Some(Slot::Starting)) {
-                    // stopped while starting
+                    // the owner stopped sharing meanwhile
                     drop(slots);
                     for task in tasks {
                         task.abort();
@@ -347,6 +379,9 @@ impl ConnectShares {
             }
             Err(e) => {
                 slots.remove(uuid);
+                if self.stopping.load(Ordering::SeqCst) {
+                    return Err(Self::shutting_down());
+                }
                 Err(e)
             }
         }
@@ -430,8 +465,20 @@ impl ConnectShares {
     /// resumes at the next start. Closing the connections tells connected friends at
     /// once, instead of after their connection times out.
     pub async fn stop_all(&self) {
+        // none starts after this
+        self.stopping.store(true, Ordering::SeqCst);
         self.friends.stop().await;
-        let slots: Vec<_> = self.slots.lock().await.drain().collect();
+        let slots: Vec<_> = {
+            let mut slots = self.slots.lock().await;
+            let drained: Vec<_> = slots.drain().collect();
+            // a share still starting stops once it has its host, keeping its link
+            for (uuid, slot) in &drained {
+                if matches!(slot, Slot::Starting) {
+                    slots.insert(uuid.clone(), Slot::Abandoned);
+                }
+            }
+            drained
+        };
         for (uuid, slot) in slots {
             if let Slot::Running { host, tasks } = slot {
                 for task in tasks {
@@ -471,11 +518,16 @@ impl ConnectShares {
                 loop {
                     match shares.start(&state, &uuid).await {
                         Ok(_) => return,
+                        // the core is shutting down
+                        Err(_) if shares.stopping.load(Ordering::SeqCst) => return,
                         Err(e) => warn!("Couldn't resume sharing {uuid}, trying again soon: {e}"),
                     }
                     tokio::time::sleep(RESUME_RETRY).await;
-                    // stopped or deleted meanwhile
-                    if !shares.file(&uuid).exists() || !state.instances.contains_key(&uuid) {
+                    // stopped, deleted or shutting down meanwhile
+                    if !shares.file(&uuid).exists()
+                        || !state.instances.contains_key(&uuid)
+                        || shares.stopping.load(Ordering::SeqCst)
+                    {
                         return;
                     }
                 }

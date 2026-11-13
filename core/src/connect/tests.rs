@@ -316,10 +316,55 @@ async fn identities_are_saved_for_the_core_user_only_and_resumed_for_existing_in
     // shutting down keeps the identity, to resume with the same link
     shares.stop_all().await;
     assert!(file.exists(), "kept when the core shuts down");
-    assert!(shares.slots.lock().await.is_empty());
+    // nothing shared; the resume may still be trying, and stops once it is done
+    assert!(shares
+        .slots
+        .lock()
+        .await
+        .values()
+        .all(|slot| matches!(slot, Slot::Abandoned)));
 
     shares.stop(&core.fabric, true).await;
     assert!(!file.exists(), "stopping for good deletes the identity");
+}
+
+#[tokio::test]
+async fn nothing_starts_sharing_once_the_core_is_shutting_down() {
+    let core = core().await;
+    let shares = &core.state.connect;
+    shares
+        .save(&core.fabric, &HostIdentity::generate().unwrap())
+        .await
+        .unwrap();
+    let file = core
+        .dir
+        .path()
+        .join("connect")
+        .join(format!("{}.json", core.fabric));
+    // as if a share were starting: the shutdown marks it, for the start to stop it once
+    // it has its host, keeping the link
+    shares
+        .slots
+        .lock()
+        .await
+        .insert(core.vanilla.clone(), Slot::Starting);
+    shares.stop_all().await;
+    assert!(matches!(
+        shares.slots.lock().await.remove(&core.vanilla),
+        Some(Slot::Abandoned)
+    ));
+
+    let error = shares.start(&core.state, &core.fabric).await.unwrap_err();
+    assert!(
+        error.source.to_string().contains("shutting down"),
+        "{error}"
+    );
+    assert!(shares.slots.lock().await.is_empty());
+    // a resume after the shutdown began starts nothing and keeps the link
+    shares.resume_all(&core.state).await;
+    tokio::task::yield_now().await;
+    assert!(shares.slots.lock().await.is_empty());
+    assert!(file.exists(), "the link is kept for the next start");
 }
 
 #[test]

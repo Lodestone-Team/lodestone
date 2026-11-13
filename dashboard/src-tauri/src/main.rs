@@ -142,7 +142,9 @@ async fn check_update_with_dialog(app: AppHandle) -> tauri_plugin_updater::Resul
 }
 
 /// How long Quit waits for the core to stop the game servers before exiting anyway.
-const CORE_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(10);
+/// Longer than the core's own 45 s deadline for its servers to stop (saving their
+/// worlds), after which it kills them, so the app doesn't exit with servers running.
+const CORE_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// Ports the dashboard is served on, tried in order. The webview keeps localStorage
 /// (saved cores, tokens, settings) per origin, and the port is part of the origin, so

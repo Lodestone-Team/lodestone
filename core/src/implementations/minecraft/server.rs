@@ -610,8 +610,19 @@ impl MinecraftInstance {
         }
         // Only restart servers that started successfully, so a broken setup doesn't loop.
         if did_start && self.config.lock().await.restart_on_crash {
+            if crate::shutdown::has_begun() {
+                info!(
+                    "[{}] Not restarting the server: Lodestone Core is shutting down",
+                    name
+                );
+                return;
+            }
             info!("[{}] Restarting the server because it crashed", name);
             tokio::time::sleep(Duration::from_secs(5)).await;
+            // start() refuses too, but this needs no error in the log
+            if crate::shutdown::has_begun() {
+                return;
+            }
             if self.state().await == State::Stopped {
                 if let Err(e) = self.start(CausedBy::System, false).await {
                     error!(
@@ -627,6 +638,8 @@ impl MinecraftInstance {
 #[async_trait::async_trait]
 impl TServer for MinecraftInstance {
     async fn start(&self, cause_by: CausedBy, block: bool) -> Result<(), Error> {
+        // the shutdown stops only the servers it finds running
+        crate::shutdown::refuse_start()?;
         // Minecraft only runs once the user agreed to its EULA; never accept it here.
         super::eula::require_eula_accepted(&self.path_to_instance).await?;
         // Changing the version replaces server.jar, so don't start while it runs.
@@ -639,6 +652,18 @@ impl TServer for MinecraftInstance {
         self.transition(StateAction::UserStart, &cause_by, "Starting server")
             .await?;
         drop(version_guard);
+        // Again, now that the state says Starting: the shutdown, once begun, either sees
+        // this server starting (and kills it), or began first and is refused here.
+        if let Err(e) = crate::shutdown::refuse_start() {
+            self.set_state_if(
+                &[State::Starting],
+                State::Stopped,
+                &cause_by,
+                "Lodestone Core is shutting down",
+            )
+            .await;
+            return Err(e);
+        }
         self.stop_requested.store(false, Ordering::SeqCst);
 
         let name = self.name().await;
@@ -827,8 +852,9 @@ impl TServer for MinecraftInstance {
     }
 
     async fn monitor(&self) -> MonitorReport {
+        // Only the process is refreshed: the report has none of the system's memory
+        // figures, which would cost a read of the system's memory counters every second.
         let mut sys = self.system.lock().await;
-        sys.refresh_memory();
         if let Some(pid) = self.process.lock().await.as_ref().and_then(|p| p.id()) {
             // Same data the old `refresh_process` refreshed; dead processes are not removed.
             sys.refresh_processes_specifics(
