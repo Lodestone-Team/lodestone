@@ -12,6 +12,7 @@
 //! | Overview | [`overview`] | A |
 //! | Console | [`console`] | B |
 //! | Files | [`files`] | B |
+//! | Backups | [`backups`] | backups |
 //! | Settings (instance) | [`instance_settings`] | C |
 //! | Mods / Plugins | [`mods`] | C |
 //! | Event logs | [`event_logs`] | C |
@@ -21,6 +22,7 @@
 
 pub mod account_dialogs;
 pub mod api_keys;
+pub mod backups;
 pub mod connect_service;
 pub mod console;
 pub mod core_settings;
@@ -80,6 +82,9 @@ pub fn open(route: &Route, state: Entity<HostState>, cx: &mut App) -> AnyView {
                     .new(|cx| console::ConsolePage::new(state, uuid, cx))
                     .into(),
                 InstanceTab::Files => cx.new(|cx| files::FilesPage::new(state, uuid, cx)).into(),
+                InstanceTab::Backups => cx
+                    .new(|cx| backups::BackupsPage::new(state, uuid, cx))
+                    .into(),
                 InstanceTab::Mods => cx.new(|cx| mods::ModsPage::new(state, uuid, cx)).into(),
                 InstanceTab::EventLogs => cx
                     .new(|cx| event_logs::EventLogsPage::new(state, uuid, cx))
@@ -125,6 +130,9 @@ pub fn demo(view: &AnyView, cx: &mut App) {
         page.update(cx, |page, cx| page.demo(cx));
     }
     if let Ok(page) = view.clone().downcast::<mods::ModsPage>() {
+        page.update(cx, |page, cx| page.demo(cx));
+    }
+    if let Ok(page) = view.clone().downcast::<backups::BackupsPage>() {
         page.update(cx, |page, cx| page.demo(cx));
     }
 }

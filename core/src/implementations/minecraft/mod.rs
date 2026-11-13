@@ -2,7 +2,7 @@ pub mod configurable;
 pub mod eula;
 pub mod fabric;
 mod forge;
-mod line_parser;
+pub(crate) mod line_parser;
 mod paper;
 pub mod player;
 mod players_manager;
@@ -279,6 +279,9 @@ pub struct MinecraftInstance {
     stop_requested: Arc<AtomicBool>,
     /// Held while the version changes, so the instance can't start meanwhile
     version_change_lock: Arc<Mutex<()>>,
+    /// When the instance last became stopped (or errored) from another state: a crash
+    /// restart may follow, so scheduled work that holds off starts waits a while after it.
+    last_stopped: Arc<std::sync::Mutex<Option<Instant>>>,
     /// Serializes read-modify-write cycles of server.properties
     properties_lock: Arc<Mutex<()>>,
     system: Arc<Mutex<sysinfo::System>>,
@@ -1064,6 +1067,7 @@ impl MinecraftInstance {
             stdin: Arc::new(Mutex::new(None)),
             stop_requested: Arc::new(AtomicBool::new(false)),
             version_change_lock: Arc::new(Mutex::new(())),
+            last_stopped: Arc::new(std::sync::Mutex::new(None)),
             properties_lock: Arc::new(Mutex::new(())),
             system: Arc::new(Mutex::new(crate::util::cpu_and_memory_system())),
             rcon_conn: Arc::new(Mutex::new(None)),
@@ -1077,6 +1081,59 @@ impl MinecraftInstance {
             );
         }
         Ok(instance)
+    }
+
+    /// A copy of the instance's settings, as in `.lodestone_minecraft_config.json`.
+    pub async fn config_snapshot(&self) -> RestoreConfig {
+        self.config.lock().await.clone()
+    }
+
+    /// Reads the config file and server.properties again after a backup was restored into
+    /// the instance's folder. The instance stays the same object (the `state.instances`
+    /// entry, its state and its locks are kept); only what it read from disk changes.
+    ///
+    /// The restore kept the current command line and port. When the restored Minecraft
+    /// version needs another Java, a `java_cmd` that pointed at the managed Java of the old
+    /// version moves to the new version's, which is downloaded if it isn't there.
+    pub async fn reload_from_disk(&self) -> Result<(), Error> {
+        let bytes = tokio::fs::read(&self.path_to_config)
+            .await
+            .context(format!(
+                "Failed to open config file at {}",
+                self.path_to_config.display()
+            ))?;
+        let mut restored: RestoreConfig = serde_json::from_slice(&bytes)
+            .context("Failed to read the restored server settings")?;
+        let new_jre = restored.jre_major_version;
+        let managed = java_binary(&self.path_to_runtimes, new_jre);
+        let moved_jre = {
+            let mut config = self.config.lock().await;
+            let old_managed = java_binary(&self.path_to_runtimes, config.jre_major_version);
+            let moved = new_jre != config.jre_major_version
+                && restored.java_cmd.as_deref().map(Path::new) == Some(old_managed.as_path());
+            if moved {
+                restored.java_cmd = Some(managed.to_string_lossy().to_string());
+            }
+            *config = restored.clone();
+            moved
+        };
+        if moved_jre {
+            self.write_config_to_file().await?;
+        }
+        let java_cmd = restored
+            .java_cmd
+            .clone()
+            .unwrap_or_else(|| managed.to_string_lossy().to_string());
+        *self.configurable_manifest.lock().await =
+            Self::init_configurable_manifest(&restored, java_cmd.clone());
+        // a broken server.properties must not fail the restore, as at startup
+        if let Err(e) = self.refresh_properties_section().await {
+            warn!("Failed to read {}: {e}", self.path_to_properties.display());
+        }
+        if Path::new(&java_cmd) == managed && !managed.exists() {
+            ensure_jre(&self.path_to_runtimes, new_jre, &|_| {}).await?;
+        }
+        Ok(())
     }
 
     async fn write_config_to_file(&self) -> Result<(), Error> {
@@ -1221,7 +1278,35 @@ impl MinecraftInstance {
     /// while a server runs.
     #[cfg(test)]
     pub(crate) async fn set_state_for_test(&self, state: State) {
-        *self.state.lock().await = state;
+        let mut current = self.state.lock().await;
+        self.note_state_change(*current, state);
+        *current = state;
+    }
+
+    /// Makes the instance look as if it became stopped `ago`, for tests of what waits after a
+    /// stop.
+    #[cfg(test)]
+    pub(crate) fn set_stopped_ago_for_test(&self, ago: std::time::Duration) {
+        *self.last_stopped.lock().unwrap_or_else(|e| e.into_inner()) =
+            Instant::now().checked_sub(ago);
+    }
+
+    /// Records the time when the state changes from running (or starting or stopping) to
+    /// stopped or errored. Called with the state lock held.
+    pub(super) fn note_state_change(&self, previous: State, new: State) {
+        let stopped = |state: State| matches!(state, State::Stopped | State::Error);
+        if stopped(new) && !stopped(previous) {
+            *self.last_stopped.lock().unwrap_or_else(|e| e.into_inner()) = Some(Instant::now());
+        }
+    }
+
+    /// How long ago the instance last became stopped from another state, or `None` if it
+    /// hasn't since Lodestone started.
+    pub fn stopped_ago(&self) -> Option<std::time::Duration> {
+        self.last_stopped
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .map(|at| at.elapsed())
     }
 
     /// The Fabric loader version of a Fabric instance, or `None`.

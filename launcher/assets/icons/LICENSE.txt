@@ -12,7 +12,7 @@ right-from-bracket, square-plus, triangle-exclamation, user and xmark; circle-in
 circle-check and circle-exclamation; link, user-group, chevron-down, chevron-right,
 chevron-left, pen, floppy-disk and circle-user; server, folder, folder-plus, file,
 file-pen, file-circle-plus, arrows-rotate, scissors, paste, file-zipper, list-check
-and clipboard-question.
+and clipboard-question; clock-rotate-left and thumbtack.
 
 window-minimize, window-maximize, window-restore and window-close are plain
 lines and squares drawn for the launcher's own window buttons, which it shows on

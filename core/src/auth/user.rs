@@ -410,7 +410,8 @@ impl User {
 
     /// Progression events can name files and carry full instance info, so only show them to
     /// the user who started the operation, to users who can view the instance it is about,
-    /// and to owners and admins.
+    /// and to owners and admins. A backup's or restore's progress is about the server's
+    /// files, so it needs `ReadInstanceFile` rather than `ViewInstance`.
     fn can_view_progression_event(
         &self,
         progression_event: &ProgressionEvent,
@@ -424,30 +425,40 @@ impl User {
                 return true;
             }
         }
-        let instance_uuid = match progression_event.progression_event_inner() {
+        let view = |uuid: &InstanceUuid| UserAction::ViewInstance(uuid.clone());
+        let read_files = |uuid: &InstanceUuid| UserAction::ReadInstanceFile(uuid.clone());
+        let action = match progression_event.progression_event_inner() {
+            // every start value with an instance must be listed here: nothing else checks it
             ProgressionEventInner::ProgressionStart {
-                inner:
-                    Some(
-                        ProgressionStartValue::InstanceCreation { instance_uuid }
-                        | ProgressionStartValue::InstanceDelete { instance_uuid },
-                    ),
+                inner: Some(start_value),
                 ..
-            } => Some(instance_uuid),
+            } => match start_value {
+                ProgressionStartValue::InstanceCreation { instance_uuid }
+                | ProgressionStartValue::InstanceDelete { instance_uuid } => {
+                    Some(view(instance_uuid))
+                }
+                ProgressionStartValue::Backup { instance_uuid }
+                | ProgressionStartValue::Restore { instance_uuid } => {
+                    Some(read_files(instance_uuid))
+                }
+            },
             ProgressionEventInner::ProgressionEnd {
                 inner: Some(end_value),
                 ..
             } => match end_value {
-                ProgressionEndValue::InstanceCreation(info) => Some(&info.uuid),
+                ProgressionEndValue::InstanceCreation(info) => Some(view(&info.uuid)),
                 ProgressionEndValue::InstanceDelete { instance_uuid }
                 | ProgressionEndValue::FSOperationCompleted { instance_uuid, .. } => {
-                    Some(instance_uuid)
+                    Some(view(instance_uuid))
+                }
+                ProgressionEndValue::BackupCompleted { instance_uuid, .. }
+                | ProgressionEndValue::RestoreCompleted { instance_uuid, .. } => {
+                    Some(read_files(instance_uuid))
                 }
             },
             _ => None,
         };
-        instance_uuid.is_some_and(|instance_uuid| {
-            self.can_perform_action(&UserAction::ViewInstance(instance_uuid.clone()))
-        })
+        action.is_some_and(|action| self.can_perform_action(&action))
     }
 
     pub fn create_jwt(&self) -> Result<JwtToken, Error> {
@@ -1997,5 +2008,54 @@ mod permission_tests {
         // everyone is told to fetch the settings again
         let viewer = user(false, false, UserPermission::default());
         assert!(viewer.can_view_event_parts(&EventInner::GlobalSettingsChanged, &CausedBy::System));
+    }
+
+    #[test]
+    fn backup_progress_is_shown_to_users_who_may_read_the_files() {
+        let i = uuid("a");
+        let view_only = user(
+            false,
+            false,
+            UserPermission {
+                can_view_instance: std::collections::HashSet::from([i.clone()]),
+                ..Default::default()
+            },
+        );
+        let reader = user(
+            false,
+            false,
+            UserPermission {
+                can_view_instance: std::collections::HashSet::from([i.clone()]),
+                can_read_instance_file: std::collections::HashSet::from([i.clone()]),
+                ..Default::default()
+            },
+        );
+        let starts = [
+            ProgressionStartValue::Backup {
+                instance_uuid: i.clone(),
+            },
+            ProgressionStartValue::Restore {
+                instance_uuid: i.clone(),
+            },
+        ];
+        for start in starts {
+            let (event, id) =
+                Event::new_progression_event_start("p", None, Some(start), CausedBy::System);
+            assert!(reader.can_view_event(&event));
+            assert!(!view_only.can_view_event(&event));
+            let end = Event::new_progression_event_end(
+                id,
+                true,
+                Some("done"),
+                Some(ProgressionEndValue::BackupCompleted {
+                    instance_uuid: i.clone(),
+                    backup_id: None,
+                    success: true,
+                    message: "done".to_string(),
+                }),
+            );
+            assert!(reader.can_view_event(&end));
+            assert!(!view_only.can_view_event(&end));
+        }
     }
 }

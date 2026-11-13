@@ -41,6 +41,16 @@ impl PortManager {
         self.allocated_ports.remove(&port);
     }
 
+    /// The first port from `from` up that no instance has and nothing listens on, for a
+    /// new server that didn't choose one (a backup restored as a new server). `None` when
+    /// every port up to 65535 is taken.
+    pub fn next_free(&self, from: u32) -> Option<u32> {
+        (from..=u16::MAX as u32).find(|port| {
+            let status = self.port_status(*port);
+            !status.is_allocated && !status.is_in_use
+        })
+    }
+
     /// Forwards TCP `port` on the local network's UPnP gateway to this machine.
     ///
     /// The gateway search can take several seconds, so callers should not hold the
@@ -94,6 +104,16 @@ mod tests {
         let status = manager.port_status(70000);
         assert!(status.is_in_use);
         assert!(status.is_allocated);
+    }
+
+    #[test]
+    fn next_free_skips_allocated_and_used_ports() {
+        let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let used = listener.local_addr().unwrap().port() as u32;
+        let manager = PortManager::new(HashSet::from([used + 1]));
+        let free = manager.next_free(used).unwrap();
+        assert!(free > used + 1, "{free} {used}");
+        assert_eq!(PortManager::new(HashSet::new()).next_free(70000), None);
     }
 
     #[test]
