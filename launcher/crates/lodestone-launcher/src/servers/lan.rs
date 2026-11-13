@@ -52,7 +52,7 @@ pub const HINT_AFTER: Duration = Duration::from_secs(8);
 pub struct LanState {
     listener: Option<LanListener>,
     worlds: Arc<Mutex<LanWorlds>>,
-    /// Set by the listener thread when the list changed in a way people see.
+    /// Set by the listener when the list changed in a way people see.
     dirty: Arc<AtomicBool>,
     started: Option<Instant>,
     /// Why listening failed: the system's error.

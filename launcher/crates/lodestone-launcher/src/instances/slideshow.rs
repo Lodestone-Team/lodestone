@@ -359,14 +359,16 @@ impl Render for Slideshow {
             .map(|this| match &self.current {
                 Some(current) => this.child(cover(current.image.clone())),
                 // Nothing to show yet, or no images: the launcher's artwork.
-                None => this.child(
-                    img(crate::images::hero(cx))
-                        .absolute()
-                        .inset_0()
-                        .size_full()
-                        .rounded(HERO_RADIUS)
-                        .object_fit(ObjectFit::Cover),
-                ),
+                None => this
+                    .child(
+                        img(crate::images::hero(cx))
+                            .absolute()
+                            .inset_0()
+                            .size_full()
+                            .rounded(HERO_RADIUS)
+                            .object_fit(ObjectFit::Cover),
+                    )
+                    .child(crate::images::hero_fit()),
             })
             .when_some(self.next.as_ref().zip(fade), |this, ((next, _), t)| {
                 this.child(cover(next.image.clone()).opacity(t))
