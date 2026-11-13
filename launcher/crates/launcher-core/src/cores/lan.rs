@@ -17,7 +17,6 @@ use std::{
         Arc,
         atomic::{AtomicBool, Ordering},
     },
-    thread,
     time::{Duration, Instant},
 };
 
@@ -191,15 +190,19 @@ impl LanWorlds {
     }
 }
 
-/// A running listener. Dropping it stops the thread: at once for announcements, which it
-/// no longer passes on, and within [`STOP_CHECK_EVERY`] for the thread and its socket.
+/// A running listener. Dropping it stops it: it passes on no announcement after that,
+/// and its task ends (closing the socket) the next time the shared runtime polls it.
 pub struct LanListener {
     stop: Arc<AtomicBool>,
+    task: tokio::task::AbortHandle,
 }
 
 impl Drop for LanListener {
     fn drop(&mut self) {
+        // The flag first: an abort only lands when the task next waits, and packets
+        // already queued could reach the callback until then.
         self.stop.store(true, Ordering::Relaxed);
+        self.task.abort();
     }
 }
 
@@ -331,65 +334,64 @@ fn reusable_udp_socket(addr: SocketAddrV4) -> io::Result<UdpSocket> {
 /// Winsock's "message too long".
 const WSAEMSGSIZE: i32 = 10040;
 
-/// How often a listener with nothing to read wakes to see whether it was dropped. An
-/// announcement wakes it at once; this is only how long a dropped listener's thread
-/// lingers. Waking more often costs CPU in the background all day: with "Share LAN
-/// worlds" on, a listener runs whichever page is shown.
-pub const STOP_CHECK_EVERY: Duration = Duration::from_secs(5);
-
-/// Listens on `socket` on a new thread, calling `on_announcement` with each sender and
-/// announcement, until the returned listener is dropped (or `on_announcement` returns
-/// `false`). Malformed packets are ignored.
+/// Listens on `socket`, calling `on_announcement` with each sender and announcement,
+/// until the returned listener is dropped (or `on_announcement` returns `false`).
+/// Malformed packets are ignored.
+///
+/// It runs as a task on the HTTP client's Tokio runtime, whose one worker is up
+/// anyway, rather than on a thread of its own: with "Share LAN worlds" on, a listener
+/// runs whichever page is shown, all day. It sleeps until a packet arrives.
 pub fn listen(
     socket: UdpSocket,
     on_announcement: impl Fn(IpAddr, Announcement) -> bool + Send + 'static,
 ) -> io::Result<LanListener> {
-    socket.set_read_timeout(Some(STOP_CHECK_EVERY))?;
+    socket.set_nonblocking(true)?;
+    let runtime = reqwest_client::runtime();
+    let socket = {
+        // registers the socket with that runtime's reactor
+        let _entered = runtime.enter();
+        tokio::net::UdpSocket::from_std(socket)?
+    };
     let stop = Arc::new(AtomicBool::new(false));
     let stopped = stop.clone();
-    thread::Builder::new()
-        .name("lan-worlds".into())
-        .spawn(move || {
-            // one byte more than allowed, to tell long packets from full ones
-            let mut buffer = [0u8; MAX_PACKET_BYTES + 1];
-            while !stopped.load(Ordering::Relaxed) {
-                let received = socket.recv_from(&mut buffer);
-                // dropped while it waited
-                if stopped.load(Ordering::Relaxed) {
-                    break;
-                }
-                match received {
-                    Ok((len, SocketAddr::V4(from))) => {
-                        if let Some(announcement) = parse_packet(&buffer[..len])
-                            && !on_announcement(IpAddr::V4(*from.ip()), announcement)
-                        {
-                            break;
-                        }
-                    }
-                    Ok((len, SocketAddr::V6(from))) => {
-                        if let Some(announcement) = parse_packet(&buffer[..len])
-                            && !on_announcement(IpAddr::V6(*from.ip()), announcement)
-                        {
-                            break;
-                        }
-                    }
-                    Err(err)
-                        if matches!(
-                            err.kind(),
-                            io::ErrorKind::WouldBlock
-                                | io::ErrorKind::TimedOut
-                                | io::ErrorKind::Interrupted
-                        ) => {}
-                    // Windows: a packet longer than the buffer (too long to be an
-                    // announcement), which Unix would truncate instead.
-                    Err(err) if cfg!(windows) && err.raw_os_error() == Some(WSAEMSGSIZE) => {}
-                    // a refused or unreachable network (macOS without the local network
-                    // permission) is retried slowly rather than ending the thread
-                    Err(_) => thread::sleep(Duration::from_millis(500)),
-                }
+    let task = runtime.spawn(async move {
+        // one byte more than allowed, to tell long packets from full ones
+        let mut buffer = [0u8; MAX_PACKET_BYTES + 1];
+        loop {
+            let received = socket.recv_from(&mut buffer).await;
+            // dropped while it waited
+            if stopped.load(Ordering::Relaxed) {
+                break;
             }
-        })?;
-    Ok(LanListener { stop })
+            match received {
+                Ok((len, SocketAddr::V4(from))) => {
+                    if let Some(announcement) = parse_packet(&buffer[..len])
+                        && !on_announcement(IpAddr::V4(*from.ip()), announcement)
+                    {
+                        break;
+                    }
+                }
+                Ok((len, SocketAddr::V6(from))) => {
+                    if let Some(announcement) = parse_packet(&buffer[..len])
+                        && !on_announcement(IpAddr::V6(*from.ip()), announcement)
+                    {
+                        break;
+                    }
+                }
+                Err(err) if err.kind() == io::ErrorKind::Interrupted => {}
+                // Windows: a packet longer than the buffer (too long to be an
+                // announcement), which Unix would truncate instead.
+                Err(err) if cfg!(windows) && err.raw_os_error() == Some(WSAEMSGSIZE) => {}
+                // a refused or unreachable network (macOS without the local network
+                // permission) is retried slowly rather than ending the listener
+                Err(_) => tokio::time::sleep(Duration::from_millis(500)).await,
+            }
+        }
+    });
+    Ok(LanListener {
+        stop,
+        task: task.abort_handle(),
+    })
 }
 
 #[cfg(test)]
@@ -513,6 +515,11 @@ mod tests {
         .unwrap();
         let sender = UdpSocket::bind("127.0.0.1:0").unwrap();
         sender.send_to(b"not an announcement", addr).unwrap();
+        // too long to be an announcement (on Windows, an error rather than a cut-off
+        // packet), and the listener carries on
+        sender
+            .send_to(&[b'x'; MAX_PACKET_BYTES + 100], addr)
+            .unwrap();
         sender
             .send_to(b"[MOTD]\xc2\xa7eLAN world[/MOTD][AD]40000[/AD]", addr)
             .unwrap();
@@ -520,7 +527,13 @@ mod tests {
         assert_eq!(host, IpAddr::V4(Ipv4Addr::LOCALHOST));
         assert_eq!(announcement.motd.as_deref(), Some("§eLAN world"));
         assert_eq!(announcement.port, 40000);
+
+        // Dropped: nothing more is passed on, and the socket is closed soon after.
         drop(listener);
+        sender
+            .send_to(b"[MOTD]Late[/MOTD][AD]40001[/AD]", addr)
+            .unwrap();
+        assert!(rx.recv_timeout(Duration::from_millis(300)).is_err());
     }
 
     #[test]

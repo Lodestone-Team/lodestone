@@ -201,14 +201,16 @@ fn hero(
             // the skin's colour or gradient, or the launcher's artwork
             Backdrop::Artwork => match crate::skin::painted(SurfaceId::Hero) {
                 Some(painted) if painted.paint.is_some() => crate::skin::paint(this, &painted),
-                _ => this.child(
-                    img(crate::images::hero(cx))
-                        .absolute()
-                        .inset_0()
-                        .size_full()
-                        .rounded(radius::XL)
-                        .object_fit(ObjectFit::Cover),
-                ),
+                _ => this
+                    .child(
+                        img(crate::images::hero(cx))
+                            .absolute()
+                            .inset_0()
+                            .size_full()
+                            .rounded(radius::XL)
+                            .object_fit(ObjectFit::Cover),
+                    )
+                    .child(crate::images::hero_fit()),
             },
         })
         .child(
