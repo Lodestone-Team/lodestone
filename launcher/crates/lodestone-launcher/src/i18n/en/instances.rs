@@ -101,6 +101,16 @@ crate::i18n::messages! {
         NoLinesMatch = "No lines match the filter.",
         JumpToLatest = "Jump to latest",
         CopyLog = "Copy log",
+        /// The list beside the search: what the Logs tab shows. "This session" is the live console; the rest are files the game left on disk.
+        LogSource = "Log to show",
+        LogThisSession = "This session",
+        LogNoFiles = "No earlier logs or crash reports yet.",
+        LogKindLog = "Log",
+        LogKindCrash = "Crash report",
+        LogKindJvm = "Java crash",
+        LogReading = "Reading {name}",
+        LogReadFailed = "Couldn’t read {name}: {error}",
+        LogFileEmpty = "This file is empty.",
 
         // Import from another launcher.
         ImportTitle = "Import from another launcher",
@@ -271,6 +281,11 @@ crate::i18n::messages! {
         FilesLeftOut = (
             "{count} file was left out: {name}.",
             "{count} files were left out, such as {name}."
+        ),
+        /// After the footer's count, for a very long file: only its last lines are shown.
+        LogLinesSkipped = (
+            "the first {count} line isn’t shown",
+            "the first {count} lines aren’t shown"
         ),
         /// The console's footer: rows shown of the total.
         LinesShown = ("{shown} of {count} line", "{shown} of {count} lines"),

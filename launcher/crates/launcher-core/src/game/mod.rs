@@ -8,6 +8,7 @@
 //! - [`install`]: all of the above for one version;
 //! - [`natives`], [`launch`], [`process`]: the natives, the command line, the process;
 //! - [`log4j`] and [`crash`]: the game's output and what went wrong.
+//! - [`past_logs`]: the logs and crash reports left on disk.
 
 pub mod assets;
 pub mod crash;
@@ -19,6 +20,7 @@ pub mod loaders;
 pub mod log4j;
 pub mod mojang;
 pub mod natives;
+pub mod past_logs;
 pub mod platform;
 pub mod process;
 pub mod record;

@@ -103,6 +103,18 @@ impl GameLog {
         self.pushed - self.rows.len() as u64 + index as u64
     }
 
+    /// A log of `rows` as they are: a file read from disk (the Logs tab's past logs
+    /// and crash reports).
+    pub fn from_rows(rows: impl IntoIterator<Item = LogRow>) -> Self {
+        let rows: VecDeque<LogRow> = rows.into_iter().collect();
+        Self {
+            pushed: rows.len() as u64,
+            revision: 1,
+            rows,
+            recent: VecDeque::new(),
+        }
+    }
+
     pub fn push(&mut self, line: LogLine) {
         let time = line
             .timestamp

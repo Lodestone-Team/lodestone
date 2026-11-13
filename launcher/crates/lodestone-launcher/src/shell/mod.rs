@@ -51,6 +51,7 @@ use crate::{
         Accounts,
         offline_dialog::{OfflineDialog, OfflineDialogDismissed},
         sign_in::{SignInDialog, SignInEvent, Stage},
+        skin_dialog::{SkinDialog, SkinDialogDismissed},
     },
     components::{
         Button, ButtonVariant, Dialog, DialogSlot, Icon, RichText, UnderDialogs, focus,
@@ -215,6 +216,11 @@ enum Modal {
     },
     Offline {
         dialog: Entity<OfflineDialog>,
+        _events: Subscription,
+    },
+    /// "Change skin", from the account menu.
+    Skin {
+        dialog: Entity<SkinDialog>,
         _events: Subscription,
     },
     RemoveAccount {
@@ -1858,6 +1864,7 @@ impl LauncherShell {
             Some(Modal::AddModpack { dialog: open, .. }) => open.entity_id() == dialog,
             Some(Modal::SignIn { dialog: open, .. }) => open.entity_id() == dialog,
             Some(Modal::Offline { dialog: open, .. }) => open.entity_id() == dialog,
+            Some(Modal::Skin { dialog: open, .. }) => open.entity_id() == dialog,
             _ => false,
         }
     }
@@ -2183,6 +2190,48 @@ impl LauncherShell {
     }
 
     /// Opens "Add offline account", with `username` filled in for screenshots.
+    /// Opens "Change skin" for the active account, if it is a Microsoft account.
+    pub fn open_skin(&mut self, window: Option<&mut Window>, cx: &mut Context<Self>) {
+        let Some(account) = self
+            .accounts
+            .read(cx)
+            .active()
+            .filter(|account| !account.is_offline())
+            .cloned()
+        else {
+            return;
+        };
+        let accounts = self.accounts.clone();
+        let dialog = cx.new(|cx| SkinDialog::new(accounts, account, cx));
+        self.show_skin(dialog, window, cx);
+    }
+
+    /// Shows a "Change skin" dialog (the offscreen screenshots make their own).
+    pub fn show_skin(
+        &mut self,
+        dialog: Entity<SkinDialog>,
+        window: Option<&mut Window>,
+        cx: &mut Context<Self>,
+    ) {
+        self.account_menu_open = false;
+        let subscription = cx.subscribe(&dialog, |this, dialog, _: &SkinDialogDismissed, cx| {
+            if this.is_open_dialog(dialog.entity_id()) {
+                this.close_modal(cx)
+            }
+        });
+        if let Some(window) = window {
+            window.focus(&dialog.focus_handle(cx), cx);
+        }
+        self.modal.open(
+            Modal::Skin {
+                dialog,
+                _events: subscription,
+            },
+            cx,
+        );
+        cx.notify();
+    }
+
     pub fn open_offline(
         &mut self,
         username: Option<&str>,
@@ -2564,6 +2613,7 @@ impl LauncherShell {
             Modal::Unsaved { focus, target } => self.render_unsaved(focus.clone(), target, cx),
             Modal::SignIn { dialog, .. } => dialog.clone().into_any_element(),
             Modal::Offline { dialog, .. } => dialog.clone().into_any_element(),
+            Modal::Skin { dialog, .. } => dialog.clone().into_any_element(),
             Modal::RemoveAccount {
                 id,
                 username,

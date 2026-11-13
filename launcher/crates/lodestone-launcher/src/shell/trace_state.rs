@@ -35,6 +35,7 @@ impl Modal {
             Modal::ToggleMod { .. } => "disable_mod",
             Modal::SignIn { .. } => "sign_in",
             Modal::Offline { .. } => "offline_account",
+            Modal::Skin { .. } => "change_skin",
             Modal::RemoveAccount { .. } => "remove_account",
             Modal::LoaderChange { .. } => "loader_change",
             Modal::DeleteWorld { .. } => "delete_world",
