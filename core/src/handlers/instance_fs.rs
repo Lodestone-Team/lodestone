@@ -1971,7 +1971,7 @@ mod tests {
     }
 
     /// Copying a folder with a file that can't be read ends with an error naming the file,
-    /// and leaves nothing behind (LS-37). `fs_extra` retried it forever.
+    /// and leaves nothing behind (LS-37, LS-104). `fs_extra` retried it forever.
     #[cfg(unix)]
     #[test]
     fn a_copy_that_cant_read_a_file_fails_and_leaves_nothing() {
@@ -2006,7 +2006,7 @@ mod tests {
     }
 
     /// A copied folder's symbolic links aren't followed: what they point to, maybe outside
-    /// the instance, isn't copied in (LS-37).
+    /// the instance, isn't copied in (LS-37, LS-75).
     #[cfg(unix)]
     #[test]
     fn a_copy_skips_symbolic_links() {
@@ -2051,7 +2051,7 @@ mod tests {
         assert_eq!(calls.last(), Some(&(4, 4)));
     }
 
-    /// Copying sources that share a name keeps each of them (LS-37).
+    /// Copying sources that share a name keeps each of them (LS-37, LS-104).
     #[test]
     fn a_copy_keeps_sources_with_the_same_name() {
         let temp = tempfile::tempdir().unwrap();
