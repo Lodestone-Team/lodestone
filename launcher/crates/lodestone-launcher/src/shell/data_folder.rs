@@ -34,7 +34,7 @@ impl LauncherShell {
         if confirm {
             let focus = cx.focus_handle();
             let to = PathBuf::from("D:\\Games\\Lodestone Launcher");
-            self.modal.open(
+            self.open_modal(
                 Modal::DataMove {
                     to,
                     back: false,

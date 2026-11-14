@@ -113,6 +113,15 @@ impl Notices {
             InstancesEvent::LaunchFailed { title, message } => {
                 self.push("launch_failed", title.as_ref(), message.as_ref(), None, Value::Null)
             }
+            InstancesEvent::PlayFailed { id, title, message } => self.push(
+                "launch_failed",
+                title.as_ref(),
+                message.as_ref(),
+                Some(id.clone()),
+                Value::Null,
+            ),
+            // Traced as game.state; whoever cancelled it knows.
+            InstancesEvent::PlayCancelled(_) => {}
             InstancesEvent::Notice { title, message } => {
                 self.push("notice", title.as_ref(), message.as_ref(), None, Value::Null)
             }
@@ -446,6 +455,18 @@ mod tests {
         });
         let since: Vec<&str> = notices.since(seq).iter().map(|n| n.kind).collect();
         assert_eq!(since, ["launch_failed", "server_failed"]);
+        // A failed start is a launch failure too, of its instance.
+        notices.instances_event(&InstancesEvent::PlayFailed {
+            id: "survival".into(),
+            title: "Couldn't sign in".into(),
+            message: "offline".into(),
+        });
+        let failed = notices
+            .find_since(0, |n| n.title == "Couldn't sign in")
+            .unwrap();
+        assert!(failed.is_failure());
+        assert_eq!(failed.instance.as_deref(), Some("survival"));
+        notices.instances_event(&InstancesEvent::PlayCancelled("survival".into()));
         let found = notices
             .find_since(0, |n| n.title.starts_with("Couldn't start"))
             .unwrap();

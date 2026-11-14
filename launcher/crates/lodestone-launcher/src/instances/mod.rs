@@ -367,6 +367,17 @@ pub enum InstancesEvent {
         title: SharedString,
         message: SharedString,
     },
+    /// Preparing, verifying or starting the game of the instance failed: signing in, a
+    /// download, Java. Said apart from [`InstancesEvent::LaunchFailed`] so a "Find it for me"
+    /// search can tell its own try's failure from another job's.
+    PlayFailed {
+        id: String,
+        title: SharedString,
+        message: SharedString,
+    },
+    /// The preparation of the instance's game was cancelled before the game started.
+    /// Nothing exited or crashed, so no other event says the run is over.
+    PlayCancelled(String),
     /// Something to tell the user, such as the result of "Verify game files".
     Notice {
         title: SharedString,
@@ -1656,6 +1667,7 @@ impl Instances {
                 .is_some_and(|state| !state.options);
         let id = id.to_string();
         let run_id = id.clone();
+        let stop = cancel.clone();
         let task = cx.spawn(async move |this, cx| {
             let account = match account.await {
                 Ok(account) => account,
@@ -1714,6 +1726,9 @@ impl Instances {
                 })
                 .await;
             this.update(cx, |this, cx| match prepared {
+                // Cancelled after the last check that would have seen it (making the
+                // natives or the command): not started either.
+                Ok(_) if stop.is_cancelled() => this.prepare_cancelled(&id, cx),
                 Ok((command, rosetta, outside)) => {
                     this.take_notes(&id);
                     if let Some(run) = this.runs.get_mut(&id) {
@@ -1724,12 +1739,7 @@ impl Instances {
                     }
                     this.start(&id, command, rosetta, outside, cx)
                 }
-                Err(InstallError::Cancelled) => {
-                    if let Some(run) = this.runs.get_mut(&id) {
-                        run.log.note(Level::Warn, t(M::Cancelled));
-                    }
-                    this.set_idle(&id, cx);
-                }
+                Err(InstallError::Cancelled) => this.prepare_cancelled(&id, cx),
                 Err(InstallError::RosettaMissing) => this.fail(
                     &id,
                     t(M::RosettaNeeded).into(),
@@ -1861,6 +1871,15 @@ impl Instances {
         cx.notify();
     }
 
+    /// The game's preparation was cancelled: nothing started.
+    fn prepare_cancelled(&mut self, id: &str, cx: &mut Context<Self>) {
+        if let Some(run) = self.runs.get_mut(id) {
+            run.log.note(Level::Warn, t(M::Cancelled));
+        }
+        self.set_idle(id, cx);
+        cx.emit(InstancesEvent::PlayCancelled(id.to_string()));
+    }
+
     fn fail(
         &mut self,
         id: &str,
@@ -1879,7 +1898,11 @@ impl Instances {
             || serde_json::json!({ "instance": id, "title": title.to_string(), "message": message.to_string() }),
         );
         self.set_idle(id, cx);
-        cx.emit(InstancesEvent::LaunchFailed { title, message });
+        cx.emit(InstancesEvent::PlayFailed {
+            id: id.to_string(),
+            title,
+            message,
+        });
     }
 
     fn start(
@@ -2601,7 +2624,10 @@ mod tests {
         let text = log.run_text(|_| true);
         assert!(text.contains("Preparing 1.21.1"), "{text}");
         assert!(!text.contains("OutOfMemoryError"), "{text}");
-        assert!(log.to_text(|_| true).contains("OutOfMemoryError"), "the console keeps it");
+        assert!(
+            log.to_text(|_| true).contains("OutOfMemoryError"),
+            "the console keeps it"
+        );
 
         // A run longer than what is kept still reads its last events.
         log.start_run();

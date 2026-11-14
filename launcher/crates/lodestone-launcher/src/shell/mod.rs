@@ -324,6 +324,9 @@ pub struct LauncherShell {
     settings_nav_open: bool,
     /// The dialog over the window, and those still fading out.
     modal: DialogSlot<LauncherShell, Modal>,
+    /// Dialogs that came up while a "Find it for me" search was open, shown one after
+    /// another once it has closed ([`Self::open_modal`]).
+    queued_modals: std::collections::VecDeque<Modal>,
     account_menu_open: bool,
     /// Settings > Developer > Coding agents: the prompt was just copied, and its
     /// button shows a check for a moment.
@@ -391,14 +394,18 @@ impl LauncherShell {
                         this.show_crash(crash.clone(), cx)
                     }
                 }
-                InstancesEvent::LaunchFailed { .. } if this.mod_finder_for(cx).is_some() => {}
+                // The search shows why its own try couldn't start.
+                InstancesEvent::PlayFailed { id, .. }
+                    if this.mod_finder_for(cx).as_ref() == Some(id) => {}
                 InstancesEvent::Exited { .. }
+                | InstancesEvent::PlayCancelled(_)
                 | InstancesEvent::ReachedMenu(_)
                 | InstancesEvent::ModsRefused(_) => {}
                 InstancesEvent::LaunchFailed { title, message }
+                | InstancesEvent::PlayFailed { title, message, .. }
                 | InstancesEvent::Notice { title, message } => {
                     let focus = cx.focus_handle();
-                    this.modal.open(
+                    this.open_modal(
                         Modal::LaunchFailed {
                             title: title.clone(),
                             message: message.clone(),
@@ -425,7 +432,7 @@ impl LauncherShell {
                     let name = instances.instance_name(id).unwrap_or_default();
                     let current = instances.instance_name(current).unwrap_or_default();
                     let focus = cx.focus_handle();
-                    this.modal.open(
+                    this.open_modal(
                         Modal::ConfirmMain {
                             id: id.clone(),
                             name,
@@ -452,7 +459,7 @@ impl LauncherShell {
                     prompt: prompt.clone(),
                     focus: cx.focus_handle(),
                 };
-                this.modal.open(modal, cx);
+                this.open_modal(modal, cx);
             }
         }));
         let worlds = cx.new(|cx| WorldsView::new(instances.clone(), cx));
@@ -474,7 +481,7 @@ impl LauncherShell {
                     focus: cx.focus_handle(),
                 },
             };
-            this.modal.open(modal, cx);
+            this.open_modal(modal, cx);
         }));
         let launcher_settings = {
             let instances = instances.clone();
@@ -487,7 +494,7 @@ impl LauncherShell {
             ServersEvent::ShowServers => this.show(Page::Servers, cx),
             ServersEvent::Failed { title, message } => {
                 let focus = cx.focus_handle();
-                this.modal.open(
+                this.open_modal(
                     Modal::LaunchFailed {
                         title: title.clone(),
                         message: message.clone(),
@@ -535,7 +542,7 @@ impl LauncherShell {
             StorageEvent::DeleteInstance(id) => this.confirm_delete_instance(id, cx),
             StorageEvent::Confirm { what, bytes } => {
                 let focus = cx.focus_handle();
-                this.modal.open(
+                this.open_modal(
                     Modal::StorageClean {
                         what: *what,
                         bytes: *bytes,
@@ -546,7 +553,7 @@ impl LauncherShell {
             }
             StorageEvent::ConfirmMove { to, back } => {
                 let focus = cx.focus_handle();
-                this.modal.open(
+                this.open_modal(
                     Modal::DataMove {
                         to: to.clone(),
                         back: *back,
@@ -595,6 +602,7 @@ impl LauncherShell {
             trace: Default::default(),
             settings_nav_open: false,
             modal: DialogSlot::new(|this: &mut LauncherShell| &mut this.modal),
+            queued_modals: Default::default(),
             account_menu_open: false,
             agent_prompt_copied: false,
             agent_prompt_reset: None,
@@ -792,7 +800,7 @@ impl LauncherShell {
     pub fn show_modpack_update(&mut self, prompt: UpdatePrompt, cx: &mut Context<Self>) {
         self.discard_pending_update(cx);
         let focus = cx.focus_handle();
-        self.modal.open(
+        self.open_modal(
             Modal::ModpackUpdate {
                 prompt: Box::new(prompt),
                 backup_worlds: true,
@@ -1246,13 +1254,13 @@ impl LauncherShell {
         cx: &mut Context<Self>,
     ) {
         let focus = cx.focus_handle();
-        self.modal.open(Modal::ToggleMod { prompt, focus }, cx);
+        self.open_modal(Modal::ToggleMod { prompt, focus }, cx);
     }
 
     /// Shows the launch error dialog, for the offscreen screenshots.
     pub fn preview_launch_failed(&mut self, title: &str, message: &str, cx: &mut Context<Self>) {
         let focus = cx.focus_handle();
-        self.modal.open(
+        self.open_modal(
             Modal::LaunchFailed {
                 title: title.to_string().into(),
                 message: message.to_string().into(),
@@ -1269,7 +1277,7 @@ impl LauncherShell {
         self.minimized_for_game = false;
         self.bring_back_soon(cx);
         let focus = cx.focus_handle();
-        self.modal.open(
+        self.open_modal(
             Modal::Crash {
                 crash,
                 focus,
@@ -1340,13 +1348,56 @@ impl LauncherShell {
                 this.close_modal(cx);
             }
         });
-        self.modal.open(
+        self.open_modal(
             Modal::ModFinder {
                 finder,
                 _events: subscription,
             },
             cx,
         );
+    }
+
+    /// Shows a dialog, closing the one that is open; or, while a "Find it for me"
+    /// search is open, queues it until the search closes. Closing the search's dialog
+    /// would drop it half way, with mods still turned off and its try's game left
+    /// running unwatched: a crash of another instance, a modpack import finishing or
+    /// another job's error waits instead.
+    fn open_modal(&mut self, modal: Modal, cx: &mut Context<Self>) {
+        let searching = match self.modal.current() {
+            Some(Modal::ModFinder { finder, .. }) => Some(finder.read(cx).instance_id()),
+            _ => None,
+        };
+        if let Some(searching) = searching {
+            // A second search of the same instance would undo the first one's work.
+            if let Modal::ModFinder { finder, .. } = &modal
+                && finder.read(cx).instance_id() == searching
+            {
+                return;
+            }
+            self.queued_modals.push_back(modal);
+            cx.notify();
+            return;
+        }
+        self.modal.open(modal, cx);
+    }
+
+    /// Shows the next queued dialog once none is open ([`Self::open_modal`]), after
+    /// this update: what closed the last dialog may be opening another.
+    fn show_queued_modal_soon(&mut self, cx: &mut Context<Self>) {
+        if self.queued_modals.is_empty() {
+            return;
+        }
+        cx.spawn(async move |this, cx| {
+            this.update(cx, |this, cx| {
+                if !this.modal.is_open()
+                    && let Some(modal) = this.queued_modals.pop_front()
+                {
+                    this.open_modal(modal, cx);
+                }
+            })
+            .ok();
+        })
+        .detach();
     }
 
     /// Offers to finish a search that a launcher quit in the middle of, which left some
@@ -1435,7 +1486,7 @@ impl LauncherShell {
     /// Asks before saving a loader change (from the Settings tab).
     pub fn show_loader_change(&mut self, prompt: LoaderChangePrompt, cx: &mut Context<Self>) {
         let focus = cx.focus_handle();
-        self.modal.open(
+        self.open_modal(
             Modal::LoaderChange {
                 prompt: Box::new(prompt),
                 focus,
@@ -1608,7 +1659,7 @@ impl LauncherShell {
             return;
         };
         let focus = cx.focus_handle();
-        self.modal.open(
+        self.open_modal(
             Modal::DeleteInstance {
                 id: instance.id,
                 name: instance.name,
@@ -1826,7 +1877,7 @@ impl LauncherShell {
             }
             Err(err) => {
                 let focus = cx.focus_handle();
-                self.modal.open(
+                self.open_modal(
                     Modal::LaunchFailed {
                         title: tr!(M::DeleteNamed, name = name).into(),
                         message: err.into(),
@@ -1851,6 +1902,7 @@ impl LauncherShell {
             dialog.clone().update(cx, |dialog, cx| dialog.discard(cx));
         }
         self.modal.close(cx);
+        self.show_queued_modal_soon(cx);
     }
 
     /// Whether `dialog` is the open dialog's view. Events from a dialog that is fading
@@ -1911,7 +1963,7 @@ impl LauncherShell {
         if let Some(window) = window {
             window.focus(&dialog.focus_handle(cx), cx);
         }
-        self.modal.open(
+        self.open_modal(
             Modal::NewInstance {
                 dialog,
                 _events: subscription,
@@ -1935,7 +1987,7 @@ impl LauncherShell {
                 this.close_modal(cx)
             }
         });
-        self.modal.open(
+        self.open_modal(
             Modal::Snapshot {
                 dialog,
                 _events: subscription,
@@ -1965,7 +2017,7 @@ impl LauncherShell {
                 this.close_modal(cx)
             }
         });
-        self.modal.open(
+        self.open_modal(
             Modal::AddModpack {
                 dialog,
                 _events: subscription,
@@ -1989,7 +2041,7 @@ impl LauncherShell {
                 this.close_modal(cx)
             }
         });
-        self.modal.open(
+        self.open_modal(
             Modal::Share {
                 dialog,
                 _events: subscription,
@@ -2015,7 +2067,7 @@ impl LauncherShell {
             this.page = Page::Instance;
             this.close_modal(cx)
         });
-        self.modal.open(
+        self.open_modal(
             Modal::Import {
                 dialog,
                 _events: subscription,
@@ -2062,7 +2114,7 @@ impl LauncherShell {
                 focus,
             }
         };
-        self.modal.open(modal, cx);
+        self.open_modal(modal, cx);
     }
 
     /// Offers a new instance as the main one, once whatever dialog made it (New
@@ -2081,7 +2133,7 @@ impl LauncherShell {
                         return true;
                     };
                     let focus = cx.focus_handle();
-                    this.modal.open(
+                    this.open_modal(
                         Modal::OfferMain {
                             id: id.clone(),
                             name,
@@ -2180,7 +2232,7 @@ impl LauncherShell {
         if let Some(window) = window {
             window.focus(&dialog.focus_handle(cx), cx);
         }
-        self.modal.open(
+        self.open_modal(
             Modal::SignIn {
                 dialog,
                 _events: subscription,
@@ -2222,7 +2274,7 @@ impl LauncherShell {
         if let Some(window) = window {
             window.focus(&dialog.focus_handle(cx), cx);
         }
-        self.modal.open(
+        self.open_modal(
             Modal::Skin {
                 dialog,
                 _events: subscription,
@@ -2255,7 +2307,7 @@ impl LauncherShell {
         if let Some(window) = window {
             window.focus(&dialog.focus_handle(cx), cx);
         }
-        self.modal.open(
+        self.open_modal(
             Modal::Offline {
                 dialog,
                 _events: subscription,
@@ -2286,7 +2338,7 @@ impl LauncherShell {
         if let Some(window) = window {
             window.focus(&focus, cx);
         }
-        self.modal.open(
+        self.open_modal(
             Modal::RemoveAccount {
                 id: account.id,
                 username: account.username,
@@ -3178,6 +3230,92 @@ mod paste_tests {
                 "the paste shortcut reaches the root: {:?}",
                 window.context_stack()
             );
+        });
+    }
+}
+
+/// Other dialogs and a "Find it for me" search, which shares their place.
+#[cfg(all(test, feature = "screenshot"))]
+mod mod_finder_tests {
+    use gpui::TestAppContext;
+
+    use super::*;
+
+    fn shown_title(
+        shell: &Entity<LauncherShell>,
+        cx: &mut gpui::VisualTestContext,
+    ) -> Option<String> {
+        shell.read_with(cx, |shell, _| match shell.modal.current() {
+            Some(Modal::LaunchFailed { title, .. }) => Some(title.to_string()),
+            _ => None,
+        })
+    }
+
+    /// Another job's notice or error waits for the search instead of closing it half
+    /// way, and an error of another job is shown, not dropped. The search's own try's
+    /// failure is the search's to show (LS-58).
+    #[test]
+    fn other_dialogs_wait_for_a_search() {
+        let mut cx = TestAppContext::single();
+        cx.update(crate::components::init);
+        let (shell, cx) = cx.add_window_view(|_, cx| {
+            let accounts = crate::preview::accounts("signed-out", cx);
+            let instances = crate::preview::instances("sidebar-groups", &accounts, cx);
+            LauncherShell::new(accounts, instances, cx)
+        });
+        cx.run_until_parked();
+        let (instances, id) = shell.read_with(cx, |shell, cx| {
+            let instances = shell.instances.clone();
+            let id = instances.read(cx).list()[0].id.clone();
+            (instances, id)
+        });
+        let finder = shell.update(cx, |shell, cx| {
+            let instances = shell.instances.clone();
+            let finder = cx.new(|cx| ModFinder::preview(instances, &id, false, cx));
+            shell.show_mod_finder(finder.clone(), cx);
+            finder
+        });
+        cx.run_until_parked();
+
+        instances.update(cx, |_, cx| {
+            cx.emit(InstancesEvent::Notice {
+                title: "Modpack ready".into(),
+                message: "Imported".into(),
+            });
+            cx.emit(InstancesEvent::LaunchFailed {
+                title: "Couldn't export modpack".into(),
+                message: "disk full".into(),
+            });
+            cx.emit(InstancesEvent::PlayFailed {
+                id: id.clone(),
+                title: "Couldn't sign in".into(),
+                message: "offline".into(),
+            });
+        });
+        cx.run_until_parked();
+        shell.read_with(cx, |shell, cx| {
+            assert_eq!(
+                shell.mod_finder_for(cx).as_ref(),
+                Some(&id),
+                "still searching"
+            );
+            assert_eq!(shell.queued_modals.len(), 2);
+        });
+
+        finder.update(cx, |_, cx| cx.emit(ModFinderClosed));
+        cx.run_until_parked();
+        assert_eq!(shown_title(&shell, cx).as_deref(), Some("Modpack ready"));
+        shell.update(cx, |shell, cx| shell.close_modal(cx));
+        cx.run_until_parked();
+        assert_eq!(
+            shown_title(&shell, cx).as_deref(),
+            Some("Couldn't export modpack")
+        );
+        shell.update(cx, |shell, cx| shell.close_modal(cx));
+        cx.run_until_parked();
+        shell.read_with(cx, |shell, _| {
+            assert!(!shell.modal.is_open());
+            assert!(shell.queued_modals.is_empty());
         });
     }
 }
