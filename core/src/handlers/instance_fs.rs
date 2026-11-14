@@ -928,7 +928,7 @@ async fn copy_instance_files(
         };
 
         let inner = || -> Result<(), Error> {
-            copy_entries_in(&paths_source, &path_dest, &path_to_tmp(), handle)?;
+            copy_entries_in(&paths_source, &path_dest, path_to_tmp(), handle)?;
             Ok(())
         };
 
