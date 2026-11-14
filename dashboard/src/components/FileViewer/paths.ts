@@ -27,3 +27,14 @@ export const nameTaken = (
   const fold = (s: string) => (ignoreCase ? s.toLowerCase() : s);
   return entries.some((entry) => fold(entry.name) === fold(name));
 };
+
+/**
+ * Whether `path` is `target` itself or, when `target` is a folder, inside it.
+ * A plain prefix test would also match a sibling: `backup.sh` starts with
+ * `backup`.
+ */
+export const isSameOrInside = (
+  path: string,
+  target: string,
+  separator: string
+) => path === target || path.startsWith(target + separator);

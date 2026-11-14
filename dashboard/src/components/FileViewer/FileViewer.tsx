@@ -63,7 +63,7 @@ import { useFileContent, useFileList } from 'data/FileSystem';
 import { FileEditor } from './FileEditor';
 import { UnzipOption } from 'bindings/UnzipOption';
 import { FileViewerContext, FileViewerContextValue } from './FileViewerContext';
-import { getDirectorySeparator } from './paths';
+import { getDirectorySeparator, isSameOrInside } from './paths';
 import { SkeletonCode, SkeletonGroup } from 'components/Atoms/Skeleton';
 import { useT } from 'i18n';
 
@@ -143,9 +143,24 @@ export default function FileViewer() {
     error: fileError,
   } = useFileContent(instance.uuid, openedFile, canRead);
 
+  // Keyed on the path, not the object: saving or a refetch replaces the open
+  // file's list entry, and clicking it again then set a new object for the
+  // same file. That emptied the editor without reloading it, so Save wrote an
+  // empty file.
   useEffect(() => {
     setFileContent('');
-  }, [openedFile]);
+  }, [openedFile?.path]);
+
+  /** Closes the editor if it shows `target` or (for a folder) a file in it. */
+  const closeEditorIfIn = (target: string) => {
+    if (
+      openedFile &&
+      isSameOrInside(openedFile.path, target, directorySeparator)
+    ) {
+      setOpenedFile(null);
+      setFileContent('');
+    }
+  };
 
   const showingMonaco = openedFile && !isFileLoading && !fileError;
   /* Helper functions */
@@ -159,25 +174,25 @@ export default function FileViewer() {
   };
 
   const deleteSingleFile = async (file: ClientFile) => {
+    // a failed delete keeps the editor, and its unsaved edits, open
     if (file.file_type === 'Directory') {
-      await deleteInstanceDirectory(
+      const deleted = await deleteInstanceDirectory(
         instance.uuid,
         path,
         file.path,
         queryClient
       );
       tickFile(file, false);
-      if (openedFile?.path.startsWith(file.path)) {
-        setOpenedFile(null);
-        setFileContent('');
-      }
+      if (deleted) closeEditorIfIn(file.path);
     } else if (file.file_type === 'File') {
-      await deleteInstanceFile(instance.uuid, path, file, queryClient);
+      const deleted = await deleteInstanceFile(
+        instance.uuid,
+        path,
+        file,
+        queryClient
+      );
       tickFile(file, false);
-      if (openedFile?.path === file.path) {
-        setOpenedFile(null);
-        setFileContent('');
-      }
+      if (deleted) closeEditorIfIn(file.path);
     }
   };
   const deleteFiles = async (files: ClientFile[]) => {
@@ -205,17 +220,14 @@ export default function FileViewer() {
       );
     } else if (clipboardAction === 'cut') {
       for (const file of clipboard) {
-        await moveInstanceFileOrDirectory(
+        const error = await moveInstanceFileOrDirectory(
           instance.uuid,
           file.path,
           joinPath(currentPath, file.name, directorySeparator),
           queryClient,
           directorySeparator
         );
-        if (openedFile?.path.startsWith(file.path)) {
-          setOpenedFile(null);
-          setFileContent('');
-        }
+        if (!error) closeEditorIfIn(file.path);
       }
     }
     setClipboard([]);
@@ -393,7 +405,12 @@ export default function FileViewer() {
       >
         <RenameFileForm
           onCancel={() => setRenameFileModalOpen(false)}
-          onSuccess={() => setRenameFileModalOpen(false)}
+          onSuccess={() => {
+            setRenameFileModalOpen(false);
+            // The editor would keep saving to the old path, which brings the
+            // old file back. Close it, as deleting and moving do.
+            closeEditorIfIn(modalPath);
+          }}
           path={modalPath}
         />
       </CreationModal>
@@ -682,7 +699,8 @@ export default function FileViewer() {
                 onFileClick={(file) => {
                   if (file.file_type === 'Directory') {
                     setPath(file.path, false);
-                  } else {
+                  } else if (file.path !== openedFile?.path) {
+                    // clicking the open file again leaves it as it is
                     setOpenedFile(file);
                   }
                 }}
@@ -693,6 +711,8 @@ export default function FileViewer() {
                 <div className="h-full">
                   {showingMonaco ? (
                     <FileEditor
+                      // it binds Ctrl+S to its file when it mounts
+                      key={openedFile.path}
                       path={path}
                       monacoPath={joinPath(
                         instance.path,

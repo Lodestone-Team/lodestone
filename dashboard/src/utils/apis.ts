@@ -86,13 +86,16 @@ export const saveInstanceFile = async (
   queryClient.setQueryData(fileListKey, newFileList);
 };
 
-/** Shows a toast on failure (and on success). */
+/**
+ * Shows a toast on failure (and on success). Resolves with whether the file
+ * was deleted.
+ */
 export const deleteInstanceFile = async (
   uuid: string,
   directory: string,
   file: ClientFile,
   queryClient: QueryClient
-) => {
+): Promise<boolean> => {
   const error = await catchAsyncToString(
     axiosWrapper<null>({
       method: 'delete',
@@ -101,27 +104,31 @@ export const deleteInstanceFile = async (
   );
   if (error) {
     toast.error(error);
-    return;
+    return false;
   } else {
     toast.success(t('server.api.deletedFile', { name: file.name }));
   }
 
   const fileListKey = ['instance', uuid, 'fileList', directory];
   const fileList = queryClient.getQueryData<ClientFile[]>(fileListKey);
-  if (!fileList) return;
+  if (!fileList) return true;
   queryClient.setQueryData(
     fileListKey,
     fileList?.filter((f) => f.path !== file.path)
   );
+  return true;
 };
 
-/** Shows a toast on failure (and on success). */
+/**
+ * Shows a toast on failure (and on success). Resolves with whether the folder
+ * was deleted.
+ */
 export const deleteInstanceDirectory = async (
   uuid: string,
   parentDirectory: string,
   directory: string,
   queryClient: QueryClient
-) => {
+): Promise<boolean> => {
   const error = await catchAsyncToString(
     axiosWrapper<null>({
       method: 'delete',
@@ -130,7 +137,7 @@ export const deleteInstanceDirectory = async (
   );
   if (error) {
     toast.error(error);
-    return;
+    return false;
   } else {
     toast.success(t('server.api.deletedDirectory', { path: directory }));
   }
@@ -140,6 +147,7 @@ export const deleteInstanceDirectory = async (
     fileListKey,
     fileList?.filter((file) => file.path !== directory)
   );
+  return true;
 };
 
 /**
