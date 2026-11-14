@@ -70,7 +70,10 @@ use launcher_core::{
 
 pub use launcher_core::friend_list::{hex, service, unhex32};
 
-use super::{Notice, Servers, friends::Source};
+use super::{
+    Notice, Servers,
+    friends::{Liveness, Source, recheck_after},
+};
 use crate::{
     components::{DialogSlot, TextInput},
     i18n::{FriendListMsg as M, t, tr},
@@ -84,6 +87,10 @@ pub const REFRESH_EVERY: Duration = Duration::from_secs(5 * 60);
 
 /// Showing the section again within this long doesn't check again.
 const REFRESH_AGAIN_AFTER: Duration = Duration::from_secs(20);
+
+/// How often the shown section looks for servers to ask again
+/// ([`super::friends::recheck_after`] says when each is due).
+const SERVERS_TICK: Duration = Duration::from_secs(4);
 
 /// A short, stable piece of a key or fingerprint for automation ids.
 pub fn short(key: &str) -> &str {
@@ -281,6 +288,11 @@ pub struct FriendList {
     /// Friends whose servers are shown.
     pub expanded: HashSet<String>,
     pub servers: HashMap<(String, String), CoreServers>,
+    /// When each core's servers were last listed, for asking again
+    /// ([`super::friends::recheck_after`]).
+    servers_at: HashMap<(String, String), Instant>,
+    /// Cores whose servers are being asked now, for their Check button.
+    pub checking: HashSet<(String, String)>,
     pub made: Option<MadeLink>,
     pub dialog: DialogSlot<Servers, FriendPrompt>,
     /// Friends or answers being changed: their keys.
@@ -308,6 +320,8 @@ impl FriendList {
             problem: None,
             expanded: HashSet::new(),
             servers: HashMap::new(),
+            servers_at: HashMap::new(),
+            checking: HashSet::new(),
             made: None,
             dialog: DialogSlot::new(|this: &mut Servers| &mut this.friend_list.dialog),
             busy: HashSet::new(),
@@ -335,6 +349,8 @@ impl FriendList {
         self.problem = None;
         self.expanded.clear();
         self.servers.clear();
+        self.servers_at.clear();
+        self.checking.clear();
         self.made = None;
         self.busy.clear();
         self.poller = None;
@@ -369,6 +385,39 @@ impl FriendList {
             .map(|c| hex(&c.fingerprint))
             .filter(|fp| self.presence.get(&(key.to_string(), fp.clone())) != Some(&false))
             .collect()
+    }
+
+    /// The shown friends' cores whose servers should be asked again: their last answer
+    /// is older than what it says allows ([`recheck_after`]), soon while a server
+    /// starts so Play and join turns on once it runs, and often while one is stopped.
+    fn servers_due(&self, now: Instant) -> Vec<(String, String)> {
+        let mut due = Vec::new();
+        for key in &self.expanded {
+            for fingerprint in self.cores_to_load(key) {
+                let slot = (key.clone(), fingerprint);
+                if self.checking.contains(&slot) {
+                    continue;
+                }
+                let after = match self.servers.get(&slot) {
+                    Some(CoreServers::Loaded(servers)) => servers
+                        .iter()
+                        .map(|s| recheck_after(Liveness::of_shared(s)))
+                        .min()
+                        .unwrap_or(recheck_after(Liveness::Running)),
+                    Some(CoreServers::Failed(_)) => recheck_after(Liveness::Unreachable),
+                    // being asked, or never asked ("Show servers")
+                    Some(CoreServers::Loading) | None => continue,
+                };
+                let old = self
+                    .servers_at
+                    .get(&slot)
+                    .is_none_or(|at| now.saturating_duration_since(*at) >= after);
+                if old {
+                    due.push(slot);
+                }
+            }
+        }
+        due
     }
 
     /// Forgets the servers of cores that went offline, so they are asked again when
@@ -625,7 +674,9 @@ impl Servers {
     }
 
     /// The section is shown or hidden: check on friends now and every few minutes
-    /// while it is shown, once the friend list is in use.
+    /// while it is shown, once the friend list is in use. In between, the servers of
+    /// shown friends are asked again as their state calls for
+    /// ([`Self::recheck_friend_servers`]).
     pub(super) fn friend_list_visible(&mut self, visible: bool, cx: &mut Context<Self>) {
         if !visible || self.preview {
             self.friend_list.poller = None;
@@ -636,24 +687,49 @@ impl Servers {
             return;
         }
         self.friend_list.poller = Some(cx.spawn(async move |this, cx| {
+            // shown again soon after the last check: don't check again yet
+            let mut again_after = REFRESH_AGAIN_AFTER;
             loop {
                 let ok = this
                     .update(cx, |this, cx| {
                         let due = this
                             .friend_list
                             .refreshed_at
-                            .is_none_or(|at| at.elapsed() >= REFRESH_AGAIN_AFTER);
+                            .is_none_or(|at| at.elapsed() >= again_after);
                         if due {
                             this.start_friend_refresh(cx);
                         }
+                        this.recheck_friend_servers(cx);
                     })
                     .is_ok();
                 if !ok {
                     break;
                 }
-                cx.background_executor().timer(REFRESH_EVERY).await;
+                again_after = REFRESH_EVERY;
+                cx.background_executor().timer(SERVERS_TICK).await;
             }
         }));
+    }
+
+    /// Asks the shown friends' cores for their servers again once their last answer
+    /// is old for what it said: a starting server every few seconds, so Play and join
+    /// turns on as soon as it runs. A refresh running now asks them itself.
+    fn recheck_friend_servers(&mut self, cx: &mut Context<Self>) {
+        if self.preview || self.friend_list.refreshing {
+            return;
+        }
+        for (key, fingerprint) in self.friend_list.servers_due(Instant::now()) {
+            self.friend_servers(key, fingerprint, cx).detach();
+        }
+    }
+
+    /// "Check" on one of a friend's cores: asks for its servers now.
+    pub fn check_friend_core(&mut self, key: &str, fingerprint: &str, cx: &mut Context<Self>) {
+        let slot = (key.to_string(), fingerprint.to_string());
+        if self.preview || self.friend_list.checking.contains(&slot) {
+            return;
+        }
+        self.friend_servers(slot.0, slot.1, cx).detach();
     }
 
     /// Refresh, for the window: runs unless one is running.
@@ -1308,8 +1384,9 @@ impl Servers {
             self.friend_list
                 .servers
                 .insert(slot.clone(), CoreServers::Loading);
-            cx.notify();
         }
+        self.friend_list.checking.insert(slot.clone());
+        cx.notify();
         let task = self.friend_op(
             cx,
             false,
@@ -1322,7 +1399,10 @@ impl Servers {
                     Ok(servers) => CoreServers::Loaded(servers.clone()),
                     Err(err) => CoreServers::Failed(err.clone()),
                 };
-                this.friend_list.servers.insert(slot, shown);
+                let list = &mut this.friend_list;
+                list.checking.remove(&slot);
+                list.servers_at.insert(slot.clone(), Instant::now());
+                list.servers.insert(slot, shown);
                 cx.notify();
             })
             .ok();
@@ -2260,5 +2340,68 @@ mod tests {
         assert!(!list.servers.contains_key(&(key.clone(), two.clone())));
         assert_eq!(list.cores_to_load(&key), [one]);
         assert!(list.cores_to_load("nobody").is_empty());
+    }
+
+    /// A shown friend's starting server is asked again within seconds, so Play and
+    /// join turns on once it runs, without waiting for the next refresh.
+    #[test]
+    fn shown_servers_are_asked_again_as_their_state_calls_for() {
+        let mut list = FriendList::new(std::path::Path::new("/nonexistent"));
+        let mut alex = friend(&"ab".repeat(32), "Alex", None);
+        alex.status = Status::Active;
+        alex.state = Some(FriendState {
+            launchers: Vec::new(),
+            players: Vec::new(),
+            seq: 1,
+            expires: friend_list::now() + 3600,
+            cores: vec![
+                serde_json::from_value(
+                    serde_json::json!({ "fingerprint": hex(&[1; 32]), "name": "PC" }),
+                )
+                .unwrap(),
+            ],
+        });
+        let key = alex.key.clone();
+        list.snapshot.book.friends.push(alex);
+        let slot = (key.clone(), hex(&[1; 32]));
+        let server = |state: &str| -> SharedServer {
+            serde_json::from_value(serde_json::json!({
+                "core_name": "PC",
+                "core_uuid": "core",
+                "instance_uuid": "inst",
+                "name": "Survival",
+                "game_version": "1.21.1",
+                "loader": "fabric",
+                "state": state,
+            }))
+            .unwrap()
+        };
+        let start = Instant::now();
+        list.servers
+            .insert(slot.clone(), CoreServers::Loaded(vec![server("Starting")]));
+        list.servers_at.insert(slot.clone(), start);
+        // not shown: never asked
+        assert!(
+            list.servers_due(start + Duration::from_secs(600))
+                .is_empty()
+        );
+        list.expanded.insert(key.clone());
+        // starting: asked again after a few seconds
+        assert!(list.servers_due(start + Duration::from_secs(2)).is_empty());
+        let soon = start + recheck_after(Liveness::Starting);
+        assert_eq!(list.servers_due(soon), std::slice::from_ref(&slot));
+        // not twice while it's being asked
+        list.checking.insert(slot.clone());
+        assert!(list.servers_due(soon).is_empty());
+        list.checking.clear();
+        // running: not for a while
+        list.servers
+            .insert(slot.clone(), CoreServers::Loaded(vec![server("Running")]));
+        assert!(list.servers_due(soon).is_empty());
+        let later = start + recheck_after(Liveness::Running);
+        assert_eq!(list.servers_due(later), std::slice::from_ref(&slot));
+        // an offline core isn't asked
+        list.presence.insert(slot.clone(), false);
+        assert!(list.servers_due(later).is_empty());
     }
 }
