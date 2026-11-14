@@ -275,6 +275,110 @@ fn reads_the_newer_modrinth_app_and_its_json_predecessor() {
     assert_eq!(quilt.jvm_args.as_deref(), Some("-Dq=1"));
 }
 
+/// NeoForge for 1.20.1 comes in as Forge 47.1 from every launcher, not only Prism and
+/// CurseForge: NeoForge's own list has no 1.20.1 builds, so it would be vanilla (LS-42).
+#[test]
+fn neoforge_for_1_20_1_is_forge_from_every_launcher() {
+    let temp = tempfile::tempdir().unwrap();
+    let write = |folder: &str, file: &str, json: serde_json::Value| {
+        let dir = temp.path().join(folder);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join(file), json.to_string()).unwrap();
+        dir
+    };
+    let instances = [
+        (
+            Source::ModrinthApp,
+            write(
+                "modrinth",
+                "profile.json",
+                serde_json::json!({
+                    "path": "modrinth",
+                    "metadata": {
+                        "name": "Neo", "game_version": "1.20.1", "loader": "neoforge",
+                        "loader_version": { "id": "47.1.106" },
+                    },
+                }),
+            ),
+        ),
+        (
+            Source::AtLauncher,
+            write(
+                "atlauncher",
+                "instance.json",
+                serde_json::json!({
+                    "id": "1.20.1",
+                    "launcher": {
+                        "name": "Neo",
+                        "loaderVersion": { "version": "47.1.106", "type": "NeoForge" },
+                    },
+                }),
+            ),
+        ),
+        (
+            Source::GdLauncher,
+            write(
+                "gdlauncher",
+                "config.json",
+                serde_json::json!({
+                    "loader": {
+                        "loaderType": "neoforge", "loaderVersion": "47.1.106",
+                        "mcVersion": "1.20.1",
+                    },
+                }),
+            ),
+        ),
+        (
+            Source::GdLauncherCarbon,
+            write(
+                "carbon",
+                "instance.json",
+                serde_json::json!({
+                    "name": "Neo",
+                    "game_configuration": { "version": {
+                        "release": "1.20.1",
+                        "modloaders": [{ "type": "NeoForge", "version": "47.1.106" }],
+                    }},
+                }),
+            ),
+        ),
+    ];
+    for (source, dir) in instances {
+        let read = detect::read_folder(&dir).unwrap();
+        assert_eq!(read[0].source, source);
+        let found = &read[0].instances[0];
+        assert_eq!(found.game_version, exact("1.20.1"), "{source:?}");
+        assert_eq!(
+            found.loader,
+            loader(LoaderKind::Forge, "47.1.106"),
+            "{source:?}"
+        );
+        assert!(
+            found.notes.iter().any(|n| n.contains("runs as Forge 47.1")),
+            "{source:?}: {:?}",
+            found.notes
+        );
+    }
+    // NeoForge for other versions stays NeoForge
+    let newer = write(
+        "newer",
+        "profile.json",
+        serde_json::json!({
+            "path": "newer",
+            "metadata": {
+                "name": "Neo 21", "game_version": "1.21.1", "loader": "neoforge",
+                "loader_version": { "id": "21.1.209" },
+            },
+        }),
+    );
+    let read = detect::read_folder(&newer).unwrap();
+    assert_eq!(
+        read[0].instances[0].loader,
+        loader(LoaderKind::NeoForge, "21.1.209")
+    );
+    assert!(read[0].instances[0].notes.is_empty());
+}
+
 #[test]
 fn reads_atlauncher_curseforge_and_gdlauncher() {
     let at = detect::read_root(Source::AtLauncher, &fixture("atlauncher"));
