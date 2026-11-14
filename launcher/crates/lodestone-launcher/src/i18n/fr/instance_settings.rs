@@ -195,6 +195,9 @@ pub fn text(message: M) -> &'static str {
         M::SnapshotModsWarning => {
             "Il contient {count} mods\u{a0}: des programmes qui s’exécutent au lancement du jeu. N’utilisez que des instantanés de personnes de confiance."
         }
+        M::SnapshotLaunchSettingsWarning => {
+            "Ses paramètres d’instance changent le lancement du jeu\u{a0}: Java, ses arguments, les variables d’environnement ou la mémoire. Ils peuvent aussi exécuter des programmes, et ne sont donc utilisés que si Paramètres de l’instance est choisi. Ne le choisissez que pour des instantanés de personnes de confiance."
+        }
         M::CreateInstanceButton => "Créer l’instance",
         M::SnapshotGameRunning => "Arrêtez d’abord le jeu.",
         M::ChooseSomething => "Choisissez au moins une partie.",

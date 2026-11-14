@@ -395,6 +395,8 @@ pub fn import(call: Call, cx: &mut App) -> Reply {
     preview["instance_name"] = json!(snapshot.instance.name);
     preview["loader"] = json!(snapshot.instance.loader);
     preview["mods"] = json!(snapshot.mods());
+    // Applied only with the settings part: its own Java, arguments, environment, memory.
+    preview["launch_settings"] = json!(snapshot.sets_launch_settings());
     if call.params.get("preview").and_then(Value::as_bool) == Some(true) {
         return ready(Ok(preview));
     }
@@ -410,6 +412,12 @@ pub fn import(call: Call, cx: &mut App) -> Reply {
             mods.len(),
             mods.join(", ")
         )));
+    }
+    // The sender's launch settings come only with "settings", and can run code too.
+    if selection.categories.contains(&Category::Settings) && snapshot.sets_launch_settings() {
+        tri!(call.confirm(
+            "makes an instance with the snapshot's launch settings (its own Java, Java or game arguments, environment variables or memory), which can run programs when the game starts. Only use them from people the user trusts, or leave out the settings part"
+        ));
     }
     let instances = call.control.instances.read(cx);
     let store = instances.snapshot_store();

@@ -214,6 +214,8 @@ crate::i18n::messages! {
         ImportSnapshotTitle = "New instance from a snapshot",
         SnapshotFrom = "{name} · Minecraft {version}",
         SnapshotModsWarning = "It has {count} mods: programs that run when the game starts. Only use snapshots from people you trust.",
+        /// "Instance settings" is the part to choose below it.
+        SnapshotLaunchSettingsWarning = "Its instance settings change how the game starts: Java, its arguments, environment variables or memory. These can run programs too, so they are only used with Instance settings chosen. Choose it only for snapshots from people you trust.",
         CreateInstanceButton = "Create instance",
         SnapshotGameRunning = "Stop the game first.",
         ChooseSomething = "Choose at least one part.",

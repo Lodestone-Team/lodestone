@@ -713,11 +713,11 @@ impl SnapshotDialog {
                     .into_any_element()
             });
         }
-        // Room for the mods warning above, in a window of the smallest height.
-        let max = if self.mode == Mode::Import {
-            200.
-        } else {
-            320.
+        // Room for the warnings above, in a window of the smallest height.
+        let max = match &self.snapshot {
+            Some(snapshot) if self.mode == Mode::Import && snapshot.sets_launch_settings() => 140.,
+            _ if self.mode == Mode::Import => 200.,
+            _ => 320.,
         };
         div()
             .max_h(px(max))
@@ -851,6 +851,28 @@ impl SnapshotDialog {
     }
 }
 
+/// A warning above the parts to import, with a smaller line under it.
+fn warning(message: String, detail: Option<String>) -> impl IntoElement {
+    div()
+        .flex()
+        .flex_col()
+        .gap_1()
+        .p_3()
+        .rounded(radius::LG)
+        .border_1()
+        .border_color(colors::YELLOW.opacity(40))
+        .bg(colors::YELLOW.opacity(8))
+        .child(div().text_color(colors::YELLOW_300).child(message))
+        .when_some(detail, |warning, detail| {
+            warning.child(
+                div()
+                    .text_size(theme::text_size(text::SMALL))
+                    .text_color(colors::GRAY_400)
+                    .child(detail),
+            )
+        })
+}
+
 /// The small label that follows the pointer while the file is dragged in the window.
 struct FileChip(SharedString);
 
@@ -944,36 +966,20 @@ impl Render for SnapshotDialog {
                         version = snapshot.instance.game_version
                     )));
                     if !mods.is_empty() {
-                        body = body.child(
-                            div()
-                                .flex()
-                                .flex_col()
-                                .gap_1()
-                                .p_3()
-                                .rounded(radius::LG)
-                                .border_1()
-                                .border_color(colors::YELLOW.opacity(40))
-                                .bg(colors::YELLOW.opacity(8))
-                                .child(
-                                    div()
-                                        .text_color(colors::YELLOW_300)
-                                        .child(tr!(M::SnapshotModsWarning, count = mods.len())),
-                                )
-                                .child(
-                                    div()
-                                        .text_size(theme::text_size(text::SMALL))
-                                        .text_color(colors::GRAY_400)
-                                        .child({
-                                            // The first few, then "…".
-                                            let mut shown: Vec<String> =
-                                                mods.iter().take(8).cloned().collect();
-                                            if mods.len() > shown.len() {
-                                                shown.push("…".into());
-                                            }
-                                            format::list(&shown)
-                                        }),
-                                ),
-                        );
+                        // The first few, then "…".
+                        let mut shown: Vec<String> = mods.iter().take(8).cloned().collect();
+                        if mods.len() > shown.len() {
+                            shown.push("…".into());
+                        }
+                        body = body.child(warning(
+                            tr!(M::SnapshotModsWarning, count = mods.len()),
+                            Some(format::list(&shown)),
+                        ));
+                    }
+                    // Settings that run code on Play come only with "Instance settings".
+                    if snapshot.sets_launch_settings() {
+                        body =
+                            body.child(warning(t(M::SnapshotLaunchSettingsWarning).into(), None));
                     }
                     body = body
                         .child(

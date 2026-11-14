@@ -324,6 +324,54 @@ impl Snapshot {
             .map(|f| f.path.trim_start_matches("minecraft/mods/").to_string())
             .collect()
     }
+
+    /// Whether the snapshot's instance settings change how the game starts: its own
+    /// Java, Java or game arguments, environment variables or memory. They are whoever
+    /// made the snapshot's, and arguments or variables can run code on Play (a
+    /// `-javaagent:` shipped among the files, `JAVA_TOOL_OPTIONS`), so a new instance
+    /// only takes them with [`Category::Settings`] chosen, and the import warns first.
+    pub fn sets_launch_settings(&self) -> bool {
+        let typed = |text: &Option<String>| text.as_deref().is_some_and(|t| !t.trim().is_empty());
+        let instance = &self.instance;
+        instance.java_override.is_some()
+            || instance.memory.is_some()
+            || typed(&instance.jvm_args)
+            || typed(&instance.game_args)
+            || instance.env.as_ref().is_some_and(|env| !env.is_empty())
+    }
+}
+
+/// `sent` without its settings: only what the instance is (its name, Minecraft version
+/// and loader) is kept, and everything else (Java, its arguments, environment, memory,
+/// window, appearance, what automatic setup chose) is left to the defaults. For an
+/// import without [`Category::Settings`], whose settings come from someone else.
+fn without_settings(sent: &Instance) -> Instance {
+    Instance {
+        id: sent.id.clone(),
+        name: sent.name.clone(),
+        imported_from: sent.imported_from.clone(),
+        game_version: sent.game_version.clone(),
+        loader: sent.loader,
+        loader_version: sent.loader_version.clone(),
+        created: sent.created,
+        ..Instance::default()
+    }
+}
+
+/// The instance an import makes from the snapshot's `sent` instance: new, never
+/// played, and with the sender's settings only when the user chose them (`settings`).
+fn imported_instance(sent: &Instance, settings: bool) -> Instance {
+    let base = if settings {
+        sent.clone()
+    } else {
+        without_settings(sent)
+    };
+    Instance {
+        created: crate::instances::now(),
+        last_played: None,
+        play_time: 0,
+        ..base
+    }
 }
 
 /// A category (or one world) and how big it is.
@@ -948,22 +996,26 @@ impl Store {
                 clone_or_copy(&self.object(&file.sha256), &to)?;
                 set_mode(&to, file.mode);
             }
-            let instance = Instance {
-                created: crate::instances::now(),
-                last_played: None,
-                play_time: 0,
-                ..imported.instance.clone()
-            };
+            // The sender's settings only when "Instance settings" is chosen: they can
+            // start other Java or run code on Play (see `Snapshot::sets_launch_settings`).
+            let settings = selection.categories.contains(&Category::Settings);
+            let instance = imported_instance(&imported.instance, settings);
             let instance = instances
                 .commit_staged(&staging, instance)
                 .map_err(|e| SnapshotError::Instance(e.to_string()))?;
-            // Keep the snapshot, now under the new instance.
+            // Keep the snapshot, now under the new instance. Without the settings chosen
+            // it doesn't keep them either, so going back to it later can't bring them in.
+            let kept = if settings {
+                imported.instance.clone()
+            } else {
+                without_settings(&imported.instance)
+            };
             let old = self.manifest_path(".importing", &imported.id);
             let moved = Snapshot {
                 instance_id: instance.id.clone(),
                 instance: Instance {
                     id: instance.id.clone(),
-                    ..imported.instance.clone()
+                    ..kept
                 },
                 ..imported
             };
@@ -1619,6 +1671,93 @@ mod tests {
         assert!(!new_dir.join("minecraft/saves").exists());
         assert_eq!(created.game_version, "1.20.1");
         assert_eq!(other.list(&created.id).len(), 1);
+    }
+
+    #[test]
+    fn imports_launch_settings_only_when_chosen() {
+        let temp = tempfile::tempdir().unwrap();
+        let store = Store::at(temp.path().join("snapshots"));
+        let (mut instance, dir) = instance_at(temp.path(), "a");
+        // A snapshot whose settings run a shipped agent on Play.
+        write(&dir, "minecraft/agent.jar", b"agent");
+        instance.jvm_args = Some("-javaagent:agent.jar".into());
+        instance.game_args = Some("--demo".into());
+        instance.env = Some([("JAVA_TOOL_OPTIONS".to_string(), "-Dx=y".to_string())].into());
+        instance.java_override = Some(PathBuf::from("/opt/java/bin/java"));
+        instance.memory = Some(crate::instances::Memory {
+            min: 512,
+            max: 16384,
+        });
+        instance.loader = crate::instances::Loader::Fabric;
+        instance.loader_version = Some("0.16.0".into());
+        let snapshot = store
+            .create(
+                &instance,
+                &dir,
+                "share",
+                None,
+                &Selection::all(),
+                false,
+                &none,
+            )
+            .unwrap();
+        let file = temp.path().join("share.lodesnap");
+        store.export(&snapshot, &file, &none).unwrap();
+        assert!(inspect(&file).unwrap().sets_launch_settings());
+
+        let other = Store::at(temp.path().join("other-snapshots"));
+        let instances = InstanceStore::new(temp.path().join("other-instances"));
+        fs::create_dir_all(instances.root()).unwrap();
+        // Everything but the settings.
+        let mut selection = Selection::all();
+        selection.categories.remove(&Category::Settings);
+        let created = other
+            .import_as_instance(&instances, &file, &selection, &none)
+            .unwrap();
+        assert_eq!(created.game_version, "1.20.1");
+        assert_eq!(created.loader, crate::instances::Loader::Fabric);
+        assert_eq!(created.loader_version.as_deref(), Some("0.16.0"));
+        let saved: Instance = serde_json::from_slice(
+            &fs::read(instances.dir(&created.id).join("instance.json")).unwrap(),
+        )
+        .unwrap();
+        for instance in [&created, &saved, &other.list(&created.id)[0].instance] {
+            assert_eq!(instance.jvm_args, None);
+            assert_eq!(instance.game_args, None);
+            assert_eq!(instance.env, None);
+            assert_eq!(instance.java_override, None);
+            assert_eq!(instance.memory, None);
+        }
+
+        // Chosen, they come along.
+        let created = other
+            .import_as_instance(&instances, &file, &Selection::all(), &none)
+            .unwrap();
+        assert_eq!(created.jvm_args.as_deref(), Some("-javaagent:agent.jar"));
+        assert_eq!(created.memory.map(|m| m.max), Some(16384));
+        assert!(!snapshot_without_settings().sets_launch_settings());
+    }
+
+    fn snapshot_without_settings() -> Snapshot {
+        Snapshot {
+            schema: SCHEMA,
+            id: "x".into(),
+            instance_id: "x".into(),
+            name: "x".into(),
+            note: None,
+            created: 0,
+            launcher_version: String::new(),
+            instance: Instance {
+                jvm_args: Some("  ".into()),
+                env: Some(BTreeMap::new()),
+                ..Instance::default()
+            },
+            selection: Selection::all(),
+            files: Vec::new(),
+            total_bytes: 0,
+            new_bytes: 0,
+            automatic: false,
+        }
     }
 
     fn zip_with(path: &Path, entries: &[(&str, &[u8])]) {
