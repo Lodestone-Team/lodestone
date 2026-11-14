@@ -1073,24 +1073,36 @@ mod tests {
         let managed = managed.to_str().unwrap();
         let other_managed = java_binary(runtimes, 21);
         let other_managed = other_managed.to_str().unwrap();
-        let custom = |java_cmd, args: &[&str]| custom_command_line(&config(java_cmd, args), runtimes);
+        let custom =
+            |java_cmd, args: &[&str]| custom_command_line(&config(java_cmd, args), runtimes);
 
         // Lodestone's own Java, of any version, with no extra arguments
         assert_eq!(custom(None, &[]), None);
         assert_eq!(custom(Some(managed), &[]), None);
         assert_eq!(custom(Some(other_managed), &[""]), None);
         let managed_exe = format!("{managed}.exe");
-        assert_eq!(custom(Some(&managed_exe), &[]), None, "the same file on Windows");
+        assert_eq!(
+            custom(Some(&managed_exe), &[]),
+            None,
+            "the same file on Windows"
+        );
 
         assert_eq!(custom(Some("java"), &[]), Some("a custom Java command"));
-        assert_eq!(custom(Some("/usr/bin/java"), &[]), Some("a custom Java command"));
+        assert_eq!(
+            custom(Some("/usr/bin/java"), &[]),
+            Some("a custom Java command")
+        );
         // something else in the runtimes folder, or a way out of it
         for cmd in [
             "/data/.lodestone/bin/java/jre17/run.sh",
             "/data/.lodestone/bin/java/jrex/bin/java",
             "/data/.lodestone/bin/java/jre17/../../../evil/Contents/Home/bin/java",
         ] {
-            assert_eq!(custom(Some(cmd), &[]), Some("a custom Java command"), "{cmd}");
+            assert_eq!(
+                custom(Some(cmd), &[]),
+                Some("a custom Java command"),
+                "{cmd}"
+            );
         }
         assert_eq!(
             custom(Some(managed), &["-javaagent:/x/agent.jar"]),
@@ -1116,7 +1128,10 @@ mod tests {
         assert_eq!(forge_launch("26.3").unwrap(), ForgeLaunch::ArgsFile);
         assert_eq!(forge_launch("1.16.5").unwrap(), jar("forge-1.16.5-"));
         assert_eq!(forge_launch("1.12.2").unwrap(), jar("forge-1.12.2-"));
-        assert_eq!(forge_launch("1.7.10_pre4").unwrap(), jar("forge-1.7.10_pre4-"));
+        assert_eq!(
+            forge_launch("1.7.10_pre4").unwrap(),
+            jar("forge-1.7.10_pre4-")
+        );
         assert_eq!(forge_launch("1.6.4").unwrap(), jar("minecraftforge"));
         assert!(forge_launch("").is_err());
         assert!(forge_launch("1").is_err());
