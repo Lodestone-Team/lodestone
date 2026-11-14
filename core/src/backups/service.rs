@@ -331,7 +331,8 @@ struct CopyWork {
     uuid: InstanceUuid,
     kind: BackupKind,
     exclude: Matcher,
-    /// Write nothing when nothing changed (scheduled backups and unnamed manual ones).
+    /// Write nothing when nothing changed (scheduled backups and unnamed manual ones; see
+    /// [`CopyWork::skips_unchanged`]).
     skip_unchanged: bool,
     meta: BackupMeta,
     phase: Phase,
@@ -372,6 +373,18 @@ impl CopyWork {
         Ok(self)
     }
 
+    /// Whether to write nothing because nothing changed since `previous`, the newest backup.
+    ///
+    /// An unnamed manual backup is skipped only when `previous` is one retention never
+    /// deletes (manual or pinned). Otherwise the state the person asked to keep would live
+    /// only in, say, a scheduled backup that cleanup deletes hours later; a manual backup is
+    /// written instead, which costs just its manifest since the files are already stored.
+    fn skips_unchanged(&self, previous: &Manifest) -> bool {
+        self.skip_unchanged
+            && (self.kind != BackupKind::Manual
+                || retention::never_deleted(previous.kind, previous.pinned))
+    }
+
     /// Walk 5 %, copy 90 % (the manifest write is the last 5 %).
     fn run(mut self, quiesced: bool, cancel: &dyn Fn() -> bool) -> Result<Copied, Error> {
         let started = Instant::now();
@@ -386,14 +399,17 @@ impl CopyWork {
             self.prefetched.as_ref(),
             cancel,
         )?;
-        let unchanged = |scan: &Scan| {
-            scan.previous.as_ref().map(|previous| Copied::Unchanged {
-                id: previous.id.clone(),
-                scheduled_since_full: scan.scheduled_since_full_after(false),
-            })
+        let unchanged = |work: &CopyWork, scan: &Scan| {
+            scan.previous
+                .as_ref()
+                .filter(|previous| work.skips_unchanged(previous))
+                .map(|previous| Copied::Unchanged {
+                    id: previous.id.clone(),
+                    scheduled_since_full: scan.scheduled_since_full_after(false),
+                })
         };
-        if self.skip_unchanged && !scan.maybe_changed() {
-            if let Some(unchanged) = unchanged(&scan) {
+        if !scan.maybe_changed() {
+            if let Some(unchanged) = unchanged(&self, &scan) {
                 return Ok(unchanged);
             }
         }
@@ -413,8 +429,8 @@ impl CopyWork {
             },
             cancel,
         )?;
-        if self.skip_unchanged && copied.unchanged_since(scan.previous.as_ref()) {
-            if let Some(unchanged) = unchanged(&scan) {
+        if copied.unchanged_since(scan.previous.as_ref()) {
+            if let Some(unchanged) = unchanged(&self, &scan) {
                 return Ok(unchanged);
             }
         }
@@ -2087,7 +2103,88 @@ impl BackupService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::backups::store::tests::{age, backup, meta, setup, uuid, write, NO_CANCEL};
     use crate::test_util::wait_until;
+
+    /// Runs an unnamed backup of `root` the way [`BackupService::create_locked`] does,
+    /// without a server, and saves its manifest when it made one.
+    fn copy(store: &Store, root: &Path, id: &str, kind: BackupKind) -> Copied {
+        let (broadcaster, _) = EventBroadcaster::new(8);
+        let job = Job::new(
+            broadcaster,
+            JobKind::Backup,
+            "Backing up".to_string(),
+            ProgressionStartValue::Backup {
+                instance_uuid: uuid(),
+            },
+            CausedBy::System,
+        );
+        let work = CopyWork {
+            store: store.clone(),
+            root: root.to_path_buf(),
+            uuid: uuid(),
+            kind,
+            exclude: Matcher::new(&[]),
+            skip_unchanged: true,
+            meta: meta(id, kind),
+            phase: job.phase(0.0, 100.0),
+            prefetched: None,
+        };
+        let copied = work.run(true, NO_CANCEL).unwrap();
+        if let Copied::Finished { manifest, .. } = &copied {
+            store.save_manifest(manifest).unwrap();
+        }
+        copied
+    }
+
+    fn unchanged_id(copied: &Copied) -> Option<&str> {
+        match copied {
+            Copied::Unchanged { id, .. } => Some(id),
+            Copied::Finished { .. } => None,
+        }
+    }
+
+    /// "Back up now" (an unnamed manual backup) with nothing changed since a scheduled
+    /// backup still makes a manual one, so retention can't delete the only copy of what the
+    /// person asked to keep. After a manual or pinned backup, it is skipped as before.
+    #[test]
+    fn an_unnamed_manual_backup_is_skipped_only_after_one_that_is_kept() {
+        let (_dir, store, root) = setup();
+        write(&root, "world/level.dat", b"level");
+        age(&root, "world/level.dat");
+        let first = copy(&store, &root, "20260101-000000-aaaa", BackupKind::Scheduled);
+        assert!(unchanged_id(&first).is_none());
+
+        // nothing changed, but the newest backup is a scheduled one cleanup may delete
+        let manual = copy(&store, &root, "20260101-000100-bbbb", BackupKind::Manual);
+        assert!(unchanged_id(&manual).is_none());
+        let Copied::Finished { manifest, .. } = &manual else {
+            unreachable!()
+        };
+        assert_eq!(manifest.kind, BackupKind::Manual);
+
+        // now the newest backup is manual: nothing more to keep
+        let again = copy(&store, &root, "20260101-000200-cccc", BackupKind::Manual);
+        assert_eq!(unchanged_id(&again), Some("20260101-000100-bbbb"));
+        // and scheduled backups skip whatever the newest backup is
+        let scheduled = copy(&store, &root, "20260101-000300-dddd", BackupKind::Scheduled);
+        assert_eq!(unchanged_id(&scheduled), Some("20260101-000100-bbbb"));
+
+        // a pinned scheduled backup is kept too
+        write(&root, "world/level.dat", b"level 2");
+        age(&root, "world/level.dat");
+        let mut pinned = backup(
+            &store,
+            &root,
+            "20260101-000400-eeee",
+            BackupKind::Scheduled,
+            &Matcher::new(&[]),
+        );
+        pinned.pinned = true;
+        store.save_manifest(&pinned).unwrap();
+        let after_pinned = copy(&store, &root, "20260101-000500-ffff", BackupKind::Manual);
+        assert_eq!(unchanged_id(&after_pinned), Some("20260101-000400-eeee"));
+    }
 
     fn service(dir: &Path) -> Arc<BackupService> {
         Arc::new(BackupService::new(
