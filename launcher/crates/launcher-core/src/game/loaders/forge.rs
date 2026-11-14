@@ -115,30 +115,10 @@ pub fn forge_display(id: &str, game_version: &str) -> String {
         .to_string()
 }
 
-/// The Minecraft version a NeoForge version is for: `21.1.209` is 1.21.1, `21.0.167`
-/// is 1.21, `20.2.3-beta` is 1.20.2, and since Minecraft's 2026 numbering
-/// `26.3.0.101` is 26.3 and `26.1.1.4` is 26.1.1. Snapshot builds have none.
-pub fn neoforge_game_version(version: &str) -> Option<String> {
-    let numbers: Vec<u32> = version
-        .split(['-', '+'])
-        .next()?
-        .split('.')
-        .map(|part| part.parse().ok())
-        .collect::<Option<_>>()?;
-    match numbers.as_slice() {
-        [major, minor, patch, _build] if *major >= 26 => Some(if *patch == 0 {
-            format!("{major}.{minor}")
-        } else {
-            format!("{major}.{minor}.{patch}")
-        }),
-        [major, minor, _build] if (20..26).contains(major) => Some(if *minor == 0 {
-            format!("1.{major}")
-        } else {
-            format!("1.{major}.{minor}")
-        }),
-        _ => None,
-    }
-}
+/// The Minecraft version a NeoForge version is for: `21.1.209` is 1.21.1, `26.3.0.101`
+/// is 26.3. Builds for snapshots, pre-releases and release candidates have none. Shared
+/// with the core, so the launcher and servers read NeoForge's versions the same way.
+pub use lodestone_minecraft::versions::neoforge::neoforge_game_version;
 
 #[derive(Deserialize)]
 struct NeoForgeVersions {
@@ -674,6 +654,8 @@ pub(crate) mod tests {
             ("26.1.1.4-beta", Some("26.1.1")),
             ("0.25w14craftmine.3-beta", None),
             ("nonsense", None),
+            ("26.1.0.0-alpha.1+snapshot-1", None),
+            ("26.1.0.0-alpha.15+pre-3", None),
         ] {
             assert_eq!(neoforge_game_version(neo).as_deref(), game, "{neo}");
         }
@@ -689,6 +671,14 @@ pub(crate) mod tests {
         let betas =
             parse_neoforge_versions(&loader_fixture("neoforge/versions.json"), "1.20.2").unwrap();
         assert!(betas.iter().all(|v| !v.stable && !v.recommended));
+        // builds for 26.1's snapshots aren't builds for the 26.1 release (LS-43)
+        let snapshots = br#"{"versions": ["26.1.0.0-alpha.1+snapshot-1", "26.1.0.0-alpha.15+pre-3", "26.1.0.1-beta"]}"#;
+        let ids: Vec<String> = parse_neoforge_versions(snapshots, "26.1")
+            .unwrap()
+            .into_iter()
+            .map(|v| v.id)
+            .collect();
+        assert_eq!(ids, ["26.1.0.1-beta"]);
     }
 
     #[test]

@@ -73,18 +73,12 @@ pub fn read_instance(dir: &Path) -> Result<Found, String> {
             _ => None,
         };
         match kind {
-            Some(mut kind) => {
+            Some(kind) => {
                 let version = if loader_name.is_empty() {
                     text(base, "forgeVersion")
                 } else {
                     Some(loader_name.clone())
                 };
-                if kind == LoaderKind::NeoForge && game_version == "1.20.1" {
-                    kind = LoaderKind::Forge;
-                    found.note(
-                        "NeoForge for Minecraft 1.20.1 runs as Forge 47.1 in Lodestone Launcher.",
-                    );
-                }
                 found.loader = Some(WantedLoader::new(kind, version.as_deref()));
             }
             None if !loader_name.is_empty() => found.note(format!(
