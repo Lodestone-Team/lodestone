@@ -410,7 +410,11 @@ impl Rest {
     /// The objects the rest names that the image doesn't: files beside the game folder
     /// and game-folder files the image withholds. A store's collection must keep them
     /// for as long as this rest may be written back (the reader passed to
-    /// [`crate::store::Store::gc_with_older_formats`] returns them), and a restore that
+    /// [`crate::store::Store::gc_with_older_formats`] returns them; plain
+    /// [`crate::store::Store::gc`] can't see rests). Nothing claims them, so the conversion
+    /// holds [`crate::store::Store::hold_off_collection`] from before it reads the old
+    /// manifest until the image is saved, this rest is durably written and the old
+    /// manifest is deleted. A restore that
     /// should put back everything the snapshot had places them itself, at their instance
     /// paths, with [`crate::store::Store::read_object`]: materializing places only the
     /// image's entries.

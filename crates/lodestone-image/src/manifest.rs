@@ -60,10 +60,15 @@ pub const MAX_WORLDS: usize = 10_000;
 pub const MAX_ENV_FROM: usize = 16;
 /// At most this many exclude patterns, each at most [`MAX_EXCLUDE_LEN`] characters.
 pub const MAX_EXCLUDES: usize = 1000;
+/// In characters, not bytes: a pattern of four-byte characters can have 1,024 bytes.
 pub const MAX_EXCLUDE_LEN: usize = 256;
 /// All exclude patterns together have at most this many parts other than `**`: each is a
 /// name a snapshot may match against every path part (see [`crate::store::excludes`]).
 pub const MAX_EXCLUDE_PARTS: usize = 2000;
+/// Of those parts, at most this many have a literal piece between two stars (`*ab*`,
+/// `a*b*c`): matching one searches the name for it, where the others only compare its
+/// ends, so these are what make a part slow to read (see [`crate::store::excludes`]).
+pub const MAX_EXCLUDE_SEARCHES: usize = 64;
 /// Free text (a label, a version string) is at most this many characters.
 pub const MAX_TEXT_LEN: usize = 1000;
 /// Modrinth sources must download from Modrinth's CDN.
@@ -1191,7 +1196,15 @@ pub(crate) mod tests {
         // Few patterns, but too many parts for every snapshot to match against.
         let mut image = sample();
         image.excludes = (0..MAX_EXCLUDE_PARTS / 50 + 1)
-            .map(|i| format!("**/{}q{i}", "*ab*/".repeat(49)))
+            .map(|i| format!("**/{}q{i}", "a*b/".repeat(49)))
+            .collect();
+        assert!(image.validate().is_err());
+        image.excludes.pop();
+        assert!(image.validate().is_ok());
+        // Few parts, but too many that search every name.
+        let mut image = sample();
+        image.excludes = (0..=MAX_EXCLUDE_SEARCHES)
+            .map(|i| format!("*x{i}y*"))
             .collect();
         assert!(image.validate().is_err());
         image.excludes.pop();

@@ -65,9 +65,29 @@
 //!   lock, so a released writer (an older Launcher, say) running on the same folder at the
 //!   same time as a new collection isn't protected; that is accepted, as two launchers on
 //!   one data folder already are.
-//! - [`Store::gc`] is for a folder no older format writes to: it refuses, deleting
-//!   nothing, while an older manifest is there (a `.json` in a folder under `servers/` or
-//!   `instances/` other than the guard's), since it can't know what that names.
+//! - Lock order: an older format's own store lock (the Launcher's in-process `store_lock`,
+//!   the core's backups `store_lock`) is always taken before the collection lock, never
+//!   while holding it. A writer takes its store's lock (shared, `sharing`) and then
+//!   [`Store::hold_off_collection`]; a collection that needs its store's lock exclusively
+//!   (`alone`) to read the older manifests takes it around
+//!   [`Store::gc_with_older_formats`], not inside `read_older`. The other order deadlocks:
+//!   a writer with the store lock shared waiting for the file lock, and the collection
+//!   with the file lock waiting for the store lock's exclusive side.
+//! - Converting an older manifest to an image and its rest is such a writer too: the
+//!   objects only the rest names (files the image withholds, files beside a Launcher game
+//!   folder) are never claimed, since saving the image claims only its entries, and they
+//!   are usually old (legacy objects, clones with the source's time). The converter holds
+//!   [`Store::hold_off_collection`] from before it reads the old manifest until the image
+//!   is saved, the rest is durably written and the old manifest is deleted. A collection
+//!   then sees either the old manifest or the rest, whichever order its reader reads them
+//!   in.
+//! - [`Store::gc`] is for a folder no older format writes to and that has no older
+//!   manifest and no rest (rests count as older manifests): it refuses, deleting nothing,
+//!   while an older manifest is there (a `.json` in a folder under `servers/` or
+//!   `instances/` other than the guard's), since it can't know what that names. It can't
+//!   see rests kept anywhere else, so a store that keeps rests always collects with
+//!   [`Store::gc_with_older_formats`], whose reader returns the rests' objects, even once
+//!   every old manifest is converted.
 
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -211,10 +231,13 @@ impl Store {
     /// take it before first relying on any object being in the store (storing one, or
     /// skipping a store because it is there: an existence check, a stat-cache hit, an
     /// entry carried over from an earlier manifest) and keep it, without letting go
-    /// between passes, until the manifest naming those objects is saved. Waits for a
-    /// collection that is running. Many writers can hold it at once. Never take it inside
-    /// [`Store::gc_with_older_formats`]' reader, which runs while the collection holds the
-    /// lock: it would wait forever.
+    /// between passes, until the manifest naming those objects is saved. A conversion of
+    /// an older manifest to an image and its rest holds it from before reading the old
+    /// manifest until the image is saved, the rest is durably written and the old manifest
+    /// is deleted. Waits for a collection that is running. Many writers can hold it at
+    /// once. Take the older format's own store lock first, if it has one (see the module's
+    /// lock order). Never take it inside [`Store::gc_with_older_formats`]' reader, which
+    /// runs while the collection holds the lock: it would wait forever.
     pub fn hold_off_collection(&self) -> Result<CollectionHold, StoreError> {
         self.ensure_guard()?;
         let file = self
@@ -237,8 +260,11 @@ impl Store {
     }
 
     /// Deletes the objects and chunks no manifest uses (see the module documentation), in
-    /// a folder no older format writes to: refuses while an older format's manifest is
-    /// there. Waits for writers that hold collections off ([`Store::hold_off_collection`]).
+    /// a folder no older format writes to and that keeps no older manifest and no rest of
+    /// one: refuses while an older format's manifest is in a folder under `servers/` or
+    /// `instances/`, but can't see rests, so a store that keeps rests (wherever it keeps
+    /// them) always uses [`Store::gc_with_older_formats`]. Waits for writers that hold
+    /// collections off ([`Store::hold_off_collection`]).
     pub fn gc(&self, options: &GcOptions) -> Result<GcReport, GcError> {
         self.collect(options, None)
     }
@@ -249,6 +275,9 @@ impl Store {
     /// writers off, so nothing it doesn't see can be saved until the collection ends. It
     /// must not take [`Store::hold_off_collection`] on this store (directly or through
     /// anything it calls): the collection already holds the lock, so it would wait forever.
+    /// Nor may it take the older format's own store lock, which a writer may hold while it
+    /// waits for the collection to end: take that lock (exclusively, if reading needs it)
+    /// around this call instead (see the module's lock order).
     pub fn gc_with_older_formats(
         &self,
         options: &GcOptions,
@@ -618,6 +647,14 @@ fn collect(path: &Path, sweep: &Sweep) -> io::Result<Option<u64>> {
     Ok(Some(meta.len()))
 }
 
+/// How many distinct sizes marking keeps for one object. An object stands for one size
+/// (its whole file's and its list's agree, or one of them is wrong), so of three distinct
+/// sizes at least one is neither, and `Store::live_object` counts the object in
+/// [`GcReport::wrong_sizes`] just as it would with all of them. Keeping more would make
+/// marking quadratic in the sizes one hash is named with, which a manifest can make
+/// millions (sources other than `object` don't tie a size to the hash).
+const MAX_SIZES_KEPT: usize = 3;
+
 /// Marks the objects of the manifest at `path`, or refuses.
 fn mark_one(path: &Path, live: &mut HashMap<String, Vec<u64>>) -> Result<(), GcError> {
     let refuse = |why: String| GcError::Refused {
@@ -650,7 +687,7 @@ fn mark_one(path: &Path, live: &mut HashMap<String, Vec<u64>>) -> Result<(), GcE
         .chain(client.background)
     {
         let named = live.entry(object.sha256).or_default();
-        if !named.contains(&object.size) {
+        if named.len() < MAX_SIZES_KEPT && !named.contains(&object.size) {
             named.push(object.size);
         }
     }

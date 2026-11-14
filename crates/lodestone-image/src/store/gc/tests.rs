@@ -749,3 +749,39 @@ fn a_plain_collection_refuses_beside_older_manifests() {
     assert_eq!(report.objects_removed, 0);
     assert!(object.exists());
 }
+
+/// One hash named with many sizes (CurseForge entries tie no size to it) costs marking
+/// what one size does, and still counts once as wrong.
+#[test]
+fn one_hash_named_with_many_sizes_marks_quickly() {
+    let (_dir, store) = store(Encoding::Raw);
+    let small = store.put_bytes(b"small").unwrap();
+    let mut image = Image::new(Kind::Content, fabric());
+    image.entries = (0..60_000u64)
+        .map(|i| {
+            Entry::new(
+                path(&format!("mods/m{i:06}.jar")),
+                i + 1,
+                small.sha256.clone(),
+                Source::Curseforge {
+                    project: 1,
+                    file: i + 1,
+                    downloadable: true,
+                },
+            )
+        })
+        .collect();
+    image.seal();
+    store.save_manifest("many", &image).unwrap();
+    age_all(&store);
+    let started = std::time::Instant::now();
+    let report = store.gc(&now_options()).unwrap();
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(10),
+        "{:?}",
+        started.elapsed()
+    );
+    assert_eq!(report.wrong_sizes, 1, "{report:?}");
+    assert_eq!(report.objects_removed, 0);
+    assert_eq!(store.read_object_bytes(&small.sha256, 5).unwrap(), b"small");
+}

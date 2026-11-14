@@ -89,8 +89,9 @@ Reading never costs much more memory than a real image of the manifest's size: b
 parsing, a manifest with more than 32,000,000 JSON values (objects, arrays and the commas
 between items; a real entry has about 20) or nesting deeper than 32 is refused, and every
 list is refused as soon as it passes its bound while being read (1,000,000 entries,
-removed paths and withheld files, 10,000 worlds, 1,000 excludes (with 2,000 parts other
-than `**` in all, checked when the manifest is validated), 16 `env_from` inputs,
+removed paths and withheld files, 10,000 worlds, 1,000 excludes of at most 256 characters
+(with 2,000 parts other than `**` in all, at most 64 of them with text between two stars,
+checked when the manifest is validated), 16 `env_from` inputs,
 100,000 items in each setting's list or map).
 A manifest from elsewhere comes in a compressed export, so without these a small file
 could exhaust memory.
@@ -512,9 +513,18 @@ Content-addressed, shared by every instance on one machine:
   `Store::gc_with_older_formats` calls the caller's reader once it has the lock, so any
   older manifest it doesn't see was written by a writer that started after it ended.
   Plain `Store::gc` refuses while an older manifest (a `.json` under `servers/<id>/` or
-  `instances/<id>/` other than the guard's) is in the folder. A thread holding the shared lock
+  `instances/<id>/` other than the guard's) is in the folder. Rests count as older
+  manifests, but it can't see them, so a store that keeps rests (wherever it keeps them)
+  always collects with `Store::gc_with_older_formats`, even once every old manifest is
+  converted. A thread holding the shared lock
   must not start GC, and GC's reader of older manifests must not take the shared lock
-  (either would wait for itself). Released programs don't take the lock, so a released
+  (either would wait for itself). Lock order: an older format's own store lock (the
+  Launcher's in-process `store_lock`, the core's backups `store_lock`) is taken before the
+  collection lock, never while holding it: a writer takes its store lock shared, then
+  `hold_off_collection`; a GC that reads the older manifests under its store lock's
+  exclusive side takes it around `gc_with_older_formats`, never inside the reader (the
+  other order deadlocks a writer waiting for the file lock against a GC waiting for the
+  store lock). Released programs don't take the lock, so a released
   writer running on the same folder at the same time as a new collection isn't protected,
   as two launchers sharing one data folder already aren't. A save doesn't claim again what the same store
   claimed in the last 5 minutes by the wall clock (objects age by it; a monotonic clock
@@ -532,17 +542,21 @@ Content-addressed, shared by every instance on one machine:
   trailing `/` for folders); a pattern outside that syntax (a backslash, a leading `!`, an
   empty part) makes the manifest invalid, since a snapshot would ignore it and it would
   claim to have left something out. All patterns together have at most 2,000 parts other
-  than `**` (more makes the manifest invalid; a snapshot fed more from elsewhere ignores
-  the patterns past it). All patterns run as one automaton over path parts,
+  than `**`, and at most 64 of those have literal text between two stars (`*ab*`,
+  `a*b*c`); more makes the manifest invalid, and a snapshot fed more from elsewhere ignores
+  the patterns past either budget. All patterns run as one automaton over path parts,
   and the walk reuses each folder's state for what is in it. A name is matched against
   one part's glob without backtracking (the glob split at its stars; the first and last
-  pieces at the name's ends, each piece between found leftmost with a linear search), so
-  reading a part costs O(positions + live globs × (name + glob bytes)), and a walk pays
-  that once per new part of its paths. Every glob can be live at once (`**/*ab*/*ab*/…`
-  under a chain of `ab` folders), so the part budget is what bounds it: at most 2,000
-  globs of at most 256 bytes against a name of at most 255, however deep the folders or
-  star-heavy the patterns. Links are withheld as `symlink`; folders that can't be
-  listed, files that can't be read and things that aren't files as `unreadable`; names
+  pieces at the name's ends, each piece between found leftmost with a linear search).
+  Every glob can be live at once (`**/a*b/a*b/…` under a chain of `ab` folders), so the
+  budgets are what bound reading a part: at most 2,000 globs that compare the name's ends
+  (a length check and at most the glob's literal bytes) and 64 that search a name of at
+  most 255 bytes, with patterns of at most 256 characters (1,024 bytes), however deep the
+  folders or star-heavy the patterns. With both budgets used up that is about 40 µs per
+  new 255-byte part in a release build on an Apple silicon Mac, nearly all of it the
+  searches, and a walk pays it once per new part of its paths. Links are withheld as
+  `symlink`; folders that can't be listed, files that can't be read and things that aren't
+  files as `unreadable`; names
   that aren't canonical, files the layout can't read back as themselves and files never
   placed on this side as `bad_name` (a folder with such a name once, not each file in
   it); files that change while read, three tries each, as `kept_changing`. A withheld
@@ -707,6 +721,15 @@ names anything by it.
   the core's schema-1 backups until M2), since it neither touches what it reuses nor gives
   clones a new time; the reader runs inside GC's exclusive hold, so it sees every manifest
   such a writer saved before GC began.
+- **Converting is a writer that doesn't claim.** Saving the image claims only its entries;
+  the objects only the rest names are never claimed and are usually old (legacy objects,
+  clones that keep the source's time). So a conversion holds `Store::hold_off_collection`
+  (after its old store's own lock, in the order above) from before it reads the old
+  manifest until the image is saved, the rest is durably written and the old manifest is
+  deleted. GC then sees the old manifest or the rest, whichever order its reader reads
+  them in. Rests count as older manifests for GC: a store that keeps them always collects
+  with `Store::gc_with_older_formats`, whose reader returns their objects, since plain
+  `Store::gc` only finds old manifests in `servers/<id>/` and `instances/<id>/`.
 - **Downgrades never lose images.** Released cores (Lodestone Host 0.6.0-beta.2 on) and
   Launchers (0.1.0-beta.1 on) collect their shared `objects/` against their own manifests
   only, so after going back to one, its first cleanup would delete every object only
