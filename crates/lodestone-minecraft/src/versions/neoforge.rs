@@ -30,8 +30,20 @@ pub fn neoforge_installer_url(version: &str) -> String {
 
 /// The Minecraft version a NeoForge version is for: `21.1.209` is 1.21.1, `21.0.167`
 /// is 1.21, `20.2.3-beta` is 1.20.2, and since Minecraft's 2026 numbering
-/// `26.3.0.101` is 26.3 and `26.1.1.4` is 26.1.1. Snapshot builds have none.
+/// `26.3.0.101` is 26.3 and `26.1.1.4` is 26.1.1. Snapshot builds have none: neither
+/// the April Fools' ones (`0.25w14craftmine.3-beta`) nor those for a coming version's
+/// snapshots, pre-releases and release candidates (`26.1.0.0-alpha.1+snapshot-1`,
+/// `26.1.0.0-alpha.15+pre-3`), which are numbered after the release but don't run on it.
 pub fn neoforge_game_version(version: &str) -> Option<String> {
+    if let Some((_, metadata)) = version.split_once('+') {
+        let metadata = metadata.to_ascii_lowercase();
+        if ["snapshot", "pre", "rc"]
+            .iter()
+            .any(|kind| metadata.starts_with(kind))
+        {
+            return None;
+        }
+    }
     let numbers: Vec<u32> = version
         .split(['-', '+'])
         .next()?
@@ -121,6 +133,11 @@ mod tests {
             ("26.1.1.4", Some("26.1.1")),
             ("0.25w14craftmine.3-beta", None),
             ("47.1.0", None),
+            // builds for 26.1's snapshots and pre-releases, as NeoForge's list has them
+            ("26.1.0.0-alpha.1+snapshot-1", None),
+            ("26.1.0.0-alpha.15+pre-3", None),
+            ("26.1.0.0-beta.1+rc-1", None),
+            ("26.1.0.0-beta.2", Some("26.1")),
         ] {
             assert_eq!(neoforge_game_version(neo).as_deref(), game, "{neo}");
         }
@@ -150,6 +167,20 @@ mod tests {
             newest_neoforge_build(&list, "1.19.2"),
             Err(Error::NotFound(_))
         ));
+    }
+
+    /// Builds for a coming version's snapshots are neither listed for its release nor
+    /// make it a version NeoForge has builds for (LS-43).
+    #[test]
+    fn snapshot_builds_are_not_for_the_release() {
+        let list = list(&[
+            "21.1.10",
+            "26.1.0.0-alpha.1+snapshot-1",
+            "26.1.0.0-alpha.15+pre-3",
+        ]);
+        assert!(neoforge_versions_for(&list, "26.1").is_empty());
+        assert!(newest_neoforge_build(&list, "26.1").is_err());
+        assert_eq!(neoforge_minecraft_versions(&list), ["1.21.1"]);
     }
 
     #[test]
