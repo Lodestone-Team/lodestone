@@ -31,7 +31,7 @@ use tokio::sync::Mutex;
 use ::serde::{Deserialize, Serialize};
 use serde_json::to_string_pretty;
 
-use tracing::{error, warn};
+use tracing::{error, info, warn};
 
 use tokio;
 use ts_rs::TS;
@@ -63,7 +63,7 @@ use self::forge::{get_forge_minecraft_versions, get_neoforge_minecraft_versions}
 use self::paper::get_paper_minecraft_versions;
 use self::players_manager::PlayersManager;
 use self::properties::PropertiesDocument;
-use self::util::{get_jre_major_version, get_server_jar_url, jre_download_url};
+use self::util::{find_jre_download, get_jre_major_version, get_server_jar_url};
 use self::vanilla::get_vanilla_minecraft_versions;
 
 #[derive(Debug, Clone, TS, Serialize, Deserialize, PartialEq)]
@@ -406,8 +406,67 @@ pub(super) fn java_binary(path_to_runtimes: &Path, jre_major_version: u64) -> Pa
         .join("java")
 }
 
+/// The folder that holds `bin/java` (`Contents/Home/bin/java` on macOS) among `dir` and
+/// the folders in it: archives put it at the top (Temurin, Zulu's JREs) or one folder down
+/// (Zulu's JDKs for macOS, in a `zulu-17.jdk` bundle).
+async fn find_java_home(dir: &Path) -> Option<PathBuf> {
+    let java = if std::env::consts::OS == "macos" {
+        "Contents/Home/bin/java"
+    } else if std::env::consts::OS == "windows" {
+        "bin/java.exe"
+    } else {
+        "bin/java"
+    };
+    if tokio::fs::try_exists(dir.join(java)).await.unwrap_or(false) {
+        return Some(dir.to_path_buf());
+    }
+    let mut entries = tokio::fs::read_dir(dir).await.ok()?;
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        let path = entry.path();
+        // not through links, which an archive could point anywhere
+        let is_dir = tokio::fs::symlink_metadata(&path)
+            .await
+            .is_ok_and(|m| m.is_dir());
+        if is_dir
+            && tokio::fs::try_exists(path.join(java))
+                .await
+                .unwrap_or(false)
+        {
+            return Some(path);
+        }
+    }
+    None
+}
+
+/// Checks a downloaded file against the SHA-256 (in hex) that its vendor publishes.
+async fn verify_sha256(path: &Path, expected: &str) -> Result<(), Error> {
+    use sha2::{Digest, Sha256};
+
+    let path = path.to_owned();
+    let actual = tokio::task::spawn_blocking(move || -> std::io::Result<String> {
+        let mut file = std::fs::File::open(&path)?;
+        let mut hasher = Sha256::new();
+        std::io::copy(&mut file, &mut hasher)?;
+        Ok(hex::encode(hasher.finalize()))
+    })
+    .await
+    .context("The checksum task failed")?
+    .context("Could not read the downloaded JRE")?;
+    if !actual.eq_ignore_ascii_case(expected) {
+        return Err(eyre!(
+            "The downloaded JRE is not the one its vendor published (its SHA-256 is {actual}, \
+             expected {expected})"
+        )
+        .into());
+    }
+    Ok(())
+}
+
 /// Downloads the JRE for a Java major version unless it is already there. Returns true if
 /// it was downloaded. Concurrent calls for the same version wait for each other.
+///
+/// The JRE is always a build of exactly that Java version for this computer's own processor
+/// (see [`find_jre_download`]); if there is none, this fails before downloading anything.
 pub(super) async fn ensure_jre(
     path_to_runtimes: &Path,
     jre_major_version: u64,
@@ -428,6 +487,11 @@ pub(super) async fn ensure_jre(
     if tokio::fs::try_exists(&target).await.unwrap_or(false) {
         return Ok(false);
     }
+    let download = find_jre_download(jre_major_version).await?;
+    info!(
+        "Downloading Java {jre_major_version} ({}) from {}",
+        download.vendor, download.url
+    );
     tokio::fs::create_dir_all(&java_dir)
         .await
         .context("Could not create the Java runtime directory")?;
@@ -443,13 +507,16 @@ pub(super) async fn ensure_jre(
         "jre.tar.gz"
     };
     let archive = download_file(
-        &jre_download_url(jre_major_version),
+        &download.url,
         work_dir.path(),
         Some(archive_name),
         on_download,
         true,
     )
     .await?;
+    if let Some(sha256) = &download.sha256 {
+        verify_sha256(&archive, sha256).await?;
+    }
     let extracted = unzip_file_async(
         &archive,
         UnzipOption::ToDir(work_dir.path().join("extracted")),
@@ -466,6 +533,12 @@ pub(super) async fn ensure_jre(
         .into_iter()
         .next()
         .ok_or_else(|| eyre!("The JRE archive is empty"))?;
+    let extracted = find_java_home(&extracted).await.ok_or_else(|| {
+        eyre!(
+            "The Java {jre_major_version} archive from {} has no java program where expected",
+            download.vendor
+        )
+    })?;
     tokio::fs::rename(&extracted, &target)
         .await
         .context(format!(
@@ -1359,6 +1432,55 @@ fn is_release(version: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The java program's place in a Java home on this operating system.
+    fn java_in_home() -> &'static str {
+        if std::env::consts::OS == "macos" {
+            "Contents/Home/bin/java"
+        } else if std::env::consts::OS == "windows" {
+            "bin/java.exe"
+        } else {
+            "bin/java"
+        }
+    }
+
+    #[tokio::test]
+    async fn the_java_home_is_found_at_the_top_or_one_folder_down() {
+        let dir = tempfile::tempdir().unwrap();
+        // Temurin's and Zulu's JREs
+        let top = dir
+            .path()
+            .join("zulu8.98.0.111-ca-jre8.0.512-macosx_aarch64");
+        std::fs::create_dir_all(top.join(java_in_home()).parent().unwrap()).unwrap();
+        std::fs::write(top.join(java_in_home()), "").unwrap();
+        assert_eq!(find_java_home(&top).await, Some(top.clone()));
+        // Zulu's JDKs for macOS
+        let jdk = dir.path().join("zulu17-ca-jdk17-macosx_aarch64");
+        let bundle = jdk.join("zulu-17.jdk");
+        std::fs::create_dir_all(bundle.join(java_in_home()).parent().unwrap()).unwrap();
+        std::fs::write(bundle.join(java_in_home()), "").unwrap();
+        std::fs::create_dir_all(jdk.join("legal")).unwrap();
+        assert_eq!(find_java_home(&jdk).await, Some(bundle));
+        // no java anywhere it is looked for
+        let empty = dir.path().join("empty");
+        std::fs::create_dir_all(empty.join("a/b").join(java_in_home())).unwrap();
+        assert_eq!(find_java_home(&empty).await, None);
+    }
+
+    #[tokio::test]
+    async fn downloads_must_match_their_checksum() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("jre.tar.gz");
+        std::fs::write(&file, "abc").unwrap();
+        let sha256 = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+        verify_sha256(&file, sha256).await.unwrap();
+        verify_sha256(&file, &sha256.to_uppercase()).await.unwrap();
+        let wrong = verify_sha256(&file, &"0".repeat(64)).await.unwrap_err();
+        assert!(wrong
+            .source
+            .to_string()
+            .contains("not the one its vendor published"));
+    }
 
     #[test]
     fn the_setup_form_starts_on_the_newest_release() {
