@@ -22,6 +22,7 @@
 
 mod accounts;
 mod content;
+mod copy_as;
 mod events;
 mod friend_list;
 mod friends;
@@ -228,6 +229,16 @@ pub const METHODS: &[Method] = &[
         "instances.duplicate",
         "Copies an instance.",
         instances::duplicate,
+    ),
+    method(
+        "instances.copy_as",
+        "Makes a new instance from one for another Minecraft version or loader (a job): its Modrinth mods' builds for them, and its packs, options and worlds as asked. An instance's own version and loader never change. Needs confirm when mods stay behind or worlds are upgraded; the refusal carries the plan.",
+        copy_as::copy_as,
+    ),
+    method(
+        "instances.set_loader_version",
+        "Changes the version of an instance's mod loader (the loader itself never changes).",
+        copy_as::set_loader_version,
     ),
     destructive(
         "instances.delete",
@@ -457,11 +468,6 @@ pub const METHODS: &[Method] = &[
         "content.update",
         "Updates installed content (some or all).",
         content::update,
-    ),
-    method(
-        "content.switch_loader",
-        "Changes an instance's mod loader.",
-        content::switch_loader,
     ),
     // modpacks
     method(
@@ -1802,6 +1808,8 @@ mod tests {
         "instances.set_icon",
         "instances.set_background",
         "instances.duplicate",
+        "instances.copy_as",
+        "instances.set_loader_version",
         "instances.delete",
         "instances.export",
         "instances.import_code",
@@ -1832,7 +1840,6 @@ mod tests {
         "content.enable",
         "content.disable",
         "content.update",
-        "content.switch_loader",
         "modpacks.install",
         "modpacks.update",
         "modpacks.add",

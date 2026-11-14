@@ -425,7 +425,7 @@ pub fn fill(instance_dir: &Path, scene: &str) {
         formatted(&packs, &shaders, &dirs.game);
     }
     let _ = provenance.save(&dirs.instance);
-    if scene == "loader-change" {
+    if scene.starts_with("copy-as") {
         for world in ["New World", "Creative build"] {
             let dir = dirs.game.join("saves").join(world);
             let _ = fs::create_dir_all(&dir);

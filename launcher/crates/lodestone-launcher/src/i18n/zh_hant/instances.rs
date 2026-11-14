@@ -81,14 +81,6 @@ pub fn text(message: M) -> &'static str {
         M::CouldntSavePlayTime => "無法儲存遊戲時數：{error}",
         M::ModpackExported => "模組包已匯出",
         M::CouldntExportModpack => "無法匯出模組包",
-        M::CouldntSwitchLoader => "無法切換至模組載入器",
-        M::NoModLoaderFor => {
-            "Lodestone Launcher 支援的模組載入器都無法在 Minecraft {version} 上執行：Fabric 從 1.14 起才支援，而 Forge 沒有適用於該版本的組建。"
-        }
-        M::SwitchedTo => "已切換至 {loader}",
-        M::SwitchedToMessage => {
-            "{name} 現在使用 {loader} {version}。下次按「開始遊戲」時會自動安裝。"
-        }
 
         M::SearchLog => "搜尋日誌",
         M::LevelDebug => "偵錯",
@@ -161,6 +153,11 @@ pub fn text(message: M) -> &'static str {
         M::UpdatedButNotSaved => "檔案已更新，但無法儲存實例：{error}",
         M::DownloadingName => "正在下載 {name}",
         M::InstallingName => "正在安裝 {name}",
+        M::CopyReady => "{name} 已準備就緒",
+        M::CouldntCopy => "無法製作副本",
+        M::CopyingWorlds => "正在複製世界",
+        M::CopyingPacksAndOptions => "正在複製資源包、光影和選項",
+        M::InstallingMods => "正在安裝模組",
         M::CopyingConfigs => "正在複製模組包的設定檔",
         M::RecordingFiles => "正在記錄模組包的檔案",
         M::SavingSnapshot => "正在儲存實例檔案的快照",
@@ -274,6 +271,8 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::PackFilesLeftOut => ["模組包中有 {count} 個檔案被略過，例如 {path}。"; 2],
         P::WorldsBackedUp => ["已先備份 {count} 個世界。"; 2],
         P::DownloadingFiles => ["正在下載 {count} 個檔案"; 2],
+        P::CopyModsLeftBehind => ["{count} 個模組未複製：{names}。"; 2],
+        P::CopyDependenciesMissing => ["{count} 個所需的前置模組無法安裝：{names}。"; 2],
         P::FinderModsLeft => ["還有 {count} 個模組待檢查"; 2],
         P::FinderModsOff => ["已停用 {count} 個模組"; 2],
         P::FinderTriesLeft => ["大約還需 {count} 次嘗試"; 2],

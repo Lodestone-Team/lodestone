@@ -96,12 +96,6 @@ pub fn text(message: M) -> &'static str {
 
         M::ModsNeedLoader => "Les mods ont besoin d’un chargeur de mods",
         M::ShadersNeedLoader => "Les shaders ont besoin d’un chargeur de mods",
-        M::VanillaSwitchMods => {
-            "Cette instance est un Minecraft vanilla. Les mods passent par un chargeur de mods comme {loader}\u{202F}; changer de chargeur conserve vos mondes et vos paramètres, et {loader} s’installera la prochaine fois que vous appuierez sur Jouer."
-        }
-        M::VanillaSwitchShaders => {
-            "Cette instance est un Minecraft vanilla. Les shaders passent par un chargeur de mods comme {loader}\u{202F}; changer de chargeur conserve vos mondes et vos paramètres, et {loader} s’installera la prochaine fois que vous appuierez sur Jouer."
-        }
         M::VanillaNoLoaderMods => {
             "Cette instance est un Minecraft {version} vanilla. Les mods ont besoin d’un chargeur de mods, et aucun de ceux que Lodestone Launcher prend en charge ne fonctionne sur cette version\u{a0}: Fabric commence à la 1.14, et Forge n’a pas de build pour elle. Une nouvelle instance sur une version plus récente pourra les utiliser."
         }
@@ -120,8 +114,14 @@ pub fn text(message: M) -> &'static str {
         M::VanillaCheckingShaders => {
             "Cette instance est un Minecraft vanilla. Les shaders passent par un chargeur de mods\u{202F}; recherche de celui qui fonctionne sur Minecraft {version}…"
         }
-        M::SwitchTo => "Passer à {loader}",
         M::NewFabricInstance => "Nouvelle instance Fabric…",
+        M::VanillaCopyMods => {
+            "Cette instance est un Minecraft vanilla. Les mods passent par un chargeur de mods comme {loader}, et une instance garde le chargeur choisi à sa création. Une copie avec {loader} peut reprendre vos mondes et vos paramètres."
+        }
+        M::VanillaCopyShaders => {
+            "Cette instance est un Minecraft vanilla. Les shaders passent par un chargeur de mods comme {loader}, et une instance garde le chargeur choisi à sa création. Une copie avec {loader} peut reprendre vos mondes et vos paramètres."
+        }
+        M::CopyWith => "Copier avec {loader}…",
 
         M::ShaderModUsingPack => "{shader_mod} utilise {pack}.",
         M::ShaderModUsingBuiltIn => "{shader_mod} utilise ses shaders intégrés.",

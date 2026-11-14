@@ -82,12 +82,6 @@ pub fn text(message: M) -> &'static str {
 
         M::ModsNeedLoader => "模組需要模組載入器",
         M::ShadersNeedLoader => "光影需要模組載入器",
-        M::VanillaSwitchMods => {
-            "此實例是原版 Minecraft。模組需要透過 {loader} 等模組載入器執行；切換會保留你的世界和設定，{loader} 會在你下次按下「開始遊戲」時安裝。"
-        }
-        M::VanillaSwitchShaders => {
-            "此實例是原版 Minecraft。光影需要透過 {loader} 等模組載入器執行；切換會保留你的世界和設定，{loader} 會在你下次按下「開始遊戲」時安裝。"
-        }
         M::VanillaNoLoaderMods => {
             "此實例是原版 Minecraft {version}。模組需要模組載入器，但 Lodestone Launcher 支援的載入器都無法在此版本上執行：Fabric 從 1.14 開始支援，Forge 也沒有適用於此版本的組建。新增一個較新版本的實例即可使用模組。"
         }
@@ -106,8 +100,14 @@ pub fn text(message: M) -> &'static str {
         M::VanillaCheckingShaders => {
             "此實例是原版 Minecraft。光影需要透過模組載入器執行；正在檢查哪個載入器能在 Minecraft {version} 上執行…"
         }
-        M::SwitchTo => "切換至 {loader}",
         M::NewFabricInstance => "新增 Fabric 實例…",
+        M::VanillaCopyMods => {
+            "此實例是原版 Minecraft。模組需要透過 {loader} 等模組載入器執行，而實例會保留建立時的載入器。使用 {loader} 的副本可以帶上你的世界和設定。"
+        }
+        M::VanillaCopyShaders => {
+            "此實例是原版 Minecraft。光影需要透過 {loader} 等模組載入器執行，而實例會保留建立時的載入器。使用 {loader} 的副本可以帶上你的世界和設定。"
+        }
+        M::CopyWith => "以 {loader} 複製…",
 
         M::ShaderModUsingPack => "{shader_mod} 正在使用 {pack}。",
         M::ShaderModUsingBuiltIn => "{shader_mod} 正在使用內建光影。",

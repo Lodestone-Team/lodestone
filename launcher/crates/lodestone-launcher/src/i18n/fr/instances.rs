@@ -95,14 +95,6 @@ pub fn text(message: M) -> &'static str {
         M::CouldntSavePlayTime => "Impossible d’enregistrer le temps de jeu\u{a0}: {error}",
         M::ModpackExported => "Modpack exporté",
         M::CouldntExportModpack => "Impossible d’exporter le modpack",
-        M::CouldntSwitchLoader => "Impossible de passer à un chargeur de mods",
-        M::NoModLoaderFor => {
-            "Aucun chargeur de mods pris en charge par Lodestone Launcher ne fonctionne avec Minecraft {version}\u{a0}: Fabric commence à la 1.14, et Forge n’a pas de version pour celle-ci."
-        }
-        M::SwitchedTo => "Passage à {loader} effectué",
-        M::SwitchedToMessage => {
-            "{name} utilise maintenant {loader} {version}. Il sera installé la prochaine fois que vous cliquerez sur Jouer."
-        }
 
         M::SearchLog => "Rechercher dans le journal",
         M::LevelDebug => "Débogage",
@@ -181,6 +173,11 @@ pub fn text(message: M) -> &'static str {
         }
         M::DownloadingName => "Téléchargement de {name}",
         M::InstallingName => "Installation de {name}",
+        M::CopyReady => "L’instance {name} est prête",
+        M::CouldntCopy => "Impossible de faire la copie",
+        M::CopyingWorlds => "Copie des mondes",
+        M::CopyingPacksAndOptions => "Copie des packs de ressources, des shaders et des options",
+        M::InstallingMods => "Installation des mods",
         M::CopyingConfigs => "Copie des configurations du pack",
         M::RecordingFiles => "Enregistrement des fichiers du pack",
         M::SavingSnapshot => "Sauvegarde des fichiers de l’instance",
@@ -338,6 +335,14 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::DownloadingFiles => [
             "Téléchargement de {count} fichier",
             "Téléchargement de {count} fichiers",
+        ],
+        P::CopyModsLeftBehind => [
+            "{count}\u{a0}mod n’a pas été copié\u{a0}: {names}.",
+            "{count}\u{a0}mods n’ont pas été copiés\u{a0}: {names}.",
+        ],
+        P::CopyDependenciesMissing => [
+            "{count}\u{a0}mod dont ils ont besoin n’a pas pu être installé\u{a0}: {names}.",
+            "{count}\u{a0}mods dont ils ont besoin n’ont pas pu être installés\u{a0}: {names}.",
         ],
         P::FinderModsLeft => [
             "{count} mod reste à vérifier",

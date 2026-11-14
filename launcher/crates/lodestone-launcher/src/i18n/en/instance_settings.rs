@@ -91,16 +91,16 @@ crate::i18n::messages! {
         AutoGroupImported = "Imported",
 
         // Game & loader.
+        /// Under the Minecraft version and the mod loader, which never change.
         GameVersionHint = "Set when the instance was made.",
+        /// The same, for an instance a modpack's updates can move to another version.
+        GameVersionFollowsModpack = "Follows its modpack's updates.",
+        /// The same, for an instance a linked server's pack can move to another version.
+        GameVersionFollowsServer = "Follows the linked server's pack.",
         /// {loader} is a loader and its version, "Fabric 0.16.9".
         LoaderInstallsNextStart = "{loader} installs the next time the game starts.",
         LoaderInstallsNextPlay = "{loader} installs the next time you press Play.",
         SavedNextStart = "Saved. It applies the next time the game starts.",
-        /// {error} is the problem, in English.
-        CouldntTurnModsOff = "Couldn't turn the mods off: {error}",
-        /// A modpack update changed the Minecraft version while the loader change
-        /// dialog was open; nothing was saved.
-        GameVersionChangedMeanwhile = "The Minecraft version changed meanwhile. Choose the loader again, then save.",
 
         // The loader picker.
         /// No mod loader: the game as Mojang ships it.
@@ -252,6 +252,54 @@ crate::i18n::messages! {
         Duplicate = "Duplicate",
         /// The Duplicate button while the copy is being made.
         Duplicating = "Duplicating…",
+        /// The Game & loader row that leads to a copy: an instance's version and loader
+        /// never change.
+        ChangeVersionOrLoader = "Another version or loader",
+        ChangeVersionOrLoaderHint = "An instance keeps the version and loader it was made with. A copy can have others.",
+        /// The Maintenance row that opens "Copy with another version or loader".
+        CopyAs = "Copy with another version or loader",
+        /// Opens "Copy with another version or loader".
+        CopyAsButton = "Copy…",
+        /// Search words for the copy rows (Settings search), comma-free.
+        CopyAsKeywords = "change switch update upgrade downgrade version loader Fabric Forge NeoForge Quilt",
+
+        // "Copy with another version or loader": a new instance from this one.
+        /// The dialog's title.
+        CopyAsTitle = "Copy with another version or loader",
+        /// {name} is the instance copied; {version} is its version, "1.20.1 · Fabric 0.16.9".
+        CopyFrom = "A new instance from {name} ({version}), which stays as it is.",
+        /// The heading over the choices of what goes into the copy.
+        CopyWhat = "What to copy",
+        CopyWorlds = "Worlds",
+        CopyNoWorlds = "This instance has no worlds.",
+        CopyWorldsOlder = "Worlds can't go to an older version of Minecraft: it can't open them.",
+        /// {version} is the Minecraft version chosen.
+        CopyWorldsUnknown = "Worlds stay: Lodestone Launcher can't tell whether {version} is newer.",
+        /// {version} is the Minecraft version chosen; {name} is the instance copied.
+        CopyWorldsUpgraded = "Minecraft {version} upgrades the worlds when it opens them, and they can't go back. The originals stay in {name}.",
+        /// Under Worlds, for another loader; {name} is the instance copied.
+        CopyWorldsModsGone = "Blocks and items from mods that don't come along are removed when the copy opens the worlds. The originals stay in {name}.",
+        CopyPacks = "Resource packs, shaders and options",
+        CopyMods = "Mods",
+        /// While the instance's mods are read.
+        CopyReading = "Reading the instance's mods…",
+        CopyNoMods = "This instance has no mods.",
+        CopyModsVanilla = "Vanilla Minecraft runs no mods.",
+        CopyModsOffline = "Modrinth can't be reached, so no mods can be copied.",
+        /// {error} is the problem, in English.
+        CopyModsFailed = "Couldn't check the mods: {error}",
+        /// {target} is "1.21.1 Fabric"; {names} is a list of mods.
+        CopyModsNoBuild = "No build for {target}, so these stay behind: {names}.",
+        /// {names} is a list of mods.
+        CopyModsNotOnModrinth = "Not on Modrinth, so these stay behind: {names}.",
+        /// {names} is a list of mods whose Modrinth lookup failed.
+        CopyModsUnchecked = "Couldn't check these on Modrinth, so they stay behind: {names}.",
+        /// After "Try again", when the mods couldn't be checked.
+        CopyOrUncheckMods = "or uncheck Mods to copy without them.",
+        /// While the version and loader chosen are the instance's own.
+        CopySameTarget = "Choose another Minecraft version or loader. Duplicate, in Maintenance, copies the instance as it is.",
+        /// Starts the copy.
+        CopyAsStart = "Make the copy",
         HostOnCore = "Host on Lodestone",
         HostHint = "Creates a server with this instance's mods.",
         HostButton = "Host…",
@@ -434,15 +482,6 @@ crate::i18n::messages! {
         ShareToggledCount = ("{count} turned off or on", "{count} turned off or on"),
         /// After "Gaycraft 5.0 from Modrinth" in the New instance dialog.
         CodePackChanges = ("+ {count} change", "+ {count} changes"),
-        /// After a loader change; {loader} is "Fabric 0.16.9".
-        LoaderNextStartModsOff = (
-            "{loader} installs the next time the game starts. {count} mod was turned off.",
-            "{loader} installs the next time the game starts. {count} mods were turned off."
-        ),
-        LoaderNextPlayModsOff = (
-            "{loader} installs the next time you press Play. {count} mod was turned off.",
-            "{loader} installs the next time you press Play. {count} mods were turned off."
-        ),
         /// How many of a category's settings are shared.
         SharedCount = ("{count} shared", "{count} shared"),
         /// How many of a category's settings this instance sets itself.
@@ -478,5 +517,13 @@ crate::i18n::messages! {
         AndMoreFiles = ("and {count} more", "and {count} more"),
         /// An added modpack's files in the instance.
         AddedModpackFiles = ("{count} file added", "{count} files added"),
+        /// Beside the worlds' box in "Copy with another version or loader".
+        CopyWorldsCount = ("{count} world", "{count} worlds"),
+        CopyCheckingMods = ("Checking {count} mod on Modrinth…", "Checking {count} mods on Modrinth…"),
+        /// {found} of the {count} mods have a build; {target} is "1.21.1 Fabric".
+        CopyModsFound = (
+            "{found} of {count} mod has a build for {target}.",
+            "{found} of {count} mods have a build for {target}."
+        ),
     }
 }

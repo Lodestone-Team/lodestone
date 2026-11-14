@@ -2,7 +2,13 @@
 //! General (name, group, icon), Game & loader, the pack and the linked server when
 //! there are any, Java & memory and Launch options (each a launcher default until
 //! changed here), Shared game settings, and Maintenance (verify, export, duplicate,
-//! host, delete).
+//! copy with another version or loader, host, delete).
+//!
+//! The Minecraft version and the mod loader are shown, not changed: they are fixed once
+//! the instance is made. A modpack update or a linked server's pack may still move them,
+//! and reverting a snapshot's mods puts back the version and loader they were for (the
+//! snapshot's settings alone keep them). Only the loader's version can be picked here. "Copy with another version or
+//! loader…" makes a new instance instead.
 //!
 //! Changes to the settings are kept until Save, on the bar that appears with them;
 //! Discard puts the saved ones back. A value that isn't valid says why under its row
@@ -18,7 +24,6 @@ use gpui::{
     prelude::*,
 };
 use launcher_core::{
-    content::loader_change::{self, LoaderChangeCheck},
     game::{
         install::DefaultJava,
         runtime::{self, JavaInfo},
@@ -98,16 +103,9 @@ pub struct ShareRequested(pub String);
 /// "Add a modpack…" was clicked for this instance: the shell opens "Add a modpack".
 pub struct AddModpackRequested(pub String);
 
-/// Asks the shell to confirm a loader change that leaves mods behind or puts worlds at
-/// risk.
-#[derive(Clone, Debug)]
-pub struct LoaderChangePrompt {
-    /// The instance as it will be saved.
-    pub instance: Instance,
-    /// The loader it uses now.
-    pub from: Loader,
-    pub check: LoaderChangeCheck,
-}
+/// "Copy with another version or loader…" was clicked for this instance: the shell opens
+/// the copy dialog.
+pub struct CopyAsRequested(pub String);
 
 /// The result of checking the Java override.
 #[derive(Clone, Debug)]
@@ -221,8 +219,6 @@ pub struct InstanceSettings {
     /// The chosen skin's banners, as thumbnails.
     banners: Load<Vec<BannerThumb>>,
     _banners_task: Option<Task<()>>,
-    /// A loader change is waiting for the shell's dialog.
-    prompting: bool,
     nav: SectionNav,
     /// The search field over the list of sections.
     search: Entity<SettingsSearch>,
@@ -249,7 +245,7 @@ impl EventEmitter<FindModRequested> for InstanceSettings {}
 impl EventEmitter<super::snapshots::SnapshotRequested> for InstanceSettings {}
 impl EventEmitter<ShareRequested> for InstanceSettings {}
 impl EventEmitter<AddModpackRequested> for InstanceSettings {}
-impl EventEmitter<LoaderChangePrompt> for InstanceSettings {}
+impl EventEmitter<CopyAsRequested> for InstanceSettings {}
 impl EventEmitter<UpdatePrompt> for InstanceSettings {}
 
 /// The version to offer as an update: the newest release, else the newest version,
@@ -278,12 +274,11 @@ fn form_values(instance: &Instance) -> Instance {
 }
 
 /// `current` with the settings this form changes ([`InstanceSettings::read_fields`])
-/// taken from `form`.
+/// taken from `form`. The loader itself isn't one: only its version changes here.
 fn form_onto(form: &Instance, current: &Instance) -> Instance {
     Instance {
         name: form.name.clone(),
         group: form.group.clone(),
-        loader: form.loader,
         loader_version: form.loader_version.clone(),
         java_override: form.java_override.clone(),
         memory: form.memory,
@@ -439,7 +434,6 @@ impl InstanceSettings {
             _own_images_task: None,
             banners: Load::NotLoaded,
             _banners_task: None,
-            prompting: false,
             nav: SectionNav::default(),
             search,
             preview_section: None,
@@ -503,13 +497,8 @@ impl InstanceSettings {
     }
 
     /// Saves the settings if they are valid. Returns whether they are saved now: not
-    /// when a value isn't valid (it says why under its row), or when a loader change
-    /// that would leave enabled mods unable to load, or worlds without their modded
-    /// blocks, asks first (see [`LoaderChangePrompt`]).
+    /// when a value isn't valid (it says why under its row).
     pub fn save(&mut self, cx: &mut Context<Self>) -> bool {
-        if self.prompting {
-            return false;
-        }
         let Some(before) = self.instance(cx) else {
             return true;
         };
@@ -520,12 +509,7 @@ impl InstanceSettings {
         if instance == before {
             return true;
         }
-        if let Some(prompt) = self.loader_change_prompt(Some(&before), &instance, cx) {
-            self.prompting = true;
-            cx.emit(prompt);
-            return false;
-        }
-        self.commit(instance, &[], cx);
+        self.commit(instance, cx);
         true
     }
 
@@ -611,7 +595,7 @@ impl InstanceSettings {
             && seen != saved_values
         {
             self.form_seen = Some(saved_values.clone());
-            if self.form_last.as_ref() == Some(&seen) && !self.prompting {
+            if self.form_last.as_ref() == Some(&seen) {
                 self.load_form(&saved, cx);
                 return;
             }
@@ -673,56 +657,8 @@ impl InstanceSettings {
         crate::undo::record(step, cx);
     }
 
-    /// The question to ask before saving `instance`, if its loader change needs one.
-    fn loader_change_prompt(
-        &self,
-        before: Option<&Instance>,
-        instance: &Instance,
-        cx: &App,
-    ) -> Option<LoaderChangePrompt> {
-        let before = before?;
-        if before.loader == instance.loader {
-            return None;
-        }
-        let dirs = self.instances.read(cx).content_dirs(&instance.id);
-        let check = loader_change::check(
-            &dirs,
-            before.loader,
-            instance.loader,
-            &instance.game_version,
-        )
-        .ok()?;
-        check.needs_confirmation().then(|| LoaderChangePrompt {
-            instance: instance.clone(),
-            from: before.loader,
-            check,
-        })
-    }
-
-    /// The prompt for changing the loader to `loader` at `version`, as saving would ask
-    /// it, for the offscreen screenshots.
-    pub fn preview_loader_change(
-        &self,
-        loader: Loader,
-        version: &str,
-        cx: &App,
-    ) -> Option<LoaderChangePrompt> {
-        let before = self.instance(cx)?;
-        let mut instance = before.clone();
-        instance.loader = loader;
-        instance.loader_version = Some(version.to_string());
-        self.loader_change_prompt(Some(&before), &instance, cx)
-    }
-
-    /// The loader change dialog was closed without saving: the loader shows what the
-    /// instance has again.
-    pub fn revert_loader(&mut self, cx: &mut Context<Self>) {
-        self.prompting = false;
-        self.sync_loader(cx);
-    }
-
-    /// The instance's loader or game version changed elsewhere (a modpack update, the
-    /// Content tab) while the form has unsaved changes: the loader shows the new one,
+    /// The instance's loader or game version changed elsewhere (a modpack update, a
+    /// linked server's pack) while the form has unsaved changes: the loader shows the new one,
     /// and what was typed stays. What the tab shows of the instance is read again: the
     /// Minecraft version, and the pack an update moved to (checked again on request).
     pub fn loader_changed(&mut self, cx: &mut Context<Self>) {
@@ -760,34 +696,9 @@ impl InstanceSettings {
             .update(cx, |loader, cx| loader.set_choice(choice, cx));
     }
 
-    /// Saves `instance`'s form settings, after turning off `disable` (mods, with
-    /// `.disabled`). The rest is the record's as it is now: `instance` may have been
-    /// read before the loader change dialog, and a session that ended meanwhile added
-    /// to the play time. Nothing is saved when the tab is another instance's, or when the
-    /// Minecraft version changed meanwhile (a modpack update): the loader version was
-    /// picked for the old one.
-    pub fn commit(&mut self, instance: Instance, disable: &[String], cx: &mut Context<Self>) {
-        self.prompting = false;
+    /// Saves `instance`, the saved record with the form's settings (see [`Self::save`]).
+    fn commit(&mut self, instance: Instance, cx: &mut Context<Self>) {
         let before = self.instance(cx);
-        let instance = match &before {
-            Some(current) if current.id != instance.id => {
-                self.sync_loader(cx);
-                return;
-            }
-            Some(current) if current.game_version != instance.game_version => {
-                self.sync_loader(cx);
-                return self.set_message(t(M::GameVersionChangedMeanwhile), true, cx);
-            }
-            Some(current) => form_onto(&instance, current),
-            None => instance,
-        };
-        if !disable.is_empty() {
-            let dirs = self.instances.read(cx).content_dirs(&instance.id);
-            if let Err(err) = loader_change::disable_mods(&dirs, disable) {
-                self.sync_loader(cx);
-                return self.set_message(tr!(M::CouldntTurnModsOff, error = err), true, cx);
-            }
-        }
         let running = self.instances.read(cx).is_active(&instance.id);
         let result = self.instances.update(cx, |instances, cx| {
             instances.undoable(&instance.id, cx, |instances, cx| {
@@ -803,15 +714,8 @@ impl InstanceSettings {
                         != (instance.loader, &instance.loader_version)
                 });
                 let loader = loader_label(&instance);
-                let turned_off = disable.len();
                 let message = match (loader_changed, running) {
-                    (true, true) if turned_off > 0 => {
-                        trn!(P::LoaderNextStartModsOff, turned_off, loader = loader)
-                    }
                     (true, true) => tr!(M::LoaderInstallsNextStart, loader = loader),
-                    (true, false) if turned_off > 0 => {
-                        trn!(P::LoaderNextPlayModsOff, turned_off, loader = loader)
-                    }
                     (true, false) => tr!(M::LoaderInstallsNextPlay, loader = loader),
                     (false, true) => t(M::SavedNextStart).to_string(),
                     (false, false) => t(CommonMsg::Saved).to_string(),
@@ -821,6 +725,16 @@ impl InstanceSettings {
             Err(err) => self.set_message(err, true, cx),
         }
         self.sync_loader(cx);
+    }
+
+    /// "Copy…": opens "Copy with another version or loader" for this instance.
+    fn copy_as_button(&self, id: &'static str, cx: &mut Context<Self>) -> Button {
+        Button::new(id, t(M::CopyAsButton))
+            .variant(ButtonVariant::Secondary)
+            .size(ButtonSize::Slim)
+            .on_click(
+                cx.listener(|this, _, _, cx| cx.emit(CopyAsRequested(this.instance_id.clone()))),
+            )
     }
 
     /// The instance with the fields' values, or the first problem with them. Only the
@@ -852,13 +766,17 @@ impl InstanceSettings {
         } else {
             None
         };
-        // The loader changes only when one was picked here, and not while its versions
-        // load (or can't): the recommended version picked when the list loads isn't a
-        // change.
+        // The loader's version changes only when one was picked here, and not while
+        // the versions load (or can't): the recommended version picked when the list
+        // loads isn't a change. The loader itself never changes here, and a picker
+        // left on another Minecraft version (one a server sync or a pack update moved
+        // meanwhile) offers builds for that version, which aren't taken.
         let picker = self.loader.read(cx);
-        if let (true, Ok(loader)) = (picker.touched(), picker.choice()) {
-            instance.loader = Loader::from_kind(loader.as_ref().map(|l| l.kind));
-            instance.loader_version = loader.map(|l| l.version);
+        if let (true, Ok(Some(loader))) = (picker.touched(), picker.choice())
+            && Loader::from_kind(Some(loader.kind)) == instance.loader
+            && picker.game_version() == Some(instance.game_version.as_str())
+        {
+            instance.loader_version = Some(loader.version);
         }
         let group = self.text(&self.group, cx);
         instance.group = (!group.is_empty()).then_some(group);
@@ -2464,9 +2382,22 @@ impl Render for InstanceSettings {
 
         // Game & loader.
         let loader_name = instance.as_ref().map(loader_label).unwrap_or_default();
-        let game: [SearchRow; 3] = [
+        // fixed, unless its modpack or linked server moves them
+        let fixed_hint = if self.instances.read(cx).is_linked(&self.instance_id) {
+            M::GameVersionFollowsServer
+        } else if self.modpack.is_some() {
+            M::GameVersionFollowsModpack
+        } else {
+            M::GameVersionHint
+        };
+        if self.loader.read(cx).fixed_hint() != fixed_hint {
+            // drawn after this view, in the same frame
+            self.loader
+                .update(cx, |picker, _| picker.set_fixed_hint(fixed_hint));
+        }
+        let game: [SearchRow; 4] = [
             SettingRow::new("Minecraft")
-                .hint(t(M::GameVersionHint))
+                .hint(t(fixed_hint))
                 .search_text(self.game_version.clone())
                 .child(value(self.game_version.clone(), false))
                 .into(),
@@ -2479,6 +2410,12 @@ impl Render for InstanceSettings {
                     loader_name,
                 ],
             ),
+            // the version and loader stay; a copy can have others
+            SettingRow::new(t(M::ChangeVersionOrLoader))
+                .hint(t(M::ChangeVersionOrLoaderHint))
+                .keywords(t(M::CopyAsKeywords))
+                .child(self.copy_as_button("copy-as-game", cx))
+                .into(),
             SettingRow::new(t(M::PrereleaseUpdates))
                 .hint(t(M::PrereleaseUpdatesHint))
                 .child(
@@ -2776,6 +2713,8 @@ impl Render for InstanceSettings {
                     .detach();
                 })),
             ),
+            // Search finds the Game & loader row for these words, not this one too.
+            SettingRow::new(t(M::CopyAs)).child(self.copy_as_button("copy-as-instance", cx)),
             SettingRow::new(t(M::HostOnCore))
                 .hint(t(M::HostHint))
                 .child(
@@ -3088,10 +3027,10 @@ mod tests {
     }
 
     #[test]
-    fn a_confirmed_loader_change_keeps_what_changed_meanwhile() {
+    fn the_forms_settings_go_onto_the_record_as_it_is_now() {
         use launcher_core::instances::{AutoConfig, Memory, WindowSettings};
-        // LS-100: the loader change dialog holds the instance as it was when Save was
-        // clicked; the game then exited and its session was added to the record
+        // LS-100: the form's values (as Undo puts them back) onto the record, which a
+        // session that ended meanwhile added to
         let asked = Instance {
             name: "Renamed".into(),
             group: Some("Modded".into()),
@@ -3127,19 +3066,11 @@ mod tests {
         let saved = form_onto(&asked, &now);
         // the form's settings, as confirmed
         assert_eq!(
-            (
-                &saved.name,
-                &saved.group,
-                saved.loader,
-                &saved.loader_version
-            ),
-            (
-                &asked.name,
-                &asked.group,
-                asked.loader,
-                &asked.loader_version
-            )
+            (&saved.name, &saved.group, &saved.loader_version),
+            (&asked.name, &asked.group, &asked.loader_version)
         );
+        // the loader isn't the form's: it never changes here
+        assert_eq!(saved.loader, now.loader);
         assert_eq!(
             (
                 &saved.java_override,
@@ -3222,7 +3153,7 @@ mod tab_tests {
         shell.read_with(cx, |shell, _| shell.settings_view().cloned().unwrap())
     }
 
-    /// LS-101: a modpack update or loader switch that finishes rebuilds only its own
+    /// LS-101: a modpack update (or a linked server's pack) that finishes rebuilds only its own
     /// instance's Settings tab, and not while it has unsaved changes.
     #[test]
     fn a_loader_change_elsewhere_keeps_unsaved_changes() {
@@ -3309,54 +3240,121 @@ mod tab_tests {
         assert!(cx.update(|_, cx| crate::undo::last_key(cx).is_none()));
     }
 
-    /// LS-100: the instance a loader change dialog asked about was read before a
-    /// session ended; confirming it keeps that session's play time.
+    /// An instance's loader never changes in its Settings tab: only the loader's version
+    /// is saved, for the loader the instance has. Saving keeps a session that ended
+    /// meanwhile.
     #[test]
-    fn a_confirmed_loader_change_keeps_a_session_that_ended_meanwhile() {
+    fn only_the_loaders_version_is_saved() {
+        use launcher_core::game::loaders::{LoaderChoice, LoaderKind};
         let mut cx = TestAppContext::single();
         let (shell, instances, id, cx) = setup(&mut cx);
         let store = instances.read_with(cx, |instances, _| instances.store());
-        let mut asked = store.get(&id).unwrap();
-        asked.loader = Loader::Quilt;
-        asked.loader_version = Some("0.27.1".into());
+        let mut fabric = store.get(&id).unwrap();
+        fabric.game_version = "1.20.1".into();
+        fabric.loader = Loader::Fabric;
+        fabric.loader_version = Some("0.16.13".into());
+        store.save(&fabric).unwrap();
+        instances.update(cx, |instances, cx| {
+            instances.reload(cx);
+            cx.emit(InstancesEvent::LoaderChanged(id.clone()));
+        });
+        cx.run_until_parked();
+        let view = tab(&shell, cx);
+        let pick = |kind, version: &str| {
+            Some(LoaderChoice {
+                kind,
+                version: version.into(),
+            })
+        };
+        // another loader isn't a change, even with the picker showing one
+        view.update(cx, |view, cx| {
+            view.loader.update(cx, |picker, cx| {
+                picker.restore_choice(pick(LoaderKind::Quilt, "0.27.1"), true, cx)
+            })
+        });
+        assert!(!view.read_with(cx, |view, cx| view.has_changes(cx)));
+        // another version of its own loader is
         let played = store.record_play(&id, 1_700_000_000, 1800).unwrap();
         instances.update(cx, |instances, cx| instances.reload(cx));
         cx.run_until_parked();
-        tab(&shell, cx).update(cx, |view, cx| view.commit(asked, &[], cx));
+        view.update(cx, |view, cx| {
+            view.loader.update(cx, |picker, cx| {
+                picker.restore_choice(pick(LoaderKind::Fabric, "0.16.14"), true, cx)
+            });
+            assert!(view.has_changes(cx));
+            assert!(view.save(cx));
+        });
         let saved = store.get(&id).unwrap();
-        assert_eq!(saved.loader, Loader::Quilt);
+        assert_eq!(
+            (saved.loader, saved.loader_version.as_deref()),
+            (Loader::Fabric, Some("0.16.14"))
+        );
+        assert_eq!(saved.game_version, "1.20.1");
         assert_eq!(saved.play_time, played.play_time);
         assert_eq!(saved.last_played, Some(1_700_000_000));
     }
-
-    /// LS-100: a loader change dialog answered after a modpack update moved the
-    /// instance to another Minecraft version saves nothing (the loader version was
-    /// picked for the old one), and one for another instance never saves onto this one.
+    /// A linked server's sync (or a pack update) moves the instance to another Minecraft
+    /// version while its Settings tab has an unsaved loader version: the tab follows the
+    /// new version, and Save never writes a build for the old one.
     #[test]
-    fn a_confirmed_loader_change_saves_nothing_that_no_longer_applies() {
+    fn a_loader_version_for_another_minecraft_version_is_never_saved() {
+        use launcher_core::game::loaders::{LoaderChoice, LoaderKind};
         let mut cx = TestAppContext::single();
         let (shell, instances, id, cx) = setup(&mut cx);
         let store = instances.read_with(cx, |instances, _| instances.store());
-        let other = instances.read_with(cx, |instances, _| instances.list()[1].id.clone());
-        let before = store.get(&id).unwrap();
-        let other_before = store.get(&other).unwrap();
-
-        let mut elsewhere = other_before.clone();
-        elsewhere.name = "Not this one".into();
-        elsewhere.loader = Loader::Quilt;
-        tab(&shell, cx).update(cx, |view, cx| view.commit(elsewhere, &[], cx));
-        assert_eq!(store.get(&id).unwrap(), before);
-        assert_eq!(store.get(&other).unwrap(), other_before);
-
-        let mut asked = before.clone();
-        asked.loader = Loader::Forge;
-        asked.loader_version = Some("52.0.1".into());
-        let mut updated = before.clone();
-        updated.game_version = format!("{}-updated", before.game_version);
-        store.save(&updated).unwrap();
+        let mut forge = store.get(&id).unwrap();
+        forge.game_version = "1.20.1".into();
+        forge.loader = Loader::Forge;
+        forge.loader_version = Some("47.4.0".into());
+        store.save(&forge).unwrap();
+        instances.update(cx, |instances, cx| {
+            instances.reload(cx);
+            cx.emit(InstancesEvent::LoaderChanged(id.clone()));
+        });
+        cx.run_until_parked();
+        let view = tab(&shell, cx);
+        // an unsaved pick of another Forge build for 1.20.1
+        view.update(cx, |view, cx| {
+            view.loader.update(cx, |picker, cx| {
+                picker.restore_choice(
+                    Some(LoaderChoice {
+                        kind: LoaderKind::Forge,
+                        version: "47.3.0".into(),
+                    }),
+                    true,
+                    cx,
+                )
+            });
+            assert!(view.has_changes(cx));
+        });
+        // the server moved to 1.21.1 with Forge 52.1.0
+        let mut synced = store.get(&id).unwrap();
+        synced.game_version = "1.21.1".into();
+        synced.loader_version = Some("52.1.0".into());
+        store.save(&synced).unwrap();
         instances.update(cx, |instances, cx| instances.reload(cx));
         cx.run_until_parked();
-        tab(&shell, cx).update(cx, |view, cx| view.commit(asked, &[], cx));
-        assert_eq!(store.get(&id).unwrap(), updated);
+        // before the tab hears of it, a stale pick isn't taken
+        view.read_with(cx, |view, cx| {
+            let saved = view.read_fields(&synced, cx).unwrap();
+            assert_eq!(saved.loader_version.as_deref(), Some("52.1.0"));
+        });
+        // and once it does (the stale pick was its only change, so the tab is made
+        // again), the picker shows the new version's build
+        instances.update(cx, |_, cx| {
+            cx.emit(InstancesEvent::LoaderChanged(id.clone()))
+        });
+        cx.run_until_parked();
+        let view = tab(&shell, cx);
+        view.read_with(cx, |view, cx| {
+            let picker = view.loader.read(cx);
+            assert_eq!(picker.game_version(), Some("1.21.1"));
+            assert!(!picker.touched());
+            let saved = view.read_fields(&synced, cx).unwrap();
+            assert_eq!(
+                (saved.game_version.as_str(), saved.loader_version.as_deref()),
+                ("1.21.1", Some("52.1.0"))
+            );
+        });
     }
 }

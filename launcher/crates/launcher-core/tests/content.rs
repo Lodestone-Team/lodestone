@@ -973,3 +973,232 @@ fn a_share_code_recreates_the_content_of_an_instance() {
     assert_eq!(outcome.failed.len(), 1);
     assert_eq!(outcome.installed.len(), 2);
 }
+
+#[test]
+fn a_copy_for_another_version_takes_the_mods_with_a_build_for_it() {
+    use launcher_core::{
+        content::copy_as::{self, CopyAsOptions, CopyAsRequest, WorldsRule},
+        game::loaders::{LoaderChoice, LoaderKind},
+        instances::InstanceStore,
+    };
+    let mock = ModrinthMock::start();
+    fabric_mods(&mock);
+    let api = mock.client();
+    let root = tempfile::tempdir().unwrap();
+    let store = InstanceStore::new(root.path().join("instances"));
+    let fabric = |version: &str| LoaderChoice {
+        kind: LoaderKind::Fabric,
+        version: version.into(),
+    };
+    let source = store
+        .create("Survival", "1.20.1", Some(&fabric("0.16.9")))
+        .unwrap();
+    let dirs = InstanceDirs::new(store.dir(&source.id));
+    let target = Target::new("1.20.1", Loader::Fabric);
+    // Iris (with Sodium and Fabric API), Fabric API turned off, a mod added by hand, a
+    // world, a resource pack and the options
+    install_version(&mock, &dirs, &target, ContentKind::Mod, "iris176").unwrap();
+    let mods = dirs.content_dir(ContentKind::Mod);
+    launcher_core::content::files::set_mod_enabled(&dirs, "P7dR8mSH-0.92.2.jar", false).unwrap();
+    fs::write(mods.join("homemade.jar"), b"not on modrinth").unwrap();
+    fs::create_dir_all(dirs.game.join("saves/New World")).unwrap();
+    fs::write(dirs.game.join("saves/New World/level.dat"), b"world").unwrap();
+    fs::create_dir_all(dirs.content_dir(ContentKind::ResourcePack)).unwrap();
+    fs::write(
+        dirs.content_dir(ContentKind::ResourcePack)
+            .join("Faithful.zip"),
+        b"pack",
+    )
+    .unwrap();
+    fs::write(
+        dirs.game.join("options.txt"),
+        "resourcePacks:[\"vanilla\",\"file/Faithful.zip\"]\n",
+    )
+    .unwrap();
+    fs::write(dirs.game.join("servers.dat"), b"servers").unwrap();
+    // shared game settings off, with a setting of its own kept and a game to read back
+    launcher_core::shared_options::update_instance(&dirs.instance, |sharing| {
+        sharing.enabled = false;
+        sharing.overrides.insert("fov".into());
+        sharing.session = Some(Default::default());
+        sharing.changed.insert("gamma".into(), "1.0".into());
+    })
+    .unwrap();
+    // the world's data packs' Modrinth records, and another world's
+    fs::write(
+        dirs.instance.join("datapacks.json"),
+        r#"{"worlds":{"New World":{"terralith.zip":{"project_id":"terra","version_id":"t1"}},"Gone":{"x.zip":{"project_id":"x","version_id":"x1"}}}}"#,
+    )
+    .unwrap();
+
+    let contents = block_on(copy_as::contents(Some(&api), &dirs)).unwrap();
+    assert!(contents.unchecked.is_empty());
+    assert_eq!(contents.lookup_error, None);
+    assert_eq!(contents.worlds, ["New World"]);
+    assert_eq!(contents.resource_packs, ["Faithful.zip"]);
+    assert!(contents.options);
+    assert_eq!(contents.mods.len(), 3);
+    assert_eq!(contents.other_mods, ["homemade"]);
+    let fapi = contents
+        .mods
+        .iter()
+        .find(|m| m.project_id == FABRIC_API)
+        .unwrap();
+    assert!(!fapi.enabled);
+
+    // To 1.21.1: Sodium and Fabric API have builds for it, Iris doesn't.
+    let new_target = Target::new("1.21.1", Loader::Fabric);
+    let resolved = block_on(copy_as::resolve_mods(&api, &contents.mods, &new_target)).unwrap();
+    let found: Vec<&str> = resolved.found.iter().map(|(_, v)| v.id.as_str()).collect();
+    assert_eq!(found, ["sod0600", "fapi-121"]);
+    assert_eq!(resolved.missing.len(), 1);
+    assert_eq!(resolved.missing[0].project_id, IRIS);
+    // vanilla runs no mods: none is asked about
+    let asked = mock.requests().len();
+    let vanilla = block_on(copy_as::resolve_mods(
+        &api,
+        &contents.mods,
+        &Target::new("1.21.1", Loader::None),
+    ))
+    .unwrap();
+    assert_eq!((vanilla.found.len(), vanilla.missing.len()), (0, 3));
+    assert_eq!(mock.requests().len(), asked);
+
+    let options = CopyAsOptions {
+        worlds: true,
+        ..CopyAsOptions::default()
+    };
+    let rule = copy_as::worlds_rule("1.20.1", "1.21.1", &[]);
+    assert_eq!(rule, WorldsRule::Newer);
+    let plan = copy_as::plan(
+        &contents,
+        "1.21.1",
+        Loader::Fabric,
+        options,
+        rule,
+        Some(&resolved),
+    );
+    assert!(plan.needs_confirmation());
+    let read_done = std::cell::Cell::new(false);
+    let outcome = block_on(copy_as::execute(
+        &store,
+        Some(&api),
+        &downloader(),
+        &source,
+        &CopyAsRequest {
+            name: None,
+            loader: Some(fabric("0.16.14")),
+            plan,
+        },
+        &InstallProgress::default(),
+        &CancelToken::new(),
+        || read_done.set(true),
+    ))
+    .unwrap();
+    assert!(read_done.get(), "the original's files were read");
+    // Iris has no build, and the mod added by hand isn't on Modrinth
+    assert_eq!(outcome.left_behind, ["iris title", "homemade"]);
+    assert!(outcome.missing_dependencies.is_empty());
+    let copy = outcome.instance;
+    assert_eq!(copy.name, "Survival (1.21.1 Fabric)");
+    assert_ne!(copy.id, source.id);
+    assert_eq!(copy.game_version, "1.21.1");
+    assert_eq!(copy.loader_version.as_deref(), Some("0.16.14"));
+    let copy_dirs = InstanceDirs::new(store.dir(&copy.id));
+    assert_eq!(
+        names(&copy_dirs.content_dir(ContentKind::Mod)),
+        ["AANobbMI-0.6.0.jar", "P7dR8mSH-0.110.0.jar.disabled"]
+    );
+    assert_eq!(
+        fs::read(copy_dirs.game.join("saves/New World/level.dat")).unwrap(),
+        b"world"
+    );
+    assert_eq!(
+        names(&copy_dirs.content_dir(ContentKind::ResourcePack)),
+        ["Faithful.zip"]
+    );
+    assert!(copy_dirs.game.join("options.txt").is_file());
+    assert_eq!(
+        fs::read(copy_dirs.game.join("servers.dat")).unwrap(),
+        b"servers"
+    );
+    // the copy keeps the shared settings off, and its own setting, so its first launch
+    // doesn't write the shared ones over the options copied; the original's game to
+    // read back and changes waiting stay with it
+    let sharing = launcher_core::shared_options::load_instance(&copy_dirs.instance).unwrap();
+    assert!(!sharing.enabled);
+    assert_eq!(sharing.overrides, ["fov".to_string()].into());
+    assert!(sharing.session.is_none() && sharing.changed.is_empty());
+    // the copied world's data packs keep their Modrinth records
+    let records: serde_json::Value =
+        serde_json::from_slice(&fs::read(copy_dirs.instance.join("datapacks.json")).unwrap())
+            .unwrap();
+    assert_eq!(
+        records["worlds"]["New World"]["terralith.zip"]["project_id"],
+        "terra"
+    );
+    assert!(records["worlds"].get("Gone").is_none());
+    // the original is as it was
+    let original = store.get(&source.id).unwrap();
+    assert_eq!(
+        (original.game_version.as_str(), original.loader),
+        ("1.20.1", Loader::Fabric)
+    );
+    assert!(names(&mods).contains(&"YL57xq9U-1.7.6+1.20.1.jar".to_string()));
+    assert_eq!(store.list().0.len(), 2);
+
+    // A world deleted since the instance was read is skipped, and vanilla takes no
+    // mods (none counts as staying behind).
+    let mut stale = contents.clone();
+    stale.worlds.push("Deleted".into());
+    let plan = copy_as::plan(&stale, "1.21.1", Loader::None, options, rule, None);
+    assert!(plan.mods.is_empty() && plan.left_behind().is_empty());
+    let outcome = block_on(copy_as::execute(
+        &store,
+        Some(&api),
+        &downloader(),
+        &source,
+        &CopyAsRequest {
+            name: None,
+            loader: None,
+            plan,
+        },
+        &InstallProgress::default(),
+        &CancelToken::new(),
+        || {},
+    ))
+    .unwrap();
+    assert!(outcome.left_behind.is_empty());
+    let vanilla_dirs = InstanceDirs::new(store.dir(&outcome.instance.id));
+    assert_eq!(names(&vanilla_dirs.game.join("saves")), ["New World"]);
+    assert!(names(&vanilla_dirs.content_dir(ContentKind::Mod)).is_empty());
+    assert_eq!(store.list().0.len(), 3);
+
+    // A cancelled copy leaves nothing behind.
+    let cancel = CancelToken::new();
+    cancel.cancel();
+    let plan = copy_as::plan(
+        &contents,
+        "1.21.1",
+        Loader::Fabric,
+        CopyAsOptions::default(),
+        rule,
+        Some(&resolved),
+    );
+    let cancelled = block_on(copy_as::execute(
+        &store,
+        Some(&api),
+        &downloader(),
+        &source,
+        &CopyAsRequest {
+            name: Some("Cancelled".into()),
+            loader: Some(fabric("0.16.14")),
+            plan,
+        },
+        &InstallProgress::default(),
+        &cancel,
+        || {},
+    ));
+    assert!(matches!(cancelled, Err(copy_as::CopyAsError::Cancelled)));
+    assert_eq!(names(store.root()).len(), 3, "{:?}", names(store.root()));
+}
