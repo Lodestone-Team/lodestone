@@ -20,6 +20,12 @@ use url::Url;
 /// Descriptions are cut at this many bytes.
 pub const MAX_BODY_BYTES: usize = 128 * 1024;
 
+/// Quotes and lists nest at most this deep; anything deeper is flattened into the
+/// innermost one kept. Drawing (and dropping) the blocks recurses once per level, and a
+/// description of a few thousand `>` would otherwise overflow the stack. Real
+/// descriptions rarely nest more than three or four levels.
+pub const MAX_DEPTH: usize = 8;
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Style {
     pub bold: bool,
@@ -134,6 +140,9 @@ struct Builder {
     skipping: bool,
     table: Option<Vec<Vec<Vec<Inline>>>>,
     row: Vec<Vec<Inline>>,
+    /// Quotes, lists and items opened past [`MAX_DEPTH`] that are still open: they get
+    /// no container of their own, so their content goes into the innermost one kept.
+    flattened: usize,
 }
 
 impl Builder {
@@ -152,6 +161,37 @@ impl Builder {
             skipping: false,
             table: None,
             row: Vec::new(),
+            flattened: 0,
+        }
+    }
+
+    /// How many quotes and lists are open.
+    fn depth(&self) -> usize {
+        self.stack
+            .iter()
+            .filter(|c| matches!(c, Container::Quote(_) | Container::List { .. }))
+            .count()
+    }
+
+    /// Whether a quote, list or item starting now goes past [`MAX_DEPTH`] (and is
+    /// counted in `flattened` instead of getting a container). An item is flattened
+    /// only when its list was.
+    fn flatten_start(&mut self, item: bool) -> bool {
+        if self.flattened > 0 || (!item && self.depth() >= MAX_DEPTH) {
+            self.flattened += 1;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Whether a quote, list or item ending now was a flattened one.
+    fn flatten_end(&mut self) -> bool {
+        if self.flattened > 0 {
+            self.flattened -= 1;
+            true
+        } else {
+            false
         }
     }
 
@@ -325,7 +365,9 @@ impl Builder {
             }
             Tag::BlockQuote(_) => {
                 self.flush();
-                self.stack.push(Container::Quote(Vec::new()));
+                if !self.flatten_start(false) {
+                    self.stack.push(Container::Quote(Vec::new()));
+                }
             }
             Tag::CodeBlock(_) => {
                 self.flush();
@@ -337,14 +379,18 @@ impl Builder {
             }
             Tag::List(start) => {
                 self.flush();
-                self.stack.push(Container::List {
-                    start,
-                    items: Vec::new(),
-                });
+                if !self.flatten_start(false) {
+                    self.stack.push(Container::List {
+                        start,
+                        items: Vec::new(),
+                    });
+                }
             }
             Tag::Item => {
                 self.flush();
-                self.stack.push(Container::Item(Vec::new()));
+                if !self.flatten_start(true) {
+                    self.stack.push(Container::Item(Vec::new()));
+                }
             }
             Tag::Table(_) => {
                 self.flush();
@@ -387,6 +433,9 @@ impl Builder {
             TagEnd::Paragraph | TagEnd::Heading(_) => self.finish_target(),
             TagEnd::BlockQuote(_) => {
                 self.flush();
+                if self.flatten_end() {
+                    return;
+                }
                 if let Some(Container::Quote(blocks)) =
                     self.pop_if(|c| matches!(c, Container::Quote(_)))
                 {
@@ -401,6 +450,9 @@ impl Builder {
             TagEnd::HtmlBlock => self.flush_html(),
             TagEnd::List(_) => {
                 self.flush();
+                if self.flatten_end() {
+                    return;
+                }
                 if let Some(Container::List { start, items }) =
                     self.pop_if(|c| matches!(c, Container::List { .. }))
                 {
@@ -409,6 +461,9 @@ impl Builder {
             }
             TagEnd::Item => {
                 self.flush();
+                if self.flatten_end() {
+                    return;
+                }
                 if let Some(Container::Item(blocks)) =
                     self.pop_if(|c| matches!(c, Container::Item(_)))
                     && let Some(Container::List { items, .. }) = self.stack.last_mut()
@@ -537,7 +592,13 @@ fn decode_entities(text: &str) -> String {
     while let Some(start) = rest.find('&') {
         out.push_str(&rest[..start]);
         rest = &rest[start..];
-        let Some(end) = rest[..rest.len().min(12)].find(';') else {
+        // Look for the ';' in the bytes: a fixed cut of the text could fall inside a
+        // character (say CJK text after a plain '&'). The ';' itself is ASCII, so where
+        // it is found is a character boundary.
+        let Some(end) = rest.as_bytes()[..rest.len().min(12)]
+            .iter()
+            .position(|&b| b == b';')
+        else {
             out.push('&');
             rest = &rest[1..];
             continue;
@@ -1064,5 +1125,84 @@ mod tests {
             decode_entities("&bogus; &#0; &#x110000; &amp"),
             "&bogus; &#0; &#x110000; &amp"
         );
+    }
+
+    /// An '&' followed by multi-byte text must not cut the text inside a character
+    /// while looking for the entity's ';' (LS-03).
+    #[test]
+    fn entities_before_multibyte_text() {
+        for (body, text) in [
+            ("<p>Fabric&中文说明文字</p>\n", "Fabric&中文说明文字"),
+            (
+                "<p>Tom & Jerry 日本語テキスト</p>\n",
+                "Tom & Jerry 日本語テキスト",
+            ),
+            ("<p>a&é&amp;b</p>\n", "a&é&b"),
+        ] {
+            assert_eq!(texts(&parse(body)), vec![text.to_string()], "{body}");
+        }
+        assert_eq!(decode_entities("&日本語テキスト"), "&日本語テキスト");
+        assert_eq!(decode_entities("&ab😀;"), "&ab😀;");
+        assert_eq!(decode_entities("&amp;日本"), "&日本");
+        assert_eq!(
+            attribute("<img alt=\"&中文说明文字\">", "alt").as_deref(),
+            Some("&中文说明文字")
+        );
+        assert_eq!(
+            texts(&parse("x <b>&中文说明文字</b> y")),
+            ["x &中文说明文字 y"]
+        );
+    }
+
+    /// How deep the quotes and lists in some blocks nest.
+    fn depth(blocks: &[Block]) -> usize {
+        blocks
+            .iter()
+            .map(|b| match b {
+                Block::Quote(inner) => 1 + depth(inner),
+                Block::List { items, .. } => {
+                    1 + items.iter().map(|item| depth(item)).max().unwrap_or(0)
+                }
+                _ => 0,
+            })
+            .max()
+            .unwrap_or(0)
+    }
+
+    /// Deeply nested quotes and lists are flattened past MAX_DEPTH, keeping their text,
+    /// so drawing and dropping them can't overflow the stack (LS-35).
+    #[test]
+    fn nesting_is_capped() {
+        let quotes = format!("{} deep\n\nafter", ">".repeat(100_000));
+        let blocks = parse(&quotes);
+        assert_eq!(depth(&blocks), MAX_DEPTH);
+        let all = format!("{blocks:?}");
+        assert!(all.contains("deep"), "{all}");
+        assert!(all.contains("after"), "{all}");
+        drop(blocks);
+
+        let mut list = String::new();
+        for level in 0..50 {
+            list.push_str(&"  ".repeat(level));
+            list.push_str(&format!("- item {level}\n"));
+        }
+        list.push_str("\nend\n");
+        let blocks = parse(&list);
+        assert_eq!(depth(&blocks), MAX_DEPTH);
+        let all = format!("{blocks:?}");
+        for level in 0..50 {
+            assert!(
+                all.contains(&format!("item {level}\"")),
+                "item {level}: {all}"
+            );
+        }
+        assert_eq!(texts(&blocks[1..]), ["end"]);
+
+        // Shallow nesting is kept as it is, and what follows a flattened part still
+        // nests where it should.
+        let mixed = format!("{} x\n\n> - a\n>   - b\n", ">".repeat(20));
+        let blocks = parse(&mixed);
+        assert_eq!(depth(&blocks[..1]), MAX_DEPTH);
+        assert_eq!(depth(&blocks[1..]), 3);
     }
 }
