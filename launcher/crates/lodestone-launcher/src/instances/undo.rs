@@ -243,6 +243,46 @@ pub(crate) fn changed_fields(a: &Instance, b: &Instance) -> Vec<Field> {
     fields
 }
 
+/// Copies `fields` from `from` onto `to`, and nothing else: an Undo step puts back
+/// only what it changed. Other writes of `instance.json` record no step (switching to
+/// Fabric from the Content tab, a modpack update, automatic setup), and the step's
+/// snapshot of everything else is older than they are.
+pub(crate) fn put_back(from: &Instance, to: &mut Instance, fields: &[Field]) {
+    for field in fields {
+        match field {
+            Field::Name => to.name = from.name.clone(),
+            Field::Group => to.group = from.group.clone(),
+            Field::Icon => to.icon = from.icon.clone(),
+            Field::Background => {
+                to.background = from.background.clone();
+                to.slideshow = from.slideshow;
+            }
+            Field::Loader => {
+                to.loader = from.loader;
+                to.loader_version = from.loader_version.clone();
+            }
+            Field::Prerelease => to.prerelease_updates = from.prerelease_updates,
+            Field::Colors => {
+                to.play_color = from.play_color;
+                to.accent = from.accent;
+            }
+            Field::Memory => to.memory = from.memory,
+            Field::Java => to.java_override = from.java_override.clone(),
+            Field::JvmArgs => to.jvm_args = from.jvm_args.clone(),
+            Field::GameArgs => to.game_args = from.game_args.clone(),
+            Field::Window => to.window = from.window,
+            Field::Env => to.env = from.env.clone(),
+        }
+    }
+}
+
+/// Whether `current` is the instance `snapshot` was taken of. Its id is its folder's
+/// name, which a new instance gets again once the old one is in the Trash; the time it
+/// was created tells them apart (and stays when it is put back from the Trash).
+fn same_instance(snapshot: &Instance, current: &Instance) -> bool {
+    snapshot.created == current.created
+}
+
 /// What `instance` says for `fields`: "Name → Survival", or "Settings of Survival"
 /// for several.
 pub(crate) fn describe_instance(instance: &Instance, fields: &[Field]) -> String {
@@ -408,29 +448,37 @@ impl Instances {
             move || said_after.clone(),
             {
                 let entity = entity.clone();
-                move |cx| entity.update(cx, |this, cx| this.restore_instance(&before, cx))
+                let fields = fields.clone();
+                move |cx| entity.update(cx, |this, cx| this.restore_instance(&before, &fields, cx))
             },
-            move |cx| entity.update(cx, |this, cx| this.restore_instance(&after, cx)),
+            move |cx| entity.update(cx, |this, cx| this.restore_instance(&after, &fields, cx)),
         );
         undo::record(step, cx);
     }
 
-    /// Puts an instance's settings back as `snapshot` has them. How much it was
-    /// played stays.
+    /// Puts the settings `fields` of an instance back as `snapshot` has them. The rest
+    /// of its record stays as it is now.
     fn restore_instance(
         &mut self,
         snapshot: &InstanceSnapshot,
+        fields: &[Field],
         cx: &mut Context<Self>,
     ) -> Result<(), UndoError> {
         let id = &snapshot.instance.id;
-        let current = self.store.get(id).map_err(|_| UndoError::Gone)?;
-        let mut instance = snapshot.instance.clone();
-        instance.last_played = current.last_played;
-        instance.play_time = current.play_time;
-        for image in [&snapshot.icon, &snapshot.background] {
-            image
-                .write()
-                .map_err(|err| UndoError::Refused(err.to_string()))?;
+        let mut instance = self.store.get(id).map_err(|_| UndoError::Gone)?;
+        if !same_instance(&snapshot.instance, &instance) {
+            return Err(UndoError::Gone);
+        }
+        put_back(&snapshot.instance, &mut instance, fields);
+        for (image, field) in [
+            (&snapshot.icon, Field::Icon),
+            (&snapshot.background, Field::Background),
+        ] {
+            if fields.contains(&field) {
+                image
+                    .write()
+                    .map_err(|err| UndoError::Refused(err.to_string()))?;
+            }
         }
         self.store
             .save(&instance)
@@ -454,13 +502,24 @@ impl Instances {
         }
         let said = || t(SM::SharedGameSettings).to_string();
         let entity = cx.entity();
+        // the instance as it is now, to tell it from a new one that gets its id later
+        let instance = instance.map(|id| {
+            let record = self.store.get(&id).ok();
+            (id, record)
+        });
         let restore = move |files: Files| {
             let entity = entity.clone();
             let instance = instance.clone();
             move |cx: &mut App| {
                 entity.update(cx, |this, cx| {
-                    if let Some(id) = &instance {
-                        if !this.store.dir(id).is_dir() {
+                    if let Some((id, record)) = &instance {
+                        let Ok(current) = this.store.get(id) else {
+                            return Err(UndoError::Gone);
+                        };
+                        if record
+                            .as_ref()
+                            .is_some_and(|record| !same_instance(record, &current))
+                        {
                             return Err(UndoError::Gone);
                         }
                         if this.is_active(id) {
@@ -521,6 +580,78 @@ mod tests {
         b = a.clone();
         b.play_time = 100;
         assert!(changed_fields(&a, &b).is_empty());
+    }
+
+    #[test]
+    fn put_back_restores_only_the_steps_fields() {
+        use launcher_core::instances::{AutoConfig, Loader, Memory};
+        // LS-20: renamed (a step), then switched to Fabric and set up automatically
+        // (no steps); undoing the rename puts back the name and nothing else.
+        let before = Instance {
+            name: "Old".into(),
+            game_version: "1.21.1".into(),
+            ..Instance::default()
+        };
+        let mut now = before.clone();
+        now.name = "New".into();
+        now.loader = Loader::Fabric;
+        now.loader_version = Some("0.16.9".into());
+        now.game_version = "1.21.4".into();
+        now.recommended_memory = Some(6144);
+        now.memory = Some(Memory {
+            min: 512,
+            max: 4096,
+        });
+        now.auto_config = Some(AutoConfig::default());
+        let mut expected = now.clone();
+        expected.name = "Old".into();
+        put_back(&before, &mut now, &[Field::Name]);
+        assert_eq!(now, expected);
+    }
+
+    #[test]
+    fn put_back_covers_every_field_it_describes() {
+        use launcher_core::instances::{Loader, Memory, SlideshowSource, WindowSettings};
+        let a = Instance::default();
+        let mut b = Instance {
+            name: "B".into(),
+            group: Some("Friends".into()),
+            icon: Some("emoji:x".into()),
+            background: Some("custom".into()),
+            slideshow: Some(SlideshowSource::Custom),
+            loader: Loader::Quilt,
+            loader_version: Some("1".into()),
+            prerelease_updates: true,
+            play_color: Some(launcher_core::ui_skin::Rgb(0x010203)),
+            memory: Some(Memory { min: 1, max: 2 }),
+            java_override: Some("/java".into()),
+            jvm_args: Some("-X".into()),
+            game_args: Some("--y".into()),
+            window: Some(WindowSettings {
+                fullscreen: true,
+                ..WindowSettings::default()
+            }),
+            env: Some([("K".to_string(), "V".to_string())].into()),
+            ..Instance::default()
+        };
+        let fields = changed_fields(&a, &b);
+        assert_eq!(fields.len(), 13);
+        put_back(&a, &mut b, &fields);
+        assert_eq!(b, a);
+    }
+
+    #[test]
+    fn a_new_instance_with_the_same_id_is_another_instance() {
+        // LS-21: deleted, then created again under the same name (and id)
+        let old = Instance {
+            id: "survival".into(),
+            created: 1_700_000_000,
+            ..Instance::default()
+        };
+        let mut new = old.clone();
+        assert!(same_instance(&old, &new));
+        new.created = 1_700_000_100;
+        assert!(!same_instance(&old, &new));
     }
 
     #[test]
