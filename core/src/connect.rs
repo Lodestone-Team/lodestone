@@ -493,7 +493,10 @@ impl ConnectShares {
     ) {
         let mut saved = None;
         while changed.changed().await.is_ok() {
-            let identity = match self.slots.lock().await.get(&uuid) {
+            // Saved under the lock a stop deletes the file with, so a share stopped
+            // meanwhile can't write its identity back.
+            let slots = self.slots.lock().await;
+            let identity = match slots.get(&uuid) {
                 Some(Slot::Running { host, .. }) => host.identity(),
                 _ => continue,
             };
@@ -501,7 +504,9 @@ impl ConnectShares {
             if saved.as_ref() == Some(&json) {
                 continue;
             }
-            match self.save(&uuid, &identity).await {
+            let result = self.save(&uuid, &identity).await;
+            drop(slots);
+            match result {
                 Ok(()) => saved = Some(json),
                 Err(e) => warn!("Failed to save the sharing identity of {uuid}: {e}"),
             }
