@@ -39,7 +39,9 @@
 //! only be finished from the address that started it, and is used up by any failure. A
 //! claim's folder is deleted [`ABANDONED_AFTER`] after it expires when it was never
 //! finished (`owner.json` holds a password), and [`RESULT_TTL`] after `finish`. The
-//! `allow_local_claim` setting turns it all off.
+//! `allow_local_claim` setting turns it all off. Web pages can't claim at all: a request
+//! with a browser's `Origin` or `Sec-Fetch-Site` header is refused, since a page in a
+//! browser on this computer connects from a loopback address too.
 //!
 //! The file API never reads, writes, moves or deletes `local_claim/` (see
 //! `handlers::global_fs`). The folders are created owner-only in one step and checked
@@ -56,7 +58,12 @@ use std::{
     time::{Duration, Instant},
 };
 
-use axum::{extract::State, routing::post, Json, Router};
+use axum::{
+    extract::State,
+    http::{header, HeaderMap},
+    routing::post,
+    Json, Router,
+};
 use color_eyre::eyre::{eyre, Context};
 use serde::{Deserialize, Serialize};
 use subtle::ConstantTimeEq;
@@ -777,10 +784,32 @@ fn create_private_file(path: &Path) -> Result<(), Error> {
         .map_err(|e| internal(format!("Failed to create {}: {e}", path.display())))
 }
 
+/// Refuses a request a web page sent. The core allows every origin (CORS), and a page in
+/// a browser on this computer connects from a loopback address, so without this any site
+/// could read the data folder's path from `start` and use up this computer's claims.
+/// Browsers send `Origin` with every POST and `Sec-Fetch-Site` with every request (`none`
+/// only for one the person made themselves, such as a typed address), and no page can
+/// leave them out; Lodestone's own programs send neither.
+fn refuse_web_pages(headers: &HeaderMap) -> Result<(), Error> {
+    let from_page = headers.contains_key(header::ORIGIN)
+        || headers
+            .get("sec-fetch-site")
+            .is_some_and(|site| site.as_bytes() != b"none");
+    if from_page {
+        return Err(denied(
+            "Owner access can't be claimed from a web page. Use Lodestone Host or \
+             Lodestone Launcher on this computer",
+        ));
+    }
+    Ok(())
+}
+
 async fn start_claim(
     State(state): State<AppState>,
     ClientIp(ip): ClientIp,
+    headers: HeaderMap,
 ) -> Result<Json<StartReply>, Error> {
+    refuse_web_pages(&headers)?;
     if !state.global_settings.lock().await.allow_local_claim() {
         return Err(denied(
             "Claiming owner access from this computer is turned off in Core Settings",
@@ -797,8 +826,10 @@ async fn start_claim(
 async fn finish_claim(
     State(state): State<AppState>,
     ClientIp(ip): ClientIp,
+    headers: HeaderMap,
     Json(request): Json<FinishRequest>,
 ) -> Result<Json<serde_json::Value>, Error> {
+    refuse_web_pages(&headers)?;
     if !state.global_settings.lock().await.allow_local_claim() {
         return Err(denied(
             "Claiming owner access from this computer is turned off in Core Settings",
@@ -809,7 +840,7 @@ async fn finish_claim(
 }
 
 /// `POST /local_claim/start` and `POST /local_claim/finish`. No sign-in: the proof is the
-/// data folder.
+/// data folder. Never for web pages (`refuse_web_pages`).
 pub fn get_local_claim_routes(state: AppState) -> Router {
     Router::new()
         .route("/local_claim/start", post(start_claim))
@@ -1430,6 +1461,63 @@ mod tests {
         // and the JSON leaves it out rather than sending null
         let lan = core.start_from("10.0.0.2".parse().unwrap()).await.unwrap();
         assert!(!serde_json::to_string(&lan).unwrap().contains("data_folder"));
+    }
+
+    #[tokio::test]
+    async fn web_pages_cant_claim() {
+        let core = core(true).await;
+        let post = |path: &str, headers: &[(&str, &str)], body: Value| {
+            let mut request = core.client.post(format!("{}{path}", core.base)).json(&body);
+            for (name, value) in headers {
+                request = request.header(*name, *value);
+            }
+            request.send()
+        };
+        // what a page's fetch() sends, from another site or from the core's own origin
+        let pages: [&[(&str, &str)]; 4] = [
+            &[("Origin", "https://evil.example")],
+            &[("Origin", "null")],
+            &[("Sec-Fetch-Site", "cross-site"), ("Sec-Fetch-Mode", "cors")],
+            &[
+                ("Origin", "https://127.0.0.1:16662"),
+                ("Sec-Fetch-Site", "same-origin"),
+            ],
+        ];
+        for headers in pages {
+            let response = post("/local_claim/start", headers, json!({}))
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::FORBIDDEN, "{headers:?}");
+            let body: Value = response.json().await.unwrap();
+            assert!(body.get("data_folder").is_none(), "{headers:?}: {body}");
+        }
+        // nothing was started, so the page used none of this computer's allowance
+        assert!(core.state.local_claims.state.lock().await.starts.is_empty());
+        assert!(!core.dir.path().join(CLAIM_DIR).exists());
+
+        // nor can a page finish a claim a program started
+        let start = core.start().await;
+        core.answer(&start, &start.value);
+        let response = post(
+            "/local_claim/finish",
+            &[("Origin", "https://evil.example")],
+            json!({ "id": start.id, "name": NAME }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        assert!(!core.folder(&start).join("result.json").exists());
+        // the program's own requests (no browser headers) still work, as does a request
+        // a person made themselves
+        let response = post(
+            "/local_claim/finish",
+            &[("Sec-Fetch-Site", "none")],
+            json!({ "id": start.id, "name": NAME }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert!(core.folder(&start).join("result.json").is_file());
     }
 
     #[tokio::test]
