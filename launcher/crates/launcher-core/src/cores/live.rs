@@ -910,7 +910,10 @@ mod tests {
         assert_eq!(tcp.read_timeout().unwrap(), Some(REQUEST_TIMEOUT));
         let url = ws_url(&base, "events/all").unwrap();
         let socket = handshake(&url, Stream::Plain(tcp), "127.0.0.1").unwrap();
-        assert_eq!(socket.get_ref().tcp().read_timeout().unwrap(), Some(READ_TICK));
+        assert_eq!(
+            socket.get_ref().tcp().read_timeout().unwrap(),
+            Some(READ_TICK)
+        );
         core.join().unwrap();
     }
 
