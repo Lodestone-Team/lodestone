@@ -44,6 +44,7 @@ fn download(path: &str, content: &[u8], project: &str) -> PackFile {
         from_overrides: false,
         project_id: Some(project.to_string()),
         stored: None,
+        image: None,
     }
 }
 
@@ -54,6 +55,7 @@ fn override_file(content: &[u8]) -> PackFile {
         from_overrides: true,
         project_id: None,
         stored: None,
+        image: None,
     }
 }
 

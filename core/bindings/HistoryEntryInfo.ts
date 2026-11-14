@@ -23,4 +23,9 @@ missing: number,
 /**
  * What the modpack's author wrote about this version (Markdown).
  */
-changelog: string | null, };
+changelog: string | null, 
+/**
+ * The content image of the server after this entry, when it has one. Left out
+ * otherwise.
+ */
+image?: string, };

@@ -307,6 +307,7 @@ fn edited_histories_are_checked() {
         changes: vec![],
         kept: vec![],
         changelog: None,
+        image: None,
     });
     // a download from a host packs may not use is ignored
     history.files.insert(

@@ -1045,3 +1045,63 @@ of M2 adds its own subsection.
 - **What Modrinth said** about installed mods is noted for `env` and sources from what the Mods tab
   fetched anyway: an install notes its version's download URLs and the project's sides, a list
   the sides of every matched mod.
+
+#### Lineage: modpack history as content images (`core/src/modpack/lineage.rs`)
+
+- **`history.json` stays the lineage's bookkeeping.** It is the "rest" beside the images
+  (each entry's kind, origin, changes, kept files, changelog and how to get files back), and
+  `record.json` stays the update engine's record for its three-way merge. Each entry gains an
+  optional `image`, the id of its content image, left out when there is none, so released
+  cores read and write the file as before (they ignore the field). Both files live in the
+  server folder, so a backup restores them consistently with the files; a separate index in
+  `images/` would go out of step after a backup restore. Nothing deletes `history.json`,
+  `record.json` or `.lodestone_modpack/objects` in M2: downgrades and restores of old entries
+  need them. No history kind is added: Mods-tab images are lineage only, never entries.
+- **Writes.** An install, update or restore records one content image of the whole server
+  (the recorder's, see the foundation) only after it succeeded: after the record is saved and
+  the server software is installed. Before it, the update records anything queued (so the
+  current image is the content as it was), and that current image becomes a new baseline
+  entry's `image`. The operation (`OpKind::Modpack`) holds the content gate from before
+  staging until the record. Labels: "Installed <pack> <version>", "Updated <pack> to
+  <version>", "Restored <pack> to <version>". A failed operation records nothing and links
+  nothing; a record that fails is logged and the entry is kept without an image, never failing
+  the operation.
+- **`pack.json` from the pack.** The base is `modrinth_pack` with the SHA-512 of the
+  `.mrpack` the operation used (hashed by the core) when the pack is on Modrinth; an uploaded
+  pack is no base. Each file the pack wrote is listed by disk path with its SHA-1, its
+  download's SHA-512, size and CDN URL, and its `env`: an index file's `env` as written
+  (unknown when it has none); an `overrides/` file required on both sides; a
+  `server-overrides/` file unsupported on clients and required on servers; an `overrides/`
+  file that `client-overrides/` replaces for clients unsupported on clients (they get another
+  file). A mod is listed under its disabled name too, so a pack mod disabled in the Mods tab
+  keeps the pack's `env`. A restore uses the restored version's `.mrpack` (from the
+  downloaded packs, else downloaded again, waiting at most 60 s); without it, the base the
+  restored entry's image had (when it is the same version), with `env` unknown.
+- **Converting older entries (backfill).** The first time an update or restore runs on a
+  server whose history has entries without `image`, before it changes any file, the history
+  is converted with `core_modpack::read` (no record: a real image is recorded right after)
+  through the server's disk layout. Known files are the history's stored copies and the
+  pack's files on disk, each SHA-1-checked and `put_file`d first, so every `object` entry is
+  present when the image is saved; anything else (a download no longer on disk) is withheld
+  as `unreadable`, and world files (a Paper `world_nether/…` override) as `excluded`, while
+  the history keeps them. `.mrpack` hashes come only from the current `pack.json` and the
+  downloaded packs, without asking Modrinth, so most converted images have no base. The
+  images are saved and `history.json` written once, under the instance's lock (so pruning
+  never sees an image not yet named). This stays even when the operation then fails: it only
+  links old entries. Converted images have `env` unknown and never become the current image;
+  they are never served.
+- **Restoring from either kind.** Old and new entries restore through the same engine
+  (plan, stage, journaled place), so the three-way merge and kept files behave as before. A
+  file the restore must write that neither the history's store nor a download has is read
+  from the entry's image: the image's entry at that path (or the mod's disabled name), whose
+  SHA-1 (the entry's, or the object's, read and hashed) equals the history's, and whose
+  object the store has whole. Staging reads it through the store (every byte checked against
+  the SHA-256) and checks the copy's SHA-1 again. A restore by a user without
+  `WriteGlobalFile` hashes such a jar's SHA-512 from the store for the Modrinth check, as it
+  does stored copies. The History API's `missing` counts these files as ones Lodestone has.
+- **History API.** `GET /instance/{uuid}/modpack/history` keeps its shape; each entry gains
+  an optional `image` (left out when none). Entries, newest first, are every entry of
+  `history.json`, old (converted or not) and new.
+- **Retention.** The history is an `ImageRefs` source: every entry's `image`. A history
+  that can't be read, or a server the core doesn't list, fails the source, so pruning deletes
+  nothing; a server being created is found at its folder until the core lists it.

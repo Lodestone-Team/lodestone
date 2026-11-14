@@ -1483,6 +1483,9 @@ pub async fn run_with(
         images.set_gc_requester(Arc::new(move || backups.request_gc()));
     }
     // ImageRefs: backups, lineage
+    images.register_refs(Arc::new(crate::modpack::lineage::LineageRefs::new(
+        shared_state.instances.clone(),
+    )));
     images::set_global(images.clone());
     // temporary files a crash left, and the first content image of each stopped server
     {

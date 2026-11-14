@@ -7,6 +7,7 @@
 //! used.
 
 pub mod history;
+pub mod lineage;
 pub mod store;
 pub mod update;
 pub mod updates;
