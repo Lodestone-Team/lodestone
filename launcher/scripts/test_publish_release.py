@@ -1,6 +1,7 @@
 """Tests for publish_release.py's manifest logic: python3 launcher/scripts/test_publish_release.py"""
 
 import os
+import re
 import sys
 import tempfile
 import unittest
@@ -802,6 +803,25 @@ class Dev(unittest.TestCase):
                           pr.dev_release_notes("host-dev-12-ab12cd3", "ab12cd3ef0"))
         finally:
             pr.use_product("launcher")
+
+
+class Workflows(unittest.TestCase):
+    """The release workflows' steps that run this script."""
+
+    def test_a_failure_isnt_hidden_by_a_pipe(self):
+        # LS-34: a step without `shell: bash` runs as `bash -e` without pipefail, so
+        # `publish_release.py ... | tee` passed even when the script exited 1.
+        folder = pr.ROOT / ".github" / "workflows"
+        checked = 0
+        for path in sorted(folder.glob("*.yml")):
+            steps = re.split(r"\n(?=\s*- (?:name|uses):)", path.read_text())
+            for text in steps:
+                if "publish_release.py" in text and re.search(r"\|\s*tee\b", text):
+                    checked += 1
+                    with self.subTest(workflow=path.name, step=text.strip().splitlines()[0]):
+                        self.assertTrue(re.search(r"^\s*shell: bash\s*$", text, re.M)
+                                        or "pipefail" in text)
+        self.assertGreater(checked, 0)
 
 
 if __name__ == "__main__":
