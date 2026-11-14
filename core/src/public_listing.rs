@@ -297,7 +297,9 @@ impl BuiltPack {
 }
 
 /// The outcome of building a pack, kept until the mods folder changes, so that repeated
-/// requests do not scan and hash the mods again. A failure keeps its kind and message.
+/// requests do not scan and hash the mods again. A failure keeps its kind and message;
+/// one that may pass (Modrinth unreachable) isn't kept, see `cached_outcome` in
+/// `handlers::public_instances`.
 pub enum CachedPack {
     Built(Arc<BuiltPack>),
     Failed(ErrorKind, String),

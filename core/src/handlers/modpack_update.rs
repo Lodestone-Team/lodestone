@@ -13,7 +13,10 @@
 //! Modrinth must be a version of the modpack the server came from; an uploaded pack
 //! (`/modpack/upload`) can be any pack, and needs `WriteGlobalFile` too, as for creating a
 //! server from one. A restore needs only `WriteInstanceFile`: it puts back files the
-//! server had, from Lodestone's store or from the hosts packs download from.
+//! server had, from Lodestone's store or from the hosts packs download from. A protected
+//! file it puts back (a jar, see [`is_protected`]) must be one Modrinth knows, as for
+//! adding a mod, or the restore needs `WriteGlobalFile`: the hosts packs download from
+//! include GitHub, where anyone can put any file.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -25,6 +28,7 @@ use serde::{Deserialize, Serialize};
 use tracing::warn;
 use ts_rs::TS;
 
+use super::instance_fs::is_protected;
 use super::modpack::{modrinth_pack, stored_pack, ModpackSource};
 use super::util::{get_instance, AuthedUser};
 use crate::auth::user::UserAction;
@@ -34,7 +38,8 @@ use crate::implementations::minecraft::{Flavour, MinecraftInstance};
 use crate::modpack::history::{entry_as_is, entry_for, History, HistoryKind, ModpackHistory};
 use crate::modpack::store::StoredPack;
 use crate::modpack::update::{
-    pack_files, place_files, plan_files, record_of, remove_work_dirs, stage_files,
+    begin_update, end_update, keep_unwritten_scripts, other_copies, pack_files, place_files,
+    plan_files, record_of, recover_interrupted, remove_other_copies, remove_work_dirs, stage_files,
     undo_placed_files, FileAction, FilePlan, ModpackUpdatePlan, ModpackUpdateResult, PackFile,
     PackRecord,
 };
@@ -42,6 +47,7 @@ use crate::modpack::updates::{self, AvailableUpdate};
 use crate::modpack::{
     describe_skipped, read_pack_async, server_flavour, ModpackInfo, ModpackOrigin, Pack,
 };
+use crate::modrinth::ModrinthApi;
 use crate::mods::bad_request;
 use crate::prelude::GameInstance;
 use crate::traits::t_configurable::TConfigurable;
@@ -174,12 +180,30 @@ async fn current_record(
 
 /// The plan of going to `new_files`, from what the server has.
 async fn plan_against(
+    state: &AppState,
     root: &std::path::Path,
     before: &Before,
     new_files: &Arc<BTreeMap<String, PackFile>>,
+    allow_scripts: bool,
 ) -> Result<FilePlan, Error> {
-    let (root, old, new_files) = (root.to_path_buf(), before.record.clone(), new_files.clone());
-    spawn_blocking(move || Ok(plan_files(&root, &old, &new_files))).await
+    let mut plan = {
+        let (root, old, new_files) = (root.to_path_buf(), before.record.clone(), new_files.clone());
+        spawn_blocking(move || Ok(plan_files(&root, &old, &new_files))).await?
+    };
+    if !allow_scripts {
+        keep_unwritten_scripts(&mut plan, &before.record, new_files);
+    }
+    // another version of a mod the plan adds, such as one updated in the Mods tab
+    let others = other_copies(
+        state.mods.modrinth.as_ref(),
+        root,
+        &before.record,
+        new_files,
+        &plan,
+    )
+    .await;
+    remove_other_copies(&mut plan, new_files, &others);
+    Ok(plan)
 }
 
 async fn prepare(
@@ -229,7 +253,7 @@ async fn prepare(
                     .files_of(&root, *entry_id, allow_scripts)
                     .unwrap_or_default(),
             );
-            let plan = plan_against(&root, &before, &new_files).await?;
+            let plan = plan_against(state, &root, &before, &new_files, allow_scripts).await?;
             // files to put back that Lodestone can't get
             let missing: Vec<&str> = plan
                 .changes
@@ -390,7 +414,7 @@ async fn from_pack(
         let (pack, path) = (pack.clone(), stored.path());
         Arc::new(spawn_blocking(move || pack_files(&pack, &path, allow_scripts)).await?)
     };
-    let plan = plan_against(root, before, &new_files).await?;
+    let plan = plan_against(state, root, before, &new_files, allow_scripts).await?;
     let target = pack.info.clone();
     let skipped = pack
         .skipped
@@ -409,6 +433,93 @@ async fn from_pack(
     ))
 }
 
+/// The protected files (see [`is_protected`]) that `plan` adds or replaces, with the
+/// SHA-512 of the bytes it would put there: of the stored copy it copies, else of the
+/// download it checks. `None` when neither is there. Reads stored copies, so call it on a
+/// blocking thread.
+fn protected_new_files(
+    plan: &FilePlan,
+    new_files: &BTreeMap<String, PackFile>,
+) -> Vec<(String, Option<String>)> {
+    plan.changes
+        .iter()
+        .filter(|c| c.action != FileAction::Remove)
+        .filter(|c| {
+            is_protected(std::path::Path::new(&c.path), false)
+                || is_protected(std::path::Path::new(&c.target), false)
+        })
+        .map(|c| {
+            let file = new_files.get(&c.path);
+            let sha512 = file.and_then(|file| match (&file.stored, &file.download) {
+                (Some(stored), _) => lodestone_minecraft::hash::sha512_of(stored).ok(),
+                (None, Some(download)) => Some(download.sha512.clone()),
+                (None, None) => None,
+            });
+            (c.target.clone(), sha512.map(|h| h.to_lowercase()))
+        })
+        .collect()
+}
+
+/// For a restore by a user without `WriteGlobalFile`: fails unless Modrinth knows every
+/// protected file it puts back. The history says where a restore's files come from, and
+/// those hosts include GitHub, so without this a restore could put any jar into `mods/`,
+/// which only users who can write global files may do. Uploading or enabling a mod has the
+/// same rule.
+async fn require_known_restored_files(
+    api: &dyn ModrinthApi,
+    plan: &FilePlan,
+    new_files: &Arc<BTreeMap<String, PackFile>>,
+) -> Result<(), Error> {
+    let files = {
+        let (plan, new_files) = (plan.clone(), new_files.clone());
+        spawn_blocking(move || Ok(protected_new_files(&plan, &new_files))).await?
+    };
+    if files.is_empty() {
+        return Ok(());
+    }
+    let hashes: Vec<String> = files.iter().filter_map(|(_, h)| h.clone()).collect();
+    let known = if hashes.is_empty() {
+        Default::default()
+    } else {
+        api.versions_by_hash(&hashes).await?
+    };
+    let unknown: Vec<&str> = files
+        .iter()
+        .filter(|(_, hash)| !hash.as_ref().is_some_and(|h| known.contains_key(h)))
+        .map(|(target, _)| target.as_str())
+        .collect();
+    if unknown.is_empty() {
+        return Ok(());
+    }
+    Err(Error {
+        kind: ErrorKind::PermissionDenied,
+        source: eyre!(
+            "This version puts back {} file(s) that are not on Modrinth ({}). Only users who can write global files can restore it",
+            unknown.len(),
+            unknown.iter().take(5).copied().collect::<Vec<_>>().join(", ")
+        ),
+    })
+}
+
+/// [`require_known_restored_files`] when `prepared` is a restore and `requester` can't
+/// write global files.
+async fn check_restore(
+    state: &AppState,
+    requester: &AuthedUser,
+    prepared: &Prepared,
+) -> Result<(), Error> {
+    let restore = matches!(prepared.kind, HistoryKind::Restore { .. });
+    if !restore || requester.can_perform_action(&UserAction::WriteGlobalFile) {
+        return Ok(());
+    }
+    require_known_restored_files(
+        state.mods.modrinth.as_ref(),
+        &prepared.plan,
+        &prepared.new_files,
+    )
+    .await
+}
+
 pub(super) async fn plan_update(
     State(state): State<AppState>,
     Path(uuid): Path<InstanceUuid>,
@@ -418,7 +529,12 @@ pub(super) async fn plan_update(
     requester
         .require(&state, UserAction::WriteInstanceFile(uuid.clone()))
         .await?;
-    let prepared = prepare(&state, &requester, &uuid, &request.source).await?;
+    let mut prepared = prepare(&state, &requester, &uuid, &request.source).await?;
+    if prepared.summary.target.unsupported_reason.is_none() {
+        if let Err(e) = check_restore(&state, &requester, &prepared).await {
+            prepared.summary.target.unsupported_reason = Some(e.source.to_string());
+        }
+    }
     Ok(Json(prepared.summary))
 }
 
@@ -497,31 +613,54 @@ async fn apply(
     .await?;
     progress("Replacing the modpack's files".to_string());
     {
+        // the journal lets the next start put the files back if the core stops before
+        // the record is saved (LS-19)
         let (root, plan) = (root.clone(), plan.clone());
-        spawn_blocking(move || place_files(&root, &plan)).await?;
+        spawn_blocking(move || {
+            begin_update(&root, &plan)?;
+            let placed = place_files(&root, &plan);
+            if placed.is_err() {
+                // place_files put the files back
+                end_update(&root)?;
+            }
+            placed
+        })
+        .await?;
     }
+    let undo = || {
+        let (root, plan) = (root.clone(), plan.clone());
+        spawn_blocking(move || {
+            undo_placed_files(&root, &plan);
+            end_update(&root)
+        })
+    };
     if let Some(flavour) = flavour {
         if let Err(e) = instance
             .install_server_software(summary.target.game_version.clone(), flavour, progress)
             .await
         {
-            let (root, plan) = (root.clone(), plan.clone());
-            spawn_blocking(move || {
-                undo_placed_files(&root, &plan);
-                Ok(())
-            })
-            .await?;
+            undo().await?;
             return Err(e);
         }
     }
-    plan.record.save(&root).await?;
+    if let Err(e) = plan.record.save(&root).await {
+        undo().await?;
+        return Err(e);
+    }
     // the files are in place: a history that can't be written only loses the undo
     if let Err(e) = record_history(prepared, &root).await {
         warn!("Could not add the modpack change to the history: {e}");
     }
-    instance
+    let origin = instance
         .set_modpack_origin(Some(prepared.origin.clone()))
-        .await?;
+        .await;
+    {
+        let root = root.clone();
+        if let Err(e) = spawn_blocking(move || end_update(&root)).await {
+            warn!("{}", e.source);
+        }
+    }
+    origin?;
     Ok(ModpackUpdateResult {
         added: summary.added.len() as u32,
         replaced: summary.replaced.len() as u32,
@@ -548,10 +687,16 @@ pub(super) async fn update_modpack(
     // the update is done; the mods lock keeps the Mods tab's changes out of the way
     let guard = instance.lock_stopped("changing its modpack").await?;
     let mods_guard = state.mods.lock_for(&uuid).lock_owned().await;
+    // with both held no other update runs, so an unfinished one was interrupted
+    {
+        let root = instance.path().await;
+        spawn_blocking(move || Ok(recover_interrupted(&root))).await?;
+    }
     let prepared = prepare(&state, &requester, &uuid, &request.source).await?;
     if let Some(reason) = &prepared.summary.target.unsupported_reason {
         return Err(bad_request(reason.clone()));
     }
+    check_restore(&state, &requester, &prepared).await?;
     let caused_by: CausedBy = requester.caused_by();
     // the update runs on its own task, so a dropped request can't stop it half way
     let task = tokio::spawn(async move {
@@ -638,4 +783,108 @@ pub(super) async fn check_modpack(
         .await?;
     let instance = minecraft_instance(get_instance(&state, &uuid)?);
     Ok(Json(updates::check_instance(&state, &instance).await?))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::modpack::update::FileChange;
+    use crate::modpack::PackDownload;
+    use crate::modrinth::fake::{sha1_hex, sha512_hex, FakeModrinth, FakeVersion};
+
+    fn download(path: &str, content: &[u8], url: &str) -> PackFile {
+        PackFile {
+            sha1: sha1_hex(content),
+            download: Some(PackDownload {
+                path: path.into(),
+                urls: vec![url::Url::parse(url).unwrap()],
+                sha1: sha1_hex(content),
+                sha512: sha512_hex(content),
+                size: content.len() as u64,
+            }),
+            from_overrides: false,
+            project_id: None,
+            stored: None,
+        }
+    }
+
+    fn adds(paths: &[&str]) -> FilePlan {
+        FilePlan {
+            changes: paths
+                .iter()
+                .map(|path| FileChange {
+                    path: path.to_string(),
+                    target: path.to_string(),
+                    action: FileAction::Add,
+                    old_sha1: None,
+                })
+                .collect(),
+            ..Default::default()
+        }
+    }
+
+    /// A history edited to restore a jar from GitHub with its own hashes doesn't put it
+    /// into `mods/` for a user who can't write global files (LS-02).
+    #[tokio::test]
+    async fn a_restore_only_puts_back_jars_modrinth_knows() {
+        let api = FakeModrinth::default();
+        let known = FakeVersion::new("sodium", "v1", "sodium.jar");
+        let known_content = known.content.clone();
+        api.add(known);
+        let evil = b"not on modrinth";
+        let new_files = Arc::new(BTreeMap::from([
+            (
+                "mods/sodium.jar".to_string(),
+                download(
+                    "mods/sodium.jar",
+                    &known_content,
+                    "https://cdn.modrinth.com/data/sodium/versions/v1/file.jar",
+                ),
+            ),
+            (
+                "mods/evil.jar".to_string(),
+                download(
+                    "mods/evil.jar",
+                    evil,
+                    "https://raw.githubusercontent.com/a/b/main/evil.jar",
+                ),
+            ),
+            (
+                "config/a.toml".to_string(),
+                download(
+                    "config/a.toml",
+                    b"a config",
+                    "https://raw.githubusercontent.com/a/b/main/a.toml",
+                ),
+            ),
+        ]));
+
+        let plan = adds(&["mods/sodium.jar", "config/a.toml"]);
+        assert!(require_known_restored_files(&api, &plan, &new_files)
+            .await
+            .is_ok());
+
+        let plan = adds(&["mods/sodium.jar", "mods/evil.jar", "config/a.toml"]);
+        let error = require_known_restored_files(&api, &plan, &new_files)
+            .await
+            .unwrap_err();
+        assert!(matches!(error.kind, ErrorKind::PermissionDenied));
+        assert!(error.source.to_string().contains("mods/evil.jar"));
+
+        // a stored copy is checked by its own bytes
+        let dir = tempfile::tempdir().unwrap();
+        let stored = dir.path().join("object");
+        std::fs::write(&stored, evil).unwrap();
+        let mut disguised = download(
+            "mods/sodium.jar",
+            &known_content,
+            "https://cdn.modrinth.com/data/sodium/versions/v1/file.jar",
+        );
+        disguised.stored = Some(stored);
+        let new_files = Arc::new(BTreeMap::from([("mods/sodium.jar".to_string(), disguised)]));
+        let plan = adds(&["mods/sodium.jar"]);
+        assert!(require_known_restored_files(&api, &plan, &new_files)
+            .await
+            .is_err());
+    }
 }

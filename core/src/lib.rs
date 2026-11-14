@@ -858,6 +858,9 @@ async fn restore_instances(
         };
 
         debug!("restoring instance: {}", path.display());
+        // before anything can start the server: put back the files of a modpack update
+        // the core stopped in the middle of
+        crate::modpack::update::recover_interrupted(&path);
         let uuid_instance: (InstanceUuid, GameInstance) = match dot_lodestone_config.game_type() {
             GameType::MinecraftJava => {
                 let instance = match minecraft::MinecraftInstance::restore(

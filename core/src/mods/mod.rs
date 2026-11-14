@@ -572,6 +572,74 @@ pub async fn set_enabled(
     Ok((scan::scan_file(&target, folder.loader).await?, true))
 }
 
+/// Enables the disabled mod `file_name` after `check` accepts it, given the file name and
+/// the SHA-512 of its contents. The contents are copied to a private temporary file first
+/// (a `.lodestone` name, which the file API protects), and that copy is what is checked
+/// and then moved into place: the disabled file could otherwise be changed through the
+/// file API, or by a writer that already had it open, between the check and the rename,
+/// and enable bytes nobody checked. A mod that is already enabled is returned unchanged.
+pub async fn enable_checked<F, Fut>(
+    folder: &ModFolder,
+    file_name: &str,
+    check: F,
+) -> Result<(ScannedFile, bool), Error>
+where
+    F: FnOnce(String, String) -> Fut,
+    Fut: std::future::Future<Output = Result<(), Error>>,
+{
+    if !is_disabled_name(file_name) {
+        return set_enabled(folder, file_name, true).await;
+    }
+    let path = existing_mod_path(folder, file_name).await?;
+    let target_name = enabled_name(file_name);
+    let target = folder.dir.join(&target_name);
+    if tokio::fs::symlink_metadata(&target).await.is_ok() {
+        return Err(file_name_conflict(&target_name));
+    }
+    let copy = {
+        let (dir, path, name) = (folder.dir.clone(), path.clone(), file_name.to_string());
+        tokio::task::spawn_blocking(move || -> Result<(tempfile::TempPath, String), Error> {
+            let copy = tempfile::Builder::new()
+                .prefix(".lodestone-enable-")
+                .suffix(".tmp")
+                .tempfile_in(&dir)
+                .map_err(|e| file_error(e, "enable", &name))?;
+            let (mut to, copy) = copy.into_parts();
+            let mut from =
+                std::fs::File::open(&path).map_err(|e| file_error(e, "enable", &name))?;
+            std::io::copy(&mut from, &mut to).map_err(|e| file_error(e, "enable", &name))?;
+            drop(to);
+            let sha512 = lodestone_minecraft::hash::sha512_of(&copy)
+                .map_err(|e| file_error(e, "enable", &name))?;
+            Ok((copy, sha512))
+        })
+        .await
+        .map_err(|e| eyre!("The mod task failed: {e}"))??
+    };
+    let (copy, sha512) = copy;
+    check(file_name.to_string(), sha512).await?;
+    {
+        let (target, name) = (target.clone(), target_name.clone());
+        tokio::task::spawn_blocking(move || {
+            copy.persist_noclobber(&target).map_err(|e| {
+                if e.error.kind() == std::io::ErrorKind::AlreadyExists {
+                    file_name_conflict(&name)
+                } else {
+                    file_error(e.error, "enable", &name)
+                }
+            })
+        })
+        .await
+        .map_err(|e| eyre!("The mod task failed: {e}"))??;
+    }
+    if let Err(e) = tokio::fs::remove_file(&path).await {
+        // keep one copy: a mod both enabled and disabled would show twice
+        let _ = tokio::fs::remove_file(&target).await;
+        return Err(file_error(e, "enable", file_name));
+    }
+    Ok((scan::scan_file(&target, folder.loader).await?, true))
+}
+
 /// Deletes a mod file.
 pub async fn delete(folder: &ModFolder, file_name: &str) -> Result<(), Error> {
     let path = existing_mod_path(folder, file_name).await?;
@@ -826,6 +894,65 @@ mod tests {
         assert_eq!(file.file_name, "a.jar");
         assert!(file.enabled);
         assert_eq!(file.metadata.unwrap().id.as_deref(), Some("a"));
+    }
+
+    /// Enabling checks a private copy of the disabled jar and enables that copy, so a file
+    /// swapped in while the check runs is never enabled (LS-17).
+    #[tokio::test]
+    async fn enabling_enables_the_bytes_that_were_checked() {
+        let dir = tempfile::tempdir().unwrap();
+        let folder = folder(dir.path(), InstalledModLoader::Fabric);
+        let disabled = dir.path().join("a.jar.disabled");
+        std::fs::write(&disabled, "checked").unwrap();
+        let expected = crate::modrinth::fake::sha512_hex(b"checked");
+
+        let (file, changed) = enable_checked(&folder, "a.jar.disabled", |name, sha512| {
+            let disabled = disabled.clone();
+            let expected = expected.clone();
+            async move {
+                assert_eq!(name, "a.jar.disabled");
+                assert_eq!(sha512, expected);
+                // the file is swapped while the check runs
+                std::fs::write(&disabled, "swapped").unwrap();
+                Ok(())
+            }
+        })
+        .await
+        .unwrap();
+        assert!(changed);
+        assert_eq!(file.file_name, "a.jar");
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("a.jar")).unwrap(),
+            "checked"
+        );
+        assert!(!disabled.exists());
+
+        // a refused jar stays disabled, and no copy is left
+        std::fs::write(dir.path().join("b.jar.disabled"), "unknown").unwrap();
+        let err = enable_checked(&folder, "b.jar.disabled", |_, _| async {
+            Err(bad_request("not on Modrinth"))
+        })
+        .await
+        .unwrap_err();
+        assert_eq!(err.source.to_string(), "not on Modrinth");
+        assert!(dir.path().join("b.jar.disabled").exists());
+        assert!(!dir.path().join("b.jar").exists());
+        let names: Vec<String> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        assert!(
+            names.iter().all(|n| !n.starts_with(".lodestone")),
+            "{names:?}"
+        );
+
+        // an enabled jar isn't checked or changed
+        let (_, changed) = enable_checked(&folder, "a.jar", |_, _| async {
+            panic!("an enabled jar is not checked")
+        })
+        .await
+        .unwrap();
+        assert!(!changed);
     }
 
     #[tokio::test]

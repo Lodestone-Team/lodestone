@@ -999,6 +999,31 @@ async fn deleting_an_instance_unlists_it() {
     assert!(!core.state.public_listing.is_listed(&core.vanilla));
 }
 
+/// A failure that may pass, such as Modrinth being unreachable, isn't kept for the next
+/// request; one that building again would repeat is (LS-46).
+#[test]
+fn only_lasting_pack_failures_are_cached() {
+    let failed = |kind: ErrorKind| -> Result<std::sync::Arc<BuiltPack>, Error> {
+        Err(Error {
+            kind,
+            source: eyre!("failed"),
+        })
+    };
+    for kind in [
+        ErrorKind::External,
+        ErrorKind::Internal,
+        ErrorKind::TooManyRequests,
+    ] {
+        assert!(cached_outcome(&failed(kind)).is_none());
+    }
+    for kind in [ErrorKind::BadRequest, ErrorKind::NotFound] {
+        assert!(matches!(
+            cached_outcome(&failed(kind)),
+            Some(CachedPack::Failed(_, message)) if message == "failed"
+        ));
+    }
+}
+
 #[test]
 fn etags_match_with_or_without_weak_prefix() {
     let mut headers = HeaderMap::new();
