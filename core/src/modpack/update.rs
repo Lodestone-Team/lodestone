@@ -177,21 +177,39 @@ pub fn record_of(files: &BTreeMap<String, PackFile>) -> PackRecord {
     }
 }
 
-/// `path` from a record, if it is a plain relative path: no `..`, root or drive, and not
-/// one of Lodestone's own files. The record is a file in the instance folder that anyone
-/// who can write the instance's files can edit.
+/// `path` from a record, if it is a plain relative path a pack could have written: no
+/// `..`, root or drive, not one of Lodestone's own files, and not one of the files at the
+/// root that no pack may write (such as `server.jar`). Names are compared the way Windows
+/// and macOS resolve them, and names that may point at another file there (an alternate
+/// data stream, an 8.3 short name) are refused. The record and the history are files in
+/// the instance folder, so an update must not trust them to name only pack files.
 pub(super) fn record_path(path: &str) -> Option<PathBuf> {
     let relative = PathBuf::from(path);
+    let names: Vec<String> = relative
+        .components()
+        .map(|c| {
+            c.as_os_str()
+                .to_string_lossy()
+                .trim_end_matches(['.', ' '])
+                .to_lowercase()
+        })
+        .collect();
+    let looks_like_short_name = |name: &str| {
+        let stem = name.split('.').next().unwrap_or(name);
+        stem.rsplit_once('~')
+            .is_some_and(|(_, tail)| tail.starts_with(|c: char| c.is_ascii_digit()))
+    };
     let plain = !path.is_empty()
         && relative
             .components()
             .all(|c| matches!(c, Component::Normal(_)))
-        && !relative.components().any(|c| {
-            c.as_os_str()
-                .to_string_lossy()
-                .to_lowercase()
-                .starts_with(".lodestone")
-        });
+        && !names.iter().any(|name| {
+            name.is_empty()
+                || name.starts_with(".lodestone")
+                || name.contains(':')
+                || looks_like_short_name(name)
+        })
+        && !(names.len() == 1 && super::PROTECTED_ROOT_FILES.contains(&names[0].as_str()));
     plain.then_some(relative)
 }
 

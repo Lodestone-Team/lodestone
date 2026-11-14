@@ -201,24 +201,53 @@ fn looks_like_short_name(name: &str) -> bool {
         .is_some_and(|(_, tail)| tail.starts_with(|c: char| c.is_ascii_digit()))
 }
 
-/// Like [`is_protected`], reading from disk whether `path` is a folder. Symbolic links are
-/// not followed, so a link is checked as a file.
-async fn is_path_protected(path: &FsPath) -> bool {
+/// Whether `name` (one path part) is one of Lodestone's own files or folders in an
+/// instance, whose names start with `.lodestone` (`.lodestone_config`, the modpack's
+/// `.lodestone_modpack`), compared the way Windows and macOS resolve names. A Windows 8.3
+/// short name that may be one of them (`LODEST~1`) counts too.
+fn names_lodestone_entry(name: &str) -> bool {
+    let trimmed = name.trim_end_matches(['.', ' ']).to_lowercase();
+    trimmed.starts_with(".lodestone") || may_be_restore_folder_short_name(&trimmed)
+}
+
+/// [`is_protected`] for `path` in the instance folder `root`, which also protects
+/// Lodestone's own files there: everything at or below a name starting with `.lodestone`.
+/// Lodestone trusts what it wrote there: the modpack's record says which files an update
+/// may remove, and its history which files a restore downloads and puts back. Someone who
+/// could edit them could have a restore put any jar into `mods/`. A path outside `root`
+/// is protected.
+pub(crate) fn is_instance_protected(root: &FsPath, path: &FsPath, is_dir: bool) -> bool {
+    if is_protected(path, is_dir) {
+        return true;
+    }
+    match path.strip_prefix(root) {
+        Ok(inside) => inside
+            .components()
+            .any(|part| part.as_os_str().to_str().is_none_or(names_lodestone_entry)),
+        Err(_) => true,
+    }
+}
+
+/// Like [`is_instance_protected`], reading from disk whether `path` is a folder. Symbolic
+/// links are not followed, so a link is checked as a file.
+async fn is_path_protected(root: &FsPath, path: &FsPath) -> bool {
     let is_dir = tokio::fs::symlink_metadata(path)
         .await
         .map(|m| m.is_dir())
         .unwrap_or(false);
-    is_protected(path, is_dir)
+    is_instance_protected(root, path, is_dir)
 }
 
-/// Returns true if `dir` or anything below it is protected. Runs on a blocking thread and
-/// does not follow symbolic links.
-async fn contains_protected_entry(dir: PathBuf) -> Result<bool, Error> {
+/// Returns true if `dir` (in the instance folder `root`) or anything below it is protected,
+/// see [`is_instance_protected`]. Runs on a blocking thread and does not follow symbolic
+/// links.
+async fn contains_protected_entry(root: &FsPath, dir: PathBuf) -> Result<bool, Error> {
+    let root = root.to_path_buf();
     tokio::task::spawn_blocking(move || {
         for entry in WalkDir::new(&dir) {
             let entry =
                 entry.context("Failed to walk directory while scanning for protected files")?;
-            if is_protected(entry.path(), entry.file_type().is_dir()) {
+            if is_instance_protected(&root, entry.path(), entry.file_type().is_dir()) {
                 return Ok(true);
             }
         }
@@ -373,7 +402,9 @@ async fn write_instance_file(
     let can_write_protected = can_write_protected(&requester);
     if uuid.to_string().starts_with("DOCKER-") {
         // container paths are not on this disk, so check the name only
-        if !can_write_protected && is_protected(FsPath::new(&relative_path), false) {
+        if !can_write_protected
+            && is_instance_protected(FsPath::new(""), FsPath::new(&relative_path), false)
+        {
             return Err(protected_error(
                 "You don't have permission to write to this file",
             ));
@@ -395,7 +426,7 @@ async fn write_instance_file(
     drop(instance);
     let path = instance_join(&root, relative_path)?;
     // if target has a protected extension, or no extension, deny
-    if !can_write_protected && is_path_protected(&path).await {
+    if !can_write_protected && is_path_protected(&root, &path).await {
         return Err(protected_error(
             "You don't have permission to write to this file",
         ));
@@ -506,7 +537,7 @@ async fn copy_instance_files(
     }
 
     if !can_write_protected(&requester) {
-        if is_path_protected(&path_dest).await {
+        if is_path_protected(&root, &path_dest).await {
             return Err(protected_error(
                 "You don't have permission to write to this file",
             ));
@@ -522,8 +553,8 @@ async fn copy_instance_files(
                 kind: ErrorKind::BadRequest,
                 source: eyre!("Cannot copy {}", source.display()),
             })?;
-            if is_protected(&path_dest.join(name), is_dir)
-                || (is_dir && contains_protected_entry(source.clone()).await?)
+            if is_instance_protected(&root, &path_dest.join(name), is_dir)
+                || (is_dir && contains_protected_entry(&root, source.clone()).await?)
             {
                 return Err(protected_error(
                     "You don't have permission to copy protected files",
@@ -695,9 +726,9 @@ async fn move_instance_file(
 
     // the destination becomes the same kind of entry as the source
     if !can_write_protected(&requester)
-        && (is_protected(&path_source, is_dir)
-            || is_protected(&path_dest, is_dir)
-            || (is_dir && contains_protected_entry(path_source.clone()).await?))
+        && (is_instance_protected(&root, &path_source, is_dir)
+            || is_instance_protected(&root, &path_dest, is_dir)
+            || (is_dir && contains_protected_entry(&root, path_source.clone()).await?))
     {
         return Err(protected_error(
             "You don't have permission to write to this file",
@@ -752,7 +783,7 @@ async fn remove_instance_file(
     })?;
     let root = real_root(instance.path().await).await;
     drop(instance);
-    let path = instance_join(root, &relative_path)?;
+    let path = instance_join(&root, &relative_path)?;
     let metadata = tokio::fs::symlink_metadata(&path)
         .await
         .context(format!("Failed to find {relative_path}"))?;
@@ -763,7 +794,7 @@ async fn remove_instance_file(
         });
     }
     // if target has a protected extension, or no extension, deny
-    if !can_write_protected(&requester) && is_protected(&path, false) {
+    if !can_write_protected(&requester) && is_instance_protected(&root, &path, false) {
         return Err(protected_error("File extension is protected"));
     }
 
@@ -805,7 +836,7 @@ async fn remove_instance_dir(
         });
     }
     // the folder itself, or anything in it, is protected
-    if !can_write_protected(&requester) && contains_protected_entry(path.clone()).await? {
+    if !can_write_protected(&requester) && contains_protected_entry(&root, path.clone()).await? {
         return Err(protected_error("Directory contains protected files"));
     }
 
@@ -841,7 +872,7 @@ async fn new_instance_file(
     drop(instance);
     let path = instance_join(&root, relative_path)?;
     // if target has a protected extension, or no extension, deny
-    if !can_write_protected(&requester) && is_protected(&path, false) {
+    if !can_write_protected(&requester) && is_instance_protected(&root, &path, false) {
         return Err(protected_error("File extension is protected"));
     }
     if is_instance_code_path(&root, &path, false) {
@@ -972,7 +1003,7 @@ async fn upload_instance_file(
             let name = upload_file_name(&field)?;
             let path = resolve_path_conflict(instance_join(&path_to_dir, &name)?, None);
             // if the file has a protected extension, or no extension, deny
-            if !can_write_protected && is_protected(&path, false) {
+            if !can_write_protected && is_instance_protected(&root, &path, false) {
                 return Err(protected_error("File extension is protected"));
             }
             if is_instance_code_path(&root, &path, false) {
@@ -1095,10 +1126,20 @@ fn code_entry_check(
         for dir in &destinations {
             refuse_restore_folder_short_names(&root, &dir.join(relative_path))?;
         }
+        let is_dir = file_type.is_dir();
         if !can_write_protected {
             check_unzipped_entry(relative_path, file_type)?;
+            // and where it lands: not in Lodestone's own folders
+            let lands_protected = destinations
+                .iter()
+                .any(|dir| is_instance_protected(&root, &dir.join(relative_path), is_dir));
+            if lands_protected {
+                return Err(protected_error(&format!(
+                    "The archive contains a protected file ({})",
+                    relative_path.display()
+                )));
+            }
         }
-        let is_dir = file_type.is_dir();
         let is_code = (!is_dir && is_script_path(relative_path))
             || destinations
                 .iter()
@@ -1141,7 +1182,7 @@ pub async fn unzip_instance_file(
     let unzip_option = match unzip_option {
         UnzipOption::ToDir(dir) => {
             let dir = instance_join(&root, dir)?;
-            if !can_write_protected && is_protected(&dir, true) {
+            if !can_write_protected && is_instance_protected(&root, &dir, true) {
                 return Err(protected_error("Destination is protected"));
             }
             UnzipOption::ToDir(dir)
@@ -1238,7 +1279,9 @@ async fn zip_instance_files(
     }
     destination_relative_path = instance_join(&root, &destination_relative_path)?;
 
-    if !can_write_protected(&requester) && is_protected(&destination_relative_path, false) {
+    if !can_write_protected(&requester)
+        && is_instance_protected(&root, &destination_relative_path, false)
+    {
         return Err(protected_error("Destination is protected"));
     }
     if is_instance_code_path(&root, &destination_relative_path, false) {
@@ -1636,14 +1679,109 @@ mod tests {
         let world = temp.path().join("world");
         std::fs::create_dir_all(world.join("region")).unwrap();
         std::fs::write(world.join("level.dat"), "").unwrap();
-        assert!(!contains_protected_entry(world.clone()).await.unwrap());
+        let root = temp.path();
+        assert!(!contains_protected_entry(root, world.clone()).await.unwrap());
 
         std::fs::write(world.join("region").join("Payload.JAR"), "").unwrap();
-        assert!(contains_protected_entry(world.clone()).await.unwrap());
+        assert!(contains_protected_entry(root, world.clone()).await.unwrap());
 
         let modded = temp.path().join("modded");
         std::fs::create_dir_all(modded.join("mods")).unwrap();
-        assert!(contains_protected_entry(modded).await.unwrap());
+        assert!(contains_protected_entry(root, modded).await.unwrap());
+
+        // Lodestone's own folders, and any folder in them
+        let modpack = temp.path().join(".lodestone_modpack");
+        std::fs::create_dir_all(modpack.join("objects")).unwrap();
+        assert!(contains_protected_entry(root, modpack.clone())
+            .await
+            .unwrap());
+        assert!(contains_protected_entry(root, modpack.join("objects"))
+            .await
+            .unwrap());
+        let parent = temp.path().join("old");
+        std::fs::create_dir_all(parent.join(".lodestone_modpack")).unwrap();
+        assert!(contains_protected_entry(root, parent).await.unwrap());
+    }
+
+    /// The modpack's record and history decide what an update removes and what a restore
+    /// downloads, so only users who can write protected files may change them (LS-02).
+    #[test]
+    fn lodestones_own_files_are_protected() {
+        let root = FsPath::new("/home/me/.lodestone/instances/a");
+        for path in [
+            ".lodestone_modpack/history.json",
+            ".lodestone_modpack/record.json",
+            ".lodestone_modpack/objects/ab/abcdef",
+            ".Lodestone_Modpack./history.json",
+            "LODEST~1/history.json",
+            ".lodestone_config",
+            ".lodestone_whatever/notes.txt",
+        ] {
+            assert!(
+                is_instance_protected(root, &root.join(path), false),
+                "{path}"
+            );
+        }
+        assert!(is_instance_protected(
+            root,
+            &root.join(".lodestone_modpack"),
+            true
+        ));
+        // the data folder's own `.lodestone` above the instance doesn't count
+        for path in [
+            "world/level.dat",
+            "config/a.json",
+            "notes.txt",
+            "lodestone.txt",
+        ] {
+            assert!(
+                !is_instance_protected(root, &root.join(path), false),
+                "{path}"
+            );
+        }
+        assert!(!is_instance_protected(root, &root.join("world"), true));
+        // the name rules still hold, and a path elsewhere is protected
+        assert!(is_instance_protected(root, &root.join("mods/a.jar"), false));
+        assert!(is_instance_protected(
+            root,
+            FsPath::new("/elsewhere/a.txt"),
+            false
+        ));
+        // a container's paths are relative
+        assert!(is_instance_protected(
+            FsPath::new(""),
+            FsPath::new(".lodestone_modpack/history.json"),
+            false
+        ));
+        assert!(!is_instance_protected(
+            FsPath::new(""),
+            FsPath::new("config/a.json"),
+            false
+        ));
+    }
+
+    #[test]
+    fn archives_cant_write_into_lodestones_folders() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().to_path_buf();
+        std::fs::write(root.join("history.json"), "").unwrap();
+        let file_type = std::fs::symlink_metadata(root.join("history.json"))
+            .unwrap()
+            .file_type();
+        let restricted = |destination: PathBuf| {
+            code_entry_check(
+                root.clone(),
+                vec![destination],
+                false,
+                true,
+                CodeExecutionSwitch::new(true),
+            )
+        };
+        let into_root = restricted(root.clone());
+        assert!(into_root(FsPath::new(".lodestone_modpack/history.json"), &file_type).is_err());
+        assert!(into_root(FsPath::new("config/history.json"), &file_type).is_ok());
+        let into_modpack = restricted(root.join(".lodestone_modpack"));
+        assert!(into_modpack(FsPath::new("history.json"), &file_type).is_err());
     }
 
     #[test]

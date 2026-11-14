@@ -212,10 +212,29 @@ fn record_paths_stay_in_the_server() {
         ".lodestone_config",
         "x/.lodestone_minecraft_config.json",
         "",
+        // files no pack may write (LS-02)
+        "server.jar",
+        "Server.JAR",
+        "server.jar.",
+        "server.jar::$DATA",
+        "eula.txt",
+        "user_jvm_args.txt",
+        "USER_J~1.TXT",
+        ".Lodestone_Modpack/history.json",
     ] {
         assert!(record_path(bad).is_none(), "{bad}");
     }
     assert!(record_path("mods/a.jar").is_some());
+    assert!(record_path("mods/server.jar").is_some());
+
+    // a record edited to list server.jar doesn't remove it
+    let dir = tempfile::tempdir().unwrap();
+    write(dir.path(), "server.jar", b"vanilla");
+    let old = PackRecord {
+        files: BTreeMap::from([("server.jar".into(), recorded(b"vanilla", false, None))]),
+    };
+    let plan = plan_files(dir.path(), &old, &BTreeMap::new());
+    assert!(plan.changes.is_empty());
 
     // a record edited to point outside the server removes nothing there
     let dir = tempfile::tempdir().unwrap();
