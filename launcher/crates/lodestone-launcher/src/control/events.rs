@@ -158,6 +158,19 @@ impl Notices {
             InstancesEvent::LanOpened { .. } => {}
             // The dialogs they open record themselves in traces.
             InstancesEvent::OfferMain(_) | InstancesEvent::ConfirmMain { .. } => {}
+            // The launch waits for the person's answer in the window: a script
+            // following it should know why it doesn't start yet.
+            InstancesEvent::ConfirmRosetta {
+                id,
+                version,
+                reason,
+            } => self.push(
+                "confirm_rosetta",
+                format!("Minecraft {version} runs under Rosetta 2"),
+                "The game starts once the person presses Play in the launcher's window (asked once per instance), or stops if they cancel.",
+                Some(id.clone()),
+                json!({ "reason": reason }),
+            ),
             InstancesEvent::LoaderChanged(id) => self.push(
                 "loader_changed",
                 "Loader changed",

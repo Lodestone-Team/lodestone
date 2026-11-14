@@ -19,7 +19,10 @@ use gpui::{
 };
 use launcher_core::{
     content::loader_change::{self, LoaderChangeCheck},
-    game::runtime::{self, JavaInfo},
+    game::{
+        install::DefaultJava,
+        runtime::{self, JavaInfo},
+    },
     instances::{BackgroundMode, Instance, Loader, Memory, SlideshowSource, format_env},
     modpack::ModpackRecord,
 };
@@ -2315,7 +2318,7 @@ impl Render for InstanceSettings {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.track_edits(cx);
         let viewport_width = crate::components::window_frame::content_size(window).width;
-        let (defaults, total, busy, background, required_java) = {
+        let (defaults, total, busy, background, required_java, default_java, apple_silicon) = {
             let instances = self.instances.read(cx);
             (
                 instances.defaults().clone(),
@@ -2325,6 +2328,8 @@ impl Render for InstanceSettings {
                     .background(&self.instance_id)
                     .map(|b| b.image.clone()),
                 instances.required_java(&self.game_version),
+                instances.default_java(&self.game_version),
+                instances.on_apple_silicon(),
             )
         };
         let instance = self.instance(cx);
@@ -2566,12 +2571,19 @@ impl Render for InstanceSettings {
             },
             JavaCheck::Failed(err) => Some((err.clone(), colors::RED_200)),
         };
-        let mojang_java = match required_java {
-            Some(major) => tr!(M::MojangJavaVersion, major = major),
+        // The Java that runs without an override. On Apple silicon it may not be the one
+        // the version names: Zulu 8, Mojang's Java 17 for 1.17, or an Intel Java.
+        let default_java = match default_java {
+            Some(DefaultJava::Mojang(major)) => tr!(M::MojangJavaVersion, major = major),
+            Some(DefaultJava::Zulu8) => t(M::AzulZulu8).to_string(),
+            Some(DefaultJava::MojangIntel(major)) => {
+                tr!(M::MojangIntelJavaVersion, major = major)
+            }
+            None if apple_silicon => t(M::JavaTheVersionNeeds).to_string(),
             None => t(M::MojangJava).to_string(),
         };
         let java = self
-            .default_row(Setting::Java, "Java", mojang_java, div(), cx)
+            .default_row(Setting::Java, "Java", default_java, div(), cx)
             .keywords(t(M::JavaKeywords))
             .when(overrides.java, |row| {
                 row.below(

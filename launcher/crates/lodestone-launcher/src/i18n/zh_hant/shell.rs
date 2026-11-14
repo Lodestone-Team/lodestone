@@ -58,6 +58,12 @@ pub fn text(message: M) -> &'static str {
         M::LinkedToRemoved => {
             "已連結到 {core} 上的 {server}（該主機已從「Lodestone Host」頁面移除）"
         }
+        M::RunsUnderRosetta => {
+            "透過 Rosetta 2 執行：Mojang 沒有為這個版本需要的部分程式庫製作 Apple 晶片版本。啟動較慢，之後可以正常遊玩。"
+        }
+        M::RunsUnderRosettaOverride => {
+            "透過 Rosetta 2 執行：在「設定」中選擇的 Java 是 Intel 版。啟動較慢，之後可以正常遊玩。"
+        }
         M::NoInstances => "沒有實例",
         M::AndJoin => "並加入 {server}",
         M::PlayWithoutJoining => "開始遊戲但不加入",
@@ -107,7 +113,7 @@ pub fn text(message: M) -> &'static str {
         }
         M::CauseOutOfMemory => "記憶體不足。請在「設定」中提高記憶體上限，或關閉其他應用程式。",
         M::CauseNatives => {
-            "原生程式庫遺失，或與處理器架構不符。在 Apple 晶片上，1.19 之前的版本會透過 Rosetta 2 在 Intel 版 Java 中執行；請確認已安裝 Rosetta，且自訂 Java 不是 arm64 版。"
+            "原生程式庫遺失，或與處理器架構不符。在 Apple 晶片上，1.14 之前的版本會透過 Rosetta 2 在 Intel 版 Java 中執行，之後的版本則在 Apple 晶片版 Java 中執行；請確認已安裝 Rosetta，且自訂 Java 適用的處理器與之相符。"
         }
         M::CauseJvmOptions => "Java 拒絕了其中一項設定。請檢查「設定」中的 JVM 參數和記憶體。",
         M::CauseGraphics => {

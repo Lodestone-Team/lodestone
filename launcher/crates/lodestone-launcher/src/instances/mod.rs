@@ -46,12 +46,12 @@ use launcher_core::{
     game::{
         crash::{self, CrashSummary, Outcome},
         download::{CancelToken, Downloader, ProgressSnapshot, Sleep, Verify},
-        install::{InstallError, InstallProgress, Installer, JavaChoice, Stage},
+        install::{self, InstallError, InstallProgress, Installer, JavaChoice, Rosetta, Stage},
         launch::{self, LaunchCommand},
         loaders::{LoaderChoice, LoaderKind, LoaderVersion},
         log4j::{self, Level, LogLine, Redactor, Stream},
         mojang::MojangUrls,
-        platform::{self, Platform},
+        platform::{self, Arch, Os, Platform},
         process::{GameEvent, GameProcess},
     },
     instances::{Instance, InstanceStore},
@@ -297,6 +297,24 @@ struct Run {
     /// Sends [`InstancesEvent::GameWindowOpened`] after a while if the log never
     /// says the window opened.
     window_wait: Option<Task<()>>,
+    /// The game, prepared, waiting for the player to agree to run it under Rosetta 2
+    /// ([`InstancesEvent::ConfirmRosetta`]); the run stays preparing meanwhile.
+    pending: Option<PendingStart>,
+}
+
+/// One of [`Instances::rosetta_note`]'s answers from a version file: the answer,
+/// whether the version file was found, and the reload generation it was looked at.
+type RosettaNote = (Option<Rosetta>, bool, u64);
+
+/// What a version file says about Java: the major version it names, and the Java it
+/// runs in without an override ([`install::default_java`]).
+type VersionJava = (u32, install::DefaultJava);
+
+/// A prepared game that starts once the player agrees to run it under Rosetta 2.
+struct PendingStart {
+    command: LaunchCommand,
+    rosetta: Rosetta,
+    outside: Vec<launcher_core::configurator::Outside>,
 }
 
 impl Default for Run {
@@ -310,6 +328,7 @@ impl Default for Run {
             ticker: None,
             window_opened: false,
             window_wait: None,
+            pending: None,
         }
     }
 }
@@ -422,6 +441,13 @@ pub enum InstancesEvent {
         id: String,
         current: String,
     },
+    /// The game of `id` is prepared to run under Rosetta 2 for the first time, for
+    /// `reason`: it starts once the player agrees ([`Instances::confirm_rosetta`]).
+    ConfirmRosetta {
+        id: String,
+        version: String,
+        reason: Rosetta,
+    },
 }
 
 /// How long a game runs before it counts as having opened its window when the log
@@ -481,11 +507,15 @@ pub struct Instances {
     /// The instances linked to a server, as the Lodestone Host page last read their
     /// links: the sidebar groups them under Servers (see [`Self::set_linked`]).
     linked: HashSet<String>,
-    /// [`Self::required_java`]'s answers by game version: the instance Settings tab
-    /// asks on every frame, and each answer reads and parses a version file. An
-    /// installed version's answer never changes; a missing one is asked again after
-    /// a reload (the reload generation it was found at).
-    required_java: std::cell::RefCell<HashMap<String, (Option<u32>, u64)>>,
+    /// [`Self::required_java`]'s and [`Self::default_java`]'s answers by game version:
+    /// the instance Settings tab asks on every frame, and each answer reads and parses
+    /// a version file. An installed version's answer never changes; a missing one is
+    /// asked again after a reload (the reload generation it was found at).
+    required_java: std::cell::RefCell<HashMap<String, (Option<VersionJava>, u64)>>,
+    /// [`Self::rosetta_note`]'s answers from version files, by game version and Java
+    /// override: the header asks on every frame. With whether the version file was
+    /// found, and the reload generation it was looked for at, as for `required_java`.
+    rosetta_notes: std::cell::RefCell<HashMap<(String, Option<PathBuf>), RosettaNote>>,
     /// Goes up when an instance's slideshow changes, so the Play tab lists it again.
     slideshow_revision: u64,
     /// The instance whose background is decoded for the Play tab, and the one before,
@@ -632,6 +662,7 @@ impl Instances {
             list_generation: 0,
             linked: HashSet::new(),
             required_java: Default::default(),
+            rosetta_notes: Default::default(),
             slideshow_revision: 0,
             background_shown: None,
             background_previous: None,
@@ -1380,6 +1411,17 @@ impl Instances {
 
     /// The Java major version `game_version` needs, if its version file is installed.
     pub fn required_java(&self, game_version: &str) -> Option<u32> {
+        self.version_java(game_version).map(|(major, _)| major)
+    }
+
+    /// The Java `game_version` runs in when the instance chooses none, if its version
+    /// file is installed: on an Apple silicon Mac it may not be the one the version
+    /// names ([`install::default_java`]).
+    pub fn default_java(&self, game_version: &str) -> Option<install::DefaultJava> {
+        self.version_java(game_version).map(|(_, java)| java)
+    }
+
+    fn version_java(&self, game_version: &str) -> Option<VersionJava> {
         if game_version.is_empty()
             || game_version.contains(['/', '\\'])
             || game_version.starts_with('.')
@@ -1399,7 +1441,12 @@ impl Instances {
         let java = std::fs::read(path).ok().and_then(|bytes| {
             launcher_core::game::version::VersionJson::parse(&bytes)
                 .ok()
-                .map(|version| version.java_major())
+                .map(|version| {
+                    (
+                        version.java_major(),
+                        install::default_java(&version, &self.machine),
+                    )
+                })
         });
         self.required_java
             .borrow_mut()
@@ -1627,6 +1674,60 @@ impl Instances {
         };
     }
 
+    /// Makes `id`'s game prepared and waiting for the Rosetta question, as
+    /// [`Self::start_or_ask`] leaves it, and asks it; for tests. Nothing can start: the
+    /// command runs a program that doesn't exist.
+    #[cfg(test)]
+    pub fn test_ask_rosetta(&mut self, id: &str, cx: &mut Context<Self>) {
+        use launcher_core::game::{
+            launch::{self, GameSettings, LaunchAccount, LaunchPaths},
+            version::VersionJson,
+        };
+        let version = VersionJson::parse(
+            br#"{"id": "1.12.2", "mainClass": "net.minecraft.client.main.Main",
+                 "minecraftArguments": "--username ${auth_player_name}"}"#,
+        )
+        .unwrap();
+        let paths = LaunchPaths {
+            java: "/nonexistent/java".into(),
+            game_dir: "/nonexistent/game".into(),
+            natives_dir: "/nonexistent/natives".into(),
+            libraries_dir: "/nonexistent/libraries".into(),
+            assets_dir: "/nonexistent/assets".into(),
+            game_assets: "/nonexistent/assets".into(),
+            classpath: Vec::new(),
+            logging_config: None,
+        };
+        let account = LaunchAccount {
+            username: "Tester".into(),
+            uuid: Default::default(),
+            access_token: launcher_core::Secret::new("test"),
+            xuid: None,
+            user_type: launcher_core::game::launch::UserType::Legacy,
+        };
+        let command = launch::build(
+            &version,
+            &self.machine,
+            &paths,
+            &account,
+            &GameSettings::default(),
+        )
+        .unwrap();
+        self.preview_preparing(id, Arc::new(InstallProgress::default()));
+        if let Some(run) = self.runs.get_mut(id) {
+            run.pending = Some(PendingStart {
+                command,
+                rosetta: Rosetta::Version,
+                outside: Vec::new(),
+            });
+        }
+        cx.emit(InstancesEvent::ConfirmRosetta {
+            id: id.to_string(),
+            version: "1.12.2".into(),
+            reason: Rosetta::Version,
+        });
+    }
+
     /// Shows the Play button in `state`, for the offscreen screenshots.
     pub fn preview_play_state(&mut self, state: PlayState) {
         self.preview_state = Some(state);
@@ -1811,13 +1912,25 @@ impl Instances {
                             check_summary(&stats_progress, check_started.elapsed()),
                         );
                     }
-                    this.start(&id, command, rosetta, outside, cx)
+                    this.start_or_ask(&id, command, rosetta, outside, cx)
                 }
                 Err(InstallError::Cancelled) => this.prepare_cancelled(&id, cx),
                 Err(InstallError::RosettaMissing) => this.fail(
                     &id,
                     t(M::RosettaNeeded).into(),
                     rosetta_missing().into(),
+                    cx,
+                ),
+                Err(InstallError::NoNativeJava8) => this.fail(
+                    &id,
+                    t(M::CouldntStartMinecraft).into(),
+                    t(M::NoNativeJava8).into(),
+                    cx,
+                ),
+                Err(InstallError::NeedsIntelJava(version)) => this.fail(
+                    &id,
+                    t(M::CouldntStartMinecraft).into(),
+                    tr!(M::NeedsIntelJava, version = version).into(),
                     cx,
                 ),
                 Err(err) => this.fail(
@@ -1980,11 +2093,144 @@ impl Instances {
         });
     }
 
+    /// Starts the prepared game, unless it runs under Rosetta 2 on this Apple silicon
+    /// Mac for the first time for the instance: then the player is asked first
+    /// ([`InstancesEvent::ConfirmRosetta`]), and it starts only once they agree
+    /// ([`Self::confirm_rosetta`]). Whether, and why, it runs under Rosetta is recorded
+    /// for the instance's header either way. The launcher never runs a game under
+    /// Rosetta without saying so.
+    fn start_or_ask(
+        &mut self,
+        id: &str,
+        command: LaunchCommand,
+        rosetta: Option<Rosetta>,
+        outside: Vec<launcher_core::configurator::Outside>,
+        cx: &mut Context<Self>,
+    ) {
+        if self.machine.os != Os::MacOs || self.machine.arch != Arch::Arm64 {
+            return self.start(id, command, rosetta, outside, cx);
+        }
+        let ask = match self.store.record_rosetta(id, rosetta) {
+            Ok((instance, ask)) => {
+                let version = instance.game_version.clone();
+                self.update_listed(instance, cx);
+                ask.then_some(version)
+            }
+            Err(err) => {
+                // Not saved: asked all the same, unless the player already agreed.
+                eprintln!("lodestone-launcher: saving the instance {id}: {err}");
+                let instance = self.store.get(id).ok();
+                let told = |reason| {
+                    instance
+                        .as_ref()
+                        .is_some_and(|i| i.told_about_rosetta(reason))
+                };
+                rosetta
+                    .is_some_and(|reason| !told(reason))
+                    .then(|| instance.map(|i| i.game_version).unwrap_or_default())
+            }
+        };
+        match (ask, rosetta) {
+            (Some(version), Some(reason)) => {
+                let Some(run) = self.runs.get_mut(id) else {
+                    return;
+                };
+                run.pending = Some(PendingStart {
+                    command,
+                    rosetta: reason,
+                    outside,
+                });
+                cx.emit(InstancesEvent::ConfirmRosetta {
+                    id: id.to_string(),
+                    version,
+                    reason,
+                });
+                cx.notify();
+            }
+            _ => self.start(id, command, rosetta, outside, cx),
+        }
+    }
+
+    /// The player's answer to [`InstancesEvent::ConfirmRosetta`]: `play` starts the
+    /// waiting game, and it isn't asked again for the instance and this reason;
+    /// otherwise nothing starts, and it is asked again next time. Nothing happens when
+    /// no game waits (it was cancelled meanwhile).
+    pub fn confirm_rosetta(&mut self, id: &str, play: bool, cx: &mut Context<Self>) {
+        let Some(pending) = self.runs.get_mut(id).and_then(|run| run.pending.take()) else {
+            return;
+        };
+        if !play {
+            self.prepare_cancelled(id, cx);
+            return;
+        }
+        match self.store.record_told_rosetta(id, pending.rosetta) {
+            Ok(instance) => self.update_listed(instance, cx),
+            // Only the answer is lost: asked again next time.
+            Err(err) => eprintln!("lodestone-launcher: saving the instance {id}: {err}"),
+        }
+        self.start(
+            id,
+            pending.command,
+            Some(pending.rosetta),
+            pending.outside,
+            cx,
+        );
+    }
+
+    /// Whether this is an Apple silicon Mac, where some versions run in another Java
+    /// than the one they name, or under Rosetta 2.
+    pub fn on_apple_silicon(&self) -> bool {
+        self.machine.os == Os::MacOs && self.machine.arch == Arch::Arm64
+    }
+
+    /// Whether, and why, the instance's game runs under Rosetta 2 on this Mac, for its
+    /// header: what its last preparation for this version found, or before that, what
+    /// its installed version file and its Java say ([`install::rosetta_for`]). `None`
+    /// on other machines, and when nothing is known yet (the version isn't installed:
+    /// the player is asked before the first game anyway).
+    pub fn rosetta_note(&self, instance: &Instance) -> Option<Rosetta> {
+        if !self.on_apple_silicon() {
+            return None;
+        }
+        if let Some(prepared) = instance.prepared_rosetta() {
+            return prepared;
+        }
+        let version = &instance.game_version;
+        if version.is_empty() || version.contains(['/', '\\']) || version.starts_with('.') {
+            return None;
+        }
+        let key = (version.clone(), instance.java_override.clone());
+        if let Some((rosetta, found, generation)) = self.rosetta_notes.borrow().get(&key)
+            && (*found || *generation == self.list_generation)
+        {
+            return *rosetta;
+        }
+        let path = self
+            .data_dir
+            .versions_dir()
+            .join(version)
+            .join(format!("{version}.json"));
+        let json = std::fs::read(path)
+            .ok()
+            .and_then(|bytes| launcher_core::game::version::VersionJson::parse(&bytes).ok());
+        let java = match &instance.java_override {
+            Some(path) => JavaChoice::Override(path.clone()),
+            None => JavaChoice::Mojang,
+        };
+        let rosetta = json
+            .as_ref()
+            .and_then(|json| install::rosetta_for(json, &self.machine, &java));
+        self.rosetta_notes
+            .borrow_mut()
+            .insert(key, (rosetta, json.is_some(), self.list_generation));
+        rosetta
+    }
+
     fn start(
         &mut self,
         id: &str,
         command: LaunchCommand,
-        rosetta: bool,
+        rosetta: Option<Rosetta>,
         outside: Vec<launcher_core::configurator::Outside>,
         cx: &mut Context<Self>,
     ) {
@@ -1998,7 +2244,7 @@ impl Instances {
         if let RunState::Preparing { progress, .. } = &run.state {
             progress.set_stage(Stage::Starting);
         }
-        if rosetta {
+        if rosetta.is_some() {
             run.log.note(Level::Info, t(M::RosettaNote));
         }
         // The command line is shown with the access token redacted.
@@ -2247,6 +2493,12 @@ impl Instances {
         cx.emit(InstancesEvent::GameExited(id.to_string()));
     }
 
+    /// Whether the instance's prepared game waits for the player's answer to
+    /// [`InstancesEvent::ConfirmRosetta`].
+    pub fn waits_for_rosetta(&self, id: &str) -> bool {
+        self.runs.get(id).is_some_and(|run| run.pending.is_some())
+    }
+
     /// Cancels the preparation, or kills the game.
     pub fn stop(&mut self, id: &str, cx: &mut Context<Self>) {
         // the offscreen screenshots' Play button, back to Play (`--click` on Cancel)
@@ -2261,6 +2513,12 @@ impl Instances {
             RunState::Idle => {}
             RunState::Preparing { cancel, .. } => {
                 cancel.cancel();
+                // Prepared, waiting for the player to agree to Rosetta 2: nothing else
+                // would end the run.
+                if run.pending.take().is_some() {
+                    self.prepare_cancelled(id, cx);
+                    return;
+                }
                 run.log.note(Level::Warn, t(M::CancellingNote));
             }
             RunState::Running { process, .. } => {

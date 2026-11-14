@@ -145,6 +145,9 @@ pub fn text(message: M) -> &'static str {
         }
         M::MojangJavaVersion => "Java {major} de Mojang",
         M::MojangJava => "Java de Mojang",
+        M::AzulZulu8 => "Azul Zulu\u{a0}8, fait pour Apple Silicon",
+        M::MojangIntelJavaVersion => "Java {major} Intel de Mojang, grâce à Rosetta\u{a0}2",
+        M::JavaTheVersionNeeds => "Le Java dont cette version a besoin",
         M::UseThisJava => "Utiliser ce Java",
         M::Check => "Vérifier",
         M::JvmArguments => "Arguments JVM",

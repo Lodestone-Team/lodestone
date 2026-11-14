@@ -37,7 +37,7 @@ crate::i18n::messages! {
         PreparingNote = "Preparing Minecraft {version} ({loader})",
         JoiningNote = "Joining {address} once the game starts",
         VerifyingNote = "Verifying the game files of Minecraft {version} ({loader})",
-        RosettaNote = "This version runs in an Intel (x86_64) Java under Rosetta 2.",
+        RosettaNote = "The game runs in an Intel (x86_64) Java under Rosetta 2.",
         /// Followed by the Java command line.
         StartingJavaNote = "Starting Java: {command}",
         /// Automatic setup gave the instance memory: {memory} is a range, "2 GB – 4 GB".
@@ -67,7 +67,21 @@ crate::i18n::messages! {
         // Launch errors and notices.
         CouldntSignIn = "Couldn't sign in",
         RosettaNeeded = "Rosetta 2 is needed",
-        RosettaMissing = "This Minecraft version needs an Intel (x86_64) Java, which runs on Apple Silicon through Rosetta 2. Rosetta isn't installed. Install it by running this in Terminal, then press Play again:\n\nsoftwareupdate --install-rosetta",
+        RosettaMissing = "This Minecraft version needs an Intel (x86_64) Java, which runs on Apple silicon through Rosetta 2. Rosetta isn't installed. Install it by running this in Terminal, then press Play again:\n\nsoftwareupdate --install-rosetta",
+        /// Asked once per instance, before its first game under Rosetta 2 on an Apple
+        /// silicon Mac, with Play and Cancel. {version} is the Minecraft version, such
+        /// as 1.12.2.
+        RosettaNoticeTitle = "Minecraft {version} runs under Rosetta 2",
+        /// Minecraft 1.13.2 and older.
+        RosettaNoticeBody = "Mojang made no Apple silicon build of some libraries this version needs, so it runs in an Intel Java through Rosetta 2. It takes longer to start, then plays normally. Minecraft 1.14 and later run natively.",
+        /// A version that could run natively, with an Intel Java chosen in the
+        /// instance's Settings.
+        RosettaNoticeBodyOverride = "This instance uses an Intel Java, chosen in its Settings, so the game runs through Rosetta 2. It takes longer to start, then plays normally. To run it natively, choose a Java made for Apple silicon, or go back to the default Java.",
+        /// Minecraft 1.14 to 1.16.5 on Apple silicon, when Azul lists no Java 8 for it.
+        NoNativeJava8 = "This Minecraft version needs Java 8, and no Java 8 for Apple silicon is available right now: Mojang makes none, and Azul lists none. Try again later, or choose a Java 8 made for Apple silicon (arm64) in the instance's Settings.",
+        /// Minecraft 1.13.2 and older on Apple silicon, with a Java chosen in the
+        /// instance's Settings that is made for Apple silicon.
+        NeedsIntelJava = "On Apple silicon, Minecraft {version} runs only in an Intel (x86_64) Java, through Rosetta 2, and the Java chosen in the instance's Settings is made for Apple silicon. Choose an Intel Java there, or Mojang's Java.",
         CouldntStartMinecraft = "Couldn't start Minecraft",
         CouldntStartJava = "Couldn't start Java",
         CouldntVerify = "Couldn't verify the game files",

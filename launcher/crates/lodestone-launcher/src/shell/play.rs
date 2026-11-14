@@ -28,6 +28,9 @@ pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl In
     let link = instance
         .as_ref()
         .and_then(|i| shell.servers.read(cx).instance_link(&i.id));
+    let rosetta = instance
+        .as_ref()
+        .and_then(|i| shell.instances.read(cx).rosetta_note(i));
     let (title, subtitle): (SharedString, SharedString) = match &instance {
         Some(instance) => (
             instance.name.clone().into(),
@@ -83,7 +86,8 @@ pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl In
                                 .font_weight(weights::BOLD.into())
                                 .child(subtitle),
                         )
-                        .children(link.as_ref().map(|link| linked_to(link, cx))),
+                        .children(link.as_ref().map(|link| linked_to(link, cx)))
+                        .children(rosetta.map(rosetta_note)),
                 )
                 .child(
                     Tabs::new("instance-tabs", InstanceTab::ALL.map(InstanceTab::label))
@@ -259,6 +263,23 @@ fn hero(
                     )
                 }),
         )
+}
+
+/// "Runs under Rosetta 2: …", under the instance's name, while its game runs in an
+/// Intel Java on this Apple silicon Mac, and why ([`crate::instances::Instances::rosetta_note`]):
+/// the launcher never runs a game under Rosetta without saying so.
+fn rosetta_note(reason: launcher_core::game::install::Rosetta) -> impl IntoElement {
+    let note: SharedString = t(match reason {
+        launcher_core::game::install::Rosetta::Version => M::RunsUnderRosetta,
+        launcher_core::game::install::Rosetta::JavaOverride => M::RunsUnderRosettaOverride,
+    })
+    .into();
+    div()
+        .id("rosetta-note")
+        .accessible(Role::Label, "rosetta-note", note.clone())
+        .text_size(theme::text_size(text::SMALL))
+        .text_color(crate::theme::ink::muted())
+        .child(note)
 }
 
 /// "Linked to Survival SMP on Peter's core", under the instance's name. Pressing it

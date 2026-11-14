@@ -198,6 +198,14 @@ enum Modal {
         current: String,
         focus: FocusHandle,
     },
+    /// "Minecraft {version} runs under Rosetta 2", with Play and Cancel, before an
+    /// instance's first game under Rosetta: the game waits for the answer.
+    ConfirmRosetta {
+        id: String,
+        version: String,
+        reason: launcher_core::game::install::Rosetta,
+        focus: FocusHandle,
+    },
     /// "Turn off Fabric API?" or "Turn on Sodium?": a mod linked to others, from the
     /// Content tab.
     ToggleMod {
@@ -397,8 +405,9 @@ impl LauncherShell {
                 // The search shows why its own try couldn't start.
                 InstancesEvent::PlayFailed { id, .. }
                     if this.mod_finder_for(cx).as_ref() == Some(id) => {}
+                // Stopped while it waited for the Rosetta question: the question goes.
+                InstancesEvent::PlayCancelled(id) => this.drop_rosetta_question(id, cx),
                 InstancesEvent::Exited { .. }
-                | InstancesEvent::PlayCancelled(_)
                 | InstancesEvent::ReachedMenu(_)
                 | InstancesEvent::ModsRefused(_) => {}
                 InstancesEvent::LaunchFailed { title, message, .. }
@@ -447,6 +456,33 @@ impl LauncherShell {
                             id: id.clone(),
                             name,
                             current,
+                            focus,
+                        },
+                        cx,
+                    );
+                }
+                InstancesEvent::ConfirmRosetta {
+                    id,
+                    version,
+                    reason,
+                } => {
+                    // A "Find it for me" try of this instance can't wait for a question
+                    // queued behind the search's own dialog: it is cancelled, and the
+                    // search stops as with Stop. (Its instance ran before, so this only
+                    // happens when the reason changed since.)
+                    if this.mod_finder_for(cx).as_ref() == Some(id) {
+                        let id = id.clone();
+                        this.instances.update(cx, |instances, cx| {
+                            instances.confirm_rosetta(&id, false, cx)
+                        });
+                        return;
+                    }
+                    let focus = cx.focus_handle();
+                    this.open_modal(
+                        Modal::ConfirmRosetta {
+                            id: id.clone(),
+                            version: version.clone(),
+                            reason: *reason,
                             focus,
                         },
                         cx,
@@ -1031,6 +1067,7 @@ impl LauncherShell {
                         }) => Some(((**prompt).clone(), *backup_worlds)),
                         _ => None,
                     };
+                    this.show_queued_modal_soon(cx);
                     if let Some((prompt, backup_worlds)) = update {
                         this.instances.update(cx, |instances, cx| {
                             instances.apply_modpack_update(prompt, backup_worlds, cx)
@@ -1367,28 +1404,56 @@ impl LauncherShell {
         );
     }
 
-    /// Shows a dialog, closing the one that is open; or, while a "Find it for me"
-    /// search is open, queues it until the search closes. Closing the search's dialog
-    /// would drop it half way, with mods still turned off and its try's game left
-    /// running unwatched: a crash of another instance, a modpack import finishing or
-    /// another job's error waits instead.
+    /// Shows a dialog, closing the one that is open; or queues it until that one
+    /// closes, while it is one that mustn't be dropped:
+    /// - a "Find it for me" search: closing its dialog would drop it half way, with
+    ///   mods still turned off and its try's game left running unwatched, so a crash of
+    ///   another instance, a modpack import finishing or another job's error waits;
+    /// - "Runs under Rosetta 2": its game waits for the answer, and would stay
+    ///   "Starting" with nothing to answer.
+    ///
+    /// The Rosetta question itself waits for any open dialog, which may have clean-up
+    /// to do when it closes (a loader change to undo, a downloaded modpack to discard).
     fn open_modal(&mut self, modal: Modal, cx: &mut Context<Self>) {
-        let searching = match self.modal.current() {
+        let current = self.modal.current();
+        let searching = match current {
             Some(Modal::ModFinder { finder, .. }) => Some(finder.read(cx).instance_id()),
             _ => None,
         };
-        if let Some(searching) = searching {
-            // A second search of the same instance would undo the first one's work.
-            if let Modal::ModFinder { finder, .. } = &modal
-                && finder.read(cx).instance_id() == searching
-            {
+        // A second search of the same instance would undo the first one's work.
+        if let (Some(searching), Modal::ModFinder { finder, .. }) = (searching, &modal)
+            && finder.read(cx).instance_id() == searching
+        {
+            return;
+        }
+        // The same game's question asked twice (it can't be: one game waits per
+        // instance), shown once.
+        if let Modal::ConfirmRosetta { id, .. } = &modal {
+            let same = |queued: &Modal| matches!(queued, Modal::ConfirmRosetta { id: other, .. } if other == id);
+            if current.is_some_and(same) || self.queued_modals.iter().any(same) {
                 return;
             }
+        }
+        let wait = searching.is_some()
+            || matches!(current, Some(Modal::ConfirmRosetta { .. }))
+            || (current.is_some() && matches!(modal, Modal::ConfirmRosetta { .. }));
+        if wait {
             self.queued_modals.push_back(modal);
             cx.notify();
             return;
         }
         self.modal.open(modal, cx);
+    }
+
+    /// Takes back the Rosetta question of instance `id`, open or queued, once its game
+    /// no longer waits for it (it was stopped).
+    fn drop_rosetta_question(&mut self, id: &str, cx: &mut Context<Self>) {
+        let asks =
+            |modal: &Modal| matches!(modal, Modal::ConfirmRosetta { id: other, .. } if other == id);
+        self.queued_modals.retain(|modal| !asks(modal));
+        if self.modal.current().is_some_and(asks) {
+            self.close_modal(cx);
+        }
     }
 
     /// Shows the next queued dialog once none is open ([`Self::open_modal`]), after
@@ -1399,9 +1464,15 @@ impl LauncherShell {
         }
         cx.spawn(async move |this, cx| {
             this.update(cx, |this, cx| {
-                if !this.modal.is_open()
+                while !this.modal.is_open()
                     && let Some(modal) = this.queued_modals.pop_front()
                 {
+                    // A question whose game was stopped meanwhile has nothing to ask.
+                    if let Modal::ConfirmRosetta { id, .. } = &modal
+                        && !this.instances.read(cx).waits_for_rosetta(id)
+                    {
+                        continue;
+                    }
                     this.open_modal(modal, cx);
                 }
             })
@@ -1513,6 +1584,7 @@ impl LauncherShell {
         };
         let prompt = (**prompt).clone();
         self.modal.close(cx);
+        self.show_queued_modal_soon(cx);
         let disable: Vec<String> = if turn_off {
             prompt
                 .check
@@ -2101,6 +2173,33 @@ impl LauncherShell {
         }
     }
 
+    /// "Minecraft {version} runs under Rosetta 2" with Play and Cancel, for the
+    /// offscreen screenshots. No game waits, so either button just closes it.
+    #[cfg(feature = "screenshot")]
+    pub fn preview_confirm_rosetta(
+        &mut self,
+        version: &str,
+        reason: launcher_core::game::install::Rosetta,
+        cx: &mut Context<Self>,
+    ) {
+        let id = self
+            .instances
+            .read(cx)
+            .selected()
+            .map(|instance| instance.id.clone())
+            .unwrap_or_default();
+        let focus = cx.focus_handle();
+        self.open_modal(
+            Modal::ConfirmRosetta {
+                id,
+                version: version.to_string(),
+                reason,
+                focus,
+            },
+            cx,
+        );
+    }
+
     /// "Make … your main instance?" over the first two instances, for the offscreen
     /// screenshots: the first-time offer, or (`confirm`) taking over from a main one.
     #[cfg(feature = "screenshot")]
@@ -2564,6 +2663,55 @@ impl LauncherShell {
                     Button::new("confirm-main-cancel", t(CommonMsg::Cancel))
                         .variant(ButtonVariant::Secondary)
                         .on_click(cx.listener(|this, _, _, cx| this.close_modal(cx))),
+                )
+                .into_any_element()
+            }
+            Modal::ConfirmRosetta {
+                id,
+                version,
+                reason,
+                focus,
+            } => {
+                use crate::i18n::InstancesMsg as IM;
+                use launcher_core::game::install::Rosetta;
+                let answer = |play: bool, id: String, cx: &mut Context<Self>| {
+                    let entity = cx.entity();
+                    move |_: &mut Window, cx: &mut gpui::App| {
+                        entity.update(cx, |this, cx| {
+                            this.close_modal(cx);
+                            this.instances.update(cx, |instances, cx| {
+                                instances.confirm_rosetta(&id, play, cx)
+                            });
+                        })
+                    }
+                };
+                let play = answer(true, id.clone(), cx);
+                let cancel = answer(false, id.clone(), cx);
+                let dismiss = answer(false, id.clone(), cx);
+                Dialog::new(
+                    "confirm-rosetta",
+                    tr!(IM::RosettaNoticeTitle, version = version),
+                    focus.clone(),
+                )
+                .on_close(dismiss)
+                .child(
+                    div()
+                        .text_color(crate::theme::ink::secondary())
+                        .whitespace_normal()
+                        .child(t(match reason {
+                            Rosetta::Version => IM::RosettaNoticeBody,
+                            Rosetta::JavaOverride => IM::RosettaNoticeBodyOverride,
+                        })),
+                )
+                .footer(
+                    Button::new("confirm-rosetta-play", t(M::Play))
+                        .variant(ButtonVariant::Primary)
+                        .on_click(move |_, window, cx| play(window, cx)),
+                )
+                .footer(
+                    Button::new("confirm-rosetta-cancel", t(CommonMsg::Cancel))
+                        .variant(ButtonVariant::Secondary)
+                        .on_click(move |_, window, cx| cancel(window, cx)),
                 )
                 .into_any_element()
             }
@@ -3361,6 +3509,78 @@ mod mod_finder_tests {
             assert!(!shell.modal.is_open());
             assert!(shell.queued_modals.is_empty());
         });
+    }
+
+    /// The Rosetta question holds a game, so no other dialog replaces it: a second
+    /// game's question, or another job's error, waits for the answer. The question
+    /// waits for a dialog already open, and goes when its game is stopped.
+    #[test]
+    fn the_rosetta_question_is_never_dropped() {
+        let mut cx = TestAppContext::single();
+        cx.update(crate::components::init);
+        let (shell, cx) = cx.add_window_view(|_, cx| {
+            let accounts = crate::preview::accounts("signed-out", cx);
+            let instances = crate::preview::instances("sidebar-groups", &accounts, cx);
+            LauncherShell::new(accounts, instances, cx)
+        });
+        cx.run_until_parked();
+        let (instances, first, second) = shell.read_with(cx, |shell, cx| {
+            let instances = shell.instances.clone();
+            let list = instances.read(cx).list();
+            (instances, list[0].id.clone(), list[1].id.clone())
+        });
+        let asking = |shell: &Entity<LauncherShell>, cx: &mut gpui::VisualTestContext| {
+            shell.read_with(cx, |shell, _| match shell.modal.current() {
+                Some(Modal::ConfirmRosetta { id, .. }) => Some(id.clone()),
+                _ => None,
+            })
+        };
+
+        // Two games wait; another job fails meanwhile.
+        instances.update(cx, |instances, cx| {
+            instances.test_ask_rosetta(&first, cx);
+            instances.test_ask_rosetta(&second, cx);
+            cx.emit(InstancesEvent::LaunchFailed {
+                title: "Couldn't export modpack".into(),
+                message: "disk full".into(),
+                about: Default::default(),
+            });
+        });
+        cx.run_until_parked();
+        assert_eq!(asking(&shell, cx).as_ref(), Some(&first));
+        shell.read_with(cx, |shell, _| assert_eq!(shell.queued_modals.len(), 2));
+
+        // Cancel: the first game goes back to Play, the second game's question shows.
+        shell.update(cx, |shell, cx| {
+            shell.close_modal(cx);
+            shell.instances.update(cx, |instances, cx| {
+                instances.confirm_rosetta(&first, false, cx)
+            });
+        });
+        cx.run_until_parked();
+        assert!(!instances.read_with(cx, |i, _| i.waits_for_rosetta(&first)));
+        assert_eq!(asking(&shell, cx).as_ref(), Some(&second));
+
+        // Stopped from its Play button: its question goes, and the error shows.
+        instances.update(cx, |instances, cx| instances.stop(&second, cx));
+        cx.run_until_parked();
+        assert_eq!(asking(&shell, cx), None);
+        assert_eq!(
+            shown_title(&shell, cx).as_deref(),
+            Some("Couldn't export modpack")
+        );
+
+        // A question waits for the dialog that is open, and shows once it closes.
+        instances.update(cx, |instances, cx| instances.test_ask_rosetta(&first, cx));
+        cx.run_until_parked();
+        assert_eq!(
+            shown_title(&shell, cx).as_deref(),
+            Some("Couldn't export modpack")
+        );
+        shell.update(cx, |shell, cx| shell.close_modal(cx));
+        cx.run_until_parked();
+        assert_eq!(asking(&shell, cx).as_ref(), Some(&first));
+        assert!(instances.read_with(cx, |i, _| i.waits_for_rosetta(&first)));
     }
 
     /// "When a game starts: Quit" minimizes instead while a search is open: each try

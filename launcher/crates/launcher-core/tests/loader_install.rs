@@ -303,6 +303,13 @@ fn patched() -> Vec<u8> {
 /// Serves a Forge-style installer with one client processor (and one server-only
 /// processor that must not run), its jars, and the installer's `.sha1`.
 fn serve_forge(fixture: &Fixture) {
+    serve_forge_with(fixture, false);
+}
+
+/// [`serve_forge`]; with `universal_in_profile`, the universal jar is listed in the
+/// installer's `install_profile.json` instead of its `version.json`, as Forge 1.13 to
+/// 1.16 list it.
+fn serve_forge_with(fixture: &Fixture, universal_in_profile: bool) {
     let patcher = zip(&[(
         "META-INF/MANIFEST.MF",
         b"Manifest-Version: 1.0\r\nMain-Class: net.minecraftforge.binarypatcher.Con\r\n soleTool\r\n",
@@ -316,7 +323,10 @@ fn serve_forge(fixture: &Fixture) {
         b"modlauncher",
     );
     let universal = b"forge universal jar";
-    let install_profile = json!({
+    let universal_library = json!({"name": format!("net.minecraftforge:forge:{FORGE}:universal"), "downloads": {"artifact": {
+        "path": format!("net/minecraftforge/forge/{FORGE}/forge-{FORGE}-universal.jar"),
+        "url": "", "sha1": sha1_hex(universal), "size": universal.len()}}});
+    let mut install_profile = json!({
         "spec": 1,
         "minecraft": GAME,
         "json": "/version.json",
@@ -341,7 +351,7 @@ fn serve_forge(fixture: &Fixture) {
                 "url": jopt_url, "sha1": jopt_ref["sha1"], "size": jopt_ref["size"]}}},
         ],
     });
-    let version = json!({
+    let mut version = json!({
         "id": FORGE_ID,
         "inheritsFrom": GAME,
         "type": "release",
@@ -349,9 +359,6 @@ fn serve_forge(fixture: &Fixture) {
         "logging": {},
         "arguments": {"game": ["--launchTarget", "forgeclient"], "jvm": ["-DignoreList=${version_name}.jar"]},
         "libraries": [
-            {"name": format!("net.minecraftforge:forge:{FORGE}:universal"), "downloads": {"artifact": {
-                "path": format!("net/minecraftforge/forge/{FORGE}/forge-{FORGE}-universal.jar"),
-                "url": "", "sha1": sha1_hex(universal), "size": universal.len()}}},
             {"name": format!("net.minecraftforge:forge:{FORGE}:client"), "downloads": {"artifact": {
                 "path": format!("net/minecraftforge/forge/{FORGE}/forge-{FORGE}-client.jar"),
                 "url": "", "sha1": sha1_hex(&patched()), "size": patched().len()}}},
@@ -360,6 +367,15 @@ fn serve_forge(fixture: &Fixture) {
                 "url": modlauncher["url"], "sha1": modlauncher["sha1"], "size": modlauncher["size"]}}},
         ],
     });
+    let listed_in = if universal_in_profile {
+        &mut install_profile
+    } else {
+        &mut version
+    };
+    listed_in["libraries"]
+        .as_array_mut()
+        .unwrap()
+        .insert(0, universal_library);
     let install_profile = install_profile.to_string();
     let version = version.to_string();
     let universal_entry =
@@ -415,6 +431,44 @@ fn runs(fixture: &Fixture) -> Vec<String> {
         .lines()
         .map(str::to_string)
         .collect()
+}
+
+/// Forge 1.13 to 1.16 list their universal jar only in the installer's
+/// `install_profile.json`; it comes out of the installer all the same, or FML says
+/// "Missing forge!".
+#[test]
+#[cfg_attr(windows, ignore = "the made-up java is a shell script")]
+fn restores_a_universal_jar_listed_only_in_the_install_profile() {
+    let fixture = Fixture::new();
+    serve_forge_with(&fixture, true);
+    let java = patcher_java(&fixture, false);
+    let choice = LoaderChoice {
+        kind: LoaderKind::Forge,
+        version: FORGE.into(),
+    };
+    let universal = fixture.data_dir().libraries_dir().join(format!(
+        "net/minecraftforge/forge/{FORGE}/forge-{FORGE}-universal.jar"
+    ));
+    fixture
+        .prepare(
+            &choice,
+            &java,
+            Verify::Recorded,
+            &InstallProgress::default(),
+        )
+        .unwrap();
+    assert_eq!(fs::read(&universal).unwrap(), b"forge universal jar");
+    // Gone (deleted by hand): back from the installer on the next launch.
+    fs::remove_file(&universal).unwrap();
+    fixture
+        .prepare(
+            &choice,
+            &java,
+            Verify::Recorded,
+            &InstallProgress::default(),
+        )
+        .unwrap();
+    assert_eq!(fs::read(&universal).unwrap(), b"forge universal jar");
 }
 
 #[test]
