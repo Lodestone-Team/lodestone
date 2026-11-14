@@ -552,7 +552,7 @@ async fn create_owner(
 ) -> Result<User, Error> {
     let owner: OwnerFile =
         serde_json::from_str(text).map_err(|_| denied("owner.json isn't valid"))?;
-    let username = crate::remote_access::owner_username(&owner.username).map_err(denied)?;
+    let username = crate::auth::user::valid_username(&owner.username).map_err(denied)?;
     match &owner.password {
         Some(password) => crate::remote_access::owner_password(password).map_err(denied)?,
         None if passwordless_allowed => {}

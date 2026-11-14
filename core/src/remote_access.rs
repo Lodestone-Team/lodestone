@@ -213,17 +213,6 @@ impl<S: AsyncWrite + Unpin> AsyncWrite for GatedStream<S> {
     }
 }
 
-/// The owner's username, trimmed: 1 to 64 characters, none of them control characters.
-/// The error is for people.
-pub fn owner_username(username: &str) -> Result<String, &'static str> {
-    let username = username.trim();
-    let chars = username.chars().count();
-    if chars == 0 || chars > 64 || username.chars().any(char::is_control) {
-        return Err("The owner's username must have 1 to 64 characters");
-    }
-    Ok(username.to_string())
-}
-
 /// Checks the owner's new password: 12 to 256 characters. The error is for people.
 pub fn owner_password(password: &str) -> Result<(), &'static str> {
     if password.chars().count() < 12 || password.len() > 256 {
@@ -517,13 +506,16 @@ mod tests {
         )
         .await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
-        let (status, _, _) = put(
-            "/user/owner_account",
-            &owner,
-            json!({ "username": " ", "password": PASSWORD }),
-        )
-        .await;
-        assert_eq!(status, StatusCode::BAD_REQUEST);
+        // nor a name that could never sign in: Basic auth splits at the first ':'
+        for username in [" ", "home:peter"] {
+            let (status, body, _) = put(
+                "/user/owner_account",
+                &owner,
+                json!({ "username": username, "password": PASSWORD }),
+            )
+            .await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "{username:?}: {body}");
+        }
         assert!(!state.remote_access.allowed());
 
         let (status, user, _) = put("/user/owner_account", &owner, account.clone()).await;
@@ -556,6 +548,17 @@ mod tests {
         // only once: then the password is changed with the old one
         let (status, _, _) = put("/user/owner_account", &owner, account).await;
         assert_eq!(status, StatusCode::CONFLICT);
+        // and the new one has the same rule: it guards the core from other devices now
+        let change = |new_password: &str| json!({ "uid": uid, "old_password": PASSWORD, "new_password": new_password });
+        let (status, body, _) = put(&format!("/user/{uid}/password"), &owner, change("a")).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+        let login = reqwest::Client::new()
+            .post(format!("{lan}/user/login"))
+            .basic_auth("alex_admin", Some(PASSWORD))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(login.status(), StatusCode::OK, "the password didn't change");
 
         // turning it off: not from another device (it would lock them out), from here yes
         let (status, body, _) = send(
