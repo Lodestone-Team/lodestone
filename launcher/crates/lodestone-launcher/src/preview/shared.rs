@@ -75,6 +75,8 @@ pub fn window_height(scene: &str) -> Option<f32> {
     match scene {
         "shared-settings" => Some(1700.),
         "instance-shared-settings" => Some(2100.),
+        // Down to Game & loader, under General.
+        "instance-settings-game" => Some(2150.),
         "sidebar-groups" | "sidebar-groups-off" => Some(1000.),
         // Tall enough for the Modrinth section under six mods.
         "content-mods" => Some(1100.),

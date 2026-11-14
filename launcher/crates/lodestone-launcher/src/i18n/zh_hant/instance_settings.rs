@@ -85,10 +85,6 @@ pub fn text(message: M) -> &'static str {
         M::LoaderInstallsNextStart => "{loader} 會在遊戲下次啟動時安裝。",
         M::LoaderInstallsNextPlay => "{loader} 會在你下次按下「開始遊戲」時安裝。",
         M::SavedNextStart => "已儲存。會在遊戲下次啟動時生效。",
-        M::CouldntTurnModsOff => "無法停用模組：{error}",
-        M::GameVersionChangedMeanwhile => {
-            "Minecraft 版本已在這段期間變更。請重新選擇載入器，然後儲存。"
-        }
 
         M::Vanilla => "原版",
         M::ModLoader => "模組載入器",
@@ -215,6 +211,33 @@ pub fn text(message: M) -> &'static str {
         M::Exporting => "正在匯出…",
         M::Duplicate => "製作副本",
         M::Duplicating => "正在製作副本…",
+        M::ChangeVersionOrLoader => "變更版本或載入器",
+        M::ChangeVersionOrLoaderHint => {
+            "實例會保留建立時的版本和載入器。副本可以使用其他版本或載入器。"
+        }
+        M::CopyAs => "以其他版本或載入器製作副本",
+        M::CopyAsButton => "製作副本…",
+        M::CopyAsKeywords => "變更 切換 更新 升級 降級 版本 載入器 Fabric Forge NeoForge Quilt",
+        M::CopyAsTitle => "以其他版本或載入器製作副本",
+        M::CopyFrom => "以 {name}（{version}）為基礎新增一個實例，原實例保持不變。",
+        M::CopyWhat => "要複製的內容",
+        M::CopyWorlds => "世界",
+        M::CopyNoWorlds => "此實例沒有世界。",
+        M::CopyWorldsOlder => "世界無法複製到較舊的 Minecraft 版本：舊版本無法開啟它們。",
+        M::CopyWorldsUnknown => "世界不會複製：Lodestone Launcher 無法判斷 {version} 是否較新。",
+        M::CopyWorldsUpgraded => {
+            "Minecraft {version} 開啟世界時會將其升級，且無法還原。原本的世界仍保留在 {name} 中。"
+        }
+        M::CopyPacks => "資源包、光影和選項",
+        M::CopyMods => "模組",
+        M::CopyReading => "正在讀取實例的模組…",
+        M::CopyNoMods => "此實例沒有模組。",
+        M::CopyModsVanilla => "原版 Minecraft 不執行模組。",
+        M::CopyModsOffline => "無法連線至 Modrinth，因此無法複製模組。",
+        M::CopyModsFailed => "無法檢查模組：{error}",
+        M::CopyModsNoBuild => "沒有適用於 {target} 的組建，以下模組不會複製：{names}。",
+        M::CopyModsNotOnModrinth => "不在 Modrinth 上，以下模組不會複製：{names}。",
+        M::CopyAsStart => "製作副本",
         M::HostOnCore => "在 Lodestone 上架設",
         M::HostHint => "用此實例的模組建立伺服器。",
         M::HostButton => "架設…",
@@ -358,12 +381,6 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::ShareChangedCount => ["變更 {count} 項"; 2],
         P::ShareToggledCount => ["啟用或停用 {count} 項"; 2],
         P::CodePackChanges => ["+ {count} 項變更"; 2],
-        P::LoaderNextStartModsOff => {
-            ["{loader} 會在遊戲下次啟動時安裝。已停用 {count} 個模組。"; 2]
-        }
-        P::LoaderNextPlayModsOff => {
-            ["{loader} 會在你下次按下「開始遊戲」時安裝。已停用 {count} 個模組。"; 2]
-        }
         P::SharedCount => ["{count} 項共用"; 2],
         P::OverriddenCount => ["{count} 項覆寫"; 2],
         P::AndMore => ["{names}及另外 {count} 項"; 2],
@@ -380,5 +397,8 @@ pub fn plural(message: P) -> [&'static str; 2] {
 
         P::AndMoreFiles => ["以及另外 {count} 個"; 2],
         P::AddedModpackFiles => ["已加入 {count} 個檔案"; 2],
+        P::CopyWorldsCount => ["{count} 個世界"; 2],
+        P::CopyCheckingMods => ["正在 Modrinth 上檢查 {count} 個模組…"; 2],
+        P::CopyModsFound => ["{count} 個模組中有 {found} 個有適用於 {target} 的組建。"; 2],
     }
 }

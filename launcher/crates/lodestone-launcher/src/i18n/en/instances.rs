@@ -98,11 +98,6 @@ crate::i18n::messages! {
         CouldntSavePlayTime = "Couldn't save the play time: {error}",
         ModpackExported = "Modpack exported",
         CouldntExportModpack = "Couldn't export the modpack",
-        CouldntSwitchLoader = "Couldn't switch to a mod loader",
-        NoModLoaderFor = "No mod loader Lodestone Launcher supports runs on Minecraft {version}: Fabric starts at 1.14, and Forge has no build for it.",
-        /// After "Switch to Fabric": the dialog's title.
-        SwitchedTo = "Switched to {loader}",
-        SwitchedToMessage = "{name} now uses {loader} {version}. It installs the next time you press Play.",
 
         // The Logs tab.
         SearchLog = "Search the log",
@@ -182,6 +177,13 @@ crate::i18n::messages! {
         DownloadingName = "Downloading {name}",
         InstallingName = "Installing {name}",
         CopyingConfigs = "Copying the pack's configs",
+        /// A copy with another version or loader: the notice when it is made.
+        CopyReady = "{name} is ready",
+        CouldntCopy = "Couldn't make the copy",
+        /// What a copy with another version or loader is doing.
+        CopyingWorlds = "Copying the worlds",
+        CopyingPacksAndOptions = "Copying the resource packs, shaders and options",
+        InstallingMods = "Installing the mods",
         RecordingFiles = "Recording the pack's files",
         SavingSnapshot = "Saving a snapshot of the instance's files",
         /// Backing up a world before an update.
@@ -326,6 +328,8 @@ crate::i18n::messages! {
         WorldsBackedUp = ("{count} world was backed up first.", "{count} worlds were backed up first."),
         /// A modpack's progress.
         DownloadingFiles = ("Downloading {count} file", "Downloading {count} files"),
+        /// After a copy's "ready" message; {names} is a list of mods.
+        CopyModsLeftBehind = ("{count} mod stayed behind: {names}.", "{count} mods stayed behind: {names}."),
         /// The mod finder's progress.
         FinderModsLeft = ("{count} mod left to check", "{count} mods left to check"),
         FinderModsOff = ("{count} mod turned off", "{count} mods turned off"),

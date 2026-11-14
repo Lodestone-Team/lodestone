@@ -94,23 +94,6 @@ pub fn text(message: M) -> &'static str {
             "{name} revient à son état de la sauvegarde ({when}). Tout ce qui a changé depuis est perdu dans le monde, mais il est d’abord sauvegardé et le dossier actuel est placé dans {trash}."
         }
         M::BackUpAndReplace => "Sauvegarder et remplacer",
-        M::SwitchToLoader => "Passer à {loader}\u{202F}?",
-        M::SwitchToVanilla => "Passer à Vanilla\u{202F}?",
-        M::ModsWontLoadOn => {
-            "Ces mods activés sont faits pour un autre chargeur et ne se chargeront pas avec {loader}\u{a0}:"
-        }
-        M::ModsWontLoadVanilla => {
-            "Minecraft Vanilla ne charge aucun mod, donc ces mods activés ne se chargeront pas\u{a0}:"
-        }
-        M::ModMadeFor => "mod {loader}",
-        M::TurningOffRenames => {
-            "Les désactiver les renomme en .disabled, pour que vous puissiez les réactiver dans Contenu."
-        }
-        M::WorldsAtRisk => {
-            "Les mondes qui utilisaient des blocs ou des objets de ces mods peuvent les perdre. Sauvegardez d’abord vos mondes."
-        }
-        M::TurnOffAndSave => "Les désactiver et enregistrer",
-        M::SaveAndKeep => "Enregistrer et les garder",
         M::RemoveAccountTitle => "Retirer {name}\u{202F}?",
         M::RemoveAccountBody => {
             "Lodestone Launcher oublie ce compte et supprime sa connexion enregistrée de votre {keychain}. Vous pourrez l’ajouter de nouveau plus tard."

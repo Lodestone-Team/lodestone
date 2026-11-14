@@ -340,6 +340,28 @@ pub fn change_packs(
     Ok(packs)
 }
 
+/// Rewrites the pack ids of the `options.txt` in `game_dir`, written by Minecraft `from`,
+/// as Minecraft `to` names them (`file/<name>` from 1.13, bare `<name>` before), for a
+/// copy of the file in an instance of another version. Other ids and lines are kept; a
+/// missing file is left missing.
+pub fn carry_packs(game_dir: &Path, from: &str, to: &str) -> Result<(), OptionsError> {
+    let path = game_dir.join(FILE);
+    if uses_file_prefix(from) == uses_file_prefix(to) || !path.is_file() {
+        return Ok(());
+    }
+    let mut file = OptionsFile::read(&path)?;
+    for key in [PACKS_KEY, INCOMPATIBLE_KEY] {
+        if let Some(ids) = file.list(key)? {
+            let carried: Vec<String> = ids
+                .iter()
+                .map(|id| pack_name(id, from).map_or_else(|| id.clone(), |name| pack_id(&name, to)))
+                .collect();
+            file.set(key, &format_list(&carried));
+        }
+    }
+    file.write(&path)
+}
+
 fn apply(packs: &mut PackOptions, game_version: &str, change: &PackChange) {
     let matches = |id: &String, name: &str| id == &format!("file/{name}") || id == name;
     match change {
@@ -681,5 +703,31 @@ mod tests {
         )
         .unwrap();
         assert_eq!(read(&dir), text);
+    }
+    #[test]
+    fn carried_packs_are_named_as_the_other_version_names_them() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(FILE);
+        fs::write(
+            &path,
+            "fov:0.5\nresourcePacks:[\"vanilla\",\"Faithful.zip\"]\nincompatibleResourcePacks:[\"Faithful.zip\"]\n",
+        )
+        .unwrap();
+        carry_packs(dir.path(), "1.12.2", "1.21.1").unwrap();
+        assert_eq!(
+            fs::read_to_string(&path).unwrap(),
+            "fov:0.5\nresourcePacks:[\"vanilla\",\"file/Faithful.zip\"]\nincompatibleResourcePacks:[\"file/Faithful.zip\"]\n"
+        );
+        carry_packs(dir.path(), "1.21.1", "1.12.2").unwrap();
+        assert!(
+            fs::read_to_string(&path)
+                .unwrap()
+                .contains("resourcePacks:[\"vanilla\",\"Faithful.zip\"]")
+        );
+        // the same naming on both sides: the file isn't touched
+        let before = fs::read(&path).unwrap();
+        carry_packs(dir.path(), "1.12.2", "1.8.9").unwrap();
+        assert_eq!(fs::read(&path).unwrap(), before);
+        carry_packs(&dir.path().join("none"), "1.12.2", "1.21.1").unwrap();
     }
 }

@@ -1334,7 +1334,11 @@ pub fn icon_png(bytes: &[u8]) -> Result<Vec<u8>, String> {
 
 /// Copies the folder `from` to `to` (which must not exist), skipping what `skip`
 /// says (by path relative to `from`) and symbolic links.
-fn copy_tree(from: &Path, to: &Path, skip: &dyn Fn(&Path) -> bool) -> Result<(), InstanceError> {
+pub(crate) fn copy_tree(
+    from: &Path,
+    to: &Path,
+    skip: &dyn Fn(&Path) -> bool,
+) -> Result<(), InstanceError> {
     fn walk(
         root: &Path,
         dir: &Path,

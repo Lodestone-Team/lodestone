@@ -99,7 +99,7 @@ impl PlannedFile {
 
 #[derive(Clone, Debug)]
 pub struct InstallPlan {
-    /// The requested version first, then its dependencies.
+    /// The requested versions first, then their dependencies.
     pub files: Vec<PlannedFile>,
     pub skipped: Vec<Skipped>,
 }
@@ -172,21 +172,41 @@ pub async fn plan(
     {
         return Err(ContentError::Invalid(reason));
     }
-    let (_, provenance, _) = refresh(Some(api), dirs, kind).await?;
-    let installed = provenance.by_project(kind);
-
-    let mut plan = vec![PlannedFile {
+    let root = PlannedFile {
         kind,
         version: request.version,
         project: request.project,
         depth: 0,
-    }];
-    let mut seen: HashSet<String> = HashSet::from([plan[0].version.project_id.clone()]);
+    };
+    plan_all(api, dirs, target, vec![root], request.install_dependencies).await
+}
+
+/// Plans installing several versions of one kind at once (`roots`, each at depth 0), with
+/// their required dependencies when `install_dependencies`, under the rules of [`plan`].
+/// The roots aren't checked against `target`: the caller picked them for it.
+pub async fn plan_all(
+    api: &Modrinth,
+    dirs: &InstanceDirs,
+    target: &Target,
+    roots: Vec<PlannedFile>,
+    install_dependencies: bool,
+) -> Result<InstallPlan, ContentError> {
+    let Some(kind) = roots.first().map(|root| root.kind) else {
+        return Ok(InstallPlan {
+            files: Vec::new(),
+            skipped: Vec::new(),
+        });
+    };
+    let (_, provenance, _) = refresh(Some(api), dirs, kind).await?;
+    let installed = provenance.by_project(kind);
+
+    let mut plan = roots;
+    let mut seen: HashSet<String> = plan.iter().map(|p| p.version.project_id.clone()).collect();
     let mut skipped_list = Vec::new();
     // Resource and shader packs have no dependencies Lodestone installs: a shader pack
     // that names Iris gets the shader mod offer instead.
-    if request.install_dependencies && kind == ContentKind::Mod {
-        let mut queue = VecDeque::from([0_usize]);
+    if install_dependencies && kind == ContentKind::Mod {
+        let mut queue: VecDeque<usize> = (0..plan.len()).collect();
         while let Some(index) = queue.pop_front() {
             let depth = plan[index].depth + 1;
             let dependencies: Vec<_> = plan[index]

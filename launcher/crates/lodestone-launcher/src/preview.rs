@@ -130,7 +130,10 @@ pub const SCENES: &[&str] = &[
     "content-page-scrolled",
     "content-project-narrow",
     "content-cf-project",
-    "loader-change",
+    "copy-as",
+    "copy-as-older",
+    "instance-settings-game",
+    "instance-settings-maintenance",
     "new-instance-modpack",
     "new-instance-code",
     "new-instance-code-pack",
@@ -574,7 +577,9 @@ fn has_instances(scene: &str) -> bool {
         || scene == "share-code-pack"
         || is_worlds_scene(scene)
         || snapshots::is_scene(scene)
-        || scene == "loader-change"
+        || scene.starts_with("copy-as")
+        || scene == "instance-settings-game"
+        || scene == "instance-settings-maintenance"
         || shared::is_scene(scene)
         || scene.starts_with("instance-settings-narrow")
         || scene == "instance-settings-unsaved"
@@ -748,7 +753,7 @@ pub fn instances(scene: &str, accounts: &Entity<Accounts>, cx: &mut App) -> Enti
                 instance.group = group.map(str::to_string);
                 let _ = store.save(&instance);
                 if name == "Survival 1.20.1"
-                    && (scene.starts_with("content-") || scene == "loader-change")
+                    && (scene.starts_with("content-") || scene.starts_with("copy-as"))
                 {
                     content::fill(&store.dir(&instance.id), scene);
                 }
@@ -851,13 +856,14 @@ pub fn instances(scene: &str, accounts: &Entity<Accounts>, cx: &mut App) -> Enti
             scene if scene.starts_with("rosetta-") => Some("Old school"),
             "instance-shared-settings" => Some("Survival 1.20.1"),
             scene if scene.starts_with("instance-linked") => Some("Survival 1.20.1"),
+            "instance-settings-game" | "instance-settings-maintenance" => Some("Survival 1.20.1"),
             scene if groups::is_scene(scene) => Some(groups::SELECTED),
             scene if is_appearance_scene(scene) => Some("Survival 1.20.1"),
             scene
                 if scene.starts_with("content-")
                     || scene.starts_with("modpack-")
                     || is_worlds_scene(scene)
-                    || scene == "loader-change" =>
+                    || scene.starts_with("copy-as") =>
             {
                 Some("Survival 1.20.1")
             }
@@ -1220,17 +1226,20 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
             let view = shell.content().clone();
             view.update(cx, |view, cx| content::apply(scene, view, cx));
         }
-        "loader-change" => {
+        "copy-as" | "copy-as-older" => copy_as(scene, shell, cx),
+        // the Minecraft version and loader as they are, the loader's version to pick,
+        // and the way to a copy with others
+        // (in a tall window, from the top), and the Maintenance section
+        "instance-settings-game" => shell.select_tab(InstanceTab::Settings, cx),
+        "instance-settings-maintenance" => {
             shell.select_tab(InstanceTab::Settings, cx);
-            let prompt = shell.settings_view().and_then(|settings| {
-                settings.read(cx).preview_loader_change(
-                    launcher_core::instances::Loader::Forge,
-                    "1.20.1-47.4.28",
-                    cx,
-                )
-            });
-            if let Some(prompt) = prompt {
-                shell.show_loader_change(prompt, cx);
+            if let Some(settings) = shell.settings_view().cloned() {
+                settings.update(cx, |settings, cx| {
+                    settings.preview_section(crate::i18n::t(
+                        crate::i18n::InstanceSettingsMsg::Maintenance,
+                    ));
+                    cx.notify();
+                });
             }
         }
         "narrator-offer" => shell.preview_narrator_offer(cx),
@@ -2143,3 +2152,85 @@ Details:
 \t\tshinymobs: Shiny Mobs 1.2.0
 \t\tsodium: Sodium 0.6.0
 ";
+
+/// "Copy with another version or loader" for Survival 1.20.1 (Fabric, with mods and two
+/// worlds): to 26.3 with Fabric, the worlds going (upgraded) and some mods without a
+/// build, or (`copy-as-older`) to vanilla 1.16.5, where the worlds can't go.
+fn copy_as(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherShell>) {
+    use launcher_core::{
+        content::copy_as::{self, CopyAsOptions},
+        game::loaders::LoaderKind,
+    };
+    let instances = shell.instances().clone();
+    let Some(source) = instances.read(cx).selected().cloned() else {
+        return;
+    };
+    let older = scene == "copy-as-older";
+    let version = if older { "1.16.5" } else { "26.3" };
+    // the recorded Fabric builds, for the new version too
+    let fabric = launcher_core::game::loaders::meta::parse_fabric_versions(
+        include_bytes!("../../launcher-core/testdata/loaders/fabric/loaders-1.20.1.json"),
+        version,
+    )
+    .expect("the recorded Fabric list parses");
+    instances.update(cx, |instances, cx| {
+        instances.set_loader_versions(
+            LoaderKind::Fabric,
+            version,
+            crate::instances::LoaderVersions::Ready(Arc::new(fabric)),
+        );
+        cx.notify();
+    });
+    let dirs = instances.read(cx).content_dirs(&source.id);
+    let contents = futures::executor::block_on(copy_as::contents(None, &dirs)).unwrap_or_default();
+    shell.open_copy_as(&source.id, None, cx);
+    let Some(dialog) = shell.new_instance_dialog().cloned() else {
+        return;
+    };
+    dialog.update(cx, |dialog, cx| {
+        dialog.preview_version(version, cx);
+        dialog.preview_copy_contents(contents, cx);
+        if older {
+            dialog.choose_loader_kind(None, cx);
+            dialog.preview_copy_lookup(
+                CopyAsOptions {
+                    worlds: true,
+                    ..CopyAsOptions::default()
+                },
+                |_| None,
+                cx,
+            );
+        } else {
+            // every other mod has a build for 26.3
+            let mut index = 0;
+            dialog.preview_copy_lookup(
+                CopyAsOptions {
+                    worlds: true,
+                    ..CopyAsOptions::default()
+                },
+                |source| {
+                    index += 1;
+                    (index % 3 != 0).then(|| sample_build(source, version))
+                },
+                cx,
+            );
+        }
+    });
+}
+
+/// A made-up Modrinth build of `source` for Fabric on `version`.
+fn sample_build(
+    source: &launcher_core::content::copy_as::SourceMod,
+    version: &str,
+) -> lodestone_minecraft::modrinth::RawVersion {
+    serde_json::from_value(serde_json::json!({
+        "id": format!("{}-{version}", source.project_id),
+        "project_id": source.project_id,
+        "name": source.title,
+        "version_number": "1.0.0",
+        "version_type": "release",
+        "loaders": ["fabric"],
+        "game_versions": [version],
+    }))
+    .expect("a version")
+}

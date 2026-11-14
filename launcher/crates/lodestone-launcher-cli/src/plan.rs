@@ -291,6 +291,38 @@ pub fn plan(
             Instances::Duplicate(i) => {
                 call("instances.duplicate", vec![("instance", json!(i.instance))])
             }
+            Instances::CopyAs {
+                instance,
+                version,
+                loader,
+                loader_version,
+                name,
+                worlds,
+                no_packs,
+                no_mods,
+            } => long(
+                "instances.copy_as",
+                vec![
+                    ("instance", json!(instance)),
+                    ("version", json!(version)),
+                    ("loader", json!(loader)),
+                    ("loader_version", json!(loader_version)),
+                    ("name", json!(name)),
+                    ("worlds", json!(worlds)),
+                    ("packs", json!(!no_packs)),
+                    ("mods", json!(!no_mods)),
+                ],
+            ),
+            Instances::LoaderVersion {
+                instance,
+                loader_version,
+            } => call(
+                "instances.set_loader_version",
+                vec![
+                    ("instance", json!(instance)),
+                    ("loader_version", json!(loader_version)),
+                ],
+            ),
             Instances::Delete(i) => call("instances.delete", vec![("instance", json!(i.instance))]),
             Instances::Export { instance, path } => long(
                 "instances.export",
@@ -554,20 +586,6 @@ pub fn plan(
                     ("instance", json!(instance)),
                     ("items", json!(items)),
                     ("kind", json!(kind)),
-                ],
-            ),
-            Content::SwitchLoader {
-                instance,
-                loader,
-                loader_version,
-                disable_mismatched,
-            } => call(
-                "content.switch_loader",
-                vec![
-                    ("instance", json!(instance)),
-                    ("loader", json!(loader)),
-                    ("loader_version", json!(loader_version)),
-                    ("disable_mismatched", json!(disable_mismatched)),
                 ],
             ),
         },
@@ -1171,6 +1189,50 @@ mod tests {
                 json!({ "code": "LDS1:abc", "name": "Copy" }),
                 true
             )
+        );
+        assert_eq!(
+            call_of(&[
+                "instances",
+                "copy-as",
+                "Survival",
+                "--version",
+                "1.21.1",
+                "--worlds"
+            ]),
+            (
+                "instances.copy_as",
+                json!({ "instance": "Survival", "version": "1.21.1", "worlds": true, "packs": true, "mods": true }),
+                true
+            )
+        );
+        let (_, params, _) = call_of(&[
+            "instances",
+            "copy-as",
+            "Survival",
+            "--loader",
+            "neoforge",
+            "--loader-version",
+            "21.1.77",
+            "--name",
+            "Survival NeoForge",
+            "--no-packs",
+            "--no-mods",
+        ]);
+        assert_eq!(
+            params,
+            json!({ "instance": "Survival", "loader": "neoforge", "loader_version": "21.1.77", "name": "Survival NeoForge", "worlds": false, "packs": false, "mods": false })
+        );
+        assert_eq!(
+            call_of(&["instances", "loader-version", "Survival", "0.16.14"]),
+            (
+                "instances.set_loader_version",
+                json!({ "instance": "Survival", "loader_version": "0.16.14" }),
+                false
+            )
+        );
+        assert_eq!(
+            call_of(&["instances", "loader-version", "Survival"]).1,
+            json!({ "instance": "Survival" })
         );
         let (method, params, _) = call_of(&["instances", "group", "Survival", "--none"]);
         assert_eq!(method, "instances.set_group");

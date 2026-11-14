@@ -315,6 +315,50 @@ pub enum Instances {
     /// Copies an instance (with its worlds and mods).
     #[command(after_help = "Examples:\n  lodestone-launcher-cli instances duplicate Survival")]
     Duplicate(InstanceArg),
+    /// Makes a new instance from one for another Minecraft version or loader (an
+    /// instance's own never change): each Modrinth mod's build for them, the resource
+    /// packs, shaders and options, and (with --worlds, to the same or a newer version)
+    /// the worlds. Mods with no build, and mods not on Modrinth, stay behind. Needs --yes
+    /// when mods stay behind or worlds are upgraded: show the user the plan first.
+    #[command(
+        name = "copy-as",
+        after_help = "Examples:\n  lodestone-launcher-cli instances copy-as Survival --version 1.21.1\n  lodestone-launcher-cli instances copy-as Survival --loader neoforge --name \"Survival NeoForge\"\n  lodestone-launcher-cli instances copy-as Vanilla121 --loader fabric --worlds\n  lodestone-launcher-cli instances copy-as Survival --version latest --no-mods --yes"
+    )]
+    CopyAs {
+        instance: String,
+        /// A Minecraft version, or \"latest\" (default: the instance's).
+        #[arg(long)]
+        version: Option<String>,
+        /// vanilla, fabric, quilt, forge or neoforge (default: the instance's).
+        #[arg(long)]
+        loader: Option<String>,
+        /// The loader version (default: the recommended one).
+        #[arg(long)]
+        loader_version: Option<String>,
+        /// The copy's name (default: \"<name> (<version> <loader>)\").
+        #[arg(long)]
+        name: Option<String>,
+        /// Copy the worlds too (only to the same or a newer version, which upgrades them).
+        #[arg(long)]
+        worlds: bool,
+        /// Leave the resource packs, shaders and options.txt out.
+        #[arg(long)]
+        no_packs: bool,
+        /// Leave the mods out.
+        #[arg(long)]
+        no_mods: bool,
+    },
+    /// Changes the version of an instance's mod loader (installs next launch). The
+    /// loader itself stays: `instances copy-as` makes a copy with another.
+    #[command(
+        name = "loader-version",
+        after_help = "Examples:\n  lodestone-launcher-cli instances loader-version Survival 0.16.14\n  lodestone-launcher-cli instances loader-version Survival      # the recommended one"
+    )]
+    LoaderVersion {
+        instance: String,
+        /// A version of its loader (default: the recommended one).
+        loader_version: Option<String>,
+    },
     /// Moves an instance to the Trash. Destructive: needs --yes.
     #[command(after_help = "Examples:\n  lodestone-launcher-cli instances delete Survival --yes")]
     Delete(InstanceArg),
@@ -742,21 +786,6 @@ pub enum Content {
         all: bool,
         #[arg(long)]
         kind: Option<String>,
-    },
-    /// Changes the instance's mod loader (installs next launch). Without LOADER: the
-    /// Content tab's offer for a vanilla instance (Fabric, or Forge before 1.14).
-    #[command(
-        after_help = "Examples:\n  lodestone-launcher-cli content switch-loader Survival\n  lodestone-launcher-cli content switch-loader Survival quilt\n  lodestone-launcher-cli content switch-loader Survival forge --disable-mismatched"
-    )]
-    SwitchLoader {
-        instance: String,
-        /// fabric, quilt, forge, neoforge or vanilla.
-        loader: Option<String>,
-        #[arg(long)]
-        loader_version: Option<String>,
-        /// Turn off mods made for another loader.
-        #[arg(long)]
-        disable_mismatched: bool,
     },
 }
 

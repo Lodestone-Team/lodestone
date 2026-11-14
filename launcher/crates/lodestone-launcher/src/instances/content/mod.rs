@@ -286,6 +286,9 @@ pub enum RemoteIcon {
 pub enum ContentEvent {
     /// Open "New instance" with Fabric chosen.
     NewFabricInstance,
+    /// Open "Copy with another version or loader" for the instance, with the loader
+    /// chosen: a vanilla instance's way to mods and shaders.
+    CopyWithLoader(String, LoaderKind),
     /// Open "Add a modpack" for the instance.
     AddModpack(String),
     /// A mod being turned off has enabled mods that can't load without it, or one being
@@ -320,8 +323,8 @@ pub struct ContentView {
     pub shaders: ShaderState,
     pub shader_offer: Load<ShaderModOffer>,
     shader_offer_task: Option<Task<()>>,
-    /// For a vanilla instance: the mod loader "Switch to …" would use (Fabric, or Forge
-    /// where Fabric doesn't run), or `None` when no loader supports its version.
+    /// For a vanilla instance: the mod loader "Copy with …" would give a copy (Fabric, or
+    /// Forge where Fabric doesn't run), or `None` when no loader supports its version.
     pub mod_loader_offer: Load<Option<LoaderKind>>,
     mod_loader_offer_task: Option<Task<()>>,
     /// The shown instance's install.
@@ -463,9 +466,10 @@ impl ContentView {
             .is_some_and(|(loader, _)| loader.kind().is_some())
     }
 
-    /// Follows the selected instance: a new one, or a new loader for the same one ("Switch
-    /// to Fabric", or a change in Settings), starts over; a game that stopped may have
-    /// changed its options, so the lists are read again.
+    /// Follows the selected instance: a new one, or a new loader for the same one (a
+    /// modpack update, a linked server's pack, or another loader version in Settings),
+    /// starts over; a game that stopped may have changed its options, so the lists are
+    /// read again.
     fn sync(&mut self, cx: &mut Context<Self>) {
         let (selected, loader, active, prerelease, revision) = {
             let instances = self.instances.read(cx);
@@ -1520,17 +1524,14 @@ impl ContentView {
         }
     }
 
-    pub fn switch_to_mod_loader(&mut self, cx: &mut Context<Self>) {
-        if !self.can_change(cx) {
-            return;
-        }
+    /// "Copy with Fabric…": a vanilla instance keeps its loader, so a copy gets one.
+    pub fn copy_with_loader(&mut self, kind: LoaderKind, cx: &mut Context<Self>) {
         if let Some(id) = self.instance_id.clone() {
-            self.instances
-                .update(cx, |instances, cx| instances.switch_to_mod_loader(&id, cx));
+            cx.emit(ContentEvent::CopyWithLoader(id, kind));
         }
     }
 
-    /// Finds which mod loader a vanilla instance can switch to, once.
+    /// Finds which mod loader a copy of a vanilla instance can have, once.
     pub fn ensure_mod_loader_offer(&mut self, cx: &mut Context<Self>) {
         if !matches!(self.mod_loader_offer, Load::NotLoaded) {
             return;
@@ -1560,10 +1561,6 @@ impl ContentView {
 
     pub fn new_fabric_instance(&mut self, cx: &mut Context<Self>) {
         cx.emit(ContentEvent::NewFabricInstance);
-    }
-
-    pub fn is_switching_loader(&self, cx: &gpui::App) -> bool {
-        self.instances.read(cx).is_switching_loader()
     }
 
     // ---- Browse ----

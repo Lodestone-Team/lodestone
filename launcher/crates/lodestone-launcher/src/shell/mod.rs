@@ -54,7 +54,7 @@ use crate::{
         skin_dialog::{SkinDialog, SkinDialogDismissed},
     },
     components::{
-        Button, ButtonVariant, Dialog, DialogSlot, Icon, RichText, UnderDialogs, focus,
+        Button, ButtonVariant, Dialog, DialogSlot, RichText, UnderDialogs, focus,
         settings::{FindSetting, SettingsSearch, Toast},
         window_frame,
     },
@@ -69,8 +69,8 @@ use crate::{
         modpacks::UpdatePrompt,
         new_instance::{NewInstanceDialog, NewInstanceDismissed},
         settings::{
-            AddModpackRequested, DeleteRequested, FindModRequested, HostRequested,
-            InstanceSettings, LoaderChangePrompt, ShareRequested,
+            AddModpackRequested, CopyAsRequested, DeleteRequested, FindModRequested, HostRequested,
+            InstanceSettings, ShareRequested,
         },
         share_dialog::{ShareDialog, ShareDismissed},
         worlds::{WorldsEvent, WorldsView},
@@ -234,11 +234,6 @@ enum Modal {
     RemoveAccount {
         id: String,
         username: String,
-        focus: FocusHandle,
-    },
-    /// Saving a loader change that leaves mods behind or puts worlds at risk.
-    LoaderChange {
-        prompt: Box<LoaderChangePrompt>,
         focus: FocusHandle,
     },
     /// Moving a world to the Trash.
@@ -499,6 +494,7 @@ impl LauncherShell {
         let mut observe = observe;
         observe.push(cx.subscribe(&content, |this, _, event, cx| match event {
             ContentEvent::NewFabricInstance => this.open_new_instance_with_loader(cx),
+            ContentEvent::CopyWithLoader(id, kind) => this.open_copy_as(id, Some(*kind), cx),
             ContentEvent::AddModpack(id) => this.open_add_modpack(id, cx),
             ContentEvent::ConfirmToggle(prompt) => {
                 let modal = Modal::ToggleMod {
@@ -1221,8 +1217,8 @@ impl LauncherShell {
                     cx.subscribe(&settings, |this, _, DeleteRequested(id), cx| {
                         this.confirm_delete_instance(id, cx)
                     }),
-                    cx.subscribe(&settings, |this, _, prompt: &LoaderChangePrompt, cx| {
-                        this.show_loader_change(prompt.clone(), cx)
+                    cx.subscribe(&settings, |this, _, CopyAsRequested(id), cx| {
+                        this.open_copy_as(id, None, cx)
                     }),
                     cx.subscribe(&settings, |this, _, prompt: &UpdatePrompt, cx| {
                         this.show_modpack_update(prompt.clone(), cx)
@@ -1564,171 +1560,6 @@ impl LauncherShell {
         cx.notify();
     }
 
-    /// Asks before saving a loader change (from the Settings tab).
-    pub fn show_loader_change(&mut self, prompt: LoaderChangePrompt, cx: &mut Context<Self>) {
-        let focus = cx.focus_handle();
-        self.open_modal(
-            Modal::LoaderChange {
-                prompt: Box::new(prompt),
-                focus,
-            },
-            cx,
-        );
-    }
-
-    /// Saves the change the dialog asked about, turning the mismatched mods off first if
-    /// `turn_off`.
-    fn finish_loader_change(&mut self, turn_off: bool, cx: &mut Context<Self>) {
-        let Some(Modal::LoaderChange { prompt, .. }) = self.modal.current() else {
-            return;
-        };
-        let prompt = (**prompt).clone();
-        self.modal.close(cx);
-        self.show_queued_modal_soon(cx);
-        let disable: Vec<String> = if turn_off {
-            prompt
-                .check
-                .mismatched
-                .iter()
-                .map(|m| m.file_name.clone())
-                .collect()
-        } else {
-            Vec::new()
-        };
-        if let Some(settings) = self.settings_view().cloned() {
-            settings.update(cx, |settings, cx| {
-                settings.commit(prompt.instance, &disable, cx)
-            });
-        }
-        cx.notify();
-    }
-
-    fn render_loader_change(
-        &self,
-        prompt: &LoaderChangePrompt,
-        focus: FocusHandle,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
-        const SHOWN: usize = 8;
-        let to = loader_name(prompt.instance.loader);
-        let check = &prompt.check;
-        let title = match prompt.instance.loader.kind() {
-            Some(_) => tr!(M::SwitchToLoader, loader = to),
-            None => t(M::SwitchToVanilla).to_string(),
-        };
-        let mods_text = match prompt.instance.loader.kind() {
-            Some(_) => tr!(M::ModsWontLoadOn, loader = to),
-            None => t(M::ModsWontLoadVanilla).to_string(),
-        };
-        let has_mods = !check.mismatched.is_empty();
-        let entity = cx.entity();
-        Dialog::new("loader-change", title, focus)
-            .on_close(move |_, cx| entity.update(cx, |this, cx| this.close_modal(cx)))
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap_2()
-                    .text_color(crate::theme::ink::secondary())
-                    .when(has_mods, |this| {
-                        let more = check.mismatched.len().saturating_sub(SHOWN);
-                        this.child(div().whitespace_normal().child(mods_text))
-                            .child(
-                                div()
-                                    .flex()
-                                    .flex_col()
-                                    .px_3()
-                                    .py_2()
-                                    .rounded(radius::LG)
-                                    .bg(colors::GRAY_900)
-                                    .children(check.mismatched.iter().take(SHOWN).map(|m| {
-                                        div()
-                                            .flex()
-                                            .flex_row()
-                                            .gap_2()
-                                            .child(
-                                                div()
-                                                    .min_w_0()
-                                                    .truncate()
-                                                    .text_color(crate::theme::ink::text())
-                                                    .child(m.name.clone()),
-                                            )
-                                            .child(
-                                                div()
-                                                    .flex_none()
-                                                    .text_color(crate::theme::ink::muted())
-                                                    .child(tr!(M::ModMadeFor, loader = m.made_for)),
-                                            )
-                                    }))
-                                    .when(more > 0, |this| {
-                                        this.child(
-                                            div()
-                                                .text_color(crate::theme::ink::muted())
-                                                .child(trn!(P::AndMore, more)),
-                                        )
-                                    }),
-                            )
-                            .child(div().whitespace_normal().child(t(M::TurningOffRenames)))
-                    })
-                    .when(check.worlds > 0 && check.worlds_at_risk, |this| {
-                        this.child(
-                            div()
-                                .flex()
-                                .flex_row()
-                                .gap_2()
-                                .px_3()
-                                .py_2()
-                                .rounded(radius::LG)
-                                .border_1()
-                                .border_color(colors::YELLOW_300.opacity(50))
-                                .bg(colors::YELLOW_FADED.opacity(15))
-                                .text_color(crate::theme::ink::text())
-                                .child(
-                                    Icon::TriangleExclamation.render(px(14.), colors::YELLOW_300),
-                                )
-                                .child(
-                                    div()
-                                        .flex_1()
-                                        .min_w_0()
-                                        .whitespace_normal()
-                                        .child(t(M::WorldsAtRisk)),
-                                ),
-                        )
-                    }),
-            )
-            .when(has_mods, |this| {
-                this.footer(
-                    Button::new("loader-change-disable", t(M::TurnOffAndSave))
-                        .variant(ButtonVariant::Primary)
-                        .on_click(
-                            cx.listener(|this, _, _, cx| this.finish_loader_change(true, cx)),
-                        ),
-                )
-            })
-            .footer(
-                Button::new(
-                    "loader-change-keep",
-                    if has_mods {
-                        t(M::SaveAndKeep)
-                    } else {
-                        t(CommonMsg::Save)
-                    },
-                )
-                .variant(if has_mods {
-                    ButtonVariant::Secondary
-                } else {
-                    ButtonVariant::Primary
-                })
-                .on_click(cx.listener(|this, _, _, cx| this.finish_loader_change(false, cx))),
-            )
-            .footer(
-                Button::new("loader-change-cancel", t(CommonMsg::Cancel))
-                    .variant(ButtonVariant::Ghost)
-                    .on_click(cx.listener(|this, _, _, cx| this.close_modal(cx))),
-            )
-            .into_any_element()
-    }
-
     fn confirm_delete_instance(&mut self, id: &str, cx: &mut Context<Self>) {
         let Some(instance) = self
             .instances
@@ -1973,12 +1804,6 @@ impl LauncherShell {
     }
 
     fn close_modal(&mut self, cx: &mut Context<Self>) {
-        // A loader change that wasn't confirmed: the Settings tab shows the saved loader.
-        if matches!(self.modal.current(), Some(Modal::LoaderChange { .. }))
-            && let Some(settings) = self.settings_view().cloned()
-        {
-            settings.update(cx, |settings, cx| settings.revert_loader(cx));
-        }
         // "Add a modpack" closed while it showed a review: its downloaded pack goes.
         if let Some(Modal::AddModpack { dialog, .. }) = self.modal.current() {
             dialog.clone().update(cx, |dialog, cx| dialog.discard(cx));
@@ -2045,6 +1870,47 @@ impl LauncherShell {
         if let Some(window) = window {
             window.focus(&dialog.focus_handle(cx), cx);
         }
+        self.open_modal(
+            Modal::NewInstance {
+                dialog,
+                _events: subscription,
+            },
+            cx,
+        );
+    }
+
+    /// Opens "Copy with another version or loader" for instance `id`, with `loader`
+    /// chosen (from the Content tab of a vanilla instance) or its own.
+    pub fn open_copy_as(
+        &mut self,
+        id: &str,
+        loader: Option<launcher_core::game::loaders::LoaderKind>,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(source) = self
+            .instances
+            .read(cx)
+            .list()
+            .iter()
+            .find(|i| i.id == id)
+            .cloned()
+        else {
+            return;
+        };
+        self.account_menu_open = false;
+        let instances = self.instances.clone();
+        let dialog = cx.new(|cx| {
+            let mut dialog = NewInstanceDialog::copy_of(instances, source, cx);
+            if let Some(kind) = loader {
+                dialog.choose_loader(kind, cx);
+            }
+            dialog
+        });
+        let subscription = cx.subscribe(&dialog, |this, dialog, _: &NewInstanceDismissed, cx| {
+            if this.is_open_dialog(dialog.entity_id()) {
+                this.close_modal(cx)
+            }
+        });
         self.open_modal(
             Modal::NewInstance {
                 dialog,
@@ -2795,9 +2661,6 @@ impl LauncherShell {
                         .on_click(cx.listener(|this, _, _, cx| this.close_modal(cx))),
                 )
                 .into_any_element()
-            }
-            Modal::LoaderChange { prompt, focus } => {
-                self.render_loader_change(prompt, focus.clone(), cx)
             }
             Modal::ToggleMod { prompt, focus } => self.render_toggle_mod(prompt, focus.clone(), cx),
             Modal::StorageClean { what, bytes, focus } => {

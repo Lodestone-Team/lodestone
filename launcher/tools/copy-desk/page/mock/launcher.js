@@ -367,7 +367,7 @@
       addAccount: () => toast(null, sh("AddAccountFirst"), "warn"),
       ready: () => toast(sv("ReadyTitle", { name: "Survival SMP" }), sv("ReadyBody", { version: "1.20.1", loader: "Fabric 0.16.14" }), "ok"),
       shareReady: () => toast(im("ShareCodeReady", { name: "Survival 1.20.1" }), imp("ShareCodeInstalled", { count: 14 }), "ok"),
-      switched: () => toast(im("SwitchedTo", { loader: "Fabric" }), im("SwitchedToMessage", { name: "Latest release", loader: "Fabric", version: "0.16.14" }), "ok"),
+      copied: () => toast(im("CopyReady", { name: "Survival 1.20.1 (26.3 Fabric)" }), [im("ModpackReadyMessage", { version: "26.3", loader: "Fabric 0.16.14" }), " ", imp("CopyModsLeftBehind", { count: 2, names: "Xaero's Minimap, homemade-tweaks" })], "ok"),
       verified: () => toast(im("GameFilesVerified"), im("EveryFileIntact", { summary: "Checked 4,091 game files in 45 ms." }), "ok"),
       copiedKey: () => toast(sv("OwnerKeyCopied", { name: "Peter's Lodestone Core" }), sv("OwnerKeyCopiedHint"), "ok"),
       copiedInvite: () => toast(sv("InviteLinkCopied", { name: "Survival SMP" }), sv("InviteLinkCopiedHint"), "ok"),
@@ -522,8 +522,8 @@
     if (vanilla && kind !== "rp") {
       const m = kind === "mods";
       out.push(h("div.lx-scard", h("div.lx-row-t", m ? ct("ModsNeedLoader") : ct("ShadersNeedLoader")),
-        h("div.lx-muted", m ? ct("VanillaSwitchMods", { loader: "Fabric" }) : ct("VanillaSwitchShaders", { loader: "Fabric" })),
-        h("div", { style: { display: "flex", gap: "8px" } }, pbtn(ct("SwitchTo", { loader: "Fabric" }), () => ctx.open("switchLoader")), btn(ct("NewFabricInstance"), { on: () => ctx.open("newInstance", { mode: "version", loader: "fabric" }) }))));
+        h("div.lx-muted", m ? ct("VanillaCopyMods", { loader: "Fabric" }) : ct("VanillaCopyShaders", { loader: "Fabric" })),
+        h("div", { style: { display: "flex", gap: "8px" } }, pbtn(ct("CopyWith", { loader: "Fabric" }), () => ctx.open("copyAs", { loader: "fabric", from: "vanilla" })), btn(ct("NewFabricInstance"), { on: () => ctx.open("newInstance", { mode: "version", loader: "fabric" }) }))));
       return out;
     }
     if (S.content === "loading") { out.push(empty(null, spinner(), ct("ReadingFolder", { folder: kind === "mods" ? "mods" : kind === "rp" ? "resourcepacks" : "shaderpacks" }))); return out }
@@ -654,11 +654,12 @@
         srow(sh("SkinPlayColor"), null, swatches()), srow(sh("SkinAccent"), null, swatches())),
       game: () => [card(
         srow(is("MinecraftVersion"), is("GameVersionHint"), h("span.lx-row-v", tx(inst.ver))),
-        h("div", { style: { padding: "14px 18px" } }, h("div.lx-flabel", is("ModLoader")), loaderCards((inst.loader || "vanilla").toLowerCase(), () => ctx.open("switchLoader"))),
+        srow(is("ModLoader"), is("GameVersionHint"), h("span.lx-row-v", inst.loader ? tx(inst.loader) : is("Vanilla"))),
         srow(is("LoaderVersion"), null, h("div", { style: { position: "relative" } }, select(h("span", tx(inst.lver || "0.16.14"), " ", badge(is("Recommended"), "green")), { on: toggleMenu("lver") }),
           ui.menu === "lver" ? menu([{ label: tx("0.16.14"), right: h("span.lx-mright", is("Recommended")) }, { label: tx("0.17.0-beta.2"), right: h("span.lx-mright", is("Beta")) }, { label: tx("0.16.13") }], "lx-rmenu") : null)),
+        srow(is("ChangeVersionOrLoader"), is("ChangeVersionOrLoaderHint"), btn(is("CopyAsButton"), { sm: true, on: () => ctx.open("copyAs") })),
         srow(is("PrereleaseUpdates"), is("PrereleaseUpdatesHint"), toggle(false))),
-        ctx.state.instSettings === "loaderChanged" ? note(isp("LoaderNextPlayModsOff", { loader: "Fabric 0.16.9", count: 2 }), "info") : note(is("LoaderInstallsNextPlay", { loader: "Fabric 0.16.14" }), "info")],
+        note(is("LoaderInstallsNextPlay", { loader: "Fabric 0.16.14" }), "info")],
       modpack: () => card(srow(tx("Fabulously Optimized 6.1.0"), is("FromModrinth"), [gbtn(is("ViewOnModrinth"), null, "ext"), ctx.state.modpack === "checking" ? h("span.lx-muted", spinner(), " ", is("CheckingModrinth")) : ctx.state.modpack === "upToDate" ? h("span.lx-muted", is("UpToDate")) : ctx.state.modpack === "offline" ? h("span.lx-muted", is("ModrinthUnreachable")) : pbtn(is("UpdateTo", { version: "6.2.0" }), () => ctx.open("modpackUpdate"))]),
         srow(is("CheckForUpdates"), null, btn(is("CheckForUpdates"), { sm: true }))),
       linked: () => card(srow(tx("Survival SMP"), ctx.state.linkedCore === "removed" ? is("LinkedServerCoreRemoved", { core: "Peter's Lodestone Core" }) : is("LinkedServerHint", { core: "Peter's Lodestone Core" }),
@@ -690,6 +691,7 @@
         srow(is("VerifyGameFiles"), is("VerifyHint"), btn(is("Verify"), { on: () => ctx.set("game", "verifying") }), { below: ctx.state.game === "verifying" ? h("div.lx-srow-hint", is("VerifyStarted")) : null }),
         srow(is("Export"), is("ExportHint"), btn(is("ExportButton"))),
         srow(is("Duplicate"), null, btn(is("Duplicate"))),
+        srow(is("CopyAs"), null, btn(is("CopyAsButton"), { on: () => ctx.open("copyAs") })),
         srow(is("HostOnCore"), is("HostHint"), btn(is("HostButton"), { on: () => ctx.open("hostOnCore") })),
         srow(is("ShareCodeRow"), null, btn(is("ShareButton"), { on: () => ctx.open("shareCode") })),
         srow(is("DeleteInstance"), is("DeleteHint"), btn(is("DeleteButton"), { kind: "d", on: () => ctx.open("deleteInstance") }))),
@@ -1104,6 +1106,29 @@
     const [body, acts] = (B[st] || B.intro)();
     return dialog(ctx, im("FinderTitle", { name: "All the mods" }), body, acts, { narrow: true });
   }
+  function copyAsDialog(ctx) {
+    const st = ctx.state.copyAs || "newer", loader = ctx.dparams.loader || (st === "vanilla" ? "vanilla" : "fabric");
+    const older = st === "older", version = older ? "1.16.5" : "26.3", target = version + (loader === "vanilla" ? "" : " Fabric");
+    const under = (el) => h("div", { style: { paddingLeft: "24px", fontSize: "13.5px" } }, el);
+    const worlds = [check(isp("CopyWorldsCount", { count: 2 }), st === "newer"),
+      older ? under(h("span.lx-muted", is("CopyWorldsOlder"))) : st === "newer" ? under(note(is("CopyWorldsUpgraded", { version, name: "Survival 1.20.1" }), "warn")) : null,
+      under(h("span.lx-muted", is("CopyWorlds"), " \u00b7 ", is("CopyNoWorlds"), " \u00b7 ", is("CopyWorldsUnknown", { version: "24w14a" })))];
+    const mods = st === "reading" ? h("span.lx-muted", spinner(), " ", is("CopyReading")) :
+      st === "checking" ? h("span.lx-muted", spinner(), " ", isp("CopyCheckingMods", { count: 9 })) :
+        st === "offline" ? h("span.lx-muted", is("CopyModsOffline")) :
+          st === "failed" ? h("span", { style: { color: "#ff8a8a" } }, is("CopyModsFailed", { error: "rate limited" })) :
+            st === "noMods" ? h("span.lx-muted", is("CopyNoMods")) :
+              loader === "vanilla" ? h("span.lx-muted", is("CopyModsVanilla")) :
+                h("div.lx-muted", h("div", isp("CopyModsFound", { found: 6, count: 9, target })), h("div", is("CopyModsNoBuild", { target, names: "Xaero's Minimap, Iris" })), h("div", is("CopyModsNotOnModrinth", { names: "homemade-tweaks" })));
+    const body = [h("p.lx-muted", is("CopyFrom", { name: "Survival 1.20.1", version: "1.20.1 \u00b7 Fabric 0.16.14" })),
+      h("div.lx-form", h("span.lx-muted", is("Name")), field(null, tx("Survival 1.20.1 (" + target + ")")),
+        h("span.lx-muted", tx("Minecraft")), select(h("span", h("b", tx(version)), " ", h("span.lx-muted", is("KindRelease"))))),
+      h("div.lx-flabel", is("ModLoader")), loaderCards(loader, (k) => ctx.open("copyAs", Object.assign({}, ctx.dparams, { loader: k }))),
+      loader !== "vanilla" ? h("div.lx-form", h("span.lx-muted", is("LoaderVersion")), h("div", select(h("span", tx("0.16.14"), " ", badge(is("Recommended"), "green"))))) : null,
+      h("div.lx-flabel", is("CopyWhat")),
+      h("div.lx-scard", worlds, check(is("CopyPacks"), true), check(is("CopyMods"), loader !== "vanilla" && st !== "noMods"), under(mods))];
+    return dialog(ctx, is("CopyAsTitle"), body, [pbtn(is("CopyAsStart"), () => { ctx.close(); ctx.set("toast", "copied") }), btn(cm("Cancel"), { on: () => ctx.close() })], { wide: true });
+  }
   function newInstanceDialog(ctx) {
     const mode = ctx.dparams.mode || "version", st = ctx.state.newinst, loader = ctx.dparams.loader || "vanilla";
     const setM = (m) => ctx.open("newInstance", Object.assign({}, ctx.dparams, { mode: m }));
@@ -1234,13 +1259,6 @@
     deleteInstance: (ctx) => confirmDlg(ctx, sh("DeleteNamed", { name: "All the mods" }), [h("p", sh("DeleteInstanceBody", { trash: "the Trash" })), ctx.state.game === "playing" ? note(im("StopBeforeDeleting"), "warn") : null], cm("MoveToTrash"), { danger: true }),
     deleteWorld: (ctx) => confirmDlg(ctx, sh("DeleteNamed", { name: "Survival Island" }), [h("p", sh("DeleteWorldBody", { trash: "the Trash" })), h("p.lx-muted", cm("TheTrash"))], cm("MoveToTrash"), { danger: true }),
     replaceWorld: (ctx) => confirmDlg(ctx, sh("ReplaceWorldTitle", { name: "Survival Island" }), h("p", sh("ReplaceWorldBody", { name: "Survival Island", when: "today, 03:04" })), sh("BackUpAndReplace"), { danger: true }),
-    switchLoader: (ctx) => dialog(ctx, ctx.state.switchTo === "vanilla" ? sh("SwitchToVanilla") : sh("SwitchToLoader", { loader: "Fabric" }), [
-      h("p", ctx.state.switchTo === "vanilla" ? sh("ModsWontLoadVanilla") : sh("ModsWontLoadOn", { loader: "Fabric" })),
-      card(h("div.lx-row", { style: { minHeight: "44px" } }, h("div.lx-row-main", tx("Create")), h("span.lx-muted", sh("ModMadeFor", { loader: "Forge" }))), h("div.lx-row", { style: { minHeight: "44px" } }, h("div.lx-row-main", tx("JEI")), h("span.lx-muted", sh("ModMadeFor", { loader: "Forge" })))),
-      h("p.lx-muted", shp("AndMore", { count: 3 })), h("p.lx-muted", sh("TurningOffRenames")), note(sh("WorldsAtRisk"), "warn"), h("p.lx-muted", im("NoModLoaderFor", { version: "1.2.5" })),
-      ctx.state.instSettings === "error" ? note([is("CouldntTurnModsOff", { error: "file in use" }), " ", im("CouldntSwitchLoader")], "err") : null],
-      [pbtn(sh("TurnOffAndSave"), () => { ctx.close(); ctx.set("toast", "switched") }), btn(sh("SaveAndKeep"), { on: () => ctx.close() }), btn(cm("Cancel"), { on: () => ctx.close() })]),
-    mainOffer: (ctx) => dialog(ctx, sh("MainOfferTitle", { name: "Survival 1.20.1" }), [h("p", sh("MainOfferBody")), h("p.lx-muted", sh("MainChangeLater"))], [pbtn(sh("MakeItMain"), () => { ctx.close(); ctx.set("toast", "synced") }), btn(cm("NotNow"), { on: () => ctx.close() })], { narrow: true }),
     mainSwitch: (ctx) => dialog(ctx, sh("MainOfferTitle", { name: "All the mods" }), [h("p", sh("MainSwitchBody", { current: "Survival 1.20.1", name: "All the mods" })), h("p.lx-muted", sh("MainChangeLater")), h("p.lx-muted", is("IsMainInstance"), " \u00b7 ", is("SharingMain"), " \u00b7 ", is("SharingOff"), " \u00b7 ", is("SharingNoMain"))],
       [pbtn(sh("MakeNameMain", { name: "All the mods" }), () => ctx.close()), btn(cm("Cancel"), { on: () => ctx.close() })], { narrow: true }),
     unsaved: (ctx) => dialog(ctx, sh("SaveChangesTitle"), [h("p", ctx.state.unsavedWhere === "defaults" ? sh("UnsavedDefaultsBody") : ctx.state.unsavedWhere === "this" ? sh("UnsavedThisInstanceBody") : sh("UnsavedInstanceBody", { name: "All the mods" }))],
@@ -1383,10 +1401,10 @@
         te(im("CouldntVerify"), tx("\u2026")), toast(im("GameFilesVerified"), imp("FilesRepaired", { count: 3, summary: "" }), "ok"), tl(imp("CheckSummary", { count: 4091, ms: 45, unchanged: 4091, hashed: 0, downloaded: 0 })),
         tl(im("FilesBusy"), "warn"), tl(im("StopGameFirst"), "warn"), te(null, im("CouldntSavePlayed", { error: "disk full" })), te(null, im("CouldntSavePlayTime", { error: "disk full" })), te(null, imp("BrokenFolders", { count: 2, path: "instances/old" }))]),
       mgroup(im("ModpackExported"), null, [toast(im("ModpackExported"), [imp("FilesSaved", { count: 1, path: "~/Desktop" }), " ", imp("CurseForgeLeftOut", { count: 2, names: "JourneyMap, Xaero's" }), " ", imp("FilesLeftOut", { count: 2, name: "secret.txt" })], "ok"), te(im("CouldntExportModpack"), tx("\u2026"))]),
-      mgroup(im("Modpack"), null, [prog(im("ReadingModpack")), prog(im("DownloadingName", { name: "Fabulously Optimized" }), 60), prog(im("InstallingName", { name: "Fabric 0.16.9" }), 70), prog(im("CopyingConfigs"), 80), prog(im("RecordingFiles"), 85), prog(im("SavingSnapshot"), 90), prog(im("BackingUp", { name: "Survival Island" }), 30), prog(im("UpdatingTo", { version: "6.2.0" }), 50),
+      mgroup(im("Modpack"), null, [prog(im("ReadingModpack")), prog(im("DownloadingName", { name: "Fabulously Optimized" }), 60), prog(im("InstallingName", { name: "Fabric 0.16.9" }), 70), prog(im("CopyingConfigs"), 80), prog(im("CopyingWorlds"), 20), prog(im("CopyingPacksAndOptions"), 40), prog(im("InstallingMods"), 60), prog(im("RecordingFiles"), 85), prog(im("SavingSnapshot"), 90), prog(im("BackingUp", { name: "Survival Island" }), 30), prog(im("UpdatingTo", { version: "6.2.0" }), 50),
         toast(im("ModpackReady", { name: "Fabulously Optimized" }), [im("ModpackReadyMessage", { version: "1.21.4", loader: "Fabric 0.16.9" }), " ", imp("PackFilesToDownload", { count: 2 }), " ", imp("PackFilesLeftOut", { count: 1, path: "overrides/x" })], "ok"),
         toast(im("ModpackUpdated"), [im("ModpackUpdatedMessage", { name: "Survival", pack: "Fabulously Optimized", version: "6.1.0", path: "backups/" }), " ", imp("WorldsBackedUp", { count: 2 })], "ok"),
-        te(im("CouldntImportModpack"), tx("\u2026")), te(im("CouldntUpdateModpack"), im("UpdatedButNotSaved", { error: "disk full" })), te(im("NotAModpack"), im("NotMrpack", { name: "notes.zip" })), te(im("NotAModpack"), im("CurseForgeUnreachable")), te(im("NotAModpack"), im("CurseForgePackOnWebsite"))]),
+        te(im("CouldntImportModpack"), tx("\u2026")), te(im("CouldntCopy"), tx("\u2026")), te(im("CouldntUpdateModpack"), im("UpdatedButNotSaved", { error: "disk full" })), te(im("NotAModpack"), im("NotMrpack", { name: "notes.zip" })), te(im("NotAModpack"), im("CurseForgeUnreachable")), te(im("NotAModpack"), im("CurseForgePackOnWebsite"))]),
       mgroup(im("ImportTitle"), null, [tl(im("ImportFromHere")), tl(im("Import")), tl(im("NewestRelease")), tl(im("NewestSnapshot")), tl(im("Vanilla"))]),
       mgroup(is("ShareCodeRow"), null, [toast(im("ShareCodeReady", { name: "Survival" }), [imp("ShareCodeInstalled", { count: 1 }), " ", im("ShareCodeNotInstalled", { names: "JourneyMap" })], "ok"), te(im("ShareCodeContentFailed"), im("ShareCodeOffline"))]),
     ]],
@@ -1405,7 +1423,7 @@
     instSettings: ["Messages \u203a Instance settings", () => [
       mgroup(is("General"), null, [te(null, is("NameMissing")), tl(is("UseAsIcon")), tl(is("UseAsBackground")), tl(is("Import")), tl(is("MemoryUnit"))]),
       mgroup(is("Group"), tx("Automatic sidebar groups."), L(is, "AutoGroupServers AutoGroupFabric AutoGroupForge AutoGroupNeoForge AutoGroupQuilt AutoGroupVanilla AutoGroupImported", (el) => tl(el))),
-      mgroup(is("GameAndLoader"), null, [tl(is("LoaderInstallsNextStart", { loader: "Fabric 0.16.9" })), tl(isp("LoaderNextStartModsOff", { loader: "Fabric 0.16.9", count: 1 })), tl(is("SavedNextStart"), "ok")]),
+      mgroup(is("GameAndLoader"), null, [tl(is("LoaderInstallsNextStart", { loader: "Fabric 0.16.9" })), tl(is("SavedNextStart"), "ok")]),
       mgroup(is("Modpack"), null, [tl(is("FromMrpack")), prog(is("DownloadingNewVersion"), 30), tl(is("StopGameFirst"), "warn"), te(null, is("CouldntPrepareUpdate", { error: "offline" }))]),
       mgroup(is("JavaAndMemory"), null, [tl(is("Checking")), tl(is("MojangJava")), tl(is("AzulZulu8")), tl(is("MojangIntelJavaVersion", { major: 8 })), tl(is("JavaTheVersionNeeds")), tl(is("UseThisJava"))]),
       mgroup(is("Maintenance"), null, [btn(is("Exporting"), { disabled: true }), btn(is("Duplicating"), { disabled: true })]),
@@ -1509,12 +1527,12 @@
     game: ST("Game", "stopped preparing launching playing stopping verifying modpackUpdating crashed"),
     update: ST("Launcher update", "none notChecked checking available downloading ready failed dev"),
     build: ST("Build", "dev release"),
-    toast: { label: "Notice (toast)", options: opts("none narrator undo redo settingsOf crashed signInExpired addAccount ready shareReady switched verified copiedKey copiedInvite skinCopied firstTime synced copiedValues"), default: "none" },
+    toast: { label: "Notice (toast)", options: opts("none narrator undo redo settingsOf crashed signInExpired addAccount ready shareReady copied verified copiedKey copiedInvite skinCopied firstTime synced copiedValues"), default: "none" },
     groups: ST("Sidebar groups", "on off"),
     logs: ST("Logs tab", "filled empty nomatch"),
     content: ST("Content tab", "loaded loading empty offline vanilla gameRunning installing installed upToDate curseforge searching nothing filtered noFit readFailed"),
     worlds: ST("Worlds tab", "list empty reading gameRunning task done"),
-    instSettings: ST("Instance settings", "saved unsaved loaderChanged unlinked javaOld noSnapshots error"),
+    instSettings: ST("Instance settings", "saved unsaved unlinked javaOld noSnapshots error"),
     modpack: ST("Modpack (instance)", "update checking upToDate offline"),
     linkedCore: ST("Linked server's core", "present removed"),
     localCore: ST("Local core", "claimed unclaimed direct claimFailed scanning none"),
@@ -1536,7 +1554,7 @@
     importState: ST("Import dialog", "list looking none progress"),
     host: ST("Host on a core dialog", "form errors progress done"),
     advisory: ST("Mods advisory", "new update offline"),
-    switchTo: ST("Switch loader dialog", "loader vanilla"),
+    copyAs: ST("Copy with another version or loader", "newer older vanilla reading checking offline failed noMods"),
     unsavedWhere: ST("Unsaved changes dialog", "instance this defaults"),
     bg: ST("Background picker", "image slideshow"),
     storage: ST("Settings \u203a Storage", "counted counting error gameRunning freed"),
@@ -1595,7 +1613,7 @@
   R.deleteWorld = dlg("Delete world", DIALOG_SIMPLE.deleteWorld, "Instance dialogs");
   R.replaceWorld = dlg("Replace world with backup", DIALOG_SIMPLE.replaceWorld, "Instance dialogs");
   R.screenshot = dlg("Screenshot viewer", DIALOG_SIMPLE.screenshot, "Instance dialogs");
-  R.switchLoader = dlg("Switch loader", DIALOG_SIMPLE.switchLoader, "Instance dialogs");
+  R.copyAs = dlg("Copy with another version or loader", copyAsDialog, "Instance dialogs");
   R.mainOffer = dlg("Make it your main instance?", DIALOG_SIMPLE.mainOffer, "Instance dialogs");
   R.mainSwitch = dlg("Switch main instance", DIALOG_SIMPLE.mainSwitch, "Instance dialogs");
   R.modpackUpdate = dlg("Update modpack", DIALOG_SIMPLE.modpackUpdate, "Instance dialogs");

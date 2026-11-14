@@ -973,3 +973,161 @@ fn a_share_code_recreates_the_content_of_an_instance() {
     assert_eq!(outcome.failed.len(), 1);
     assert_eq!(outcome.installed.len(), 2);
 }
+
+#[test]
+fn a_copy_for_another_version_takes_the_mods_with_a_build_for_it() {
+    use launcher_core::{
+        content::copy_as::{self, CopyAsOptions, CopyAsRequest, WorldsRule},
+        game::loaders::{LoaderChoice, LoaderKind},
+        instances::InstanceStore,
+    };
+    let mock = ModrinthMock::start();
+    fabric_mods(&mock);
+    let api = mock.client();
+    let root = tempfile::tempdir().unwrap();
+    let store = InstanceStore::new(root.path().join("instances"));
+    let fabric = |version: &str| LoaderChoice {
+        kind: LoaderKind::Fabric,
+        version: version.into(),
+    };
+    let source = store
+        .create("Survival", "1.20.1", Some(&fabric("0.16.9")))
+        .unwrap();
+    let dirs = InstanceDirs::new(store.dir(&source.id));
+    let target = Target::new("1.20.1", Loader::Fabric);
+    // Iris (with Sodium and Fabric API), Fabric API turned off, a mod added by hand, a
+    // world, a resource pack and the options
+    install_version(&mock, &dirs, &target, ContentKind::Mod, "iris176").unwrap();
+    let mods = dirs.content_dir(ContentKind::Mod);
+    launcher_core::content::files::set_mod_enabled(&dirs, "P7dR8mSH-0.92.2.jar", false).unwrap();
+    fs::write(mods.join("homemade.jar"), b"not on modrinth").unwrap();
+    fs::create_dir_all(dirs.game.join("saves/New World")).unwrap();
+    fs::write(dirs.game.join("saves/New World/level.dat"), b"world").unwrap();
+    fs::create_dir_all(dirs.content_dir(ContentKind::ResourcePack)).unwrap();
+    fs::write(
+        dirs.content_dir(ContentKind::ResourcePack)
+            .join("Faithful.zip"),
+        b"pack",
+    )
+    .unwrap();
+    fs::write(
+        dirs.game.join("options.txt"),
+        "resourcePacks:[\"vanilla\",\"file/Faithful.zip\"]\n",
+    )
+    .unwrap();
+
+    let contents = block_on(copy_as::contents(Some(&api), &dirs)).unwrap();
+    assert_eq!(contents.worlds, ["New World"]);
+    assert_eq!(contents.resource_packs, ["Faithful.zip"]);
+    assert!(contents.options);
+    assert_eq!(contents.mods.len(), 3);
+    assert_eq!(contents.other_mods, ["homemade"]);
+    let fapi = contents
+        .mods
+        .iter()
+        .find(|m| m.project_id == FABRIC_API)
+        .unwrap();
+    assert!(!fapi.enabled);
+
+    // To 1.21.1: Sodium and Fabric API have builds for it, Iris doesn't.
+    let new_target = Target::new("1.21.1", Loader::Fabric);
+    let resolved = block_on(copy_as::resolve_mods(&api, &contents.mods, &new_target)).unwrap();
+    let found: Vec<&str> = resolved.found.iter().map(|(_, v)| v.id.as_str()).collect();
+    assert_eq!(found, ["sod0600", "fapi-121"]);
+    assert_eq!(resolved.missing.len(), 1);
+    assert_eq!(resolved.missing[0].project_id, IRIS);
+    // vanilla runs no mods: none is asked about
+    let asked = mock.requests().len();
+    let vanilla = block_on(copy_as::resolve_mods(
+        &api,
+        &contents.mods,
+        &Target::new("1.21.1", Loader::None),
+    ))
+    .unwrap();
+    assert_eq!((vanilla.found.len(), vanilla.missing.len()), (0, 3));
+    assert_eq!(mock.requests().len(), asked);
+
+    let options = CopyAsOptions {
+        worlds: true,
+        ..CopyAsOptions::default()
+    };
+    let rule = copy_as::worlds_rule("1.20.1", "1.21.1", &[]);
+    assert_eq!(rule, WorldsRule::Newer);
+    let plan = copy_as::plan(
+        &contents,
+        "1.21.1",
+        Loader::Fabric,
+        options,
+        rule,
+        Some(&resolved),
+    );
+    assert!(plan.needs_confirmation());
+    let outcome = block_on(copy_as::execute(
+        &store,
+        Some(&api),
+        &downloader(),
+        &source,
+        &CopyAsRequest {
+            name: None,
+            loader: Some(fabric("0.16.14")),
+            plan,
+        },
+        &InstallProgress::default(),
+        &CancelToken::new(),
+    ))
+    .unwrap();
+    let copy = outcome.instance;
+    assert_eq!(copy.name, "Survival (1.21.1 Fabric)");
+    assert_ne!(copy.id, source.id);
+    assert_eq!(copy.game_version, "1.21.1");
+    assert_eq!(copy.loader_version.as_deref(), Some("0.16.14"));
+    let copy_dirs = InstanceDirs::new(store.dir(&copy.id));
+    assert_eq!(
+        names(&copy_dirs.content_dir(ContentKind::Mod)),
+        ["AANobbMI-0.6.0.jar", "P7dR8mSH-0.110.0.jar.disabled"]
+    );
+    assert_eq!(
+        fs::read(copy_dirs.game.join("saves/New World/level.dat")).unwrap(),
+        b"world"
+    );
+    assert_eq!(
+        names(&copy_dirs.content_dir(ContentKind::ResourcePack)),
+        ["Faithful.zip"]
+    );
+    assert!(copy_dirs.game.join("options.txt").is_file());
+    // the original is as it was
+    let original = store.get(&source.id).unwrap();
+    assert_eq!(
+        (original.game_version.as_str(), original.loader),
+        ("1.20.1", Loader::Fabric)
+    );
+    assert!(names(&mods).contains(&"YL57xq9U-1.7.6+1.20.1.jar".to_string()));
+    assert_eq!(store.list().0.len(), 2);
+
+    // A cancelled copy leaves nothing behind.
+    let cancel = CancelToken::new();
+    cancel.cancel();
+    let plan = copy_as::plan(
+        &contents,
+        "1.21.1",
+        Loader::Fabric,
+        CopyAsOptions::default(),
+        rule,
+        Some(&resolved),
+    );
+    let cancelled = block_on(copy_as::execute(
+        &store,
+        Some(&api),
+        &downloader(),
+        &source,
+        &CopyAsRequest {
+            name: Some("Cancelled".into()),
+            loader: Some(fabric("0.16.14")),
+            plan,
+        },
+        &InstallProgress::default(),
+        &cancel,
+    ));
+    assert!(matches!(cancelled, Err(copy_as::CopyAsError::Cancelled)));
+    assert_eq!(names(store.root()).len(), 2, "{:?}", names(store.root()));
+}

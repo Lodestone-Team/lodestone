@@ -100,8 +100,9 @@ The user also sees each connected program (this CLI says
   `content remove`, `accounts remove`, `cores remove`, `cores trust`, `friends remove`,
   `friend-list answer`, `friend-list accept`, `friend-list verify`, `friend-list remove`,
   `friend-list retire-core`, `friend-list retire`, `shared clear`,
-  `play clear-logs`, `storage clean`, `snapshots revert`, `snapshots delete`, applying `modpacks update` or `modpacks add`, `modpacks remove`, a `content switch-loader` that leaves mods
-  behind, and turning on `settings developer set --sign-in-as-minecraft-launcher true`.
+  `play clear-logs`, `storage clean`, `snapshots revert`, `snapshots delete`, applying `modpacks update` or `modpacks add`, `modpacks remove`, an `instances copy-as` that
+  leaves mods behind or upgrades worlds (the refusal's `data.plan` says what goes and what
+  stays: show it to the user), and turning on `settings developer set --sign-in-as-minecraft-launcher true`.
   Deleting moves to the Trash. Never add `--yes` on your own.
 - **Trust in a core is the user's decision.** Mods from a Lodestone core run as programs
   with the user's access. When a core isn't trusted for mods, installing its server's
@@ -148,6 +149,11 @@ The user also sees each connected program (this CLI says
   (`permission_denied`) and sends nothing to it. Don't work around this with `--socket`.
 - **Don't fight `busy`.** While a game runs, its instance's content, worlds and loader
   can't change. Ask the user before `play stop`: it ends their game.
+- **An instance's Minecraft version and mod loader never change.** Mods for one loader or
+  version don't load on another, worlds lose modded blocks, and an older version can't
+  open a newer world. To move to another version or loader, `instances copy-as` makes a
+  new instance (the original stays as it is). Only the loader's own version can change
+  (`instances loader-version`).
 
 ## Commands
 
@@ -167,6 +173,9 @@ lodestone-launcher-cli instances background Survival --image ./castle.jpg
 lodestone-launcher-cli instances background Survival --slideshow all       # instance | all | custom | off
 lodestone-launcher-cli instances background Survival --slideshow custom --add ./a.png --add ./b.jpg
 lodestone-launcher-cli instances duplicate Survival
+lodestone-launcher-cli instances copy-as Survival --version 1.21.1          # long; a new instance, see below
+lodestone-launcher-cli instances copy-as Vanilla121 --loader fabric --worlds
+lodestone-launcher-cli instances loader-version Survival 0.16.14            # the loader's version only
 lodestone-launcher-cli instances select Survival          # shows it in the window
 lodestone-launcher-cli instances export Survival ./survival.mrpack          # long
 lodestone-launcher-cli instances verify Survival                            # long; downloads missing game files
@@ -174,6 +183,17 @@ lodestone-launcher-cli instances share-code Survival --json | jq -r .code   # an
 lodestone-launcher-cli instances import-code "$CODE" --name "Friend's pack" # long; a new instance
 lodestone-launcher-cli instances delete Survival --yes
 ```
+
+`copy-as` makes a new instance for another Minecraft version or loader (`--version`,
+`--loader`, `--loader-version`, `--name`; each defaults to the instance's own). It takes
+the resource packs, shaders and options.txt (`--no-packs` leaves them out), and each mod
+Modrinth knows as that project's build for the new version and loader, with any required
+mods (`--no-mods` leaves them out). Mods with no such build, and mods not on Modrinth,
+stay behind. Worlds go only with `--worlds`, and only to the same or a newer version:
+the game upgrades them when it opens them and they can't go back (the originals stay).
+When mods stay behind or worlds are upgraded it needs `--yes`, and the refusal's
+`data.plan` lists what goes (`mods`, `worlds`, `resource_packs`) and what stays
+(`no_build`, `not_on_modrinth`). The job's result has the new `instance`.
 
 A share code holds the Minecraft version, the loader and its version, and exact Modrinth
 versions. There are two kinds:
@@ -231,8 +251,6 @@ lodestone-launcher-cli content enable Survival sodium
 lodestone-launcher-cli content updates Survival
 lodestone-launcher-cli content update Survival --all                # long
 lodestone-launcher-cli content remove Survival sodium --yes
-lodestone-launcher-cli content switch-loader Vanilla121             # vanilla → Fabric (or Forge before 1.14)
-lodestone-launcher-cli content switch-loader Survival quilt --disable-mismatched
 ```
 
 Items are named by file name, slug, title or mod id. `install` picks the newest version

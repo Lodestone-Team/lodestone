@@ -6,6 +6,7 @@ pub mod appearance;
 mod auto_config;
 pub mod console;
 pub mod content;
+mod copy_as;
 pub mod fields;
 mod files;
 pub mod import;
@@ -419,7 +420,9 @@ pub enum InstancesEvent {
         message: SharedString,
         about: About,
     },
-    /// The instance's loader was changed outside its Settings tab.
+    /// The instance's loader or Minecraft version was changed outside its Settings tab:
+    /// by a modpack update, or to match its linked server's pack. The user never
+    /// changes them; a copy with another version or loader is a new instance.
     LoaderChanged(String),
     /// A `.lodesnap` file was dropped or picked: offer to make an instance from it.
     ImportSnapshot(std::path::PathBuf),
@@ -543,8 +546,6 @@ pub struct Instances {
     curseforge: Option<Arc<CurseForge>>,
     /// The downloader for content files.
     content_downloader: Downloader,
-    /// "Switch to Fabric" in progress.
-    loader_switch: Option<Task<()>>,
     /// Modpacks being made into instances.
     imports: Vec<modpacks::ImportJob>,
     next_import: u64,
@@ -677,7 +678,6 @@ impl Instances {
             modrinth: Some(modrinth),
             curseforge,
             content_downloader,
-            loader_switch: None,
             imports: Vec::new(),
             next_import: 0,
             pending_downloads: HashMap::new(),
@@ -846,14 +846,13 @@ impl Instances {
     }
 
     /// Whether the launcher is busy with work that quitting would stop half way: a
-    /// modpack being imported or updated, an export, files being copied or moved to
-    /// the Trash, a loader being switched.
+    /// modpack being imported or updated, an instance being copied (also with another
+    /// version or loader), an export, files moved to the Trash.
     pub fn background_jobs(&self) -> bool {
         !self.imports.is_empty()
             || !self.modpack_updates.is_empty()
             || !self.file_ops.is_empty()
             || self.exporting > 0
-            || self.loader_switch.is_some()
     }
 
     /// Whether any game is running.
@@ -1538,13 +1537,9 @@ impl Instances {
         Some(Target::new(instance.game_version.clone(), instance.loader))
     }
 
-    pub fn is_switching_loader(&self) -> bool {
-        self.loader_switch.is_some()
-    }
-
-    /// The mod loader to offer a vanilla instance on `game_version`: Fabric, or Forge
-    /// where Fabric doesn't run (Fabric starts at Minecraft 1.14), with the version to
-    /// use. `None` when neither has a build for it.
+    /// The mod loader to offer a vanilla instance on `game_version` (for a copy with
+    /// it): Fabric, or Forge where Fabric doesn't run (Fabric starts at Minecraft 1.14),
+    /// with the version to use. `None` when neither has a build for it.
     pub fn mod_loader_for(
         &self,
         game_version: &str,
@@ -1567,64 +1562,6 @@ impl Instances {
             }
             Ok(None)
         })
-    }
-
-    /// Makes a vanilla instance a modded one, with the loader [`Self::mod_loader_for`]
-    /// offers: the same change as picking that loader in its Settings tab. The loader
-    /// installs the next time the game starts.
-    pub fn switch_to_mod_loader(&mut self, id: &str, cx: &mut Context<Self>) {
-        if self.is_active(id) || self.loader_switch.is_some() {
-            return;
-        }
-        let Ok(instance) = self.store.get(id) else {
-            return;
-        };
-        let fetch = self.mod_loader_for(&instance.game_version, cx);
-        let id = id.to_string();
-        self.loader_switch = Some(cx.spawn(async move |this, cx| {
-            let result = fetch.await;
-            this.update(cx, |this, cx| {
-                this.loader_switch = None;
-                let failed = |message: String, cx: &mut Context<Self>| {
-                    cx.emit(InstancesEvent::LaunchFailed {
-                        title: t(M::CouldntSwitchLoader).into(),
-                        message: message.into(),
-                        about: About::Instance(id.clone()),
-                    });
-                    cx.notify();
-                };
-                let (kind, version) = match result {
-                    Ok(Some(pick)) => pick,
-                    Ok(None) => {
-                        return failed(tr!(M::NoModLoaderFor, version = instance.game_version), cx);
-                    }
-                    Err(err) => return failed(err.to_string(), cx),
-                };
-                let mut changed = instance.clone();
-                changed.loader = launcher_core::instances::Loader::from_kind(Some(kind));
-                changed.loader_version = Some(version.id.clone());
-                match this.save(&changed, cx) {
-                    Ok(()) => {
-                        cx.emit(InstancesEvent::LoaderChanged(id.clone()));
-                        cx.emit(InstancesEvent::Notice {
-                            title: tr!(M::SwitchedTo, loader = kind.label()).into(),
-                            message: tr!(
-                                M::SwitchedToMessage,
-                                name = changed.name,
-                                loader = kind.label(),
-                                version = version.display
-                            )
-                            .into(),
-                            about: About::Instance(id.clone()),
-                        });
-                    }
-                    Err(err) => failed(err, cx),
-                }
-                cx.notify();
-            })
-            .ok();
-        }));
-        cx.notify();
     }
 
     /// The Play button's state for the selected instance.
