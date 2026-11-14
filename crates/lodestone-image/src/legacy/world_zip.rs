@@ -28,7 +28,7 @@
 use std::collections::HashSet;
 use std::io::{Read, Seek};
 
-use sha2::{Digest, Sha256};
+use crate::sha256::Sha256;
 
 use super::{finish, LegacyError, Note};
 use crate::manifest::{Entry, Game, Image, Kind, Source, WithheldReason, World};

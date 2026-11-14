@@ -34,7 +34,7 @@ use std::fs::{self, File};
 use std::io::{self, BufReader, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
 
-use sha2::{Digest, Sha256};
+use crate::sha256::Sha256;
 
 use crate::hex::{is_sha256, sha256_hex};
 use crate::identity::IdentityError;
