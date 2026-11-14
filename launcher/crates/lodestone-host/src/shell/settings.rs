@@ -473,6 +473,38 @@ mod tests {
         assert_eq!(open_page(&shell, cx), Some(SettingsPage::Profile));
     }
 
+    /// LS-32: Escape on the new API key's dialog, which only Done closes, doesn't close
+    /// the Settings under it (and lose the key, shown only once).
+    #[test]
+    fn escape_on_a_new_api_key_keeps_it_and_the_settings() {
+        let mut cx = TestAppContext::single();
+        let (shell, cx) = shell(&mut cx);
+        shell.update(cx, |shell, cx| {
+            shell.open_settings(Some(SettingsPage::Profile), cx)
+        });
+        cx.run_until_parked();
+        let profile = shell
+            .read_with(cx, |shell, _| shell.settings_view())
+            .unwrap()
+            .downcast::<crate::pages::profile::ProfilePage>()
+            .unwrap();
+        let keys = profile.read_with(cx, |profile, _| profile.api_keys().clone());
+        let created: launcher_core::cores::admin::users::CreatedApiKey =
+            serde_json::from_value(serde_json::json!({
+                "key": "lsk_test_not_a_real_key",
+                "info": { "id": "test", "name": "Scripts", "scope": { "type": "full" } },
+            }))
+            .unwrap();
+        keys.update(cx, |keys, cx| keys.show_created(created, cx));
+        cx.run_until_parked();
+        assert!(keys.read_with(cx, |keys, _| keys.created_open()));
+
+        cx.simulate_keystrokes("escape");
+        cx.run_until_parked();
+        assert_eq!(open_page(&shell, cx), Some(SettingsPage::Profile));
+        assert!(keys.read_with(cx, |keys, _| keys.created_open()));
+    }
+
     #[test]
     fn going_to_another_page_closes_the_settings() {
         let mut cx = TestAppContext::single();

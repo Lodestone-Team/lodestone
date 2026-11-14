@@ -120,6 +120,19 @@ fn key_matches(query: &SettingsQuery, key: &ApiKeyInfo) -> bool {
 }
 
 impl ApiKeysSection {
+    /// Shows `key` as just created, as Create does: for tests.
+    #[cfg(test)]
+    pub fn show_created(&mut self, key: CreatedApiKey, cx: &mut Context<Self>) {
+        let focus = cx.focus_handle();
+        self.created.open(Created { key, focus }, cx);
+    }
+
+    /// Whether the new key's dialog is open: for tests.
+    #[cfg(test)]
+    pub fn created_open(&self) -> bool {
+        self.created.is_open()
+    }
+
     /// Shows only what matches `search`.
     pub fn set_search(&mut self, search: Entity<SettingsSearch>) {
         self.search = Some(search);
