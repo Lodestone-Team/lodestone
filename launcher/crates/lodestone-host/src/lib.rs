@@ -37,8 +37,8 @@ pub mod updater;
 pub mod whitelist;
 
 use gpui::{
-    App, Bounds, KeyBinding, Menu, MenuItem, SharedString, WindowBounds, WindowOptions, actions,
-    px, size,
+    Action, App, Bounds, Context, KeyBinding, Menu, MenuItem, Render, SharedString, WindowBounds,
+    WindowHandle, WindowOptions, actions, px, size,
 };
 
 actions!(
@@ -55,6 +55,27 @@ actions!(
         RestartCore
     ]
 );
+
+/// Dispatches `action` once the current event is handled. `App::dispatch_action` goes
+/// through the active window, which GPUI can't update while it handles a click or a key
+/// (the call fails, and is only logged), so a view dispatches an app action this way.
+pub fn dispatch_later<A: Action>(action: A, cx: &mut App) {
+    cx.defer(move |cx| cx.dispatch_action(&action));
+}
+
+/// Updates `window`'s root view with `update` once the current event is handled: for an
+/// app action's handler, which runs while the window that dispatched it is being updated
+/// (a key binding, the menu, a page's button), where updating it again would fail and
+/// do nothing.
+pub fn update_later<V: Render>(
+    window: WindowHandle<V>,
+    update: impl FnOnce(&mut V, &mut Context<V>) + 'static,
+    cx: &mut App,
+) {
+    cx.defer(move |cx| {
+        window.update(cx, |view, _, cx| update(view, cx)).ok();
+    });
+}
 
 /// The window's title and the app menu's name.
 pub const APP_NAME: &str = "Lodestone Host";

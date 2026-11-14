@@ -97,9 +97,8 @@ impl UpdatesPage {
             return;
         };
         if updater.update(cx, |u, cx| u.restart(cx)) {
-            // After this click is handled: `dispatch_action` goes through the active
-            // window, which can't be updated while it handles the click.
-            cx.defer(|cx| cx.dispatch_action(&crate::Quit));
+            // after this click is handled
+            crate::dispatch_later(crate::Quit, cx);
         }
     }
 

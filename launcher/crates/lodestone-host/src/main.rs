@@ -9,6 +9,7 @@ use lodestone_host::{
     i18n::{ShellMsg, t},
     single_instance,
     tray::{self, TrayCommand},
+    update_later,
 };
 use lodestone_ui::assets::Assets;
 
@@ -56,20 +57,15 @@ fn main() {
                 .update(cx, |_, window, _| window.activate_window())
                 .ok();
         };
-        // Deferred: the Quit action is dispatched while the window is being updated (a
-        // key binding, the menu, Settings › Updates' Restart), and GPUI can't update a
-        // window inside its own update; the call would fail and nothing would happen.
-        let quit = move |cx: &mut gpui::App| {
-            cx.defer(move |cx| {
-                window.update(cx, |app, _, cx| app.quit(cx)).ok();
-            });
-        };
+        // Deferred: the Quit and RestartCore actions are dispatched while the window is
+        // being updated (a key binding, the menu, Settings › Updates' Restart, the
+        // Connect service's "Save and restart core"), and GPUI can't update a window
+        // inside its own update; the call would fail and nothing would happen.
+        let quit = move |cx: &mut gpui::App| update_later(window, HostApp::quit, cx);
 
         cx.on_action(move |_: &Quit, cx| quit(cx));
         cx.on_action(move |_: &ShowWindow, cx| show(cx));
-        cx.on_action(move |_: &RestartCore, cx| {
-            window.update(cx, |app, _, cx| app.restart_core(cx)).ok();
-        });
+        cx.on_action(move |_: &RestartCore, cx| update_later(window, HostApp::restart_core, cx));
 
         // the menu bar icon
         let (tray_tx, mut tray_rx) = futures::channel::mpsc::unbounded();
