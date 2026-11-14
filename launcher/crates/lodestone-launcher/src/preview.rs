@@ -810,6 +810,10 @@ pub fn instances(scene: &str, accounts: &Entity<Accounts>, cx: &mut App) -> Enti
         let mut instances = Instances::new(data_dir, accounts, cx);
         // The screenshots never touch the network.
         instances.preview_offline();
+        // The last page of what is installed ends with the way to Modrinth's projects.
+        if scene == "content-mods-paged-last" {
+            instances.preview_modrinth_unreachable();
+        }
         let manifest: MojangVersionManifest = serde_json::from_str(include_str!(
             "../../launcher-core/testdata/version_manifest_v2.json"
         ))

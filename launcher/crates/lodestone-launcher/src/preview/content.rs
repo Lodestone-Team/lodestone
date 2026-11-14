@@ -257,6 +257,7 @@ pub fn fill(instance_dir: &Path, scene: &str) {
         scene,
         "content-mods"
             | "content-shaders"
+            | "content-shaders-paged"
             | "content-browse"
             | "content-sort"
             | "content-browse-idle"
@@ -408,9 +409,17 @@ pub fn fill(instance_dir: &Path, scene: &str) {
         source("Q1vvjJYV", "bsl-shaders", "BSL Shaders", "v8.2.09", true),
     );
     let _ = fs::create_dir_all(dirs.game.join("config"));
+    // The paged scene's pack in use is the last, on the second page.
+    let in_use = if scene == "content-shaders-paged" {
+        "MakeUp-UltraFast-9.2.zip"
+    } else {
+        "ComplementaryReimagined_r5.3.zip"
+    };
     let _ = fs::write(
         dirs.game.join("config/iris.properties"),
-        "#This file stores configuration options for Iris\nenableShaders=true\nshaderPack=ComplementaryReimagined_r5.3.zip\n",
+        format!(
+            "#This file stores configuration options for Iris\nenableShaders=true\nshaderPack={in_use}\n"
+        ),
     );
     if scene.starts_with("content-formatted") {
         formatted(&packs, &shaders, &dirs.game);
@@ -578,9 +587,9 @@ pub fn apply(scene: &str, view: &mut ContentView, cx: &mut Context<ContentView>)
             view.preview_state(ContentKind::ResourcePack, None, HashMap::new(), icons(), cx);
             view.preview_installed(ContentKind::ResourcePack, "", 1, cx);
         }
+        // Opened on the page of the pack in use, the second.
         "content-shaders-paged" => {
-            view.preview_state(ContentKind::ShaderPack, None, HashMap::new(), icons(), cx);
-            view.preview_installed(ContentKind::ShaderPack, "", 1, cx);
+            view.preview_state(ContentKind::ShaderPack, None, HashMap::new(), icons(), cx)
         }
         "content-menu" => {
             view.preview_state(ContentKind::Mod, None, HashMap::new(), icons(), cx);

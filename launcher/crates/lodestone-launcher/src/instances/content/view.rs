@@ -1503,7 +1503,7 @@ impl ContentView {
     }
 
     /// The list's entries with everything installed (that matches the search).
-    fn whole_plan(&self, kind: ContentKind, cx: &gpui::App) -> Vec<Entry> {
+    pub(super) fn whole_plan(&self, kind: ContentKind, cx: &gpui::App) -> Vec<Entry> {
         let query = self.query(kind, cx);
         let searching = !query.is_empty();
         let mut plan = Vec::new();
@@ -1914,9 +1914,35 @@ impl ContentView {
         }
     }
 
+    /// Turns the Installed list of `kind` to the page with `file`'s row, and has its
+    /// next frame scroll to the row: a file a change moved, now read again. A file
+    /// the list doesn't show (the search hides it, or another view is open) leaves
+    /// the page as it is.
+    pub(super) fn follow(&mut self, kind: ContentKind, file: String, cx: &gpui::App) {
+        let row = (self.list_view(kind, cx) == ListView::Installed)
+            .then(|| {
+                self.whole_plan(kind, cx)
+                    .iter()
+                    .filter(|entry| matches!(entry, Entry::Row { .. }))
+                    .position(|entry| matches!(entry, Entry::Row { file: f, .. } if *f == file))
+            })
+            .flatten();
+        let shown = self.kind == kind;
+        let section = self.section_mut(kind);
+        section.reveal = None;
+        if let Some(row) = row {
+            let page = row / PAGE_SIZE as usize;
+            let turned = page != section.installed_page;
+            section.installed_page = page;
+            if shown {
+                section.reveal = Some((file, turned));
+            }
+        }
+    }
+
     /// Brings the list of `kind` up to date for this frame: the page of what is
     /// installed, brought back onto the list when it got shorter (a file removed, or
-    /// a search), and the entries; a moved pack waiting to be shown is scrolled to.
+    /// a search), and the entries; a file followed there is scrolled to.
     pub(super) fn update_installed_list(&mut self, kind: ContentKind, cx: &gpui::App) {
         let plan = self.installed_plan(kind, cx);
         if self.list_view(kind, cx) == ListView::Installed
@@ -1931,21 +1957,27 @@ impl ContentView {
                 .unwrap_or(0);
         }
         self.sync_installed_list(kind, plan);
+        // Shown on this frame or not at all, so a file that didn't come back (changed
+        // from outside meanwhile) isn't scrolled to later.
         let section = self.section_mut(kind);
-        if let Some(file) = &section.reveal
+        if let Some((file, turned)) = section.reveal.take()
             && let Some(ix) = section
                 .plan
                 .iter()
-                .position(|entry| matches!(entry, Entry::Row { file: f, .. } if f == file))
+                .position(|entry| matches!(entry, Entry::Row { file: f, .. } if *f == file))
         {
-            // From its top: the rows just put in aren't measured yet, so revealing it
-            // from where the list is would stop short. The list keeps its end at the
-            // bottom when the row is near it.
-            section.rows.scroll_to(gpui::ListOffset {
-                item_ix: ix,
-                offset_in_item: px(0.),
-            });
-            section.reveal = None;
+            if turned {
+                // From its top, with its heading: the rows just put in aren't measured
+                // yet, so revealing it from where the list is would stop short. The
+                // list keeps its end at the bottom when the row is near it.
+                let heading = ix > 0 && matches!(section.plan[ix - 1], Entry::Heading(_));
+                section.rows.scroll_to(gpui::ListOffset {
+                    item_ix: ix - heading as usize,
+                    offset_in_item: px(0.),
+                });
+            } else {
+                section.rows.scroll_to_reveal_item(ix);
+            }
         }
     }
 
