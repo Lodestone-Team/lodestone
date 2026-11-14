@@ -400,7 +400,8 @@ test('the friend link page offers the launcher and keeps the secret in the brows
   assert.match(html, /You've been invited to be friends on Lodestone/);
   assert.match(html, /lodestone:\/\/friend\?link=/);
   assert.match(html, /Friends › Add friend/);
-  assert.match(html, /releases\/download\/launcher-latest\/LodestoneLauncherSetup\.exe/);
+  assert.match(html, /href="https:\/\/www\.lodestone\.cc\/launcher\/"/);
+  assert.doesNotMatch(html, /launcher-latest|\.dmg|Setup\.exe/);
   assert.doesNotMatch(html, /<(script|link|img)[^>]+(src|href)=/);
 
   const script = html.match(/<script>([\s\S]*)<\/script>/)[1];

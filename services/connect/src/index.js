@@ -284,7 +284,10 @@ const rateLimited = (what) => error(429, 'rate_limited', `Too many ${what} from 
 // Launcher, as lodestone://join?invite=<link> or lodestone://friend?link=<link>. They
 // load nothing from anywhere, so the link goes nowhere else either.
 
-const RELEASES = 'https://github.com/Lodestone-Team/lodestone/releases/download/launcher-latest';
+// The launcher's download page: it offers this computer's installer from the newest
+// version's release. (launcher-latest, the old update channel, has no disk image, and
+// only an old Windows build.)
+const DOWNLOAD_PAGE = 'https://www.lodestone.cc/launcher/';
 
 /// The page's script: shows `#link` when the fragment matches `pattern` (a regular
 /// expression literal's source, as the script writes it), and points "Open" at
@@ -329,7 +332,7 @@ function pageHtml({ title, ogTitle, ogDescription, body, script }) {
   p { margin: 0 0 16px; color: var(--muted); }
   .button { display: block; width: 100%; text-align: center; padding: 12px 16px; border-radius: 10px; font-weight: 600; text-decoration: none; border: 1px solid var(--line); background: transparent; color: var(--text); font-size: 15px; cursor: pointer; }
   .primary { background: var(--accent); border-color: var(--accent); color: #fff; margin-bottom: 10px; }
-  .downloads { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px; }
+  .download { margin-bottom: 16px; }
   h2 { font-size: 15px; margin: 24px 0 8px; }
   small { color: var(--muted); }
 </style>
@@ -344,10 +347,7 @@ ${body}
 `;
 }
 
-const DOWNLOADS = `<div class="downloads">
-      <a class="button" href="${RELEASES}/LodestoneLauncher.dmg">macOS</a>
-      <a class="button" href="${RELEASES}/LodestoneLauncherSetup.exe">Windows</a>
-    </div>`;
+const DOWNLOADS = `<a class="button download" href="${DOWNLOAD_PAGE}">Download for macOS or Windows</a>`;
 
 const INVITE_SCRIPT = pageScript('^[0-9a-f]{64}\\.[0-9a-f]{32}$', 'lodestone://join?invite=');
 
