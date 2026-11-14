@@ -164,6 +164,52 @@ async fn find_jar(dir: &Path, prefix: &str) -> Result<PathBuf, Error> {
         .ok_or_else(|| eyre!("Failed to find {prefix}*.jar").into())
 }
 
+/// Whether `cmd` is the `java` of a JRE that Lodestone downloaded (any Java version).
+fn is_managed_java(path_to_runtimes: &Path, cmd: &Path) -> bool {
+    let Ok(rest) = cmd.strip_prefix(path_to_runtimes.join("java")) else {
+        return false;
+    };
+    let Some(major) = rest
+        .components()
+        .next()
+        .and_then(|dir| dir.as_os_str().to_str())
+        .and_then(|dir| dir.strip_prefix("jre"))
+        .and_then(|n| n.parse::<u64>().ok())
+    else {
+        return false;
+    };
+    let managed = java_binary(path_to_runtimes, major);
+    cmd == managed || cmd == managed.with_extension("exe")
+}
+
+/// What on a server's command line runs code Lodestone did not choose, if anything: a Java
+/// command other than Lodestone's own Java, or extra JVM arguments (which can load agents
+/// or any other code). Neither may run while code execution is off.
+fn custom_command_line(config: &RestoreConfig, path_to_runtimes: &Path) -> Option<&'static str> {
+    let custom_java = config
+        .java_cmd
+        .as_deref()
+        .is_some_and(|cmd| !is_managed_java(path_to_runtimes, Path::new(cmd)));
+    let custom_args = config.cmd_args.iter().any(|arg| !arg.is_empty());
+    match (custom_java, custom_args) {
+        (true, true) => Some("a custom Java command and Java arguments"),
+        (true, false) => Some("a custom Java command"),
+        (false, true) => Some("custom Java arguments"),
+        (false, false) => None,
+    }
+}
+
+/// The error for starting a server with a custom command line while code execution is off.
+fn custom_command_line_refused(what: &str) -> Error {
+    Error {
+        kind: ErrorKind::PermissionDenied,
+        source: eyre!(
+            "This server is set to start with {what}, which cannot run while code execution \
+             is turned off on this core. Turn code execution back on to start it."
+        ),
+    }
+}
+
 /// How a Forge server for a Minecraft version starts.
 #[derive(Debug, PartialEq, Eq)]
 enum ForgeLaunch {
@@ -372,6 +418,9 @@ impl MinecraftInstance {
         }
 
         let config = self.config.lock().await.clone();
+        // Again, with the command line that is about to run: code execution may have been
+        // turned off since start() checked.
+        self.check_command_line(&config)?;
         let jre = config
             .java_cmd
             .as_ref()
@@ -670,6 +719,24 @@ impl MinecraftInstance {
 }
 
 impl MinecraftInstance {
+    /// Whether the server's command line runs code that only runs while code execution is
+    /// on (see [`custom_command_line`]).
+    pub async fn has_custom_command_line(&self) -> bool {
+        custom_command_line(&*self.config.lock().await, &self.path_to_runtimes).is_some()
+    }
+
+    /// Refuses a command line with code Lodestone did not choose while code execution is
+    /// off, as the code execution setting promises.
+    fn check_command_line(&self, config: &RestoreConfig) -> Result<(), Error> {
+        if self.code_execution.is_enabled() {
+            return Ok(());
+        }
+        match custom_command_line(config, &self.path_to_runtimes) {
+            Some(what) => Err(custom_command_line_refused(what)),
+            None => Ok(()),
+        }
+    }
+
     /// [`TServer::start`], waiting up to `lock_wait` for a change, backup or restore that
     /// holds off starts (`lock_stopped`) to end; with a zero wait, failing at once.
     ///
@@ -684,6 +751,9 @@ impl MinecraftInstance {
         Box::pin(async move {
             // the shutdown stops only the servers it finds running
             crate::shutdown::refuse_start()?;
+            // Every start (from a user, auto start at boot, a restart or the restart after a
+            // crash) comes through here.
+            self.check_command_line(&*self.config.lock().await)?;
             // Minecraft only runs once the user agreed to its EULA; never accept it here.
             super::eula::require_eula_accepted(&self.path_to_instance).await?;
             // Changing the version or modpack, or backing up or restoring the server, holds
@@ -974,6 +1044,62 @@ mod tests {
 
         assert!(settings("server-port=70000\n").is_err());
         assert!(settings("server-port=abc\n").is_err());
+    }
+
+    fn config(java_cmd: Option<&str>, cmd_args: &[&str]) -> RestoreConfig {
+        RestoreConfig {
+            name: "server".to_string(),
+            version: "1.20.1".to_string(),
+            flavour: Flavour::Vanilla,
+            description: String::new(),
+            cmd_args: cmd_args.iter().map(|a| a.to_string()).collect(),
+            java_cmd: java_cmd.map(str::to_string),
+            port: 25565,
+            min_ram: 1024,
+            max_ram: 2048,
+            auto_start: false,
+            restart_on_crash: false,
+            backup_period: None,
+            jre_major_version: 17,
+            has_started: false,
+            modpack: None,
+        }
+    }
+
+    #[test]
+    fn custom_command_lines() {
+        let runtimes = Path::new("/data/.lodestone/bin");
+        let managed = java_binary(runtimes, 17);
+        let managed = managed.to_str().unwrap();
+        let other_managed = java_binary(runtimes, 21);
+        let other_managed = other_managed.to_str().unwrap();
+        let custom = |java_cmd, args: &[&str]| custom_command_line(&config(java_cmd, args), runtimes);
+
+        // Lodestone's own Java, of any version, with no extra arguments
+        assert_eq!(custom(None, &[]), None);
+        assert_eq!(custom(Some(managed), &[]), None);
+        assert_eq!(custom(Some(other_managed), &[""]), None);
+        let managed_exe = format!("{managed}.exe");
+        assert_eq!(custom(Some(&managed_exe), &[]), None, "the same file on Windows");
+
+        assert_eq!(custom(Some("java"), &[]), Some("a custom Java command"));
+        assert_eq!(custom(Some("/usr/bin/java"), &[]), Some("a custom Java command"));
+        // something else in the runtimes folder, or a way out of it
+        for cmd in [
+            "/data/.lodestone/bin/java/jre17/run.sh",
+            "/data/.lodestone/bin/java/jrex/bin/java",
+            "/data/.lodestone/bin/java/jre17/../../../evil/Contents/Home/bin/java",
+        ] {
+            assert_eq!(custom(Some(cmd), &[]), Some("a custom Java command"), "{cmd}");
+        }
+        assert_eq!(
+            custom(Some(managed), &["-javaagent:/x/agent.jar"]),
+            Some("custom Java arguments")
+        );
+        assert_eq!(
+            custom(Some("/x/script"), &["-Dx=y"]),
+            Some("a custom Java command and Java arguments")
+        );
     }
 
     #[test]

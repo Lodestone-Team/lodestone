@@ -1935,6 +1935,73 @@ mod restore_tests {
         assert_eq!(instance(&late).state().await, State::Stopped);
         assert_eq!(instance(&stopped).state().await, State::Stopped);
     }
+
+    /// Sets the Java command of the instance in `server` (None is Lodestone's own Java).
+    fn set_java_cmd(server: &Path, java_cmd: Option<&str>) {
+        let path = server.join(".lodestone_minecraft_config.json");
+        let mut config: RestoreConfig =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        config.java_cmd = java_cmd.map(str::to_string);
+        write_json(path, &config);
+    }
+
+    /// While code execution is off, a server with a custom Java command does not start, and
+    /// one already running is stopped when it is turned off. Nothing is started: the
+    /// servers' EULA is never accepted, and running only means the state says so.
+    #[tokio::test]
+    async fn custom_java_commands_need_code_execution() {
+        init_test_paths();
+        let dir = tempfile::tempdir().unwrap();
+        let instances = dir.path().join("instances");
+        let (custom_server, custom) = write_minecraft_instance(&instances, "custom java");
+        set_java_cmd(&custom_server, Some("/opt/tools/run-anything"));
+        let (managed_server, managed) = write_minecraft_instance(&instances, "managed java");
+        set_java_cmd(&managed_server, None);
+        let switch = CodeExecutionSwitch::new(false);
+        let (tx, _events) = EventBroadcaster::new(64);
+        let restored = restore_instances(&instances, tx, switch.clone())
+            .await
+            .unwrap();
+        let instance = |uuid: &InstanceUuid| restored.get(uuid).unwrap().value().clone();
+
+        let refused = instance(&custom)
+            .start(CausedBy::System, false)
+            .await
+            .unwrap_err();
+        assert!(matches!(refused.kind, ErrorKind::PermissionDenied));
+        assert!(refused.source.to_string().contains("code execution"));
+        assert_eq!(instance(&custom).state().await, State::Stopped);
+        // Lodestone's own Java is not held back: this one gets as far as the EULA
+        let not_accepted = instance(&managed)
+            .start(CausedBy::System, false)
+            .await
+            .unwrap_err();
+        assert!(!not_accepted.source.to_string().contains("code execution"));
+        // and with code execution on, neither is
+        switch.set(true);
+        let not_accepted = instance(&custom)
+            .start(CausedBy::System, false)
+            .await
+            .unwrap_err();
+        assert!(!not_accepted.source.to_string().contains("code execution"));
+
+        // turning it off stops the running server with the custom command only
+        for uuid in [&custom, &managed] {
+            let GameInstance::MinecraftInstance(minecraft) = instance(uuid);
+            minecraft.set_state_for_test(State::Running).await;
+        }
+        switch.set(false);
+        tokio::time::timeout(
+            Duration::from_secs(10),
+            handlers::global_settings::stop_custom_command_lines(&restored, CausedBy::System),
+        )
+        .await
+        .unwrap();
+        assert_eq!(instance(&custom).state().await, State::Stopped);
+        assert_eq!(instance(&managed).state().await, State::Running);
+        let GameInstance::MinecraftInstance(minecraft) = instance(&managed);
+        minecraft.set_state_for_test(State::Stopped).await;
+    }
 }
 
 #[cfg(test)]
