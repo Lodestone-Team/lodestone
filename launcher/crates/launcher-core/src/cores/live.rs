@@ -377,7 +377,8 @@ pub enum LiveMessage {
     Ended(CoreError),
 }
 
-/// How long a read waits before the stream checks whether it should stop.
+/// How long a read waits before the stream checks whether it should stop, once
+/// connected. The handshake reads with [`REQUEST_TIMEOUT`] instead (see [`open_tcp`]).
 const READ_TICK: Duration = Duration::from_millis(250);
 /// After this long without a frame, the stream sends a ping, and one write failing
 /// ends the connection.
@@ -624,6 +625,15 @@ pub enum Stream {
     Tls(Box<rustls::StreamOwned<rustls::ClientConnection, TcpStream>>),
 }
 
+impl Stream {
+    fn tcp(&self) -> &TcpStream {
+        match self {
+            Stream::Plain(s) => s,
+            Stream::Tls(s) => s.get_ref(),
+        }
+    }
+}
+
 impl Read for Stream {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         match self {
@@ -725,7 +735,12 @@ fn open_tcp(base: &Url, host: &str) -> Result<TcpStream, CoreError> {
         match TcpStream::connect_timeout(&addr, CONNECT_TIMEOUT) {
             Ok(tcp) => {
                 let _ = tcp.set_nodelay(true);
-                tcp.set_read_timeout(Some(READ_TICK))
+                // The TLS and WebSocket handshakes wait as long as any request.
+                // Not the short read tick yet: Windows reports a timed-out read as
+                // `TimedOut`, which tungstenite and rustls treat as a failure, not
+                // as "try again", so a core more than a tick away could never be
+                // reached. `handshake` sets the tick once connected.
+                tcp.set_read_timeout(Some(REQUEST_TIMEOUT))
                     .map_err(|err| io_error(&err, host))?;
                 tcp.set_write_timeout(Some(REQUEST_TIMEOUT))
                     .map_err(|err| io_error(&err, host))?;
@@ -815,7 +830,16 @@ fn handshake(url: &Url, stream: Stream, host: &str) -> Result<WebSocket<Stream>,
     let mut attempt = tungstenite::client::client(request, stream);
     loop {
         match attempt {
-            Ok((socket, _)) => return Ok(socket),
+            Ok((socket, _)) => {
+                // From here on reads wake up every tick, so the stream can stop
+                // and send pings; `follow` takes `TimedOut` as a tick too.
+                socket
+                    .get_ref()
+                    .tcp()
+                    .set_read_timeout(Some(READ_TICK))
+                    .map_err(|err| io_error(&err, host))?;
+                return Ok(socket);
+            }
             Err(HandshakeError::Interrupted(mid)) => {
                 if Instant::now() > deadline {
                     return Err(CoreError::Unreachable(
@@ -841,6 +865,54 @@ fn handshake(url: &Url, stream: Stream, host: &str) -> Result<WebSocket<Stream>,
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_handshake_waits_longer_than_a_read_tick_then_reads_in_ticks() {
+        use std::{io::BufRead as _, net::TcpListener};
+
+        // A core that answers the upgrade only after more than a read tick, as a
+        // distant or busy one does.
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let core = std::thread::spawn(move || {
+            let (tcp, _) = listener.accept().unwrap();
+            let mut reader = io::BufReader::new(tcp.try_clone().unwrap());
+            let mut key = String::new();
+            loop {
+                let mut line = String::new();
+                reader.read_line(&mut line).unwrap();
+                if let Some((name, value)) = line.split_once(':')
+                    && name.eq_ignore_ascii_case("sec-websocket-key")
+                {
+                    key = value.trim().to_string();
+                }
+                if line == "\r\n" || line.is_empty() {
+                    break;
+                }
+            }
+            std::thread::sleep(READ_TICK + Duration::from_millis(300));
+            let accept = tungstenite::handshake::derive_accept_key(key.as_bytes());
+            let mut tcp = tcp;
+            write!(
+                tcp,
+                "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\n\
+                 Connection: Upgrade\r\nSec-WebSocket-Accept: {accept}\r\n\r\n"
+            )
+            .unwrap();
+            // keep the connection open until the client has read the reply
+            std::thread::sleep(Duration::from_millis(200));
+        });
+
+        let base = Url::parse(&format!("http://127.0.0.1:{port}/")).unwrap();
+        let tcp = open_tcp(&base, "127.0.0.1").unwrap();
+        // Windows fails a read that times out instead of retrying it, so the
+        // handshake must not read with the short tick.
+        assert_eq!(tcp.read_timeout().unwrap(), Some(REQUEST_TIMEOUT));
+        let url = ws_url(&base, "events/all").unwrap();
+        let socket = handshake(&url, Stream::Plain(tcp), "127.0.0.1").unwrap();
+        assert_eq!(socket.get_ref().tcp().read_timeout().unwrap(), Some(READ_TICK));
+        core.join().unwrap();
+    }
 
     #[test]
     fn chat_says_text_and_runs_slash_commands() {
