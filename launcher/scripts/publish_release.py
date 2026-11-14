@@ -1145,8 +1145,8 @@ def stage(targets: list[str | None], build: int, commit: str, version: str, into
     which only goes to a developer build's release."""
     into.mkdir(parents=True, exist_ok=True)
     host = host_target()
-    record: dict = {"build": build, "commit": commit, "version": version,
-                    "assets": {}, "files": {}}
+    record: dict = {"product": PRODUCT.key, "build": build, "commit": commit,
+                    "version": version, "assets": {}, "files": {}}
     if dev:
         record["channel"] = DEV_CHANNEL
     macs: list[tuple[str, Path]] = []
@@ -1194,12 +1194,34 @@ def stage(targets: list[str | None], build: int, commit: str, version: str, into
     return record
 
 
+def check_product(record: dict, folder: Path) -> None:
+    """Refuses a staged build of the other product. Both stage dry runs into the same
+    folder, so a Host dry run uploaded with the launcher's --tag would otherwise go
+    up under the launcher's names, and launchers would update to the Host. Records
+    from before they named their product are told apart by their files' names."""
+    product = record.get("product")
+    names = list(record.get("files", {}))
+    if product is None:
+        product = next((key for key, other in PRODUCTS.items()
+                        if names and all(name.startswith(other.file_prefix) for name in names)),
+                       None)
+    if product == PRODUCT.key and all(name.startswith(PRODUCT.file_prefix) for name in names):
+        return
+    other = PRODUCTS.get(product)
+    holds = f"a {other.name} build" if other else "another product's build"
+    flag = "--product host" if PRODUCT.key == "launcher" else "without --product host"
+    raise Failure(f"{folder} holds {holds}, not {PRODUCT.name}'s. Run this {flag} for it, "
+                  f"or stage {PRODUCT.name} again")
+
+
 def read_stage(folder: Path) -> dict:
-    """A staged folder's record, after checking its files are the ones staged."""
+    """A staged folder's record, after checking its files are the ones staged, and
+    of the product this run releases."""
     file = folder / STAGE_RECORD
     if not file.exists():
         raise Failure(f"{folder} has no {STAGE_RECORD}; stage a build into it first")
     record = json.loads(file.read_text(encoding="utf-8"))
+    check_product(record, folder)
     for name, digest in record.get("files", {}).items():
         path = folder / name
         if not path.is_file():
@@ -1356,6 +1378,7 @@ def check_candidate(stage_dir: Path, build: int, commit: str) -> dict:
             "this machine, then publish"
         )
     record = json.loads((stage_dir / STAGE_RECORD).read_text(encoding="utf-8"))
+    check_product(record, stage_dir)
     if (record.get("build"), record.get("commit")) != (build, commit):
         raise Failure(
             f"the last dry run was build {record.get('build')} of "
@@ -2207,6 +2230,7 @@ def main(argv: list[str]) -> int:
         if not (stage_dir / STAGE_RECORD).exists():
             raise Failure("no dry run to open; run with --dry-run first")
         record = json.loads((stage_dir / STAGE_RECORD).read_text(encoding="utf-8"))
+        check_product(record, stage_dir)
         open_and_explain(test_dir, record, key_for_target(host_target()))
         return 0
 

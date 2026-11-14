@@ -69,7 +69,8 @@ class Cleanup(unittest.TestCase):
 def staged(folder, build, keys, commit="abc", extras=()):
     """A staged folder as `stage` leaves it, with stand-in files."""
     folder.mkdir(parents=True, exist_ok=True)
-    record = {"build": build, "commit": commit, "version": "0.1.0", "assets": {}, "files": {}}
+    record = {"product": pr.PRODUCT.key, "build": build, "commit": commit, "version": "0.1.0",
+              "assets": {}, "files": {}}
     for key in keys:
         binary = folder / pr.asset_name(build, key)
         binary.write_bytes(f"{key} {build}".encode())
@@ -125,6 +126,54 @@ class Stage(unittest.TestCase):
         staged(self.dir / "s", 7, ["macos-aarch64"])
         (self.dir / "s" / pr.asset_name(7, "macos-aarch64")).write_bytes(b"rebuilt")
         with self.assertRaisesRegex(pr.Failure, "isn't the build that was tested"):
+            pr.check_candidate(self.dir / "s", 7, "abc")
+
+    def stage_host(self, folder, build=7, keys=("windows-x86_64",)):
+        pr.use_product("host")
+        try:
+            return staged(folder, build, list(keys))
+        finally:
+            pr.use_product("launcher")
+
+    def test_a_host_dry_run_isnt_uploaded_as_the_launcher(self):
+        # Both products dry-run into the same folder: --product host --dry-run, then
+        # --tag launcher-v1.0.0 would upload the Host as LodestoneLauncherSetup.exe.
+        record = self.stage_host(self.dir / "s")
+        self.assertEqual(record["product"], "host")
+        with self.assertRaisesRegex(pr.Failure, "holds a Lodestone Host build, not Lodestone "
+                                                "Launcher's. Run this --product host"):
+            pr.check_candidate(self.dir / "s", 7, "abc")
+        with self.assertRaisesRegex(pr.Failure, "holds a Lodestone Host build"):
+            pr.read_stage(self.dir / "s")
+
+    def test_a_launcher_dry_run_isnt_uploaded_as_the_host(self):
+        staged(self.dir / "s", 7, ["macos-aarch64"])
+        pr.use_product("host")
+        try:
+            with self.assertRaisesRegex(pr.Failure, "holds a Lodestone Launcher build, not "
+                                                    "Lodestone Host's. Run this without"):
+                pr.check_candidate(self.dir / "s", 7, "abc")
+            with self.assertRaisesRegex(pr.Failure, "holds a Lodestone Launcher build"):
+                pr.read_stage(self.dir / "s")
+        finally:
+            pr.use_product("launcher")
+
+    def test_a_record_from_before_products_is_told_apart_by_its_files(self):
+        record = self.stage_host(self.dir / "s")
+        del record["product"]
+        (self.dir / "s" / pr.STAGE_RECORD).write_text(pr.json.dumps(record))
+        with self.assertRaisesRegex(pr.Failure, "holds a Lodestone Host build"):
+            pr.check_candidate(self.dir / "s", 7, "abc")
+        record = staged(self.dir / "l", 7, ["macos-aarch64"])
+        del record["product"]
+        (self.dir / "l" / pr.STAGE_RECORD).write_text(pr.json.dumps(record))
+        self.assertEqual(pr.check_candidate(self.dir / "l", 7, "abc")["build"], 7)
+
+    def test_a_record_that_names_the_wrong_product_for_its_files_is_refused(self):
+        record = self.stage_host(self.dir / "s")
+        record["product"] = "launcher"
+        (self.dir / "s" / pr.STAGE_RECORD).write_text(pr.json.dumps(record))
+        with self.assertRaisesRegex(pr.Failure, "not Lodestone Launcher's"):
             pr.check_candidate(self.dir / "s", 7, "abc")
 
 
