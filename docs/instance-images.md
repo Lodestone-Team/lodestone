@@ -473,6 +473,20 @@ names anything by it.
   world backup zips. Old data stays readable; new writes use schema 2.
 - GC understands both until everything is converted. Conversion is lazy; old objects are
   never rewritten (core objects are already SHA-256 zstd, Launcher objects SHA-256 raw).
+  The image store at the core's backup folder, zstd encoded, reads the core's objects in
+  place, and an image store at the Launcher's snapshot folder, raw, the Launcher's. The
+  caller passes the objects of the old manifests that remain to the image store's GC as
+  also live (`core_backup::Manifest::objects`).
+- A converted core backup restores through the store as it is: `core_backup::disk_layout`
+  is the server layout its paths went through, so materializing with it puts every file
+  back at its backup path. The old backup is also the first image snapshot's stat cache
+  (`core_backup::stat_cache`, its files by server path, trusted up to its scan time), so
+  that snapshot reads only what changed.
+- A large file the core stored whole stays whole. When a full scan reads it again
+  unchanged, the store cuts it into chunks as it does any large file (it can't know the
+  file's hash before reading it), finds the whole object already there and keeps it as the
+  object; the chunks it wrote are unused, and GC frees them. Only files that change move
+  to chunks.
 - Round-trip tests: every old format converts to an image and back without changing a byte.
   World backup zips are the exception: they are only read (a zip can't be rewritten byte for
   byte, and images replace them).

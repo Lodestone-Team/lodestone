@@ -31,6 +31,7 @@ use crate::layout::{DiskLayout, ServerLayout};
 use crate::manifest::{App, Game, Image, Kind, Loader, Producer, Source, Withheld, WithheldReason};
 use crate::manifest::{Entry, World};
 use crate::settings::{ServerFlavour, ServerSettings, Settings};
+use crate::store::StatCache;
 
 /// The manifest schema this reads.
 pub const SCHEMA: u32 = 1;
@@ -138,6 +139,12 @@ impl Manifest {
     pub fn to_json(&self) -> Vec<u8> {
         // Strings, numbers and lists of them: serializing can't fail.
         serde_json::to_vec(self).unwrap_or_default()
+    }
+
+    /// The SHA-256 of every object this backup uses: what an image store's GC must keep
+    /// for it ([`crate::store::gc::GcOptions::also_live`]) while schema-1 manifests remain.
+    pub fn objects(&self) -> impl Iterator<Item = &str> {
+        self.files.iter().map(|file| file.sha256.as_str())
     }
 
     fn validate(&self) -> Result<(), String> {
@@ -355,6 +362,51 @@ pub fn to_image(manifest: &Manifest) -> Result<Converted, LegacyError> {
     })
 }
 
+/// The server disk layout [`to_image`] mapped the backup's paths through. Materializing a
+/// converted backup with it (`store::materialize`) puts every file back at the path the
+/// backup had, even when its level wasn't a world folder an image can name (the layout's
+/// level is then a name no file has, so those files keep their server paths).
+pub fn disk_layout(image: &Image, rest: &Rest) -> Result<DiskLayout, LegacyError> {
+    let split = image
+        .settings
+        .server
+        .as_ref()
+        .and_then(|server| server.flavour.as_ref())
+        .is_some_and(|f| f.splits_worlds());
+    let others = image
+        .worlds
+        .iter()
+        .map(|w| w.name.clone())
+        .filter(|name| *name != rest.layout_level);
+    let layout = ServerLayout::new(rest.layout_level.clone(), others, split)
+        .map_err(|e| LegacyError::Invalid(format!("its worlds: {e}")))?;
+    Ok(DiskLayout::Server(layout))
+}
+
+/// The stat cache a schema-1 backup amounts to: its files by server path, with the size,
+/// time and hash it read, trusted up to the time its scan began. The core has always used
+/// the last backup this way; seeding the image store's first snapshot of a server with it
+/// means that snapshot reads only what changed since. Times too far from 1970 for 64 bits
+/// are left out (those files are read again), and a scan time that doesn't fit trusts
+/// nothing.
+pub fn stat_cache(manifest: &Manifest) -> StatCache {
+    let Ok(started) = i64::try_from(manifest.scan_started_ns) else {
+        return StatCache::new(i64::MIN);
+    };
+    let mut cache = StatCache::new(started);
+    for file in &manifest.files {
+        if let Ok(modified_ns) = i64::try_from(file.modified_ns) {
+            cache.insert(
+                file.path.clone(),
+                file.size,
+                modified_ns,
+                file.sha256.clone(),
+            );
+        }
+    }
+    cache
+}
+
 /// The schema-1 manifest of `image` and `rest`: the original one, for an image and rest
 /// [`to_image`] made.
 pub fn from_image(image: &Image, rest: &Rest) -> Result<Manifest, LegacyError> {
@@ -364,15 +416,7 @@ pub fn from_image(image: &Image, rest: &Rest) -> Result<Manifest, LegacyError> {
         .as_ref()
         .map(|f| f.as_str().to_string())
         .unwrap_or_default();
-    let split = server.flavour.as_ref().is_some_and(|f| f.splits_worlds());
-    let others = image
-        .worlds
-        .iter()
-        .map(|w| w.name.clone())
-        .filter(|name| *name != rest.layout_level);
-    let layout = ServerLayout::new(rest.layout_level.clone(), others, split)
-        .map_err(|e| LegacyError::Invalid(format!("its worlds: {e}")))?;
-    let disk = DiskLayout::Server(layout);
+    let disk = disk_layout(image, rest)?;
 
     let mut files = Vec::with_capacity(image.entries.len() + rest.unmapped.len());
     for entry in &image.entries {
@@ -551,6 +595,7 @@ fn unused_level(tops: &BTreeSet<&str>) -> String {
 mod tests {
     use super::*;
     use crate::legacy::TestRng;
+    use crate::store::statcache::RACY_NS;
 
     fn hash(n: usize) -> String {
         format!("{n:064x}")
@@ -689,6 +734,88 @@ mod tests {
         assert_eq!(
             image.settings.server.as_ref().unwrap().properties[LEVEL_NAME],
             "worlds/survival"
+        );
+    }
+
+    #[test]
+    fn the_disk_layout_puts_every_entry_back_at_its_backup_path() {
+        let m = manifest(
+            "paper",
+            Some("survival"),
+            vec![
+                file("server.properties", 1),
+                file("survival/level.dat", 2),
+                file("survival_nether/DIM-1/region/r.0.0.mca", 3),
+                file("survival_the_end/DIM1/region/r.0.0.mca", 4),
+                file("creative/level.dat", 5),
+                file("plugins/a.jar", 6),
+            ],
+        );
+        let converted = round_trip(&m);
+        let disk = disk_layout(&converted.image, &converted.rest).unwrap();
+        let mut placed: Vec<String> = converted
+            .image
+            .entries
+            .iter()
+            .map(|e| disk.to_disk(&e.path).unwrap())
+            .collect();
+        placed.sort();
+        let original: Vec<&str> = m.files.iter().map(|f| f.path.as_str()).collect();
+        assert_eq!(placed, original);
+
+        // A level that isn't a world folder: its files keep their server paths.
+        let m = manifest(
+            "vanilla",
+            Some("worlds/survival"),
+            vec![
+                file("worlds/survival/level.dat", 1),
+                file("world/notes.txt", 2),
+            ],
+        );
+        let converted = round_trip(&m);
+        let disk = disk_layout(&converted.image, &converted.rest).unwrap();
+        let mut placed: Vec<String> = converted
+            .image
+            .entries
+            .iter()
+            .map(|e| disk.to_disk(&e.path).unwrap())
+            .collect();
+        placed.sort();
+        assert_eq!(placed, ["world/notes.txt", "worlds/survival/level.dat"]);
+    }
+
+    #[test]
+    fn a_backup_is_a_stat_cache_trusted_up_to_its_scan() {
+        let mut far = file("far.dat", 3);
+        far.modified_ns = i128::from(i64::MAX) + 1;
+        let mut racy = file("racy.dat", 4);
+        racy.modified_ns = 1_794_645_624_000_000_000;
+        let mut m = manifest(
+            "vanilla",
+            Some("world"),
+            vec![file("a", 1), far, racy, file("world/level.dat", 2)],
+        );
+        m.scan_started_ns = 1_794_645_624_000_000_000 + 10 * i128::from(RACY_NS);
+        let cache = stat_cache(&m);
+        let a = &m.files[0];
+        assert_eq!(a.path, "a");
+        assert_eq!(
+            cache.lookup("a", a.size, a.modified_ns as i64),
+            Some(a.sha256.as_str())
+        );
+        assert_eq!(cache.lookup("a", a.size + 1, a.modified_ns as i64), None);
+        // Out of 64 bits: not cached, read again.
+        assert!(!cache.files.contains_key("far.dat"));
+        // Paths are the server's, as a snapshot of its folder sees them.
+        assert!(cache.files.contains_key("world/level.dat"));
+        m.scan_started_ns = 1_794_645_624_000_000_000 + i128::from(RACY_NS);
+        let cache = stat_cache(&m);
+        assert_eq!(cache.lookup("racy.dat", 4, 1_794_645_624_000_000_000), None);
+        // A scan time out of range trusts nothing.
+        m.scan_started_ns = i128::MAX;
+        assert_eq!(
+            stat_cache(&m).lookup("a", a.size, a.modified_ns as i64),
+            None
         );
     }
 
