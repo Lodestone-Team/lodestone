@@ -17,7 +17,7 @@ use super::{
     Servers,
     extras::note,
     friend_list::{AddFriend, CoreServers, FriendDialog, FriendPrompt, expiry_label, hex, short},
-    friends::JoinStage,
+    friends::{JoinStage, Liveness},
     status_label,
     view::server_detail,
 };
@@ -818,6 +818,14 @@ impl Servers {
             } else {
                 core.name.clone()
             };
+            // asks this core for its servers now, once they were asked; they're also
+            // asked again on their own, soon while a server starts
+            let checking = list.checking.contains(&slot);
+            let check = matches!(
+                list.servers.get(&slot),
+                Some(CoreServers::Loaded(_) | CoreServers::Failed(_))
+            ) || checking;
+            let (check_key, check_fp) = slot.clone();
             let mut block = div()
                 .id(SharedString::from(core_id.clone()))
                 .accessible(Role::Group, core_id.clone(), core_name.clone())
@@ -863,7 +871,28 @@ impl Servers {
                             } else {
                                 crate::theme::ink::muted()
                             }),
-                        ),
+                        )
+                        .when(check, |this| {
+                            this.child(
+                                Button::new(
+                                    SharedString::from(format!("{core_id}-check")),
+                                    t(if checking {
+                                        ServersMsg::FriendChecking
+                                    } else {
+                                        ServersMsg::FriendCheck
+                                    }),
+                                )
+                                .size(ButtonSize::Slim)
+                                .variant(ButtonVariant::Ghost)
+                                .icon(Icon::ArrowsRotate)
+                                .disabled(checking)
+                                .on_click(cx.listener(
+                                    move |this, _, _, cx| {
+                                        this.check_friend_core(&check_key, &check_fp, cx)
+                                    },
+                                )),
+                            )
+                        }),
                 );
             match list.servers.get(&slot) {
                 Some(CoreServers::Loading) => {
@@ -1027,6 +1056,15 @@ impl Servers {
             as_server.state,
             launcher_core::cores::ServerState::Running | launcher_core::cores::ServerState::Unknown
         );
+        // why Play and join is off, and that it turns on by itself: the server is
+        // asked again every few seconds while it starts
+        let liveness = Liveness::of_shared(server);
+        let blocked = liveness.blocks_play();
+        let waiting = match (lan_host, liveness) {
+            (None, Liveness::Starting) => Some(t(ServersMsg::FriendServerStartingBody)),
+            (None, Liveness::Stopped) => Some(t(ServersMsg::FriendServerStoppedBody)),
+            _ => None,
+        };
         let (play_key, play_fp, play_server) =
             (key.to_string(), fingerprint.to_string(), server.clone());
         // an instance page's link to this server: its link's core is the server's id
@@ -1057,17 +1095,15 @@ impl Servers {
             .py_2()
             .border_t_1()
             .border_color(crate::theme::ink::border())
-            .child(
-                div()
-                    .flex_none()
-                    .size(px(6.))
-                    .rounded_full()
-                    .bg(if running {
-                        colors::GREEN_200
-                    } else {
-                        colors::GRAY_500
-                    }),
-            )
+            .child(div().flex_none().size(px(6.)).rounded_full().bg(
+                if liveness == Liveness::Starting {
+                    colors::YELLOW
+                } else if running {
+                    colors::GREEN_200
+                } else {
+                    colors::GRAY_500
+                },
+            ))
             .child(
                 div()
                     .flex()
@@ -1095,6 +1131,7 @@ impl Servers {
                             ),
                     )
                     .child(note(detail))
+                    .children(waiting.map(note))
                     .children(lan_notes.into_iter().map(note))
                     // the tunnel's address on this computer, the same every time
                     .children(magic_port.map(|port| {
@@ -1119,7 +1156,7 @@ impl Servers {
                 .size(ButtonSize::Slim)
                 .variant(ButtonVariant::Primary)
                 // a stopped or starting server can't be joined yet
-                .disabled(joining || super::friends::Liveness::of_shared(server).blocks_play())
+                .disabled(joining || blocked)
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.play_friend_server(&play_key, &play_fp, &play_server, cx)
                 })),

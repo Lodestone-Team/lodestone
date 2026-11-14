@@ -188,6 +188,8 @@ pub fn apply(scene: &str, servers: &mut Servers, cx: &mut Context<Servers>) {
                         CoreServers::Loaded(vec![
                             shared("Survival SMP", "fabric", Some("0.16.14"), true, "Running"),
                             shared("Creative build", "vanilla", None, false, "Stopped"),
+                            // Play and join turns on once it runs
+                            shared("Cobblemon", "fabric", Some("0.16.14"), true, "Starting"),
                         ]),
                     )],
                 ),
