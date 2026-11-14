@@ -365,8 +365,22 @@ impl Accounts {
                 let store = secrets.store(cx);
                 if let Err(err) = store.delete(&key).await {
                     this.update(cx, |this, cx| {
-                        // The account stays, so it can be refreshed again.
+                        // The account stays, so it can be refreshed again. Removing it
+                        // cancelled any refresh and the timer that keeps it fresh: a
+                        // session that's ready gets its timer back, and one that was
+                        // being refreshed is dropped, so switching to it refreshes it
+                        // instead of waiting on a refresh that's gone.
                         this.removals.remove(&account.id);
+                        match this.sessions.get(&account.id) {
+                            Some(SessionState::Ready(session)) => {
+                                let expires_at = session.expires_at;
+                                this.schedule_refresh(&account.id, expires_at, cx);
+                            }
+                            Some(SessionState::Refreshing) => {
+                                this.sessions.remove(&account.id);
+                            }
+                            _ => {}
+                        }
                         if this.store.active().is_some_and(|a| a.id == account.id) {
                             this.switch(&account.id, cx);
                         }
@@ -513,14 +527,20 @@ impl Accounts {
 
     /// Stores the session and schedules a refresh shortly before it expires.
     fn set_session(&mut self, id: &str, session: MinecraftSession, cx: &mut Context<Self>) {
-        let refresh_in = session
-            .expires_at
+        let expires_at = session.expires_at;
+        self.sessions
+            .insert(id.to_string(), SessionState::Ready(session));
+        self.schedule_refresh(id, expires_at, cx);
+    }
+
+    /// Refreshes the account shortly before its session expires, if it's still the
+    /// active one then.
+    fn schedule_refresh(&mut self, id: &str, expires_at: SystemTime, cx: &mut Context<Self>) {
+        let refresh_in = expires_at
             .duration_since(SystemTime::now())
             .unwrap_or_default()
             .saturating_sub(Duration::from_secs(10 * 60))
             .max(Duration::from_secs(60));
-        self.sessions
-            .insert(id.to_string(), SessionState::Ready(session));
         let id = id.to_string();
         let timer = cx.background_executor().timer(refresh_in);
         let task = cx.spawn({

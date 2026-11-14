@@ -361,14 +361,26 @@ impl Book {
     /// a number that high, and every later state would be refused too while the
     /// number stays up there. Numbering from the clock again starts over above the
     /// states friends did take, which were numbered by the time they were made.
+    ///
+    /// Writing those states to friends' slots worked (friends only refuse them when
+    /// they read them), so friends sent one are marked as having a number at least as
+    /// high as the new one, and would be skipped. They're marked as sent nothing
+    /// instead, so the new state goes to them. A friend whose own clock was fast too
+    /// could have taken the far-ahead state, and refuses the lower-numbered ones until
+    /// real time passes it: rare, and better than every friend refusing them.
     pub(crate) fn new_state(&mut self) {
         let now = now();
         let next = self.state_seq.saturating_add(1);
-        self.state_seq = if next > now.saturating_add(ops::MAX_SEQ_AHEAD_SECS) {
-            now
+        if next > now.saturating_add(ops::MAX_SEQ_AHEAD_SECS) {
+            self.state_seq = now;
+            for friend in &mut self.friends {
+                if friend.sent_seq >= now {
+                    friend.sent_seq = 0;
+                }
+            }
         } else {
-            next.max(now)
-        };
+            self.state_seq = next.max(now);
+        }
         self.state_issued = 0;
     }
 
