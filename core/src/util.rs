@@ -243,11 +243,260 @@ pub fn unzip_file(
     unzip_file_in(file.as_ref(), unzip_option, path_to_tmp(), None)
 }
 
+/// Extracts `file` (a zip or a gzipped tar archive) to a temporary folder in `tmp_root`,
+/// runs `check_entry` on what was extracted, and moves it to the destination
+/// `unzip_option` picks. Extraction stops with an error, leaving the destination
+/// untouched, once the archive would expand past [`MAX_UNZIP_BYTES`] or
+/// [`MAX_UNZIP_ENTRIES`], or leave the disk with less than 1 GB free.
 fn unzip_file_in(
     file: &Path,
     unzip_option: UnzipOption,
     tmp_root: &Path,
     check_entry: Option<&UnzipEntryCheck>,
+) -> Result<HashSet<PathBuf>, Error> {
+    unzip_file_limited(
+        file,
+        unzip_option,
+        tmp_root,
+        check_entry,
+        &UnzipLimits::DEFAULT,
+    )
+}
+
+/// The most an archive may expand to. Server packs, modpacks and worlds people upload are
+/// a few GB, and the biggest worlds tens of GB, while an archive that expands past this is
+/// almost certainly a zip bomb, made to fill the disk that holds every server and backup.
+/// On a smaller disk the free space check stops extraction sooner.
+pub const MAX_UNZIP_BYTES: u64 = 64_000_000_000;
+
+/// The most entries an archive may have. Even a large modpack has tens of thousands of
+/// files; millions of empty ones would use up the disk's room for files without using
+/// any bytes.
+pub const MAX_UNZIP_ENTRIES: u64 = 1_000_000;
+
+/// The limits extraction keeps to, see [`MAX_UNZIP_BYTES`] and [`MAX_UNZIP_ENTRIES`].
+struct UnzipLimits {
+    max_bytes: u64,
+    max_entries: u64,
+    /// The free space on the disk holding a path, `None` when it can't be found out.
+    free_space: fn(&Path) -> Option<u64>,
+}
+
+impl UnzipLimits {
+    const DEFAULT: UnzipLimits = UnzipLimits {
+        max_bytes: MAX_UNZIP_BYTES,
+        max_entries: MAX_UNZIP_ENTRIES,
+        free_space: crate::backups::store::free_space,
+    };
+}
+
+/// Counts what an extraction has written against its limits: [`UnzipLimits`], and the
+/// disk's free space when it started, less [`FREE_SPACE_MARGIN`] (the space backups and
+/// downloads also always leave free). Extraction stops with an error, before writing it,
+/// at the first entry or byte that would go past either.
+///
+/// [`FREE_SPACE_MARGIN`]: crate::backups::store::FREE_SPACE_MARGIN
+struct UnzipBudget {
+    archive_name: String,
+    max_bytes: u64,
+    max_entries: u64,
+    free: Option<u64>,
+    bytes: u64,
+    entries: u64,
+}
+
+impl UnzipBudget {
+    fn new(archive: &Path, tmp_root: &Path, limits: &UnzipLimits) -> UnzipBudget {
+        UnzipBudget {
+            archive_name: archive
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_else(|| archive.display().to_string()),
+            max_bytes: limits.max_bytes,
+            max_entries: limits.max_entries,
+            free: (limits.free_space)(tmp_root),
+            bytes: 0,
+            entries: 0,
+        }
+    }
+
+    /// Fails unless an archive of `entries` entries that expands to `bytes` fits. For a
+    /// zip, whose directory lists both before anything is extracted.
+    fn check_declared(&self, entries: u64, bytes: u64) -> Result<(), Error> {
+        self.check_entries(entries)?;
+        self.check_bytes(bytes, false)
+    }
+
+    /// Counts one more entry.
+    fn add_entry(&mut self) -> Result<(), Error> {
+        self.entries += 1;
+        self.check_entries(self.entries)
+    }
+
+    /// Counts `bytes` more, before they are written.
+    fn add_bytes(&mut self, bytes: u64) -> Result<(), Error> {
+        self.bytes = self.bytes.saturating_add(bytes);
+        self.check_bytes(self.bytes, true)
+    }
+
+    fn check_entries(&self, entries: u64) -> Result<(), Error> {
+        if entries > self.max_entries {
+            return Err(Error {
+                kind: ErrorKind::BadRequest,
+                source: eyre!(
+                    "{} has more than {} files and folders, the most Lodestone extracts from one archive",
+                    self.archive_name,
+                    self.max_entries
+                ),
+            });
+        }
+        Ok(())
+    }
+
+    /// `so_far` when `bytes` counts what was extracted so far, so the archive needs more.
+    fn check_bytes(&self, bytes: u64, so_far: bool) -> Result<(), Error> {
+        use crate::backups::store::{format_bytes, FREE_SPACE_MARGIN};
+        if bytes > self.max_bytes {
+            return Err(Error {
+                kind: ErrorKind::BadRequest,
+                source: eyre!(
+                    "{} expands to more than {}, the most Lodestone extracts from one archive",
+                    self.archive_name,
+                    format_bytes(self.max_bytes)
+                ),
+            });
+        }
+        let needed = bytes.saturating_add(FREE_SPACE_MARGIN);
+        match self.free {
+            Some(free) if free < needed => Err(Error {
+                kind: ErrorKind::Conflict,
+                source: eyre!(
+                    "Not enough free disk space to extract {}: {}{} needed, {} free",
+                    self.archive_name,
+                    if so_far { "more than " } else { "" },
+                    format_bytes(needed),
+                    format_bytes(free)
+                ),
+            }),
+            _ => Ok(()),
+        }
+    }
+}
+
+/// Copies `reader` into `writer`, counting every chunk against `budget` before writing it.
+fn copy_within_budget(
+    reader: &mut impl std::io::Read,
+    writer: &mut impl Write,
+    budget: &mut UnzipBudget,
+) -> Result<(), Error> {
+    let mut buffer = vec![0_u8; 64 * 1024];
+    loop {
+        let read = reader
+            .read(&mut buffer)
+            .context(format!("Failed to decompress file {}", budget.archive_name))?;
+        if read == 0 {
+            return Ok(());
+        }
+        budget.add_bytes(read as u64)?;
+        writer
+            .write_all(&buffer[..read])
+            .context("Failed to write an extracted file")?;
+    }
+}
+
+/// Extracts a zip into the empty folder `dest`, entry by entry, keeping to `budget`.
+/// Entries whose paths would lead out of `dest` are refused. Symbolic links are written as
+/// files holding the link's target, as zip 0.6 did, so nothing extracted points anywhere.
+fn extract_zip(
+    archive: &mut zip::ZipArchive<std::fs::File>,
+    file: &Path,
+    dest: &Path,
+    budget: &mut UnzipBudget,
+) -> Result<(), Error> {
+    let decompress_error = || format!("Failed to decompress file {}", file.display());
+    // the directory lists every entry's size, and zip refuses to read more than that
+    let declared = archive
+        .decompressed_size()
+        .map_or(u64::MAX, |size| u64::try_from(size).unwrap_or(u64::MAX));
+    budget.check_declared(archive.len() as u64, declared)?;
+    for i in 0..archive.len() {
+        budget.add_entry()?;
+        let mut entry = archive.by_index(i).with_context(decompress_error)?;
+        let relative = entry.enclosed_name().ok_or_else(|| Error {
+            kind: ErrorKind::BadRequest,
+            source: eyre!(
+                "{} has an entry with an unsafe path ({})",
+                budget.archive_name,
+                String::from_utf8_lossy(entry.name_raw())
+            ),
+        })?;
+        let out_path = dest.join(&relative);
+        if entry.is_dir() {
+            std::fs::create_dir_all(&out_path)
+                .context(format!("Failed to create {}", relative.display()))?;
+            continue;
+        }
+        if let Some(parent) = out_path.parent() {
+            std::fs::create_dir_all(parent)
+                .context(format!("Failed to create {}", relative.display()))?;
+        }
+        let mut out_file = std::fs::File::create(&out_path)
+            .context(format!("Failed to create {}", relative.display()))?;
+        copy_within_budget(&mut entry, &mut out_file, budget)?;
+        // the archive's permissions (a script stays runnable), but always readable and
+        // writable by Lodestone, which moves, copies and deletes the files later
+        #[cfg(unix)]
+        if let Some(mode) = entry.unix_mode() {
+            use std::os::unix::fs::PermissionsExt;
+            out_file
+                .set_permissions(std::fs::Permissions::from_mode((mode & 0o777) | 0o600))
+                .context(format!(
+                    "Failed to set permissions of {}",
+                    relative.display()
+                ))?;
+        }
+    }
+    Ok(())
+}
+
+/// Extracts a tar archive into the empty folder `dest`, entry by entry, keeping to
+/// `budget`. A tar archive has no directory, so each entry is counted as it comes: its
+/// header gives its size, which `tar` writes exactly. Folders are made last, as
+/// [`Archive::unpack`] makes them, so a read-only folder can't block what goes in it.
+fn extract_tar<R: std::io::Read>(
+    archive: &mut Archive<R>,
+    file: &Path,
+    dest: &Path,
+    budget: &mut UnzipBudget,
+) -> Result<(), Error> {
+    let decompress_error = || format!("Failed to decompress file {}", file.display());
+    // as `Archive::unpack` does, for paths longer than 260 characters on Windows
+    let dest = dest.canonicalize().unwrap_or_else(|_| dest.to_path_buf());
+    let mut directories = Vec::new();
+    for entry in archive.entries().with_context(decompress_error)? {
+        let mut entry = entry.with_context(decompress_error)?;
+        budget.add_entry()?;
+        if entry.header().entry_type() == tar::EntryType::Directory {
+            directories.push(entry);
+            continue;
+        }
+        budget.add_bytes(entry.size())?;
+        entry.unpack_in(&dest).with_context(decompress_error)?;
+    }
+    directories.sort_by(|a, b| b.path_bytes().cmp(&a.path_bytes()));
+    for mut directory in directories {
+        directory.unpack_in(&dest).with_context(decompress_error)?;
+    }
+    Ok(())
+}
+
+/// Like [`unzip_file_in`], keeping to `limits`.
+fn unzip_file_limited(
+    file: &Path,
+    unzip_option: UnzipOption,
+    tmp_root: &Path,
+    check_entry: Option<&UnzipEntryCheck>,
+    limits: &UnzipLimits,
 ) -> Result<HashSet<PathBuf>, Error> {
     if !file.exists() {
         return Err(eyre!("File {} does not exist", file.display()).into());
@@ -278,6 +527,7 @@ fn unzip_file_in(
         "Failed to create temporary directory for unzipping. Please make sure you have enough space in your disk",
     )?;
     let temp_dest = temp_dest_dir.path();
+    let mut budget = UnzipBudget::new(file, tmp_root, limits);
 
     if file_extension == "gz" || file_extension == "tgz" {
         let tar_gz =
@@ -285,23 +535,13 @@ fn unzip_file_in(
         let tar = GzDecoder::new(tar_gz);
         let mut archive = Archive::new(tar);
         archive.set_overwrite(true);
-        archive
-            .unpack(temp_dest)
-            .context(format!("Failed to decompress file {}", file.display()))?;
+        extract_tar(&mut archive, file, temp_dest, &mut budget)?;
     } else if file_extension == "zip" {
         let zip =
             std::fs::File::open(file).context(format!("Failed to open file {}", file.display()))?;
         let mut archive = zip::ZipArchive::new(zip)
             .context(format!("Failed to decompress file {}", file.display()))?;
-        // zip >= 2 creates real symlinks (and rejects ones pointing outside the
-        // destination); keep the zip 0.6 behaviour of writing them as regular files.
-        archive
-            .extract_with_options(
-                temp_dest,
-                zip::read::ExtractOptions::default()
-                    .symlink_action(zip::read::SymlinkExtractAction::ExtractAsFile),
-            )
-            .context(format!("Failed to decompress file {}", file.display()))?;
+        extract_zip(&mut archive, file, temp_dest, &mut budget)?;
     }
 
     if let Some(check_entry) = check_entry {
@@ -735,9 +975,11 @@ pub fn cpu_and_memory_system() -> sysinfo::System {
 
 #[cfg(test)]
 mod tests {
+    use crate::error::ErrorKind;
     use crate::util::{
-        file_name_from_content_disposition, resolve_path_conflict, unzip_file_in, zip_files_in,
-        UnzipOption,
+        file_name_from_content_disposition, resolve_path_conflict, unzip_file_in,
+        unzip_file_limited, zip_files_in, UnzipLimits, UnzipOption, MAX_UNZIP_BYTES,
+        MAX_UNZIP_ENTRIES,
     };
     use color_eyre::eyre::eyre;
     use std::collections::HashSet;
@@ -885,6 +1127,233 @@ mod tests {
             .contains(&Path::new("sample").join("sample.exe")));
         // the temporary extraction folder was cleaned up
         assert_eq!(std::fs::read_dir(tmp.path()).unwrap().count(), 0);
+    }
+
+    /// A zip of `entries`, each `(name, contents, unix mode)`.
+    fn write_zip(path: &Path, entries: &[(&str, &[u8], u32)]) {
+        use std::io::Write;
+        let mut writer = zip::ZipWriter::new(std::fs::File::create(path).unwrap());
+        for (name, contents, mode) in entries {
+            let options = zip::write::SimpleFileOptions::default()
+                .compression_method(zip::CompressionMethod::Deflated)
+                .unix_permissions(*mode);
+            writer.start_file(*name, options).unwrap();
+            writer.write_all(contents).unwrap();
+        }
+        writer.finish().unwrap();
+    }
+
+    /// A gzipped tar of `entries`, each `(name, contents)`.
+    fn write_tar_gz(path: &Path, entries: &[(&str, &[u8])]) {
+        let encoder = flate2::write::GzEncoder::new(
+            std::fs::File::create(path).unwrap(),
+            flate2::Compression::default(),
+        );
+        let mut builder = tar::Builder::new(encoder);
+        for (name, contents) in entries {
+            let mut header = tar::Header::new_gnu();
+            header.set_size(contents.len() as u64);
+            header.set_mode(0o644);
+            header.set_cksum();
+            builder.append_data(&mut header, name, *contents).unwrap();
+        }
+        builder.into_inner().unwrap().finish().unwrap();
+    }
+
+    fn limits(max_bytes: u64, max_entries: u64) -> UnzipLimits {
+        UnzipLimits {
+            max_bytes,
+            max_entries,
+            free_space: |_| None,
+        }
+    }
+
+    /// A small archive that expands past the limit (a zip bomb) is refused while it is
+    /// extracted, and nothing reaches the destination or stays in the temporary folder
+    /// (LS-87). Before, archives were extracted in full, however big.
+    #[test]
+    fn an_archive_that_expands_past_the_limit_is_refused() {
+        let temp = tempfile::tempdir().unwrap();
+        let tmp = temp.path().join("tmp");
+        let dest = temp.path().join("dest");
+        let zeros = vec![0_u8; 4_000_000];
+
+        let zip = temp.path().join("bomb.zip");
+        write_zip(&zip, &[("zeros.bin", &zeros, 0o644)]);
+        assert!(std::fs::metadata(&zip).unwrap().len() < 100_000);
+        let error = unzip_file_limited(
+            &zip,
+            UnzipOption::ToDir(dest.clone()),
+            &tmp,
+            None,
+            &limits(1_000_000, 100),
+        )
+        .unwrap_err();
+        assert!(matches!(error.kind, ErrorKind::BadRequest));
+        assert!(error
+            .to_string()
+            .contains("bomb.zip expands to more than 1.0 MB"));
+
+        // a tar.gz has no directory, so it is stopped at the entry that goes past
+        let tar_gz = temp.path().join("bomb.tar.gz");
+        write_tar_gz(
+            &tar_gz,
+            &[("a.bin", &zeros[..600_000]), ("b.bin", &zeros[..600_000])],
+        );
+        let error = unzip_file_limited(
+            &tar_gz,
+            UnzipOption::ToDir(dest.clone()),
+            &tmp,
+            None,
+            &limits(1_000_000, 100),
+        )
+        .unwrap_err();
+        assert!(matches!(error.kind, ErrorKind::BadRequest));
+        assert!(error.to_string().contains("bomb.tar.gz expands to more"));
+
+        assert!(!dest.exists());
+        assert_eq!(std::fs::read_dir(&tmp).unwrap().count(), 0);
+
+        // within the limit, both extract
+        let unzipped = unzip_file_limited(
+            &tar_gz,
+            UnzipOption::ToDir(dest.clone()),
+            &tmp,
+            None,
+            &limits(1_200_000, 100),
+        )
+        .unwrap();
+        assert_eq!(unzipped.len(), 2);
+        assert_eq!(
+            std::fs::metadata(dest.join("b.bin")).unwrap().len(),
+            600_000
+        );
+        unzip_file_limited(
+            &zip,
+            UnzipOption::ToDir(dest.clone()),
+            &tmp,
+            None,
+            &limits(4_000_000, 100),
+        )
+        .unwrap();
+        assert_eq!(
+            std::fs::metadata(dest.join("zeros.bin")).unwrap().len(),
+            4_000_000
+        );
+    }
+
+    /// An archive that would leave the disk with less than the margin free is refused,
+    /// for a zip before anything is extracted (LS-87).
+    #[test]
+    fn an_archive_that_does_not_fit_on_the_disk_is_refused() {
+        use crate::backups::store::FREE_SPACE_MARGIN;
+        let temp = tempfile::tempdir().unwrap();
+        let tmp = temp.path().join("tmp");
+        let dest = temp.path().join("dest");
+        let zip = temp.path().join("world.zip");
+        write_zip(&zip, &[("level.dat", &[7_u8; 5000], 0o644)]);
+        let tar_gz = temp.path().join("world.tar.gz");
+        write_tar_gz(&tar_gz, &[("level.dat", &[7_u8; 5000])]);
+        let nearly_full = UnzipLimits {
+            free_space: |_| Some(FREE_SPACE_MARGIN + 4000),
+            ..limits(MAX_UNZIP_BYTES, MAX_UNZIP_ENTRIES)
+        };
+        for archive in [&zip, &tar_gz] {
+            let error = unzip_file_limited(
+                archive,
+                UnzipOption::ToDir(dest.clone()),
+                &tmp,
+                None,
+                &nearly_full,
+            )
+            .unwrap_err();
+            assert!(matches!(error.kind, ErrorKind::Conflict), "{error}");
+            assert!(
+                error.to_string().contains("Not enough free disk space"),
+                "{error}"
+            );
+        }
+        assert!(!dest.exists());
+        let roomy = UnzipLimits {
+            free_space: |_| Some(FREE_SPACE_MARGIN + 6000),
+            ..limits(MAX_UNZIP_BYTES, MAX_UNZIP_ENTRIES)
+        };
+        for archive in [&zip, &tar_gz] {
+            unzip_file_limited(
+                archive,
+                UnzipOption::ToDir(dest.clone()),
+                &tmp,
+                None,
+                &roomy,
+            )
+            .unwrap();
+        }
+        assert_eq!(std::fs::read_dir(&dest).unwrap().count(), 2);
+    }
+
+    /// Archives with too many entries are refused (LS-87).
+    #[test]
+    fn an_archive_with_too_many_entries_is_refused() {
+        let temp = tempfile::tempdir().unwrap();
+        let tmp = temp.path().join("tmp");
+        let dest = temp.path().join("dest");
+        let zip = PathBuf::from("testdata/sample.zip");
+        let tar_gz = temp.path().join("many.tar.gz");
+        write_tar_gz(&tar_gz, &[("a", b""), ("b", b""), ("c", b"")]);
+        for archive in [&zip, &tar_gz] {
+            let error = unzip_file_limited(
+                archive,
+                UnzipOption::ToDir(dest.clone()),
+                &tmp,
+                None,
+                &limits(MAX_UNZIP_BYTES, 2),
+            )
+            .unwrap_err();
+            assert!(matches!(error.kind, ErrorKind::BadRequest));
+            assert!(error.to_string().contains("more than 2 files and folders"));
+        }
+        assert!(!dest.exists());
+    }
+
+    /// Extracting a zip entry by entry still refuses paths that lead out of the folder,
+    /// and keeps a script runnable while every file stays readable (LS-87).
+    #[test]
+    fn zip_entries_stay_inside_and_keep_their_permissions() {
+        let temp = tempfile::tempdir().unwrap();
+        let tmp = temp.path().join("tmp");
+        let dest = temp.path().join("dest");
+        let evil = temp.path().join("evil.zip");
+        write_zip(
+            &evil,
+            &[("ok.txt", b"ok", 0o644), ("../../evil.txt", b"x", 0o644)],
+        );
+        assert!(unzip_file_in(&evil, UnzipOption::ToDir(dest.clone()), &tmp, None).is_err());
+        assert!(!temp.path().join("evil.txt").exists());
+        assert!(!dest.exists());
+
+        let zip = temp.path().join("pack.zip");
+        write_zip(
+            &zip,
+            &[
+                ("pack/start.sh", b"echo", 0o755),
+                ("pack/locked.txt", b"locked", 0o000),
+            ],
+        );
+        unzip_file_in(&zip, UnzipOption::ToDir(dest.clone()), &tmp, None).unwrap();
+        assert_eq!(read(dest.join("pack/locked.txt")), "locked");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = |name: &str| {
+                std::fs::metadata(dest.join(name))
+                    .unwrap()
+                    .permissions()
+                    .mode()
+                    & 0o777
+            };
+            assert_eq!(mode("pack/start.sh"), 0o755);
+            assert_eq!(mode("pack/locked.txt"), 0o600);
+        }
     }
 
     #[test]
