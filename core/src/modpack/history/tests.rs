@@ -374,3 +374,199 @@ fn old_entries_and_their_stored_files_go() {
     let kept = object_path(root, &sha1_hex(b"config 3")).unwrap();
     assert!(kept.is_file());
 }
+
+/// Restores entry `id` as the update handler does: the entry's files, and the user's own
+/// files that later versions replaced, which stay out of the record.
+async fn restore(root: &Path, fake: &FakeModrinth, history: &mut History, id: u32) -> u32 {
+    let mut files = history.files_of(root, id, false).unwrap();
+    let theirs = history.user_files_after(root, id, false);
+    for (path, file) in &theirs {
+        files.entry(path.clone()).or_insert_with(|| file.clone());
+    }
+    let old = PackRecord::load(root).await.unwrap();
+    let mut plan = plan_files(root, &old, &files);
+    for path in theirs.keys() {
+        plan.record.files.remove(path);
+    }
+    stage_files(fake, None, &files, &plan, root, false, &|_| {})
+        .await
+        .unwrap();
+    place_files(root, &plan).unwrap();
+    plan.record.save(root).await.unwrap();
+    let entry = entry_for(
+        HistoryKind::Restore { to: id },
+        origin("1"),
+        "1.20.1".into(),
+        fabric(),
+        &old,
+        &plan,
+    );
+    let restored = history.record_change(root, &plan, &files, entry);
+    history.save(root).await.unwrap();
+    remove_work_dirs(root).await;
+    restored
+}
+
+/// LS-98: an update that ships a mod at the path of one of the user's own replaces it,
+/// and going back to the version before puts the user's mod back.
+#[tokio::test]
+async fn restoring_puts_back_the_users_file_an_update_replaced() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let fake = FakeModrinth::default();
+    let mut history = install(root, &fake).await;
+    write(root, "mods/sodium.jar", b"mine");
+
+    let url = format!("{CDN}/s/versions/v2/sodium.jar");
+    fake.add_file(&url, b"the pack's".to_vec());
+    let keep_url = format!("{CDN}/k/versions/v1/keep.jar");
+    let v2 = pack(
+        index(
+            vec![
+                file_entry("mods/keep.jar", b"keep", None, &keep_url),
+                file_entry("mods/sodium.jar", b"the pack's", None, &url),
+            ],
+            json!({"minecraft": "1.20.1", "fabric-loader": "0.15.11"}),
+        ),
+        &[],
+    );
+    let new = pack_files(&read_pack(&v2.path, false).unwrap(), &v2.path, false).unwrap();
+    let update = change_to(
+        root,
+        &fake,
+        &mut history,
+        &new,
+        Some(&v2.path),
+        HistoryKind::Update,
+        "2",
+    )
+    .await;
+    assert_eq!(
+        read_file(root, "mods/sodium.jar").as_deref(),
+        Some(&b"the pack's"[..])
+    );
+    // the user's mod can't be downloaded, so it was stored
+    assert!(object_path(root, &sha1_hex(b"mine")).unwrap().is_file());
+
+    // back to version 1: the user's mod comes back, and stays theirs
+    let back = restore(root, &fake, &mut history, 1).await;
+    assert_eq!(
+        read_file(root, "mods/sodium.jar").as_deref(),
+        Some(&b"mine"[..])
+    );
+    assert_eq!(read_file(root, "mods/a-1.jar").as_deref(), Some(&b"a1"[..]));
+    let record = PackRecord::load(root).await.unwrap();
+    assert!(!record.files.contains_key("mods/sodium.jar"));
+    assert!(!history
+        .entry(back)
+        .unwrap()
+        .files
+        .contains_key("mods/sodium.jar"));
+
+    // forward to version 2 again: the pack's mod replaces the user's once more
+    restore(root, &fake, &mut history, update).await;
+    assert_eq!(
+        read_file(root, "mods/sodium.jar").as_deref(),
+        Some(&b"the pack's"[..])
+    );
+    // and back: still the user's
+    restore(root, &fake, &mut history, 1).await;
+    assert_eq!(
+        read_file(root, "mods/sodium.jar").as_deref(),
+        Some(&b"mine"[..])
+    );
+}
+
+/// LS-98: a file the user put at that path since stays: only the pack's file, or
+/// nothing, is replaced by the user's old one.
+#[tokio::test]
+async fn restoring_leaves_a_users_newer_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let fake = FakeModrinth::default();
+    let mut history = install(root, &fake).await;
+    write(root, "mods/sodium.jar", b"mine");
+    let url = format!("{CDN}/s/versions/v2/sodium.jar");
+    fake.add_file(&url, b"the pack's".to_vec());
+    let v2 = pack(
+        index(
+            vec![file_entry("mods/sodium.jar", b"the pack's", None, &url)],
+            json!({"minecraft": "1.20.1", "fabric-loader": "0.15.11"}),
+        ),
+        &[],
+    );
+    let new = pack_files(&read_pack(&v2.path, false).unwrap(), &v2.path, false).unwrap();
+    change_to(
+        root,
+        &fake,
+        &mut history,
+        &new,
+        Some(&v2.path),
+        HistoryKind::Update,
+        "2",
+    )
+    .await;
+    // the user replaces the pack's mod with another of their own
+    write(root, "mods/sodium.jar", b"newer");
+    restore(root, &fake, &mut history, 1).await;
+    assert_eq!(
+        read_file(root, "mods/sodium.jar").as_deref(),
+        Some(&b"newer"[..])
+    );
+}
+
+/// LS-99: a baseline without files (a server that had no record of them) can't be
+/// restored: restoring it would remove every file of the pack.
+#[test]
+fn a_baseline_without_files_cannot_be_restored() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let mut history = History::default();
+    history.push(
+        root,
+        entry_as_is(
+            HistoryKind::Baseline,
+            origin("1"),
+            "1.20.1".into(),
+            fabric(),
+            &PackRecord::default(),
+        ),
+    );
+    let record = PackRecord {
+        files: BTreeMap::from([(
+            "mods/a.jar".into(),
+            RecordedFile {
+                sha1: sha1_hex(b"a"),
+                from_overrides: false,
+                project_id: None,
+            },
+        )]),
+    };
+    history.push(
+        root,
+        entry_as_is(
+            HistoryKind::Update,
+            origin("2"),
+            "1.20.1".into(),
+            fabric(),
+            &record,
+        ),
+    );
+    assert!(history.entry(1).unwrap().files_unknown());
+    assert!(!history.entry(2).unwrap().files_unknown());
+    let info = history.info(root, None);
+    assert_eq!(info.entries[1].id, 1);
+    assert_eq!(info.entries[1].missing, 1);
+
+    // and a server without a record gets no baseline at all
+    let mut history = History::default();
+    history.begin_with_baseline(&origin("1"), "1.20.1", &fabric(), &PackRecord::default());
+    assert!(history.entries.is_empty());
+    history.begin_with_baseline(&origin("1"), "1.20.1", &fabric(), &record);
+    assert_eq!(history.entries.len(), 1);
+    assert_eq!(history.entries[0].id, 1);
+    assert_eq!(history.entries[0].kind, HistoryKind::Baseline);
+    // only an empty history gets one
+    history.begin_with_baseline(&origin("1"), "1.20.1", &fabric(), &record);
+    assert_eq!(history.entries.len(), 1);
+}

@@ -26,7 +26,7 @@ export type HistoryEntryInfo = {
   current: boolean;
   /**
    * How many of its files Lodestone can't get back: it can only be restored when
-   * this is 0.
+   * this is 0. 1 for a baseline whose files Lodestone never knew.
    */
   missing: number;
   /**

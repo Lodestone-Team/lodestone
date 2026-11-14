@@ -105,6 +105,14 @@ pub struct HistoryEntry {
     pub changelog: Option<String>,
 }
 
+impl HistoryEntry {
+    /// Whether Lodestone never knew this entry's files: a baseline of a server that had
+    /// no record of its pack's files. Restoring it would remove them all.
+    pub fn files_unknown(&self) -> bool {
+        self.kind == HistoryKind::Baseline && self.files.is_empty()
+    }
+}
+
 /// How to get a file back.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct FileRef {
@@ -251,6 +259,31 @@ impl History {
         id
     }
 
+    /// Adds a baseline entry for what a server made before histories has (`record`, from
+    /// the pack `origin`), when the history is empty. Not when the record has no files:
+    /// the server had no record of its pack's files, and restoring a baseline without
+    /// them would remove them all.
+    pub fn begin_with_baseline(
+        &mut self,
+        origin: &ModpackOrigin,
+        game_version: &str,
+        flavour: &Flavour,
+        record: &PackRecord,
+    ) {
+        if !self.entries.is_empty() || record.files.is_empty() {
+            return;
+        }
+        let mut baseline = entry_as_is(
+            HistoryKind::Baseline,
+            origin.clone(),
+            game_version.to_string(),
+            flavour.clone(),
+            record,
+        );
+        baseline.id = 1;
+        self.entries.push(baseline);
+    }
+
     /// Adds the change `plan` made (after its files are placed, before the update's
     /// snapshot is removed): keeps the files it took off the server that can't be
     /// downloaded again, remembers where the new ones come from, and adds `entry`.
@@ -349,36 +382,13 @@ impl History {
         allow_scripts: bool,
     ) -> Option<BTreeMap<String, PackFile>> {
         let entry = self.entry(id)?;
-        let policy = InstancePathPolicy { allow_scripts };
         let mut files = BTreeMap::new();
         for (path, recorded) in &entry.files {
-            let Some(relative) = record_path(path) else {
+            let Some(relative) = restorable_path(path, allow_scripts) else {
                 continue;
             };
-            let components: Vec<String> = relative
-                .components()
-                .map(|c| c.as_os_str().to_string_lossy().into_owned())
-                .collect();
-            let components: Vec<&str> = components.iter().map(String::as_str).collect();
-            if policy.skip_reason(&relative, &components, false).is_some() {
-                continue;
-            }
             let sha1 = recorded.sha1.to_lowercase();
-            let known = self.files.get(&sha1);
-            let stored = known
-                .filter(|k| k.stored)
-                .and_then(|_| object_path(root, &sha1))
-                .filter(|p| p.is_file());
-            let download = known.and_then(|k| {
-                let (urls, sha512) = k.download_urls()?;
-                Some(PackDownload {
-                    path: relative.clone(),
-                    urls,
-                    sha1: sha1.clone(),
-                    sha512,
-                    size: k.size,
-                })
-            });
+            let (stored, download) = self.sources(root, &relative, &sha1);
             files.insert(
                 path.clone(),
                 PackFile {
@@ -392,6 +402,101 @@ impl History {
         }
         Some(files)
     }
+
+    /// The user's own files that changes after entry `id` replaced or removed at paths
+    /// the entry doesn't have (a mod of theirs that a later version of the pack shipped
+    /// at the same path), which restoring the entry puts back. For each path, the file the
+    /// first such change took, when Lodestone can still get it.
+    ///
+    /// They are listed as overrides, so a restore only puts one back over the pack's file
+    /// or where there is nothing: a file of the user's that is there now stays. They are
+    /// the user's, not the pack's: leave them out of the restore's record
+    /// ([`FilePlan::record`]).
+    pub fn user_files_after(
+        &self,
+        root: &Path,
+        id: u32,
+        allow_scripts: bool,
+    ) -> BTreeMap<String, PackFile> {
+        let Some(index) = self.entries.iter().position(|e| e.id == id) else {
+            return BTreeMap::new();
+        };
+        let entry = &self.entries[index];
+        let mut seen: BTreeSet<&str> = BTreeSet::new();
+        let mut files = BTreeMap::new();
+        for later in &self.entries[index + 1..] {
+            for change in &later.changes {
+                if entry.files.contains_key(&change.path) || !seen.insert(change.path.as_str()) {
+                    continue;
+                }
+                let (ChangeAction::Replaced | ChangeAction::Removed, Some(sha1)) =
+                    (change.action, &change.old_sha1)
+                else {
+                    continue;
+                };
+                let Some(relative) = restorable_path(&change.path, allow_scripts) else {
+                    continue;
+                };
+                let sha1 = sha1.to_lowercase();
+                let (stored, download) = self.sources(root, &relative, &sha1);
+                if stored.is_none() && download.is_none() {
+                    continue;
+                }
+                files.insert(
+                    change.path.clone(),
+                    PackFile {
+                        sha1,
+                        download,
+                        from_overrides: true,
+                        project_id: None,
+                        stored,
+                    },
+                );
+            }
+        }
+        files
+    }
+
+    /// Where the bytes of the file with `sha1` (lowercase) can come from: its stored copy,
+    /// and its download to `relative`.
+    fn sources(
+        &self,
+        root: &Path,
+        relative: &Path,
+        sha1: &str,
+    ) -> (Option<PathBuf>, Option<PackDownload>) {
+        let known = self.files.get(sha1);
+        let stored = known
+            .filter(|k| k.stored)
+            .and_then(|_| object_path(root, sha1))
+            .filter(|p| p.is_file());
+        let download = known.and_then(|k| {
+            let (urls, sha512) = k.download_urls()?;
+            Some(PackDownload {
+                path: relative.to_path_buf(),
+                urls,
+                sha1: sha1.to_string(),
+                sha512,
+                size: k.size,
+            })
+        });
+        (stored, download)
+    }
+}
+
+/// `path` from the history as a path a restore may write: one a pack could write
+/// ([`record_path`]), and not a script unless `allow_scripts`.
+fn restorable_path(path: &str, allow_scripts: bool) -> Option<PathBuf> {
+    let relative = record_path(path)?;
+    let components: Vec<String> = relative
+        .components()
+        .map(|c| c.as_os_str().to_string_lossy().into_owned())
+        .collect();
+    let components: Vec<&str> = components.iter().map(String::as_str).collect();
+    InstancePathPolicy { allow_scripts }
+        .skip_reason(&relative, &components, false)
+        .is_none()
+        .then_some(relative)
 }
 
 /// An entry for an install, update or restore that `plan` describes, from `old` (the
@@ -511,7 +616,7 @@ pub struct HistoryEntryInfo {
     /// The server is at this entry.
     pub current: bool,
     /// How many of its files Lodestone can't get back: it can only be restored when
-    /// this is 0.
+    /// this is 0. 1 for a baseline whose files Lodestone never knew.
     pub missing: u32,
     /// What the modpack's author wrote about this version (Markdown).
     pub changelog: Option<String>,
@@ -631,13 +736,17 @@ impl History {
             .iter()
             .rev()
             .map(|entry| {
-                let missing = entry
-                    .files
-                    .iter()
-                    .filter(|(path, file)| {
-                        !self.can_get_back(root, &file.sha1) && needs_bytes(path, file)
-                    })
-                    .count() as u32;
+                let missing = if entry.files_unknown() {
+                    1
+                } else {
+                    entry
+                        .files
+                        .iter()
+                        .filter(|(path, file)| {
+                            !self.can_get_back(root, &file.sha1) && needs_bytes(path, file)
+                        })
+                        .count() as u32
+                };
                 HistoryEntryInfo {
                     id: entry.id,
                     time: entry.time,
