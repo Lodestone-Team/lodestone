@@ -240,11 +240,11 @@ fn settings_files_and_older_formats_are_live() {
     image.seal();
     store.save_manifest("one", &image).unwrap();
     age_all(&store);
-    let mut options = now_options();
-    options.also_live.insert(legacy.sha256.clone());
-    let report = store.gc(&options).unwrap();
+    let options = now_options();
+    let report = store
+        .gc_with_older_formats(&options, || Ok(HashSet::from([legacy.sha256.clone()])))
+        .unwrap();
     assert_eq!(report.objects_removed, 0, "{report:?}");
-    options.also_live.clear();
     let report = store.gc(&options).unwrap();
     assert_eq!(report.objects_removed, 1);
     assert!(store.has_object(&icon.sha256, 3));
@@ -286,6 +286,30 @@ fn old_temp_files_go_young_ones_stay() {
     assert_eq!(report.temp_removed, 1);
     assert!(!old.exists());
     assert!(young.exists());
+}
+
+/// The Launcher's snapshot store's objects in flight, which its own collector swept once a
+/// day old, go once a day old too: nothing else sweeps them once the guard is in place.
+#[test]
+fn the_launchers_stale_objects_in_flight_go() {
+    let (_dir, store) = store(Encoding::Raw);
+    let sha256 = sha256_hex(b"a world region");
+    let folder = store.area_dir(Area::Objects).join(&sha256[..2]);
+    fs::create_dir_all(&folder).unwrap();
+    let make = |name: &str, seconds: u64| {
+        let path = folder.join(name);
+        fs::write(&path, b"part of a file").unwrap();
+        age(&path, seconds);
+        path
+    };
+    let stale = make(&format!(".{sha256}.0123456789abcdef"), 25 * 3600);
+    let stale_import = make(&format!(".{sha256}.import"), 25 * 3600);
+    let recent = make(&format!(".{sha256}.fedcba9876543210"), 7200);
+    let other = make(".not-a-store-file", 25 * 3600);
+    let removed = store.sweep_temp(TEMP_MAX_AGE);
+    assert_eq!(removed, 2);
+    assert!(!stale.exists() && !stale_import.exists());
+    assert!(recent.exists() && other.exists());
 }
 
 #[test]
@@ -405,7 +429,7 @@ fn a_wrong_size_doesnt_block_chunk_collection() {
 /// An object only an older format names (no size known) that the store keeps as a chunk
 /// list (stored again after its whole copy was damaged and removed) keeps its chunks.
 #[test]
-fn an_also_live_chunk_list_keeps_its_chunks() {
+fn an_older_formats_chunk_list_keeps_its_chunks() {
     for encoding in encodings() {
         let (_dir, store) = store(encoding);
         let big = region_like(11, 3 << 20);
@@ -419,10 +443,14 @@ fn an_also_live_chunk_list_keeps_its_chunks() {
             .put_bytes(b"lodestone-chunks 1\nsize 2000000\nnot really")
             .unwrap();
         age_all(&store);
-        let mut options = now_options();
-        options.also_live.insert(stored.sha256.clone());
-        options.also_live.insert(lookalike.sha256.clone());
-        let report = store.gc(&options).unwrap();
+        let report = store
+            .gc_with_older_formats(&now_options(), || {
+                Ok(HashSet::from([
+                    stored.sha256.clone(),
+                    lookalike.sha256.clone(),
+                ]))
+            })
+            .unwrap();
         assert_eq!(
             (report.objects_removed, report.chunks_removed),
             (0, 0),
@@ -592,4 +620,132 @@ fn marking_keeps_each_object_once() {
     assert_eq!(report.manifests, 25);
     assert_eq!(sizes.len(), 40 + 25);
     assert!(sizes.values().all(|named| named.len() == 1));
+}
+
+/// What an older format's writer does (the Launcher's snapshot store): stores a file by
+/// cloning it, which keeps the source's old time, and saves a manifest naming it, without
+/// touching anything. Returns the object's path.
+fn older_format_write(store: &Store, bytes: &[u8]) -> std::path::PathBuf {
+    let sha256 = sha256_hex(bytes);
+    let folder = store.area_dir(Area::Objects).join(&sha256[..2]);
+    fs::create_dir_all(&folder).unwrap();
+    let object = folder.join(&sha256);
+    fs::write(&object, bytes).unwrap();
+    age(&object, 400 * 24 * 3600);
+    let manifests = store.root().join("instances").join("inst");
+    fs::create_dir_all(&manifests).unwrap();
+    fs::write(manifests.join("1.json"), &sha256).unwrap();
+    object
+}
+
+/// What the caller's reader of older manifests does: here each names one object.
+fn read_older_manifests(store: &Store) -> Result<HashSet<String>, GcError> {
+    let mut live = HashSet::new();
+    let Ok(folders) = fs::read_dir(store.root().join("instances")) else {
+        return Ok(live);
+    };
+    for folder in folders.flatten() {
+        if folder.file_name() == crate::store::guard::GUARD_FOLDER {
+            continue;
+        }
+        for file in fs::read_dir(folder.path()).unwrap().flatten() {
+            live.insert(fs::read_to_string(file.path()).unwrap());
+        }
+    }
+    Ok(live)
+}
+
+/// A collection that starts while an older format's writer holds it off waits, and reads
+/// the older manifests only once that writer saved its manifest: the object it stored
+/// (with an old time, never touched) stays, though nothing named it when the collection
+/// was asked for.
+#[test]
+fn a_collection_waits_for_writers_that_dont_claim() {
+    let (_dir, store) = store(Encoding::Raw);
+    store.put_bytes(b"x").unwrap();
+    let saved = std::sync::atomic::AtomicBool::new(false);
+    let hold = store.hold_off_collection().unwrap();
+    std::thread::scope(|scope| {
+        let collection = scope.spawn(|| {
+            store.gc_with_older_formats(&GcOptions::default(), || {
+                assert!(
+                    saved.load(std::sync::atomic::Ordering::SeqCst),
+                    "the older manifests were read while a writer held collections off"
+                );
+                read_older_manifests(&store)
+            })
+        });
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(
+            !collection.is_finished(),
+            "a collection ran while a writer held it off"
+        );
+        let object = older_format_write(&store, b"sodium.jar, cloned with its old time");
+        saved.store(true, std::sync::atomic::Ordering::SeqCst);
+        drop(hold);
+        let report = collection.join().unwrap().unwrap();
+        assert_eq!(report.objects_removed, 0, "{report:?}");
+        assert!(object.exists(), "the new snapshot's object was collected");
+    });
+
+    // Without the writer's manifest, the same old object is garbage: the hold is what kept
+    // it.
+    fs::remove_dir_all(store.root().join("instances").join("inst")).unwrap();
+    let report = store
+        .gc_with_older_formats(&GcOptions::default(), || read_older_manifests(&store))
+        .unwrap();
+    assert_eq!(report.objects_removed, 1, "{report:?}");
+}
+
+/// A writer that doesn't claim waits while a collection runs.
+#[test]
+fn writers_that_dont_claim_wait_for_a_collection() {
+    let (_dir, store) = store(Encoding::Raw);
+    store.put_bytes(b"x").unwrap();
+    std::thread::scope(|scope| {
+        let mut writer = None;
+        store
+            .gc_with_older_formats(&GcOptions::default(), || {
+                let waiting = scope.spawn(|| {
+                    let _hold = store.hold_off_collection().unwrap();
+                    older_format_write(&store, b"stored after the collection")
+                });
+                std::thread::sleep(Duration::from_millis(300));
+                assert!(
+                    !waiting.is_finished(),
+                    "a writer got in while a collection ran"
+                );
+                writer = Some(waiting);
+                read_older_manifests(&store)
+            })
+            .unwrap();
+        let object = writer.unwrap().join().unwrap();
+        assert!(object.exists());
+    });
+    // Many writers hold it at once.
+    let first = store.hold_off_collection().unwrap();
+    let second = store.hold_off_collection().unwrap();
+    drop((first, second));
+}
+
+/// A plain collection refuses while an older format's manifest is in the folder: it can't
+/// know what that names.
+#[test]
+fn a_plain_collection_refuses_beside_older_manifests() {
+    let (_dir, store) = store(Encoding::Raw);
+    store.put_bytes(b"x").unwrap();
+    // The guard's own files are no older manifests.
+    store.gc(&GcOptions::default()).unwrap();
+    let object = older_format_write(&store, b"named by a snapshot");
+    let error = store.gc(&GcOptions::default()).unwrap_err();
+    assert!(
+        matches!(&error, GcError::Refused { why, .. } if why.contains("older format")),
+        "{error}"
+    );
+    assert!(object.exists());
+    let report = store
+        .gc_with_older_formats(&GcOptions::default(), || read_older_manifests(&store))
+        .unwrap();
+    assert_eq!(report.objects_removed, 0);
+    assert!(object.exists());
 }

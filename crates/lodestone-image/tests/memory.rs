@@ -12,7 +12,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use lodestone_image::container::{self, Limits};
 use lodestone_image::hex::sha256_hex;
-use lodestone_image::manifest::{Entry, Game, Image, Kind, Loader, Source};
+use lodestone_image::manifest::{
+    Entry, Game, Image, Kind, Loader, Source, Withheld, WithheldReason,
+};
 use lodestone_image::paths::CanonicalPath;
 
 struct Counting;
@@ -160,4 +162,31 @@ fn hostile_input_costs_little_more_than_its_size() {
     assert!(peak < MIB, "verifying a 100k-entry image took {peak} bytes");
     let (_, peak) = peak_during(|| big.seal());
     assert!(peak < MIB, "sealing a 100k-entry image took {peak} bytes");
+    drop(big);
+
+    // The same for withheld files, which an image from elsewhere can list a million of:
+    // each is written as it comes, never built as a JSON value first.
+    let mut withheld = Image::new(
+        Kind::Content,
+        Game {
+            minecraft: "1.21.1".into(),
+            loader: Loader::Fabric,
+            loader_version: None,
+        },
+    );
+    for i in 0..100_000 {
+        withheld.withheld.push(Withheld {
+            path: format!("config/some/folder/file_{i:07}.dat"),
+            reason: WithheldReason::Symlink,
+        });
+    }
+    withheld.seal();
+    let (verified, peak) = peak_during(|| withheld.verify());
+    verified.unwrap();
+    assert!(
+        peak < MIB,
+        "verifying 100k withheld files took {peak} bytes"
+    );
+    let (_, peak) = peak_during(|| withheld.seal());
+    assert!(peak < MIB, "sealing 100k withheld files took {peak} bytes");
 }

@@ -409,10 +409,11 @@ pub struct Rest {
 impl Rest {
     /// The objects the rest names that the image doesn't: files beside the game folder
     /// and game-folder files the image withholds. A store's collection must keep them
-    /// ([`crate::store::gc::GcOptions::also_live`]) for as long as this rest may be
-    /// written back, and a restore that should put back everything the snapshot had
-    /// places them itself, at their instance paths, with [`crate::store::Store::read_object`]:
-    /// materializing places only the image's entries.
+    /// for as long as this rest may be written back (the reader passed to
+    /// [`crate::store::Store::gc_with_older_formats`] returns them), and a restore that
+    /// should put back everything the snapshot had places them itself, at their instance
+    /// paths, with [`crate::store::Store::read_object`]: materializing places only the
+    /// image's entries.
     pub fn objects(&self) -> impl Iterator<Item = &str> {
         self.instance_files
             .iter()

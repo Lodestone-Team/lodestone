@@ -343,12 +343,53 @@ open_enum! {
 }
 
 /// A known file an image doesn't carry. `path` is as found, which may not be a valid
-/// canonical path (that may be why it was withheld): show it, never place it.
+/// canonical path (that may be why it was withheld): show it, never place it. It may hold
+/// any character a disk allows in a name, newlines and direction overrides included (a
+/// snapshot withholds such names rather than fail), so show it through
+/// [`Withheld::display_path`].
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Withheld {
     pub path: String,
     pub reason: WithheldReason,
+}
+
+impl Withheld {
+    /// The path as it can be shown: see [`display_text`].
+    pub fn display_path(&self) -> std::borrow::Cow<'_, str> {
+        display_text(&self.path)
+    }
+}
+
+/// `text` from a manifest made elsewhere (a withheld path, a label, a world's level name, a
+/// producer's version), safe to show on one line: control characters, line and paragraph
+/// separators and the invisible format characters (direction overrides, zero-width
+/// characters: [`crate::paths::is_default_ignorable`]) written as `\u{…}`, so a name can't
+/// span lines or display as another (`evil\u{202E}gpj.exe`). The zero-width joiner and the
+/// emoji variation selectors (U+200D, U+FE0E, U+FE0F) are kept: emoji are made of them, and
+/// they move nothing. Validation refuses control characters only in free text and nothing
+/// in withheld paths, because real names have them (a snapshot withholds a file named with
+/// a newline rather than fail); a UI shows these strings through this.
+pub fn display_text(text: &str) -> std::borrow::Cow<'_, str> {
+    let hidden = |c: char| {
+        c.is_control()
+            || c == '\u{2028}'
+            || c == '\u{2029}'
+            || (crate::paths::is_default_ignorable(c)
+                && !matches!(c, '\u{200D}' | '\u{FE0E}' | '\u{FE0F}'))
+    };
+    if !text.chars().any(hidden) {
+        return std::borrow::Cow::Borrowed(text);
+    }
+    let mut out = String::with_capacity(text.len() + 8);
+    for c in text.chars() {
+        if hidden(c) {
+            out.push_str(&format!("\\u{{{:04X}}}", u32::from(c)));
+        } else {
+            out.push(c);
+        }
+    }
+    std::borrow::Cow::Owned(out)
 }
 
 /// An instance image. See the crate documentation and `docs/instance-images.md`. Read by
@@ -707,6 +748,25 @@ pub(crate) mod tests {
     use super::*;
     use crate::env::EnvValue;
     use crate::hex::sha256_hex;
+
+    #[test]
+    fn text_from_elsewhere_is_shown_on_one_line_as_itself() {
+        let withheld = Withheld {
+            path: "mods/evil\u{202E}gpj.exe\nAll files restored".into(),
+            reason: WithheldReason::BadName,
+        };
+        assert_eq!(
+            withheld.display_path(),
+            "mods/evil\\u{202E}gpj.exe\\u{000A}All files restored"
+        );
+        assert!(matches!(
+            display_text("Backup é 日本"),
+            std::borrow::Cow::Borrowed("Backup é 日本")
+        ));
+        assert_eq!(display_text("a\u{2028}b\u{200B}"), "a\\u{2028}b\\u{200B}");
+        let family = "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467} \u{2764}\u{FE0F}";
+        assert_eq!(display_text(family), family);
+    }
 
     pub(crate) fn path(text: &str) -> CanonicalPath {
         CanonicalPath::new(text).unwrap()

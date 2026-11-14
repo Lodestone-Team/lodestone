@@ -356,7 +356,14 @@ fn a_restored_core_backup_snapshots_to_the_same_entries_without_new_objects() {
     assert_eq!(tree(&root.join("objects")), objects_before);
     store.save_manifest("survival", &converted.image).unwrap();
     age_store(&root);
-    let report = store.gc(&GcOptions::default()).unwrap();
+    // The schema-1 backup is still there: a plain collection can't know what it names.
+    assert!(store.gc(&GcOptions::default()).is_err());
+    let old = core_backup::Manifest::from_json(&manifest).unwrap();
+    let report = store
+        .gc_with_older_formats(&GcOptions::default(), || {
+            Ok(old.objects().map(str::to_string).collect::<HashSet<_>>())
+        })
+        .unwrap();
     assert!(report.chunks_removed > 0);
     assert_eq!(report.objects_removed, 0);
     assert!(!root.join("chunks").exists() || tree(&root.join("chunks")).is_empty());
@@ -506,11 +513,11 @@ fn gc_keeps_what_converted_images_and_schema_1_manifests_use() {
 
     let old = core_backup::Manifest::from_json(&old_manifest).unwrap();
     age_store(&root);
-    let options = GcOptions {
-        also_live: old.objects().map(str::to_string).collect::<HashSet<_>>(),
-        ..GcOptions::default()
-    };
-    let report = store.gc(&options).unwrap();
+    let report = store
+        .gc_with_older_formats(&GcOptions::default(), || {
+            Ok(old.objects().map(str::to_string).collect::<HashSet<_>>())
+        })
+        .unwrap();
     assert_eq!(report.manifests, 1);
     assert_eq!(report.objects_removed, 1);
     assert!(!core_object_path(&root, &garbage).exists());

@@ -9,6 +9,7 @@
 //!   chunks/ab/<sha256>               the chunks of large files (see `cdc`, `chunklist`)
 //!   images/<instance>/<id>.json      one manifest per image
 //!   images/<instance>/stat-cache.json   what the last snapshot read (`statcache`)
+//!   images/collection.lock           held by GC, and by older formats' writers (`gc`)
 //!   objects/.incoming-<16 hex>.tmp   writes in flight (also in lists/, chunks/ and
 //!                                    images/…/), swept once an hour old
 //! ```
@@ -1167,43 +1168,72 @@ impl Store {
 
     /// Deletes temporary files older than `max_age` (left by a crash) in `objects/`,
     /// `lists/`, `chunks/` and every instance's folder. Returns how many.
+    ///
+    /// Also the Launcher's snapshot store's objects in flight (`objects/ab/.<sha256>.<tag>`,
+    /// `.<sha256>.import`) once they are older than both `max_age` and
+    /// [`LEGACY_TEMP_MAX_AGE`], its own rule: once a folder has the downgrade guard, its old
+    /// collector never sweeps again, and this is the only cleanup left.
     pub fn sweep_temp(&self, max_age: Duration) -> u64 {
         let mut dirs = Vec::new();
         let tops = Area::ALL
             .iter()
-            .map(|area| self.area_dir(*area))
-            .chain([self.images_dir()]);
-        for top in tops {
+            .map(|area| (self.area_dir(*area), *area == Area::Objects))
+            .chain([(self.images_dir(), false)]);
+        for (top, objects) in tops {
             if let Ok(entries) = fs::read_dir(&top) {
                 dirs.extend(
                     entries
                         .flatten()
                         .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()))
-                        .map(|e| e.path()),
+                        .map(|e| (e.path(), objects)),
                 );
             }
-            dirs.push(top);
+            dirs.push((top, false));
         }
         let now = SystemTime::now();
         let mut removed = 0;
-        for dir in dirs {
+        for (dir, objects) in dirs {
             let Ok(entries) = fs::read_dir(&dir) else {
                 continue;
             };
             for entry in entries.flatten() {
-                let is_temp = entry.file_name().to_str().is_some_and(fsx::is_temp_name);
+                let name = entry.file_name();
+                let Some(name) = name.to_str() else { continue };
+                let older_than = if fsx::is_temp_name(name) {
+                    max_age
+                } else if objects && is_legacy_temp_name(name) {
+                    max_age.max(LEGACY_TEMP_MAX_AGE)
+                } else {
+                    continue;
+                };
                 let old = entry
                     .metadata()
                     .ok()
                     .and_then(|m| fsx::age(&m, now))
-                    .is_some_and(|age| age >= max_age);
-                if is_temp && old && fsx::remove_file_forced(&entry.path()).is_ok() {
+                    .is_some_and(|age| age >= older_than);
+                if old && fsx::remove_file_forced(&entry.path()).is_ok() {
                     removed += 1;
                 }
             }
         }
         removed
     }
+}
+
+/// How old the Launcher's snapshot store's objects in flight must be before they are
+/// swept: its own collector's rule (a day).
+pub const LEGACY_TEMP_MAX_AGE: Duration = Duration::from_secs(24 * 3600);
+
+/// Whether `name` is one of the Launcher's snapshot store's objects in flight:
+/// `.<sha256>.<tag>` (a tag of letters and digits, such as 16 hex digits or `import`).
+fn is_legacy_temp_name(name: &str) -> bool {
+    let Some(rest) = name.strip_prefix('.') else {
+        return false;
+    };
+    let Some((sha256, tag)) = rest.split_once('.') else {
+        return false;
+    };
+    is_sha256(sha256) && !tag.is_empty() && tag.bytes().all(|b| b.is_ascii_alphanumeric())
 }
 
 /// Whether a claim made at `when` still vouches for its object at `now`: less than

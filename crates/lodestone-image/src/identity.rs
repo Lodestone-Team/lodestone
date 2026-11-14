@@ -14,9 +14,12 @@
 //! platform.
 
 //!
-//! The canonical form is written straight into the hasher, one entry at a time, and the
-//! image isn't copied when it is already normalized (as a read or sealed image is): hashing
-//! a manifest of a million entries costs memory for one entry, not for the manifest.
+//! The canonical form is written straight into the hasher, one item of each large list
+//! (entries, removed paths, withheld files) at a time, and the image isn't copied when it
+//! is already normalized (as a read or sealed image is): hashing a manifest of a million
+//! entries or withheld files costs memory for one item and a pointer per item, not for the
+//! manifest. Only the settings are turned into one JSON value whole; their lists are capped
+//! far lower (100,000 items).
 
 use std::cmp::Ordering;
 use std::io::Write;
@@ -26,7 +29,7 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 use crate::hex::lower_hex;
-use crate::manifest::{Entry, Image, IMAGE_FIELDS};
+use crate::manifest::{Entry, Image, Withheld, ENTRY_FIELDS, IMAGE_FIELDS};
 
 /// Top-level fields that are not part of the id.
 const INFORMATIONAL: [&str; 6] = [
@@ -86,7 +89,7 @@ enum Field<'a> {
     /// A list written one item at a time, in order.
     Entries(Vec<&'a Entry>),
     Strings(Vec<&'a str>),
-    Items(Vec<Value>),
+    Withheld(Vec<&'a Withheld>),
 }
 
 /// `value` as JSON. An image is maps with string keys and plain values: it always becomes
@@ -151,12 +154,7 @@ fn write_image<W: Write>(image: &Image, out: &mut W) {
         ("excludes", Field::Value(json(&excludes))),
         (
             "withheld",
-            Field::Items(
-                normalized(&image.withheld, Ord::cmp, true)
-                    .into_iter()
-                    .map(json)
-                    .collect(),
-            ),
+            Field::Withheld(normalized(&image.withheld, Ord::cmp, true)),
         ),
         ("rules", Field::Value(json(&image.rules))),
         ("side", Field::Value(json(&image.side))),
@@ -189,7 +187,7 @@ fn write_image<W: Write>(image: &Image, out: &mut W) {
                 write_entry(entry, out);
             }),
             Field::Strings(items) => write_list(items, out, |item, out| write_string(item, out)),
-            Field::Items(items) => write_list(items, out, |item, out| write_canonical(item, out)),
+            Field::Withheld(items) => write_list(items, out, |item, out| write_withheld(item, out)),
         }
     }
     let _ = out.write_all(b"}");
@@ -206,16 +204,37 @@ fn write_list<T, W: Write>(items: &[T], out: &mut W, mut each: impl FnMut(&T, &m
     let _ = out.write_all(b"]");
 }
 
+/// One withheld file, `{"path":…,"reason":…}` (its keys in sorted order), written without
+/// building a JSON value.
+fn write_withheld<W: Write>(withheld: &Withheld, out: &mut W) {
+    let _ = out.write_all(b"{\"path\":");
+    write_string(&withheld.path, out);
+    let _ = out.write_all(b",\"reason\":");
+    write_string(withheld.reason.as_str(), out);
+    let _ = out.write_all(b"}");
+}
+
 /// One entry, normalized and without its informational fields, built as a JSON value only
 /// while it is written.
+///
+/// An unknown field named after a known one is invalid ([`Image::validate`]), but an image
+/// built in code can still have one; flattened, it would replace the known field, so it is
+/// dropped here and the id always hashes the entry's own fields, as for the image's.
 fn write_entry<W: Write>(entry: &Entry, out: &mut W) {
     let sorted = entry.env_from.windows(2).all(|w| w[0] < w[1]);
-    let mut value = if sorted {
+    let shadowing = entry
+        .extra
+        .keys()
+        .any(|key| ENTRY_FIELDS.contains(&key.as_str()));
+    let mut value = if sorted && !shadowing {
         json(entry)
     } else {
         let mut entry = entry.clone();
         entry.env_from.sort();
         entry.env_from.dedup();
+        entry
+            .extra
+            .retain(|key, _| !ENTRY_FIELDS.contains(&key.as_str()));
         json(&entry)
     };
     if let Value::Object(map) = &mut value {
@@ -592,5 +611,41 @@ mod tests {
         // Invalid, and its canonical form still lists its own entries.
         assert!(forged.validate().is_err());
         assert_eq!(forged.canonical_bytes(), image.canonical_bytes());
+
+        // The same for an entry's: the known field is hashed, never the unknown one.
+        for key in ["sha256", "size", "path", "source", "env"] {
+            let mut forged = image.clone();
+            forged.entries[0]
+                .extra
+                .insert(key.into(), serde_json::json!("ff"));
+            assert!(forged.validate().is_err(), "{key}");
+            assert_eq!(forged.canonical_bytes(), image.canonical_bytes(), "{key}");
+            assert_eq!(forged.compute_id(), image.id, "{key}");
+        }
+    }
+
+    #[test]
+    fn withheld_files_are_written_as_their_json() {
+        let mut image = sample();
+        image.withheld = vec![
+            Withheld {
+                path: "mods/\"quoted\"\\é.jar".into(),
+                reason: WithheldReason::Symlink,
+            },
+            Withheld {
+                path: "a".into(),
+                reason: serde_json::from_value(serde_json::json!("future_reason")).unwrap(),
+            },
+        ];
+        let mut expected = Vec::new();
+        let mut withheld = image.withheld.clone();
+        withheld.sort();
+        write_canonical(&json(&withheld), &mut expected);
+        let canonical = String::from_utf8(image.canonical_bytes()).unwrap();
+        let expected = String::from_utf8(expected).unwrap();
+        assert!(
+            canonical.contains(&format!("\"withheld\":{expected}")),
+            "{canonical}"
+        );
     }
 }

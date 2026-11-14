@@ -99,7 +99,7 @@ A `content` image has no worlds (and so no world files); `data` and `full` image
 `parent`, `created`, `producer`, `label`, `projected_from` and entries' `modified` are
 informational. `entries[].modified` is optional, `mode` defaults to 420 and `env` to
 unknown on both sides. `null` is the same as a missing field everywhere: a field with a
-default (`settings`, `entries`, `mode`, `env`, `producer` and its `app` and `version`, a
+default (`settings`, `entries`, `mode`, `env` and each of its sides, `producer` and its `app` and `version`, a
 setting's list…) reads `null` as that default, and a missing `rules` reads as 1, the first
 rules (not the reader's newest, which would change a manifest's meaning and id as rules
 are added). Only the required fields can't be `null`: `schema`, `kind`, `game` and its
@@ -490,18 +490,31 @@ Content-addressed, shared by every instance on one machine:
   already there, a snapshot that takes a file from its stat cache, and saving a manifest
   touch it (and a list's chunks) when it is older than 10 minutes, so a snapshot running
   at the same time never loses what it is about to name, and a save after a snapshot longer
-  than the hour of grace fails rather than name what was collected. No lock is needed
-  between GC and writers: GC renames a file it found old to a temporary name, reads its
+  than the hour of grace fails rather than name what was collected. The store's own writers
+  need no lock: GC renames a file it found old to a temporary name, reads its
   time again and deletes it only if it is still old, putting back one touched meanwhile;
   a claim touches, then checks the file is still there, and fails (so the manifest isn't
   saved) when GC took it, and so does a touch that doesn't land (a file another user owns).
   The grace is never under 20 minutes, twice the touch interval, or GC could take a file a
-  claim found new enough not to touch. A save doesn't claim again what the same store
+  claim found new enough not to touch. Writers that don't claim (the older formats' writers
+  that share the folder until they are retired: the Launcher's snapshot store until M5,
+  the core's schema-1 backups until M2, which neither touch an object they reuse nor give a
+  clone a new time) are held off by the collection lock, an operating-system file lock on
+  `images/collection.lock`: such a writer holds it shared (`Store::hold_off_collection`)
+  from before its first object until its manifest is saved, and GC holds it exclusively
+  for its whole run. The objects of older manifests are read only inside that hold:
+  `Store::gc_with_older_formats` calls the caller's reader once it has the lock, so any
+  older manifest it doesn't see was written by a writer that started after it ended.
+  Plain `Store::gc` refuses while an older manifest (a `.json` under `servers/<id>/` or
+  `instances/<id>/` other than the guard's) is in the folder. A thread holding the shared lock
+  must not start GC. A save doesn't claim again what the same store
   claimed in the last 5 minutes by the wall clock (objects age by it; a monotonic clock
   stops while a laptop sleeps), and forgets those claims once the manifest is written, so a
   long-lived store holds none between snapshots. Objects only older
-  formats use are passed in by the caller, which refuses the same way when it can't read
-  those manifests.
+  formats use are returned by the caller's reader, which refuses the same way when it
+  can't read those manifests. GC also sweeps the Launcher's snapshot store's objects in
+  flight (`objects/ab/.<sha256>.<tag>`) once they are a day old, its own rule, since its
+  collector never runs again once the guard is in place.
 - Snapshots walk the folder with the side's disk layout. Files never recorded, outside a
   client's game folder, or left out by the image's `excludes` are skipped without a
   withheld record (`excludes` says what they are). `excludes` match canonical paths
@@ -509,9 +522,12 @@ Content-addressed, shared by every instance on one machine:
   syntax (`name` at any depth, `a/b` from the root, `*` within a part, `**` across parts,
   trailing `/` for folders); a pattern outside that syntax (a backslash, a leading `!`, an
   empty part) makes the manifest invalid, since a snapshot would ignore it and it would
-  claim to have left something out. Matching costs time linear in the walked paths' parts
-  times the patterns' size, however deep the folders: all patterns run as one automaton
-  over path parts, and the walk reuses each folder's state for what is in it. Links are withheld as `symlink`; folders that can't be
+  claim to have left something out. All patterns run as one automaton over path parts,
+  and the walk reuses each folder's state for what is in it. A name is matched against
+  one part's glob without backtracking (the glob split at its stars; the first and last
+  pieces at the name's ends, each piece between found leftmost with a linear search), so
+  reading a part costs O(total pattern bytes + live globs × name bytes), and a walk pays
+  that once per new part of its paths, however deep the folders or star-heavy the patterns. Links are withheld as `symlink`; folders that can't be
   listed, files that can't be read and things that aren't files as `unreadable`; names
   that aren't canonical, files the layout can't read back as themselves and files never
   placed on this side as `bad_name` (a folder with such a name once, not each file in
@@ -646,6 +662,11 @@ names anything by it.
 - `.lodestone*` paths stay protected for users without WriteGlobalFile; images from a server
   can't write outside the game folder or to Lodestone's own files.
 - Files that aren't on Modrinth are flagged in the install summary.
+- Text in an image from elsewhere that a UI shows (withheld paths, which may hold any
+  character a disk allows; labels; level names; producer versions) goes through
+  `display_text`, which writes control characters, line separators and invisible format
+  characters such as direction overrides as `\u{…}`, so a name can't span lines or show
+  as another. Validation doesn't refuse them: real names have them.
 - CurseForge files whose authors block distribution travel only as references.
 - Secrets stay out of typed settings, but a server's own `server.properties` is an ordinary
   `object` entry of its data images, `rcon.password` and `management-server-secret`
@@ -661,11 +682,16 @@ names anything by it.
   never rewritten (core objects are already SHA-256 zstd, Launcher objects SHA-256 raw).
   The image store at the core's backup folder, zstd encoded, reads the core's objects in
   place, and an image store at the Launcher's snapshot folder, raw, the Launcher's. The
-  caller passes the objects of the old manifests that remain to the image store's GC as
-  also live (`core_backup::Manifest::objects`), and, for an old manifest replaced by an
-  image and its rest, the objects only the rest names (`core_backup::Rest::objects`,
-  `lodesnap::Rest::objects`: files the image withholds, files beside a Launcher game
-  folder).
+  caller's reader passed to the image store's GC (`Store::gc_with_older_formats`) returns
+  the objects of the old manifests that remain (`core_backup::Manifest::objects`), and,
+  for an old manifest replaced by an image and its rest, the objects only the rest names
+  (`core_backup::Rest::objects`, `lodesnap::Rest::objects`: files the image withholds,
+  files beside a Launcher game folder). While an old format still writes to the folder,
+  its writer holds `Store::hold_off_collection` from its first object until its manifest
+  is saved (the Launcher's snapshots, safety snapshots and `.lodesnap` imports until M5;
+  the core's schema-1 backups until M2), since it neither touches what it reuses nor gives
+  clones a new time; the reader runs inside GC's exclusive hold, so it sees every manifest
+  such a writer saved before GC began.
 - **Downgrades never lose images.** Released cores (Lodestone Host 0.6.0-beta.2 on) and
   Launchers (0.1.0-beta.1 on) collect their shared `objects/` against their own manifests
   only, so after going back to one, its first cleanup would delete every object only
@@ -682,7 +708,7 @@ names anything by it.
   use (rewritten with every image, and losing objects whenever it fell behind). Once a
   folder has the guard, the old collectors' sweeps never run there again, in any version:
   M2 and M5 only read the old manifests (skipping the `.images` folders) to build the
-  image store's `also_live`, and the image store's GC is the only one that deletes.
+  image store's GC, and the image store's GC is the only one that deletes.
 - **Downgrades never misread images' files.** Where a released program reads a shared
   folder, a name in `objects/` never holds anything but that file's bytes: released
   Launchers skip storing a file whose object is there and restore by copying it unchecked
@@ -803,8 +829,11 @@ Per format:
   enable them. Old history entries keep the names they recorded. The game is the caller's
   (neither file has it).
 - **World backup zips** become data images of `saves/<world>/…`, each entry hashed straight
-  from the zip, with the Launcher's limits; entries that fail a check are withheld. Zip
-  times are local without a zone, so entries have no `modified`.
+  from the zip, with the Launcher's limits; entries that fail a check are withheld. The
+  world is found where the Launcher's restore finds it: `level.dat` at the zip's root
+  first, then the world folder's own name, then the one folder holding a `level.dat`
+  (else the world folder's name); Mac metadata is withheld as `excluded`. Zip times are
+  local without a zone, so entries have no `modified`.
 
 ## Milestones
 

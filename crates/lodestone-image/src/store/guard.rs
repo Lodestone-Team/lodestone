@@ -33,7 +33,7 @@
 //! Once a folder has the guard, the old collectors' sweeps never run there again, in any
 //! version: the core and the Launcher only read their old manifests (skipping the
 //! `.images` folders) to pass the objects those name to the image store's collection as
-//! also live ([`super::gc::GcOptions::also_live`]), and that collection is the only one
+//! also live ([`super::Store::gc_with_older_formats`]), and that collection is the only one
 //! that deletes. An old sweep that merely skipped `.images` would delete every object only
 //! images name.
 

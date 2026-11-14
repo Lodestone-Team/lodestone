@@ -51,8 +51,8 @@ pub use env::{Env, EnvFrom, EnvInputs, EnvValue};
 pub use identity::IdentityError;
 pub use layout::{DiskLayout, ServerLayout};
 pub use manifest::{
-    Base, Entry, Game, Image, Kind, Loader, ManifestError, Producer, Source, Withheld,
-    WithheldReason, World, RULES, SCHEMA,
+    display_text, Base, Entry, Game, Image, Kind, Loader, ManifestError, Producer, Source,
+    Withheld, WithheldReason, World, RULES, SCHEMA,
 };
 pub use paths::{CanonicalPath, PathError, Placement};
 pub use settings::Settings;

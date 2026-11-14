@@ -142,7 +142,8 @@ impl Manifest {
     }
 
     /// The SHA-256 of every object this backup uses: what an image store's GC must keep
-    /// for it ([`crate::store::gc::GcOptions::also_live`]) while schema-1 manifests remain.
+    /// for it while schema-1 manifests remain (the reader passed to
+    /// [`crate::store::Store::gc_with_older_formats`] returns them).
     pub fn objects(&self) -> impl Iterator<Item = &str> {
         self.files.iter().map(|file| file.sha256.as_str())
     }
@@ -245,8 +246,8 @@ impl Rest {
     }
 
     /// The objects the rest names that the image doesn't: a store's collection must keep
-    /// them ([`crate::store::gc::GcOptions::also_live`]) for as long as this rest is kept
-    /// instead of the schema-1 manifest.
+    /// them for as long as this rest is kept instead of the schema-1 manifest (the reader
+    /// passed to [`crate::store::Store::gc_with_older_formats`] returns them).
     pub fn objects(&self) -> impl Iterator<Item = &str> {
         self.unmapped.iter().map(|(file, _)| file.sha256.as_str())
     }

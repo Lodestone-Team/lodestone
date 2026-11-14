@@ -2,7 +2,12 @@
 //! images, read without extracting them.
 //!
 //! A world backup holds one world's files under `<world folder>/` (`session.lock` left
-//! out), written by `launcher-core/src/worlds.rs` (`write_zip`). Its image lists them as
+//! out), written by `launcher-core/src/worlds.rs` (`write_zip`). A zip put there by hand
+//! may hold them elsewhere, and the Launcher restores it all the same, so the world is
+//! found the way its restore finds it (`inspect_zip`): `level.dat` at the zip's root wins,
+//! then the world folder's own name, then the one folder that has a `level.dat`; without
+//! any, the world folder's name. Mac metadata (`__MACOSX/`, `.DS_Store`), which the
+//! restore skips, is withheld as excluded. Its image lists the files as
 //! `saves/<world>/…`, each with the SHA-256 and size of its bytes, read and hashed straight
 //! from the zip: nothing is written to disk. The entries' source is `object`, since the
 //! bytes are only in the zip until a store imports them.
@@ -57,7 +62,7 @@ pub fn read<R: Read + Seek>(reader: R, folder: &str, game: Game) -> Result<Conve
     archive
         .validate_header_consistency()
         .map_err(|e| LegacyError::Invalid(format!("its zip structure is inconsistent ({e})")))?;
-    let prefix = format!("{folder}/");
+    let prefix = world_prefix(&mut archive, folder)?;
     let mut image = Image::new(Kind::Data, game);
     let mut notes = Vec::new();
     let mut seen: HashSet<CanonicalPath> = HashSet::new();
@@ -65,7 +70,7 @@ pub fn read<R: Read + Seek>(reader: R, folder: &str, game: Game) -> Result<Conve
     let mut world_size = 0u64;
     let mut files: Vec<(String, Entry)> = Vec::new();
     for index in 0..archive.len() {
-        let (name, outcome) = read_entry(&mut archive, index, &prefix, &mut declared)?;
+        let (name, outcome) = read_entry(&mut archive, index, &prefix, folder, &mut declared)?;
         let entry = match outcome {
             Outcome::Skip => continue,
             Outcome::Withhold(reason) => {
@@ -105,6 +110,47 @@ pub fn read<R: Read + Seek>(reader: R, folder: &str, game: Game) -> Result<Conve
     })
 }
 
+/// Where the world's files are in the zip (`""` or `<folder>/`), as the Launcher's restore
+/// picks it (see the module). Several folders with a `level.dat`, none of them `folder`,
+/// is several worlds: the world folder's own name is used, and the rest is withheld.
+fn world_prefix<R: Read + Seek>(
+    archive: &mut zip::ZipArchive<R>,
+    folder: &str,
+) -> Result<String, LegacyError> {
+    let own = format!("{folder}/");
+    let mut folders: Vec<String> = Vec::new();
+    for index in 0..archive.len() {
+        let raw = archive
+            .by_index_raw(index)
+            .map_err(|e| LegacyError::Invalid(format!("its entries: {e}")))?;
+        let name = raw
+            .name()
+            .map_err(|e| LegacyError::Invalid(format!("its entries: {e}")))?;
+        if raw.is_dir() || is_mac_metadata(&name) {
+            continue;
+        }
+        match name.split('/').collect::<Vec<_>>().as_slice() {
+            ["level.dat"] => return Ok(String::new()),
+            [top, "level.dat"] if !top.is_empty() => {
+                let top = format!("{top}/");
+                if !folders.contains(&top) {
+                    folders.push(top);
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok(match folders.as_slice() {
+        [one] if !folders.contains(&own) => one.clone(),
+        _ => own,
+    })
+}
+
+/// Whether a zip entry is Mac metadata, which the Launcher's restore skips.
+fn is_mac_metadata(name: &str) -> bool {
+    name.starts_with("__MACOSX/") || name.split('/').any(|part| part == ".DS_Store")
+}
+
 /// What became of one zip entry.
 enum Outcome {
     /// A folder, or the world's own folder entry.
@@ -119,6 +165,7 @@ fn read_entry<R: Read + Seek>(
     archive: &mut zip::ZipArchive<R>,
     index: usize,
     prefix: &str,
+    folder: &str,
     declared: &mut u64,
 ) -> Result<(String, Outcome), LegacyError> {
     let unreadable = |e: zip::result::ZipError| LegacyError::Invalid(format!("its entries: {e}"));
@@ -143,13 +190,16 @@ fn read_entry<R: Read + Seek>(
     if is_dir {
         return Ok((name, Outcome::Skip));
     }
+    if is_mac_metadata(&name) {
+        return Ok((name, Outcome::Withhold(WithheldReason::Excluded)));
+    }
     if is_link {
         return Ok((name, Outcome::Withhold(WithheldReason::Symlink)));
     }
     let Some(inner) = name.strip_prefix(prefix).filter(|rest| !rest.is_empty()) else {
         return Ok((name, Outcome::Withhold(WithheldReason::BadName)));
     };
-    let Ok(path) = CanonicalPath::new(format!("saves/{prefix}{inner}")) else {
+    let Ok(path) = CanonicalPath::new(format!("saves/{folder}/{inner}")) else {
         return Ok((name, Outcome::Withhold(WithheldReason::BadName)));
     };
     if always_excluded(&path) {
@@ -309,6 +359,70 @@ mod tests {
         );
         assert_eq!(image.worlds[0].size, Some(11));
         assert_eq!(converted.notes.len(), 5);
+    }
+
+    #[test]
+    fn the_world_is_found_where_the_launchers_restore_finds_it() {
+        let paths = |items: &[Item]| {
+            let converted = read(Cursor::new(zip_of(items)), "survival", game()).unwrap();
+            let entries: Vec<String> = converted
+                .image
+                .entries
+                .iter()
+                .map(|e| e.path.as_str().to_string())
+                .collect();
+            let withheld: Vec<(String, String)> = converted
+                .image
+                .withheld
+                .iter()
+                .map(|w| (w.path.clone(), w.reason.as_str().to_string()))
+                .collect();
+            (entries, withheld)
+        };
+        // At the root (a zip copied in by hand).
+        let (entries, withheld) = paths(&[
+            Item::File("level.dat", b"level"),
+            Item::File("region/r.0.0.mca", b"region"),
+            Item::File("__MACOSX/._level.dat", b"meta"),
+        ]);
+        assert_eq!(
+            entries,
+            [
+                "saves/survival/level.dat",
+                "saves/survival/region/r.0.0.mca"
+            ]
+        );
+        assert_eq!(
+            withheld,
+            [("__MACOSX/._level.dat".to_string(), "excluded".to_string())]
+        );
+        // In one folder named otherwise.
+        let (entries, withheld) = paths(&[
+            Item::File("Old Name/level.dat", b"level"),
+            Item::File("Old Name/data/x.dat", b"x"),
+        ]);
+        assert_eq!(
+            entries,
+            ["saves/survival/data/x.dat", "saves/survival/level.dat"]
+        );
+        assert!(withheld.is_empty());
+        // The world folder's own name wins over another world beside it.
+        let (entries, withheld) = paths(&[
+            Item::File("other/level.dat", b"other"),
+            Item::File("survival/level.dat", b"level"),
+        ]);
+        assert_eq!(entries, ["saves/survival/level.dat"]);
+        assert_eq!(
+            withheld,
+            [("other/level.dat".to_string(), "bad_name".to_string())]
+        );
+        // Several other worlds: the world folder's name, and everything else withheld.
+        let (entries, withheld) = paths(&[
+            Item::File("a/level.dat", b"a"),
+            Item::File("b/level.dat", b"b"),
+        ]);
+        assert!(entries.is_empty());
+        assert_eq!(withheld.len(), 2);
     }
 
     #[test]

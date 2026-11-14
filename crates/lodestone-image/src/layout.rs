@@ -44,8 +44,9 @@ const BUKKIT_NETHER: &str = ".bukkit_nether";
 const BUKKIT_END: &str = ".bukkit_the_end";
 
 /// Top-level server folders that can't be world names: they hold other content, and a
-/// world there would make its files and theirs one folder.
-const NOT_WORLD_NAMES: [&str; 12] = [
+/// world there would make its files and theirs one folder. The folders that are always
+/// left out (`logs`, `.cache`, `natives`…) can't be either: see [`check_world_name`].
+const NOT_WORLD_NAMES: [&str; 8] = [
     "saves",
     "mods",
     "config",
@@ -54,10 +55,6 @@ const NOT_WORLD_NAMES: [&str; 12] = [
     "libraries",
     "plugins",
     "versions",
-    "logs",
-    "crash-reports",
-    "cache",
-    "debug",
 ];
 
 /// A server folder's worlds: its level (`level-name`) and any other world folders, and
@@ -143,7 +140,12 @@ impl ServerLayout {
 
 fn check_world_name(name: &str) -> Result<(), PathError> {
     validate_component(name).map_err(|_| PathError::BadWorldName(name.to_string()))?;
-    if in_names(name, &NOT_WORLD_NAMES) || starts_with_name(name, ".lodestone") {
+    // A top-level folder whose files are always left out (`excluded_parts`) can't hold a
+    // world either: its files would be recorded and placed as the world's.
+    if in_names(name, &NOT_WORLD_NAMES)
+        || starts_with_name(name, ".lodestone")
+        || excluded_parts(&[name, "level.dat"])
+    {
         return Err(PathError::BadWorldName(name.to_string()));
     }
     Ok(())
@@ -654,8 +656,20 @@ mod tests {
             "a/b",
             "con",
             "",
+            // Always left out, so never a world.
+            "logs",
+            "Debug",
+            ".cache",
+            "natives",
+            ".fabric",
+            ".mixin.out",
+            ".lodestone-snapshot",
         ] {
             assert!(ServerLayout::new(bad, Vec::new(), false).is_err(), "{bad}");
+            assert!(
+                ServerLayout::new("world", [bad.to_string()], false).is_err(),
+                "{bad}"
+            );
         }
         assert!(ServerLayout::new("world", ["world_nether".to_string()], true).is_err());
         // Without the split, `world_nether` is an ordinary world name.

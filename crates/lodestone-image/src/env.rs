@@ -48,12 +48,25 @@ impl EnvValue {
 }
 
 /// A file's need on each side. An unknown field in it makes the manifest invalid (see
-/// [`crate::manifest`]).
+/// [`crate::manifest`]). A side that is missing or `null` is `unknown`, as `null` is a
+/// missing field everywhere in a manifest; both sides are always written.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Env {
+    #[serde(default = "unknown", deserialize_with = "unknown_if_null")]
     pub client: EnvValue,
+    #[serde(default = "unknown", deserialize_with = "unknown_if_null")]
     pub server: EnvValue,
+}
+
+fn unknown() -> EnvValue {
+    EnvValue::Unknown
+}
+
+fn unknown_if_null<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<EnvValue, D::Error> {
+    Ok(Option::<EnvValue>::deserialize(deserializer)?.unwrap_or(EnvValue::Unknown))
 }
 
 impl Default for Env {
@@ -258,6 +271,29 @@ mod tests {
 
     fn sides(client: EnvValue, server: EnvValue) -> SideValues {
         SideValues::new(Some(client), Some(server))
+    }
+
+    #[test]
+    fn a_missing_or_null_side_is_unknown() {
+        for (json, expected) in [
+            (r#"{}"#, Env::UNKNOWN),
+            (r#"{"client":null,"server":null}"#, Env::UNKNOWN),
+            (r#"{"server":"required"}"#, Env::new(Unknown, Required)),
+            (
+                r#"{"client":"optional","server":null}"#,
+                Env::new(Optional, Unknown),
+            ),
+        ] {
+            assert_eq!(
+                serde_json::from_str::<Env>(json).unwrap(),
+                expected,
+                "{json}"
+            );
+        }
+        assert!(serde_json::from_str::<Env>(r#"{"client":"x"}"#).is_err());
+        assert!(serde_json::from_str::<Env>(r#"{"other":"required"}"#).is_err());
+        let written = serde_json::to_string(&Env::new(Unknown, Required)).unwrap();
+        assert_eq!(written, r#"{"client":"unknown","server":"required"}"#);
     }
 
     #[test]
