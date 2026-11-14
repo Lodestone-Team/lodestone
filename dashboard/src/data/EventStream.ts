@@ -203,6 +203,15 @@ export const useEventStream = () => {
                   fresh,
                 });
               },
+              // the owner changed what the server shows publicly: refresh the
+              // queries of PublicListingSetting
+              PublicListingChanged: () => {
+                if (!fresh) return;
+                queryClient.invalidateQueries({
+                  queryKey: ['instances', uuid, 'public_listing'],
+                });
+                queryClient.invalidateQueries({ queryKey: ['public_listing'] });
+              },
             }),
           UserEvent: ({ user_id: uid, user_event_inner: event_inner }) => {
             if (!fresh) return;

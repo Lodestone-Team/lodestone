@@ -8,6 +8,7 @@ use ts_rs::TS;
 use crate::{
     auth::{permission::UserPermission, user_id::UserId},
     output_types::ClientEvent,
+    public_listing::PublicScope,
     traits::{t_player::Player, t_server::State, InstanceInfo},
     types::{InstanceUuid, Snowflake, TimeRange},
 };
@@ -121,6 +122,11 @@ pub enum InstanceEventInner {
         modpack: String,
         version_id: String,
         version_number: String,
+    },
+    /// The owner changed what the server shows publicly: `scope` is what it shows now.
+    /// Only for those who can view the server, as its name is in the event.
+    PublicListingChanged {
+        scope: PublicScope,
     },
 }
 
