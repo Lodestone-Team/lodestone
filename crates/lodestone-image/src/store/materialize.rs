@@ -121,7 +121,8 @@ pub struct Materialized {
     pub not_placed: Vec<CanonicalPath>,
 }
 
-/// The selected entries whose objects the store lacks.
+/// The selected entries whose objects the store lacks, or holds incompletely (a chunk
+/// list missing a chunk): what to download or import before materializing.
 pub fn missing_objects<'i>(
     store: &Store,
     image: &'i Image,
@@ -130,7 +131,7 @@ pub fn missing_objects<'i>(
     image
         .entries
         .iter()
-        .filter(|e| selection.includes(e) && !store.has_object(&e.sha256, e.size))
+        .filter(|e| selection.includes(e) && !store.object_complete(&e.sha256, e.size))
         .collect()
 }
 
@@ -166,7 +167,7 @@ pub fn materialize(
     }
     let missing: Vec<CanonicalPath> = placed
         .iter()
-        .filter(|(e, _)| !store.has_object(&e.sha256, e.size))
+        .filter(|(e, _)| !store.object_complete(&e.sha256, e.size))
         .map(|(e, _)| e.path.clone())
         .collect();
     if !missing.is_empty() {

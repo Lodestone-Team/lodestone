@@ -77,11 +77,26 @@ newer schema is refused with its own error, and an older one goes to the v1 read
 Settings are the exception: fields a reader doesn't know are dropped, so local settings can
 never get into an image; a new setting needs a new schema.
 
+Unknown fields are kept within a budget, not without limit: per image at most 4,096 JSON
+values and 64 KiB of keys and strings, per entry 16 values and 1 KiB, nested at most 16
+deep. That is room for new fields, not for a payload; a manifest past it is invalid.
+Reading never costs much more memory than a real image of the manifest's size: before
+parsing, a manifest with more than 32,000,000 JSON values (objects, arrays and the commas
+between items; a real entry has about 20) or nesting deeper than 32 is refused, and every
+list is refused as soon as it passes its bound while being read (1,000,000 entries,
+removed paths and withheld files, 10,000 worlds, 1,000 excludes, 16 `env_from` inputs,
+100,000 items in each setting's list or map).
+A manifest from elsewhere comes in a compressed export, so without these a small file
+could exhaust memory.
+
 A `content` image has no worlds (and so no world files); `data` and `full` images may.
 
 `parent`, `created`, `producer`, `label`, `projected_from` and entries' `modified` are
 informational. `entries[].modified` is optional, `mode` defaults to 420 and `env` to
-unknown on both sides.
+unknown on both sides. `null` is the same as a missing field everywhere: a field with a
+default (`settings`, `entries`, `mode`, `env`, a setting's list…) reads `null` as that
+default. Only the required fields (`schema`, `kind`, `game`; an entry's `path`, `size`,
+`sha256` and `source`) can't be `null`.
 
 ### Base
 
@@ -106,7 +121,7 @@ readers").
   "size": 1234,
   "sha256": "…",                    // store key
   "sha1": "…", "sha512": "…",       // when a source publishes them
-  "mode": 420,                      // unix bits; Windows keeps read-only only
+  "mode": 420,                      // unix bits, at most 0o777; Windows keeps read-only only
   "modified": 1794645624000000000,  // ns, informational; not part of the id
   "source": SOURCE,
   "env": { "client": "required", "server": "optional" },
@@ -141,7 +156,8 @@ optional/required, `client_or_server` and `client_or_server_prefers_both`
 optional/optional (client/server); `unknown` and values not listed are no input.
 
 A `modrinth` source must have a `url` on `https://cdn.modrinth.com/` and the entry a
-`sha512`. `world` is set exactly when the path is `saves/<world>/…`, and names a world in
+`sha512`. `mode` is at most 0o777: setuid, setgid and sticky are never recorded (placing
+applies only the permission bits anyway), so two images can't differ only by them. `world` is set exactly when the path is `saves/<world>/…`, and names a world in
 `worlds`.
 
 ### Settings
@@ -203,9 +219,22 @@ characters, none of `<>"|?*`, no Windows device names (`CON`, `PRN`, `AUX`, `NUL
 with any extension), no part ending with a space or a dot, at most 4096 bytes and 255 bytes
 per part. NFC without Unicode's tables (no shared dependency has them): names with what NFC
 changes in practice (combining accents, conjoining jamo, combining kana marks, NFC's
-singletons and composition exclusions) are refused, the rest is trusted to be NFC. A file
-whose name breaks these rules is withheld as `bad_name`. Names that differ only in letter
-case are valid; the shared crate reports them so a case-insensitive disk can refuse them.
+singletons and composition exclusions) are refused, the rest is trusted to be NFC. Known
+gaps, trusted rather than checked: Arabic hamza and madda marks after an alef
+(U+0653–U+0655), Indic nuktas and two-part vowel signs (Devanagari U+0928 + U+093C, which
+NFC writes U+0929; Bengali, Oriya, Tamil, Malayalam, Sinhala) and other scripts'
+compositions. No part may have the shape of a Windows short (8.3) name (at most 8 bytes
+ending in `~` and digits, with at most one extension of at most 3 bytes: `LODEST~1`,
+`SESSIO~1.LOC`): NTFS opens a long-named file through its short alias, so `LODEST~1` can be
+`.lodestone_config`. The first part can't differ only in letter case from `saves` (it
+would land among a client's worlds without being a world file). A file whose name breaks
+these rules is withheld as `bad_name`. Other names that differ only in letter case are
+valid; the shared crate reports them so a case-insensitive disk can refuse them.
+
+The names below that guard something (never recorded, Lodestone's own `.lodestone*`
+files, server-only and client-only files, configs, a server's world folders) match
+whatever their letter case, since Windows and macOS's default disks ignore it:
+`.LODESTONE_CONFIG` is `.lodestone_config` and `LOGS/` is `logs/`.
 
 | Canonical | Server disk | Client disk |
 | --- | --- | --- |
@@ -222,9 +251,14 @@ world is any top-level folder the layout knows as one (the level and folders wit
 other files (their own `level.dat`, `uid.dat`, Paper's settings) are kept in the world as
 `saves/<level>/.bukkit_nether/…` and `saves/<level>/.bukkit_the_end/…`, which vanilla
 ignores. What the mapping can't read back as itself is an error and the file is withheld: a
-vanilla `DIM-1`/`DIM1` left inside a split level, a server folder named `saves`, a non-world
-file inside a world's folder, a world named like other server content (`mods`, `config`,
-`plugins`, `libraries`…).
+vanilla `DIM-1`/`DIM1` left inside a split level (or those folders in another letter case),
+a server folder named `saves`, a non-world file inside a world's folder, a top-level file
+named like a world (`world` the file can't sit beside `world/` the level), a world named
+like other server content (`mods`, `config`, `plugins`, `libraries`…). World names are
+compared ignoring letter case for this (`World/level.dat` is in the level `world` on most
+disks), and a server's worlds must be named as on disk, no two differing only in case.
+Materializing maps every path before placing anything, so such an image fails with a
+layout error and an empty staging folder.
 
 The mapping is a two-way function per side and per server flavour, tested both ways
 (including Windows names and names that differ only in letter case).
@@ -249,6 +283,15 @@ view(image, side, rules) = entries with env[side] ≠ unsupported that the side 
 - Configs are files in `config/`, `defaultconfigs/` and `kubejs/`. "Marked shared" is an
   `owner_mark` in `env_from` with `env.client` not `unsupported`. The server view carries
   every config.
+- The client view never carries Lodestone's own files (top-level `.lodestone*`: a server's
+  modpack record and history are its bookkeeping, and images from a server can't write
+  Lodestone's files) or a server's own state that a client never uses: `plugins/`,
+  `bukkit.yml`, `spigot.yml`, `commands.yml`, `help.yml`, `permissions.yml`, `paper.yml`,
+  `usercache.json`, `usernamecache.json`, Forge's and NeoForge's `run.sh`, `run.bat` and
+  `user_jvm_args.txt` (top-level, any letter case). Unlike server-only files these may be
+  on a client (a client writes its own `usercache.json`) and stay in a Launcher's images;
+  they only never go from a server to players, so a change to them leaves the client
+  view's id as it was.
 - A view keeps the image's base, game, `removed`, worlds, content link, excludes, withheld
   files and unknown fields, and none of its informational fields (`parent`, `created`,
   `producer`, `label`, entries' `modified`). World files go to both views, so the server
@@ -277,7 +320,8 @@ Canonical means: lists that are sets sorted (entries by path, each `env_from`, `
 worlds by name, `excludes`, `withheld`, ops, whitelist; the resource pack order is kept),
 compact JSON with every object's keys sorted by their UTF-8 bytes, `null` values left out
 (a missing optional field and `null` are the same image), strings escaped as serde_json
-does (only `"`, `\` and control characters) and integers in decimal.
+does (only `"`, `\` and U+0000 to U+001F, as `\n`, `\t`… or `\u00XX`; U+007F and the C1
+controls are written as they are, in UTF-8) and integers in decimal.
 
 ## Deltas
 
@@ -340,14 +384,23 @@ Content-addressed, shared by every instance on one machine:
   Reads verify the SHA-256. Like the core's backups, presence is checked cheaply (a raw
   object's length, a zstd frame's header, a chunk list's header for exactly that size); a
   damaged object is found when read, and deleting it lets the next write store it again
-  (only an object damaged by its own bytes is deleted).
+  (only an object damaged by its own bytes is deleted). An object is read whole to parse a
+  chunk list only when its first bytes are a list header for exactly the size asked about,
+  so a wrong size in a manifest from elsewhere never loads a large whole object into
+  memory. A list is complete only when every chunk is there at its size: saving a manifest,
+  importing an export and the "what's missing" check before materializing all look at
+  every chunk, so a list that lost a damaged chunk (deleted on its own) counts as missing,
+  and downloading or importing the file again writes the chunk back.
 - A stat cache (path, size, mtime, older than scan start minus 2 s) skips rehashing
   unchanged files, as backups already do; the Launcher gains it too. It is kept per
   instance next to its manifests, keyed by the path relative to the folder walked, and is
   only an optimization: a missing or odd one hashes everything again.
 - A manifest is a file named `<id>.json` in its instance's folder (instance ids are 1 to
   100 of `A-Z a-z 0-9 - _`, not a Windows device name); other files there aren't
-  manifests. Loading one checks its contents hash to the id in its name.
+  manifests. Loading one checks its contents hash to the id in its name. Callers must use
+  instance ids that are unique ignoring letter case (the core's are lower-case UUIDs, the
+  Launcher's name folders on the same disk): two ids differing only in case share one
+  folder on most disks.
 - GC: mark and sweep over every manifest; refuses to delete anything while a manifest
   can't be read or has a schema other than 2 (newer, or from before images: those live in
   their own folders); temp files are swept after an hour. Objects named by entries (any
@@ -466,8 +519,11 @@ objects/<sha256>      plain bytes of each object entries with source `object` an
 chunks/<sha256>       the chunks those lists name, each once
 ```
 
-Entries are deflated with a fixed timestamp, so the same image gives the same file, which is
-written as `<file>.part` and renamed when whole. The reader refuses any other name (folder
+Entries are deflated with a fixed timestamp, so the same program gives the same file for the
+same image, whatever its store's encoding. Different programs may not: deflate's output
+depends on its implementation, and the core and the Launcher build different ones, so
+exports are compared by their image ids, never their bytes. The file is written as
+`<file>.part` and renamed when whole. The reader refuses any other name (folder
 entries `objects/`, `chunks/` and `images/` aside), a name twice, local headers that differ
 from the central directory, encrypted entries, more than 1,000,000 entries or 64 GB
 declared, an image whose files add up to more than 64 GB (entries can share an object and
@@ -564,6 +620,7 @@ Per format:
   kept modes) gets 0o644, what the Launcher's restore gave it, and the rest remembers it so
   writing back says 0 again. `instance.json` gives the game and the recommended
   memory, and `icon.png` and `background.jpg` the client settings' icon and background;
+  modes keep only their permission bits (0o777; the Launcher never wrote more);
   every other instance field is local, reported and kept in the rest, never in the image.
   Files beside the game folder (`content.json`, `modpack.json`, shared options) are kept in
   the rest. `.lodesnap` files are read with the Launcher's limits.
@@ -573,7 +630,11 @@ Per format:
   the record knew, with explicit sources: a CDN download `modrinth` (project and version from
   its URL), an override `base` when the pack is the base, anything else `object`. The server's
   own files join the lineage with the first content image the core records. Neither file has
-  a version, and the core ignores unknown fields, so a newer file can't be refused.
+  a version, and the core ignores unknown fields, so a newer file can't be refused. The
+  record keeps neither the pack index's `env` nor which overrides folder a file came from,
+  so every converted entry's `env` is unknown: such an image must never be served as a
+  client view before its env is resolved from the base pack (M2, M3), or players would get
+  server-only pack mods and `server-overrides` files.
 - **The Launcher's `modpack.json` and `content.json`** become one content image: the base is
   the pack (`modrinth_pack`, `curseforge_pack`, or `loader` for an instance not made from a
   pack); a file `content.json` knows on Modrinth's CDN is `modrinth` with its env from the

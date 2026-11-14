@@ -3,7 +3,7 @@
 //! Encoding belongs to the store, not to the image: an object is named by the SHA-256 of
 //! its plain bytes whatever the encoding, and moving an object between stores re-encodes
 //! it. The Launcher stores plain files ([`Encoding::Raw`]), which APFS can clone into an
-//! instance folder; the core stores zstd frames ([`Encoding::Zstd`], behind the `zstd`
+//! instance folder; the core stores zstd frames (`Encoding::Zstd`, behind the `zstd`
 //! feature), written exactly as its backup store has always written them, so the core's
 //! existing objects are readable in place.
 

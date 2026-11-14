@@ -14,7 +14,11 @@
 //!   `optional` mods (JEI) go to players and players can always join. Configs (`config/`,
 //!   `defaultconfigs/`, `kubejs/`) only when the owner marked them for players: a server's
 //!   configs can hold things players shouldn't see, and the base pack already gives
-//!   players its own.
+//!   players its own. Never Lodestone's own files ([`crate::paths::is_lodestone_path`]: a
+//!   server's modpack record and history are its bookkeeping, and images from a server
+//!   can't write Lodestone's files), nor a server's own state that a client never uses
+//!   ([`is_server_state`]: Bukkit plugins and their settings, the player-name caches,
+//!   Forge's start scripts).
 //!
 //! Views are computed, never edited, and canonical: entries sorted, no timestamps, and
 //! none of the image's informational fields (label, producer, parent, created). So the same
@@ -31,7 +35,7 @@ use std::collections::BTreeMap;
 
 use crate::env::{EnvFrom, EnvValue};
 use crate::manifest::{Entry, Image, Producer, RULES};
-use crate::paths::{is_config, placement, CanonicalPath};
+use crate::paths::{in_names, is_config, is_lodestone_path, placement, CanonicalPath};
 use crate::settings::Settings;
 use crate::Side;
 
@@ -51,6 +55,39 @@ pub fn marked_for_players(entry: &Entry) -> bool {
     entry.env_from.contains(&EnvFrom::OwnerMark) && entry.env.client != EnvValue::Unsupported
 }
 
+/// Top-level files a server keeps for itself that a client never uses: Bukkit's and its
+/// forks' settings, the player-name caches (a client writes its own), and Forge's and
+/// NeoForge's start scripts and their JVM arguments.
+pub const SERVER_STATE_FILES: [&str; 11] = [
+    "bukkit.yml",
+    "spigot.yml",
+    "commands.yml",
+    "help.yml",
+    "permissions.yml",
+    "paper.yml",
+    "usercache.json",
+    "usernamecache.json",
+    "run.sh",
+    "run.bat",
+    "user_jvm_args.txt",
+];
+/// Top-level folders of a server's own state: Bukkit plugins and their data.
+pub const SERVER_STATE_FOLDERS: [&str; 1] = ["plugins"];
+
+/// Whether `path` is a server's own state, which the client view leaves out even though
+/// a client could hold it (rules 1): [`SERVER_STATE_FILES`] and [`SERVER_STATE_FOLDERS`],
+/// whatever their letter case. Unlike server-only files ([`placement`]) these stay in a
+/// Launcher's images (a client writes its own `usercache.json`); they just never go from
+/// a server to players.
+pub fn is_server_state(path: &CanonicalPath) -> bool {
+    let mut parts = path.components();
+    let first = parts.next().unwrap_or_default();
+    match parts.next() {
+        None => in_names(first, &SERVER_STATE_FILES),
+        Some(_) => in_names(first, &SERVER_STATE_FOLDERS),
+    }
+}
+
 /// Whether `entry` belongs in `side`'s view (rules 1).
 pub fn in_view(entry: &Entry, side: Side) -> bool {
     if !placement(&entry.path).allows(side) || !entry.env.allows(side) {
@@ -58,7 +95,11 @@ pub fn in_view(entry: &Entry, side: Side) -> bool {
     }
     match side {
         Side::Server => true,
-        Side::Client => !is_config(&entry.path) || marked_for_players(entry),
+        Side::Client => {
+            !is_lodestone_path(&entry.path)
+                && !is_server_state(&entry.path)
+                && (!is_config(&entry.path) || marked_for_players(entry))
+        }
     }
 }
 
@@ -315,6 +356,10 @@ pub(crate) mod tests {
             entry("resourcepacks/faithful.zip", EnvInputs::default()),
             entry("saves/world/level.dat", EnvInputs::default()),
             entry("saves/world/DIM-1/region/r.0.0.mca", EnvInputs::default()),
+            // The server's own: never to players.
+            entry(".lodestone_modpack/record.json", EnvInputs::default()),
+            entry("plugins/x.jar", EnvInputs::default()),
+            entry("usercache.json", EnvInputs::default()),
         ];
         image.worlds = vec![World {
             name: "world".into(),
@@ -355,6 +400,7 @@ pub(crate) mod tests {
         assert_eq!(
             paths(&server),
             [
+                ".lodestone_modpack/record.json",
                 "config/jei/jei-client.ini",
                 "config/ledger.toml",
                 "defaultconfigs/server.toml",
@@ -366,10 +412,12 @@ pub(crate) mod tests {
                 "mods/lithium.jar",
                 "mods/marked.jar",
                 "mods/mystery.jar",
+                "plugins/x.jar",
                 "saves/world/DIM-1/region/r.0.0.mca",
                 "saves/world/level.dat",
                 "server.jar",
                 "server.properties",
+                "usercache.json",
             ]
         );
         assert_eq!(server.side, Some(Side::Server));
@@ -466,6 +514,47 @@ pub(crate) mod tests {
             view(&changed, Side::Server, RULES).unwrap().id,
             view(&image, Side::Server, RULES).unwrap().id
         );
+    }
+
+    #[test]
+    fn lodestone_files_and_server_state_stay_off_the_client_view() {
+        let mut image = fabric_pack();
+        let client_before = view(&image, Side::Client, RULES).unwrap();
+        for path in [
+            ".lodestone_modpack/history.json",
+            ".LODESTONE_extra",
+            "Plugins/y.jar",
+            "bukkit.yml",
+            "SPIGOT.yml",
+            "usernamecache.json",
+            "run.sh",
+            "run.bat",
+            "user_jvm_args.txt",
+        ] {
+            assert!(
+                !in_view(&object_entry(path), Side::Client),
+                "{path} went to players"
+            );
+            assert!(in_view(&object_entry(path), Side::Server), "{path}");
+            image.entries.push(object_entry(path));
+        }
+        image.seal();
+        // The server's bookkeeping changing leaves the client view as it was.
+        let client_after = view(&image, Side::Client, RULES).unwrap();
+        assert_eq!(client_after.id, client_before.id);
+        check_lossless(&image).unwrap();
+        // Deeper down, the names are ordinary.
+        assert!(in_view(&object_entry("mods/plugins/x.jar"), Side::Client));
+        assert!(in_view(&object_entry("mods/usercache.json"), Side::Client));
+    }
+
+    fn object_entry(path: &str) -> Entry {
+        Entry::new(
+            CanonicalPath::new(path).unwrap(),
+            1,
+            "0".repeat(64),
+            crate::manifest::Source::Object {},
+        )
     }
 
     #[test]

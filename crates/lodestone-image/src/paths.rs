@@ -10,7 +10,12 @@
 //! This module also says what is never recorded ([`always_excluded`]), which side may hold a
 //! file ([`placement`]), which files are configs ([`is_config`]), and which names clash on
 //! a disk that ignores letter case ([`case_collisions`]).
+//!
+//! Names that guard something (what is never recorded, Lodestone's own files, which side
+//! may hold a file, configs) match whatever their letter case: on Windows and on macOS's
+//! default disks `.LODESTONE_CONFIG` and `LOGS/` are `.lodestone_config` and `logs/`.
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fmt;
 
@@ -44,6 +49,10 @@ pub enum PathError {
     TrailingDotOrSpace,
     #[error("the path isn't in Unicode NFC (it has {0:?}, which NFC would change)")]
     NotNfc(char),
+    #[error("{0:?} has the shape of a Windows short (8.3) name, which can stand for another file")]
+    ShortName(String),
+    #[error("{0:?} differs only in letter case from a name images give a meaning")]
+    CaseVariant(String),
     #[error("the path is never recorded in an image")]
     Excluded,
     #[error("the file is never placed on the {0:?} side")]
@@ -74,7 +83,12 @@ impl CanonicalPath {
     /// - free of Windows' reserved device names (`CON`, `PRN`, `AUX`, `NUL`, `COM0`–`COM9`,
     ///   `LPT0`–`LPT9`, `CONIN$`, `CONOUT$`, also with an extension, in any case) and of
     ///   parts ending with a space or a dot, which Windows silently drops;
-    /// - in Unicode NFC, as far as [`nfc_problem`] can tell.
+    /// - free of names shaped like Windows short (8.3) names (`LODEST~1`, `SERVER~1.PRO`),
+    ///   which NTFS can resolve to another file ([`is_short_name_alias`]);
+    /// - in Unicode NFC, as far as [`nfc_problem`] can tell;
+    /// - not starting with a part that differs only in letter case from `saves` (where a
+    ///   client's worlds are): such a path would land among the worlds on a disk that
+    ///   ignores case without being a world file.
     pub fn new(path: impl Into<String>) -> Result<CanonicalPath, PathError> {
         let path = path.into();
         validate(&path)?;
@@ -168,8 +182,15 @@ fn validate(path: &str) -> Result<(), PathError> {
     for part in path.split('/') {
         validate_component(part)?;
     }
+    let first = path.split('/').next().unwrap_or_default();
+    if first != SAVES && same_name(first, SAVES) {
+        return Err(PathError::CaseVariant(first.to_string()));
+    }
     Ok(())
 }
+
+/// The canonical folder of a client's worlds.
+const SAVES: &str = "saves";
 
 /// Checks one part of a path (a file or folder name) by the rules of
 /// [`CanonicalPath::new`]; a `/` in it is a bad character.
@@ -193,6 +214,9 @@ pub fn validate_component(part: &str) -> Result<(), PathError> {
     }
     if is_reserved_windows_name(part) {
         return Err(PathError::ReservedName(part.to_string()));
+    }
+    if is_short_name_alias(part) {
+        return Err(PathError::ShortName(part.to_string()));
     }
     if let Some(c) = nfc_problem(part) {
         return Err(PathError::NotNfc(c));
@@ -229,6 +253,27 @@ pub fn is_reserved_windows_name(part: &str) -> bool {
     false
 }
 
+/// Whether `part` has the shape of a Windows short (8.3) name: a name of at most 8 bytes
+/// ending in `~` and digits, with at most one extension of at most 3 bytes (`LODEST~1`,
+/// `SESSIO~1.LOC`). NTFS gives long names such aliases (on the system drive, where the
+/// Launcher's instances live, by default) and opens the long-named file through them, so
+/// `LODEST~1` can be `.lodestone_config`. Refusing the shape keeps every rule that looks
+/// at names (protected files, never-recorded files, case clashes) looking at the file's
+/// real name. Ordinary names rarely have it (`backup~1` does, and is withheld).
+pub fn is_short_name_alias(part: &str) -> bool {
+    let (stem, extension) = match part.rsplit_once('.') {
+        Some((stem, extension)) => (stem, extension),
+        None => (part, ""),
+    };
+    if stem.contains('.') || stem.len() > 8 || extension.len() > 3 {
+        return false;
+    }
+    match stem.rsplit_once('~') {
+        Some((_, digits)) => !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit()),
+        None => false,
+    }
+}
+
 /// A character in `text` that Unicode normalization form C would change, if this crate
 /// can tell; `None` when the text looks like NFC.
 ///
@@ -242,7 +287,10 @@ pub fn is_reserved_windows_name(part: &str) -> bool {
 /// - characters NFC always replaces: singletons such as the Kelvin, Ångström and Ohm
 ///   signs and the CJK compatibility ideographs, and Unicode's composition exclusions.
 ///
-/// Anything else is trusted to be NFC. ASCII always is. Text this refuses can't be stored
+/// Anything else is trusted to be NFC, including what this misses: Arabic hamza and madda
+/// above or below an alef (U+0653–U+0655), Indic nukta and two-part vowel signs
+/// (Devanagari U+0928 + U+093C, which NFC writes U+0929; Bengali, Oriya, Tamil, Malayalam,
+/// Sinhala), and other scripts' compositions. ASCII always is NFC. Text this refuses can't be stored
 /// under that name: an image withholds the file (`bad_name`) rather than record a name
 /// another computer would spell differently.
 pub fn nfc_problem(text: &str) -> Option<char> {
@@ -342,31 +390,36 @@ pub fn always_excluded(path: &CanonicalPath) -> bool {
 
 /// [`always_excluded`] for a path given as its parts, before it is validated, so a file
 /// that is never recorded isn't reported for a bad name either.
+/// Names match whatever their letter case (see the module).
 pub(crate) fn excluded_parts(parts: &[&str]) -> bool {
     if parts
         .iter()
-        .any(|part| part.starts_with(".lodestone-restore"))
+        .any(|part| starts_with_name(part, ".lodestone-restore"))
     {
         return true;
     }
-    if parts.last() == Some(&"session.lock") {
+    if parts
+        .last()
+        .is_some_and(|last| same_name(last, "session.lock"))
+    {
         return true;
     }
     match parts {
-        [".lodestone_config"] => true,
-        [top, _, ..] if EXCLUDED_TOP_FOLDERS.contains(top) => true,
-        [".lodestone_modpack", folder, _, ..] => {
-            matches!(*folder, "objects" | "staging" | "snapshot")
+        [only] => same_name(only, ".lodestone_config"),
+        [top, _, ..] if in_names(top, &EXCLUDED_TOP_FOLDERS) => true,
+        [top, folder, _, ..] if same_name(top, ".lodestone_modpack") => {
+            in_names(folder, &["objects", "staging", "snapshot"])
         }
         _ => false,
     }
 }
 
 /// Whether `path` is one of Lodestone's own files (a top-level name starting with
-/// `.lodestone`). Images from another computer must not write these unless the user may
-/// write any file (the core's WriteGlobalFile).
+/// `.lodestone`, whatever its letter case). Images from another computer must not write
+/// these unless the user may write any file (the core's WriteGlobalFile), and the client
+/// view never carries them.
 pub fn is_lodestone_path(path: &CanonicalPath) -> bool {
-    path.first().starts_with(".lodestone")
+    starts_with_name(path.first(), ".lodestone")
 }
 
 /// Which sides a canonical path may be placed on, from the paths table of
@@ -413,17 +466,17 @@ const CLIENT_ONLY_FILES: [&str; 6] = [
 ];
 const CLIENT_ONLY_FOLDERS: [&str; 3] = ["resourcepacks", "shaderpacks", "screenshots"];
 
-/// Which sides `path` may be placed on.
+/// Which sides `path` may be placed on. Names match whatever their letter case.
 pub fn placement(path: &CanonicalPath) -> Placement {
     let parts: Vec<&str> = path.components().collect();
     match parts.as_slice() {
-        [file] if SERVER_ONLY_FILES.contains(file) => Placement::ServerOnly,
-        [file] if CLIENT_ONLY_FILES.contains(file) => Placement::ClientOnly,
-        [folder, _, ..] if SERVER_ONLY_FOLDERS.contains(folder) => Placement::ServerOnly,
-        [folder, _, ..] if CLIENT_ONLY_FOLDERS.contains(folder) => Placement::ClientOnly,
+        [file] if in_names(file, &SERVER_ONLY_FILES) => Placement::ServerOnly,
+        [file] if in_names(file, &CLIENT_ONLY_FILES) => Placement::ClientOnly,
+        [folder, _, ..] if in_names(folder, &SERVER_ONLY_FOLDERS) => Placement::ServerOnly,
+        [folder, _, ..] if in_names(folder, &CLIENT_ONLY_FOLDERS) => Placement::ClientOnly,
         // A world's files are `saves/<world>/<more>`; `saves` itself as a file and loose
         // files in `saves/` only exist on clients (a server keeps worlds at its root).
-        ["saves"] | ["saves", _] => Placement::ClientOnly,
+        [SAVES] | [SAVES, _] => Placement::ClientOnly,
         _ => Placement::Both,
     }
 }
@@ -432,13 +485,45 @@ pub fn placement(path: &CanonicalPath) -> Placement {
 /// owner marked them for players.
 const CONFIG_FOLDERS: [&str; 3] = ["config", "defaultconfigs", "kubejs"];
 
-/// Whether `path` is a config: a file in `config/`, `defaultconfigs/` or `kubejs/`.
+/// Whether `path` is a config: a file in `config/`, `defaultconfigs/` or `kubejs/`
+/// (whatever their letter case: `Config/` is `config/` on most players' disks).
 pub fn is_config(path: &CanonicalPath) -> bool {
     let mut parts = path.components();
     parts
         .next()
-        .is_some_and(|top| CONFIG_FOLDERS.contains(&top))
+        .is_some_and(|top| in_names(top, &CONFIG_FOLDERS))
         && parts.next().is_some()
+}
+
+/// `part` folded the way [`case_collisions`] folds names; ASCII without allocating when it
+/// is already lower case.
+fn folded(part: &str) -> Cow<'_, str> {
+    if part.is_ascii() {
+        if part.bytes().any(|b| b.is_ascii_uppercase()) {
+            Cow::Owned(part.to_ascii_lowercase())
+        } else {
+            Cow::Borrowed(part)
+        }
+    } else {
+        Cow::Owned(fold(part))
+    }
+}
+
+/// Whether two names are one on a disk that ignores letter case (over-folding, like
+/// [`case_collisions`]: `ſ` meets `s`).
+pub(crate) fn same_name(a: &str, b: &str) -> bool {
+    a == b || folded(a) == folded(b)
+}
+
+/// Whether `part`, folded, starts with `prefix` (lower-case ASCII).
+pub(crate) fn starts_with_name(part: &str, prefix: &str) -> bool {
+    folded(part).starts_with(prefix)
+}
+
+/// Whether `part` is one of `names` (lower-case ASCII), ignoring letter case.
+pub(crate) fn in_names(part: &str, names: &[&str]) -> bool {
+    let part = folded(part);
+    names.iter().any(|name| part == *name)
 }
 
 /// Folds a name the way a case-insensitive disk might. Over-folding (Unicode lower case of
@@ -683,10 +768,67 @@ mod tests {
             (".lodestone_modpack/record.json", false),
             ("mods/a.jar", false),
             ("config/cache/x", false),
+            // Whatever the letter case: on most disks these are the same files.
+            (".LODESTONE_CONFIG", true),
+            (".Lodestone_Config", true),
+            ("LOGS/latest.log", true),
+            ("Crash-Reports/x.txt", true),
+            ("saves/w/Session.lock", true),
+            ("SESSION.LOCK", true),
+            (".LODESTONE-RESTORE-x/y", true),
+            ("mods/.Lodestone-Restore-old/a.jar", true),
+            (".LODESTONE_MODPACK/Objects/ab/cd", true),
+            (".lodeſtone_config", true),
+            (".LODESTONE_MODPACK/record.json", false),
         ];
         for (path, excluded) in cases {
             assert_eq!(always_excluded(&p(path)), excluded, "{path}");
         }
+    }
+
+    #[test]
+    fn refuses_short_name_aliases() {
+        for bad in [
+            "LODEST~1",
+            "lodest~2",
+            "SESSIO~1.LOC",
+            "SERVER~1.PRO",
+            "mods/MOD~12.JAR",
+            "~1",
+            "a~1.b",
+            "saves/WORLD~1/level.dat",
+        ] {
+            assert!(
+                matches!(CanonicalPath::new(bad), Err(PathError::ShortName(_))),
+                "{bad} should be refused"
+            );
+        }
+        for ok in [
+            "my-backup~2.zip",
+            "longername~1",
+            "a~1.json5",
+            "a~1.b.c",
+            "file~",
+            "~$doc.docx",
+            "a~b",
+            "x~1y",
+        ] {
+            assert!(!is_short_name_alias(ok), "{ok}");
+            assert!(CanonicalPath::new(ok).is_ok(), "{ok}");
+        }
+    }
+
+    #[test]
+    fn refuses_case_variants_of_saves() {
+        for bad in ["Saves/w/level.dat", "SAVES", "sAves/x"] {
+            assert!(
+                matches!(CanonicalPath::new(bad), Err(PathError::CaseVariant(_))),
+                "{bad}"
+            );
+        }
+        // Only at the top: deeper, `Saves` is an ordinary folder.
+        assert!(CanonicalPath::new("config/Saves/x").is_ok());
+        assert!(CanonicalPath::new("saves/Saves/level.dat").is_ok());
     }
 
     #[test]
@@ -713,6 +855,11 @@ mod tests {
             ("config/options.txt", Placement::Both),
             ("libraries", Placement::Both),
             ("plugins/a.jar", Placement::Both),
+            ("Server.Properties", Placement::ServerOnly),
+            ("OPS.json", Placement::ServerOnly),
+            ("Libraries/x.jar", Placement::ServerOnly),
+            ("Options.txt", Placement::ClientOnly),
+            ("ResourcePacks/a.zip", Placement::ClientOnly),
         ];
         for (path, expected) in cases {
             assert_eq!(placement(&p(path)), expected, "{path}");
@@ -730,6 +877,8 @@ mod tests {
         assert!(!is_config(&p("config")));
         assert!(!is_config(&p("mods/config")));
         assert!(!is_config(&p("options.txt")));
+        assert!(is_config(&p("Config/a.toml")));
+        assert!(is_config(&p("KUBEJS/x.js")));
     }
 
     #[test]
@@ -737,6 +886,8 @@ mod tests {
         assert!(is_lodestone_path(&p(".lodestone_config")));
         assert!(is_lodestone_path(&p(".lodestone_modpack/record.json")));
         assert!(!is_lodestone_path(&p("mods/.lodestone_client_mods.json")));
+        assert!(is_lodestone_path(&p(".LODESTONE_MODPACK/record.json")));
+        assert!(is_lodestone_path(&p(".Lodestone-anything")));
     }
 
     #[test]

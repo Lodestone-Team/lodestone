@@ -432,7 +432,11 @@ pub fn to_image(snapshot: &Snapshot) -> Result<Converted, LegacyError> {
                     zero_modes.insert(file.path.clone());
                     0o644
                 } else {
-                    file.mode
+                    // Images keep only the permission bits (the Launcher never wrote more).
+                    match file.mode & 0o777 {
+                        0 => 0o644,
+                        bits => bits,
+                    }
                 };
                 entry.modified = file.modified.and_then(|seconds| {
                     let nanos = i64::try_from(seconds)

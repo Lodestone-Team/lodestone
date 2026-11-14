@@ -64,7 +64,9 @@ use cdc::Chunker;
 use chunklist::MAX_LIST_BYTES;
 use chunklist::{ChunkList, ChunkRef, CHUNKED_ABOVE};
 pub use encoding::Encoding;
-use encoding::{buffer_len, decoded_len, decoder, encode_into, read_limited, IO_CHUNK};
+use encoding::{
+    buffer_len, decoded_len, decoder, encode_into, read_limited, read_prefix, IO_CHUNK,
+};
 pub use statcache::StatCache;
 
 /// Temporary files older than this were left by a crash and are swept.
@@ -217,6 +219,11 @@ pub struct Store {
 
 /// Whether `id` can name an instance's folder: 1 to 100 ASCII letters, digits, `-` and
 /// `_`, and not a Windows device name (`CON`, `NUL`, `COM1`…).
+///
+/// Ids that differ only in letter case are both valid, but on a disk that ignores case
+/// they share one folder, so one instance's listing and retention would see the other's
+/// manifests. Callers must use ids that are unique ignoring case: the core's are lower-case
+/// UUIDs, and the Launcher's name instance folders on the same disk, which already must be.
 pub fn valid_instance_id(id: &str) -> bool {
     (1..=MAX_INSTANCE_ID).contains(&id.len())
         && id
@@ -287,22 +294,39 @@ impl Store {
     // Objects
 
     /// Whether the object for a file of `size` bytes with this hash looks present: there,
-    /// and as long as the file (whole), or a chunk list for exactly that size. Reading the
-    /// file's bytes is left to reads, which check every one.
+    /// and as long as the file (whole), or a chunk list for exactly that size. Only the
+    /// object is looked at, not a list's chunks (see [`Store::object_complete`]); reading
+    /// the file's bytes is left to reads, which check every one.
     pub fn has_object(&self, sha256: &str, size: u64) -> bool {
         self.presence(sha256, size).is_some()
     }
 
-    /// [`Store::has_object`], and also touches the object, and a chunk list's chunks, when
-    /// they are older than ten minutes, as a write that finds an object there does. So a
-    /// garbage collection running now keeps them for the hour of grace, for the manifest
-    /// about to name them ([`gc`]). A list with a missing chunk isn't present.
+    /// [`Store::has_object`], and for a chunk list, every chunk there and as long as the
+    /// list says: what reading the file needs. A list that lost a chunk (deleted as
+    /// damaged by [`Store::remove_damaged_chunk`]) isn't complete, so callers download or
+    /// import the file again, which writes the missing chunk back.
+    pub fn object_complete(&self, sha256: &str, size: u64) -> bool {
+        self.complete(sha256, size, None)
+    }
+
+    /// [`Store::object_complete`], and also touches the object, and a chunk list's chunks,
+    /// when they are older than ten minutes, as a write that finds an object there does.
+    /// So a garbage collection running now keeps them for the hour of grace, for the
+    /// manifest about to name them ([`gc`]).
     pub fn claim_object(&self, sha256: &str, size: u64) -> bool {
-        let now = SystemTime::now();
+        self.complete(sha256, size, Some(SystemTime::now()))
+    }
+
+    fn complete(&self, sha256: &str, size: u64, touch: Option<SystemTime>) -> bool {
+        let touch = |path: &Path| {
+            if let Some(now) = touch {
+                touch_if_old(path, now);
+            }
+        };
         match self.presence(sha256, size) {
             None => false,
             Some(Presence::Whole(path)) => {
-                touch_if_old(&path, now);
+                touch(&path);
                 true
             }
             Some(Presence::Chunked(path, list)) => {
@@ -313,9 +337,9 @@ impl Store {
                     if decoded_len(self.encoding, &chunk_path) != Some(u64::from(chunk.size)) {
                         return false;
                     }
-                    touch_if_old(&chunk_path, now);
+                    touch(&chunk_path);
                 }
-                touch_if_old(&path, now);
+                touch(&path);
                 true
             }
         }
@@ -329,13 +353,35 @@ impl Store {
         if len == size {
             return Some(Presence::Whole(path));
         }
-        if size <= CHUNKED_ABOVE || len == 0 || len > ChunkList::max_encoded_len(size) {
-            return None;
-        }
-        let list = read_limited(self.encoding, &path, len)
-            .ok()
-            .and_then(|bytes| ChunkList::parse(&bytes).ok())?;
+        let list = self.list_for(&path, len, size).ok()??;
         (list.size == size).then_some(Presence::Chunked(path, list))
+    }
+
+    /// The chunk list in the object at `path` (`len` plain bytes) if it could be one for a
+    /// file of `size` bytes. Reads only the header first: an object that doesn't start
+    /// like a list, or whose header gives another size, isn't read whole, so a wrong size
+    /// from a manifest from elsewhere never loads a large whole object into memory. `Ok(None)`
+    /// is "not a list for this size"; `Err` carries the size a list's header gives
+    /// instead, for the caller to report.
+    fn list_for(&self, path: &Path, len: u64, size: u64) -> Result<Option<ChunkList>, u64> {
+        if size <= CHUNKED_ABOVE
+            || len == 0
+            || len > ChunkList::max_encoded_len(size).min(MAX_LIST_BYTES)
+        {
+            return Ok(None);
+        }
+        let Some(header) = read_prefix(self.encoding, path, ChunkList::HEADER_LEN)
+            .ok()
+            .and_then(|head| ChunkList::header_size(&head))
+        else {
+            return Ok(None);
+        };
+        if header != size {
+            return Err(header);
+        }
+        Ok(read_limited(self.encoding, path, len)
+            .ok()
+            .and_then(|bytes| ChunkList::parse(&bytes).ok()))
     }
 
     /// How the object for a file of `size` bytes holds it. Reads and checks the chunk list
@@ -354,21 +400,13 @@ impl Store {
         if len == size {
             return Ok(ObjectForm::Whole);
         }
-        if size > CHUNKED_ABOVE && len <= ChunkList::max_encoded_len(size) {
-            let list = read_limited(self.encoding, &path, len)
-                .ok()
-                .and_then(|bytes| ChunkList::parse(&bytes).ok());
-            match list {
-                Some(list) if list.size == size => return Ok(ObjectForm::Chunked(list)),
-                Some(_) => {
-                    return Err(StoreError::WrongSize {
-                        sha256: sha256.to_string(),
-                        size,
-                    })
-                }
-                None => {}
+        if let Ok(Some(list)) = self.list_for(&path, len, size) {
+            if list.size == size {
+                return Ok(ObjectForm::Chunked(list));
             }
         }
+        // Not a list for this size: find out, by reading it through (streamed), whether it
+        // is a healthy object of another size or a damaged one.
         Err(self.mismatch(sha256, size))
     }
 

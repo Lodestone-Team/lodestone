@@ -20,11 +20,19 @@
 //! caller withholds the file instead of recording a path that would come back elsewhere.
 //! Disk paths are relative (to the instance folder for a client, the server folder for a
 //! server) and `/`-separated; [`join_disk`] makes a file system path of one.
+//!
+//! A server's world names are compared ignoring letter case wherever a name could be
+//! taken for one: on Windows and macOS's default disks `World/level.dat` is in the level
+//! `world`, and a top-level file named `world` can't sit beside that folder. Such paths are
+//! layout conflicts, both ways, so the mapping stays two-way on every disk.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use crate::paths::{excluded_parts, placement, validate_component, CanonicalPath, PathError};
+use crate::paths::{
+    excluded_parts, in_names, placement, same_name, starts_with_name, validate_component,
+    CanonicalPath, PathError,
+};
 use crate::Side;
 
 /// A client's game folder inside its instance folder.
@@ -63,8 +71,10 @@ pub struct ServerLayout {
 
 impl ServerLayout {
     /// A server with the level `level_name` and the other world folders `other_worlds`
-    /// (folders with a `level.dat`, say). `split` is for Paper, Spigot and Bukkit. Refuses
-    /// world names that can't be told apart from other server files.
+    /// (folders with a `level.dat`, say), named as they are on disk. `split` is for Paper,
+    /// Spigot and Bukkit. Refuses world names that can't be told apart from other server
+    /// files, and two worlds (or a world and a split level's folder) whose names differ
+    /// only in letter case.
     pub fn new(
         level_name: impl Into<String>,
         other_worlds: impl IntoIterator<Item = String>,
@@ -77,8 +87,14 @@ impl ServerLayout {
         for world in other_worlds {
             check_world_name(&world)?;
             if split
-                && (world == format!("{level_name}_nether")
-                    || world == format!("{level_name}_the_end"))
+                && (same_name(&world, &format!("{level_name}_nether"))
+                    || same_name(&world, &format!("{level_name}_the_end")))
+            {
+                return Err(PathError::BadWorldName(world));
+            }
+            if worlds
+                .iter()
+                .any(|known| known != &world && same_name(known, &world))
             {
                 return Err(PathError::BadWorldName(world));
             }
@@ -116,18 +132,29 @@ impl ServerLayout {
         format!("{}_the_end", self.level_name)
     }
 
-    /// Whether `name` is one of the split level's extra folders.
-    fn is_split_folder(&self, name: &str) -> bool {
-        self.split && (name == self.nether_folder() || name == self.end_folder())
+    /// Whether a top-level name is, on a disk that ignores letter case, a world's folder or
+    /// one of the split level's: those names belong to the worlds.
+    fn is_world_like(&self, name: &str) -> bool {
+        self.worlds.iter().any(|world| same_name(world, name))
+            || (self.split
+                && (same_name(name, &self.nether_folder()) || same_name(name, &self.end_folder())))
     }
 }
 
 fn check_world_name(name: &str) -> Result<(), PathError> {
     validate_component(name).map_err(|_| PathError::BadWorldName(name.to_string()))?;
-    if NOT_WORLD_NAMES.contains(&name) || name.starts_with(".lodestone") {
+    if in_names(name, &NOT_WORLD_NAMES) || starts_with_name(name, ".lodestone") {
         return Err(PathError::BadWorldName(name.to_string()));
     }
     Ok(())
+}
+
+/// Whether `name`, inside a split level, differs only in letter case from one of the
+/// folders the split moves (`DIM-1`, `DIM1`, `.bukkit_nether`, `.bukkit_the_end`).
+fn split_case_variant(name: &str) -> bool {
+    [NETHER, END, BUKKIT_NETHER, BUKKIT_END]
+        .iter()
+        .any(|special| name != *special && same_name(name, special))
 }
 
 /// One side's disk: a client instance, or a server and its worlds.
@@ -205,6 +232,9 @@ fn server_to_disk(
             return Err(PathError::UnknownWorld(world.to_string()));
         }
         if server.split && *world == server.level_name {
+            if rest.first().is_some_and(|first| split_case_variant(first)) {
+                return Err(conflict());
+            }
             let joined = |folder: String, rest: &[&str]| {
                 std::iter::once(folder.as_str())
                     .chain(rest.iter().copied())
@@ -230,10 +260,11 @@ fn server_to_disk(
             .collect::<Vec<_>>()
             .join("/"));
     }
-    // Not a world file: it keeps its path, unless that is inside a world's folder on this
-    // disk, where reading it back would take it for the world's.
-    if let [first, _, ..] = parts {
-        if server.is_world(first) || server.is_split_folder(first) {
+    // Not a world file: it keeps its path, unless that is a world's folder, or inside one,
+    // on this disk (ignoring letter case), where reading it back would take it for the
+    // world's, or a file couldn't be placed beside the folder.
+    if let [first, ..] = parts {
+        if server.is_world_like(first) {
             return Err(conflict());
         }
     }
@@ -252,12 +283,19 @@ fn server_from_disk(server: &ServerLayout, parts: &[&str]) -> Result<Vec<String>
         return Ok(owned(parts));
     };
     if rest.is_empty() {
-        // A top-level file keeps its name.
+        // A top-level file keeps its name, unless it is named like a world (which
+        // `server_to_disk` refuses to place).
+        if server.is_world_like(first) {
+            return Err(conflict());
+        }
         return Ok(owned(parts));
     }
     let level = server.level_name.as_str();
     if server.split {
-        if *first == level && matches!(rest[0], NETHER | END | BUKKIT_NETHER | BUKKIT_END) {
+        if *first == level
+            && (matches!(rest[0], NETHER | END | BUKKIT_NETHER | BUKKIT_END)
+                || split_case_variant(rest[0]))
+        {
             // A vanilla dimension (or our own folder) inside a split level: Paper moves
             // these out when it starts, and they would read back in its other folders.
             return Err(conflict());
@@ -286,7 +324,12 @@ fn server_from_disk(server: &ServerLayout, parts: &[&str]) -> Result<Vec<String>
     if server.is_world(first) {
         return Ok(in_world(first, rest));
     }
-    if *first == "saves" {
+    if server.is_world_like(first) {
+        // A world's folder in another letter case: the same folder on most disks, but
+        // not a name this layout reads as the world.
+        return Err(conflict());
+    }
+    if same_name(first, "saves") {
         // Canonical `saves/` is where worlds are; a server folder by that name would read
         // back as worlds.
         return Err(conflict());
@@ -406,14 +449,20 @@ mod tests {
             server.to_disk(&p("world/level.dat")),
             Err(PathError::LayoutConflict(_))
         ));
-        // A top-level file named like a world is fine.
-        assert_eq!(server.to_disk(&p("world")).unwrap(), "world");
+        // A top-level file named like a world can't sit beside the world's folder.
+        assert!(matches!(
+            server.to_disk(&p("world")),
+            Err(PathError::LayoutConflict(_))
+        ));
 
         assert_eq!(
             server.from_disk("world/DIM1/region/r.0.0.mca").unwrap(),
             Some(p("saves/world/DIM1/region/r.0.0.mca"))
         );
-        assert_eq!(server.from_disk("world").unwrap(), Some(p("world")));
+        assert!(matches!(
+            server.from_disk("world"),
+            Err(PathError::LayoutConflict(_))
+        ));
         assert_eq!(server.from_disk("eula.txt").unwrap(), Some(p("eula.txt")));
         assert_eq!(server.from_disk(".lodestone_config").unwrap(), None);
         assert_eq!(server.from_disk("logs/latest.log").unwrap(), None);
@@ -494,6 +543,55 @@ mod tests {
                 "{canonical}"
             );
         }
+    }
+
+    #[test]
+    fn world_names_match_whatever_their_letter_case() {
+        let vanilla = vanilla();
+        let paper = paper();
+        // Non-world paths in a world's folder (another case) or named like one.
+        for (layout, canonical) in [
+            (&vanilla, "World/level.dat"),
+            (&vanilla, "WORLD"),
+            (&vanilla, "Old_World/region/r.0.0.mca"),
+            (&paper, "World_Nether/x"),
+            (&paper, "world_THE_END"),
+            (&paper, "saves/world/dim-1/region/r.0.0.mca"),
+            (&paper, "saves/world/.BUKKIT_NETHER/level.dat"),
+        ] {
+            assert!(
+                matches!(
+                    layout.to_disk(&p(canonical)),
+                    Err(PathError::LayoutConflict(_))
+                ),
+                "{canonical}"
+            );
+        }
+        // And from the disk, both ways.
+        for (layout, disk) in [
+            (&vanilla, "World/level.dat"),
+            (&vanilla, "WORLD"),
+            (&vanilla, "Saves/x/level.dat"),
+            (&paper, "World_nether/DIM-1/x"),
+            (&paper, "world/dim1/x"),
+            (&paper, "world/.Bukkit_The_End/x"),
+        ] {
+            assert!(
+                matches!(layout.from_disk(disk), Err(PathError::LayoutConflict(_))),
+                "{disk}"
+            );
+        }
+        // Worlds that differ only in letter case, or clash with the split folders.
+        assert!(ServerLayout::new("world", ["World".to_string()], false).is_err());
+        assert!(ServerLayout::new("world", ["WORLD_nether".to_string()], true).is_err());
+        assert!(ServerLayout::new("Mods", [], false).is_err());
+        assert!(ServerLayout::new(".LODESTONE_x", [], false).is_err());
+        // Other names in other cases are ordinary.
+        assert_eq!(vanilla.to_disk(&p("Mods/a.jar")).unwrap(), "Mods/a.jar");
+        assert_eq!(
+            vanilla.from_disk("Mods/a.jar").unwrap(),
+            Some(p("Mods/a.jar"))
+        );
     }
 
     #[test]
@@ -580,10 +678,15 @@ mod tests {
             vanilla().from_disk("mods/x.jar."),
             Err(PathError::TrailingDotOrSpace)
         );
-        // Letter case is kept: `World/…` isn't the level `world`.
+        // `World/…` is the level `world` on a disk that ignores case, and not a name this
+        // layout reads as it: a conflict, withheld. Other names keep their case.
+        assert!(matches!(
+            vanilla().from_disk("World/level.dat"),
+            Err(PathError::LayoutConflict(_))
+        ));
         assert_eq!(
-            vanilla().from_disk("World/level.dat").unwrap(),
-            Some(p("World/level.dat"))
+            vanilla().from_disk("Config/a.toml").unwrap(),
+            Some(p("Config/a.toml"))
         );
     }
 

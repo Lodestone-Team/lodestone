@@ -132,6 +132,22 @@ impl ChunkList {
         bytes[..n] == MAGIC.as_bytes()[..n]
     }
 
+    /// How many bytes to read of an object to find the size its list header gives
+    /// ([`ChunkList::header_size`]): the magic, `size `, 20 digits and a newline.
+    pub const HEADER_LEN: usize = MAGIC.len() + 5 + 20 + 1;
+
+    /// The file size a chunk list's header gives, from an object's first bytes (at least
+    /// [`ChunkList::HEADER_LEN`] of them, or all of a shorter object); `None` when they
+    /// don't start like a list. Lets a reader skip reading a whole object to find it is
+    /// a list for another size, or no list.
+    pub fn header_size(bytes: &[u8]) -> Option<u64> {
+        let rest = bytes.strip_prefix(MAGIC.as_bytes())?;
+        let rest = rest.strip_prefix(b"size ")?;
+        let end = rest.iter().position(|&b| b == b'\n')?;
+        let digits = std::str::from_utf8(&rest[..end]).ok()?;
+        parse_decimal(digits)
+    }
+
     /// How many bytes to read of an object to tell whether it is a list ([`looks_like`]).
     ///
     /// [`looks_like`]: ChunkList::looks_like
@@ -189,6 +205,27 @@ mod tests {
         assert!(bytes.len() as u64 <= ChunkList::max_encoded_len(original.size));
         assert_eq!(ChunkList::parse(&bytes).unwrap(), original);
         assert!(bytes.starts_with(b"lodestone-chunks 1\nsize 1218576\n0000"));
+    }
+
+    #[test]
+    fn the_header_gives_the_size_without_the_rest() {
+        let original = list(&[MAX_CHUNK as u32, MAX_CHUNK as u32, 100]);
+        let bytes = original.encode();
+        let head = &bytes[..ChunkList::HEADER_LEN.min(bytes.len())];
+        assert_eq!(ChunkList::header_size(head), Some(original.size));
+        let biggest = format!("{MAGIC}size {}\n", u64::MAX);
+        assert_eq!(biggest.len(), ChunkList::HEADER_LEN);
+        assert_eq!(ChunkList::header_size(biggest.as_bytes()), Some(u64::MAX));
+        for bad in [
+            &b"PK\x03\x04 a jar"[..],
+            b"lodestone-chunks 1\nsize 012\n",
+            b"lodestone-chunks 1\nsize 12",
+            b"lodestone-chunks 1\nsize x\n",
+            b"lodestone-chunks 2\nsize 12\n",
+            b"",
+        ] {
+            assert_eq!(ChunkList::header_size(bad), None, "{bad:?}");
+        }
     }
 
     #[test]

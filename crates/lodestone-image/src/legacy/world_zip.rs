@@ -171,7 +171,7 @@ fn read_entry<R: Read + Seek>(
     }
     let sha256 = super::lower_hex(&hasher.finalize());
     let mut entry = Entry::new(path, size, sha256, Source::Object {});
-    entry.mode = match mode.map(|m| m & 0o7777) {
+    entry.mode = match mode.map(|m| m & 0o777) {
         Some(bits) if bits != 0 => bits,
         _ => 0o644,
     };

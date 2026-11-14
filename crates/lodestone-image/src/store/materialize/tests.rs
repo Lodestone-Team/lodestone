@@ -164,6 +164,47 @@ fn a_server_gets_its_layout_and_skips_client_files() {
 }
 
 #[test]
+fn a_file_named_like_a_world_is_refused_before_anything_is_placed() {
+    // `world` the file and `saves/world/…` the world are one name on this server's disk.
+    let (dir, store) = store(Encoding::Raw);
+    let mut image = stored_image(
+        &store,
+        &[
+            ("mods/a.jar", b"a"),
+            ("world", b"file"),
+            ("saves/world/level.dat", b"level"),
+        ],
+    );
+    image.worlds = vec![crate::manifest::World {
+        name: "world".into(),
+        level_name: None,
+        data_version: None,
+        game_version: None,
+        size: None,
+        last_played: None,
+        quiesced: None,
+    }];
+    image.seal();
+    image.validate().unwrap();
+    let layout = DiskLayout::Server(ServerLayout::new("world", [], false).unwrap());
+    let staging = dir.path().join("staging");
+    fs::create_dir(&staging).unwrap();
+    let error = materialize(
+        &store,
+        &image,
+        &layout,
+        &staging,
+        &MaterializeOptions::default(),
+    )
+    .unwrap_err();
+    assert!(
+        matches!(&error, MaterializeError::Layout { path: p, error: PathError::LayoutConflict(_) } if p.as_str() == "world"),
+        "{error}"
+    );
+    assert!(files_under(&staging).is_empty());
+}
+
+#[test]
 fn missing_objects_place_nothing() {
     let (dir, store) = store(Encoding::Raw);
     let mut image = stored_image(&store, &[("mods/a.jar", b"a")]);

@@ -669,7 +669,8 @@ impl Container {
     /// Adds the export's objects to `store`, after `check_room` agreed to
     /// [`Container::unpacked_bytes`]. Each object's bytes (each chunk's, then the whole
     /// file's) are checked against their SHA-256 before the store names anything by it;
-    /// objects the store already has are skipped.
+    /// objects the store already has complete ([`Store::claim_object`]) are skipped, so
+    /// importing an export again is how a store repairs a chunk list that lost a chunk.
     pub fn import_objects(
         &mut self,
         store: &Store,
@@ -686,7 +687,9 @@ impl Container {
                 Carried::Whole { size } => *size,
                 Carried::Chunked(list) => list.size,
             };
-            if store.has_object(sha256, size) {
+            // Complete, every chunk of a list included (a list that lost a damaged chunk
+            // gets it back from the export), and touched against a collection running now.
+            if store.claim_object(sha256, size) {
                 continue;
             }
             let name = format!("objects/{sha256}");

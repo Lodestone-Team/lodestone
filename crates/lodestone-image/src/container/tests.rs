@@ -692,3 +692,96 @@ fn an_image_whose_files_add_up_to_too_much_is_refused() {
     assert_eq!(container.image_bytes(), 100 * size);
     assert!(container.unpacked_bytes() < size);
 }
+
+#[test]
+fn importing_again_restores_a_lost_chunk() {
+    let (dir, source) = store(Encoding::Raw);
+    let fixture = fixture(&source);
+    let file = dir.path().join("world.lodeimage");
+    export(
+        &source,
+        &fixture.data,
+        std::slice::from_ref(&fixture.content),
+        &file,
+        NEVER,
+    )
+    .unwrap();
+    let (_target_dir, target) = store(Encoding::Raw);
+    let mut container = open(&file, &Limits::default()).unwrap();
+    container.import_objects(&target, &no_check, NEVER).unwrap();
+
+    // A chunk of the region file goes bad and is deleted, as the recovery path says.
+    let region = fixture
+        .data
+        .entries
+        .iter()
+        .find(|e| e.path.as_str() == "saves/world/region/r.0.0.mca")
+        .unwrap()
+        .clone();
+    let ObjectForm::Chunked(list) = target.object_form(&region.sha256, region.size).unwrap() else {
+        panic!("the region file should be chunked");
+    };
+    let chunk = &list.chunks[2];
+    let chunk_path = target.chunk_path(&chunk.sha256).unwrap();
+    crate::store::fsx::remove_file_forced(&chunk_path).unwrap();
+    fs::write(&chunk_path, vec![0u8; chunk.size as usize]).unwrap();
+    assert!(target.remove_damaged_chunk(chunk).unwrap());
+
+    // The list is still there, so the object looks present, but it isn't complete: the
+    // caller is told it is missing, and saving refuses to name it.
+    assert!(target.has_object(&region.sha256, region.size));
+    assert!(!target.object_complete(&region.sha256, region.size));
+    let missing = crate::store::materialize::missing_objects(
+        &target,
+        &fixture.data,
+        crate::store::materialize::Selection::All,
+    );
+    assert_eq!(missing.len(), 1);
+    assert_eq!(missing[0].path, region.path);
+    assert!(matches!(
+        target.save_manifest("copy", &fixture.data),
+        Err(StoreError::Missing(_))
+    ));
+
+    // Importing the export again writes the chunk back.
+    let mut container = open(&file, &Limits::default()).unwrap();
+    let report = container.import_objects(&target, &no_check, NEVER).unwrap();
+    assert_eq!(report.objects, 1);
+    assert!(target.claim_object(&region.sha256, region.size));
+    target.save_manifest("copy", &fixture.data).unwrap();
+    let staging = dir.path().join("staging");
+    fs::create_dir(&staging).unwrap();
+    materialize(
+        &target,
+        &fixture.data,
+        &DiskLayout::Client,
+        &staging,
+        &MaterializeOptions::default(),
+    )
+    .unwrap();
+    assert_eq!(
+        fs::read(staging.join("minecraft/saves/world/region/r.0.0.mca")).unwrap(),
+        fixture.big
+    );
+}
+
+#[test]
+fn a_compressible_manifest_with_a_huge_unknown_field_is_refused_cheaply() {
+    // The export is small (deflate packs `0,` repeated about a thousand to one) but its
+    // image.json is 16 MiB of one unknown field. Reading keeps unknown fields only within
+    // a small budget, so it fails there instead of building millions of JSON values.
+    let dir = tempfile::tempdir().unwrap();
+    let (image, mut entries) = small_export();
+    let mut json = image.to_json_pretty();
+    let closing = json.iter().rposition(|&b| b == b'}').unwrap();
+    json.truncate(closing);
+    json.extend_from_slice(b",\"zz\":[");
+    json.extend_from_slice(&b"0,".repeat(8 << 20));
+    json.extend_from_slice(b"0]}");
+    entries[0].1 = json;
+    let file = dir.path().join("amplified.zip");
+    write_entries(&file, &entries);
+    assert!(fs::metadata(&file).unwrap().len() < 1 << 20);
+    let error = open_error(&file);
+    assert!(error.contains("larger than it keeps"), "{error}");
+}

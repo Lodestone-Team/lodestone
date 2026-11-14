@@ -30,12 +30,25 @@ use crate::settings::Settings;
 use crate::strings::open_enum;
 use crate::Side;
 
+mod read;
+
+pub use read::MAX_SETTING_ITEMS;
+pub(crate) use read::{null_as_default, setting_list, setting_map};
+pub use read::{
+    prescan, UnknownBudget, ENTRY_UNKNOWN, IMAGE_UNKNOWN, MAX_JSON_DEPTH, MAX_JSON_VALUES,
+    MAX_UNKNOWN_DEPTH,
+};
+
 /// The manifest schema this version writes and reads.
 pub const SCHEMA: u32 = 2;
 /// The version of the view and env rules this version implements ([`mod@crate::view`]).
 pub const RULES: u32 = 1;
 /// An image lists at most this many entries (and withholds at most this many files).
 pub const MAX_ENTRIES: usize = 1_000_000;
+/// An image lists at most this many worlds.
+pub const MAX_WORLDS: usize = 10_000;
+/// An entry's `env_from` lists at most this many inputs (there are five today).
+pub const MAX_ENV_FROM: usize = 16;
 /// At most this many exclude patterns, each at most [`MAX_EXCLUDE_LEN`] characters.
 pub const MAX_EXCLUDES: usize = 1000;
 pub const MAX_EXCLUDE_LEN: usize = 256;
@@ -163,40 +176,39 @@ pub enum Source {
     Object {},
 }
 
-/// One file of an image.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// One file of an image. Read by hand, so unknown fields are kept within a budget
+/// ([`ENTRY_UNKNOWN`]) instead of being buffered.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Entry {
     pub path: CanonicalPath,
     pub size: u64,
     /// SHA-256 of the contents; the store key.
     pub sha256: String,
     /// When a source publishes it (Modrinth, CurseForge).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub sha1: Option<String>,
     /// When a source publishes it; required for Modrinth sources.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub sha512: Option<String>,
-    /// Unix permission bits; Windows keeps only read-only (0o444 against 0o644).
-    #[serde(default = "default_mode")]
+    /// Unix permission bits (at most 0o777: no setuid, setgid or sticky); Windows keeps
+    /// only read-only (0o444 against 0o644). 0o644 when missing.
     pub mode: u32,
     /// Unix nanoseconds. Informational: not part of the id, and views leave it out.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub modified: Option<i64>,
     pub source: Source,
-    #[serde(default)]
     pub env: Env,
     /// The inputs that decided `env`, sorted ([`crate::env::resolve`]).
-    #[serde(default)]
     pub env_from: Vec<EnvFrom>,
     /// The world, for files in `saves/<world>/`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub world: Option<String>,
     /// Fields this version doesn't know, kept as they were.
     #[serde(flatten)]
     pub extra: BTreeMap<String, Value>,
 }
 
-fn default_mode() -> u32 {
+pub(crate) fn default_mode() -> u32 {
     0o644
 }
 
@@ -232,8 +244,10 @@ impl Entry {
         if self.sha512.as_deref().is_some_and(|h| !is_sha512(h)) {
             return Err(format!("{path}: sha512 isn't 128 lowercase hex characters"));
         }
-        if self.mode > 0o7777 {
-            return Err(format!("{path}: mode has bits other than permissions"));
+        if self.mode > 0o777 {
+            return Err(format!(
+                "{path}: mode has bits other than read, write and execute"
+            ));
         }
         if always_excluded(path) {
             return Err(format!("{path}: is never recorded in an image"));
@@ -315,67 +329,52 @@ pub struct Withheld {
     pub reason: WithheldReason,
 }
 
-/// An instance image. See the crate documentation and `docs/instance-images.md`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// An instance image. See the crate documentation and `docs/instance-images.md`. Read by
+/// hand ([`Image::from_json`]), with bounds on every list and on unknown fields
+/// ([`IMAGE_UNKNOWN`]), so a manifest from elsewhere can't make reading it cost far more
+/// memory than its size.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Image {
     pub schema: u32,
     /// SHA-256 of the canonical manifest ([`crate::identity`]); empty until
     /// [`Image::seal`].
-    #[serde(default)]
     pub id: String,
     pub kind: Kind,
     /// The image this one was recorded after. Lineage, informational: not part of the id.
-    #[serde(default)]
     pub parent: Option<String>,
     /// Unix seconds. Not part of the id.
-    #[serde(default)]
     pub created: i64,
     /// Not part of the id.
-    #[serde(default)]
     pub producer: Producer,
     /// What made it ("Added JEI"). Not part of the id.
-    #[serde(default)]
     pub label: Option<String>,
-    #[serde(default)]
     pub base: Option<Base>,
     pub game: Game,
-    #[serde(default)]
     pub settings: Settings,
     /// Sorted by path.
-    #[serde(default)]
     pub entries: Vec<Entry>,
     /// Base files deliberately taken out.
-    #[serde(default)]
     pub removed: Vec<CanonicalPath>,
     /// Data and full images.
-    #[serde(default)]
     pub worlds: Vec<World>,
     /// Data images: the content image they ran with.
-    #[serde(default)]
     pub content: Option<String>,
     /// What this image left out on purpose (the backup's exclude patterns).
-    #[serde(default)]
     pub excludes: Vec<String>,
     /// Known files not carried, and why.
-    #[serde(default)]
     pub withheld: Vec<Withheld>,
     /// The version of the view and env rules the entries' `env` follows.
-    #[serde(default = "default_rules")]
     pub rules: u32,
     /// Set on a view: the side it is for. Part of the id.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub side: Option<Side>,
     /// Set on a view: the id of the image it was computed from. Informational, like
     /// `parent`: not part of the id, so equal views have equal ids whatever they came from.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub projected_from: Option<String>,
     /// Fields this version doesn't know, kept as they were.
     #[serde(flatten)]
     pub extra: BTreeMap<String, Value>,
-}
-
-fn default_rules() -> u32 {
-    RULES
 }
 
 /// Only the schema, read before the rest so a newer manifest is refused for its schema and
@@ -412,7 +411,9 @@ impl Image {
         }
     }
 
-    /// Reads and validates a manifest. Lists are normalized ([`Image::normalize`]); the id
+    /// Reads and validates a manifest. Its shape is checked first ([`prescan`]) and every
+    /// list and unknown field is read within a bound, so a hostile manifest costs little
+    /// more memory than its size. Lists are normalized ([`Image::normalize`]); the id
     /// is not checked here (see [`Image::verify`]), since a store's own manifests are
     /// trusted and checking costs a hash of the whole manifest.
     pub fn from_json(bytes: &[u8]) -> Result<Image, ManifestError> {
@@ -423,6 +424,7 @@ impl Image {
                 "the manifest isn't a JSON object".into(),
             ));
         }
+        prescan(bytes).map_err(|e| ManifestError::Invalid(format!("the manifest {e}")))?;
         let probe: SchemaProbe =
             serde_json::from_slice(bytes).map_err(|e| ManifestError::Json(e.to_string()))?;
         let schema = match probe.schema {
@@ -521,8 +523,14 @@ impl Image {
             return Err("a content image has no worlds".into());
         }
 
-        if self.entries.len() > MAX_ENTRIES || self.withheld.len() > MAX_ENTRIES {
+        if self.entries.len() > MAX_ENTRIES
+            || self.withheld.len() > MAX_ENTRIES
+            || self.removed.len() > MAX_ENTRIES
+        {
             return Err(format!("more than {MAX_ENTRIES} entries"));
+        }
+        if self.worlds.len() > MAX_WORLDS {
+            return Err(format!("more than {MAX_WORLDS} worlds"));
         }
         let mut world_names = BTreeSet::new();
         for world in &self.worlds {
@@ -541,6 +549,12 @@ impl Image {
         }
         let mut paths: HashSet<&CanonicalPath> = HashSet::with_capacity(self.entries.len());
         for entry in &self.entries {
+            if entry.env_from.len() > MAX_ENV_FROM {
+                return Err(format!(
+                    "{}: more than {MAX_ENV_FROM} env_from inputs",
+                    entry.path
+                ));
+            }
             entry.validate()?;
             check_unknown_numbers(entry.path.as_str(), &entry.extra)?;
             if let Some(world) = &entry.world {
@@ -934,6 +948,9 @@ pub(crate) mod tests {
         invalid_after(|v| v["entries"][0]["sha256"] = "A".repeat(64).into());
         invalid_after(|v| v["entries"][0]["sha512"] = "zz".into());
         invalid_after(|v| v["entries"][0]["mode"] = 0o17777.into());
+        // setuid, setgid and sticky aren't recorded, so an image can't carry them.
+        invalid_after(|v| v["entries"][0]["mode"] = 0o4755.into());
+        invalid_after(|v| v["entries"][0]["mode"] = 0o1777.into());
         invalid_after(|v| v["entries"][0]["size"] = (-1).into());
         invalid_after(|v| {
             v["entries"][0]["source"]["modrinth"]["url"] = "https://evil.example/jei.jar".into()

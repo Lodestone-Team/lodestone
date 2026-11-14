@@ -25,7 +25,8 @@ pub const SECRET_PROPERTIES: [&str; 2] = ["rcon.password", "management-server-se
 /// An icon or background is at most this large (256 MiB): anything bigger isn't one.
 pub const MAX_STORED_FILE: u64 = 256 << 20;
 
-/// Every setting an image may carry, by side.
+/// Every setting an image may carry, by side. A `null` anywhere in the settings reads as
+/// the field's default, as everywhere in a manifest.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Settings {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -137,11 +138,11 @@ pub struct ServerSettings {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub port: Option<u16>,
     /// `server.properties` values, without [`SECRET_PROPERTIES`].
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::manifest::setting_map")]
     pub properties: BTreeMap<String, String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::manifest::setting_list")]
     pub ops: Vec<Op>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::manifest::setting_list")]
     pub whitelist: Vec<Player>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub flavour: Option<ServerFlavour>,
@@ -172,7 +173,7 @@ pub struct Op {
     pub uuid: String,
     pub name: String,
     pub level: u8,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::manifest::null_as_default")]
     pub bypasses_player_limit: bool,
 }
 
@@ -185,7 +186,7 @@ pub struct ClientSettings {
     pub recommended_memory_mb: Option<u32>,
     /// Resource packs in use, in order (first is lowest), as Minecraft writes them in
     /// `options.txt` (`file/<name>`, `vanilla`…).
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::manifest::setting_list")]
     pub resource_packs: Vec<String>,
     /// The shader pack in use, by file name in `shaderpacks/`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
