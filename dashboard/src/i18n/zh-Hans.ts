@@ -1030,6 +1030,7 @@ export const zhHans: Messages = {
   'files.createFolder.label': '为文件夹命名',
   'files.createFolder.placeholder': '未命名文件夹',
   'files.createFolder.submit': '创建文件夹',
+  'files.nameTaken': '此文件夹中已有 {name}',
   'files.rename.label': '为文件命名',
   'files.rename.submit': '重命名文件',
 

@@ -21,7 +21,7 @@ import { ModrinthSearchResponse } from 'bindings/ModrinthSearchResponse';
 import { ModrinthUrlTarget } from 'bindings/ModrinthUrlTarget';
 import { ModrinthVersion } from 'bindings/ModrinthVersion';
 import { SetClientMark } from 'bindings/SetClientMark';
-import { fileDownloadUrl } from 'utils/apis';
+import { downloadFromCore, fileDownloadUrl } from 'utils/apis';
 import { ApiError, axiosWrapper } from 'utils/util';
 
 /*
@@ -281,7 +281,8 @@ export const downloadClientPack = async (uuid: string) => {
     ...clientPackKeyRequest(uuid),
     timeout: NO_TIMEOUT,
   });
-  window.open(fileDownloadUrl(key), '_blank');
+  // not window.open: after this long wait the popup blocker would drop it
+  await downloadFromCore(fileDownloadUrl(key));
 };
 
 /* Modpacks */

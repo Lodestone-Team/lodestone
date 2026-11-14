@@ -1034,6 +1034,7 @@ export const zhHant: Messages = {
   'files.createFolder.label': '為資料夾命名',
   'files.createFolder.placeholder': '未命名資料夾',
   'files.createFolder.submit': '建立資料夾',
+  'files.nameTaken': '此資料夾中已有 {name}',
   'files.rename.label': '為檔案命名',
   'files.rename.submit': '重新命名檔案',
 
