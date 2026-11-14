@@ -8,7 +8,10 @@
 //!   pack didn't write it (a mod the user added by hand at the same path). A file the new
 //!   pack no longer lists is removed when unchanged. A pack file the user changed is left
 //!   as it is. A disabled mod (`.jar.disabled`) stays disabled, also when its new version
-//!   has another file name (the same Modrinth project).
+//!   has another file name (the same Modrinth project). A mod the pack adds replaces
+//!   another version of it on the server that the record doesn't list (one updated in the
+//!   Mods tab under a new file name, or added by hand), found by asking Modrinth: two
+//!   copies of a mod stop the loader from starting.
 //! - **Overrides** (configs and bundled files): written when missing, or when the old
 //!   pack wrote them and they are unchanged; never over the user's own files or changes.
 //!   Overrides the new pack dropped are removed only from `mods/` and `plugins/`, and only
@@ -271,6 +274,50 @@ pub(super) fn on_disk(root: &Path, path: &str) -> Option<(String, String)> {
     })
 }
 
+/// Whether `relative` (with `/` separators) is in `root` under exactly this name, every
+/// part of it spelled as the folder lists it. On a disk that ignores case (macOS, Windows)
+/// a path can lead to a file whose name differs in case; this tells them apart.
+fn exists_exactly(root: &Path, relative: &str) -> bool {
+    let mut dir = root.to_path_buf();
+    for part in Path::new(relative).components() {
+        let Component::Normal(name) = part else {
+            return false;
+        };
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            return false;
+        };
+        if !entries.flatten().any(|entry| entry.file_name() == name) {
+            return false;
+        }
+        dir.push(name);
+    }
+    true
+}
+
+/// The old record's paths that the new pack lists again with only their case changed, by
+/// the new path, when both lead to the same file (a disk that ignores case). Removing the
+/// old path would remove the new file too.
+fn renamed_by_case<'a>(
+    root: &Path,
+    old: &'a PackRecord,
+    new: &'a BTreeMap<String, PackFile>,
+) -> BTreeMap<&'a str, &'a str> {
+    let new_by_lower: std::collections::HashMap<String, &String> =
+        new.keys().map(|path| (path.to_lowercase(), path)).collect();
+    old.files
+        .keys()
+        .filter(|path| !new.contains_key(*path) && record_path(path).is_some())
+        .filter_map(|old_path| {
+            let new_path = new_by_lower.get(&old_path.to_lowercase())?;
+            let (old_target, _) = on_disk(root, old_path)?;
+            let (new_target, _) = on_disk(root, new_path)?;
+            let same = new_target.to_lowercase() == old_target.to_lowercase()
+                && !exists_exactly(root, &new_target);
+            same.then_some((new_path.as_str(), old_path.as_str()))
+        })
+        .collect()
+}
+
 /// Compares the old pack's record, the new pack's files and the files in `root`. Reads
 /// files, so call it on a blocking thread.
 pub fn plan_files(root: &Path, old: &PackRecord, new: &BTreeMap<String, PackFile>) -> FilePlan {
@@ -278,9 +325,13 @@ pub fn plan_files(root: &Path, old: &PackRecord, new: &BTreeMap<String, PackFile
         record: record_of(new),
         ..Default::default()
     };
+    let renamed = renamed_by_case(root, old, new);
     let mut disabled_projects = BTreeSet::new();
     for (path, recorded) in &old.files {
-        if new.contains_key(path) || record_path(path).is_none() {
+        if new.contains_key(path)
+            || record_path(path).is_none()
+            || renamed.values().any(|old_path| *old_path == path)
+        {
             continue;
         }
         let Some((target, sha1)) = on_disk(root, path) else {
@@ -328,7 +379,12 @@ pub fn plan_files(root: &Path, old: &PackRecord, new: &BTreeMap<String, PackFile
             }
             Some((_, sha1)) if sha1 == file.sha1 => {}
             Some((target, sha1)) => {
-                let replace = match old.files.get(path) {
+                let recorded = old.files.get(path).or_else(|| {
+                    renamed
+                        .get(path.as_str())
+                        .and_then(|old_path| old.files.get(*old_path))
+                });
+                let replace = match recorded {
                     Some(recorded) => recorded.sha1 == sha1,
                     // a file the old pack didn't write: a mod at the pack's path is
                     // replaced, a config the user wrote is theirs
@@ -349,6 +405,188 @@ pub fn plan_files(root: &Path, old: &PackRecord, new: &BTreeMap<String, PackFile
     }
     plan.kept.sort();
     plan
+}
+
+/// Keeps in the plan's record the old pack's scripts that `new` leaves out because the
+/// person updating may not add scripts (the pack's files leave scripts out then). Those
+/// scripts stay on the server as they are, so the record must still list them as the
+/// pack's: otherwise a later update by the owner takes them for the user's own changes
+/// and never updates them. A script the plan removes isn't kept.
+pub fn keep_unwritten_scripts(
+    plan: &mut FilePlan,
+    old: &PackRecord,
+    new: &BTreeMap<String, PackFile>,
+) {
+    for (path, recorded) in &old.files {
+        let removed = plan
+            .changes
+            .iter()
+            .any(|c| c.action == FileAction::Remove && c.path == *path);
+        if !new.contains_key(path)
+            && !removed
+            && crate::handlers::util::is_script_path(Path::new(path))
+        {
+            plan.record.files.insert(path.clone(), recorded.clone());
+        }
+    }
+}
+
+/// A mod on the server that neither the old record nor the new pack lists (one the user
+/// added, or updated in the Mods tab under a new file name), with the Modrinth project it
+/// belongs to.
+#[derive(Debug, Clone, PartialEq)]
+pub struct OtherCopy {
+    /// Its path on disk, with `/` separators: `mods/x.jar` or `mods/x.jar.disabled`.
+    pub target: String,
+    pub sha1: String,
+    pub project_id: String,
+}
+
+/// The jars in the folders `plan` adds jars to that neither `old` nor `new` lists and
+/// `plan` doesn't change, with their SHA-1 and SHA-512. Links are not followed. Reads
+/// files, so call it on a blocking thread.
+fn unlisted_jars(
+    root: &Path,
+    old: &PackRecord,
+    new: &BTreeMap<String, PackFile>,
+    plan: &FilePlan,
+) -> Vec<(String, String, String)> {
+    let listed = |target: &str| {
+        let path = crate::mods::enabled_name(target);
+        [path.as_str(), target].iter().any(|p| {
+            old.files.contains_key(*p)
+                || new.contains_key(*p)
+                || plan.changes.iter().any(|c| c.target == *p || c.path == *p)
+        })
+    };
+    let folders: BTreeSet<&str> = plan
+        .changes
+        .iter()
+        .filter(|c| c.action == FileAction::Add && c.path.to_lowercase().ends_with(".jar"))
+        .filter_map(|c| c.path.rsplit_once('/').map(|(folder, _)| folder))
+        .collect();
+    let mut jars = Vec::new();
+    for folder in folders {
+        let Ok(entries) = std::fs::read_dir(root.join(folder)) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let Some(name) = entry.file_name().to_str().map(str::to_string) else {
+                continue;
+            };
+            let is_file = entry.file_type().is_ok_and(|t| t.is_file());
+            let target = format!("{folder}/{name}");
+            if !is_file || !crate::mods::is_mod_file_name(&name) || listed(&target) {
+                continue;
+            }
+            let path = entry.path();
+            let (Ok(sha1), Ok(sha512)) = (
+                lodestone_minecraft::hash::sha1_of(&path),
+                lodestone_minecraft::hash::sha512_of(&path),
+            ) else {
+                continue;
+            };
+            jars.push((target, sha1, sha512));
+        }
+    }
+    jars
+}
+
+/// The [`OtherCopy`]s of projects whose mods `plan` adds: the unlisted jars in those
+/// folders that Modrinth says belong to such a project. Empty when there are none, or
+/// Modrinth can't be reached (the plan then adds the mod next to them, as before).
+pub async fn other_copies(
+    api: &dyn ModrinthApi,
+    root: &Path,
+    old: &PackRecord,
+    new: &std::sync::Arc<BTreeMap<String, PackFile>>,
+    plan: &FilePlan,
+) -> Vec<OtherCopy> {
+    let added: BTreeSet<String> = plan
+        .changes
+        .iter()
+        .filter(|c| c.action == FileAction::Add)
+        .filter_map(|c| new.get(&c.path)?.project_id.clone())
+        .collect();
+    if added.is_empty() {
+        return Vec::new();
+    }
+    let jars = {
+        let (root, old, new, plan) = (root.to_path_buf(), old.clone(), new.clone(), plan.clone());
+        match tokio::task::spawn_blocking(move || unlisted_jars(&root, &old, &new, &plan)).await {
+            Ok(jars) => jars,
+            Err(e) => {
+                warn!("Could not look for other copies of the modpack's mods: {e}");
+                return Vec::new();
+            }
+        }
+    };
+    if jars.is_empty() {
+        return Vec::new();
+    }
+    let hashes: Vec<String> = jars.iter().map(|(_, _, sha512)| sha512.clone()).collect();
+    let versions = match api.versions_by_hash(&hashes).await {
+        Ok(versions) => versions,
+        Err(e) => {
+            warn!(
+                "Could not look up the server's other mods on Modrinth: {}",
+                e.source
+            );
+            return Vec::new();
+        }
+    };
+    jars.into_iter()
+        .filter_map(|(target, sha1, sha512)| {
+            let project_id = versions.get(&sha512)?.project_id.clone();
+            added.contains(&project_id).then_some(OtherCopy {
+                target,
+                sha1,
+                project_id,
+            })
+        })
+        .collect()
+}
+
+/// Plans the removal of `others` whose project `plan` adds a mod of, as the Mods tab
+/// replaces the old version of a mod it updates: two copies of a mod stop the loader from
+/// starting. When every other copy of the project is disabled, the new mod is added
+/// disabled, as a disabled mod's new version stays disabled.
+pub fn remove_other_copies(
+    plan: &mut FilePlan,
+    new: &BTreeMap<String, PackFile>,
+    others: &[OtherCopy],
+) {
+    let mut removals = Vec::new();
+    for change in plan
+        .changes
+        .iter_mut()
+        .filter(|c| c.action == FileAction::Add)
+    {
+        let Some(project) = new.get(&change.path).and_then(|f| f.project_id.as_ref()) else {
+            continue;
+        };
+        let copies: Vec<&OtherCopy> = others.iter().filter(|o| &o.project_id == project).collect();
+        if copies.is_empty() {
+            continue;
+        }
+        if change.path.to_lowercase().ends_with(".jar")
+            && copies.iter().all(|o| is_disabled_name(&o.target))
+        {
+            change.target = disabled_name(&change.path);
+        }
+        removals.extend(copies.into_iter().cloned());
+    }
+    for other in removals {
+        if plan.changes.iter().any(|c| c.target == other.target) {
+            continue;
+        }
+        plan.changes.push(FileChange {
+            path: crate::mods::enabled_name(&other.target),
+            target: other.target,
+            action: FileAction::Remove,
+            old_sha1: Some(other.sha1),
+        });
+    }
 }
 
 /// Whether `path`'s folder is inside `root` once links are resolved.

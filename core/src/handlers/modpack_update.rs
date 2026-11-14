@@ -38,9 +38,9 @@ use crate::implementations::minecraft::{Flavour, MinecraftInstance};
 use crate::modpack::history::{entry_as_is, entry_for, History, HistoryKind, ModpackHistory};
 use crate::modpack::store::StoredPack;
 use crate::modpack::update::{
-    pack_files, place_files, plan_files, record_of, remove_work_dirs, stage_files,
-    undo_placed_files, FileAction, FilePlan, ModpackUpdatePlan, ModpackUpdateResult, PackFile,
-    PackRecord,
+    keep_unwritten_scripts, other_copies, pack_files, place_files, plan_files, record_of,
+    remove_other_copies, remove_work_dirs, stage_files, undo_placed_files, FileAction, FilePlan,
+    ModpackUpdatePlan, ModpackUpdateResult, PackFile, PackRecord,
 };
 use crate::modpack::updates::{self, AvailableUpdate};
 use crate::modpack::{
@@ -179,12 +179,30 @@ async fn current_record(
 
 /// The plan of going to `new_files`, from what the server has.
 async fn plan_against(
+    state: &AppState,
     root: &std::path::Path,
     before: &Before,
     new_files: &Arc<BTreeMap<String, PackFile>>,
+    allow_scripts: bool,
 ) -> Result<FilePlan, Error> {
-    let (root, old, new_files) = (root.to_path_buf(), before.record.clone(), new_files.clone());
-    spawn_blocking(move || Ok(plan_files(&root, &old, &new_files))).await
+    let mut plan = {
+        let (root, old, new_files) = (root.to_path_buf(), before.record.clone(), new_files.clone());
+        spawn_blocking(move || Ok(plan_files(&root, &old, &new_files))).await?
+    };
+    if !allow_scripts {
+        keep_unwritten_scripts(&mut plan, &before.record, new_files);
+    }
+    // another version of a mod the plan adds, such as one updated in the Mods tab
+    let others = other_copies(
+        state.mods.modrinth.as_ref(),
+        root,
+        &before.record,
+        new_files,
+        &plan,
+    )
+    .await;
+    remove_other_copies(&mut plan, new_files, &others);
+    Ok(plan)
 }
 
 async fn prepare(
@@ -234,7 +252,7 @@ async fn prepare(
                     .files_of(&root, *entry_id, allow_scripts)
                     .unwrap_or_default(),
             );
-            let plan = plan_against(&root, &before, &new_files).await?;
+            let plan = plan_against(state, &root, &before, &new_files, allow_scripts).await?;
             // files to put back that Lodestone can't get
             let missing: Vec<&str> = plan
                 .changes
@@ -395,7 +413,7 @@ async fn from_pack(
         let (pack, path) = (pack.clone(), stored.path());
         Arc::new(spawn_blocking(move || pack_files(&pack, &path, allow_scripts)).await?)
     };
-    let plan = plan_against(root, before, &new_files).await?;
+    let plan = plan_against(state, root, before, &new_files, allow_scripts).await?;
     let target = pack.info.clone();
     let skipped = pack
         .skipped
