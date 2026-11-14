@@ -175,13 +175,14 @@ pub(crate) mod test_util {
         let code_execution = global_settings.code_execution_switch();
         let remote_access = global_settings.remote_access();
         // each test core its own store, so parallel tests never share one
+        let images = Arc::new(crate::images::ImageService::new(dir.join("backups")));
         let backups = Arc::new(crate::backups::BackupService::new(
-            dir.join("backups"),
+            images.clone(),
             dir.join("instances"),
         ));
         crate::AppState {
             remote_access,
-            images: Arc::new(crate::images::ImageService::new(dir.join("backups"))),
+            images,
             backups,
             instances: Arc::new(dashmap::DashMap::new()),
             users_manager: Arc::new(RwLock::new(users_manager)),
@@ -1355,8 +1356,9 @@ pub async fn run_with(
 
     // Interrupted restores are undone before the servers are read, so each is read as it
     // was before the restore.
+    let images = Arc::new(images::ImageService::new(path_to_backups()));
     let backups = Arc::new(backups::BackupService::new(
-        path_to_backups(),
+        images.clone(),
         path_to_instances.clone(),
     ));
     {
@@ -1365,8 +1367,6 @@ pub async fn run_with(
             error!("Backup recovery failed: {e}");
         }
     }
-    // The image store is in the backup folder.
-    let images = Arc::new(images::ImageService::new(path_to_backups()));
 
     let instances = restore_instances(&path_to_instances, tx.clone(), code_execution.clone())
         .await

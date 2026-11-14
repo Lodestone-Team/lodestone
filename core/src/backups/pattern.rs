@@ -1,5 +1,7 @@
-//! Which files a backup leaves out: the rules every backup follows, and the policy's own
-//! `exclude` patterns (a small subset of gitignore).
+//! A backup policy's `exclude` patterns (a small subset of gitignore), as the owner writes
+//! them: on the server's disk paths. A backup leaves out their canonical translation
+//! (`crate::images::excludes`), which never leaves out more; what every backup leaves out
+//! whatever the policy is the image store's rule (`lodestone_image::paths::always_excluded`).
 //!
 //! Paths here are relative to the server folder, `/`-separated, with no leading `/`.
 //!
@@ -35,51 +37,6 @@ pub fn default_patterns() -> Vec<String> {
     .into_iter()
     .map(String::from)
     .collect()
-}
-
-/// Whether `path` is never backed up (and never replaced by a restore), whatever the policy.
-///
-/// - `.lodestone_config` holds the server's identity; a restore keeps the current one and a
-///   restore as a new server writes a new one.
-/// - `logs/`, `crash-reports/` and `cache/` (top level) are only useful for the running server.
-/// - The modpack's own store (`.lodestone_modpack/{objects,staging,snapshot}/`) is large and
-///   can be downloaded again; its `record.json`, `history.json` and `notified.json` are kept
-///   so they match the restored config.
-/// - `.lodestone-restore*` are a restore's own folders, at any depth.
-/// - `session.lock` is the running server's lock on a world.
-///
-/// `is_dir` says whether `path` is a folder. Checks only `path` itself, not its parents; see
-/// [`always_excluded_path`].
-pub fn always_excluded(path: &str, is_dir: bool) -> bool {
-    let mut parts = path.split('/');
-    let first = parts.next().unwrap_or_default();
-    let name = path.rsplit('/').next().unwrap_or_default();
-    if name.starts_with(".lodestone-restore") {
-        return true;
-    }
-    if !is_dir && name == "session.lock" {
-        return true;
-    }
-    let depth = path.split('/').count();
-    match depth {
-        1 => {
-            (!is_dir && first == ".lodestone_config")
-                || (is_dir && matches!(first, "logs" | "crash-reports" | "cache"))
-        }
-        2 => {
-            is_dir
-                && first == ".lodestone_modpack"
-                && matches!(name, "objects" | "staging" | "snapshot")
-        }
-        _ => false,
-    }
-}
-
-/// Whether `path` or any folder it is in is [`always_excluded`].
-pub fn always_excluded_path(path: &str, is_dir: bool) -> bool {
-    for_each_prefix(path, is_dir, |prefix, prefix_is_dir| {
-        always_excluded(prefix, prefix_is_dir)
-    })
 }
 
 /// Calls `f` with each folder `path` is in (as a folder), then `path` itself, and returns
@@ -400,42 +357,5 @@ mod tests {
         let name = "a".repeat(250);
         assert!(!matcher(&[&glob]).is_excluded(&name, false));
         assert!(started.elapsed() < std::time::Duration::from_secs(2));
-    }
-
-    #[test]
-    fn always_excluded_table() {
-        let table: &[(&str, bool, bool)] = &[
-            (".lodestone_config", false, true),
-            ("world/.lodestone_config", false, false),
-            ("logs", true, true),
-            ("logs", false, false),
-            ("plugins/x/logs", true, false),
-            ("crash-reports", true, true),
-            ("cache", true, true),
-            (".lodestone_modpack/objects", true, true),
-            (".lodestone_modpack/staging", true, true),
-            (".lodestone_modpack/snapshot", true, true),
-            (".lodestone_modpack/record.json", false, false),
-            (".lodestone_modpack", true, false),
-            (".lodestone-restore-staging-0123456789abcdef", true, true),
-            ("world/.lodestone-restore-old-x", true, true),
-            ("world/session.lock", false, true),
-            ("session.lock", false, true),
-            ("world/level.dat", false, false),
-            ("server.properties", false, false),
-        ];
-        for (path, is_dir, excluded) in table {
-            assert_eq!(
-                always_excluded(path, *is_dir),
-                *excluded,
-                "{path:?} (dir: {is_dir})"
-            );
-        }
-        assert!(always_excluded_path("logs/latest.log", false));
-        assert!(always_excluded_path(
-            ".lodestone_modpack/objects/ab/cd",
-            false
-        ));
-        assert!(!always_excluded_path("plugins/logs/x.log", false));
     }
 }

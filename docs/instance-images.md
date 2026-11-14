@@ -404,6 +404,10 @@ Content-addressed, shared by every instance on one machine:
 <root>/images/<instance>/stat-cache.<name>.json     other named stat caches (the core's "content")
 <root>/images/<instance>/content-state.json         the core: current content image and baseline
 <root>/images/<instance>/pack.json                  the core: the pack a server is built on
+<root>/images/<instance>/backups.json               the core: the server's backups, each naming its data image
+<root>/images/<instance>/backup-policy.json         the core: the backups' schedule, retention and excludes
+<root>/images/<instance>/restore-journal.json       the core: a restore's swap in progress
+<root>/images/<instance>/save-off.marker            the core: a live backup has the server's saving off
 <root>/images/collection.lock                       held by GC (see below)
 <root>/{objects,lists,chunks,images/<instance>}/.incoming-<16 hex>.tmp    writes in flight
 ```
@@ -456,7 +460,7 @@ Content-addressed, shared by every instance on one machine:
   each file and folder handed to the drive, one flush at the end. Saving a manifest checks that every
   object its `object` entries and stored files name is present (and touches it like a write
   that finds it, below), and fails if one isn't: an image never names what the store lost.
-  Reads verify the SHA-256. Like the core's backups, presence is checked cheaply (a raw
+  Reads verify the SHA-256. Presence is checked cheaply (a raw
   object's length, a zstd frame's header, a chunk list's header for exactly that size); a
   damaged object is found when read, and deleting it lets the next write store it again
   (only an object damaged by its own bytes is deleted). An object is read whole to parse a
@@ -467,7 +471,7 @@ Content-addressed, shared by every instance on one machine:
   every chunk, so a list that lost a damaged chunk (deleted on its own) counts as missing,
   and downloading or importing the file again writes the chunk back.
 - A stat cache (path, size, mtime, older than scan start minus 2 s) skips rehashing
-  unchanged files, as backups already do; the Launcher gains it too. It is kept per
+  unchanged files (the core's backups use it); the Launcher gains it too. It is kept per
   instance next to its manifests, keyed by the path relative to the folder walked, and is
   only an optimization: a missing or odd one hashes everything again. Snapshots that walk
   different parts of a folder keep one each (`Store::load_stat_cache_named`: `data` is
@@ -613,7 +617,7 @@ Works for Fabric, Quilt, Forge and NeoForge servers.
 | Choice | Puts back |
 | --- | --- |
 | World only | The world's folders, after a safety image |
-| World and its mods | The world plus the content image it ran with, in one swap |
+| World and its mods | The world plus the content image it ran with, in one swap (the core's `world_and_mods`) |
 | Everything | The whole image (the core's current Everything scope) |
 | As new | A new server or instance beside the original |
 
@@ -735,8 +739,8 @@ of M2 adds its own subsection.
   regular files withheld as `bad_name` (a name no canonical path has, or a file the layout
   can't place back: a vanilla `DIM-1` in a Paper level, a server folder named `saves`,
   `options.txt` or `resourcepacks/` on a server, a world named like `mods`), with disk path,
-  size, time and mode, including the files inside a folder withheld once for its name, so a
-  backup can still keep them.
+  size, time and mode, including the files inside a folder withheld once for its name, for a
+  caller that keeps them apart (the core's backups don't: see "Backups").
 - **One way to find a server's worlds.** `ServerLayout::discover` (the level, then each
   top-level folder with a `level.dat` that keeps the layout valid; an unused level name when
   `level-name` can't be a world) is what the core's backups and content images use.
@@ -844,6 +848,78 @@ of M2 adds its own subsection.
 - **What Modrinth said** about installed mods is noted for `env` and sources from what the Mods tab
   fetched anyway: an install notes its version's download URLs and the project's sides, a list
   the sides of every matched mod.
+
+#### Backups: data images (`core/src/backups/`)
+
+- **A backup is a record naming a data image.** Images are named by their contents, so two
+  backups of a server that didn't change between them (a named backup right after a scheduled
+  one) are one image, while each backup keeps its own name, kind (manual, scheduled, before a
+  restore), pin and time. So each server has `images/<uuid>/backups.json`: per backup its id
+  (`YYYYMMDD-HHMMSS-xxxx`, as before), its image, name, kind, time, pin, `live`, `quiesced`,
+  the level the image has (what "only the world" restores), and the figures the list shows
+  (files, withheld files, bytes, new bytes, stored bytes, duration), so listing reads this one
+  file and no manifest. A data image's manifest is deleted once no record names it. A list
+  that can't be read is an error, never "no backups" (its images would look like leftovers).
+  The policy is `backup-policy.json` beside it; deleting a server deletes the folder.
+- **What a backup takes.** A snapshot of the server folder with its disk layout (worlds as
+  `saves/<world>/…`; a Paper or Spigot level's `<level>_nether/DIM-1` and `<level>_the_end/DIM1`
+  as its `DIM-1` and `DIM1`, their other files under `.bukkit_nether/` and `.bukkit_the_end/`),
+  leaving out what images never record and the policy's patterns as canonical excludes (a
+  pattern with no exact canonical form is backed up anyway: it may leave out less, never more).
+  Entries are all `object`; `game` and the flavour setting are the server's. Each world gets
+  its `size` and `quiesced`, so a copy that may be inconsistent is another image than a
+  quiesced one. What it can't carry is withheld with why: links, files that can't be read or
+  kept changing (three tries), and names no canonical path holds or the layout can't place
+  back (a vanilla `DIM-1` in a Paper level, a server folder named `saves`). Those last are
+  **withheld, not stored**: an image has no place for a file without a canonical path, and a
+  restore leaves them where they are. A `level-name` that isn't one folder (`worlds/survival`)
+  isn't a world: its files are backed up as ordinary paths and only "everything" restores them.
+- **The content link.** Before a backup the server's content image is brought up to date: for a
+  stopped server, the check before a start (what is queued, then what changed outside
+  Lodestone), or its first content image when it has none; for a running server only what is
+  queued (its own writes never make content images). Each waits at most about 10 s. The data
+  image's `content` is the current pointer, read under the instance's lock while the image is
+  saved, so pruning can't take it in between; its `parent` is the previous backup's image.
+- **Unchanged backups.** A scheduled backup, or an unnamed manual one right after a manual or
+  pinned backup, whose image has the newest backup's id writes nothing (an unnamed manual one
+  after a backup retention may delete gets a record of its own, sharing the image). Every 10th
+  scheduled backup since the last full scan, and a server's first backup, read every file (no
+  stat cache); the count is kept in `backups.json`.
+- **Live backups.** With saving on, a backup with more than 256 MiB to read reads it first;
+  that snapshot's stat cache then leaves only what changed since to read with saving off. A
+  running server's snapshot uses one thread.
+- **Order of writes.** Objects (the snapshot), the manifest (the store flushes what it names
+  first), then the record, both under the instance's lock; then the data stat cache. A crash
+  before the record leaves a data image no record names: the next retention or delete deletes
+  it (never a content image, and never a manifest that can't be read). Deleting goes the other
+  way: the record, then the image when no record names it, then pruning the content images
+  nothing links to, then a collection. Retention picks what to delete from the records read
+  under that lock.
+- **Collections.** A job holds the store's collections off (`Store::hold_off_collection`) while
+  it relies on objects nothing has claimed: a backup from its snapshot to its save, a restore
+  while it reads the image (its backup may be deleted meanwhile), a download while it zips. A
+  collection waits for it rather than the job retrying.
+- **Restore.** A restore makes the files a backup would take now match the image, and leaves
+  everything else as it is: what images never record, what the current policy excludes, links,
+  files no image can hold, and the files the backup withheld (it has no copy of them). So the
+  safety backup has everything the restore replaces or removes; a replaced file the safety
+  backup couldn't read (withheld as unreadable or kept changing) refuses the restore. Scopes:
+  everything; the world (the backup's level, needing one); and `world_and_mods`, the level plus
+  the content scope (`images/scope.rs`) as the linked content image has it, refused when the
+  backup has no level or its content image is gone. Paths are placed with the server's layout
+  (split when the server's flavour splits worlds). The swap replaces whole top-level names and
+  moves back what it keeps; a top-level file in the way of what the restore places, that no
+  backup would take (so the safety backup has no copy), refuses the restore. The permission check
+  compares by disk path. Everything and `world_and_mods` are content operations
+  (`OpKind::Restore`): they hold the content gate from before the safety backup to the swap,
+  and record "Restored backup “…”" after the server's settings are read again; a world restore
+  doesn't touch content. The journal is `images/<uuid>/restore-journal.json`.
+- **Restore as new and download** lay the image out with the backup's own flavour (its flavour
+  setting); a restore as new records the new server's first content image ("Created <name>").
+- **Usage.** The list's stored bytes count each object the server's backup images name once, at
+  its size in the store (the zstd object, or a large file's list and chunks).
+- **API.** The routes and shapes stay; `RestoreScope` gains `world_and_mods`; `skipped_count` is
+  the image's withheld files; `new_bytes` is what the previous backup didn't have as it is now.
 
 #### Lineage: modpack history as content images (`core/src/modpack/lineage.rs`)
 

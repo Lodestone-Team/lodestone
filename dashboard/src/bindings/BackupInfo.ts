@@ -4,8 +4,21 @@ import type { BackupKind } from "./BackupKind";
 /**
  * A backup in the list.
  */
-export type BackupInfo = { id: string, name: string | null, kind: BackupKind, created: number, pinned: boolean, live: boolean, quiesced: boolean, file_count: number, skipped_count: number, total_bytes: number, new_bytes: number, stored_bytes: number, duration_ms: number, game_version: string, 
+export type BackupInfo = { id: string, name: string | null, kind: BackupKind, created: number, pinned: boolean, live: boolean, quiesced: boolean, file_count: number, 
 /**
- * The backup knows its world folder, so "only the world" can be restored.
+ * Files the backup couldn't carry (unreadable, changing while read, links, names an
+ * image can't hold), listed in its image as withheld.
+ */
+skipped_count: number, total_bytes: number, 
+/**
+ * Bytes of the files the previous backup didn't have as they are now.
+ */
+new_bytes: number, 
+/**
+ * Bytes the backup added to the store (compressed).
+ */
+stored_bytes: number, duration_ms: number, game_version: string, 
+/**
+ * The backup has the server's level, so "only the world" can be restored.
  */
 has_world: boolean, };

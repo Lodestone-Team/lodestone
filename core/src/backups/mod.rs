@@ -1,12 +1,14 @@
-//! Server backups: incremental, content-addressed copies of a server folder that each
-//! restore on their own.
+//! Server backups: data images of a server folder in the core's image store
+//! (`docs/instance-images.md`), each restoring on its own.
 //!
-//! - [`store`]: objects, manifests, walking a server folder with a stat cache, GC.
-//! - [`restore`]: owned paths, staging, the journaled swap and startup recovery.
+//! - [`take`]: a backup's snapshot and its data image.
+//! - [`restore`]: what a restore replaces, staging, the journaled swap and startup
+//!   recovery.
+//! - [`store`]: the backups' own files beside the images (their records and policy).
 //! - [`retention`]: which backups to delete, and when the next scheduled one is due.
-//! - [`pattern`]: the exclude patterns and the paths every backup leaves out.
-//! - [`live`]: pausing saves while a running server is copied.
-//! - [`types`]: the stored and API types.
+//! - [`pattern`]: the policy's exclude patterns.
+//! - [`live`]: pausing saves while a running server is read.
+//! - [`types`]: the stored records and the API types.
 //! - [`service`]: [`BackupService`], the locks and jobs around all of that, which the
 //!   HTTP handlers and the scheduler call.
 //! - [`scheduler`]: the background task that takes scheduled backups.
@@ -18,11 +20,12 @@ pub mod retention;
 pub mod scheduler;
 pub mod service;
 pub mod store;
+pub mod take;
 pub mod types;
 
 pub use service::BackupService;
 
 pub use types::{
-    BackupInfo, BackupKind, BackupList, BackupPolicy, BackupUsage, FileEntry, JobKind, Manifest,
-    RestoreRequest, RestoreScope, RunningJob, SkipReason, SkippedFile,
+    BackupInfo, BackupKind, BackupList, BackupPolicy, BackupRecord, BackupUsage, JobKind, Records,
+    RestoreRequest, RestoreScope, RunningJob,
 };

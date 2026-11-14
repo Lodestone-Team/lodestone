@@ -1,38 +1,66 @@
-//! Restoring a backup: which paths a restore replaces, staging the backup's files next to
+//! Restoring a backup: which files a restore replaces, staging the image's files next to
 //! them, the journaled swap, and repairing an interrupted swap at startup.
 //!
+//! A restore makes the files a backup would take now match the backup's image, and leaves
+//! everything else as it is: what images never record (logs, caches, `session.lock`,
+//! `.lodestone_config`), what the current policy excludes, links, files whose names an
+//! image can't hold, and files the backup couldn't carry (its withheld files). So the
+//! safety backup taken first has everything the restore replaces or removes. The scope
+//! narrows what is replaced:
+//!
+//! - Everything: every such file.
+//! - World: the files of the backup's level (on Paper and Spigot, its `_nether` and
+//!   `_the_end` folders too).
+//! - World and its mods: the level, and the server's content (`crate::images::scope`) as
+//!   the content image the backup links to has it.
+//!
+//! The image's canonical paths are placed with the server's layout: worlds at the top of the
+//! server folder, and on Paper and Spigot the level's `DIM-1` in `<level>_nether/` and its
+//! `DIM1` in `<level>_the_end/`.
+//!
 //! An in-place restore goes:
-//! 1. [`plan`]: the owned paths (what the restore replaces) and the backup's files in them.
+//! 1. [`plan`]: the server's files the restore replaces (a walk, as a backup's, reading
+//!    nothing), the image's files it places, and the top-level names it swaps.
 //! 2. [`diff`]: what would be added, changed and removed, for the permission check.
 //! 3. [`stage`]: the files are written to `<server>/.lodestone-restore-staging-<16>/`,
-//!    verified, with the current name, port and command line pinned in the staged config.
+//!    every byte checked against its SHA-256, with the current name, port and command line
+//!    pinned in the staged config.
 //! 4. [`Staged::swap`]: the owned entries are renamed into
 //!    `<server>/.lodestone-restore-old-<16>/`, the staged ones into place, and what the
-//!    restore never touches (excluded paths, links) back from the old entries into the new
-//!    ones. A journal outside the server folder records the swap so a crash in the middle is
-//!    undone at the next start ([`recover`]).
+//!    restore never touches back from the old entries into the new ones. A journal in the
+//!    server's image folder records the swap so a crash in the middle is undone at the next
+//!    start ([`recover`]).
 //!
-//! Everything here is blocking; the caller holds the server's locks.
+//! Everything here is blocking; the caller holds the server's locks, and holds the image
+//! store's collections off while it reads the image's files.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fs::{self, File};
-use std::io::{self, BufWriter};
+use std::io::{self, BufWriter, Read};
 use std::path::{Path, PathBuf};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use color_eyre::eyre::{eyre, Context};
+use lodestone_image::store::excludes::Excludes;
+use lodestone_image::store::materialize::placed_mode;
+use lodestone_image::store::snapshot::{self, Candidate, SnapshotOptions};
+use lodestone_image::store::{StatCache, Store as ImageStore, StoreError};
+use lodestone_image::{CanonicalPath, DiskLayout, Entry, Image, ServerLayout};
 use serde::{Deserialize, Serialize};
+use sha2::Digest;
 use tracing::{info, warn};
 
 use crate::error::{Error, ErrorKind};
+use crate::images::excludes::canonical_excludes;
+use crate::images::layout::{server_flavour, server_layout};
+use crate::images::scope::is_content;
+use crate::images::InstanceContext;
 use crate::types::{DotLodestoneConfig, InstanceUuid};
 
-use super::pattern::{always_excluded, always_excluded_path, Matcher};
 use super::store::{
-    cancelled, err, join_rel, random_suffix, rename_with_retry, valid_rel_path, valid_server_id,
-    Cancel, Store, TEMP_MAX_AGE,
+    cancelled, err, join_rel, random_suffix, rename_with_retry, valid_rel_path, Cancel, Store,
 };
-use super::types::{FileEntry, Manifest, RestoreScope};
+use super::types::RestoreScope;
 
 pub const STAGING_PREFIX: &str = ".lodestone-restore-staging-";
 pub const OLD_PREFIX: &str = ".lodestone-restore-old-";
@@ -75,16 +103,77 @@ fn is_real_dir(path: &Path) -> bool {
     fs::symlink_metadata(path).is_ok_and(|m| m.is_dir() && !m.file_type().is_symlink())
 }
 
+/// The first part of a `/`-separated path.
+fn top(path: &str) -> &str {
+    path.split('/').next().unwrap_or(path)
+}
+
 // ---------------------------------------------------------------------------------------
 // What a restore replaces
 
-/// A path the restore replaces as a whole, relative to the server folder.
+/// A backup to restore from: its data image, its level, and for "world and its mods" the
+/// content image it links to.
+#[derive(Debug, Clone, Copy)]
+pub struct Source<'a> {
+    pub image: &'a Image,
+    /// [`super::types::BackupRecord::level`].
+    pub level: Option<&'a str>,
+    pub content: Option<&'a Image>,
+}
+
+/// Where an image's files go on a server's disk: its worlds as the image has them, the level
+/// `level` (split the Paper way with `split`). Without a level, one no file of the image
+/// uses, so every file keeps its path.
+pub fn image_layout(image: &Image, level: Option<&str>, split: bool) -> Result<DiskLayout, Error> {
+    let worlds: BTreeSet<String> = image.worlds.iter().map(|w| w.name.clone()).collect();
+    let level = match level {
+        Some(level) => level.to_string(),
+        None => {
+            let mut tops: BTreeSet<String> = worlds.clone();
+            tops.extend(
+                image
+                    .entries
+                    .iter()
+                    .filter(|e| e.world.is_none())
+                    .map(|e| e.path.first().to_string()),
+            );
+            ServerLayout::unused_level(&tops)
+        }
+    };
+    let others: Vec<String> = worlds.into_iter().filter(|w| *w != level).collect();
+    let layout = ServerLayout::new(level, others, split).map_err(|e| {
+        err(
+            ErrorKind::Internal,
+            format!("The backup's worlds can't be placed on a server: {e}"),
+        )
+    })?;
+    Ok(DiskLayout::Server(layout))
+}
+
+/// A file a restore places: where on the server's disk, and its entry in the image.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Target {
+    pub disk: String,
+    pub entry: Entry,
+}
+
+/// A file of the server now that the restore replaces or removes, as a backup now would
+/// find it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Current {
+    pub disk: String,
+    pub path: CanonicalPath,
+    pub size: u64,
+    pub modified_ns: i64,
+}
+
+/// A top-level name the swap replaces as a whole, relative to the server folder.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OwnedPath {
     pub path: String,
     /// There is a real (not linked) file or folder there now.
     pub on_disk: bool,
-    /// The backup has it.
+    /// The restore places something there.
     pub in_backup: bool,
 }
 
@@ -92,56 +181,152 @@ pub struct OwnedPath {
 pub struct RestorePlan {
     pub scope: RestoreScope,
     pub owned: Vec<OwnedPath>,
-    /// The backup's files inside the owned paths, without those the restore never touches
-    /// (always excluded, or excluded by the current policy). Sorted by path.
-    pub files: Vec<FileEntry>,
+    /// What the restore places, sorted by disk path.
+    pub files: Vec<Target>,
+    /// The server's files it replaces or removes, sorted by disk path.
+    pub current: Vec<Current>,
 }
 
 impl RestorePlan {
-    /// Whether `path` is one of the owned paths or inside one.
-    pub fn owns(&self, path: &str) -> bool {
-        self.owned.iter().any(|o| under(path, &o.path))
+    /// Whether the restore replaces or removes the server's file at the canonical `path`.
+    pub fn replaces(&self, path: &str) -> bool {
+        self.current.iter().any(|c| c.path.as_str() == path)
     }
 
     /// The bytes staging writes: what the free-space check needs.
     pub fn total_bytes(&self) -> u64 {
-        self.files.iter().map(|f| f.size).sum()
+        self.files
+            .iter()
+            .map(|f| f.entry.size)
+            .fold(0, u64::saturating_add)
     }
 }
 
-/// What restoring `manifest` with `scope` replaces in `server_root`.
+/// What restoring `source` with `scope` into the server `ctx` replaces (see the module).
 ///
-/// - Everything: the top-level entries of the backup and of the server folder, except the
-///   always-excluded ones, those the current policy (`exclude`) excludes, and links, which are
-///   never owned (a backup with a real entry where the server has a link is refused), and
-///   `.lodestone_minecraft_config.json` when the backup doesn't have it.
-/// - World: `<level>`, `<level>_nether` and `<level>_the_end` (nested like `worlds/survival`
-///   when `level-name` is), each when the backup or the server has it. On disk each must be a
-///   real folder inside the server folder.
+/// Refused: a scope the backup can't do (no level, or no content image for "world and its
+/// mods"), a file the server's layout can't place, and a top-level name the restore must
+/// replace that is a link, or a file in the way of what the restore places.
 pub fn plan(
-    server_root: &Path,
-    manifest: &Manifest,
+    store: &ImageStore,
+    ctx: &InstanceContext,
+    source: &Source,
     scope: RestoreScope,
-    exclude: &Matcher,
 ) -> Result<RestorePlan, Error> {
-    let owned = match scope {
-        RestoreScope::Everything => owned_everything(server_root, manifest, exclude)?,
-        RestoreScope::World => owned_world(server_root, manifest, exclude)?,
+    let level = match scope {
+        RestoreScope::Everything => None,
+        RestoreScope::World | RestoreScope::WorldAndMods => Some(
+            source
+                .level
+                .filter(|level| source.image.worlds.iter().any(|w| w.name == *level))
+                .ok_or_else(|| bad_request("This backup has no world"))?,
+        ),
     };
-    let mut files: Vec<FileEntry> = manifest
-        .files
+    let content = match scope {
+        RestoreScope::WorldAndMods => Some(source.content.ok_or_else(|| {
+            bad_request(
+                "This backup doesn't know the content it ran with, so its mods can't be restored",
+            )
+        })?),
+        _ => None,
+    };
+    let selected = |path: &CanonicalPath| match scope {
+        RestoreScope::Everything => true,
+        RestoreScope::World => path.world() == level,
+        RestoreScope::WorldAndMods => path.world() == level || is_content(path, false),
+    };
+
+    let (current_layout, _) = server_layout(&ctx.root, &ctx.level_name, &ctx.flavour)?;
+    let excludes = match &current_layout {
+        DiskLayout::Server(server) => canonical_excludes(&ctx.policy_exclude, server).canonical,
+        DiskLayout::Client => Vec::new(),
+    };
+    let excluded = Excludes::new(&excludes);
+    let split = server_flavour(&ctx.flavour).splits_worlds();
+    let target_layout = image_layout(source.image, source.level, split)?;
+
+    // What the restore places.
+    let entries: Vec<&Entry> = match content {
+        Some(content) => source
+            .image
+            .entries
+            .iter()
+            .filter(|e| e.world.as_deref() == level)
+            .chain(content.entries.iter())
+            .collect(),
+        None => source
+            .image
+            .entries
+            .iter()
+            .filter(|e| selected(&e.path))
+            .collect(),
+    };
+    let mut files = Vec::with_capacity(entries.len());
+    for entry in entries {
+        if excluded.excludes(entry.path.as_str(), false) {
+            continue;
+        }
+        let disk = target_layout.to_disk(&entry.path).map_err(|e| {
+            err(
+                ErrorKind::Internal,
+                format!(
+                    "The backup's {} can't be placed on this server: {e}",
+                    entry.path
+                ),
+            )
+        })?;
+        files.push(Target {
+            disk,
+            entry: entry.clone(),
+        });
+    }
+    files.sort_by(|a, b| a.disk.cmp(&b.disk));
+    files.dedup_by(|a, b| a.disk == b.disk);
+    let has_config = files.iter().any(|f| f.disk == CONFIG_FILE);
+
+    // What it replaces: the selected files a backup now would take, except those the backup
+    // couldn't carry, and the server's settings when the backup has none (without them the
+    // server can't load).
+    let withheld: HashSet<&str> = source
+        .image
+        .withheld
         .iter()
-        .filter(|f| owned.iter().any(|o| under(&f.path, &o.path)))
-        .filter(|f| {
-            !always_excluded_path(&f.path, false) && !exclude.is_excluded_path(&f.path, false)
-        })
-        .cloned()
+        .chain(content.iter().flat_map(|c| c.withheld.iter()))
+        .map(|w| w.path.as_str())
         .collect();
-    files.sort_by(|a, b| a.path.cmp(&b.path));
+    let filter = |candidate: &Candidate| candidate.is_dir || candidate.path.is_some_and(selected);
+    let options = SnapshotOptions {
+        excludes: &excludes,
+        filter: Some(&filter),
+        ..SnapshotOptions::default()
+    };
+    // Without a stat cache, planning only walks: it reads and claims nothing.
+    let walked = snapshot::plan(store, &ctx.root, &current_layout, &options).map_err(|e| {
+        err(
+            ErrorKind::Internal,
+            format!("Failed to read the server folder: {e}"),
+        )
+    })?;
+    let mut current: Vec<Current> = walked
+        .to_read
+        .into_iter()
+        .filter(|f| !withheld.contains(f.path.as_str()))
+        .filter(|f| has_config || f.disk != CONFIG_FILE)
+        .map(|f| Current {
+            disk: f.disk,
+            path: f.path,
+            size: f.size,
+            modified_ns: f.modified_ns,
+        })
+        .collect();
+    current.sort_by(|a, b| a.disk.cmp(&b.disk));
+
+    let owned = owned_tops(&ctx.root, &current, &files)?;
     Ok(RestorePlan {
         scope,
         owned,
         files,
+        current,
     })
 }
 
@@ -163,141 +348,53 @@ fn disk_kind(path: &Path) -> Option<DiskKind> {
     })
 }
 
-fn owned_everything(
+/// The top-level names the swap replaces: those holding a file the restore replaces or
+/// places.
+fn owned_tops(
     server_root: &Path,
-    manifest: &Manifest,
-    exclude: &Matcher,
+    current: &[Current],
+    files: &[Target],
 ) -> Result<Vec<OwnedPath>, Error> {
-    // name -> (on disk, in the backup as a folder)
-    let mut names: BTreeMap<String, (Option<DiskKind>, Option<bool>)> = BTreeMap::new();
-    for file in &manifest.files {
-        let (first, rest) = match file.path.split_once('/') {
-            Some((first, _)) => (first, true),
-            None => (file.path.as_str(), false),
-        };
-        let entry = names.entry(first.to_string()).or_default();
-        entry.1 = Some(entry.1.unwrap_or(false) || rest);
+    // name -> (has a current file, has a target)
+    let mut tops: BTreeMap<&str, (bool, bool)> = BTreeMap::new();
+    for file in current {
+        tops.entry(top(&file.disk)).or_default().0 = true;
     }
-    let entries =
-        fs::read_dir(server_root).map_err(|e| io_error(e, "Failed to read the server folder"))?;
-    for entry in entries.flatten() {
-        // names that can't be stored were never backed up, so they are never owned
-        let Some(name) = entry.file_name().to_str().map(String::from) else {
-            continue;
-        };
-        if !valid_rel_path(&name) {
-            continue;
-        }
-        names.entry(name).or_default().0 = disk_kind(&entry.path());
+    for file in files {
+        tops.entry(top(&file.disk)).or_default().1 = true;
     }
     let mut owned = Vec::new();
-    for (name, (disk, backup)) in names {
-        if disk == Some(DiskKind::Link) {
-            if backup.is_some() {
-                return Err(bad_request(format!(
-                    "{name} is a link; restore can't replace it"
-                )));
-            }
-            continue;
-        }
-        let is_dir = match disk {
-            Some(kind) => kind == DiskKind::Dir,
-            None => backup.unwrap_or(false),
-        };
-        if always_excluded(&name, is_dir) || exclude.is_excluded(&name, is_dir) {
-            continue;
-        }
-        // a backup without the server's settings (excluded when it was taken) keeps the
-        // current ones: without them the server can't load
-        if name == CONFIG_FILE && backup.is_none() {
-            continue;
-        }
-        owned.push(OwnedPath {
-            path: name,
-            on_disk: disk.is_some(),
-            in_backup: backup.is_some(),
-        });
-    }
-    Ok(owned)
-}
-
-fn owned_world(
-    server_root: &Path,
-    manifest: &Manifest,
-    exclude: &Matcher,
-) -> Result<Vec<OwnedPath>, Error> {
-    let level = manifest.level_name.as_deref().ok_or_else(|| {
-        bad_request("This backup doesn't know the server's world folder, so only the whole server can be restored")
-    })?;
-    // checked again: the manifest may come from an older or edited file
-    crate::handlers::server_content::world_folder(level)?;
-    let mut owned = Vec::new();
-    let candidates = [
-        level.to_string(),
-        format!("{level}_nether"),
-        format!("{level}_the_end"),
-    ];
-    for path in candidates {
-        let in_backup = manifest.files.iter().any(|f| under(&f.path, &path));
-        let on_disk = world_path_on_disk(server_root, &path)?;
-        if !in_backup && !on_disk {
-            continue;
-        }
-        if always_excluded_path(&path, true) || exclude.is_excluded_path(&path, true) {
-            continue;
-        }
-        owned.push(OwnedPath {
-            path,
-            on_disk,
-            in_backup,
-        });
-    }
-    if !owned.iter().any(|o| o.path == level && o.in_backup) {
-        return Err(bad_request("This backup has no world"));
-    }
-    Ok(owned)
-}
-
-/// Whether a world folder is on disk, refusing links and anything outside the server folder.
-fn world_path_on_disk(server_root: &Path, path: &str) -> Result<bool, Error> {
-    let parts: Vec<&str> = path.split('/').collect();
-    let mut current = server_root.to_path_buf();
-    for (i, part) in parts.iter().enumerate() {
-        current.push(part);
-        match disk_kind(&current) {
-            None => return Ok(false),
+    for (name, (_, placed)) in tops {
+        let kind = disk_kind(&server_root.join(name));
+        match kind {
             Some(DiskKind::Link) => {
                 return Err(bad_request(format!(
-                    "{} is a link; restore can't replace it",
-                    parts[..=i].join("/")
+                    "{name} is a link; restore can't replace it"
                 )))
             }
-            Some(DiskKind::File) if i + 1 < parts.len() => {
+            // A file a backup wouldn't take (one the backup couldn't carry, say) is kept,
+            // so it can't make way for the backup's.
+            Some(DiskKind::File) if !current.iter().any(|c| c.disk == name) => {
                 return Err(bad_request(format!(
-                    "{} is not a folder",
-                    parts[..=i].join("/")
+                    "{name} is in the way of the restore; move it or restore everything else first"
                 )))
             }
-            Some(_) => {}
+            _ => {}
         }
+        owned.push(OwnedPath {
+            path: name.to_string(),
+            on_disk: kind.is_some(),
+            in_backup: placed,
+        });
     }
-    let root = server_root
-        .canonicalize()
-        .context("Failed to resolve the server folder")?;
-    let resolved = current
-        .canonicalize()
-        .context("Failed to resolve the world folder")?;
-    if !resolved.starts_with(&root) || resolved == root {
-        return Err(bad_request("The world folder is outside the server folder"));
-    }
-    Ok(true)
+    Ok(owned)
 }
 
 // ---------------------------------------------------------------------------------------
 // The permission check
 
-/// What a restore would change inside its owned paths. The handler checks permissions
-/// against it (protected files, code files).
+/// What a restore would change, by disk path. The handler checks permissions against it
+/// (protected files, code files).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RestoreDiff {
     /// Files the backup has and the server doesn't.
@@ -306,7 +403,9 @@ pub struct RestoreDiff {
     pub changed: Vec<String>,
     /// Files the server has and the backup doesn't.
     pub removed: Vec<String>,
+    /// Folders only the backup's files are in.
     pub created_dirs: Vec<String>,
+    /// Folders only the replaced files are in.
     pub removed_dirs: Vec<String>,
 }
 
@@ -320,115 +419,112 @@ impl RestoreDiff {
     }
 }
 
-/// Compares the plan's files with `current`, the server's files as a backup records them
-/// (the safety backup's, or [`Store::hash_current`]'s). `.lodestone_minecraft_config.json`
-/// is left out: its sensitive fields are pinned instead.
-pub fn diff(
-    server_root: &Path,
-    plan: &RestorePlan,
-    current: &[FileEntry],
-    exclude: &Matcher,
-) -> Result<RestoreDiff, Error> {
-    let considered = |path: &str| {
-        path != CONFIG_FILE
-            && plan.owns(path)
-            && !always_excluded_path(path, false)
-            && !exclude.is_excluded_path(path, false)
-    };
-    let backup: HashMap<&str, &FileEntry> = plan
-        .files
-        .iter()
-        .filter(|f| considered(&f.path))
-        .map(|f| (f.path.as_str(), f))
-        .collect();
-    let now: HashMap<&str, &FileEntry> = current
-        .iter()
-        .filter(|f| considered(&f.path))
-        .map(|f| (f.path.as_str(), f))
-        .collect();
-    let mut result = RestoreDiff::default();
-    for (path, entry) in &backup {
-        match now.get(path) {
-            None => result.added.push(path.to_string()),
-            Some(current) if current.sha256 != entry.sha256 => {
-                result.changed.push(path.to_string())
-            }
-            Some(_) => {}
-        }
-    }
-    for path in now.keys() {
-        if !backup.contains_key(path) {
-            result.removed.push(path.to_string());
-        }
-    }
-
-    let mut backup_dirs = BTreeSet::new();
-    for file in &plan.files {
-        for (i, c) in file.path.char_indices() {
-            if c == '/' && plan.owns(&file.path[..i]) {
-                backup_dirs.insert(file.path[..i].to_string());
-            }
-        }
-    }
-    let disk_dirs = owned_dirs_on_disk(server_root, plan, exclude);
-    result.created_dirs = backup_dirs.difference(&disk_dirs).cloned().collect();
-    result.removed_dirs = disk_dirs.difference(&backup_dirs).cloned().collect();
-    result.added.sort();
-    result.changed.sort();
-    result.removed.sort();
-    Ok(result)
-}
-
-/// The real folders inside the owned paths (the owned paths included), skipping what the
-/// restore never touches.
-fn owned_dirs_on_disk(
-    server_root: &Path,
-    plan: &RestorePlan,
-    exclude: &Matcher,
-) -> BTreeSet<String> {
+/// The folders `paths` are in.
+fn folders_of<'a>(paths: impl Iterator<Item = &'a str>) -> BTreeSet<String> {
     let mut dirs = BTreeSet::new();
-    for owned in &plan.owned {
-        let top = join_rel(server_root, &owned.path);
-        if !is_real_dir(&top) {
-            continue;
-        }
-        dirs.insert(owned.path.clone());
-        let mut entries = walkdir::WalkDir::new(&top)
-            .follow_links(false)
-            .min_depth(1)
-            .into_iter();
-        while let Some(entry) = entries.next() {
-            let Ok(entry) = entry else { continue };
-            if !entry.file_type().is_dir() {
-                continue;
+    for path in paths {
+        for (i, c) in path.char_indices() {
+            if c == '/' {
+                dirs.insert(path[..i].to_string());
             }
-            let Some(rel) = relative_to(server_root, entry.path()) else {
-                entries.skip_current_dir();
-                continue;
-            };
-            if !valid_rel_path(&rel)
-                || always_excluded(&rel, true)
-                || exclude.is_excluded(&rel, true)
-            {
-                entries.skip_current_dir();
-                continue;
-            }
-            dirs.insert(rel);
         }
     }
     dirs
 }
 
-fn relative_to(root: &Path, path: &Path) -> Option<String> {
-    let rel = path.strip_prefix(root).ok()?;
-    let mut parts = Vec::new();
-    for component in rel.components() {
-        match component {
-            std::path::Component::Normal(part) => parts.push(part.to_str()?),
-            _ => return None,
+/// Compares the plan's files with the server's, `hashes` giving the SHA-256 of the
+/// server's files by canonical path (from the safety backup's image, or [`hash_current`]);
+/// a file it has no hash for counts as changed. `.lodestone_minecraft_config.json` is left
+/// out: its sensitive fields are pinned instead.
+pub fn diff(plan: &RestorePlan, hashes: &HashMap<String, String>) -> RestoreDiff {
+    let placed: HashMap<&str, &Target> = plan
+        .files
+        .iter()
+        .filter(|f| f.disk != CONFIG_FILE)
+        .map(|f| (f.disk.as_str(), f))
+        .collect();
+    let now: HashMap<&str, &Current> = plan
+        .current
+        .iter()
+        .filter(|c| c.disk != CONFIG_FILE)
+        .map(|c| (c.disk.as_str(), c))
+        .collect();
+    let mut result = RestoreDiff::default();
+    for (disk, target) in &placed {
+        match now.get(disk) {
+            None => result.added.push(disk.to_string()),
+            Some(current) => {
+                if hashes.get(current.path.as_str()) != Some(&target.entry.sha256) {
+                    result.changed.push(disk.to_string());
+                }
+            }
         }
     }
-    (!parts.is_empty()).then(|| parts.join("/"))
+    for disk in now.keys() {
+        if !placed.contains_key(disk) {
+            result.removed.push(disk.to_string());
+        }
+    }
+    let placed_dirs = folders_of(plan.files.iter().map(|f| f.disk.as_str()));
+    let current_dirs = folders_of(plan.current.iter().map(|c| c.disk.as_str()));
+    result.created_dirs = placed_dirs.difference(&current_dirs).cloned().collect();
+    result.removed_dirs = current_dirs.difference(&placed_dirs).cloned().collect();
+    result.added.sort();
+    result.changed.sort();
+    result.removed.sort();
+    result
+}
+
+/// The SHA-256 of each file the plan replaces, by canonical path: from `cache` (the backups'
+/// stat cache) when it knows the file as it is, else read and hashed. A file that can't be
+/// read is left out (and so counts as changed).
+pub fn hash_current(
+    server_root: &Path,
+    plan: &RestorePlan,
+    cache: &StatCache,
+    cancel: Cancel,
+) -> Result<HashMap<String, String>, Error> {
+    let mut hashes = HashMap::new();
+    for file in &plan.current {
+        if cancel() {
+            return Err(cancelled());
+        }
+        let hash = match cache.lookup(&file.disk, file.size, file.modified_ns) {
+            Some(hash) => Some(hash.to_string()),
+            None => sha256_of(&join_rel(server_root, &file.disk), cancel)?,
+        };
+        if let Some(hash) = hash {
+            hashes.insert(file.path.to_string(), hash);
+        }
+    }
+    Ok(hashes)
+}
+
+/// The SHA-256 of a file's bytes; `None` when it can't be read.
+fn sha256_of(path: &Path, cancel: Cancel) -> Result<Option<String>, Error> {
+    let Ok(mut file) = File::open(path) else {
+        return Ok(None);
+    };
+    let mut hasher = sha2::Sha256::new();
+    let mut buffer = vec![0u8; 1 << 16];
+    loop {
+        if cancel() {
+            return Err(cancelled());
+        }
+        match file.read(&mut buffer) {
+            Ok(0) => break,
+            Ok(n) => hasher.update(&buffer[..n]),
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+            Err(_) => return Ok(None),
+        }
+    }
+    Ok(Some(
+        hasher
+            .finalize()
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect(),
+    ))
 }
 
 // ---------------------------------------------------------------------------------------
@@ -542,69 +638,97 @@ fn write_synced(path: &Path, contents: &[u8]) -> io::Result<()> {
 // ---------------------------------------------------------------------------------------
 // Staging
 
-fn time_from_ns(ns: i128) -> SystemTime {
-    let magnitude = Duration::from_nanos(ns.unsigned_abs().min(u64::MAX as u128) as u64);
-    if ns >= 0 {
-        UNIX_EPOCH + magnitude
-    } else {
-        UNIX_EPOCH - magnitude
-    }
-}
-
-/// Writes `files` from the store under `dest`, verifying each, with its modified time and
-/// (unix) execute bit.
+/// Writes `files` from the store under `dest`, each checked against its SHA-256 as it is
+/// read, with its time and permission bits (plus the owner's write bit, so the game,
+/// mods and Lodestone can change what a restore put back). Every file is created new, so
+/// two names a case-insensitive disk takes for one fail rather than overwrite each other.
 fn write_files(
-    store: &Store,
-    backup_id: &str,
-    files: &[FileEntry],
+    store: &ImageStore,
+    files: &[Target],
     dest: &Path,
     progress: &mut dyn FnMut(u64, u64),
     cancel: Cancel,
 ) -> Result<(), Error> {
-    let total: u64 = files.iter().map(|f| f.size).sum();
-    let mut done = 0;
+    let total: u64 = files
+        .iter()
+        .map(|f| f.entry.size)
+        .fold(0, u64::saturating_add);
+    let mut done = 0u64;
     for file in files {
         if cancel() {
             return Err(cancelled());
         }
-        let path = join_rel(dest, &file.path);
+        if !valid_rel_path(&file.disk) {
+            return Err(err(
+                ErrorKind::Internal,
+                format!(
+                    "The backup's {} has a path that can't be placed",
+                    file.entry.path
+                ),
+            ));
+        }
+        let path = join_rel(dest, &file.disk);
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).map_err(|e| {
-                io_error(e, format!("Failed to create the folder of {}", file.path))
+                io_error(e, format!("Failed to create the folder of {}", file.disk))
             })?;
         }
-        let out = File::create(&path)
-            .map_err(|e| io_error(e, format!("Failed to write {}", file.path)))?;
+        let out = File::options()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+            .map_err(|e| io_error(e, format!("Failed to write {}", file.disk)))?;
         let mut writer = BufWriter::new(out);
         store
-            .read_object(&file.sha256, file.size, &mut writer, cancel)
-            .map_err(|e| e.into_error(backup_id, &file.path))?;
+            .read_object(&file.entry.sha256, file.entry.size, &mut writer, cancel)
+            .map_err(|e| match e {
+                StoreError::Cancelled => cancelled(),
+                StoreError::Missing(_) | StoreError::Damaged(_) | StoreError::WrongSize { .. } => {
+                    err(
+                        ErrorKind::Internal,
+                        format!("The backup's copy of {} is missing or damaged", file.disk),
+                    )
+                }
+                other => err(
+                    ErrorKind::Internal,
+                    format!("Failed to read the backup's copy of {}: {other}", file.disk),
+                ),
+            })?;
         let out = writer
             .into_inner()
-            .map_err(|e| io_error(e.into_error(), format!("Failed to write {}", file.path)))?;
-        out.set_modified(time_from_ns(file.modified_ns))
-            .map_err(|e| io_error(e, format!("Failed to write {}", file.path)))?;
-        #[cfg(unix)]
-        if file.executable {
-            use std::os::unix::fs::PermissionsExt;
-            let mode = out
-                .metadata()
-                .map(|m| m.permissions().mode())
-                .unwrap_or(0o644);
-            // execute wherever it may be read
-            let _ = out.set_permissions(fs::Permissions::from_mode(mode | ((mode & 0o444) >> 2)));
+            .map_err(|e| io_error(e.into_error(), format!("Failed to write {}", file.disk)))?;
+        if let Some(time) = file.entry.modified.and_then(time_from_ns) {
+            // Informational: a disk that can't keep the time still gets the file.
+            let _ = out.set_modified(time);
         }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            out.set_permissions(fs::Permissions::from_mode(placed_mode(file.entry.mode)))
+                .map_err(|e| io_error(e, format!("Failed to write {}", file.disk)))?;
+        }
+        #[cfg(not(unix))]
+        let _ = placed_mode;
         // on disk before the swap puts it in place and deletes the file it replaces. Only
         // on unix, where the folders are flushed too (`sync_tree`): on Windows a folder
         // can't be, so flushing every file (FlushFileBuffers) would make restores of big
         // worlds minutes slower and still not make the swap durable
         #[cfg(unix)]
         out.sync_all()
-            .map_err(|e| io_error(e, format!("Failed to write {}", file.path)))?;
-        done += file.size;
+            .map_err(|e| io_error(e, format!("Failed to write {}", file.disk)))?;
+        done = done.saturating_add(file.entry.size);
         progress(done, total);
     }
     Ok(())
+}
+
+fn time_from_ns(ns: i64) -> Option<std::time::SystemTime> {
+    let magnitude = Duration::from_nanos(ns.unsigned_abs());
+    if ns >= 0 {
+        std::time::UNIX_EPOCH.checked_add(magnitude)
+    } else {
+        std::time::UNIX_EPOCH.checked_sub(magnitude)
+    }
 }
 
 /// Flushes a folder's entries (unix; elsewhere the file system does it).
@@ -640,8 +764,8 @@ pub struct Staged {
     old: String,
     /// The owned paths.
     owned: Vec<JournalEntry>,
-    /// Paths inside the owned ones that the restore never touches (links, excluded and
-    /// always-excluded paths), moved from the old entries into the new ones.
+    /// Paths inside the owned ones that the restore never touches (see the module), moved
+    /// from the old entries into the new ones.
     carried: Vec<String>,
     rename_budget: Duration,
     #[cfg(test)]
@@ -664,13 +788,10 @@ struct Faults {
 
 /// Stages the plan's files and pins `pin` in them. Cancellable; on failure the staging
 /// folder is deleted and nothing else has changed.
-#[allow(clippy::too_many_arguments)]
 pub fn stage(
-    store: &Store,
-    manifest: &Manifest,
+    store: &ImageStore,
     server_root: &Path,
     plan: &RestorePlan,
-    exclude: &Matcher,
     pin: &Pin,
     progress: &mut dyn FnMut(u64, u64),
     cancel: Cancel,
@@ -680,16 +801,18 @@ pub fn stage(
     fs::create_dir(&staging_dir)
         .map_err(|e| io_error(e, "Failed to create the restore's staging folder"))?;
     let result = (|| -> Result<Staged, Error> {
-        write_files(
-            store,
-            &manifest.id,
-            &plan.files,
-            &staging_dir,
-            progress,
-            cancel,
-        )?;
+        write_files(store, &plan.files, &staging_dir, progress, cancel)?;
         pin_settings(&staging_dir, pin)?;
         sync_tree(&staging_dir)?;
+        let replaced: HashSet<&str> = plan.current.iter().map(|c| c.disk.as_str()).collect();
+        // a folder the restore places files in is gone through too, even if nothing in it is
+        // replaced: kept whole, it would win over the staged one
+        let touched_dirs = folders_of(
+            replaced
+                .iter()
+                .copied()
+                .chain(plan.files.iter().map(|f| f.disk.as_str())),
+        );
         let mut owned = Vec::new();
         let mut carried = Vec::new();
         for path in &plan.owned {
@@ -707,7 +830,12 @@ pub fn stage(
                 had_new: exists(&join_rel(&staging_dir, &path.path)),
             });
             if kind == Some(DiskKind::Dir) {
-                carried.extend(kept_inside(server_root, &path.path, exclude)?);
+                carried.extend(kept_inside(
+                    server_root,
+                    &path.path,
+                    &replaced,
+                    &touched_dirs,
+                )?);
             }
         }
         Ok(Staged {
@@ -730,8 +858,15 @@ pub fn stage(
 }
 
 /// The paths inside the owned folder `owned` that the restore keeps as they are: links,
-/// always-excluded paths and paths the policy excludes.
-fn kept_inside(server_root: &Path, owned: &str, exclude: &Matcher) -> Result<Vec<String>, Error> {
+/// files it doesn't replace (`replaced`), and folders holding no file it replaces or places
+/// (`touched_dirs` are those that do). Where a kept path and a staged one meet, the kept
+/// one wins ([`Staged::swap`]).
+fn kept_inside(
+    server_root: &Path,
+    owned: &str,
+    replaced: &HashSet<&str>,
+    touched_dirs: &BTreeSet<String>,
+) -> Result<Vec<String>, Error> {
     let mut kept = Vec::new();
     let mut entries = walkdir::WalkDir::new(join_rel(server_root, owned))
         .follow_links(false)
@@ -750,11 +885,14 @@ fn kept_inside(server_root: &Path, owned: &str, exclude: &Matcher) -> Result<Vec
                 )))
             }
         };
-        if entry.path_is_symlink()
+        let keep = entry.path_is_symlink()
             || entry.file_type().is_symlink()
-            || always_excluded(&rel, is_dir)
-            || exclude.is_excluded(&rel, is_dir)
-        {
+            || if is_dir {
+                !touched_dirs.contains(&rel)
+            } else {
+                !replaced.contains(rel.as_str())
+            };
+        if keep {
             kept.push(rel);
             if is_dir {
                 entries.skip_current_dir();
@@ -762,6 +900,18 @@ fn kept_inside(server_root: &Path, owned: &str, exclude: &Matcher) -> Result<Vec
         }
     }
     Ok(kept)
+}
+
+fn relative_to(root: &Path, path: &Path) -> Option<String> {
+    let rel = path.strip_prefix(root).ok()?;
+    let mut parts = Vec::new();
+    for component in rel.components() {
+        match component {
+            std::path::Component::Normal(part) => parts.push(part.to_str()?),
+            _ => return None,
+        }
+    }
+    (!parts.is_empty()).then(|| parts.join("/"))
 }
 
 /// Why a swap failed.
@@ -799,7 +949,7 @@ impl Staged {
     }
 
     /// Swaps the staged files in, with the journal at `journal_path`
-    /// (`backups/servers/<uuid>/restore-journal.json`). Not cancellable: it is short, and
+    /// (`images/<uuid>/restore-journal.json`). Not cancellable: it is short, and
     /// stopping halfway would leave a half-restored server.
     pub fn swap(self, journal_path: &Path) -> Result<(), SwapError> {
         let mut journal = Journal {
@@ -1010,8 +1160,8 @@ pub struct JournalEntry {
     pub had_new: bool,
 }
 
-/// `backups/servers/<uuid>/restore-journal.json`. Holds only the folders' random suffixes
-/// and relative paths, and is checked strictly before use.
+/// `images/<uuid>/restore-journal.json`. Holds only the folders' random suffixes and
+/// relative paths, and is checked strictly before use.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Journal {
     pub phase: Phase,
@@ -1030,11 +1180,8 @@ fn valid_suffix(suffix: &str) -> bool {
 }
 
 fn write_journal(path: &Path, journal: &Journal) -> Result<(), Error> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).context("Failed to create the restore journal's folder")?;
-    }
     let json = serde_json::to_vec_pretty(journal).context("Failed to write the restore journal")?;
-    crate::persist::write_atomic_blocking(path, &json, None)
+    crate::images::write_small_atomic(path, &json)
 }
 
 fn remove_journal(path: &Path) {
@@ -1221,8 +1368,8 @@ pub struct Recovery {
 }
 
 /// At startup, before the servers are loaded: undoes interrupted restores, and deletes
-/// leftovers (restore folders no journal names, half-made new servers, old temporary
-/// objects, save-off markers).
+/// leftovers (restore folders no journal names, half-made new servers, save-off markers).
+/// The image store's own temporary files are swept by the image service.
 pub fn recover(store: &Store, instances_dir: &Path) -> Recovery {
     recover_with(store, instances_dir, SWAP_RENAME_BUDGET)
 }
@@ -1237,99 +1384,84 @@ fn recover_with(store: &Store, instances_dir: &Path, budget: Duration) -> Recove
     // is deleted, since it may hold a server's original files
     let mut journals_seen = true;
 
-    match fs::read_dir(store.servers_dir()) {
-        Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+    let uuids = match store.instances() {
+        Ok(uuids) => uuids,
         Err(e) => {
             warn!("Keeping every restore folder: the backups folder can't be read: {e}");
             journals_seen = false;
+            Vec::new()
         }
-        Ok(entries) => {
-            for entry in entries {
-                let entry = match entry {
-                    Ok(entry) => entry,
-                    Err(e) => {
-                        warn!(
-                            "Keeping every restore folder: the backups folder can't be read: {e}"
-                        );
-                        journals_seen = false;
-                        continue;
-                    }
-                };
-                let Some(name) = entry.file_name().to_str().map(String::from) else {
-                    continue;
-                };
-                if !valid_server_id(&name) {
-                    continue;
-                }
-                let journal_path = entry.path().join("restore-journal.json");
-                match fs::symlink_metadata(&journal_path) {
-                    Ok(meta) if meta.is_file() => {}
-                    Ok(_) => continue,
-                    Err(e) if e.kind() == io::ErrorKind::NotFound => continue,
-                    Err(e) => {
-                        let uuid = InstanceUuid::from(name);
-                        warn!("The restore journal of {uuid} can't be checked, so the server stays locked: {e}");
-                        match servers.get(&uuid) {
-                            Some(root) => {
-                                protected.insert(root.clone());
-                                recovery.broken.push(uuid);
-                            }
-                            None => journals_seen = false,
-                        }
-                        continue;
-                    }
-                }
-                let uuid = InstanceUuid::from(name);
-                let Some(root) = servers.get(&uuid) else {
-                    if all_read {
-                        warn!("Deleting the restore journal of {uuid}, whose server is gone");
-                        remove_journal(&journal_path);
-                    } else {
-                        warn!("Keeping the restore journal of {uuid}: its server wasn't found, but not every server folder could be read");
-                    }
-                    continue;
-                };
-                let journal: Journal = match fs::read(&journal_path)
-                    .map_err(|e| e.to_string())
-                    .and_then(|bytes| serde_json::from_slice(&bytes).map_err(|e| e.to_string()))
-                {
-                    Ok(journal) => journal,
-                    Err(e) => {
-                        warn!("The restore journal of {uuid} can't be read, so the server stays locked: {e}");
-                        protected.insert(root.clone());
-                        recovery.broken.push(uuid);
-                        continue;
-                    }
-                };
-                match rollback(root, &journal, budget) {
-                    Ok(()) => {
-                        if journal.phase == Phase::Done {
-                            info!("Finishing the restore of {uuid}");
-                        } else {
-                            warn!("Undid the interrupted restore of {uuid}");
-                        }
-                        remove_journal(&journal_path);
-                        for dir in [
-                            root.join(format!("{STAGING_PREFIX}{}", journal.staging)),
-                            root.join(format!("{OLD_PREFIX}{}", journal.old)),
-                        ] {
-                            if is_real_dir(&dir) {
-                                if let Err(e) = fs::remove_dir_all(&dir) {
-                                    warn!("Failed to delete {}: {e}", dir.display());
-                                }
-                            }
-                        }
-                        recovery.repaired.push(uuid);
-                    }
-                    Err(problems) => {
-                        warn!(
-                        "The interrupted restore of {uuid} couldn't be undone, so the server stays locked: {}",
-                        problems.join("; ")
-                    );
+    };
+    for uuid in uuids {
+        let Ok(journal_path) = store.journal_path(&uuid) else {
+            continue;
+        };
+        match fs::symlink_metadata(&journal_path) {
+            Ok(meta) if meta.is_file() => {}
+            Ok(_) => continue,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => continue,
+            Err(e) => {
+                warn!("The restore journal of {uuid} can't be checked, so the server stays locked: {e}");
+                match servers.get(&uuid) {
+                    Some(root) => {
                         protected.insert(root.clone());
                         recovery.broken.push(uuid);
                     }
+                    None => journals_seen = false,
                 }
+                continue;
+            }
+        }
+        let Some(root) = servers.get(&uuid) else {
+            if all_read {
+                warn!("Deleting the restore journal of {uuid}, whose server is gone");
+                remove_journal(&journal_path);
+            } else {
+                warn!("Keeping the restore journal of {uuid}: its server wasn't found, but not every server folder could be read");
+            }
+            continue;
+        };
+        let journal: Journal = match fs::read(&journal_path)
+            .map_err(|e| e.to_string())
+            .and_then(|bytes| serde_json::from_slice(&bytes).map_err(|e| e.to_string()))
+        {
+            Ok(journal) => journal,
+            Err(e) => {
+                warn!(
+                    "The restore journal of {uuid} can't be read, so the server stays locked: {e}"
+                );
+                protected.insert(root.clone());
+                recovery.broken.push(uuid);
+                continue;
+            }
+        };
+        match rollback(root, &journal, budget) {
+            Ok(()) => {
+                if journal.phase == Phase::Done {
+                    info!("Finishing the restore of {uuid}");
+                } else {
+                    warn!("Undid the interrupted restore of {uuid}");
+                }
+                remove_journal(&journal_path);
+                for dir in [
+                    root.join(format!("{STAGING_PREFIX}{}", journal.staging)),
+                    root.join(format!("{OLD_PREFIX}{}", journal.old)),
+                ] {
+                    if is_real_dir(&dir) {
+                        if let Err(e) = fs::remove_dir_all(&dir) {
+                            warn!("Failed to delete {}: {e}", dir.display());
+                        }
+                    }
+                }
+                recovery.repaired.push(uuid);
+            }
+            Err(problems) => {
+                warn!(
+                    "The interrupted restore of {uuid} couldn't be undone, so the server stays locked: {}",
+                    problems.join("; ")
+                );
+                protected.insert(root.clone());
+                recovery.broken.push(uuid);
             }
         }
     }
@@ -1371,7 +1503,6 @@ fn recover_with(store: &Store, instances_dir: &Path, budget: Duration) -> Recove
             }
         }
     }
-    store.sweep_temp(TEMP_MAX_AGE);
     super::live::remove_leftover_markers(store);
     recovery
 }
@@ -1427,19 +1558,40 @@ pub fn new_server_dir(instances_dir: &Path) -> PathBuf {
     instances_dir.join(format!("{NEW_PREFIX}{}", random_suffix()))
 }
 
-/// Writes every file of the backup into `dest`, a new folder. On failure `dest` is deleted.
-/// The caller then pins the settings ([`pin_settings`]), writes `.lodestone_config` last and
-/// renames the folder.
+/// Every file of `image`, where `layout` ([`image_layout`]) places it, sorted by disk path.
+pub fn all_files(image: &Image, layout: &DiskLayout) -> Result<Vec<Target>, Error> {
+    let mut files = Vec::with_capacity(image.entries.len());
+    for entry in &image.entries {
+        let disk = layout.to_disk(&entry.path).map_err(|e| {
+            err(
+                ErrorKind::Internal,
+                format!(
+                    "The backup's {} can't be placed on a server: {e}",
+                    entry.path
+                ),
+            )
+        })?;
+        files.push(Target {
+            disk,
+            entry: entry.clone(),
+        });
+    }
+    files.sort_by(|a, b| a.disk.cmp(&b.disk));
+    Ok(files)
+}
+
+/// Writes `files` into `dest`, a new folder. On failure `dest` is deleted. The caller then
+/// pins the settings ([`pin_settings`]), writes `.lodestone_config` last and renames the
+/// folder.
 pub fn stage_all(
-    store: &Store,
-    manifest: &Manifest,
+    store: &ImageStore,
+    files: &[Target],
     dest: &Path,
     progress: &mut dyn FnMut(u64, u64),
     cancel: Cancel,
 ) -> Result<(), Error> {
     fs::create_dir(dest).map_err(|e| io_error(e, "Failed to create the new server's folder"))?;
-    let result = write_files(store, &manifest.id, &manifest.files, dest, progress, cancel)
-        .and_then(|()| sync_tree(dest));
+    let result = write_files(store, files, dest, progress, cancel).and_then(|()| sync_tree(dest));
     if result.is_err() {
         if let Err(e) = fs::remove_dir_all(dest) {
             warn!("Failed to delete {}: {e}", dest.display());
@@ -1449,974 +1601,4 @@ pub fn stage_all(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::backups::store::tests::{backup, link_dir, uuid, write, NO_CANCEL};
-    use crate::backups::types::BackupKind;
-    use crate::traits::t_configurable::GameType;
-
-    struct Env {
-        _dir: tempfile::TempDir,
-        store: Store,
-        instances: PathBuf,
-        root: PathBuf,
-    }
-
-    fn env() -> Env {
-        let dir = tempfile::tempdir().unwrap();
-        let store = Store::new(dir.path().join("backups"));
-        let instances = dir.path().join("instances");
-        let root = instances.join("Test-12345678");
-        fs::create_dir_all(&root).unwrap();
-        let config = DotLodestoneConfig::new(uuid(), GameType::MinecraftJava);
-        fs::write(
-            root.join(".lodestone_config"),
-            serde_json::to_vec(&config).unwrap(),
-        )
-        .unwrap();
-        Env {
-            _dir: dir,
-            store,
-            instances,
-            root,
-        }
-    }
-
-    /// Every file and folder under `root`, with file contents.
-    fn snapshot(root: &Path) -> BTreeMap<String, Option<Vec<u8>>> {
-        let mut out = BTreeMap::new();
-        for entry in walkdir::WalkDir::new(root).follow_links(false).min_depth(1) {
-            let entry = entry.unwrap();
-            let rel = relative_to(root, entry.path()).unwrap();
-            let contents = if entry.file_type().is_file() {
-                Some(fs::read(entry.path()).unwrap())
-            } else if entry.file_type().is_symlink() {
-                Some(b"<link>".to_vec())
-            } else {
-                None
-            };
-            out.insert(rel, contents);
-        }
-        out
-    }
-
-    fn read(root: &Path, path: &str) -> Option<String> {
-        fs::read_to_string(join_rel(root, path)).ok()
-    }
-
-    fn restore(env: &Env, manifest: &Manifest, scope: RestoreScope, exclude: &Matcher, pin: &Pin) {
-        let plan = plan(&env.root, manifest, scope, exclude).unwrap();
-        let staged = stage(
-            &env.store,
-            manifest,
-            &env.root,
-            &plan,
-            exclude,
-            pin,
-            &mut |_, _| {},
-            NO_CANCEL,
-        )
-        .unwrap();
-        staged
-            .swap(&env.store.journal_path(&uuid()).unwrap())
-            .unwrap();
-    }
-
-    fn base_server(root: &Path) {
-        write(root, "server.properties", b"motd=hi\nserver-port=25565\n");
-        write(
-            root,
-            CONFIG_FILE,
-            br#"{"name":"Old name","port":25565,"java_cmd":null,"cmd_args":[],"version":"1.20"}"#,
-        );
-        write(root, "server.jar", b"jar v1");
-        write(root, "world/level.dat", b"level v1");
-        write(root, "world/region/r.0.0.mca", b"region v1");
-        write(root, "world_nether/DIM-1/r.mca", b"nether v1");
-        write(root, "plugins/dynmap/config.txt", b"dynmap config v1");
-    }
-
-    #[test]
-    fn restore_everything() {
-        let env = env();
-        let root = &env.root;
-        base_server(root);
-        let exclude = Matcher::with_case(
-            &[
-                "plugins/dynmap/web/tiles/".to_string(),
-                "/old-worlds/".to_string(),
-            ],
-            false,
-        );
-        let manifest = backup(&env.store, root, "b1", BackupKind::Manual, &exclude);
-
-        // the server changes after the backup
-        write(root, "server.jar", b"jar v2");
-        write(root, "world/level.dat", b"level v2");
-        write(root, "world/new-file.dat", b"new");
-        fs::remove_file(root.join("world_nether/DIM-1/r.mca")).unwrap();
-        write(root, "world/session.lock", b"lock");
-        write(root, "added-later.txt", b"added");
-        write(root, "logs/latest.log", b"log");
-        write(root, "old-worlds/w/level.dat", b"excluded top level");
-        write(root, "plugins/dynmap/web/tiles/0.png", b"tile");
-        write(root, "plugins/dynmap/config.txt", b"dynmap config v2");
-        write(root, CONFIG_FILE, br#"{"name":"New name","port":25570,"java_cmd":"/opt/java","cmd_args":["-Dx"],"version":"1.21","future_field":1}"#);
-        write(
-            root,
-            "server.properties",
-            b"motd=changed\nserver-port=25570\n",
-        );
-        let config_before = fs::read(root.join(".lodestone_config")).unwrap();
-        let outside = env.instances.parent().unwrap().join("outside");
-        write(&outside, "data.txt", b"outside");
-        let linked = link_dir(&outside, &root.join("linked-top"))
-            && link_dir(&outside, &root.join("world/linked-inside"));
-
-        let pin = Pin {
-            name: Some("New name".to_string()),
-            port: Some(25570),
-            java_cmd: Some(Some("/opt/java".to_string())),
-            cmd_args: Some(vec!["-Dx".to_string()]),
-        };
-        restore(&env, &manifest, RestoreScope::Everything, &exclude, &pin);
-
-        assert_eq!(read(root, "server.jar").unwrap(), "jar v1");
-        assert_eq!(read(root, "world/level.dat").unwrap(), "level v1");
-        assert_eq!(read(root, "world/new-file.dat"), None);
-        assert_eq!(read(root, "added-later.txt"), None);
-        assert_eq!(read(root, "world_nether/DIM-1/r.mca").unwrap(), "nether v1");
-        assert_eq!(
-            read(root, "plugins/dynmap/config.txt").unwrap(),
-            "dynmap config v1"
-        );
-        // never touched
-        assert_eq!(read(root, "world/session.lock").unwrap(), "lock");
-        assert_eq!(read(root, "logs/latest.log").unwrap(), "log");
-        assert_eq!(
-            read(root, "old-worlds/w/level.dat").unwrap(),
-            "excluded top level"
-        );
-        assert_eq!(
-            read(root, "plugins/dynmap/web/tiles/0.png").unwrap(),
-            "tile"
-        );
-        assert_eq!(
-            fs::read(root.join(".lodestone_config")).unwrap(),
-            config_before
-        );
-        if linked {
-            assert!(fs::symlink_metadata(root.join("linked-top"))
-                .unwrap()
-                .file_type()
-                .is_symlink());
-            assert!(fs::symlink_metadata(root.join("world/linked-inside"))
-                .unwrap()
-                .file_type()
-                .is_symlink());
-            assert_eq!(read(&outside, "data.txt").unwrap(), "outside");
-        }
-        // pinned settings, other fields from the backup
-        let config: serde_json::Value =
-            serde_json::from_str(&read(root, CONFIG_FILE).unwrap()).unwrap();
-        assert_eq!(config["name"], "New name");
-        assert_eq!(config["port"], 25570);
-        assert_eq!(config["java_cmd"], "/opt/java");
-        assert_eq!(config["cmd_args"], serde_json::json!(["-Dx"]));
-        assert_eq!(config["version"], "1.20");
-        assert_eq!(
-            read(root, "server.properties").unwrap(),
-            "motd=hi\nserver-port=25570\n"
-        );
-        // restored modified times
-        let restored = fs::metadata(root.join("server.jar"))
-            .unwrap()
-            .modified()
-            .unwrap();
-        let entry = manifest
-            .files
-            .iter()
-            .find(|f| f.path == "server.jar")
-            .unwrap();
-        assert_eq!(
-            crate::backups::store::unix_ns(restored) / 1_000_000,
-            entry.modified_ns / 1_000_000
-        );
-        // nothing left behind
-        assert!(!fs::read_dir(root).unwrap().flatten().any(|e| e
-            .file_name()
-            .to_string_lossy()
-            .starts_with(".lodestone-restore")));
-        assert!(!env.store.journal_path(&uuid()).unwrap().exists());
-    }
-
-    #[test]
-    fn a_link_where_the_backup_has_a_folder_is_refused() {
-        let env = env();
-        write(&env.root, "plugins/a.jar", b"a");
-        let manifest = backup(
-            &env.store,
-            &env.root,
-            "b1",
-            BackupKind::Manual,
-            &Matcher::default(),
-        );
-        fs::remove_dir_all(env.root.join("plugins")).unwrap();
-        let outside = env.instances.parent().unwrap().join("shared-plugins");
-        fs::create_dir_all(&outside).unwrap();
-        if !link_dir(&outside, &env.root.join("plugins")) {
-            return;
-        }
-        let error = plan(
-            &env.root,
-            &manifest,
-            RestoreScope::Everything,
-            &Matcher::default(),
-        )
-        .unwrap_err();
-        assert_eq!(
-            error.source.to_string(),
-            "plugins is a link; restore can't replace it"
-        );
-    }
-
-    #[test]
-    fn restore_world_nested_and_not_its_neighbours() {
-        let env = env();
-        let root = &env.root;
-        write(root, "server.properties", b"level-name=worlds/survival\n");
-        write(root, "worlds/survival/level.dat", b"level v1");
-        write(root, "worlds/survival_nether/DIM-1/r.mca", b"nether v1");
-        write(root, "worlds/survival2/level.dat", b"other world v1");
-        write(root, "server.jar", b"jar v1");
-        let mut manifest = backup(
-            &env.store,
-            root,
-            "b1",
-            BackupKind::Manual,
-            &Matcher::default(),
-        );
-        manifest.level_name = Some("worlds/survival".to_string());
-
-        write(root, "worlds/survival/level.dat", b"level v2");
-        write(root, "worlds/survival/extra.dat", b"extra");
-        write(root, "worlds/survival/session.lock", b"lock");
-        write(root, "worlds/survival_the_end/DIM1/r.mca", b"end v2");
-        write(root, "worlds/survival2/level.dat", b"other world v2");
-        write(root, "server.jar", b"jar v2");
-
-        let plan_ = plan(root, &manifest, RestoreScope::World, &Matcher::default()).unwrap();
-        let owned: Vec<&str> = plan_.owned.iter().map(|o| o.path.as_str()).collect();
-        assert_eq!(
-            owned,
-            vec![
-                "worlds/survival",
-                "worlds/survival_nether",
-                "worlds/survival_the_end"
-            ]
-        );
-        assert!(plan_
-            .files
-            .iter()
-            .all(|f| !f.path.starts_with("worlds/survival2")));
-        restore(
-            &env,
-            &manifest,
-            RestoreScope::World,
-            &Matcher::default(),
-            &Pin::default(),
-        );
-
-        assert_eq!(read(root, "worlds/survival/level.dat").unwrap(), "level v1");
-        assert_eq!(read(root, "worlds/survival/extra.dat"), None);
-        assert_eq!(read(root, "worlds/survival/session.lock").unwrap(), "lock");
-        assert_eq!(
-            read(root, "worlds/survival_nether/DIM-1/r.mca").unwrap(),
-            "nether v1"
-        );
-        // the backup had no end: the end is removed
-        assert!(!root.join("worlds/survival_the_end").exists());
-        // not part of the world
-        assert_eq!(
-            read(root, "worlds/survival2/level.dat").unwrap(),
-            "other world v2"
-        );
-        assert_eq!(read(root, "server.jar").unwrap(), "jar v2");
-    }
-
-    #[test]
-    fn world_restore_refuses_bad_level_names() {
-        let env = env();
-        write(&env.root, "world/level.dat", b"x");
-        let mut manifest = backup(
-            &env.store,
-            &env.root,
-            "b1",
-            BackupKind::Manual,
-            &Matcher::default(),
-        );
-        manifest.level_name = Some("../Other-1a2b3c4d/world".to_string());
-        assert!(plan(
-            &env.root,
-            &manifest,
-            RestoreScope::World,
-            &Matcher::default()
-        )
-        .is_err());
-        manifest.level_name = None;
-        assert!(plan(
-            &env.root,
-            &manifest,
-            RestoreScope::World,
-            &Matcher::default()
-        )
-        .is_err());
-        manifest.level_name = Some("nothere".to_string());
-        assert!(plan(
-            &env.root,
-            &manifest,
-            RestoreScope::World,
-            &Matcher::default()
-        )
-        .is_err());
-    }
-
-    #[test]
-    fn diff_lists_changes_in_owned_paths() {
-        let env = env();
-        let root = &env.root;
-        base_server(root);
-        let none = Matcher::default();
-        let manifest = backup(&env.store, root, "b1", BackupKind::Manual, &none);
-        write(root, "server.jar", b"jar v2");
-        write(root, "mods/new.jar", b"new mod");
-        fs::remove_dir_all(root.join("plugins")).unwrap();
-        write(root, CONFIG_FILE, b"{}");
-        fs::create_dir_all(root.join("empty-dir")).unwrap();
-        let current = backup(&env.store, root, "b2", BackupKind::BeforeRestore, &none);
-
-        let plan_ = plan(root, &manifest, RestoreScope::Everything, &none).unwrap();
-        let d = diff(root, &plan_, &current.files, &none).unwrap();
-        assert_eq!(d.added, vec!["plugins/dynmap/config.txt"]);
-        assert_eq!(d.changed, vec!["server.jar"]);
-        assert_eq!(d.removed, vec!["mods/new.jar"]);
-        assert_eq!(d.created_dirs, vec!["plugins", "plugins/dynmap"]);
-        assert_eq!(d.removed_dirs, vec!["empty-dir", "mods"]);
-
-        // a world restore doesn't touch the jar
-        let mut with_world = manifest.clone();
-        with_world.level_name = Some("world".to_string());
-        let plan_ = plan(root, &with_world, RestoreScope::World, &none).unwrap();
-        let d = diff(root, &plan_, &current.files, &none).unwrap();
-        assert!(d.is_empty(), "{d:?}");
-    }
-
-    #[test]
-    fn pin_config_keeps_unknown_fields() {
-        let text = r#"{"name":"Backup","port":1,"java_cmd":"/bad/java","cmd_args":["-evil"],"modpack":{"x":1}}"#;
-        let pinned = pin_config_json(
-            text,
-            &Pin {
-                name: Some("Current".to_string()),
-                port: Some(25566),
-                java_cmd: Some(None),
-                cmd_args: Some(vec![]),
-            },
-        )
-        .unwrap();
-        let value: serde_json::Value = serde_json::from_str(&pinned).unwrap();
-        assert_eq!(value["name"], "Current");
-        assert_eq!(value["port"], 25566);
-        assert!(value["java_cmd"].is_null());
-        assert_eq!(value["cmd_args"], serde_json::json!([]));
-        assert_eq!(value["modpack"]["x"], 1);
-        // nothing pinned: unchanged values
-        let same = pin_config_json(text, &Pin::default()).unwrap();
-        let value: serde_json::Value = serde_json::from_str(&same).unwrap();
-        assert_eq!(value["java_cmd"], "/bad/java");
-        assert!(pin_config_json("not json", &Pin::default()).is_err());
-    }
-
-    #[test]
-    fn pin_server_port_keeps_other_lines() {
-        let table: &[(&str, &str)] = &[
-            (
-                "motd=a\nserver-port=1\npvp=true\n",
-                "motd=a\nserver-port=7\npvp=true\n",
-            ),
-            (
-                "motd=a\r\nserver-port = 1\r\n",
-                "motd=a\r\nserver-port=7\r\n",
-            ),
-            (
-                "#server-port=1\nmotd=a",
-                "#server-port=1\nmotd=a\nserver-port=7\n",
-            ),
-            ("server-port=1", "server-port=7\n"),
-            ("server-portal=1\n", "server-portal=1\nserver-port=7\n"),
-            ("", "server-port=7\n"),
-        ];
-        for (input, expected) in table {
-            let out = pin_server_port(input.as_bytes(), 7);
-            assert_eq!(String::from_utf8(out).unwrap(), *expected, "{input:?}");
-        }
-    }
-
-    /// Sets up a server, backs it up, changes it, and stages the backup.
-    fn staged_restore(env: &Env) -> (Staged, BTreeMap<String, Option<Vec<u8>>>) {
-        let root = &env.root;
-        base_server(root);
-        let exclude = Matcher::with_case(&["plugins/dynmap/web/tiles/".to_string()], false);
-        let manifest = backup(&env.store, root, "b1", BackupKind::Manual, &exclude);
-        write(root, "world/level.dat", b"level v2");
-        write(root, "world/session.lock", b"lock");
-        write(root, "added.txt", b"added");
-        write(root, "plugins/dynmap/web/tiles/0.png", b"tile");
-        fs::remove_dir_all(root.join("world_nether")).unwrap();
-        let before = snapshot(root);
-        let plan_ = plan(root, &manifest, RestoreScope::Everything, &exclude).unwrap();
-        let staged = stage(
-            &env.store,
-            &manifest,
-            root,
-            &plan_,
-            &exclude,
-            &Pin::default(),
-            &mut |_, _| {},
-            NO_CANCEL,
-        )
-        .unwrap();
-        (staged, before)
-    }
-
-    fn count_renames(env: &Env) -> usize {
-        let (mut staged, _) = staged_restore(env);
-        staged.faults.crash_after = Some(usize::MAX);
-        let owned_old = staged.owned.iter().filter(|e| e.had_old).count();
-        let owned_new = staged.owned.iter().filter(|e| e.had_new).count();
-        let carried = staged.carried.len();
-        staged.discard();
-        // each kept path whose staged copy exists takes two renames; here none has one
-        owned_old + owned_new + carried
-    }
-
-    #[test]
-    fn recovery_after_a_crash_in_each_phase() {
-        let total = count_renames(&env());
-        assert!(total >= 8, "{total}");
-        for crash_after in 0..=total {
-            let env = env();
-            let (mut staged, before) = staged_restore(&env);
-            staged.faults.crash_after = Some(crash_after);
-            let journal = env.store.journal_path(&uuid()).unwrap();
-            assert!(matches!(staged.swap(&journal), Err(SwapError::Broken(_))));
-            assert!(journal.exists());
-            let recovery = recover_with(&env.store, &env.instances, Duration::ZERO);
-            assert_eq!(recovery.repaired, vec![uuid()], "crash after {crash_after}");
-            assert!(recovery.broken.is_empty());
-            assert!(!journal.exists());
-            assert_eq!(
-                snapshot(&env.root),
-                before,
-                "crash after {crash_after} renames"
-            );
-        }
-    }
-
-    #[test]
-    fn recovery_when_done_keeps_the_restore() {
-        let env = env();
-        let (staged, _) = staged_restore(&env);
-        let staging = staged.staging_dir();
-        let journal_path = env.store.journal_path(&uuid()).unwrap();
-        staged.swap(&journal_path).unwrap();
-        let after = snapshot(&env.root);
-        // as if the core died after writing "done" but before cleaning up
-        fs::create_dir_all(staging.join("leftover")).unwrap();
-        let suffix = staging
-            .file_name()
-            .unwrap()
-            .to_str()
-            .unwrap()
-            .trim_start_matches(STAGING_PREFIX)
-            .to_string();
-        write_journal(
-            &journal_path,
-            &Journal {
-                phase: Phase::Done,
-                staging: suffix,
-                old: "0123456789abcdef".to_string(),
-                entries: vec![JournalEntry {
-                    path: "world".to_string(),
-                    had_old: true,
-                    had_new: true,
-                }],
-            },
-        )
-        .unwrap();
-        let recovery = recover_with(&env.store, &env.instances, Duration::ZERO);
-        assert_eq!(recovery.repaired, vec![uuid()]);
-        assert_eq!(snapshot(&env.root), after);
-        assert!(!staging.exists());
-    }
-
-    #[test]
-    fn a_failed_swap_is_rolled_back() {
-        for fail_after in [0, 2, 5, 9] {
-            let env = env();
-            let (mut staged, before) = staged_restore(&env);
-            staged.faults.fail_after = Some(fail_after);
-            let journal = env.store.journal_path(&uuid()).unwrap();
-            assert!(matches!(
-                staged.swap(&journal),
-                Err(SwapError::RolledBack(_))
-            ));
-            assert!(!journal.exists());
-            assert_eq!(snapshot(&env.root), before, "fail after {fail_after}");
-        }
-    }
-
-    #[test]
-    fn a_rollback_that_fails_keeps_the_journal() {
-        let env = env();
-        let (mut staged, _) = staged_restore(&env);
-        staged.faults.fail_after = Some(3);
-        staged.faults.break_rollback = true;
-        let journal = env.store.journal_path(&uuid()).unwrap();
-        match staged.swap(&journal) {
-            Err(SwapError::Broken(e)) => assert_eq!(
-                e.source.to_string(),
-                "The restore could not be undone; restart Lodestone to repair it"
-            ),
-            other => panic!("{other:?}"),
-        }
-        assert!(journal.exists());
-        // the next start repairs it
-        let recovery = recover_with(&env.store, &env.instances, Duration::ZERO);
-        assert_eq!(recovery.repaired, vec![uuid()]);
-    }
-
-    #[test]
-    fn recovery_refuses_a_tampered_journal() {
-        let env = env();
-        write(&env.root, "world/level.dat", b"x");
-        let journal_path = env.store.journal_path(&uuid()).unwrap();
-        for journal in [
-            Journal {
-                phase: Phase::MovingNew,
-                staging: "../../stores".to_string(),
-                old: "0123456789abcdef".to_string(),
-                entries: vec![],
-            },
-            Journal {
-                phase: Phase::MovingNew,
-                staging: "0123456789abcdef".to_string(),
-                old: "0123456789abcdef".to_string(),
-                entries: vec![JournalEntry {
-                    path: "../../stores/users.json".to_string(),
-                    had_old: true,
-                    had_new: false,
-                }],
-            },
-        ] {
-            write_journal(&journal_path, &journal).unwrap();
-            let recovery = recover_with(&env.store, &env.instances, Duration::ZERO);
-            assert_eq!(recovery.broken, vec![uuid()]);
-            assert!(journal_path.exists());
-        }
-        assert_eq!(read(&env.root, "world/level.dat").unwrap(), "x");
-    }
-
-    #[test]
-    fn recovery_deletes_leftovers() {
-        let env = env();
-        write(&env.root, "world/level.dat", b"x");
-        write(
-            &env.root,
-            ".lodestone-restore-staging-0123456789abcdef/world/level.dat",
-            b"staged",
-        );
-        write(
-            &env.root,
-            ".lodestone-restore-old-0123456789abcdef/world/level.dat",
-            b"old",
-        );
-        write(
-            &env.instances,
-            ".lodestone-restore-new-0123456789abcdef/server.jar",
-            b"half",
-        );
-        fs::create_dir_all(env.store.marker_path(&uuid()).unwrap().parent().unwrap()).unwrap();
-        fs::write(env.store.marker_path(&uuid()).unwrap(), b"").unwrap();
-        let recovery = recover_with(&env.store, &env.instances, Duration::ZERO);
-        assert!(recovery.repaired.is_empty() && recovery.broken.is_empty());
-        let names: Vec<String> = fs::read_dir(&env.root)
-            .unwrap()
-            .flatten()
-            .map(|e| e.file_name().to_string_lossy().into_owned())
-            .collect();
-        assert!(
-            !names.iter().any(|n| n.starts_with(".lodestone-restore")),
-            "{names:?}"
-        );
-        assert!(!env
-            .instances
-            .join(".lodestone-restore-new-0123456789abcdef")
-            .exists());
-        assert!(!env.store.marker_path(&uuid()).unwrap().exists());
-        assert_eq!(read(&env.root, "world/level.dat").unwrap(), "x");
-    }
-
-    #[test]
-    fn stage_all_and_damaged_backups() {
-        let env = env();
-        base_server(&env.root);
-        let manifest = backup(
-            &env.store,
-            &env.root,
-            "b1",
-            BackupKind::Manual,
-            &Matcher::default(),
-        );
-        let dest = new_server_dir(&env.instances);
-        stage_all(&env.store, &manifest, &dest, &mut |_, _| {}, NO_CANCEL).unwrap();
-        assert_eq!(read(&dest, "world/level.dat").unwrap(), "level v1");
-        assert!(!dest.join(".lodestone_config").exists());
-        pin_settings(
-            &dest,
-            &Pin {
-                name: Some("Copy".to_string()),
-                port: Some(25566),
-                java_cmd: Some(None),
-                cmd_args: Some(vec![]),
-            },
-        )
-        .unwrap();
-        assert_eq!(
-            read(&dest, "server.properties").unwrap(),
-            "motd=hi\nserver-port=25566\n"
-        );
-
-        // a damaged object fails staging and leaves nothing behind
-        let entry = manifest
-            .files
-            .iter()
-            .find(|f| f.path == "world/level.dat")
-            .unwrap();
-        let object = env.store.object_path(&entry.sha256);
-        crate::backups::store::remove_file_forced(&object).unwrap();
-        fs::write(&object, b"garbage").unwrap();
-        let dest = new_server_dir(&env.instances);
-        let error = stage_all(&env.store, &manifest, &dest, &mut |_, _| {}, NO_CANCEL).unwrap_err();
-        assert_eq!(
-            error.source.to_string(),
-            "Backup b1 is damaged: world/level.dat"
-        );
-        assert!(!dest.exists());
-        let plan_ = plan(
-            &env.root,
-            &manifest,
-            RestoreScope::Everything,
-            &Matcher::default(),
-        )
-        .unwrap();
-        assert!(stage(
-            &env.store,
-            &manifest,
-            &env.root,
-            &plan_,
-            &Matcher::default(),
-            &Pin::default(),
-            &mut |_, _| {},
-            NO_CANCEL
-        )
-        .is_err());
-        assert!(!fs::read_dir(&env.root).unwrap().flatten().any(|e| e
-            .file_name()
-            .to_string_lossy()
-            .starts_with(".lodestone-restore")));
-    }
-
-    #[test]
-    fn a_journal_that_cant_be_carried_out_keeps_the_restore_folders() {
-        let tampered = serde_json::to_vec(&Journal {
-            phase: Phase::MovingNew,
-            staging: "../../stores".to_string(),
-            old: "0123456789abcdef".to_string(),
-            entries: vec![],
-        })
-        .unwrap();
-        // from a newer core, or damaged
-        let unreadable = br#"{"phase":"verifying","staging":"0123456789abcdef"}"#.to_vec();
-        for text in [unreadable, tampered] {
-            let env = env();
-            write(&env.root, "world/region/r.0.0.mca", b"staged");
-            write(
-                &env.root,
-                ".lodestone-restore-old-0123456789abcdef/world/level.dat",
-                b"original",
-            );
-            write(
-                &env.root,
-                ".lodestone-restore-staging-0123456789abcdef/plugins/a.jar",
-                b"staged",
-            );
-            let journal_path = env.store.journal_path(&uuid()).unwrap();
-            fs::create_dir_all(journal_path.parent().unwrap()).unwrap();
-            fs::write(&journal_path, &text).unwrap();
-            let before = snapshot(&env.root);
-            let recovery = recover_with(&env.store, &env.instances, Duration::ZERO);
-            assert_eq!(recovery.broken, vec![uuid()]);
-            assert!(journal_path.exists());
-            assert_eq!(snapshot(&env.root), before);
-        }
-    }
-
-    #[test]
-    fn recovery_through_a_linked_server_folder() {
-        let env = env();
-        let root = &env.root;
-        base_server(root);
-        let none = Matcher::default();
-        let manifest = backup(&env.store, root, "b1", BackupKind::Manual, &none);
-        let elsewhere = env.instances.parent().unwrap().join("elsewhere");
-        fs::rename(root, &elsewhere).unwrap();
-        if !link_dir(&elsewhere, root) {
-            return;
-        }
-        write(root, "world/level.dat", b"level v2");
-        write(root, "world/session.lock", b"lock");
-        write(root, "added.txt", b"added");
-        let before = snapshot(&elsewhere);
-        let plan_ = plan(root, &manifest, RestoreScope::Everything, &none).unwrap();
-        let mut staged = stage(
-            &env.store,
-            &manifest,
-            root,
-            &plan_,
-            &none,
-            &Pin::default(),
-            &mut |_, _| {},
-            NO_CANCEL,
-        )
-        .unwrap();
-        staged.faults.crash_after = Some(4);
-        let journal = env.store.journal_path(&uuid()).unwrap();
-        assert!(matches!(staged.swap(&journal), Err(SwapError::Broken(_))));
-        let recovery = recover_with(&env.store, &env.instances, Duration::ZERO);
-        assert_eq!(recovery.repaired, vec![uuid()]);
-        assert!(!journal.exists());
-        assert_eq!(snapshot(&elsewhere), before);
-    }
-
-    /// A server whose folder is a link (or junction) is backed up and restored through it:
-    /// the link stays, and its target gets the backup's files.
-    #[test]
-    fn backup_and_restore_through_a_linked_server_folder() {
-        let env = env();
-        let root = &env.root;
-        base_server(root);
-        let elsewhere = env.instances.parent().unwrap().join("elsewhere");
-        fs::rename(root, &elsewhere).unwrap();
-        if !link_dir(&elsewhere, root) {
-            return;
-        }
-        let none = Matcher::default();
-        let manifest = backup(&env.store, root, "b1", BackupKind::Manual, &none);
-        assert!(manifest.files.iter().any(|f| f.path == "world/level.dat"));
-        write(root, "world/level.dat", b"level v2");
-        write(root, "added.txt", b"added");
-        restore(
-            &env,
-            &manifest,
-            RestoreScope::Everything,
-            &none,
-            &Pin::default(),
-        );
-        assert_eq!(read(&elsewhere, "world/level.dat").unwrap(), "level v1");
-        assert_eq!(read(&elsewhere, "added.txt"), None);
-        assert!(fs::symlink_metadata(root).unwrap().file_type().is_symlink());
-        assert!(!fs::read_dir(&elsewhere).unwrap().flatten().any(|e| e
-            .file_name()
-            .to_string_lossy()
-            .starts_with(".lodestone-restore")));
-    }
-
-    #[test]
-    fn a_journal_of_a_server_not_found_stays_when_a_folder_cant_be_read() {
-        let env = env();
-        let journal_path = env.store.journal_path(&uuid()).unwrap();
-        write_journal(
-            &journal_path,
-            &Journal {
-                phase: Phase::MovingNew,
-                staging: "0123456789abcdef".to_string(),
-                old: "0123456789abcdef".to_string(),
-                entries: vec![],
-            },
-        )
-        .unwrap();
-        // the server's settings can't be read, so it may be the journal's server
-        fs::write(env.root.join(".lodestone_config"), b"damaged").unwrap();
-        let recovery = recover_with(&env.store, &env.instances, Duration::ZERO);
-        assert!(recovery.repaired.is_empty() && recovery.broken.is_empty());
-        assert!(journal_path.exists());
-        // the server is gone for sure
-        fs::remove_dir_all(&env.root).unwrap();
-        recover_with(&env.store, &env.instances, Duration::ZERO);
-        assert!(!journal_path.exists());
-    }
-
-    #[test]
-    fn a_backup_without_the_settings_keeps_the_current_ones() {
-        let env = env();
-        let root = &env.root;
-        base_server(root);
-        let json = Matcher::with_case(&["*.json".to_string()], false);
-        let manifest = backup(&env.store, root, "b1", BackupKind::Manual, &json);
-        assert!(!manifest.files.iter().any(|f| f.path == CONFIG_FILE));
-        let settings = fs::read(root.join(CONFIG_FILE)).unwrap();
-        write(root, "server.jar", b"jar v2");
-
-        // the exclude is gone by the time of the restore
-        let none = Matcher::default();
-        let plan_ = plan(root, &manifest, RestoreScope::Everything, &none).unwrap();
-        assert!(!plan_.owns(CONFIG_FILE));
-        restore(
-            &env,
-            &manifest,
-            RestoreScope::Everything,
-            &none,
-            &Pin::default(),
-        );
-        assert_eq!(fs::read(root.join(CONFIG_FILE)).unwrap(), settings);
-        assert_eq!(read(root, "server.jar").unwrap(), "jar v1");
-    }
-
-    #[test]
-    fn a_journal_that_cant_be_finished_undoes_the_swap() {
-        let env = env();
-        let (mut staged, before) = staged_restore(&env);
-        staged.faults.stuck_journal = true;
-        let journal = env.store.journal_path(&uuid()).unwrap();
-        assert!(matches!(
-            staged.swap(&journal),
-            Err(SwapError::RolledBack(_))
-        ));
-        assert_eq!(snapshot(&env.root), before);
-        // the journal stayed, saying the swap is under way; the next start changes nothing
-        assert!(journal.exists());
-        let recovery = recover_with(&env.store, &env.instances, Duration::ZERO);
-        assert_eq!(recovery.repaired, vec![uuid()]);
-        assert!(!journal.exists());
-        assert_eq!(snapshot(&env.root), before);
-    }
-
-    #[test]
-    fn a_finished_restore_with_a_stale_journal_is_kept() {
-        let env = env();
-        let (staged, _) = staged_restore(&env);
-        let stale = Journal {
-            phase: Phase::MovingNew,
-            staging: staged.staging.clone(),
-            old: staged.old.clone(),
-            entries: staged
-                .owned
-                .iter()
-                .cloned()
-                .chain(staged.carried.iter().map(|path| JournalEntry {
-                    path: path.clone(),
-                    had_old: true,
-                    had_new: false,
-                }))
-                .collect(),
-        };
-        let journal_path = env.store.journal_path(&uuid()).unwrap();
-        staged.swap(&journal_path).unwrap();
-        let after = snapshot(&env.root);
-        // as if the journal couldn't be marked done or deleted, and the folders were deleted
-        write_journal(&journal_path, &stale).unwrap();
-        let recovery = recover_with(&env.store, &env.instances, Duration::ZERO);
-        assert_eq!(recovery.repaired, vec![uuid()]);
-        assert_eq!(snapshot(&env.root), after);
-        assert_eq!(read(&env.root, "world/session.lock").unwrap(), "lock");
-        assert!(!journal_path.exists());
-    }
-
-    #[test]
-    fn a_repeated_rollback_changes_nothing() {
-        let total = count_renames(&env());
-        let env = env();
-        let (mut staged, before) = staged_restore(&env);
-        staged.faults.crash_after = Some(total);
-        let journal_path = env.store.journal_path(&uuid()).unwrap();
-        assert!(matches!(
-            staged.swap(&journal_path),
-            Err(SwapError::Broken(_))
-        ));
-        let journal: Journal = serde_json::from_slice(&fs::read(&journal_path).unwrap()).unwrap();
-        assert_eq!(journal.phase, Phase::MovingNew);
-        rollback(&env.root, &journal, Duration::ZERO).unwrap();
-        let once = snapshot(&env.root);
-        rollback(&env.root, &journal, Duration::ZERO).unwrap();
-        assert_eq!(snapshot(&env.root), once);
-        let recovery = recover_with(&env.store, &env.instances, Duration::ZERO);
-        assert_eq!(recovery.repaired, vec![uuid()]);
-        assert_eq!(snapshot(&env.root), before);
-    }
-
-    /// An old folder (or an entry in it) that can't be read isn't taken for a missing one:
-    /// the rollback fails, moving nothing, so the journal stays and the server is protected.
-    #[test]
-    fn a_rollback_never_takes_an_unreadable_old_folder_for_a_missing_one() {
-        let env = env();
-        let (mut staged, _) = staged_restore(&env);
-        staged.faults.crash_after = Some(4);
-        let journal_path = env.store.journal_path(&uuid()).unwrap();
-        assert!(matches!(
-            staged.swap(&journal_path),
-            Err(SwapError::Broken(_))
-        ));
-        let journal: Journal = serde_json::from_slice(&fs::read(&journal_path).unwrap()).unwrap();
-        let old_dir = env.root.join(format!("{OLD_PREFIX}{}", journal.old));
-        assert!(old_dir.is_dir());
-        let half_swapped = snapshot(&env.root);
-        let denied = || io::Error::from(io::ErrorKind::PermissionDenied);
-
-        let unreadable_folder = |path: &Path| {
-            if path == old_dir {
-                Err(denied())
-            } else {
-                present(path)
-            }
-        };
-        let problems =
-            rollback_with(&env.root, &journal, Duration::ZERO, &unreadable_folder).unwrap_err();
-        assert!(problems[0].contains("couldn't be read"), "{problems:?}");
-        assert_eq!(snapshot(&env.root), half_swapped);
-
-        let unreadable_entries = |path: &Path| {
-            if path != old_dir && path.starts_with(&old_dir) {
-                Err(denied())
-            } else {
-                present(path)
-            }
-        };
-        assert!(rollback_with(&env.root, &journal, Duration::ZERO, &unreadable_entries).is_err());
-        assert_eq!(snapshot(&env.root), half_swapped);
-
-        // once it can be read, the next start undoes the swap
-        assert!(journal_path.exists());
-        let recovery = recover_with(&env.store, &env.instances, Duration::ZERO);
-        assert_eq!(recovery.repaired, vec![uuid()]);
-        assert!(!journal_path.exists());
-    }
-
-    #[test]
-    fn under_matches_whole_parts() {
-        assert!(under("world", "world"));
-        assert!(under("world/level.dat", "world"));
-        assert!(!under("world2/level.dat", "world"));
-        assert!(!under("worl", "world"));
-    }
-}
+mod tests;
