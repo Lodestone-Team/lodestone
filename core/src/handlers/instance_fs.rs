@@ -194,6 +194,173 @@ fn instance_join(root: impl AsRef<FsPath>, relative: impl AsRef<FsPath>) -> Resu
     Ok(path)
 }
 
+/// Joins `relative` to the instance folder `root` like [`instance_join`], except that the
+/// last part is kept as it is rather than resolved: the entry itself, not what a symbolic
+/// link there points to. Deleting or renaming a link then deletes or renames the link:
+/// deleting a link to `world` used to delete the world, and a link pointing out of the
+/// instance couldn't be deleted or renamed at all. Returns the entry and the path it
+/// resolves to, for the checks (the same path unless the entry is a link).
+///
+/// Fails for a path that names the instance folder itself, such as `""`, `/`, `.` or
+/// `world/..`: moving or zipping to it used to pick a free name next to the instance
+/// folder (`<folder>_1`), outside it.
+fn instance_join_entry(
+    root: impl AsRef<FsPath>,
+    relative: impl AsRef<FsPath>,
+) -> Result<(PathBuf, PathBuf), Error> {
+    let root = root.as_ref();
+    let relative = relative.as_ref();
+    let resolved = instance_join(root, relative)?;
+    let not_an_entry = || Error {
+        kind: ErrorKind::BadRequest,
+        source: eyre!("Choose a file or folder in the server, not the server's folder itself"),
+    };
+    // `None` when the path ends in `..`, or names no file at all (`""`, `/`, `.`)
+    let name = relative.file_name().ok_or_else(not_an_entry)?;
+    let parent = instance_join(root, relative.parent().unwrap_or(FsPath::new("")))?;
+    let entry = parent.join(name);
+    if entry == root || !entry.starts_with(root) {
+        return Err(not_an_entry());
+    }
+    Ok((entry, resolved))
+}
+
+/// Whether a user without `WriteGlobalFile` may not delete or rename `entry`, an entry of
+/// the instance folder (`metadata` is its own, not following links) that resolves to
+/// `target`. A symbolic link is checked as the kind of entry it points to (a link to a
+/// folder as a folder), and what it points to is checked too.
+async fn is_entry_protected(entry: &FsPath, target: &FsPath, metadata: &std::fs::Metadata) -> bool {
+    if !metadata.is_symlink() {
+        return is_protected(entry, metadata.is_dir());
+    }
+    let target_is_dir = tokio::fs::metadata(target)
+        .await
+        .map(|m| m.is_dir())
+        .unwrap_or(false);
+    is_protected(entry, target_is_dir) || is_path_protected(target).await
+}
+
+/// Deletes the symbolic link `path` itself, never what it points to. On Windows a link to a
+/// folder (or a junction) is a folder entry that `remove_file` refuses, so that falls back
+/// to `remove_dir`, which also deletes only the link.
+async fn remove_link(path: &FsPath) -> std::io::Result<()> {
+    match tokio::fs::remove_file(path).await {
+        Err(e) if cfg!(windows) => tokio::fs::remove_dir(path).await.map_err(|_| e),
+        result => result,
+    }
+}
+
+/// Deletes the entry `relative` of the instance folder `root` for the `rm` (`folder` false)
+/// and `rmdir` (`folder` true) routes, and returns its path and whether it was a folder. A
+/// symbolic link is deleted itself by either route, since the file list shows a link to a
+/// folder as a folder; what it points to is left alone.
+async fn delete_entry(
+    root: &FsPath,
+    relative: &str,
+    folder: bool,
+    can_write_protected: bool,
+) -> Result<(PathBuf, bool), Error> {
+    let (path, target) = instance_join_entry(root, relative)?;
+    let metadata = tokio::fs::symlink_metadata(&path)
+        .await
+        .context(format!("Failed to find {relative}"))?;
+    if metadata.is_symlink() {
+        if !can_write_protected && is_entry_protected(&path, &target, &metadata).await {
+            return Err(protected_error("File extension is protected"));
+        }
+        remove_link(&path)
+            .await
+            .context(format!("Failed to remove {relative}"))?;
+        return Ok((path, false));
+    }
+    if folder {
+        if !metadata.is_dir() {
+            return Err(Error {
+                kind: ErrorKind::BadRequest,
+                source: eyre!("{relative} is not a folder"),
+            });
+        }
+        // the folder itself, or anything in it, is protected
+        if !can_write_protected && contains_protected_entry(path.clone()).await? {
+            return Err(protected_error("Directory contains protected files"));
+        }
+        tokio::fs::remove_dir_all(&path)
+            .await
+            .context("Failed to remove directory")?;
+    } else {
+        if metadata.is_dir() {
+            return Err(Error {
+                kind: ErrorKind::BadRequest,
+                source: eyre!("{relative} is a folder"),
+            });
+        }
+        // if target has a protected extension, or no extension, deny
+        if !can_write_protected && is_protected(&path, false) {
+            return Err(protected_error("File extension is protected"));
+        }
+        tokio::fs::remove_file(&path)
+            .await
+            .context(format!("Failed to remove {relative}"))?;
+    }
+    Ok((path, folder))
+}
+
+/// Where moving `source` to `dest` (both entries from [`instance_join_entry`]) puts it:
+/// `None` when they are the same path, so there is nothing to do, `dest` when it is free or
+/// is only `source` spelled with other letter case, and otherwise a free name next to it
+/// (`name_1.ext`). Fails when `dest` is inside the folder `source`.
+///
+/// On macOS's and Windows's file systems, which ignore case, a new name that only changes
+/// letter case (`Server.properties` to `server.properties`) "exists" as the source itself,
+/// and picking a free name made it `server_1.properties`.
+fn move_destination(source: &FsPath, dest: &FsPath) -> Result<Option<PathBuf>, Error> {
+    if source == dest {
+        return Ok(None);
+    }
+    if dest.starts_with(source) {
+        return Err(Error {
+            kind: ErrorKind::BadRequest,
+            source: eyre!("Destination is a subdirectory of the source"),
+        });
+    }
+    if is_other_case_of(source, dest) {
+        return Ok(Some(dest.to_path_buf()));
+    }
+    // a symbolic link counts as taken even when what it points to doesn't exist
+    let taken = |path: &FsPath| std::fs::symlink_metadata(path).is_ok();
+    Ok(Some(resolve_path_conflict(
+        dest.to_path_buf(),
+        Some(&taken),
+    )))
+}
+
+/// Whether `dest` exists only as `source` under another spelling: both are in the same
+/// folder, their names differ only in letter case, and the folder has no entry with
+/// exactly `dest`'s name although the file system finds one. On a file system that
+/// tells case apart, a `dest` that exists is listed under its own name, so it is never
+/// mistaken for the source.
+fn is_other_case_of(source: &FsPath, dest: &FsPath) -> bool {
+    let (Some(folder), Some(source_name), Some(dest_name)) =
+        (dest.parent(), source.file_name(), dest.file_name())
+    else {
+        return false;
+    };
+    if source.parent() != Some(folder)
+        || source_name == dest_name
+        || source_name.to_string_lossy().to_lowercase()
+            != dest_name.to_string_lossy().to_lowercase()
+        || std::fs::symlink_metadata(dest).is_err()
+    {
+        return false;
+    }
+    match std::fs::read_dir(folder) {
+        Ok(entries) => !entries
+            .filter_map(Result::ok)
+            .any(|entry| entry.file_name() == dest_name),
+        Err(_) => false,
+    }
+}
+
 /// Windows 8.3 short names end the stem with `~` and a digit, as in `PROGRA~1`.
 fn looks_like_short_name(name: &str) -> bool {
     let stem = name.split('.').next().unwrap_or(name);
@@ -666,8 +833,9 @@ async fn move_instance_file(
     })?;
     let root = real_root(instance.path().await).await;
     drop(instance);
-    let path_source = instance_join(&root, relative_path_source)?;
-    let path_dest = instance_join(&root, relative_path_dest)?;
+    // the entries themselves: renaming a symbolic link renames the link
+    let (path_source, source_target) = instance_join_entry(&root, relative_path_source)?;
+    let (path_dest, _) = instance_join_entry(&root, relative_path_dest)?;
 
     let relative_path_source = path_source
         .strip_prefix(&root)
@@ -676,27 +844,40 @@ async fn move_instance_file(
         .strip_prefix(&root)
         .context("Error stripping prefix")?;
 
-    let is_dir = tokio::fs::symlink_metadata(&path_source)
+    let metadata = tokio::fs::symlink_metadata(&path_source)
         .await
         .context(format!(
             "Error moving file from {} to {}",
             relative_path_source.display(),
             relative_path_dest.display()
-        ))?
-        .is_dir();
+        ))?;
+    let is_dir = metadata.is_dir();
+    let is_link = metadata.is_symlink();
+    // a link is checked as what it points to as well, as it was before links were
+    // renamed themselves
+    let target_is_dir = if is_link {
+        tokio::fs::metadata(&source_target)
+            .await
+            .map(|m| m.is_dir())
+            .unwrap_or(false)
+    } else {
+        is_dir
+    };
 
     // moving a script creates code at the destination
-    if is_instance_code_path(&root, &path_dest, is_dir)
+    if is_instance_code_path(&root, &path_dest, target_is_dir)
         || (!is_dir && is_script_path(&path_source))
-        || (is_dir && contains_script(path_source.clone()).await?)
+        || (is_link && !target_is_dir && is_script_path(&source_target))
+        || (target_is_dir && contains_script(source_target.clone()).await?)
     {
         require_code_write(&state, &requester)?;
     }
 
-    // the destination becomes the same kind of entry as the source
+    // the destination becomes the same kind of entry as the source. A link moves alone, so
+    // what is in the folder it points to stays where it is.
     if !can_write_protected(&requester)
-        && (is_protected(&path_source, is_dir)
-            || is_protected(&path_dest, is_dir)
+        && (is_entry_protected(&path_source, &source_target, &metadata).await
+            || is_protected(&path_dest, target_is_dir)
             || (is_dir && contains_protected_entry(path_source.clone()).await?))
     {
         return Err(protected_error(
@@ -704,15 +885,10 @@ async fn move_instance_file(
         ));
     }
 
-    // if the destination is a subdirectory of the source, we reject the request
-    if path_dest.starts_with(&path_source) {
-        return Err(Error {
-            kind: ErrorKind::BadRequest,
-            source: eyre!("Destination is a subdirectory of the source"),
-        });
-    }
-
-    let path_dest = resolve_path_conflict(path_dest.to_owned(), None);
+    let Some(path_dest) = move_destination(&path_source, &path_dest)? else {
+        // renamed to the name it has
+        return Ok(Json(()));
+    };
 
     tokio::fs::rename(&path_source, &path_dest)
         .await
@@ -752,24 +928,13 @@ async fn remove_instance_file(
     })?;
     let root = real_root(instance.path().await).await;
     drop(instance);
-    let path = instance_join(root, &relative_path)?;
-    let metadata = tokio::fs::symlink_metadata(&path)
-        .await
-        .context(format!("Failed to find {relative_path}"))?;
-    if metadata.is_dir() {
-        return Err(Error {
-            kind: ErrorKind::BadRequest,
-            source: eyre!("{relative_path} is a folder"),
-        });
-    }
-    // if target has a protected extension, or no extension, deny
-    if !can_write_protected(&requester) && is_protected(&path, false) {
-        return Err(protected_error("File extension is protected"));
-    }
-
-    tokio::fs::remove_file(&path)
-        .await
-        .context(format!("Failed to remove {relative_path}"))?;
+    let (path, _) = delete_entry(
+        &root,
+        &relative_path,
+        false,
+        can_write_protected(&requester),
+    )
+    .await?;
 
     let caused_by = requester.caused_by();
     state.event_broadcaster.send(new_fs_event(
@@ -797,26 +962,13 @@ async fn remove_instance_dir(
     })?;
     let root = real_root(instance.path().await).await;
     drop(instance);
-    let path = instance_join(&root, relative_path)?;
-    if path == root {
-        return Err(Error {
-            kind: ErrorKind::PermissionDenied,
-            source: eyre!("Cannot delete the server's root folder"),
-        });
-    }
-    // the folder itself, or anything in it, is protected
-    if !can_write_protected(&requester) && contains_protected_entry(path.clone()).await? {
-        return Err(protected_error("Directory contains protected files"));
-    }
-
-    tokio::fs::remove_dir_all(&path)
-        .await
-        .context("Failed to remove directory")?;
+    let (path, is_dir) =
+        delete_entry(&root, &relative_path, true, can_write_protected(&requester)).await?;
 
     let caused_by = requester.caused_by();
     state.event_broadcaster.send(new_fs_event(
         FSOperation::Delete,
-        FSTarget::Directory(path),
+        fs_target(path, is_dir),
         caused_by,
     ));
     Ok(Json(()))
@@ -1237,7 +1389,9 @@ async fn zip_instance_files(
     for path in &mut target_relative_paths {
         *path = instance_join(&root, &*path)?;
     }
-    destination_relative_path = instance_join(&root, &destination_relative_path)?;
+    // never the instance folder itself, which `zip_files_async` would replace with a free
+    // name next to it, outside the instance
+    (destination_relative_path, _) = instance_join_entry(&root, &destination_relative_path)?;
 
     if !can_write_protected(&requester) && is_protected(&destination_relative_path, false) {
         return Err(protected_error("Destination is protected"));
@@ -1499,6 +1653,156 @@ mod tests {
         let joined = scoped_join_win_safe(&root, "boot.txt").unwrap();
         assert_eq!(joined, root.join("prelaunch.ts"));
         assert!(is_instance_code_path(&root, &joined, false));
+    }
+
+    /// Moving or zipping to the instance folder itself is refused, since it would pick a
+    /// free name next to the instance folder, outside it (LS-12).
+    #[test]
+    fn the_instance_folder_itself_is_not_an_entry() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(temp.path()).unwrap();
+        std::fs::create_dir_all(root.join("world")).unwrap();
+        for path in ["", ".", "/", "./", "world/..", "world/../.", "../.."] {
+            assert!(instance_join_entry(&root, path).is_err(), "{path:?}");
+            // as it was: the whole path resolves to the root
+            assert_eq!(instance_join(&root, path).unwrap(), root, "{path:?}");
+        }
+        for (path, entry) in [
+            ("world", "world"),
+            ("world/.", "world"),
+            ("world/../level.dat", "level.dat"),
+            ("/world/level.dat", "world/level.dat"),
+            ("../../world", "world"),
+        ] {
+            let (joined, resolved) = instance_join_entry(&root, path).unwrap();
+            assert_eq!(joined, root.join(entry), "{path:?}");
+            assert_eq!(resolved, joined, "{path:?}");
+        }
+        // and the move picks no name outside it
+        assert!(move_destination(&root.join("world"), &root.join("world"))
+            .unwrap()
+            .is_none());
+    }
+
+    /// Deleting or renaming a symbolic link acts on the link, not on what it points to
+    /// (LS-14).
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn links_are_deleted_and_renamed_themselves() {
+        use std::os::unix::fs::symlink;
+        let temp = tempfile::tempdir().unwrap();
+        let base = std::fs::canonicalize(temp.path()).unwrap();
+        let root = base.join("server");
+        std::fs::create_dir_all(root.join("world")).unwrap();
+        std::fs::write(root.join("world/level.dat"), "level").unwrap();
+        std::fs::write(root.join("start.sh"), "").unwrap();
+        std::fs::create_dir_all(base.join("outside")).unwrap();
+        std::fs::write(base.join("outside/keep.txt"), "keep").unwrap();
+        symlink("world", root.join("backup_world")).unwrap();
+        symlink(base.join("outside"), root.join("out")).unwrap();
+        symlink("world/level.dat", root.join("level.txt")).unwrap();
+        symlink("start.sh", root.join("readme.txt")).unwrap();
+
+        let (entry, resolved) = instance_join_entry(&root, "backup_world").unwrap();
+        assert_eq!(entry, root.join("backup_world"));
+        assert_eq!(resolved, root.join("world"));
+
+        // a link to a folder, deleted as a folder: the folder stays
+        let (path, is_dir) = delete_entry(&root, "backup_world", true, false)
+            .await
+            .unwrap();
+        assert_eq!((path, is_dir), (root.join("backup_world"), false));
+        assert!(std::fs::symlink_metadata(root.join("backup_world")).is_err());
+        assert_eq!(
+            std::fs::read_to_string(root.join("world/level.dat")).unwrap(),
+            "level"
+        );
+
+        // a link that points out of the instance can be deleted, and only the link goes.
+        // What it points to isn't in the instance, so its name is checked as a file's, and
+        // a name without an extension is protected.
+        assert!(delete_entry(&root, "out", true, false).await.is_err());
+        delete_entry(&root, "out", true, true).await.unwrap();
+        assert!(std::fs::symlink_metadata(root.join("out")).is_err());
+        assert!(base.join("outside/keep.txt").exists());
+
+        // a link to a file, deleted as a file
+        delete_entry(&root, "level.txt", false, false)
+            .await
+            .unwrap();
+        assert!(root.join("world/level.dat").exists());
+
+        // a harmless name linked to a protected file is protected as that file
+        assert!(delete_entry(&root, "readme.txt", false, false)
+            .await
+            .is_err());
+        delete_entry(&root, "readme.txt", false, true)
+            .await
+            .unwrap();
+        assert!(root.join("start.sh").exists());
+
+        // a real folder is deleted, and still isn't deleted as a file
+        assert!(delete_entry(&root, "world", false, true).await.is_err());
+        delete_entry(&root, "world", true, true).await.unwrap();
+        assert!(!root.join("world").exists());
+
+        // a rename moves the link: its new name is free, so it is used as it is
+        symlink("start.sh", root.join("run")).unwrap();
+        let (source, _) = instance_join_entry(&root, "run").unwrap();
+        let (dest, _) = instance_join_entry(&root, "run2").unwrap();
+        assert_eq!(
+            move_destination(&source, &dest).unwrap(),
+            Some(root.join("run2"))
+        );
+        // a dangling link is taken too, rather than replaced
+        symlink("nowhere", root.join("dangling")).unwrap();
+        let (dest, _) = instance_join_entry(&root, "dangling").unwrap();
+        assert_eq!(
+            move_destination(&source, &dest).unwrap(),
+            Some(root.join("dangling_1"))
+        );
+    }
+
+    /// Renaming to the same name changes nothing, and a rename that only changes letter
+    /// case keeps the new name, also where the file system ignores case (LS-31).
+    #[test]
+    fn renames_to_the_same_name_or_other_case() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(temp.path()).unwrap();
+        std::fs::write(root.join("Server.properties"), "motd=hi").unwrap();
+        let source = root.join("Server.properties");
+        assert_eq!(move_destination(&source, &source).unwrap(), None);
+
+        let dest = root.join("server.properties");
+        assert_eq!(
+            move_destination(&source, &dest).unwrap(),
+            Some(dest.clone())
+        );
+        std::fs::rename(&source, &dest).unwrap();
+        let names: Vec<_> = std::fs::read_dir(&root)
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        assert_eq!(names, ["server.properties"]);
+
+        // where both spellings are separate files, the other one isn't replaced
+        std::fs::write(root.join("A.txt"), "upper").unwrap();
+        if !root.join("a.txt").exists() {
+            std::fs::write(root.join("a.txt"), "lower").unwrap();
+            assert_eq!(
+                move_destination(&root.join("A.txt"), &root.join("a.txt")).unwrap(),
+                Some(root.join("a_1.txt"))
+            );
+        }
+        // a different file whose name differs only in case is never "the source"
+        std::fs::write(root.join("b.txt"), "b").unwrap();
+        assert_eq!(
+            move_destination(&root.join("A.txt"), &root.join("b.txt")).unwrap(),
+            Some(root.join("b_1.txt"))
+        );
+        // a folder still can't move into itself
+        std::fs::create_dir(root.join("world")).unwrap();
+        assert!(move_destination(&root.join("world"), &root.join("world/sub")).is_err());
     }
 
     #[test]
