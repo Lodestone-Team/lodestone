@@ -515,6 +515,38 @@ fn states_numbered_far_ahead_are_refused() {
     assert!(ops::implausible_state(&state(now + 3 * 86_400, now + 3 * 86_400), now).is_some());
 }
 
+#[test]
+fn a_state_made_while_the_clock_was_days_fast_is_reissued_once_it_is_right() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = MemorySecretStore::new();
+    let mut friends = open(dir.path(), &store);
+    friends.set_name("Ana").unwrap();
+    // a change made while the clock read two days ahead, as the book saved it
+    let fast = now() + 2 * 86_400;
+    friends
+        .modify(|book| {
+            book.state_seq = fast;
+            book.state_issued = fast;
+            Ok(())
+        })
+        .unwrap();
+
+    // The clock is right again: the state is reissued, dated and numbered by it,
+    // so friends take it.
+    friends.freshen_state().unwrap();
+    let state = friends.my_state();
+    assert!(state.issued <= now());
+    assert_eq!(ops::implausible_state(&state, now()), None);
+
+    // and so are the changes after it, each numbered higher
+    let seq = state.seq;
+    friends.set_name("Ana B").unwrap();
+    friends.freshen_state().unwrap();
+    let state = friends.my_state();
+    assert!(state.seq > seq);
+    assert_eq!(ops::implausible_state(&state, now()), None);
+}
+
 /// The whole flow between two people, against the introduction service at
 /// CONNECT_TEST_SERVICE (`npm run dev` in services/connect). Skipped without it.
 #[test]

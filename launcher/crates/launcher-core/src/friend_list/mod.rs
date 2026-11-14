@@ -354,8 +354,21 @@ impl Book {
 
     /// Starts a new state: a higher number (never lower than the time, so a state made
     /// after the file was lost still counts as newer), issued when next published.
+    ///
+    /// A number further ahead of the clock than friends accept
+    /// ([`ops::MAX_SEQ_AHEAD_SECS`]) was made while the clock was more than a day
+    /// fast. Friends refused those states (dated more than a day ahead), so none holds
+    /// a number that high, and every later state would be refused too while the
+    /// number stays up there. Numbering from the clock again starts over above the
+    /// states friends did take, which were numbered by the time they were made.
     pub(crate) fn new_state(&mut self) {
-        self.state_seq = (self.state_seq + 1).max(now());
+        let now = now();
+        let next = self.state_seq.saturating_add(1);
+        self.state_seq = if next > now.saturating_add(ops::MAX_SEQ_AHEAD_SECS) {
+            now
+        } else {
+            next.max(now)
+        };
         self.state_issued = 0;
     }
 
