@@ -55,8 +55,26 @@ impl Backend for Fake {
             }
             "content.install" => Ok(json!({ "job": { "id": 1, "state": "running" } })),
             "play.logs" => Ok(
-                json!({ "instance": "a1", "state": "running", "rows": [{ "instance": "a1", "text": "old line" }] }),
+                json!({ "instance": "a1", "state": "running", "cursor": 12, "rows": [{ "instance": "a1", "text": "old line" }] }),
             ),
+            "events.subscribe" if p.get("instance").is_none() => {
+                // `events`: a notice every few milliseconds, until the client goes away
+                outbox.respond(id, Ok(json!({ "subscription": 5 })));
+                std::thread::spawn(move || {
+                    for n in 0..2000 {
+                        let event = Message::Event {
+                            subscription: 5,
+                            event: "notice".into(),
+                            data: json!({ "seq": n }),
+                        };
+                        if !outbox.send(&event) {
+                            return;
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(20));
+                    }
+                });
+                return;
+            }
             "events.subscribe" => {
                 outbox.respond(id, Ok(json!({ "subscription": 4 })));
                 for text in ["Loading", "Sound engine started", "after"] {
@@ -255,6 +273,55 @@ fn follow_stops_at_the_line_asked_for() {
         })
         .collect();
     assert_eq!(texts, ["old line", "Loading", "Sound engine started"]);
+    // LS-69: the subscription goes on from where play.logs left off, with the state it
+    // said, so no line is lost in between and a game that exited still ends it
+    let requests = launcher.fake.requests.lock().unwrap();
+    let subscribe = requests
+        .iter()
+        .find(|r| r.method == "events.subscribe")
+        .unwrap();
+    assert_eq!(subscribe.params["instance"], "a1");
+    assert_eq!(subscribe.params["since"], 12);
+    assert_eq!(subscribe.params["last_state"], "running");
+}
+
+/// LS-68: `events | head -n 1` never ended, because writes to the closed pipe failed
+/// without anything noticing.
+#[test]
+fn streams_end_when_stdout_closes() {
+    use std::io::BufRead as _;
+
+    let launcher = launcher();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_lodestone-launcher-cli"))
+        .arg("--socket")
+        .arg(&launcher.socket)
+        .arg("events")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    // read one line, like `head -n 1`, then close the pipe
+    let mut first = String::new();
+    std::io::BufReader::new(child.stdout.take().unwrap())
+        .read_line(&mut first)
+        .unwrap();
+    assert_eq!(
+        serde_json::from_str::<Value>(&first).unwrap()["event"],
+        "notice"
+    );
+    let started = std::time::Instant::now();
+    let status = loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            break status;
+        }
+        if started.elapsed() > std::time::Duration::from_secs(10) {
+            let _ = child.kill();
+            panic!("the stream kept going after its stdout closed");
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    };
+    assert_eq!(status.code(), Some(0));
 }
 
 #[test]

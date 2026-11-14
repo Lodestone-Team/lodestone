@@ -829,8 +829,9 @@ fn follow_run(
         if status.state == "running" {
             return Ok(json!({ "state": "running", "pid": status.pid }));
         }
+        // its own notice: another instance's can come first
         let notice = control.notices.borrow().find_since(seq, |n| {
-            matches!(n.kind, "notice" | "launch_failed" | "crashed")
+            n.is_about(&id) && matches!(n.kind, "notice" | "launch_failed" | "crashed")
         });
         match notice {
             Some(notice) if notice.is_failure() => Err(api_error(
