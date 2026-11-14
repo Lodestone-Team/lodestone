@@ -46,7 +46,7 @@ use crate::AppState;
 
 use super::live::{with_saving_off, InstanceLines, Limits, LiveServer};
 use super::pattern::Matcher;
-use super::restore::{self, Pin, RestoreDiff, SwapError};
+use super::restore::{self, Pin, RestoreDiff, RestorePlan, SwapError};
 use super::retention::{self, LastAttempt, RetentionItem};
 use super::store::{
     cancelled, check_backup_name, checked_level_name, err, free_space, new_backup_id,
@@ -54,7 +54,7 @@ use super::store::{
 };
 use super::types::{
     BackupInfo, BackupKind, BackupList, BackupPolicy, BackupUsage, FileEntry, JobKind, Manifest,
-    RestoreRequest, RestoreScope, RunningJob,
+    RestoreRequest, RestoreScope, RunningJob, SkipReason, MAX_NAME_LEN,
 };
 
 /// At most one manual backup per server in this time.
@@ -551,6 +551,39 @@ fn start_again_after(
     shutting_down: bool,
 ) -> bool {
     matches!(failure, RestoreFailure::Unchanged(_)) && was_running && start_after && !shutting_down
+}
+
+/// The name of the safety backup a restore of `manifest` takes first: "Before restoring
+/// “…”" with the backup's name, or its date when it has none. The name is shortened to fit
+/// [`MAX_NAME_LEN`], since the wrapper adds 19 characters to a name that may already be that
+/// long, and restoring a safety backup nests them; a name that didn't fit would only be
+/// refused after every file was copied.
+fn safety_backup_name(manifest: &Manifest) -> String {
+    let label = manifest.name.clone().unwrap_or_else(|| {
+        chrono::DateTime::from_timestamp(manifest.created, 0)
+            .map(|t| t.format("%Y-%m-%d %H:%M UTC").to_string())
+            .unwrap_or_else(|| manifest.id.clone())
+    });
+    let wrap = |label: &str| format!("Before restoring “{label}”");
+    let room = MAX_NAME_LEN - wrap("").chars().count();
+    if label.chars().count() <= room {
+        return wrap(&label);
+    }
+    let cut: String = label.chars().take(room - 1).collect();
+    wrap(&format!("{}…", cut.trim_end()))
+}
+
+/// The files a restore with `plan` replaces that its safety backup `safety` couldn't read,
+/// so has no copy of as they are now (at most an older one, carried over). The restore
+/// would delete them for good, so it is refused instead.
+fn not_in_safety_backup<'a>(plan: &RestorePlan, safety: &'a Manifest) -> Vec<&'a str> {
+    safety
+        .skipped
+        .iter()
+        .filter(|s| matches!(s.reason, SkipReason::Unreadable | SkipReason::KeptChanging))
+        .filter(|s| plan.owns(&s.path))
+        .map(|s| s.path.as_str())
+        .collect()
 }
 
 /// Server backups: the store, its locks, the running jobs and the scheduler's state.
@@ -1747,11 +1780,6 @@ impl BackupService {
 
         let safety_share = if request.safety_backup { 40.0 } else { 0.0 };
         let safety = if request.safety_backup {
-            let label = manifest.name.clone().unwrap_or_else(|| {
-                chrono::DateTime::from_timestamp(manifest.created, 0)
-                    .map(|t| t.format("%Y-%m-%d %H:%M UTC").to_string())
-                    .unwrap_or_else(|| manifest.id.clone())
-            });
             job.report(0.0, Some("Backing up the server as it is now"));
             let created = self
                 .create_locked(
@@ -1759,12 +1787,28 @@ impl BackupService {
                     guards,
                     instance,
                     BackupKind::BeforeRestore,
-                    Some(format!("Before restoring “{label}”")),
+                    Some(safety_backup_name(&manifest)),
                     // the check below compares against these files, under this exclude
                     Some(exclude.clone()),
                     job.phase(0.0, safety_share),
                 )
                 .await?;
+            if let Some(safety) = &created.manifest {
+                let missing = not_in_safety_backup(&plan, safety);
+                if let Some(first) = missing.first() {
+                    let others = match missing.len() - 1 {
+                        0 => String::new(),
+                        1 => " and 1 other file".to_string(),
+                        n => format!(" and {n} other files"),
+                    };
+                    return Err(conflict(format!(
+                        "Couldn't back up {first}{others}, which the restore would replace, \
+                         so it couldn't be undone. Check that Lodestone can read them, or \
+                         restore without the safety backup"
+                    ))
+                    .into());
+                }
+            }
             created.manifest
         } else {
             None
@@ -2184,6 +2228,38 @@ mod tests {
         store.save_manifest(&pinned).unwrap();
         let after_pinned = copy(&store, &root, "20260101-000500-ffff", BackupKind::Manual);
         assert_eq!(unchanged_id(&after_pinned), Some("20260101-000400-eeee"));
+    }
+
+    /// Restoring a safety backup nests the names; each one still fits, and a short name is
+    /// kept whole.
+    #[test]
+    fn safety_backup_names_fit() {
+        let (_dir, store, root) = setup();
+        write(&root, "world/level.dat", b"level");
+        let mut manifest = backup(
+            &store,
+            &root,
+            "20260101-000000-aaaa",
+            BackupKind::Manual,
+            &Matcher::new(&[]),
+        );
+        manifest.created = 1_767_225_600;
+        assert_eq!(
+            safety_backup_name(&manifest),
+            "Before restoring “2026-01-01 00:00 UTC”"
+        );
+        for _ in 0..10 {
+            let name = safety_backup_name(&manifest);
+            assert!(name.chars().count() <= MAX_NAME_LEN, "{name}");
+            assert_eq!(check_backup_name(&name), Ok(Some(name.clone())));
+            manifest.name = Some(name);
+        }
+        let name = manifest.name.unwrap();
+        assert!(
+            name.starts_with("Before restoring “Before restoring “"),
+            "{name}"
+        );
+        assert!(name.ends_with("…”"), "{name}");
     }
 
     fn service(dir: &Path) -> Arc<BackupService> {

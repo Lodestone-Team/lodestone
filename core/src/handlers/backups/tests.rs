@@ -1060,3 +1060,133 @@ async fn a_dropped_download_ends_its_progression() {
     }
     assert_eq!(ends, 1);
 }
+
+/// A backup named with the full 100 characters is restored with a safety backup: the safety
+/// backup's name ("Before restoring “…”") is shortened to fit instead of being refused
+/// after every file was copied, and so is the next one when that is restored in turn.
+#[tokio::test]
+async fn a_long_name_doesnt_stop_the_safety_backup() {
+    let core = core().await;
+    let owner = core.owner().await;
+    let long = "n".repeat(100);
+    let id = core.backup(&owner, Some(&long)).await;
+
+    core.write("world/level.dat", "level v2");
+    let (status, body) = core
+        .call(
+            Method::POST,
+            &format!("/{id}/restore"),
+            &owner,
+            Some(json!({ "scope": "world" })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    core.wait_idle(&owner).await;
+    assert_eq!(core.read("world/level.dat"), "level v1");
+    let list = core.list(&owner).await;
+    assert_eq!(list.backups.len(), 2, "with the safety backup");
+    // both may be from the same second, so the safety backup isn't necessarily listed first
+    let safety = list
+        .backups
+        .iter()
+        .find(|b| b.kind == crate::backups::types::BackupKind::BeforeRestore)
+        .unwrap();
+    let name = safety.name.clone().unwrap();
+    assert!(name.starts_with("Before restoring “nnn"), "{name}");
+    assert!(name.ends_with("…”"), "{name}");
+    assert_eq!(name.chars().count(), 100);
+
+    // undo it: the safety backup of the safety backup fits too
+    let (status, body) = core
+        .call(
+            Method::POST,
+            &format!("/{}/restore", safety.id),
+            &owner,
+            Some(json!({ "scope": "world" })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    core.wait_idle(&owner).await;
+    assert_eq!(core.read("world/level.dat"), "level v2");
+    assert_eq!(core.list(&owner).await.backups.len(), 3);
+}
+
+/// A file the restore would replace that the safety backup couldn't read would be deleted
+/// for good, with no copy to undo it from: the restore is refused and the file stays.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_file_the_safety_backup_couldnt_read_stops_the_restore() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let core = core().await;
+    let owner = core.owner().await;
+    let id = core.backup(&owner, None).await;
+    core.write("world/level.dat", "level v2");
+    core.write("world/data/secret.dat", "only copy");
+    let secret = core.root.join("world/data/secret.dat");
+    std::fs::set_permissions(&secret, std::fs::Permissions::from_mode(0o000)).unwrap();
+    if std::fs::File::open(&secret).is_ok() {
+        // running as root, which reads every file
+        std::fs::set_permissions(&secret, std::fs::Permissions::from_mode(0o644)).unwrap();
+        return;
+    }
+
+    let (status, body) = core
+        .call(
+            Method::POST,
+            &format!("/{id}/restore"),
+            &owner,
+            Some(json!({ "scope": "world" })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    core.wait_idle(&owner).await;
+    std::fs::set_permissions(&secret, std::fs::Permissions::from_mode(0o644)).unwrap();
+    assert_eq!(core.read("world/data/secret.dat"), "only copy");
+    assert_eq!(
+        core.read("world/level.dat"),
+        "level v2",
+        "nothing was restored"
+    );
+}
+
+/// Without a safety backup, a protected file the core can't read still counts in the
+/// permission check: the restore would delete it, so someone who may not change protected
+/// files is refused, as for one it can read.
+#[cfg(unix)]
+#[tokio::test]
+async fn an_unreadable_protected_file_still_needs_global_file_permission() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let core = core().await;
+    let owner = core.owner().await;
+    let writer = core
+        .member("writer", |p| {
+            p.can_read_instance_file.insert(core.uuid.clone());
+            p.can_write_instance_file.insert(core.uuid.clone());
+        })
+        .await;
+    let id = core.backup(&owner, None).await;
+    core.write("world/pack.jar", "jar");
+    let jar = core.root.join("world/pack.jar");
+    std::fs::set_permissions(&jar, std::fs::Permissions::from_mode(0o000)).unwrap();
+    if std::fs::File::open(&jar).is_ok() {
+        // running as root, which reads every file
+        std::fs::set_permissions(&jar, std::fs::Permissions::from_mode(0o644)).unwrap();
+        return;
+    }
+
+    let (status, body) = core
+        .call(
+            Method::POST,
+            &format!("/{id}/restore"),
+            &writer,
+            Some(json!({ "scope": "world", "safety_backup": false })),
+        )
+        .await;
+    core.wait_idle(&owner).await;
+    std::fs::set_permissions(&jar, std::fs::Permissions::from_mode(0o644)).unwrap();
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    assert!(body.to_string().contains("protected"), "{body}");
+    assert_eq!(core.read("world/pack.jar"), "jar");
+}
