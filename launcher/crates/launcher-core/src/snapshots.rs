@@ -732,11 +732,17 @@ impl Store {
             .flatten()
         {
             for entry in fs::read_dir(dir.path()).into_iter().flatten().flatten() {
-                match read_manifest(&entry.path()) {
-                    Ok(snapshot) => used.extend(snapshot.files.into_iter().map(|f| f.sha256)),
-                    // An unreadable manifest: keep everything rather than guess.
-                    Err(_) if entry.path().extension().is_some_and(|x| x == "json") => return 0,
-                    Err(_) => {}
+                let path = entry.path();
+                if !path.extension().is_some_and(|x| x == "json") {
+                    continue;
+                }
+                // Only the objects are read, not the whole checked manifest: one that
+                // doesn't pass the checks (a path an older launcher took, a newer
+                // schema) still names what it uses, and keeps it.
+                match manifest_objects(&path) {
+                    Some(objects) => used.extend(objects),
+                    // Not a manifest at all: keep everything rather than guess.
+                    None => return 0,
                 }
             }
         }
@@ -1146,6 +1152,23 @@ pub(crate) fn free_space(_: &Path) -> Option<u64> {
     None
 }
 
+/// The objects the manifest at `path` uses, read without checking the rest; `None` when
+/// it can't be read as one.
+fn manifest_objects(path: &Path) -> Option<Vec<String>> {
+    #[derive(Deserialize)]
+    struct Objects {
+        #[serde(default)]
+        files: Vec<Object>,
+    }
+    #[derive(Deserialize)]
+    struct Object {
+        sha256: String,
+    }
+    let text = fs::read_to_string(path).ok()?;
+    let objects: Objects = serde_json::from_str(&text).ok()?;
+    Some(objects.files.into_iter().map(|f| f.sha256).collect())
+}
+
 fn read_manifest(path: &Path) -> Result<Snapshot, SnapshotError> {
     let text = fs::read_to_string(path).map_err(io_error(path))?;
     parse_manifest(&text)
@@ -1269,6 +1292,12 @@ fn walk(instance_dir: &Path) -> Result<Vec<(PathBuf, String, u64)>, SnapshotErro
                 continue;
             };
             if file_type.is_symlink() {
+                continue;
+            }
+            // A name a manifest can't hold (`:` or `\`, both fine in a Unix file name)
+            // is left out: reading the snapshot back refuses such paths, so taking it
+            // would make a snapshot that can't be listed, used or deleted.
+            if checked_relative(&relative).is_err() {
                 continue;
             }
             // Skip whole excluded folders without walking them.
@@ -1757,6 +1786,90 @@ mod tests {
             total_bytes: 0,
             new_bytes: 0,
             automatic: false,
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn leaves_out_names_a_manifest_cant_hold() {
+        let temp = tempfile::tempdir().unwrap();
+        let store = Store::at(temp.path().join("snapshots"));
+        let (instance, dir) = instance_at(temp.path(), "a");
+        // Fine on macOS and Linux, refused when a manifest is read.
+        write(&dir, "minecraft/config/foo:bar.json", b"{}");
+        write(&dir, "minecraft/config/back\\slash.json", b"{}");
+        write(&dir, "minecraft/odd:folder/a.txt", b"a");
+        let snapshot = store
+            .create(&instance, &dir, "s", None, &Selection::all(), false, &none)
+            .unwrap();
+        assert!(
+            !snapshot
+                .files
+                .iter()
+                .any(|f| f.path.contains(':') || f.path.contains('\\'))
+        );
+        assert!(
+            snapshot
+                .files
+                .iter()
+                .any(|f| f.path == "minecraft/config/sodium.json")
+        );
+        // It reads back: listed, and found by id.
+        assert_eq!(store.list("a").len(), 1);
+        assert!(store.get("a", &snapshot.id).is_ok());
+    }
+
+    #[test]
+    fn garbage_collection_keeps_what_a_manifest_that_fails_its_checks_uses() {
+        let temp = tempfile::tempdir().unwrap();
+        let store = Store::at(temp.path().join("snapshots"));
+        let (instance, dir) = instance_at(temp.path(), "a");
+        let kept = store
+            .create(
+                &instance,
+                &dir,
+                "old",
+                None,
+                &Selection::all(),
+                false,
+                &none,
+            )
+            .unwrap();
+        // As an older launcher wrote it: a path reading back refuses.
+        let mut old = kept.clone();
+        old.files[0].path = "minecraft/config/foo:bar.json".into();
+        old.files[0].category = Category::Configs;
+        fs::write(
+            store.manifest_path("a", &kept.id),
+            serde_json::to_vec(&old).unwrap(),
+        )
+        .unwrap();
+        assert!(store.list("a").is_empty());
+        // Another snapshot, with a file only it has, then deleted: that file goes, and
+        // what the unreadable one uses stays.
+        write(&dir, "minecraft/mods/only.jar", b"only in the deleted one");
+        let gone = store
+            .create(
+                &instance,
+                &dir,
+                "gone",
+                None,
+                &Selection::all(),
+                false,
+                &none,
+            )
+            .unwrap();
+        let only = gone
+            .files
+            .iter()
+            .find(|f| f.path == "minecraft/mods/only.jar")
+            .unwrap()
+            .sha256
+            .clone();
+        assert!(store.delete("a", &gone.id).unwrap() > 0);
+        assert!(!store.object(&only).exists());
+        for file in &kept.files {
+            assert!(store.object(&file.sha256).exists());
         }
     }
 
