@@ -92,6 +92,8 @@ crate::i18n::messages! {
         FilesCreateFolder = "Create folder",
         FilesRenameFile = "Rename file",
         FilesNameRequired = "Enter a name.",
+        /// The New file or New folder dialog, when the folder already has something by that name.
+        FilesNameTaken = "A file or folder named {name} already exists here.",
         FilesDeletedFile = "Deleted file: {name}",
         FilesDeletedFolder = "Deleted folder: {path}",
         FilesMoveFailed = "Failed to move {name}: {error}",
