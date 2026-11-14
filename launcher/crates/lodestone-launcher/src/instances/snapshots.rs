@@ -412,11 +412,18 @@ impl SnapshotDialog {
             .is_some_and(|id| self.instances.read(cx).is_active(id))
     }
 
-    /// Runs `work` in the background with progress, then `done` on the main thread.
+    /// Runs `work` in the background with progress. Then, on the main thread, `after`
+    /// brings the instances up to date with what it did (settings put back, the
+    /// snapshot list, a new instance), and `done` updates the dialog.
+    ///
+    /// `after` runs even when the dialog has gone: the work can't be stopped once it has
+    /// started, and another dialog can replace this one meanwhile. Without it a revert
+    /// would put the files back but not the settings that go with them.
     fn run<T: Send + 'static>(
         &mut self,
         label: M,
         work: impl FnOnce(&(dyn Fn(u64, u64) + Sync)) -> Result<T, String> + Send + 'static,
+        after: impl FnOnce(&mut Instances, &T, &mut Context<Instances>) -> Result<(), String> + 'static,
         done: impl FnOnce(&mut Self, T, &mut Context<Self>) + 'static,
         cx: &mut Context<Self>,
     ) {
@@ -425,8 +432,14 @@ impl SnapshotDialog {
         self.progress.1.store(0, Ordering::Relaxed);
         let progress = self.progress_fn();
         let job = cx.background_spawn(async move { work(&progress) });
-        self._work = Some(cx.spawn(async move |this, cx| {
-            let result = job.await;
+        let instances = self.instances.clone();
+        cx.spawn(async move |this, cx| {
+            let result = match job.await {
+                Ok(value) => instances
+                    .update(cx, |instances, cx| after(instances, &value, cx))
+                    .map(|()| value),
+                Err(err) => Err(err),
+            };
             this.update(cx, |this, cx| {
                 match result {
                     Ok(value) => {
@@ -438,16 +451,17 @@ impl SnapshotDialog {
                 cx.notify();
             })
             .ok();
-        }));
+        })
+        .detach();
         self.tick(cx);
         cx.notify();
     }
 
-    fn refresh_list(&self, cx: &mut Context<Self>) {
-        if let Some(id) = self.instance_id.clone() {
-            self.instances
-                .update(cx, |instances, cx| instances.load_snapshots(&id, cx));
-        }
+    /// Whether closing now would cut work short. Taking, putting back, deleting or
+    /// importing a snapshot can't be stopped, and the dialog shows how it ends; reading
+    /// a file to import, or writing one to share, can be left.
+    fn busy(&self) -> bool {
+        busy(&self.state)
     }
 
     fn take(&mut self, cx: &mut Context<Self>) {
@@ -483,10 +497,11 @@ impl SnapshotDialog {
                     .create(&instance, &dir, &name, None, &selection, false, progress)
                     .map_err(|err| err.to_string())
             },
-            |this, _, cx| {
-                this.refresh_list(cx);
-                cx.emit(SnapshotDismissed);
+            move |instances, _, cx| {
+                instances.load_snapshots(&id, cx);
+                Ok(())
             },
+            |_, _, cx| cx.emit(SnapshotDismissed),
             cx,
         );
     }
@@ -522,20 +537,18 @@ impl SnapshotDialog {
                     .map(|(settings, _)| settings)
                     .map_err(|err| err.to_string())
             },
-            |this, settings, cx| {
-                if let Some(settings) = settings
-                    && let Err(err) = this.instances.update(cx, |instances, cx| {
-                        instances.apply_reverted_settings(settings, cx)
-                    })
-                {
-                    this.state = State::Failed(err.into());
-                    return;
+            move |instances, settings, cx| {
+                // The automatic snapshot is listed even if saving the settings fails.
+                instances.load_snapshots(&id, cx);
+                match settings.clone() {
+                    Some(settings) => instances.apply_reverted_settings(settings, cx),
+                    None => {
+                        instances.reload(cx);
+                        Ok(())
+                    }
                 }
-                this.instances
-                    .update(cx, |instances, cx| instances.reload(cx));
-                this.refresh_list(cx);
-                cx.emit(SnapshotDismissed);
             },
+            |_, _, cx| cx.emit(SnapshotDismissed),
             cx,
         );
     }
@@ -573,6 +586,7 @@ impl SnapshotDialog {
                     .map_err(|err| err.to_string())?;
                 Ok(file)
             },
+            |_, _, _| Ok(()),
             |this, file, _| this.state = State::Shared(file),
             cx,
         );
@@ -612,17 +626,19 @@ impl SnapshotDialog {
             "snapshot.delete",
             || serde_json::json!({ "snapshot": snapshot.id }),
         );
+        let instance = id.clone();
         self.run(
             M::InstanceSnapshots,
             move |_| {
                 store
-                    .delete(&id, &snapshot.id)
+                    .delete(&instance, &snapshot.id)
                     .map_err(|err| err.to_string())
             },
-            |this, _, cx| {
-                this.refresh_list(cx);
-                cx.emit(SnapshotDismissed);
+            move |instances, _, cx| {
+                instances.load_snapshots(&id, cx);
+                Ok(())
             },
+            |_, _, cx| cx.emit(SnapshotDismissed),
             cx,
         );
     }
@@ -647,13 +663,12 @@ impl SnapshotDialog {
                     .import_as_instance(&instance_store, &path, &selection, progress)
                     .map_err(|err| err.to_string())
             },
-            |this, instance, cx| {
-                this.instances.update(cx, |instances, cx| {
-                    instances.reload(cx);
-                    instances.select(&instance.id, cx);
-                });
-                cx.emit(SnapshotDismissed);
+            |instances, instance, cx| {
+                instances.reload(cx);
+                instances.select(&instance.id, cx);
+                Ok(())
             },
+            |_, _, cx| cx.emit(SnapshotDismissed),
             cx,
         );
     }
@@ -851,6 +866,15 @@ impl SnapshotDialog {
     }
 }
 
+/// Whether the dialog, in `state`, is doing work that closing would cut short (see
+/// [`SnapshotDialog::busy`]).
+fn busy(state: &State) -> bool {
+    match state {
+        State::Working(label) => !matches!(label, M::ReadingSnapshot | M::PreparingFile),
+        _ => false,
+    }
+}
+
 /// A warning above the parts to import, with a smaller line under it.
 fn warning(message: String, detail: Option<String>) -> impl IntoElement {
     div()
@@ -1011,11 +1035,16 @@ impl Render for SnapshotDialog {
         let ready = !working
             && (self.parts.is_some() || self.mode == Mode::Delete)
             && !matches!(self.state, State::Shared(_));
+        // While work that can't be stopped runs, there is no way to close: no ×, Escape or
+        // click outside, and Cancel is off.
+        let busy = self.busy();
         Dialog::new("snapshot-dialog", self.title(), self.focus.clone())
             .width(px(560.))
-            .on_close({
-                let entity = entity.clone();
-                move |_, cx| entity.update(cx, |_, cx| cx.emit(SnapshotDismissed))
+            .when(!busy, |dialog| {
+                dialog.on_close({
+                    let entity = entity.clone();
+                    move |_, cx| entity.update(cx, |_, cx| cx.emit(SnapshotDismissed))
+                })
             })
             .child(body)
             .footer(
@@ -1028,7 +1057,12 @@ impl Render for SnapshotDialog {
                     }),
                 )
                 .variant(ButtonVariant::Ghost)
-                .on_click(cx.listener(|_, _, _, cx| cx.emit(SnapshotDismissed))),
+                .disabled(busy)
+                .on_click(cx.listener(|this, _, _, cx| {
+                    if !this.busy() {
+                        cx.emit(SnapshotDismissed)
+                    }
+                })),
             )
             .when_some(primary, |dialog, (label, variant)| {
                 dialog.footer(
@@ -1044,5 +1078,28 @@ impl Render for SnapshotDialog {
                         })),
                 )
             })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cant_be_closed_while_changing_files() {
+        for label in [
+            M::TakingSnapshot,
+            M::RevertingSnapshot,
+            M::ImportingSnapshot,
+            // Deleting.
+            M::InstanceSnapshots,
+        ] {
+            assert!(busy(&State::Working(label)), "{label:?}");
+        }
+        // Only reading, or writing a file to share: closing leaves nothing half done.
+        assert!(!busy(&State::Working(M::ReadingSnapshot)));
+        assert!(!busy(&State::Working(M::PreparingFile)));
+        assert!(!busy(&State::Ready));
+        assert!(!busy(&State::Failed("".into())));
     }
 }
