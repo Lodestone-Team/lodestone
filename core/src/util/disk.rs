@@ -87,4 +87,3 @@ pub fn require_free_space(path: &Path, bytes: u64, what: &str) -> Result<(), Err
         _ => Ok(()),
     }
 }
-

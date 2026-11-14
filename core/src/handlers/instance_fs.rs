@@ -1661,8 +1661,9 @@ async fn upload_instance_file(
 }
 
 /// The start of the temporary name an upload writes a file under until the whole upload
-/// arrived. A `.lodestone` name: content images and backups' content scope skip it, and
-/// users without `WriteGlobalFile` can't touch it.
+/// arrived. Images never record such a file (`lodestone_image::paths::always_excluded`), so
+/// a backup taken meanwhile doesn't keep half an upload, and as a `.lodestone` name users
+/// without `WriteGlobalFile` can't touch it.
 const UPLOAD_TEMP_PREFIX: &str = ".lodestone-upload-";
 
 /// Moves an uploaded file from its temporary name to `wanted`, or a free name next to it
@@ -1934,7 +1935,10 @@ async fn zip_instance_files(
         &uuid,
         &root,
         &[(&destination_relative_path, false)],
-        format!("Zipped to {}", label_path(&root, &destination_relative_path)),
+        format!(
+            "Zipped to {}",
+            label_path(&root, &destination_relative_path)
+        ),
     )
     .await;
     let event_broadcaster = state.event_broadcaster.clone();

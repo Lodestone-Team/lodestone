@@ -65,23 +65,22 @@ use crate::AppState;
 use super::live::{with_saving_off, InstanceLines, Limits, LiveServer};
 use super::restore::{self, Pin, RestoreDiff, RestorePlan, Source, SwapError};
 use super::retention::{self, LastAttempt, RetentionItem};
-use super::store::{
-    cancelled, check_backup_name, err, new_backup_id, valid_backup_id, Store,
-};
-use crate::util::disk::{free_space, require_free_space};
+use super::store::{cancelled, check_backup_name, err, new_backup_id, valid_backup_id, Store};
 use super::take::{self, needs_full_scan, Meta, Prepared, Request};
 use super::types::{
     BackupInfo, BackupKind, BackupList, BackupPolicy, BackupRecord, BackupUsage, JobKind, Records,
     RestoreRequest, RestoreScope, RunningJob, MAX_NAME_LEN,
 };
+use crate::util::disk::{free_space, require_free_space};
 
 /// At most one manual backup per server in this time.
 const MANUAL_BACKUP_INTERVAL: Duration = Duration::from_secs(60);
 /// How long a restore waits for the Mods tab (or a modpack update) to let go of the server.
 const MODS_LOCK_WAIT: Duration = Duration::from_secs(5);
-/// How long a backup waits to record the content changes queued before it, so it links to
-/// the content the server has. Past this (a long modpack update holds the content), it
-/// links to the content image recorded before.
+/// How long a backup waits for the content gate to record the content changes queued before
+/// it, so it links to the content the server has. Past this (a long modpack update holds the
+/// content), it links to the content image recorded before. A record that got the gate runs
+/// to its end, however long it takes.
 const FLUSH_WAIT: Duration = Duration::from_secs(10);
 /// Progress updates are sent at most this often, unless they move a whole percent.
 const PROGRESS_INTERVAL: Duration = Duration::from_millis(500);
@@ -509,7 +508,10 @@ fn not_in_safety_backup<'a>(plan: &RestorePlan, safety: &'a Image) -> Vec<&'a st
 
 /// The backup's copy of the server's settings (`.lodestone_minecraft_config.json`), as
 /// JSON: `None` when the backup has none. Blocking.
-fn backup_settings(store: &ImageStore, backup: &Backup) -> Result<Option<serde_json::Value>, Error> {
+fn backup_settings(
+    store: &ImageStore,
+    backup: &Backup,
+) -> Result<Option<serde_json::Value>, Error> {
     /// A settings file is a few KiB; anything this large is damaged.
     const MAX_CONFIG_BYTES: u64 = 4 << 20;
     let files = backup.files_on_disk()?;
@@ -1196,7 +1198,8 @@ impl BackupService {
     /// changed outside Lodestone; see `MinecraftInstance::check_content_before_start`), and
     /// its first content image when it has none. A running server's own writes never make a
     /// content image, so for one only what is queued is recorded. Waits at most about
-    /// [`FLUSH_WAIT`]; a failure is only logged, since the backup has every file anyway.
+    /// [`FLUSH_WAIT`] for an operation in progress; a failure is only logged, since the backup
+    /// has every file anyway.
     async fn record_content(&self, instance: &MinecraftInstance, policy_exclude: &[String]) {
         let ctx = InstanceContext::of(instance, policy_exclude.to_vec()).await;
         let uuid = ctx.uuid.clone();

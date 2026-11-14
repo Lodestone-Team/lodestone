@@ -322,10 +322,7 @@ async fn record_created(state: &AppState, uuid: &InstanceUuid) {
     };
     if let Err(e) = state
         .images
-        .record_now(
-            ctx,
-            format!("Created {name}"),
-        )
+        .record_now(ctx, format!("Created {name}"))
         .await
     {
         tracing::warn!(

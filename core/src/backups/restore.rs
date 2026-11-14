@@ -61,9 +61,7 @@ use crate::images::scope::{is_content, is_server_settings_file};
 use crate::images::InstanceContext;
 use crate::types::{DotLodestoneConfig, InstanceUuid};
 
-use super::store::{
-    cancelled, err, join_rel, rename_with_retry, valid_rel_path, Cancel, Store,
-};
+use super::store::{cancelled, err, join_rel, rename_with_retry, valid_rel_path, Cancel, Store};
 use super::types::RestoreScope;
 use crate::util::random_suffix;
 
@@ -407,7 +405,8 @@ const SOFTWARE_SETTINGS: [&str; 4] = ["version", "flavour", "jre_major_version",
 /// (name, port, memory, command line). Blocking.
 pub fn adopt_software(root: &Path, backup: &serde_json::Value) -> Result<(), Error> {
     let path = root.join(CONFIG_FILE);
-    let bytes = fs::read(&path).map_err(|e| io_error(e, format!("Failed to read {CONFIG_FILE}")))?;
+    let bytes =
+        fs::read(&path).map_err(|e| io_error(e, format!("Failed to read {CONFIG_FILE}")))?;
     let mut settings: serde_json::Value =
         serde_json::from_slice(&bytes).context("The server's settings file is damaged")?;
     let (Some(settings_map), Some(backup)) = (settings.as_object_mut(), backup.as_object()) else {

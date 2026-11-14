@@ -229,7 +229,9 @@ impl ImageService {
     ) -> Operation {
         let label = label.into();
         let gate = if Self::accepts(uuid) {
-            Some(Gate::Alone(self.slot(uuid).gate.clone().write_owned().await))
+            Some(Gate::Alone(
+                self.slot(uuid).gate.clone().write_owned().await,
+            ))
         } else {
             None
         };
@@ -693,7 +695,13 @@ async fn matching_base_files(
                     (enabled, file)
                 }
             };
-            Some((entry.path.to_string(), disk, key, entry.clone(), file.clone()))
+            Some((
+                entry.path.to_string(),
+                disk,
+                key,
+                entry.clone(),
+                file.clone(),
+            ))
         })
         .collect();
     let root = ctx.root.clone();
@@ -760,7 +768,10 @@ fn learn_sha256(
     }
     if changed {
         if let Err(e) = super::base::save_base(store_root, uuid, &info) {
-            warn!("Failed to note the pack files' hashes of {uuid}: {}", e.source);
+            warn!(
+                "Failed to note the pack files' hashes of {uuid}: {}",
+                e.source
+            );
         }
     }
 }

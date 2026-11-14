@@ -1167,7 +1167,13 @@ impl Store {
         };
         Ok(entries
             .flatten()
-            .filter_map(|entry| entry.file_name().to_str().and_then(manifest_id).map(str::to_string))
+            .filter_map(|entry| {
+                entry
+                    .file_name()
+                    .to_str()
+                    .and_then(manifest_id)
+                    .map(str::to_string)
+            })
             .collect())
     }
 

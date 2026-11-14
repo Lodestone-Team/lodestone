@@ -489,9 +489,7 @@ async fn retention_and_collections_keep_what_backups_link_to() {
     let change = |n: usize| {
         let (images, core) = (images.clone(), &core);
         async move {
-            let op = images
-                .begin(&core.uuid, format!("Change {n}"))
-                .await;
+            let op = images.begin(&core.uuid, format!("Change {n}")).await;
             write(&core.root, "config/counter.toml", counter(n).as_bytes());
             let ctx = crate::images::context_of(&core.state, &core.uuid)
                 .await

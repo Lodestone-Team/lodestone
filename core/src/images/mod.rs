@@ -350,10 +350,7 @@ pub(crate) fn write_small_atomic(path: &Path, bytes: &[u8]) -> Result<(), Error>
         .ok_or_else(|| color_eyre::eyre::eyre!("{} has no folder", path.display()))?;
     std::fs::create_dir_all(dir)
         .map_err(|e| color_eyre::eyre::eyre!("Failed to create {}: {e}", dir.display()))?;
-    let temp = dir.join(format!(
-        ".incoming-{}.tmp",
-        crate::util::random_suffix()
-    ));
+    let temp = dir.join(format!(".incoming-{}.tmp", crate::util::random_suffix()));
     let written = (|| -> std::io::Result<()> {
         let mut file = std::fs::File::options()
             .write(true)

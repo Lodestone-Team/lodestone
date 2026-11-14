@@ -705,19 +705,19 @@ fn files_the_layout_cant_name_are_withheld_and_bad_folders_not_walked() {
         paths(&snapshot),
         vec!["saves/world/level.dat", "server.properties"]
     );
-    let withheld = withheld(&snapshot);
-    for path in ["aux", "notes?.txt", "options.txt", "resourcepacks", "saves"] {
-        assert!(withheld.contains(&(path, "bad_name")), "{path}: {withheld:?}");
-    }
-    assert!(
-        withheld
-            .iter()
-            .any(|(path, reason)| path.contains("DIM-1") && *reason == "bad_name"),
-        "{withheld:?}"
+    // A file the layout can't place back is withheld on its own; a folder whose name no
+    // canonical path can have is one record, and nothing inside it is walked.
+    assert_eq!(
+        withheld(&snapshot),
+        vec![
+            ("aux", "bad_name"),
+            ("notes?.txt", "bad_name"),
+            ("options.txt", "bad_name"),
+            ("resourcepacks/pack.zip", "bad_name"),
+            ("saves/oops.txt", "bad_name"),
+            ("world/DIM-1/region/r.0.0.mca", "bad_name"),
+        ]
     );
-    // A folder withheld for its name is one record: nothing inside is walked.
-    assert!(!withheld.iter().any(|(path, _)| path.starts_with("aux/")));
-    assert!(!withheld.iter().any(|(path, _)| path.starts_with("saves/")));
     // The image stays valid.
     let mut image = Image::new(Kind::Data, fabric());
     snapshot.fill(&mut image);

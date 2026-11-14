@@ -420,9 +420,9 @@ const EXCLUDED_TOP_FOLDERS: [&str; 9] = [
 ///   `logs`, `crash-reports`, `cache`, `.cache`, `natives`, `.fabric`, `.mixin.out`,
 ///   `debug`), which only matter to the running game;
 /// - `session.lock` at any depth, a running game's lock on a world;
-/// - Lodestone's working folders: `.lodestone-restore*` at any depth, the Launcher's
-///   `.lodestone-snapshot` staging, and the modpack store's `objects`, `staging` and
-///   `snapshot` folders in `.lodestone_modpack/`;
+/// - Lodestone's working files: `.lodestone-restore*` and `.lodestone-upload-*` (the core's
+///   uploads in flight) at any depth, the Launcher's `.lodestone-snapshot` staging, and the
+///   modpack updater's `staging` and `snapshot` folders in `.lodestone_modpack/`;
 /// - `.lodestone_config`, a server's identity.
 pub fn always_excluded(path: &CanonicalPath) -> bool {
     let parts: Vec<&str> = path.components().collect();
@@ -433,10 +433,9 @@ pub fn always_excluded(path: &CanonicalPath) -> bool {
 /// that is never recorded isn't reported for a bad name either.
 /// Names match whatever their letter case (see the module).
 pub(crate) fn excluded_parts(parts: &[&str]) -> bool {
-    if parts
-        .iter()
-        .any(|part| starts_with_name(part, ".lodestone-restore"))
-    {
+    if parts.iter().any(|part| {
+        starts_with_name(part, ".lodestone-restore") || starts_with_name(part, ".lodestone-upload-")
+    }) {
         return true;
     }
     if parts
@@ -449,7 +448,7 @@ pub(crate) fn excluded_parts(parts: &[&str]) -> bool {
         [only] => same_name(only, ".lodestone_config"),
         [top, _, ..] if in_names(top, &EXCLUDED_TOP_FOLDERS) => true,
         [top, folder, _, ..] if same_name(top, ".lodestone_modpack") => {
-            in_names(folder, &["objects", "staging", "snapshot"])
+            in_names(folder, &["staging", "snapshot"])
         }
         _ => false,
     }
@@ -879,7 +878,8 @@ mod tests {
             ("saves/w/.lodestone-restore-old-1/x", true),
             (".lodestone_config", true),
             ("world/.lodestone_config", false),
-            (".lodestone_modpack/objects/ab/cd", true),
+            (".lodestone_modpack/objects/ab/cd", false),
+            ("config/.lodestone-upload-0123456789abcdef.tmp", true),
             (".lodestone_modpack/staging/x", true),
             (".lodestone_modpack/snapshot/x", true),
             (".lodestone_modpack/record.json", false),
@@ -894,7 +894,8 @@ mod tests {
             ("SESSION.LOCK", true),
             (".LODESTONE-RESTORE-x/y", true),
             ("mods/.Lodestone-Restore-old/a.jar", true),
-            (".LODESTONE_MODPACK/Objects/ab/cd", true),
+            (".LODESTONE_MODPACK/Staging/ab/cd", true),
+            ("config/.LODESTONE-UPLOAD-x.tmp", true),
             (".lodeſtone_config", true),
             (".LODESTONE_MODPACK/record.json", false),
         ];

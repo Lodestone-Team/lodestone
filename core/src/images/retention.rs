@@ -57,7 +57,11 @@ pub(crate) struct Listing {
 }
 
 /// Lists the instance's manifests (see the module). Blocking.
-pub(crate) fn list(store: &Store, links: &LinkCache, uuid: &InstanceUuid) -> Result<Listing, Error> {
+pub(crate) fn list(
+    store: &Store,
+    links: &LinkCache,
+    uuid: &InstanceUuid,
+) -> Result<Listing, Error> {
     let ids = store
         .manifest_ids(uuid.as_ref())
         .map_err(|e| color_eyre::eyre::eyre!("Failed to list the images: {e}"))?;
@@ -203,8 +207,7 @@ pub(crate) fn newest_content_first<'a>(
     images: &'a [ManifestHeader],
     current: Option<&str>,
 ) -> Vec<&'a ManifestHeader> {
-    let content: Vec<&ManifestHeader> =
-        images.iter().filter(|i| i.kind == Kind::Content).collect();
+    let content: Vec<&ManifestHeader> = images.iter().filter(|i| i.kind == Kind::Content).collect();
     let by_id: HashMap<&str, &ManifestHeader> =
         content.iter().map(|i| (i.id.as_str(), *i)).collect();
     // How many ancestors each has in the listing. A walk stops at an id it has seen:

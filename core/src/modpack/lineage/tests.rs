@@ -261,7 +261,10 @@ fn a_restore_puts_back_mods_and_configs_only() {
     );
     assert_eq!(plan.unrecorded, ["mods/gone.jar"]);
     // each file it replaces must still be as the current image has it when it is placed
-    assert_eq!(plan.target.replaced.keys().collect::<Vec<_>>(), ["mods/a.jar"]);
+    assert_eq!(
+        plan.target.replaced.keys().collect::<Vec<_>>(),
+        ["mods/a.jar"]
+    );
     check_unchanged(&p.root, &plan.target.replaced).unwrap();
     write(&p.root, "mods/a.jar", b"edited meanwhile");
     let error = check_unchanged(&p.root, &plan.target.replaced).unwrap_err();
@@ -1118,6 +1121,54 @@ async fn a_restore_and_a_content_change_at_once() {
     assert!(history.entries.iter().all(|e| e.missing == 0));
 }
 
+/// A file the record before a restore couldn't read (so no image has it) is never replaced:
+/// the restore is refused, and the file stays as the user left it. The record before a
+/// restore failing refuses it too.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_restore_never_replaces_a_file_no_image_has() {
+    use std::os::unix::fs::PermissionsExt;
+    let core = Core::new().await;
+    let first = core
+        .content_change("config/probe.toml", b"A", "Set A")
+        .await;
+    core.content_change("config/probe.toml", b"B", "Set B")
+        .await;
+    let probe = core.root.join("config/probe.toml");
+    write(&core.root, "config/probe.toml", b"USER-EDIT");
+    std::fs::set_permissions(&probe, std::fs::Permissions::from_mode(0o000)).unwrap();
+    if std::fs::read(&probe).is_ok() {
+        // running as root: the file can't be made unreadable
+        std::fs::set_permissions(&probe, std::fs::Permissions::from_mode(0o644)).unwrap();
+        return;
+    }
+    let refused = core.restore(&first).await;
+    std::fs::set_permissions(&probe, std::fs::Permissions::from_mode(0o644)).unwrap();
+    let error = refused.unwrap_err();
+    assert!(
+        error.source.to_string().contains("no copy"),
+        "{}",
+        error.source
+    );
+    assert_eq!(std::fs::read(&probe).unwrap(), b"USER-EDIT");
+    // readable again, the edit is recorded first and the restore goes ahead
+    core.restore(&first).await.unwrap();
+    assert_eq!(std::fs::read(&probe).unwrap(), b"A");
+    let history = core.history().await;
+    let edited = history
+        .entries
+        .iter()
+        .find(|e| e.label == "Changed outside Lodestone")
+        .expect("the edit was recorded before the restore");
+    let edit = core.image(&edited.id);
+    let entry = entry(&edit, "config/probe.toml");
+    assert!(core
+        .state
+        .images()
+        .store()
+        .object_complete(&entry.sha256, entry.size));
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn a_new_server_records_its_first_image() {
     let dir = tempfile::tempdir().unwrap();
@@ -1172,7 +1223,11 @@ async fn a_new_server_records_its_first_image() {
         Some(entry(&manifest, "mods/new.jar").sha256.as_str())
     );
     // A pack mod disabled in the Mods tab is still the pack's file, with what the pack says.
-    std::fs::rename(root.join("mods/new.jar"), root.join("mods/new.jar.disabled")).unwrap();
+    std::fs::rename(
+        root.join("mods/new.jar"),
+        root.join("mods/new.jar.disabled"),
+    )
+    .unwrap();
     let ctx = new_server_context(
         uuid.clone(),
         root.clone(),

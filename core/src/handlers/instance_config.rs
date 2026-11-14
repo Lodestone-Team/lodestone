@@ -162,10 +162,7 @@ pub async fn change_version(
     if let Some(ctx) = crate::images::context_of(&state, &uuid).await {
         if let Err(e) = state
             .images
-            .record_now(
-                ctx,
-                format!("Changed Minecraft version to {new_version}"),
-            )
+            .record_now(ctx, format!("Changed Minecraft version to {new_version}"))
             .await
         {
             tracing::warn!(

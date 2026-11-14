@@ -181,11 +181,7 @@ async fn a_record_takes_only_content_and_saves_the_pointer_last() {
     assert_eq!(image.label.as_deref(), Some("Added A"));
     assert_eq!(
         paths(image),
-        vec![
-            "config/a.toml",
-            "mods/a.jar",
-            "server.properties"
-        ]
+        vec!["config/a.toml", "mods/a.jar", "server.properties"]
     );
     assert_eq!(image.game.loader, Loader::Fabric);
     assert_eq!(image.game.loader_version.as_deref(), Some("0.16.10"));
@@ -204,11 +200,7 @@ async fn a_record_takes_only_content_and_saves_the_pointer_last() {
     assert!(state.has_baseline());
     assert_eq!(
         state.baseline.keys().collect::<Vec<_>>(),
-        vec![
-            "config/a.toml",
-            "mods/a.jar",
-            "server.properties"
-        ]
+        vec!["config/a.toml", "mods/a.jar", "server.properties"]
     );
     assert_eq!(
         s.images.current_content(&uuid()).await,
@@ -266,10 +258,7 @@ async fn instances_without_images_are_ignored() {
         let op = s.images.begin(&ctx.uuid, "x").await;
         op.succeed();
         assert_eq!(
-            s.images
-                .record_now(ctx.clone(), "x".into())
-                .await
-                .unwrap(),
+            s.images.record_now(ctx.clone(), "x".into()).await.unwrap(),
             None
         );
         assert_eq!(s.images.before_start(ctx).await.unwrap(), None);
@@ -317,10 +306,7 @@ async fn a_busy_instance_records_by_the_deferral_cap() {
     s.images.set_instances(fixed(&ctx));
     // One success every two seconds never leaves the window quiet.
     for n in 0..15 {
-        let operation = s
-            .images
-            .begin(&uuid(), format!("Edit {n}"))
-            .await;
+        let operation = s.images.begin(&uuid(), format!("Edit {n}")).await;
         write(&s.root, "config/a.toml", format!("a = {n}").as_bytes());
         operation.succeed();
         clock.advance(Duration::from_secs(2));
@@ -354,11 +340,7 @@ async fn an_operation_that_starts_during_a_record_waits() {
     let operation = s.images.begin(&uuid(), "Added A").await;
     let images = s.images.clone();
     let ctx = context(&s.root, fabric());
-    let recording = tokio::spawn(async move {
-        images
-            .record_now(ctx, "Restored".into())
-            .await
-    });
+    let recording = tokio::spawn(async move { images.record_now(ctx, "Restored".into()).await });
     tokio::time::sleep(Duration::from_millis(50)).await;
     assert!(!recording.is_finished());
     operation.succeed();
@@ -372,10 +354,7 @@ async fn succeed_and_record_returns_the_image() {
     let s = setup();
     fabric_server(&s.root);
     let ctx = context(&s.root, fabric());
-    let operation = s
-        .images
-        .begin(&uuid(), "Updated the pack")
-        .await;
+    let operation = s.images.begin(&uuid(), "Updated the pack").await;
     write(&s.root, "mods/pack.jar", b"pack mod");
     let recorded = operation.succeed_and_record(ctx).await.unwrap().unwrap();
     assert_eq!(s.state().current, Some(recorded.id));
@@ -879,10 +858,7 @@ async fn deleting_an_instance_forgets_its_images() {
     let s = setup();
     fabric_server(&s.root);
     let ctx = context(&s.root, fabric());
-    s.images
-        .record_now(ctx, INITIAL.into())
-        .await
-        .unwrap();
+    s.images.record_now(ctx, INITIAL.into()).await.unwrap();
     let dir = s.images.store().instance_dir(UUID).unwrap();
     assert!(dir.is_dir());
     s.images.delete_instance(&uuid()).await.unwrap();
@@ -947,10 +923,7 @@ async fn pack_files_get_their_sources_and_env() {
     };
     base::save_base(s.images.root(), &uuid(), &info).unwrap();
     s.images
-        .record_now(
-            context(&s.root, fabric()),
-            "Installed".into(),
-        )
+        .record_now(context(&s.root, fabric()), "Installed".into())
         .await
         .unwrap();
     let image = &s.manifests()[0];

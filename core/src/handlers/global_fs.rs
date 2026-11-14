@@ -29,7 +29,9 @@ use crate::{
     events::{new_fs_event, Event, FSOperation, FSTarget, ProgressionEventID},
     prelude::{lodestone_path, path_to_stores, path_to_tmp},
     types::InstanceUuid,
-    util::{disk::require_free_space, list_dir, rand_alphanumeric, resolve_path_conflict, zip_files},
+    util::{
+        disk::require_free_space, list_dir, rand_alphanumeric, resolve_path_conflict, zip_files,
+    },
     AppState,
 };
 

@@ -117,10 +117,7 @@ pub async fn record_install(
         exclude,
     )
     .await;
-    match images
-        .record_now(ctx, install_label(origin))
-        .await
-    {
+    match images.record_now(ctx, install_label(origin)).await {
         Ok(recorded) => recorded.map(|r| r.id),
         Err(e) => {
             warn!("Could not record the content image of {uuid}: {}", e.source);
@@ -175,10 +172,7 @@ pub async fn before_change(images: &Arc<ImageService>, ctx: InstanceContext) -> 
         Some(_) => OUTSIDE_LABEL,
         None => INITIAL_LABEL,
     };
-    images
-        .record_now(ctx, label.to_string())
-        .await
-        .map(|_| ())
+    images.record_now(ctx, label.to_string()).await.map(|_| ())
 }
 
 // ---- which files a restore changes ----
@@ -434,13 +428,18 @@ pub fn history(
     let images: Vec<Image> =
         crate::images::retention::newest_content_first(&listing.content, current_id.as_deref())
             .into_iter()
-            .filter_map(|header| match store.load_manifest(uuid.as_ref(), &header.id) {
-                Ok(image) => Some(image),
-                Err(e) => {
-                    warn!("Leaving the image {} of {uuid} out of its history: {e}", header.id);
-                    None
-                }
-            })
+            .filter_map(
+                |header| match store.load_manifest(uuid.as_ref(), &header.id) {
+                    Ok(image) => Some(image),
+                    Err(e) => {
+                        warn!(
+                            "Leaving the image {} of {uuid} out of its history: {e}",
+                            header.id
+                        );
+                        None
+                    }
+                },
+            )
             .collect();
     let current = current_id
         .as_deref()

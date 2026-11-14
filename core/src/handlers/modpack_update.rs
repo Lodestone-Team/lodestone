@@ -134,7 +134,7 @@ struct PackUpdate {
 enum Change {
     Update(Box<PackUpdate>),
     /// Back to a content image of the server's history.
-    Restore(RestoreTarget),
+    Restore(Box<RestoreTarget>),
 }
 
 impl Change {
@@ -509,7 +509,7 @@ async fn from_history(
         upload_id: None,
     };
     Ok(Planned {
-        change: Change::Restore(target),
+        change: Change::Restore(Box::new(target)),
         flavour,
         sources: restore.sources,
         plan: restore.plan,
@@ -863,9 +863,7 @@ async fn apply(
     // server's content to itself: no Files API change lands between the check that the
     // files it replaces are as planned and their placement. Dropped on failure, which
     // records nothing.
-    let op = images
-        .begin_exclusive(&uuid, prepared.change.label())
-        .await;
+    let op = images.begin_exclusive(&uuid, prepared.change.label()).await;
     progress("Replacing the server's files".to_string());
     {
         // the journal lets the next start put the files back if the core stops before
@@ -967,7 +965,9 @@ pub(crate) async fn update_modpack(
         spawn_blocking(move || Ok(recover_interrupted(&root))).await?;
     }
     let restoring = match &request.source {
-        UpdateSource::History { entry_id } => Some(state.images().keep_while_restoring(&uuid, entry_id)),
+        UpdateSource::History { entry_id } => {
+            Some(state.images().keep_while_restoring(&uuid, entry_id))
+        }
         _ => None,
     };
     // the content as it is now, so the change is planned from it and what it takes off the

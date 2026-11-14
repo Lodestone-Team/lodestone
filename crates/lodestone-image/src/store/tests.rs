@@ -734,7 +734,12 @@ fn manifests_round_trip_and_are_checked() {
     }
     let mut ids = store.manifest_ids("server-1").unwrap();
     ids.sort();
-    let mut all = vec![image.id.clone(), wrong_id.clone(), newer.clone(), garbage.clone()];
+    let mut all = vec![
+        image.id.clone(),
+        wrong_id.clone(),
+        newer.clone(),
+        garbage.clone(),
+    ];
     all.sort();
     assert_eq!(ids, all);
 

@@ -445,13 +445,7 @@ async fn set_resource_pack(
     let instance = get_instance(&state, &uuid)?;
     let minecraft = minecraft(&instance)?;
     let pack = check_resource_pack(&pack)?;
-    let op = state
-        .images
-        .begin(
-            &uuid,
-            "Changed the resource pack",
-        )
-        .await;
+    let op = state.images.begin(&uuid, "Changed the resource pack").await;
     minecraft
         .set_server_properties(&[
             (KEY_URL, ConfigurableValue::String(pack.url.clone())),
