@@ -157,6 +157,7 @@ pub const SCENES: &[&str] = &[
     "instance-linked-friend-running",
     "instance-linked-friend-starting",
     "instance-linked-friend-stopped",
+    "instance-linked-friend-rejoin",
     "settings",
     "settings-general",
     "settings-language",
@@ -1639,6 +1640,7 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
         "instance-linked-friend-stopped" => {
             servers::apply_linked_friend(shell, Some("Stopped"), cx)
         }
+        "instance-linked-friend-rejoin" => servers::apply_linked_friend_rejoin(shell, cx),
         "account-menu" | "needs-sign-in" | "account-menu-launcher" => shell.open_account_menu(cx),
         "skin-dialog" => {
             use launcher_core::auth::wardrobe::{Cape, SkinModel, Wardrobe};

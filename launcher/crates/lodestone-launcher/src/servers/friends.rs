@@ -550,7 +550,12 @@ impl Servers {
 
     /// The server of the open session `id`, as its host lists it now: its state and
     /// players, for the dialog, its row and the instance page.
-    fn session_state(&mut self, id: &str, live: &ServerInstance, cx: &mut Context<Self>) {
+    pub(super) fn session_state(
+        &mut self,
+        id: &str,
+        live: &ServerInstance,
+        cx: &mut Context<Self>,
+    ) {
         let Some(session) = self.friends.sessions.get_mut(id) else {
             return;
         };
@@ -574,6 +579,14 @@ impl Servers {
         };
         self.friends.set_status(id, status);
         cx.notify();
+    }
+
+    /// The client to ask the friend's server `id` its state through, and the server's
+    /// id on its core: while a tunnel (or the way straight to its core) is open.
+    pub(super) fn session_client(&self, id: &str) -> Option<(CoreClient, String)> {
+        let session = self.friends.sessions.get(id)?;
+        (session.tunnel.is_some() || session.direct.is_some())
+            .then(|| (session.client.clone(), session.shared.instance_uuid.clone()))
     }
 
     /// "Add and join" in the paste stage.

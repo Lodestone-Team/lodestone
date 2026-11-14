@@ -103,6 +103,13 @@ crate::i18n::messages! {
         /// isn't running. {server} is the server's name.
         ServerStoppedCaption = "{server} is stopped",
         ServerStartingCaption = "{server} is starting",
+        /// Under PLAY, while the server the game played on restarts: the launcher
+        /// closes the game, updates its mods and joins again once it runs.
+        RejoinWaitingCaption = "Rejoins {server} when it's back",
+        /// Under PLAY, once that server runs again.
+        RejoiningCaption = "Rejoining {server}",
+        /// After "Linked to {server} on {core}": stops waiting to rejoin the server.
+        DontRejoin = "Don't rejoin",
         /// After "Linked to {server} on {core}": whether that server runs now.
         ServerOnline = "Online",
         ServerStarting = "Starting",
