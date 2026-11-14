@@ -821,15 +821,33 @@ def build_binary(target: str | None, build: int, commit: str, key: str, into: Pa
                       profile)
 
 
+# Links the core's C runtime statically on Windows (MSVC), as launcher/.cargo/config.toml
+# does for the launcher and the Host: otherwise lodestone_core.exe needs VCRUNTIME140.dll
+# from the Visual C++ Redistributable, which a fresh Windows install doesn't have, and
+# the Host's installer doesn't ship it. The core builds from the root workspace, where
+# that file doesn't apply, so the build passes it itself. It's scoped to MSVC targets,
+# so macOS and Linux builds are unchanged.
+CORE_CARGO_CONFIG = (
+    "target.'cfg(all(windows, target_env = \"msvc\"))'.rustflags"
+    "=['-C', 'target-feature=+crt-static']"
+)
+
+
+def core_build_command(profile: str, target: str | None) -> list[str]:
+    """The cargo command that builds the core: without Deno (`--no-default-features`),
+    and with the static C runtime on Windows."""
+    cmd = ["cargo", "build", "--profile", profile, "--locked", "-p", CORE_PACKAGE,
+           "--no-default-features", "--config", CORE_CARGO_CONFIG]
+    if target:
+        cmd += ["--target", target]
+    return cmd
+
+
 def build_core(target: str | None, build: int, key: str, into: Path, dev: bool = False) -> Path:
     """Builds Lodestone Core, which the Host runs, for `target`, from the repository's
     root workspace, with `--no-default-features`."""
     profile = cargo_profile(dev)
-    cmd = ["cargo", "build", "--profile", profile, "--locked", "-p", CORE_PACKAGE,
-           "--no-default-features"]
-    if target:
-        cmd += ["--target", target]
-    run(cmd, cwd=ROOT, quiet=False)
+    run(core_build_command(profile, target), cwd=ROOT, quiet=False)
     return copy_built(ROOT, CORE_PACKAGE, target, key, into / core_name(build, key), profile)
 
 

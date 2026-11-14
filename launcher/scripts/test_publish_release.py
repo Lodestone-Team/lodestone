@@ -4,6 +4,7 @@ import os
 import re
 import sys
 import tempfile
+import tomllib
 import unittest
 from pathlib import Path
 
@@ -652,6 +653,21 @@ class Host(unittest.TestCase):
         self.assertIn('Settings › Updates shows this build and commit ("Build 12 · 0123456").', lines)
         self.assertTrue(any("EULA" in line for line in lines))
         self.assertFalse(any(line.startswith("Windows:") for line in lines))
+
+    def test_the_core_links_the_c_runtime_statically_on_windows_only(self):
+        # LS-40: the core builds from the root workspace, where the launcher's
+        # .cargo/config.toml (and its +crt-static) doesn't apply.
+        cmd = pr.core_build_command("release", "x86_64-pc-windows-msvc")
+        self.assertIn("--no-default-features", cmd)
+        self.assertEqual(cmd[cmd.index("--target") + 1], "x86_64-pc-windows-msvc")
+        config = tomllib.loads(cmd[cmd.index("--config") + 1])
+        launcher = tomllib.loads((pr.LAUNCHER / ".cargo" / "config.toml").read_text())
+        # the same target table the launcher's config uses, so only MSVC builds get it
+        self.assertEqual(set(config["target"]), set(launcher["target"]))
+        (scope,) = config["target"]
+        self.assertEqual(scope, 'cfg(all(windows, target_env = "msvc"))')
+        self.assertEqual(config["target"][scope]["rustflags"], ["-C", "target-feature=+crt-static"])
+        self.assertNotIn("--target", pr.core_build_command("dev-build", None))
 
 
 def staged_dev(folder, build, keys, commit="abc1234def", extras=()):
