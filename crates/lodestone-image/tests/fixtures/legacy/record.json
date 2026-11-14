@@ -1,0 +1,24 @@
+{
+  "files": {
+    "config/edited.toml": {
+      "sha1": "5a6df720540c20d95d530d3fd6885511223d5d20",
+      "from_overrides": true
+    },
+    "config/pack.toml": {
+      "sha1": "5a6df720540c20d95d530d3fd6885511223d5d20",
+      "from_overrides": true
+    },
+    "mods/a-1.jar": {
+      "sha1": "f29bc91bbdab169fc0c0a326965953d11c7dff83",
+      "project_id": "a"
+    },
+    "mods/dropped.jar": {
+      "sha1": "ad3f9aa5e8b31b279c0727fde7e0afde67a3b436",
+      "project_id": "d"
+    },
+    "mods/keep.jar": {
+      "sha1": "1264bdfe5ff3215cf6abac2152fff607f7dc78dc",
+      "project_id": "k"
+    }
+  }
+}

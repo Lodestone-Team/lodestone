@@ -1,0 +1,67 @@
+{
+  "version": 1,
+  "files": {
+    "mods/iris.jar": {
+      "size": 4,
+      "modified": 1794645000000000000,
+      "sha1": "3e9afe235a0ebee72d1969e8b4a886d5bd30c515",
+      "sha512": "e9a40636d7bd443f0c23237cf721031824b228d3cc6c5ddb7c4c110692ba35b7cb475cb597a02a98d88e7c589623eeb85a8e1edd37f9946271652ce6ff1ce656",
+      "looked_up": true,
+      "curseforge": {
+        "project_id": 455508,
+        "file_id": 5700001,
+        "slug": "irisshaders",
+        "title": "Iris Shaders",
+        "display_name": "Iris 1.8.0",
+        "file_date": "2026-08-01T00:00:00Z",
+        "page_url": "https://www.curseforge.com/minecraft/mc-mods/irisshaders",
+        "version_type": "release",
+        "downloadable": false
+      },
+      "fingerprint": 123456789
+    },
+    "mods/pack-mod.jar": {
+      "size": 8,
+      "sha1": "395b4786e72c076489ceff24064f205f80137f8d",
+      "sha512": "2631de9187ad5662d96ae7b4585b7fde63f201edf2ff1c640cbe990360d4224eba5e237045e188dd6029975b3c1d6dac00e5ac562fb12c7d31be05d31acce55f",
+      "modrinth": {
+        "project_id": "PACKMOD1",
+        "version_id": "PMv00001",
+        "slug": "",
+        "title": "",
+        "version_number": "",
+        "date_published": "",
+        "url": "https://cdn.modrinth.com/data/PACKMOD1/versions/PMv00001/pack-mod.jar",
+        "client_side": "optional",
+        "server_side": "required"
+      }
+    },
+    "mods/sodium.jar": {
+      "size": 6,
+      "modified": 1794645624123456789,
+      "sha1": "6f07dc1d0a287f925d7672e6884d85ceb3f339ed",
+      "sha512": "961b4af816284b41547aaff17bef5eae144f4a29dafa7b1819100e0e8deb93bea53946b38c579ba6a74162f3bdbc5adc672d4ec52425971d3072c37e18430fc0",
+      "modrinth": {
+        "project_id": "AANobbMI",
+        "version_id": "u1OtTp2l",
+        "slug": "sodium",
+        "title": "Sodium",
+        "icon_url": "https://cdn.modrinth.com/data/AANobbMI/icon.png",
+        "version_number": "mc1.21.1-0.6.0",
+        "date_published": "2026-09-01T00:00:00Z",
+        "url": "https://cdn.modrinth.com/data/AANobbMI/versions/u1OtTp2l/sodium.jar",
+        "client_side": "required",
+        "server_side": "unsupported",
+        "version_type": "release"
+      }
+    },
+    "resourcepacks/faithful.zip": {
+      "size": 8,
+      "modified": 1794600000000000000,
+      "sha1": "9bfdd8b52bec6cbd77ebb79ee25fde35ab527870",
+      "sha512": "799144d4aacb00db0d61a43c5a8592f92b4d35a4a14a6e992fc68f663392a3c4d11bbffd43d149939de224dc1b58865cb204864ac61df4c0fcd26c18b4d930ee",
+      "looked_up": true,
+      "curseforge_looked_up": true
+    }
+  }
+}

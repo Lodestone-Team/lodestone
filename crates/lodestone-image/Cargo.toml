@@ -19,6 +19,19 @@ license.workspace = true
 # still written into every lockfile that can see it.
 [dependencies]
 serde = { version = "1.0.229", features = ["derive"] }
-serde_json = "1.0.151"
+# preserve_order, as both the core and the Launcher already have it: the v1 readers keep
+# parts of old manifests as JSON values and write them back in their original order.
+serde_json = { version = "1.0.151", features = ["preserve_order"] }
 sha2 = "0.10.9"
 thiserror = "2.0.17"
+# Reads the Launcher's world backup zips and `.lodesnap` files (legacy readers). No
+# compression feature of its own: deflate needs a flate2 backend, and each host already
+# picks one (the core zlib-rs, the Launcher miniz_oxide), so naming either here would add a
+# crate to the other's lockfile. Both hosts enable zip's deflate; a build without it reports
+# deflated entries as unreadable zips rather than misreading them.
+zip = { version = "9.0.5", default-features = false }
+
+[dev-dependencies]
+sha1 = "0.10.6"
+# The tests read deflated zips, with the backend the root workspace already has.
+zip = { version = "9.0.5", default-features = false, features = ["deflate-flate2-zlib-rs"] }

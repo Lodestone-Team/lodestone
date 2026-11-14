@@ -3191,8 +3191,10 @@ version = "0.5.1"
 dependencies = [
  "serde",
  "serde_json",
+ "sha1 0.10.7",
  "sha2 0.10.9",
  "thiserror 2.0.21",
+ "zip",
 ]
 
 [[package]]

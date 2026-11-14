@@ -87,7 +87,9 @@ unknown on both sides.
 A base is a reference to a whole pack, both sides of it. Each view reads its own share
 (`overrides/` plus `server-overrides/` or `client-overrides/`, and index files by their
 `env`). The pack's files are not listed in `entries` unless the instance differs from
-the pack there.
+the pack there. Images converted from the old modpack records list them anyway, with
+explicit sources, since those records are the only list of what the pack wrote (see "v1
+readers").
 
 ### Entry
 
@@ -175,7 +177,11 @@ run vanilla, and the flavour is a server setting.
 ```
 
 `path` is the file's path as found, which may not be a valid canonical path (that may be
-why it was withheld): shown, never placed.
+why it was withheld): shown, never placed. For an image converted from an old format it is
+the path that format had (relative to the server folder, the instance folder or the zip).
+`bad_name` also covers a path the side's disk layout can't place or read back as itself;
+`excluded` also covers a path an image never records that an old listing had; `unreadable`
+also covers a file an old format knew only by SHA-1 whose bytes no one could hash.
 
 ## Paths
 
@@ -396,6 +402,64 @@ as today.
 - GC understands both until everything is converted. Conversion is lazy; old objects are
   never rewritten (core objects are already SHA-256 zstd, Launcher objects SHA-256 raw).
 - Round-trip tests: every old format converts to an image and back without changing a byte.
+  World backup zips are the exception: they are only read (a zip can't be rewritten byte for
+  byte, and images replace them).
+
+### v1 readers
+
+`lodestone_image::legacy` reads each old format without depending on the core or the
+Launcher (it carries copies of their serde types). A conversion gives the image (valid,
+sealed), the *rest*, and notes:
+
+- **The rest** is what the old file has and an image doesn't model: a backup's id, server,
+  kind, pinned, live, statistics and stat-cache time; a snapshot's selection, note and
+  whole `instance.json`; a history entry's time in milliseconds, origin, changes, kept files
+  and changelog, and its index of how to get files back; the titles, slugs, dates and
+  lookups of `content.json`; files the image withholds. It belongs beside the image (the
+  backup store keeps a backup's bookkeeping), never in it, so ids depend only on contents.
+  Writing back takes the image's values for what it carries and the rest for the others;
+  for an unchanged image the result is the original file, byte for byte (core backups,
+  snapshot manifests, `record.json`, `history.json`, `modpack.json`, `content.json`, as
+  each program's own writer formats them).
+- **Notes** say what didn't go into the image: withheld files, local settings dropped, a
+  pack that couldn't be the base, a level that isn't a world folder, unrecorded excludes.
+- **Hashes the old formats lack.** The modpack records list files by SHA-1 only, and an
+  entry needs a SHA-256 and size; a `modrinth_pack` base needs the `.mrpack`'s SHA-512. The
+  caller supplies them (hashing files on disk or in the old store, asking Modrinth); a file
+  no one could hash is withheld as `unreadable`, and a pack without its hash is no base.
+
+Per format:
+
+- **Core backups (schema 1)** become data images. Paths go through the server layout: the
+  level and every other top-level folder with a `level.dat` are worlds, and a Paper or
+  Spigot level is folded back into one world. `name` is the label, `level_name` the
+  `level-name` property, `quiesced` each world's, `skipped` the withheld files, the execute
+  bit mode 755 (else 644). Schema 1 recorded no excludes: the image's `excludes` are empty
+  without meaning nothing was left out. A `level_name` that isn't a single folder
+  (`worlds/survival`) is no world, and its files keep their server paths.
+- **Snapshots and `.lodesnap` (schema 1)** become images through the client layout; the
+  kind follows the selection (content categories only: content; worlds, screenshots and
+  other files only: data; both: full). `instance.json` gives the game and the recommended
+  memory, and `icon.png` and `background.jpg` the client settings' icon and background;
+  every other instance field is local, reported and kept in the rest, never in the image.
+  Files beside the game folder (`content.json`, `modpack.json`, shared options) are kept in
+  the rest. `.lodesnap` files are read with the Launcher's limits.
+- **The core's `record.json` and `history.json`** become one content image per history
+  entry, chained by `parent`, plus one for the record (on the newest entry's base and game;
+  the same id when nothing changed since). They list the files the pack wrote, which is all
+  the record knew, with explicit sources: a CDN download `modrinth` (project and version from
+  its URL), an override `base` when the pack is the base, anything else `object`. The server's
+  own files join the lineage with the first content image the core records. Neither file has
+  a version, and the core ignores unknown fields, so a newer file can't be refused.
+- **The Launcher's `modpack.json` and `content.json`** become one content image: the base is
+  the pack (`modrinth_pack`, `curseforge_pack`, or `loader` for an instance not made from a
+  pack); a file `content.json` knows on Modrinth's CDN is `modrinth` with its env from the
+  project's `client_side`/`server_side`, on CurseForge `curseforge`, an unchanged pack file
+  `base`, anything else `object`. `content.json` keys files by their enabled name, so a
+  disabled mod's entry has that path. The game is the caller's (neither file has it).
+- **World backup zips** become data images of `saves/<world>/…`, each entry hashed straight
+  from the zip, with the Launcher's limits; entries that fail a check are withheld. Zip
+  times are local without a zone, so entries have no `modified`.
 
 ## Milestones
 
