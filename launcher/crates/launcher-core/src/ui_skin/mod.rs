@@ -1189,11 +1189,18 @@ impl SkinStore {
         fs::create_dir_all(&self.dir)?;
         let staging = tempdir_in(&self.dir)?;
         let result = (|| {
-            let rename = |image: &mut Option<String>, role: ImageRole| -> Result<(), SkinError> {
-                let Some(name) = image.as_mut() else {
-                    return Ok(());
-                };
+            // Each image is re-encoded once for each size it is used at, and every file
+            // written gets a name of its own: names are cleaned (other characters become
+            // '-', and long ones are cut), so two different images can clean to the same
+            // name, and one would overwrite the other.
+            let mut written: BTreeMap<(String, (u32, u32)), String> = BTreeMap::new();
+            let mut rename = |name: &mut String, role: ImageRole| -> Result<(), SkinError> {
                 if name.starts_with("builtin:") {
+                    return Ok(());
+                }
+                let key = (name.clone(), role.max());
+                if let Some(done) = written.get(&key) {
+                    *name = done.clone();
                     return Ok(());
                 }
                 let bytes = files
@@ -1207,31 +1214,22 @@ impl SkinStore {
                     .unwrap_or("image")
                     .to_string();
                 *name = write_image(bytes, &staging, &stem, role.max())?;
+                written.insert(key, name.clone());
                 Ok(())
             };
-            rename(&mut spec.sidebar.image, ImageRole::Sidebar)?;
-            rename(&mut spec.hero.image, ImageRole::Hero)?;
-            // an image used by several surfaces is re-encoded once
-            let mut renamed: BTreeMap<String, String> = BTreeMap::new();
-            let mut rename_once = |name: &mut String, role: ImageRole| -> Result<(), SkinError> {
-                if let Some(done) = renamed.get(name.as_str()) {
-                    *name = done.clone();
-                    return Ok(());
-                }
-                let before = name.clone();
-                let mut slot = Some(name.clone());
-                rename(&mut slot, role)?;
-                *name = slot.expect("still named");
-                renamed.insert(before, name.clone());
-                Ok(())
-            };
+            if let Some(name) = spec.sidebar.image.as_mut() {
+                rename(name, ImageRole::Sidebar)?;
+            }
+            if let Some(name) = spec.hero.image.as_mut() {
+                rename(name, ImageRole::Hero)?;
+            }
             for surface in spec.surfaces.values_mut() {
                 if let Some(Fill::Image(image)) = surface.fill.as_mut() {
-                    rename_once(&mut image.image, ImageRole::Surface)?;
+                    rename(&mut image.image, ImageRole::Surface)?;
                 }
             }
             for banner in &mut spec.banners {
-                rename_once(&mut banner.image, ImageRole::Banner)?;
+                rename(&mut banner.image, ImageRole::Banner)?;
             }
             for name in spec.fonts.files() {
                 let bytes = files
@@ -1349,7 +1347,8 @@ fn check_id(id: &str) -> Result<(), SkinError> {
 }
 
 /// Decodes `bytes` as an image, scales it to fit `max`, and writes it to `dir` as
-/// `<stem>.png` (with transparency) or `<stem>.jpg`. Returns the file's name.
+/// `<stem>.png` (with transparency) or `<stem>.jpg`, with `-2`, `-3`... after the stem
+/// if that name is taken. Returns the file's name.
 fn write_image(bytes: &[u8], dir: &Path, stem: &str, max: (u32, u32)) -> Result<String, SkinError> {
     let mut reader = image::ImageReader::new(io::Cursor::new(bytes))
         .with_guessed_format()
@@ -1386,6 +1385,19 @@ fn write_image(bytes: &[u8], dir: &Path, stem: &str, max: (u32, u32)) -> Result<
         })
         .take(40)
         .collect();
+    // Never over another image: a different one may have cleaned to the same stem.
+    let stem = (1..)
+        .map(|n| {
+            if n == 1 {
+                stem.clone()
+            } else {
+                format!("{stem}-{n}")
+            }
+        })
+        .find(|stem| {
+            !dir.join(format!("{stem}.png")).exists() && !dir.join(format!("{stem}.jpg")).exists()
+        })
+        .expect("a free name");
     if image.color().has_alpha() {
         let name = format!("{stem}.png");
         image
@@ -1445,6 +1457,16 @@ fn read_zip(path: &Path) -> Result<Vec<(String, Vec<u8>)>, SkinError> {
                 String::from_utf8_lossy(entry.name_raw())
             ))
         })?;
+        // What macOS's Compress adds beside the pack (`__MACOSX/<folder>/._<file>`) is
+        // ignored, and left out before the pack's own folder is found below: counted,
+        // those entries would hide that all the pack's files are in one folder.
+        if name
+            .components()
+            .next()
+            .is_some_and(|c| c.as_os_str() == "__MACOSX")
+        {
+            continue;
+        }
         names.push((index, name));
     }
     // a pack zipped as its folder: strip the one folder all files are in
@@ -1468,9 +1490,6 @@ fn read_zip(path: &Path) -> Result<Vec<(String, Vec<u8>)>, SkinError> {
     let mut total = 0u64;
     for ((index, _), parts) in names.iter().zip(parts) {
         if parts.len() - prefix != 1 {
-            if parts.first().is_some_and(|p| p == "__MACOSX") {
-                continue;
-            }
             return Err(SkinError::Invalid(format!(
                 "{:?} is in a subfolder; a pack holds only {SKIN_FILE} and its images",
                 parts.join("/")
@@ -1915,6 +1934,97 @@ mod tests {
             ("h.png", b"<html></html>"),
         ]);
         assert!(store.import(fake.path()).is_err());
+    }
+
+    /// Images whose names clean to the same file name, or one image used at two sizes,
+    /// each keep a file of their own (LS-64).
+    #[test]
+    fn images_never_share_a_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = SkinStore::at(dir.path().join("skins"));
+        let coloured = |rgb: [u8; 3]| {
+            let mut bytes = Vec::new();
+            image::RgbImage::from_pixel(16, 16, image::Rgb(rgb))
+                .write_to(&mut io::Cursor::new(&mut bytes), image::ImageFormat::Png)
+                .unwrap();
+            bytes
+        };
+        let json = r##"{
+            "schema": 1,
+            "name": "Clash",
+            "sidebar": {"image": "wide.png"},
+            "surfaces": {"card": {"fill": {"image": {"image": "wide.png"}}}},
+            "banners": [
+                {"id": "sunset", "image": "日落.png"},
+                {"id": "night", "image": "夜空.png"}
+            ]
+        }"##;
+        let red = coloured([200, 30, 30]);
+        let blue = coloured([30, 30, 200]);
+        let wide = png(1500, 100);
+        let pack = zip_of(&[
+            (SKIN_FILE, json.as_bytes()),
+            ("日落.png", &red),
+            ("夜空.png", &blue),
+            ("wide.png", &wide),
+        ]);
+        let id = store.import(pack.path()).unwrap();
+        let spec = store.get(&id).unwrap().spec;
+        let sunset = spec.banner("sunset").unwrap().image.clone();
+        let night = spec.banner("night").unwrap().image.clone();
+        assert_ne!(sunset, night);
+        let colour = |name: &str| {
+            let image = store.load_image(&id, name).unwrap();
+            let p = image.get_pixel(8, 8);
+            (p[0], p[2])
+        };
+        assert!(
+            matches!(colour(&sunset), (r, b) if r > 150 && b < 80),
+            "{sunset}"
+        );
+        assert!(
+            matches!(colour(&night), (r, b) if b > 150 && r < 80),
+            "{night}"
+        );
+        // the sidebar's copy is cut to the sidebar's size, the card's isn't
+        let side = spec.sidebar.image.clone().unwrap();
+        let Some(Fill::Image(card)) = spec.surface(SurfaceId::Card).unwrap().fill.clone() else {
+            panic!("the card keeps its image");
+        };
+        assert_ne!(side, card.image);
+        let width = |name: &str| {
+            image::image_dimensions(store.image_path(&id, name).unwrap())
+                .unwrap()
+                .0
+        };
+        assert_eq!(width(&side), SIDEBAR_MAX.0);
+        assert_eq!(width(&card.image), 1500);
+    }
+
+    /// A pack folder compressed by macOS Finder, with its `__MACOSX` entries, imports
+    /// (LS-65).
+    #[test]
+    fn finder_zips_import() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = SkinStore::at(dir.path().join("skins"));
+        let json = br#"{"schema":1,"name":"Mine","sidebar":{"image":"side.png"}}"#;
+        let side = png(8, 8);
+        let pack = zip_of(&[
+            ("MySkin/skin.json", json),
+            ("__MACOSX/MySkin/._skin.json", b"\x00\x05\x16\x07"),
+            ("MySkin/side.png", &side),
+            ("__MACOSX/MySkin/._side.png", b"\x00\x05\x16\x07"),
+        ]);
+        let id = store.import(pack.path()).unwrap();
+        assert_eq!(store.get(&id).unwrap().spec.name, "Mine");
+        // other subfolders are still refused
+        let nested = zip_of(&[
+            ("MySkin/skin.json", json),
+            ("MySkin/side.png", &side),
+            ("MySkin/extra/side.png", &side),
+        ]);
+        let err = store.import(nested.path()).unwrap_err();
+        assert!(err.to_string().contains("subfolder"), "{err}");
     }
 
     #[test]
