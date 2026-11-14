@@ -100,7 +100,10 @@ pub fn text(message: M) -> &'static str {
         }
         M::ModsForPlayersAlready => "玩家已會取得這個模組：Modrinth 或模組本身表明玩家需要它。",
         M::ModsMarkedForPlayers => "玩家下次加入時會取得 {name}",
-        M::ModsUnmarkedForPlayers => "{name} 不再標記為給玩家",
+        M::ModsForPlayersOptional => {
+            "Modrinth 表示玩家沒有這個模組也能加入，但在 Fabric 上，這類模組常常會讓玩家無法加入，所以玩家會取得它。取消勾選即可不給玩家。"
+        }
+        M::ModsUnmarkedForPlayers => "玩家加入時不再取得 {name}",
         M::ModsMarkFailed => "無法變更 {name}：{error}",
         M::ModsRelease => "正式版",
         M::ModsBeta => "測試版",

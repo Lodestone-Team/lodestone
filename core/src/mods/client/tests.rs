@@ -130,9 +130,11 @@ async fn requirements_and_dependency_propagation() {
 
     assert_eq!(requirement("app.jar"), ClientRequirement::Required);
     assert!(required_by("app.jar").is_empty());
-    // optional on its own, needed because app needs it
+    // optional on its own, needed because app needs it, so it can't be left out
     assert_eq!(requirement("lib.jar"), ClientRequirement::Required);
     assert_eq!(required_by("lib.jar"), vec!["Title of app"]);
+    let lib = list.mods.iter().find(|m| m.file_name == "lib.jar").unwrap();
+    assert!(!lib.client_optional);
     // a disabled mod keeps its own requirement but makes nothing needed
     assert_eq!(requirement("dis.jar.disabled"), ClientRequirement::Required);
     assert_eq!(requirement("srv.jar"), ClientRequirement::Unsupported);
@@ -175,8 +177,118 @@ async fn disabled_dependencies_are_not_made_required() {
         "lib.jar.disabled",
     );
     let mods = by_file(&setup.list().await);
-    assert_eq!(mods["lib.jar.disabled"].0, ClientRequirement::Optional);
+    // optional mods are needed on Fabric, but a disabled one goes to nobody
+    assert_eq!(mods["lib.jar.disabled"].0, ClientRequirement::Required);
     assert!(mods["lib.jar.disabled"].1.is_empty());
+}
+
+/// "Optional for players" on Modrinth often isn't on Fabric: JEI is optional on both
+/// sides, but adds recipe types, so a player without it is turned away. Such mods go
+/// into the client pack unless the owner leaves them out.
+#[tokio::test]
+async fn optional_mods_go_to_players_unless_left_out() {
+    let setup = Setup::new(InstalledModLoader::Fabric);
+    setup.add_matched(
+        FakeVersion::new("jei", "jei1", "jei.jar"),
+        "optional",
+        "jei.jar",
+    );
+    setup.add_matched(
+        FakeVersion::new("spark", "spark1", "spark.jar"),
+        "optional",
+        "spark.jar",
+    );
+    setup.add_matched(
+        FakeVersion::new("srv", "srv1", "srv.jar"),
+        "unsupported",
+        "srv.jar",
+    );
+    let list = setup.list().await;
+    let mods = by_file(&list);
+    assert_eq!(mods["jei.jar"].0, ClientRequirement::Required);
+    assert_eq!(mods["spark.jar"].0, ClientRequirement::Required);
+    assert_eq!(mods["srv.jar"].0, ClientRequirement::Unsupported);
+    assert_eq!(list.client_required_count, 2);
+    let jei = list.mods.iter().find(|m| m.file_name == "jei.jar").unwrap();
+    assert!(jei.client_optional && !jei.client_marked && !jei.client_excluded);
+    let srv = list.mods.iter().find(|m| m.file_name == "srv.jar").unwrap();
+    assert!(!srv.client_optional);
+
+    let out = setup._dir.path().join("pack.mrpack");
+    let plan = build_client_pack(&setup.fake, &setup.folder, "S", Some("0.15.11"), &out)
+        .await
+        .unwrap();
+    let paths: Vec<&str> = plan.index.files.iter().map(|f| f.path.as_str()).collect();
+    assert_eq!(paths, ["mods/jei.jar", "mods/spark.jar"]);
+
+    // unticking "For players" leaves it out
+    set_marked(&setup.folder, "spark.jar", false).await.unwrap();
+    let list = setup.list().await;
+    let spark = list
+        .mods
+        .iter()
+        .find(|m| m.file_name == "spark.jar")
+        .unwrap();
+    assert_eq!(spark.client_requirement, ClientRequirement::Optional);
+    assert!(spark.client_excluded && spark.client_optional && !spark.client_marked);
+    assert_eq!(list.client_required_count, 1);
+    let plan = build_client_pack(&setup.fake, &setup.folder, "S", Some("0.15.11"), &out)
+        .await
+        .unwrap();
+    let paths: Vec<&str> = plan.index.files.iter().map(|f| f.path.as_str()).collect();
+    assert_eq!(paths, ["mods/jei.jar"]);
+
+    // ticking it again gives it back
+    set_marked(&setup.folder, "spark.jar", true).await.unwrap();
+    let list = setup.list().await;
+    let spark = list
+        .mods
+        .iter()
+        .find(|m| m.file_name == "spark.jar")
+        .unwrap();
+    assert_eq!(spark.client_requirement, ClientRequirement::Required);
+    assert!(!spark.client_excluded && spark.client_marked);
+    assert_eq!(
+        read_marks(&setup.folder).await,
+        ClientMarks {
+            required: ["spark.jar".to_string()].into(),
+            excluded: Default::default(),
+        }
+    );
+}
+
+#[tokio::test]
+async fn a_mod_left_out_still_goes_to_players_when_a_needed_mod_needs_it() {
+    let setup = Setup::new(InstalledModLoader::Fabric);
+    setup.add_matched(
+        FakeVersion::new("app", "app1", "app.jar").requires("lib", None),
+        "required",
+        "app.jar",
+    );
+    setup.add_matched(
+        FakeVersion::new("lib", "lib1", "lib.jar"),
+        "optional",
+        "lib.jar",
+    );
+    set_marked(&setup.folder, "lib.jar", false).await.unwrap();
+    let list = setup.list().await;
+    let lib = list.mods.iter().find(|m| m.file_name == "lib.jar").unwrap();
+    assert_eq!(lib.client_requirement, ClientRequirement::Required);
+    assert_eq!(lib.required_by, ["Title of app"]);
+    assert!(lib.client_excluded && !lib.client_optional);
+}
+
+#[tokio::test]
+async fn optional_stays_optional_off_fabric() {
+    let setup = Setup::new(InstalledModLoader::NeoForge);
+    setup.add_matched(
+        FakeVersion::new("jei", "jei1", "jei.jar").loaders(&["neoforge"]),
+        "optional",
+        "jei.jar",
+    );
+    let list = setup.list().await;
+    assert_eq!(list.mods[0].client_requirement, ClientRequirement::Optional);
+    assert!(!list.mods[0].client_optional);
 }
 
 #[tokio::test]
@@ -398,7 +510,10 @@ async fn a_marked_uploaded_jar_goes_to_players_with_what_it_needs() {
     crate::mods::set_enabled(&setup.folder, "custom.jar", false)
         .await
         .unwrap();
-    assert!(read_marks(&setup.folder).await.contains("custom.jar"));
+    assert!(read_marks(&setup.folder)
+        .await
+        .required
+        .contains("custom.jar"));
     let list = setup.list().await;
     assert!(list.mods.iter().any(|m| m.client_marked && !m.enabled));
     crate::mods::set_enabled(&setup.folder, "custom.jar.disabled", true)
@@ -417,18 +532,31 @@ async fn a_marked_uploaded_jar_goes_to_players_with_what_it_needs() {
         by_file(&setup.list().await)["custom.jar"].0,
         ClientRequirement::Unknown
     );
+
+    // a deleted mod's marks go with it, and no marks is no file
+    crate::mods::delete(&setup.folder, "custom.jar")
+        .await
+        .unwrap();
+    forget_mark(&setup.folder, "custom.jar").await.unwrap();
+    assert_eq!(read_marks(&setup.folder).await, ClientMarks::default());
     assert!(
         !setup.folder.dir.join(MARKS_FILE).exists(),
         "no marks, no file"
     );
 
-    // a deleted mod's mark goes with it
-    set_marked(&setup.folder, "custom.jar", true).await.unwrap();
-    crate::mods::delete(&setup.folder, "custom.jar")
-        .await
-        .unwrap();
-    forget_mark(&setup.folder, "custom.jar").await.unwrap();
-    assert!(read_marks(&setup.folder).await.is_empty());
+    // older cores wrote only `required`
+    std::fs::write(
+        setup.folder.dir.join(MARKS_FILE),
+        r#"{"required": ["helper.jar"]}"#,
+    )
+    .unwrap();
+    assert_eq!(
+        read_marks(&setup.folder).await.of("helper.jar.disabled"),
+        Marks {
+            required: true,
+            excluded: false
+        }
+    );
 }
 
 #[tokio::test]
@@ -446,9 +574,9 @@ async fn marks_need_an_existing_mod_and_survive_damage() {
     // a damaged file marks nothing, and marking again replaces it
     setup.add_jar("a.jar", r#"{"schemaVersion":1,"id":"a"}"#);
     std::fs::write(setup.folder.dir.join(MARKS_FILE), "not json").unwrap();
-    assert!(read_marks(&setup.folder).await.is_empty());
+    assert_eq!(read_marks(&setup.folder).await, ClientMarks::default());
     set_marked(&setup.folder, "a.jar", true).await.unwrap();
-    assert!(read_marks(&setup.folder).await.contains("a.jar"));
+    assert!(read_marks(&setup.folder).await.required.contains("a.jar"));
 
     // plugins only run on the server
     let paper = Setup::new(InstalledModLoader::Paper);

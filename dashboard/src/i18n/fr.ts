@@ -1232,9 +1232,11 @@ export const fr: Messages = {
     'Les joueurs reçoivent ce mod, et les mods dont il a besoin, en rejoignant. Cochez-le pour les mods dont les joueurs ont besoin sans que Lodestone puisse le savoir, comme ceux que vous avez téléversés.',
   'mods.forPlayers.already':
     'Les joueurs reçoivent déjà ce mod : Modrinth ou le mod indique qu’ils en ont besoin.',
+  'mods.forPlayers.optional':
+    'Modrinth indique que les joueurs peuvent rejoindre sans ce mod, mais sur Fabric, les mods de ce genre les en empêchent souvent : les joueurs le reçoivent donc. Décochez-le pour le retirer.',
   'mods.forPlayers.marked':
     'Les joueurs recevront {name} la prochaine fois qu’ils rejoindront',
-  'mods.forPlayers.unmarked': '{name} n’est plus marqué pour les joueurs',
+  'mods.forPlayers.unmarked': 'Les joueurs ne reçoivent plus {name} en rejoignant',
   'mods.forPlayers.failed': 'Impossible de modifier {name} : {error}',
   'mods.versionType.release': 'stable',
   'mods.versionType.beta': 'bêta',

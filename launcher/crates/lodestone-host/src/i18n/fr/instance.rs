@@ -125,10 +125,13 @@ pub fn text(message: M) -> &'static str {
         M::ModsForPlayersAlready => {
             "Les joueurs reçoivent déjà ce mod : Modrinth ou le mod indique qu'ils en ont besoin."
         }
+        M::ModsForPlayersOptional => {
+            "Modrinth indique que les joueurs peuvent rejoindre sans ce mod, mais sur Fabric, les mods de ce genre les en empêchent souvent : les joueurs le reçoivent donc. Décochez-le pour le retirer."
+        }
         M::ModsMarkedForPlayers => {
             "Les joueurs recevront {name} la prochaine fois qu'ils rejoindront"
         }
-        M::ModsUnmarkedForPlayers => "{name} n'est plus marqué pour les joueurs",
+        M::ModsUnmarkedForPlayers => "Les joueurs ne reçoivent plus {name} en rejoignant",
         M::ModsMarkFailed => "Impossible de modifier {name} : {error}",
         M::ModsRelease => "stable",
         M::ModsBeta => "bêta",

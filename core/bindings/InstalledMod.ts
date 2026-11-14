@@ -19,4 +19,14 @@ required_by: Array<string>,
 /**
  * The owner marked it as needed by players (`PUT .../mods/{file_name}/client`).
  */
-client_marked: boolean, };
+client_marked: boolean, 
+/**
+ * The owner left it out of the client pack (`PUT .../mods/{file_name}/client` with
+ * `false`).
+ */
+client_excluded: boolean, 
+/**
+ * The owner can leave it out of the client pack although players get it: Modrinth
+ * says players can join without it, and no mod they get needs it (Fabric only).
+ */
+client_optional: boolean, };
