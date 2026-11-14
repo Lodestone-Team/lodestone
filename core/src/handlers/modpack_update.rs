@@ -1,11 +1,11 @@
-//! Updating a server's modpack, and going back to an earlier version of it:
+//! Updating a server's modpack, and going back to an earlier version of its content:
 //!
 //! - `POST /instance/{uuid}/modpack/update/plan` shows what an update or a restore will
 //!   do, and `POST /instance/{uuid}/modpack/update` does it. See
-//!   [`crate::modpack::update`].
-//! - `GET /instance/{uuid}/modpack/history` lists what was installed, updated and
-//!   restored, and which entry each current file came with. See
-//!   [`crate::modpack::history`].
+//!   [`crate::modpack::update`] and [`crate::modpack::lineage`].
+//! - `GET /instance/{uuid}/modpack/history` lists the server's content images newest
+//!   first, what each changed, and which one each current file came with. See
+//!   [`crate::modpack::lineage`].
 //! - `POST /instance/{uuid}/modpack/check` looks for a newer version on Modrinth now
 //!   (the core also checks on its own, see [`crate::modpack::updates`]).
 //!
@@ -13,10 +13,10 @@
 //! Modrinth must be a version of the modpack the server came from; an uploaded pack
 //! (`/modpack/upload`) can be any pack, and needs `WriteGlobalFile` too, as for creating a
 //! server from one. A restore needs only `WriteInstanceFile`: it puts back files the
-//! server had, from Lodestone's store or from the hosts packs download from. A protected
-//! file it puts back (a jar, see [`is_protected`]) must be one Modrinth knows, as for
-//! adding a mod, or the restore needs `WriteGlobalFile`: the hosts packs download from
-//! include GitHub, where anyone can put any file.
+//! server had, from the image store or from Modrinth. A protected file it puts back (a
+//! jar, see [`is_protected`]) must be one Modrinth knows, as for adding a mod, or the
+//! restore needs `WriteGlobalFile`: an image holds whatever was on the server, also a jar
+//! someone who could write global files put there and took away again.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -25,6 +25,7 @@ use axum::extract::{Path, State};
 use axum::Json;
 use color_eyre::eyre::eyre;
 use lodestone_image::store::Store;
+use lodestone_image::Base;
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 use ts_rs::TS;
@@ -35,16 +36,17 @@ use super::util::{get_instance, AuthedUser};
 use crate::auth::user::UserAction;
 use crate::error::{Error, ErrorKind};
 use crate::events::{CausedBy, Event};
+use crate::images::base::BaseInfo;
 use crate::images::OpKind;
 use crate::implementations::minecraft::{Flavour, MinecraftInstance};
-use crate::modpack::history::{entry_for, History, HistoryKind, ModpackHistory};
-use crate::modpack::lineage::{self, ImageLookup};
+use crate::modpack::lineage::{self, ModpackHistory, RestoreTarget};
+use crate::modpack::pack_info;
 use crate::modpack::store::StoredPack;
 use crate::modpack::update::{
-    begin_update, end_update, keep_unwritten_scripts, other_copies, pack_files, place_files,
-    plan_files, record_of, recover_interrupted, remove_other_copies, remove_work_dirs,
-    stage_files_from, undo_placed_files, FileAction, FilePlan, ModpackUpdatePlan,
-    ModpackUpdateResult, PackFile, PackRecord,
+    begin_update, commit_update, end_update, keep_unwritten_scripts, other_copies, pack_files,
+    place_files, plan_files, record_of, recover_interrupted, remove_other_copies, remove_work_dirs,
+    sources_of, stage_files, undo_placed_files, FileAction, FilePlan, FileSource,
+    ModpackUpdatePlan, ModpackUpdateResult, PackFile, PackRecord,
 };
 use crate::modpack::updates::{self, AvailableUpdate};
 use crate::modpack::{
@@ -68,9 +70,9 @@ pub enum UpdateSource {
     Upload {
         upload_id: String,
     },
-    /// An entry of the server's modpack history: going back to it.
+    /// An entry of the server's history (a content image, by id): going back to it.
     History {
-        entry_id: u32,
+        entry_id: String,
     },
 }
 
@@ -117,45 +119,101 @@ struct Before {
     origin: Option<ModpackOrigin>,
     game_version: String,
     flavour: Flavour,
-    record: PackRecord,
-    /// The files of the server's pack version, when they were read from Modrinth because
-    /// there was no record: where they can be downloaded again.
-    pack_files: Option<BTreeMap<String, PackFile>>,
+}
+
+/// An update to another version of the pack.
+struct PackUpdate {
+    origin: ModpackOrigin,
+    /// Keeps the pack file while the update runs.
+    stored: StoredPack,
+    pack: Pack,
+    /// The pack's files.
+    new_files: Arc<BTreeMap<String, PackFile>>,
+}
+
+/// What a change is.
+enum Change {
+    Update(Box<PackUpdate>),
+    /// Back to a content image of the server's history.
+    Restore(RestoreTarget),
+}
+
+impl Change {
+    fn is_restore(&self) -> bool {
+        matches!(self, Change::Restore(_))
+    }
+
+    /// The label of the content image the change records.
+    fn label(&self) -> String {
+        match self {
+            Change::Update(update) => lineage::update_label(&update.origin),
+            Change::Restore(target) => lineage::restore_label(target.label.as_deref()),
+        }
+    }
+
+    /// What the server goes to, as messages name it.
+    fn what(&self) -> String {
+        match self {
+            Change::Update(update) => {
+                let origin = &update.origin;
+                let version = format!(
+                    "{} {}",
+                    origin.name,
+                    origin.version_number.clone().unwrap_or_default()
+                );
+                version.trim_end().to_string()
+            }
+            Change::Restore(target) => match target.label.as_deref().map(str::trim) {
+                Some(label) if !label.is_empty() => format!("\u{201c}{label}\u{201d}"),
+                _ => "an earlier version".to_string(),
+            },
+        }
+    }
+}
+
+/// A change worked out against the server, before the summary.
+struct Planned {
+    change: Change,
+    /// The server software a restore goes back to; an update works it out from the pack.
+    flavour: Option<Flavour>,
+    sources: BTreeMap<String, FileSource>,
+    plan: FilePlan,
+    target: ModpackInfo,
+    skipped: Vec<String>,
+    note: Option<String>,
 }
 
 /// Everything an update or restore needs, worked out before anything changes.
 struct Prepared {
     instance: MinecraftInstance,
-    kind: HistoryKind,
-    before: Before,
-    history: History,
-    origin: ModpackOrigin,
-    /// The pack, for an update from one. Keeps the pack file while the update runs.
-    pack: Option<(StoredPack, Pack)>,
-    /// The server software a restore goes back to; an update works it out from the pack.
+    change: Change,
     flavour: Option<Flavour>,
-    new_files: Arc<BTreeMap<String, PackFile>>,
+    sources: Arc<BTreeMap<String, FileSource>>,
     plan: FilePlan,
     summary: ModpackUpdatePlan,
     allow_scripts: bool,
-    /// The changelog of the version, for the history.
-    changelog: Option<String>,
 }
 
-/// The files the server's current pack wrote: its record, else the files of the current
-/// pack version when it is on Modrinth. With a note when neither is there.
+/// The files the server's current pack wrote: from its `pack.json`, else the files of the
+/// current pack version when it is on Modrinth. With a note when neither is there.
 async fn current_record(
     state: &AppState,
-    root: &std::path::Path,
+    uuid: &InstanceUuid,
     origin: Option<&ModpackOrigin>,
     allow_scripts: bool,
-) -> (
-    PackRecord,
-    Option<BTreeMap<String, PackFile>>,
-    Option<String>,
-) {
-    if let Some(record) = PackRecord::load(root).await {
-        return (record, None, None);
+) -> (PackRecord, Option<String>) {
+    let saved = {
+        let (images, uuid) = (state.images().clone(), uuid.clone());
+        spawn_blocking(move || Ok(pack_info::load(&images, &uuid)))
+            .await
+            .ok()
+            .flatten()
+    };
+    if let Some(record) = saved
+        .map(|info| pack_info::record_of_base(&info))
+        .filter(|record| !record.files.is_empty())
+    {
+        return (record, None);
     }
     let no_record = "This server has no record of the files its modpack wrote, so files the \
                      new version drops are not removed."
@@ -164,7 +222,7 @@ async fn current_record(
         .map(|o| o.version_id.clone())
         .filter(|v| !v.is_empty())
     else {
-        return (PackRecord::default(), None, Some(no_record));
+        return (PackRecord::default(), Some(no_record));
     };
     let old = async {
         let stored = modrinth_pack(state, &version_id).await?;
@@ -173,38 +231,31 @@ async fn current_record(
     }
     .await;
     match old {
-        Ok(files) => (record_of(&files), Some(files), None),
+        Ok(files) => (record_of(&files), None),
         Err(e) => {
             warn!("Could not read the server's current modpack version {version_id}: {e}");
-            (PackRecord::default(), None, Some(no_record))
+            (PackRecord::default(), Some(no_record))
         }
     }
 }
 
-/// The plan of going to `new_files`, from what the server has.
+/// The plan of going from `record` to `new_files`, from what the server has.
 async fn plan_against(
     state: &AppState,
     root: &std::path::Path,
-    before: &Before,
+    record: &PackRecord,
     new_files: &Arc<BTreeMap<String, PackFile>>,
     allow_scripts: bool,
 ) -> Result<FilePlan, Error> {
     let mut plan = {
-        let (root, old, new_files) = (root.to_path_buf(), before.record.clone(), new_files.clone());
+        let (root, old, new_files) = (root.to_path_buf(), record.clone(), new_files.clone());
         spawn_blocking(move || Ok(plan_files(&root, &old, &new_files))).await?
     };
     if !allow_scripts {
-        keep_unwritten_scripts(&mut plan, &before.record, new_files);
+        keep_unwritten_scripts(&mut plan, record, new_files);
     }
     // another version of a mod the plan adds, such as one updated in the Mods tab
-    let others = other_copies(
-        state.mods.modrinth.as_ref(),
-        root,
-        &before.record,
-        new_files,
-        &plan,
-    )
-    .await;
+    let others = other_copies(state.mods.modrinth.as_ref(), root, record, new_files, &plan).await;
     remove_other_copies(&mut plan, new_files, &others);
     Ok(plan)
 }
@@ -219,154 +270,75 @@ async fn prepare(
     let root = instance.path().await;
     // scripts in a pack are only copied for the owner, while code execution is on
     let allow_scripts = requester.is_owner && state.code_execution_enabled();
-    let origin_before = instance.modpack_origin().await;
     let (game_version, flavour) = instance.server_software().await;
-    let (record, pack_files_before, note) =
-        current_record(state, &root, origin_before.as_ref(), allow_scripts).await;
     let before = Before {
-        origin: origin_before,
+        origin: instance.modpack_origin().await,
         game_version,
         flavour,
-        record,
-        pack_files: pack_files_before,
     };
-    let history = History::load(&root).await;
     let current_loader = before.flavour.to_string();
-
-    let (kind, origin, pack, flavour, new_files, plan, mut target, skipped) = match source {
+    let planned = match source {
         UpdateSource::Modrinth { version_id } => {
             let source = ModpackSource::Modrinth {
                 version_id: version_id.clone(),
             };
-            from_pack(state, requester, &root, &before, &source, allow_scripts).await?
+            from_pack(
+                state,
+                requester,
+                uuid,
+                &root,
+                &before,
+                &source,
+                allow_scripts,
+            )
+            .await?
         }
         UpdateSource::Upload { upload_id } => {
             let source = ModpackSource::Upload {
                 upload_id: upload_id.clone(),
             };
-            from_pack(state, requester, &root, &before, &source, allow_scripts).await?
+            from_pack(
+                state,
+                requester,
+                uuid,
+                &root,
+                &before,
+                &source,
+                allow_scripts,
+            )
+            .await?
         }
         UpdateSource::History { entry_id } => {
-            let entry = history.entry(*entry_id).ok_or_else(|| Error {
-                kind: ErrorKind::NotFound,
-                source: eyre!("That version is no longer in the server's modpack history"),
-            })?;
-            let mut files = history
-                .files_of(&root, *entry_id, allow_scripts)
-                .unwrap_or_default();
-            // the user's own files that later versions replaced go back too, as theirs
-            let theirs = history.user_files_after(&root, *entry_id, allow_scripts);
-            for (path, file) in &theirs {
-                files.entry(path.clone()).or_insert_with(|| file.clone());
-            }
-            let new_files = Arc::new(files);
-            let mut plan = plan_against(state, &root, &before, &new_files, allow_scripts).await?;
-            for path in theirs.keys() {
-                plan.record.files.remove(path);
-            }
-            // what neither the history's store nor a download has may be in the entry's
-            // content image
-            let new_files = {
-                let mut files = Arc::unwrap_or_clone(new_files);
-                let (store, uuid, entry, plan) = (
-                    state.images().store(),
-                    uuid.clone(),
-                    entry.clone(),
-                    plan.clone(),
-                );
-                Arc::new(
-                    spawn_blocking(move || {
-                        let lookup = ImageLookup::new(store, &uuid);
-                        lineage::fill_from_image(&lookup, &entry, &plan, &mut files);
-                        Ok(files)
-                    })
-                    .await?,
-                )
-            };
-            // files to put back that Lodestone can't get
-            let missing: Vec<&str> = plan
-                .changes
-                .iter()
-                .filter(|c| c.action != FileAction::Remove)
-                .filter(|c| {
-                    new_files.get(&c.path).is_some_and(|f| {
-                        f.stored.is_none() && f.download.is_none() && f.image.is_none()
-                    })
-                })
-                .map(|c| c.target.as_str())
-                .collect();
-            let unsupported_reason = if history.latest().is_some_and(|l| l.id == *entry_id) {
-                Some("The server is already at this version".to_string())
-            } else if entry.files_unknown() {
-                Some(
-                    "Lodestone doesn't know which files the server had at this version".to_string(),
-                )
-            } else if missing.is_empty() {
-                None
-            } else {
-                Some(format!(
-                    "Lodestone no longer has {} file(s) of this version: {}",
-                    missing.len(),
-                    missing
-                        .iter()
-                        .take(5)
-                        .copied()
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                ))
-            };
-            let download_size = plan
-                .changes
-                .iter()
-                .filter(|c| c.action != FileAction::Remove)
-                .filter_map(|c| {
-                    let file = new_files.get(&c.path)?;
-                    file.stored
-                        .is_none()
-                        .then(|| file.download.as_ref().map(|d| d.size))
-                        .flatten()
-                })
-                .sum();
-            let target = ModpackInfo {
-                name: entry.origin.name.clone(),
-                version_number: entry.origin.version_number.clone(),
-                summary: None,
-                game_version: entry.game_version.clone(),
-                loader: entry.flavour.to_string(),
-                loader_version: entry.flavour.loader_version(),
-                server_file_count: new_files.len() as u32,
-                server_download_size: download_size,
-                unsupported_reason,
-                upload_id: None,
-            };
-            (
-                HistoryKind::Restore { to: *entry_id },
-                entry.origin.clone(),
-                None,
-                Some(entry.flavour.clone()),
-                new_files,
-                plan,
-                target,
-                Vec::new(),
-            )
+            from_history(state, uuid, &before, entry_id, allow_scripts).await?
         }
     };
+    let Planned {
+        change,
+        flavour,
+        sources,
+        plan,
+        mut target,
+        skipped,
+        note,
+    } = planned;
 
     target.upload_id = None;
-    if flavour.is_none() && target.unsupported_reason.is_none() && current_loader != target.loader {
+    if !change.is_restore()
+        && target.unsupported_reason.is_none()
+        && current_loader != target.loader
+    {
         target.unsupported_reason = Some(format!(
             "This server runs {current_loader}, and this version of the modpack needs {}",
             target.loader
         ));
     }
-    let reinstalls_server = before.game_version != target.game_version
-        || match &flavour {
-            Some(flavour) => {
-                flavour.to_string() != current_loader
-                    || flavour.loader_version() != before.flavour.loader_version()
-            }
-            None => !runs_loader_version(&before.flavour, &target.game_version, &target),
-        };
+    let reinstalls_server = match (&change, &flavour) {
+        (Change::Restore(_), flavour) => flavour.is_some(),
+        (Change::Update(_), _) => {
+            before.game_version != target.game_version
+                || !runs_loader_version(&before.flavour, &target.game_version, &target)
+        }
+    };
     let summary = ModpackUpdatePlan {
         current_game_version: before.game_version.clone(),
         current_loader,
@@ -380,53 +352,27 @@ async fn prepare(
         note,
         target,
     };
-    // a restore goes back to a version whose changelog the history has
-    let changelog = match source {
-        UpdateSource::History { entry_id } => {
-            history.entry(*entry_id).and_then(|e| e.changelog.clone())
-        }
-        _ if !origin.version_id.is_empty() => {
-            crate::modpack::modrinth_changelog(state.mods.modrinth.as_ref(), &origin.version_id)
-                .await
-        }
-        _ => None,
-    };
     Ok(Prepared {
         instance,
-        kind,
-        before,
-        history,
-        origin,
-        pack,
+        change,
         flavour,
-        new_files,
+        sources: Arc::new(sources),
         plan,
         summary,
         allow_scripts,
-        changelog,
     })
 }
-
-type FromPack = (
-    HistoryKind,
-    ModpackOrigin,
-    Option<(StoredPack, Pack)>,
-    Option<Flavour>,
-    Arc<BTreeMap<String, PackFile>>,
-    FilePlan,
-    ModpackInfo,
-    Vec<String>,
-);
 
 /// An update to the pack `source` names.
 async fn from_pack(
     state: &AppState,
     requester: &AuthedUser,
+    uuid: &InstanceUuid,
     root: &std::path::Path,
     before: &Before,
     source: &ModpackSource,
     allow_scripts: bool,
-) -> Result<FromPack, Error> {
+) -> Result<Planned, Error> {
     let stored = stored_pack(state, requester, source).await?;
     let pack = read_pack_async(stored.path(), allow_scripts).await?;
     let origin = match &stored.version_id {
@@ -443,36 +389,138 @@ async fn from_pack(
             )));
         }
     }
+    let (record, note) = current_record(state, uuid, before.origin.as_ref(), allow_scripts).await;
     let new_files = {
         let (pack, path) = (pack.clone(), stored.path());
         Arc::new(spawn_blocking(move || pack_files(&pack, &path, allow_scripts)).await?)
     };
-    let plan = plan_against(state, root, before, &new_files, allow_scripts).await?;
+    let plan = plan_against(state, root, &record, &new_files, allow_scripts).await?;
     let target = pack.info.clone();
     let skipped = pack
         .skipped
         .iter()
         .map(|s| format!("{} ({})", s.path, s.reason))
         .collect();
-    Ok((
-        HistoryKind::Update,
-        origin,
-        Some((stored, pack)),
-        None,
-        new_files,
+    Ok(Planned {
+        sources: sources_of(&new_files),
+        change: Change::Update(Box::new(PackUpdate {
+            origin,
+            stored,
+            pack,
+            new_files,
+        })),
+        flavour: None,
         plan,
         target,
         skipped,
-    ))
+        note,
+    })
+}
+
+/// `paths` for a message: the first five, comma-separated.
+fn first_five(paths: &[String]) -> String {
+    paths
+        .iter()
+        .take(5)
+        .map(String::as_str)
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// A restore of the content image `entry_id` ([`lineage::plan_restore`]).
+async fn from_history(
+    state: &AppState,
+    uuid: &InstanceUuid,
+    before: &Before,
+    entry_id: &str,
+    allow_scripts: bool,
+) -> Result<Planned, Error> {
+    let not_found = || Error {
+        kind: ErrorKind::NotFound,
+        source: eyre!("That version is no longer in the server's history"),
+    };
+    let images = state.images().clone();
+    let current = images.current_content(uuid).await.ok_or_else(not_found)?;
+    let ctx = crate::images::context_of(state, uuid)
+        .await
+        .ok_or_else(not_found)?;
+    let restore = {
+        let (store, uuid, entry_id) = (images.store(), uuid.clone(), entry_id.to_string());
+        let current = current.clone();
+        spawn_blocking(move || {
+            let (layout, _) = crate::images::recorder::content_scope(&ctx)?;
+            lineage::plan_restore(
+                &store,
+                &uuid,
+                &ctx.root,
+                &layout,
+                &current,
+                &entry_id,
+                allow_scripts,
+            )
+        })
+        .await?
+    };
+    let target = restore.target.clone();
+    let now = crate::images::layout::game_of(&before.game_version, &before.flavour);
+    let flavour = if target.game == now {
+        None
+    } else {
+        lineage::flavour_of_game(&target.game)
+    };
+    let unsupported_reason = if entry_id == current {
+        Some("The server is already at this version".to_string())
+    } else if target.game != now && flavour.is_none() {
+        Some(format!(
+            "This version ran Minecraft {} with {}, which a restore can't install",
+            target.game.minecraft,
+            target.game.loader.as_str()
+        ))
+    } else if !restore.blocked.is_empty() {
+        Some(format!(
+            "Something other than a file is where this version has {} file(s): {}",
+            restore.blocked.len(),
+            first_five(&restore.blocked)
+        ))
+    } else if !restore.missing.is_empty() {
+        Some(format!(
+            "Lodestone no longer has {} file(s) of this version: {}",
+            restore.missing.len(),
+            first_five(&restore.missing)
+        ))
+    } else {
+        None
+    };
+    let info = ModpackInfo {
+        name: target.label.clone().unwrap_or_default(),
+        version_number: None,
+        summary: None,
+        game_version: target.game.minecraft.clone(),
+        loader: target.game.loader.as_str().to_string(),
+        loader_version: target.game.loader_version.clone(),
+        server_file_count: restore.file_count,
+        server_download_size: restore.download_size,
+        unsupported_reason,
+        upload_id: None,
+    };
+    Ok(Planned {
+        change: Change::Restore(target),
+        flavour,
+        sources: restore.sources,
+        plan: restore.plan,
+        target: info,
+        skipped: Vec::new(),
+        note: None,
+    })
 }
 
 /// The protected files (see [`is_protected`]) that `plan` adds or replaces, with the
-/// SHA-512 of the bytes it would put there: of the stored copy it copies, else of the
-/// download it checks, else of its copy in `images`. `None` when none is there. Reads stored
-/// copies, so call it on a blocking thread.
+/// SHA-512 of the bytes it would put there: the download's, which it is checked against,
+/// else the image store copy's. `None` when that can't be had. Reads the image store, so
+/// call it on a blocking thread.
 fn protected_new_files(
     plan: &FilePlan,
-    new_files: &BTreeMap<String, PackFile>,
+    sources: &BTreeMap<String, FileSource>,
     images: Option<&Store>,
 ) -> Vec<(String, Option<String>)> {
     plan.changes
@@ -483,32 +531,31 @@ fn protected_new_files(
                 || is_protected(std::path::Path::new(&c.target), false)
         })
         .map(|c| {
-            let file = new_files.get(&c.path);
-            let sha512 = file.and_then(|file| match (&file.stored, &file.download) {
-                (Some(stored), _) => lodestone_minecraft::hash::sha512_of(stored).ok(),
-                (None, Some(download)) => Some(download.sha512.clone()),
-                (None, None) => lineage::image_sha512(images?, file.image.as_ref()?),
-            });
+            let sha512 = match sources.get(&c.path) {
+                Some(FileSource::Download(download)) => Some(download.sha512.clone()),
+                Some(FileSource::Image(file)) => {
+                    images.and_then(|s| lineage::image_sha512(s, file))
+                }
+                Some(FileSource::Override) | None => None,
+            };
             (c.target.clone(), sha512.map(|h| h.to_lowercase()))
         })
         .collect()
 }
 
 /// For a restore by a user without `WriteGlobalFile`: fails unless Modrinth knows every
-/// protected file it puts back. The history says where a restore's files come from, and
-/// those hosts include GitHub, so without this a restore could put any jar into `mods/`,
-/// which only users who can write global files may do. Uploading or enabling a mod has the
-/// same rule.
+/// protected file it puts back. An image holds whatever was on the server, so without this
+/// a restore could put back a jar that only a user who can write global files could add
+/// (and maybe took away again). Uploading or enabling a mod has the same rule.
 async fn require_known_restored_files(
     api: &dyn ModrinthApi,
     plan: &FilePlan,
-    new_files: &Arc<BTreeMap<String, PackFile>>,
+    sources: &Arc<BTreeMap<String, FileSource>>,
     images: Option<Arc<Store>>,
 ) -> Result<(), Error> {
     let files = {
-        let (plan, new_files) = (plan.clone(), new_files.clone());
-        spawn_blocking(move || Ok(protected_new_files(&plan, &new_files, images.as_deref())))
-            .await?
+        let (plan, sources) = (plan.clone(), sources.clone());
+        spawn_blocking(move || Ok(protected_new_files(&plan, &sources, images.as_deref()))).await?
     };
     if files.is_empty() {
         return Ok(());
@@ -519,10 +566,10 @@ async fn require_known_restored_files(
     } else {
         api.versions_by_hash(&hashes).await?
     };
-    let unknown: Vec<&str> = files
+    let unknown: Vec<String> = files
         .iter()
         .filter(|(_, hash)| !hash.as_ref().is_some_and(|h| known.contains_key(h)))
-        .map(|(target, _)| target.as_str())
+        .map(|(target, _)| target.clone())
         .collect();
     if unknown.is_empty() {
         return Ok(());
@@ -532,7 +579,7 @@ async fn require_known_restored_files(
         source: eyre!(
             "This version puts back {} file(s) that are not on Modrinth ({}). Only users who can write global files can restore it",
             unknown.len(),
-            unknown.iter().take(5).copied().collect::<Vec<_>>().join(", ")
+            first_five(&unknown)
         ),
     })
 }
@@ -544,20 +591,19 @@ async fn check_restore(
     requester: &AuthedUser,
     prepared: &Prepared,
 ) -> Result<(), Error> {
-    let restore = matches!(prepared.kind, HistoryKind::Restore { .. });
-    if !restore || requester.can_perform_action(&UserAction::WriteGlobalFile) {
+    if !prepared.change.is_restore() || requester.can_perform_action(&UserAction::WriteGlobalFile) {
         return Ok(());
     }
     require_known_restored_files(
         state.mods.modrinth.as_ref(),
         &prepared.plan,
-        &prepared.new_files,
+        &prepared.sources,
         Some(state.images().store()),
     )
     .await
 }
 
-pub(super) async fn plan_update(
+pub(crate) async fn plan_update(
     State(state): State<AppState>,
     Path(uuid): Path<InstanceUuid>,
     requester: AuthedUser,
@@ -575,122 +621,155 @@ pub(super) async fn plan_update(
     Ok(Json(prepared.summary))
 }
 
-/// Adds the change to the server's history: keeps the files it took off the server that
-/// can't be downloaded again, and remembers where the new ones come from. A server
-/// without a history gets an entry for what it had first. The new entry is linked to
-/// `image`, the content image recorded after the change; a baseline entry gets the content
-/// image from before the change.
-async fn record_history(
-    prepared: &Prepared,
-    root: &std::path::Path,
-    lineage: &lineage::Before,
-    image: Option<String>,
-) -> Result<(), Error> {
-    let mut history = prepared.history.clone();
-    let before = &prepared.before;
-    if let Some(origin) = &before.origin {
-        let was_empty = history.entries.is_empty();
-        history.begin_with_baseline(
-            origin,
-            &before.game_version,
-            &before.flavour,
-            &before.record,
-        );
-        if was_empty {
-            if let Some(baseline) = history.entries.first_mut() {
-                baseline.image = lineage.current.clone();
-            }
-        }
-    }
-    if let Some(files) = &before.pack_files {
-        history.remember_downloads(files);
-    }
-    let (game_version, flavour) = prepared.instance.server_software().await;
-    let mut entry = entry_for(
-        prepared.kind.clone(),
-        prepared.origin.clone(),
-        game_version,
-        flavour,
-        &before.record,
-        &prepared.plan,
-    );
-    entry.changelog = prepared.changelog.clone();
-    entry.image = image;
-    let (root, plan, new_files) = (
-        root.to_path_buf(),
-        prepared.plan.clone(),
-        prepared.new_files.clone(),
-    );
-    let history = spawn_blocking(move || {
-        history.record_change(&root, &plan, &new_files, entry);
-        Ok(history)
-    })
-    .await?;
-    history.save(&prepared.instance.path().await).await
+/// How long a restore waits for Modrinth (the restored version's `.mrpack` and its name)
+/// before it goes on without.
+const MODRINTH_WAIT: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// What the server is built on after the change: its `pack.json` and modpack origin, each
+/// `None` when it stays as it is.
+struct After {
+    pack: Option<BaseInfo>,
+    origin: Option<ModpackOrigin>,
 }
 
-/// How long a restore waits for its pack's `.mrpack` (for the `env` of its files) before
-/// it records the content image without it.
-const PACK_WAIT: std::time::Duration = std::time::Duration::from_secs(60);
+/// [`After`] for `prepared`, worked out before anything changes (a restore may download
+/// the pack it goes back to).
+async fn after_change(state: &AppState, prepared: &Prepared, uuid: &InstanceUuid) -> After {
+    match &prepared.change {
+        Change::Update(update) => {
+            let origin = &update.origin;
+            let (origin_for_pack, path, record, files) = (
+                origin.clone(),
+                update.stored.path(),
+                prepared.plan.record.clone(),
+                update.new_files.clone(),
+            );
+            let pack = spawn_blocking(move || {
+                Ok(pack_info::base_info(
+                    &origin_for_pack,
+                    Some(&path),
+                    &record,
+                    &files,
+                ))
+            })
+            .await
+            .ok();
+            After {
+                pack,
+                origin: Some(origin.clone()),
+            }
+        }
+        Change::Restore(target) => restored_pack(state, prepared, uuid, target).await,
+    }
+}
 
-/// Records the content image of the server after `prepared` succeeded, ending `op`: writes
-/// `pack.json` first, from the pack an update used, or for a restore from the restored
-/// version's pack (downloaded again when Lodestone no longer has it), else from the base the
-/// restored entry's image had. `None` when nothing was recorded, which never fails the
-/// change.
-async fn record_image(
+/// [`After`] for a restore of `target`. The same base as now changes nothing. Another
+/// Modrinth pack version becomes the origin, and its files the `pack.json`, read from its
+/// `.mrpack` when Lodestone can get it and it is the one the image names (by SHA-512);
+/// otherwise the `pack.json` has the base without files, so the next update falls back to
+/// the pack itself. An image without a pack keeps the origin (the server may still be made
+/// from an uploaded pack) and a `pack.json` without base or files.
+async fn restored_pack(
     state: &AppState,
     prepared: &Prepared,
     uuid: &InstanceUuid,
-    op: crate::images::Operation,
-) -> Option<String> {
-    let images = state.images().clone();
-    let ctx = crate::images::context_of(state, uuid).await?;
-    let mut pack = prepared.pack.as_ref().map(|(stored, _)| stored.clone());
-    let mut fallback = None;
-    if let HistoryKind::Restore { to } = prepared.kind {
-        let version_id = &prepared.origin.version_id;
-        if pack.is_none() && !version_id.is_empty() {
-            match tokio::time::timeout(PACK_WAIT, modrinth_pack(state, version_id)).await {
-                Ok(Ok(stored)) => pack = Some(stored),
-                Ok(Err(e)) => warn!("Could not get the modpack version {version_id}: {e}"),
-                Err(_) => warn!("Gave up getting the modpack version {version_id}"),
-            }
-        }
-        if let Some(entry) = prepared.history.entry(to).cloned() {
-            let (store, uuid) = (images.store(), uuid.clone());
-            fallback = spawn_blocking(move || Ok(lineage::image_base(&store, &uuid, &entry)))
-                .await
-                .ok()
-                .flatten();
-        }
-    }
-    let info = {
-        let (origin, files) = (prepared.origin.clone(), prepared.plan.record.files.clone());
-        let new_files = prepared.new_files.clone();
-        spawn_blocking(move || {
-            // the pack's files after the change: those the record keeps
-            let files = new_files
-                .iter()
-                .filter(|(path, _)| files.contains_key(*path))
-                .map(|(path, file)| (path.clone(), file.clone()))
-                .collect();
-            Ok(lineage::base_info(
-                &origin,
-                pack.as_ref().map(|p| p.path()).as_deref(),
-                &files,
-                fallback,
-            ))
-        })
-        .await
-        .ok()?
+    target: &RestoreTarget,
+) -> After {
+    let current = {
+        let (images, uuid) = (state.images().clone(), uuid.clone());
+        spawn_blocking(move || Ok(pack_info::load(&images, &uuid)))
+            .await
+            .ok()
+            .flatten()
     };
-    lineage::record(&images, ctx, op, info).await
+    if current.as_ref().and_then(|info| info.base.as_ref()) == target.base.as_ref() {
+        return After {
+            pack: None,
+            origin: None,
+        };
+    }
+    let without_files = BaseInfo {
+        base: target.base.clone(),
+        files: BTreeMap::new(),
+    };
+    let Some(Base::ModrinthPack {
+        project,
+        version,
+        sha512,
+    }) = &target.base
+    else {
+        return After {
+            pack: Some(without_files),
+            origin: None,
+        };
+    };
+    let origin = match tokio::time::timeout(
+        MODRINTH_WAIT,
+        ModpackOrigin::from_modrinth(state.mods.modrinth.as_ref(), version),
+    )
+    .await
+    {
+        Ok(Ok(origin)) if origin.project_id == *project => origin,
+        _ => {
+            warn!("Could not look up the modpack version {version}; keeping the pack's name");
+            let mut origin =
+                prepared
+                    .instance
+                    .modpack_origin()
+                    .await
+                    .unwrap_or_else(|| ModpackOrigin {
+                        project_id: String::new(),
+                        version_id: String::new(),
+                        name: "Modpack".into(),
+                        version_number: None,
+                        icon_url: None,
+                    });
+            origin.project_id = project.clone();
+            origin.version_id = version.clone();
+            origin.version_number = None;
+            origin
+        }
+    };
+    let pack = match tokio::time::timeout(MODRINTH_WAIT, modrinth_pack(state, version)).await {
+        Ok(Ok(stored)) => {
+            let (origin, allow_scripts, sha512) =
+                (origin.clone(), prepared.allow_scripts, sha512.clone());
+            spawn_blocking(move || {
+                let path = stored.path();
+                if pack_info::pack_sha512(&path).as_deref() != Some(sha512.as_str()) {
+                    return Err(eyre!("it isn't the pack the image was built on").into());
+                }
+                let pack = crate::modpack::read_pack(&path, allow_scripts)?;
+                let files = pack_files(&pack, &path, allow_scripts)?;
+                Ok(pack_info::base_info(
+                    &origin,
+                    Some(&path),
+                    &record_of(&files),
+                    &files,
+                ))
+            })
+            .await
+            .map_err(|e| warn!("Could not read the modpack version {version}: {e}"))
+            .ok()
+        }
+        Ok(Err(e)) => {
+            warn!("Could not get the modpack version {version}: {e}");
+            None
+        }
+        Err(_) => {
+            warn!("Gave up getting the modpack version {version}");
+            None
+        }
+    };
+    After {
+        pack: Some(pack.unwrap_or(without_files)),
+        origin: Some(origin),
+    }
 }
 
 /// Stages, places and records the files of `prepared`, and installs the server software
 /// again when the Minecraft or loader version changes. The caller holds the instance's
-/// change lock.
+/// change lock and the mods lock.
 async fn apply(
     state: &AppState,
     prepared: &Prepared,
@@ -705,37 +784,50 @@ async fn apply(
         (Some(flavour), true) => Some(flavour.clone()),
         (None, true) => Some(server_flavour(&summary.target).await?),
     };
-    let pack_path = prepared.pack.as_ref().map(|(stored, _)| stored.path());
     let uuid = instance.uuid().await;
     let images = state.images().clone();
-    // the content as it is before the change, and the history's older entries as images
-    let lineage = match crate::images::context_of(state, &uuid).await {
-        Some(ctx) => lineage::before_change(&images, &ctx).await,
-        None => lineage::Before::default(),
+    let after = after_change(state, prepared, &uuid).await;
+    let (pack_path, skipped) = match &prepared.change {
+        Change::Update(update) => (
+            Some(update.stored.path()),
+            describe_skipped(&update.pack.skipped),
+        ),
+        Change::Restore(_) => (None, None),
     };
     // held until the change is recorded; dropped on failure, which records nothing
     let op = images
-        .begin(
-            &uuid,
-            OpKind::Modpack,
-            lineage::label(&prepared.kind, &prepared.origin),
-        )
+        .begin(&uuid, OpKind::Modpack, prepared.change.label())
         .await;
-    stage_files_from(
-        state.mods.modrinth.as_ref(),
-        pack_path.as_deref(),
-        &prepared.new_files,
-        plan,
-        &root,
-        prepared.allow_scripts,
-        Some(images.store()),
-        progress,
-    )
-    .await?;
-    progress("Replacing the modpack's files".to_string());
+    {
+        // A restore copies objects out of the store: no collection deletes them meanwhile.
+        let _hold = match &prepared.change {
+            Change::Restore(_) => {
+                let store = images.store();
+                Some(
+                    spawn_blocking(move || {
+                        store.hold_off_collection().map_err(|e| eyre!("{e}").into())
+                    })
+                    .await?,
+                )
+            }
+            Change::Update(_) => None,
+        };
+        stage_files(
+            state.mods.modrinth.as_ref(),
+            pack_path.as_deref(),
+            &prepared.sources,
+            plan,
+            &root,
+            prepared.allow_scripts,
+            Some(images.store()),
+            progress,
+        )
+        .await?;
+    }
+    progress("Replacing the server's files".to_string());
     {
         // the journal lets the next start put the files back if the core stops before
-        // the record is saved (LS-19)
+        // the change is committed (LS-19)
         let (root, plan) = (root.clone(), plan.clone());
         spawn_blocking(move || {
             begin_update(&root, &plan)?;
@@ -764,24 +856,37 @@ async fn apply(
             return Err(e);
         }
     }
-    if let Err(e) = plan.record.save(&root).await {
-        undo().await?;
-        return Err(e);
+    {
+        let root = root.clone();
+        if let Err(e) = spawn_blocking(move || commit_update(&root)).await {
+            undo().await?;
+            return Err(e);
+        }
     }
-    // the change is done: record the server's content image, which the entry links to
-    let image = record_image(state, prepared, &uuid, op).await;
-    // the files are in place: a history that can't be written only loses the undo
-    if let Err(e) = record_history(prepared, &root, &lineage, image).await {
-        warn!("Could not add the modpack change to the history: {e}");
+    // the change is complete: what the server is built on now, then its content image
+    if let Some(pack) = after.pack {
+        pack_info::save(&images, &uuid, pack).await;
     }
-    let origin = instance
-        .set_modpack_origin(Some(prepared.origin.clone()))
-        .await;
+    let origin = match after.origin {
+        Some(origin) => instance.set_modpack_origin(Some(origin)).await,
+        None => Ok(()),
+    };
     {
         let root = root.clone();
         if let Err(e) = spawn_blocking(move || end_update(&root)).await {
             warn!("{}", e.source);
         }
+    }
+    match crate::images::context_of(state, &uuid).await {
+        Some(ctx) => {
+            if let Err(e) = op.succeed_and_record(ctx).await {
+                warn!(
+                    "Could not record the content image of {uuid} after its modpack changed: {}",
+                    e.source
+                );
+            }
+        }
+        None => drop(op),
     }
     origin?;
     Ok(ModpackUpdateResult {
@@ -789,10 +894,7 @@ async fn apply(
         replaced: summary.replaced.len() as u32,
         removed: summary.removed.len() as u32,
         kept: summary.kept.len() as u32,
-        skipped: prepared
-            .pack
-            .as_ref()
-            .and_then(|(_, pack)| describe_skipped(&pack.skipped)),
+        skipped,
     })
 }
 
@@ -815,6 +917,15 @@ pub(crate) async fn update_modpack(
         let root = instance.path().await;
         spawn_blocking(move || Ok(recover_interrupted(&root))).await?;
     }
+    let restoring = match &request.source {
+        UpdateSource::History { entry_id } => Some(lineage::keep_while_restoring(&uuid, entry_id)),
+        _ => None,
+    };
+    // the content as it is now, so the change is planned from it and what it takes off the
+    // server is in an image
+    if let Some(ctx) = crate::images::context_of(&state, &uuid).await {
+        lineage::before_change(state.images(), ctx).await;
+    }
     let prepared = prepare(&state, &requester, &uuid, &request.source).await?;
     if let Some(reason) = &prepared.summary.target.unsupported_reason {
         return Err(bad_request(reason.clone()));
@@ -823,19 +934,14 @@ pub(crate) async fn update_modpack(
     let caused_by: CausedBy = requester.caused_by();
     // the update runs on its own task, so a dropped request can't stop it half way
     let task = tokio::spawn(async move {
-        let _guards = (guard, mods_guard);
+        let _guards = (guard, mods_guard, restoring);
         let name = prepared.instance.name().await;
-        let version = format!(
-            "{} {}",
-            prepared.origin.name,
-            prepared.origin.version_number.clone().unwrap_or_default()
-        );
-        let version = version.trim_end();
-        let restore = matches!(prepared.kind, HistoryKind::Restore { .. });
+        let what = prepared.change.what();
+        let restore = prepared.change.is_restore();
         let title = if restore {
-            format!("Restoring {name} to {version}")
+            format!("Restoring {name} to {what}")
         } else {
-            format!("Updating {name} to {version}")
+            format!("Updating {name} to {what}")
         };
         let broadcaster = state.event_broadcaster.clone();
         let (start, event_id) = Event::new_progression_event_start(title, None, None, caused_by);
@@ -849,7 +955,7 @@ pub(crate) async fn update_modpack(
             Ok(done) => {
                 let verb = if restore { "Restored" } else { "Updated" };
                 let mut message = format!(
-                    "{verb} {name} to {version}: {} added, {} replaced, {} removed",
+                    "{verb} {name} to {what}: {} added, {} replaced, {} removed",
                     done.added, done.replaced, done.removed
                 );
                 if done.kept > 0 {
@@ -860,7 +966,7 @@ pub(crate) async fn update_modpack(
                 }
                 message
             }
-            Err(e) if restore => format!("Restoring {name}'s modpack failed: {e}"),
+            Err(e) if restore => format!("Restoring {name} failed: {e}"),
             Err(e) => format!("Updating {name}'s modpack failed: {e}"),
         };
         broadcaster.send(Event::new_progression_event_end(
@@ -888,18 +994,11 @@ pub(crate) async fn modpack_history(
     requester
         .require(&state, UserAction::ReadInstanceFile(uuid.clone()))
         .await?;
-    let instance = minecraft_instance(get_instance(&state, &uuid)?);
-    let root = instance.path().await;
-    let history = History::load(&root).await;
+    get_instance(&state, &uuid)?;
     let update = state.mods.updates.get(&uuid);
     let store = state.images().store();
-    let info = spawn_blocking(move || {
-        // a file the history can't get back may be in its entry's content image
-        let lookup = ImageLookup::new(store, &uuid);
-        Ok(history.info_with(&root, update, &lookup))
-    })
-    .await?;
-    Ok(Json(info))
+    let history = spawn_blocking(move || Ok(lineage::history(&store, &uuid, update))).await?;
+    Ok(Json(history))
 }
 
 pub(super) async fn check_modpack(
@@ -917,25 +1016,18 @@ pub(super) async fn check_modpack(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::modpack::update::FileChange;
+    use crate::modpack::update::{FileChange, ImageFile};
     use crate::modpack::PackDownload;
     use crate::modrinth::fake::{sha1_hex, sha512_hex, FakeModrinth, FakeVersion};
 
-    fn download(path: &str, content: &[u8], url: &str) -> PackFile {
-        PackFile {
+    fn download(path: &str, content: &[u8], url: &str) -> FileSource {
+        FileSource::Download(PackDownload {
+            path: path.into(),
+            urls: vec![url::Url::parse(url).unwrap()],
             sha1: sha1_hex(content),
-            download: Some(PackDownload {
-                path: path.into(),
-                urls: vec![url::Url::parse(url).unwrap()],
-                sha1: sha1_hex(content),
-                sha512: sha512_hex(content),
-                size: content.len() as u64,
-            }),
-            from_overrides: false,
-            project_id: None,
-            stored: None,
-            image: None,
-        }
+            sha512: sha512_hex(content),
+            size: content.len() as u64,
+        })
     }
 
     fn adds(paths: &[&str]) -> FilePlan {
@@ -946,15 +1038,15 @@ mod tests {
                     path: path.to_string(),
                     target: path.to_string(),
                     action: FileAction::Add,
-                    old_sha1: None,
                 })
                 .collect(),
             ..Default::default()
         }
     }
 
-    /// A history edited to restore a jar from GitHub with its own hashes doesn't put it
-    /// into `mods/` for a user who can't write global files (LS-02).
+    /// A restore by a user who can't write global files puts a jar into `mods/` only when
+    /// Modrinth knows its bytes (LS-02): a download by the hash it is checked against, a
+    /// copy in the image store by its own bytes.
     #[tokio::test]
     async fn a_restore_only_puts_back_jars_modrinth_knows() {
         let api = FakeModrinth::default();
@@ -962,7 +1054,7 @@ mod tests {
         let known_content = known.content.clone();
         api.add(known);
         let evil = b"not on modrinth";
-        let new_files = Arc::new(BTreeMap::from([
+        let sources = Arc::new(BTreeMap::from([
             (
                 "mods/sodium.jar".to_string(),
                 download(
@@ -979,63 +1071,38 @@ mod tests {
                     "https://raw.githubusercontent.com/a/b/main/evil.jar",
                 ),
             ),
-            (
-                "config/a.toml".to_string(),
-                download(
-                    "config/a.toml",
-                    b"a config",
-                    "https://raw.githubusercontent.com/a/b/main/a.toml",
-                ),
-            ),
+            ("config/a.toml".to_string(), FileSource::Override),
         ]));
 
         let plan = adds(&["mods/sodium.jar", "config/a.toml"]);
-        assert!(require_known_restored_files(&api, &plan, &new_files, None)
+        assert!(require_known_restored_files(&api, &plan, &sources, None)
             .await
             .is_ok());
 
         let plan = adds(&["mods/sodium.jar", "mods/evil.jar", "config/a.toml"]);
-        let error = require_known_restored_files(&api, &plan, &new_files, None)
+        let error = require_known_restored_files(&api, &plan, &sources, None)
             .await
             .unwrap_err();
         assert!(matches!(error.kind, ErrorKind::PermissionDenied));
         assert!(error.source.to_string().contains("mods/evil.jar"));
 
-        // a stored copy is checked by its own bytes
+        // a copy in the image store is checked by its own bytes
         let dir = tempfile::tempdir().unwrap();
-        let stored = dir.path().join("object");
-        std::fs::write(&stored, evil).unwrap();
-        let mut disguised = download(
-            "mods/sodium.jar",
-            &known_content,
-            "https://cdn.modrinth.com/data/sodium/versions/v1/file.jar",
-        );
-        disguised.stored = Some(stored);
-        let new_files = Arc::new(BTreeMap::from([("mods/sodium.jar".to_string(), disguised)]));
-        let plan = adds(&["mods/sodium.jar"]);
-        assert!(require_known_restored_files(&api, &plan, &new_files, None)
-            .await
-            .is_err());
-
-        // so is a copy in the image store
         let store = Arc::new(Store::new(
             dir.path().join("images"),
             lodestone_image::store::Encoding::Zstd,
         ));
         let from_image = |content: &[u8]| {
             let stored = store.put_bytes(content).unwrap();
-            let mut file = download(
-                "mods/sodium.jar",
-                &known_content,
-                "https://cdn.modrinth.com/data/sodium/versions/v1/file.jar",
-            );
-            file.download = None;
-            file.image = Some(crate::modpack::update::ImageFile {
-                sha256: stored.sha256,
-                size: stored.size,
-            });
-            Arc::new(BTreeMap::from([("mods/sodium.jar".to_string(), file)]))
+            Arc::new(BTreeMap::from([(
+                "mods/sodium.jar".to_string(),
+                FileSource::Image(ImageFile {
+                    sha256: stored.sha256,
+                    size: stored.size,
+                }),
+            )]))
         };
+        let plan = adds(&["mods/sodium.jar"]);
         let disguised = from_image(evil);
         assert!(
             require_known_restored_files(&api, &plan, &disguised, Some(store.clone()))

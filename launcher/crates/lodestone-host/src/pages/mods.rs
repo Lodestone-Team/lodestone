@@ -149,12 +149,10 @@ pub struct ModsPage {
     history_serial: u64,
     /// The history's timeline is shown.
     history_open: bool,
-    /// History entries whose changes are shown.
-    history_expanded: HashSet<u32>,
+    /// History entries (content image ids) whose changes are shown.
+    history_expanded: HashSet<String>,
     /// The changelog of the version that is out is shown.
     update_changelog_open: bool,
-    /// History entries whose changelog is shown.
-    changelog_expanded: HashSet<u32>,
     dialog: lodestone_ui::components::DialogSlot<Self, Shown>,
     /// Counts the list's fetches, so only the newest one is kept.
     list_serial: u64,
@@ -198,7 +196,6 @@ impl ModsPage {
             history_open: false,
             history_expanded: HashSet::new(),
             update_changelog_open: false,
-            changelog_expanded: HashSet::new(),
             dialog: lodestone_ui::components::DialogSlot::new(|this: &mut Self| &mut this.dialog),
             list_serial: 0,
             _tasks: Vec::new(),
@@ -369,11 +366,11 @@ impl ModsPage {
                 true,
             ),
             Prompt::ModpackUpdate { plan, source } => {
-                let (body, may_run) = self.modpack_dialog_body(plan, cx);
                 let restore = matches!(
                     source,
                     launcher_core::cores::admin::instances::ModpackSource::History { .. }
                 );
+                let (body, may_run) = self.modpack_dialog_body(plan, restore, cx);
                 (
                     t(if restore {
                         M::ModpackRestoreTitle

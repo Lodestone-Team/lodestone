@@ -3,4 +3,4 @@
 /**
  * What to update the server to.
  */
-export type UpdateSource = { "type": "modrinth", version_id: string, } | { "type": "upload", upload_id: string, } | { "type": "history", entry_id: number, };
+export type UpdateSource = { "type": "modrinth", version_id: string, } | { "type": "upload", upload_id: string, } | { "type": "history", entry_id: string, };
