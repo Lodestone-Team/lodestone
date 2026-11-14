@@ -138,6 +138,17 @@ pub(crate) fn decoded_len(encoding: Encoding, path: &Path) -> Option<u64> {
     }
 }
 
+/// Reads the first `n` plain bytes of the object at `path` (fewer when it is shorter),
+/// without decoding the rest.
+pub(crate) fn read_prefix(encoding: Encoding, path: &Path, n: usize) -> io::Result<Vec<u8>> {
+    let file = File::open(path)?;
+    let mut bytes = Vec::with_capacity(n);
+    decoder(encoding, file)?
+        .take(n as u64)
+        .read_to_end(&mut bytes)?;
+    Ok(bytes)
+}
+
 /// Reads all plain bytes of the object at `path`, refusing more than `limit`.
 pub(crate) fn read_limited(encoding: Encoding, path: &Path, limit: u64) -> io::Result<Vec<u8>> {
     let file = File::open(path)?;

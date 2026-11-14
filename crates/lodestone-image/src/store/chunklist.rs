@@ -24,6 +24,10 @@ use super::cdc::{MAX_CHUNK, MIN_CHUNK};
 
 /// Files larger than this (1 MiB) are stored as chunk lists.
 pub const CHUNKED_ABOVE: u64 = 1 << 20;
+/// The longest object read whole to find out whether it is a chunk list without knowing
+/// the file's size (256 MiB): a list that long stands for a file of tens of terabytes, so
+/// anything longer is a whole file.
+pub const MAX_LIST_BYTES: u64 = 256 << 20;
 
 const MAGIC: &str = "lodestone-chunks 1\n";
 /// The longest line: a SHA-256, a space, a length of up to 6 digits, a newline.
@@ -120,6 +124,18 @@ impl ChunkList {
     pub fn looks_like(bytes: &[u8]) -> bool {
         bytes.starts_with(MAGIC.as_bytes())
     }
+
+    /// Whether `bytes`, the first bytes read of an object so far, could still be the start
+    /// of a chunk list.
+    pub fn could_start(bytes: &[u8]) -> bool {
+        let n = bytes.len().min(MAGIC.len());
+        bytes[..n] == MAGIC.as_bytes()[..n]
+    }
+
+    /// How many bytes to read of an object to tell whether it is a list ([`looks_like`]).
+    ///
+    /// [`looks_like`]: ChunkList::looks_like
+    pub const MAGIC_LEN: usize = MAGIC.len();
 
     /// The longest a list for a file of `size` bytes can be: the bound to read an object
     /// with before parsing it as one.

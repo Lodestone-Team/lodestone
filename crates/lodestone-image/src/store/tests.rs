@@ -310,9 +310,7 @@ fn reads_check_every_byte() {
             Err(StoreError::Damaged(_))
         ));
         // The list is fine; the chunk is what to delete.
-        assert!(store
-            .remove_damaged(&large_hash, large.len() as u64)
-            .is_err());
+        assert!(store.remove_damaged(&large_hash).is_err());
         assert!(store.remove_damaged_chunk(&list.chunks[1]).unwrap());
         assert!(!store.remove_damaged_chunk(&list.chunks[0]).unwrap());
         store.put_bytes(&large).unwrap();
@@ -327,15 +325,183 @@ fn reads_check_every_byte() {
             store.read_object_bytes(&large_hash, large.len() as u64),
             Err(StoreError::Missing(_))
         ));
-        // A list for another size is damage too.
-        assert!(store
-            .read_object_bytes(&large_hash, large.len() as u64 + 5)
-            .is_err());
+        // A healthy list asked about with another size is the asker's mistake.
+        assert!(matches!(
+            store.read_object_bytes(&large_hash, large.len() as u64 + 5),
+            Err(StoreError::WrongSize { .. })
+        ));
         assert!(matches!(
             store.object_form("nothex", 1),
             Err(StoreError::BadHash(_))
         ));
     }
+}
+
+/// An image from elsewhere can name a healthy object with any size. That is the image's
+/// mistake: reads say so, nothing calls the object present for that size, and
+/// `remove_damaged` never deletes it (every other image that names it would lose it).
+#[test]
+fn a_wrong_size_never_costs_a_healthy_object() {
+    for encoding in encodings() {
+        let (_dir, store) = store(encoding);
+        let large = region_like(21, 3 << 20);
+        let large_hash = store.put_bytes(&large).unwrap().sha256;
+        let small = b"ten bytes!".to_vec();
+        let small_hash = store.put_bytes(&small).unwrap().sha256;
+        for (hash, wrong) in [
+            (&large_hash, 999_999_999u64),
+            (&large_hash, (3 << 20) + 1),
+            (&large_hash, 3),
+            (&small_hash, 3),
+            (&small_hash, 5 << 20),
+        ] {
+            assert!(!store.has_object(hash, wrong), "{wrong}");
+            assert!(!store.claim_object(hash, wrong), "{wrong}");
+            let read = store.read_object_bytes(hash, wrong);
+            assert!(
+                matches!(read, Err(StoreError::WrongSize { size, .. }) if size == wrong),
+                "{wrong}: {read:?}"
+            );
+            assert!(!store.remove_damaged(hash).unwrap(), "{wrong}");
+        }
+        assert_eq!(
+            store
+                .read_object_bytes(&large_hash, large.len() as u64)
+                .unwrap(),
+            large
+        );
+        assert_eq!(store.read_object_bytes(&small_hash, 10).unwrap(), small);
+    }
+}
+
+/// The chunk list of one file, named with the list's own length as if it were a whole
+/// file of that size, reads as neither damaged nor that file.
+#[test]
+fn a_list_named_with_its_own_length_is_a_wrong_size() {
+    let (_dir, store) = store(Encoding::Raw);
+    let large = region_like(22, 3 << 20);
+    let hash = store.put_bytes(&large).unwrap().sha256;
+    let list_len = fs::metadata(store.object_path(&hash).unwrap())
+        .unwrap()
+        .len();
+    assert!(
+        store.has_object(&hash, list_len),
+        "looks whole by its length"
+    );
+    assert!(matches!(
+        store.read_object_bytes(&hash, list_len),
+        Err(StoreError::WrongSize { .. })
+    ));
+    assert!(!store.remove_damaged(&hash).unwrap());
+    assert_eq!(
+        store.read_object_bytes(&hash, large.len() as u64).unwrap(),
+        large
+    );
+}
+
+/// Claiming an object touches it (and a list's chunks) when old, so a garbage collection
+/// running now keeps it; a list missing a chunk isn't claimed.
+#[test]
+fn claiming_touches_old_objects_and_chunks() {
+    let (_dir, store) = store(Encoding::Raw);
+    let backdate = |path: &Path| age(path, 7200);
+    let elapsed = |path: &Path| {
+        SystemTime::now()
+            .duration_since(fs::metadata(path).unwrap().modified().unwrap())
+            .unwrap_or_default()
+    };
+    let small = store.put_bytes(b"small").unwrap();
+    let small_path = store.object_path(&small.sha256).unwrap();
+    backdate(&small_path);
+    assert!(store.claim_object(&small.sha256, 5));
+    assert!(elapsed(&small_path) < Duration::from_secs(600));
+
+    let large = region_like(23, 2 << 20);
+    let stored = store.put_bytes(&large).unwrap();
+    let ObjectForm::Chunked(list) = store.object_form(&stored.sha256, stored.size).unwrap() else {
+        panic!("chunked");
+    };
+    let list_path = store.object_path(&stored.sha256).unwrap();
+    let chunk_paths: Vec<PathBuf> = list
+        .chunks
+        .iter()
+        .map(|c| store.chunk_path(&c.sha256).unwrap())
+        .collect();
+    backdate(&list_path);
+    for path in &chunk_paths {
+        backdate(path);
+    }
+    assert!(store.claim_object(&stored.sha256, stored.size));
+    assert!(elapsed(&list_path) < Duration::from_secs(600));
+    for path in &chunk_paths {
+        assert!(elapsed(path) < Duration::from_secs(600));
+    }
+    fsx::remove_file_forced(&chunk_paths[0]).unwrap();
+    assert!(store.has_object(&stored.sha256, stored.size));
+    assert!(!store.claim_object(&stored.sha256, stored.size));
+    assert!(!store.claim_object(&sha256_hex(b"absent"), 6));
+}
+
+/// A manifest is never saved naming an object only this store has that it lacks.
+#[test]
+fn saving_a_manifest_checks_its_objects() {
+    let (_dir, store) = store(Encoding::Raw);
+    let mut image = Image::new(Kind::Data, fabric());
+    let present = store.put_bytes(b"present").unwrap();
+    image.entries.push(Entry::new(
+        path("a.txt"),
+        present.size,
+        present.sha256.clone(),
+        Source::Object {},
+    ));
+    image.seal();
+    store.save_manifest("inst", &image).unwrap();
+
+    let mut lacking = image.clone();
+    lacking.entries.push(Entry::new(
+        path("b.txt"),
+        6,
+        sha256_hex(b"absent"),
+        Source::Object {},
+    ));
+    lacking.seal();
+    assert!(matches!(
+        store.save_manifest("inst", &lacking),
+        Err(StoreError::Missing(hash)) if hash == sha256_hex(b"absent")
+    ));
+    assert!(!store.manifest_path("inst", &lacking.id).unwrap().exists());
+
+    // A downloadable file's bytes needn't be in the store.
+    let mut downloadable = image.clone();
+    let mut jar = Entry::new(
+        path("mods/a.jar"),
+        6,
+        sha256_hex(b"absent"),
+        Source::Curseforge {
+            project: 1,
+            file: 2,
+            downloadable: true,
+        },
+    );
+    jar.env = crate::env::Env::UNKNOWN;
+    downloadable.entries.push(jar);
+    downloadable.seal();
+    store.save_manifest("inst", &downloadable).unwrap();
+
+    // Nor may an icon be missing.
+    let mut icon = image.clone();
+    icon.settings.client = Some(crate::settings::ClientSettings {
+        icon: Some(crate::settings::StoredFile {
+            sha256: sha256_hex(b"no icon"),
+            size: 7,
+        }),
+        ..Default::default()
+    });
+    icon.seal();
+    assert!(matches!(
+        store.save_manifest("inst", &icon),
+        Err(StoreError::Missing(_))
+    ));
 }
 
 fn encode(encoding: Encoding, bytes: &[u8]) -> Vec<u8> {
@@ -365,9 +531,9 @@ fn a_cut_short_object_is_replaced_by_the_next_write() {
         assert!(store
             .verify_object(&sha256, data.len() as u64, NEVER)
             .is_err());
-        assert!(store.remove_damaged(&sha256, data.len() as u64).unwrap());
+        assert!(store.remove_damaged(&sha256).unwrap());
         assert!(!path.exists());
-        assert!(!store.remove_damaged(&sha256, data.len() as u64).unwrap());
+        assert!(!store.remove_damaged(&sha256).unwrap());
         let again = store.put_bytes(&data).unwrap();
         assert!(again.added_bytes > 0);
         assert_eq!(

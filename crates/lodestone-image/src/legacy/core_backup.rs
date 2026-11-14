@@ -318,7 +318,8 @@ pub fn to_image(manifest: &Manifest) -> Result<Converted, LegacyError> {
             .iter()
             .filter(|e| e.world.as_deref() == Some(*name))
             .map(|e| e.size)
-            .sum();
+            // Sizes come from the old manifest: a hostile one can't overflow the sum.
+            .fold(0u64, u64::saturating_add);
         image.worlds.push(World {
             name: name.to_string(),
             level_name: None,
@@ -854,7 +855,12 @@ mod tests {
         m.skipped.sort_by(|a, b| a.path.cmp(&b.path));
         let converted = round_trip(&m);
         let image = &converted.image;
-        assert!(image.settings.server.as_ref().unwrap().flavour.is_none());
+        // No flavour and no level: no server settings at all (empty is the same as none).
+        assert!(image
+            .settings
+            .server
+            .as_ref()
+            .is_none_or(|server| server.flavour.is_none()));
         assert!(image.worlds.is_empty(), "mods can't be a world");
         let reasons: Vec<(&str, &str)> = image
             .withheld

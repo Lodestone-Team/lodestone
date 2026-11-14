@@ -11,16 +11,25 @@
 //!   objects can't be told apart from garbage.
 //! - If a live chunk list can't be read, no chunk is deleted (its chunks are unknown);
 //!   unused objects still are.
+//! - Whether a live object is a chunk list is decided from the object, never from the
+//!   sizes manifests name it with: a manifest received from elsewhere can give any size.
+//!   An object is read to find out only when some name could mean a list (a size over
+//!   1 MiB that isn't the object's length, or no size at all, for [`GcOptions::also_live`]),
+//!   and it is a list exactly when it parses as one; then its chunks are live whatever
+//!   size anything gives it. Names with sizes the object doesn't have are counted in
+//!   [`GcReport::wrong_sizes`] and block nothing.
 //! - Objects and chunks modified within the grace period (an hour) are kept, with the
 //!   chunks of such lists: a snapshot running at the same time stores its objects before
-//!   it writes the manifest that uses them, and touches the objects it reuses (see
-//!   `Store::put_file`), so what it relies on is always new. Temporary files are kept for
-//!   the same hour.
+//!   it writes the manifest that uses them, touches the objects it reuses (see
+//!   `Store::put_file`) and those it takes from its stat cache (`Store::claim_object`),
+//!   and claims them all again when it saves the manifest (`Store::save_manifest`, which
+//!   fails if one is gone), so what it relies on is always new or the save says so.
+//!   Temporary files are kept for the same hour.
 //! - Objects that only older formats use (the core's schema 1 backups, the Launcher's
 //!   snapshots) are kept when the caller passes them in [`GcOptions::also_live`]; the
 //!   caller reads those manifests and refuses as above when it can't.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io;
 use std::path::Path;
@@ -29,11 +38,11 @@ use std::time::{Duration, SystemTime};
 use serde::Deserialize;
 use serde_json::Value;
 
-use crate::hex::is_sha256;
+use crate::hex::{is_sha256, sha256_hex};
 use crate::manifest::SCHEMA;
 
-use super::chunklist::{ChunkList, CHUNKED_ABOVE};
-use super::encoding::{decoded_len, read_limited};
+use super::chunklist::{ChunkList, CHUNKED_ABOVE, MAX_LIST_BYTES};
+use super::encoding::{decoded_len, read_limited, read_prefix};
 use super::{fsx, manifest_id, Area, Store, TEMP_MAX_AGE};
 
 /// How long new objects, chunks and temporary files are kept even when nothing uses them.
@@ -75,6 +84,9 @@ pub struct GcReport {
     pub kept_new: u64,
     /// Why no chunk was deleted, when a live chunk list couldn't be read.
     pub chunks_skipped: Option<String>,
+    /// Live objects some manifest names with a size they don't stand for (that manifest
+    /// is wrong; the object and its chunks are kept as they are).
+    pub wrong_sizes: u64,
 }
 
 /// Why a collection deleted nothing.
@@ -128,19 +140,29 @@ impl Store {
         // (sha256, size) of every object a manifest names.
         let mut live: Vec<(String, u64)> = Vec::new();
         self.mark_manifests(&mut live, &mut report)?;
-        let mut live_objects: HashSet<String> = live.iter().map(|(h, _)| h.clone()).collect();
-        live_objects.extend(options.also_live.iter().cloned());
+        // Every size each live object is named with; objects only older formats name
+        // have none.
+        let mut sizes: HashMap<String, Vec<u64>> = HashMap::new();
+        for (sha256, size) in live {
+            sizes.entry(sha256).or_default().push(size);
+        }
+        for sha256 in &options.also_live {
+            sizes.entry(sha256.clone()).or_default();
+        }
+        let live_objects: HashSet<String> = sizes.keys().cloned().collect();
 
         let mut live_chunks: HashSet<String> = HashSet::new();
         let mut chunks_blocked: Option<String> = None;
-        let mut checked: HashSet<&str> = HashSet::new();
-        for (sha256, size) in &live {
-            if *size <= CHUNKED_ABOVE || !checked.insert(sha256.as_str()) {
-                continue;
-            }
-            match self.live_list(sha256, *size) {
-                Ok(Some(list)) => live_chunks.extend(list.chunks.into_iter().map(|c| c.sha256)),
-                Ok(None) => {}
+        // Each object once, by its hash: what it is doesn't depend on who names it.
+        let mut names: Vec<(&String, &Vec<u64>)> = sizes.iter().collect();
+        names.sort();
+        for (sha256, named) in names {
+            match self.live_list(sha256, named) {
+                Ok(LiveObject::List(list, wrong)) => {
+                    report.wrong_sizes += u64::from(wrong);
+                    live_chunks.extend(list.chunks.into_iter().map(|c| c.sha256));
+                }
+                Ok(LiveObject::Whole { wrong }) => report.wrong_sizes += u64::from(wrong),
                 Err(why) => {
                     chunks_blocked.get_or_insert(why);
                 }
@@ -222,31 +244,50 @@ impl Store {
         Ok(())
     }
 
-    /// The chunk list of a live object a manifest names with `size` bytes: `None` when the
-    /// object is whole or missing (nothing to keep), an error when it should be a list and
-    /// can't be read as one.
-    fn live_list(&self, sha256: &str, size: u64) -> Result<Option<ChunkList>, String> {
+    /// What the live object `sha256` is, given the sizes manifests name it with (`named`,
+    /// empty when only an older format names it): a chunk list (its chunks are live), or a
+    /// whole file or missing (nothing more to keep). Decided from the object itself, so no
+    /// name can hide a list's chunks. An error when it could be a list and can't be read,
+    /// or starts like one and is neither a list nor a whole file of its own hash.
+    fn live_list(&self, sha256: &str, named: &[u64]) -> Result<LiveObject, String> {
+        let whole = |len: Option<u64>| LiveObject::Whole {
+            wrong: len.is_some_and(|len| named.iter().any(|&size| size != len)),
+        };
         let Ok(path) = self.object_path(sha256) else {
-            return Ok(None);
+            return Ok(whole(None));
+        };
+        let could_be_list = |len: Option<u64>| {
+            named.is_empty()
+                || named
+                    .iter()
+                    .any(|&size| size > CHUNKED_ABOVE && Some(size) != len)
         };
         let Some(len) = decoded_len(self.encoding, &path) else {
-            return if fs::symlink_metadata(&path).is_ok() {
-                Err(format!("the chunk list {sha256} can't be read"))
+            return if fs::symlink_metadata(&path).is_ok() && could_be_list(None) {
+                Err(format!("the live object {sha256} can't be read"))
             } else {
-                Ok(None)
+                Ok(whole(None))
             };
         };
-        if len == size {
-            return Ok(None);
+        if !could_be_list(Some(len)) || len > MAX_LIST_BYTES {
+            return Ok(whole(Some(len)));
         }
-        let list = read_limited(self.encoding, &path, ChunkList::max_encoded_len(size))
-            .map_err(|e| e.to_string())
-            .and_then(|bytes| ChunkList::parse(&bytes))
-            .map_err(|why| format!("the chunk list {sha256} can't be read ({why})"))?;
-        if list.size != size {
-            return Err(format!("the chunk list {sha256} is for another size"));
+        let head = read_prefix(self.encoding, &path, ChunkList::MAGIC_LEN)
+            .map_err(|e| format!("the live object {sha256} can't be read ({e})"))?;
+        if !ChunkList::looks_like(&head) {
+            return Ok(whole(Some(len)));
         }
-        Ok(Some(list))
+        let bytes = read_limited(self.encoding, &path, len)
+            .map_err(|e| format!("the live object {sha256} can't be read ({e})"))?;
+        match ChunkList::parse(&bytes) {
+            Ok(list) => {
+                let wrong = named.iter().any(|&size| size != list.size);
+                Ok(LiveObject::List(list, wrong))
+            }
+            // A whole file that happens to start like a list.
+            Err(_) if sha256_hex(&bytes) == sha256 => Ok(whole(Some(len))),
+            Err(why) => Err(format!("the chunk list {sha256} can't be read ({why})")),
+        }
     }
 
     /// Marks the chunks of a new object no manifest names yet, if it is a chunk list.
@@ -334,6 +375,13 @@ impl Store {
         }
         Ok(())
     }
+}
+
+/// What a live object turned out to be. `wrong`: some manifest names it with a size it
+/// doesn't stand for.
+enum LiveObject {
+    Whole { wrong: bool },
+    List(ChunkList, bool),
 }
 
 /// What a sweep does with one file.

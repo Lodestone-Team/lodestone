@@ -587,3 +587,108 @@ fn the_free_space_hook_can_refuse() {
     assert_eq!(*asked.lock().unwrap(), container.unpacked_bytes());
     assert!(!target.root().join("objects").exists());
 }
+
+/// A large file the core stored whole travels as its chunk list, cut as any store cuts
+/// it, so the same image gives the same export from a store that keeps it whole and one
+/// that keeps it chunked; and the export imports and places as usual.
+#[test]
+fn a_whole_large_object_exports_as_its_chunk_list() {
+    let big = region_like(31, 5 << 20);
+    let sha256 = sha256_hex(&big);
+    let mut image = Image::new(Kind::Content, fabric());
+    image.entries.push(Entry::new(
+        path("mods/big.jar"),
+        big.len() as u64,
+        sha256.clone(),
+        Source::Object {},
+    ));
+    image.seal();
+
+    let (dir, chunked) = store(Encoding::Raw);
+    chunked.put_bytes(&big).unwrap();
+    let (_whole_dir, whole) = store(Encoding::Raw);
+    // As the core's backups wrote it (raw here, for a store without zstd).
+    let object = whole.object_path(&sha256).unwrap();
+    fs::create_dir_all(object.parent().unwrap()).unwrap();
+    fs::write(&object, &big).unwrap();
+    assert_eq!(
+        whole.object_form(&sha256, big.len() as u64).unwrap(),
+        ObjectForm::Whole
+    );
+
+    let from_chunked = dir.path().join("chunked.zip");
+    let from_whole = dir.path().join("whole.zip");
+    let a = export(&chunked, &image, &[], &from_chunked, NEVER).unwrap();
+    let b = export(&whole, &image, &[], &from_whole, NEVER).unwrap();
+    assert_eq!(a, b);
+    assert!(b.chunks > 1);
+    assert_eq!(
+        fs::read(&from_chunked).unwrap(),
+        fs::read(&from_whole).unwrap()
+    );
+
+    let mut container = open(&from_whole, &Limits::default()).unwrap();
+    let (_t, target) = store(Encoding::Raw);
+    container.import_objects(&target, &no_check, NEVER).unwrap();
+    assert_eq!(
+        target.read_object_bytes(&sha256, big.len() as u64).unwrap(),
+        big
+    );
+}
+
+/// Entries can share one object, and a list can repeat one chunk, so a tiny export can
+/// name an image whose files add up to far more than the zip holds. Such an image is
+/// refused when the export is opened, by its files' sizes.
+#[test]
+fn an_image_whose_files_add_up_to_too_much_is_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    let chunk = vec![7u8; 256 * 1024];
+    let chunk_sha = sha256_hex(&chunk);
+    let repeats = 64u64;
+    let size = repeats * chunk.len() as u64;
+    let list = ChunkList {
+        size,
+        chunks: (0..repeats)
+            .map(|_| ChunkRef {
+                sha256: chunk_sha.clone(),
+                size: chunk.len() as u32,
+            })
+            .collect(),
+    };
+    let file_sha = {
+        let mut hasher = Sha256::new();
+        for _ in 0..repeats {
+            hasher.update(&chunk);
+        }
+        hex_digest(hasher)
+    };
+    let mut image = Image::new(Kind::Data, fabric());
+    for i in 0..100 {
+        image.entries.push(Entry::new(
+            path(&format!("data/copy-{i:03}.bin")),
+            size,
+            file_sha.clone(),
+            Source::Object {},
+        ));
+    }
+    image.seal();
+    assert_eq!(files_size(&image), 100 * size);
+    let entries = vec![
+        (IMAGE_FILE.to_string(), image.to_json_pretty()),
+        (format!("objects/{file_sha}"), list.encode()),
+        (format!("chunks/{chunk_sha}"), chunk.clone()),
+    ];
+    let file = dir.path().join("bomb.zip");
+    write_entries(&file, &entries);
+    assert!(fs::metadata(&file).unwrap().len() < 100_000);
+    let limits = Limits {
+        max_total_bytes: 50 * size,
+        ..Limits::default()
+    };
+    let error = open(&file, &limits).unwrap_err().to_string();
+    assert!(error.contains("adding up"), "{error}");
+    // Under a limit it fits, it opens, and says what placing it writes.
+    let container = open(&file, &Limits::default()).unwrap();
+    assert_eq!(container.image_bytes(), 100 * size);
+    assert!(container.unpacked_bytes() < size);
+}

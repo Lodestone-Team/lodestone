@@ -1,6 +1,11 @@
 //! Materializing an image: placing its files (or some of them) into a staging folder, with
 //! their modes, checking every byte against its SHA-256 on the way.
 //!
+//! A placed file gets its entry's permission bits plus the owner's write bit, as both the
+//! core's and the Launcher's restores always did: the game, its mods and Lodestone must be
+//! able to change and replace what a restore puts back, and a file recorded read-only
+//! (on Windows, say) would otherwise come back read-only and block updates.
+//!
 //! The staging folder is the first step of a restore or an install: the caller swaps it
 //! into place afterwards (the core's journaled swap), so a failure here leaves the instance
 //! untouched. Every file is created new (never opened if it exists), so two entries can't
@@ -90,6 +95,10 @@ pub enum MaterializeError {
     /// The stored bytes of this file are damaged (they don't match its SHA-256).
     #[error("the stored copy of {path} is damaged")]
     Damaged { path: CanonicalPath },
+    /// The image gives this file a size its stored copy, which is healthy, doesn't have:
+    /// the image is wrong, not the store.
+    #[error("the image gives {path} a size its stored copy doesn't have")]
+    WrongSize { path: CanonicalPath },
     #[error("{what}: {source}")]
     Io {
         what: String,
@@ -187,7 +196,7 @@ pub fn materialize(
         }
         place(store, entry, &target, options)?;
         report.files += 1;
-        report.bytes += entry.size;
+        report.bytes = report.bytes.saturating_add(entry.size);
     }
     if options.durable {
         // Deepest first, so each folder's entry in its parent is flushed after it.
@@ -221,10 +230,14 @@ fn place(
     let damaged = || MaterializeError::Damaged {
         path: entry.path.clone(),
     };
+    let wrong_size = || MaterializeError::WrongSize {
+        path: entry.path.clone(),
+    };
     let form = store
         .object_form(&entry.sha256, entry.size)
         .map_err(|e| match e {
             StoreError::Damaged(_) => damaged(),
+            StoreError::WrongSize { .. } => wrong_size(),
             other => MaterializeError::Store(other),
         })?;
     let cloned = cfg!(target_os = "macos")
@@ -249,6 +262,7 @@ fn place(
             .read_object(&entry.sha256, entry.size, &mut writer, options.cancel)
             .map_err(|e| match e {
                 StoreError::Damaged(_) | StoreError::Missing(_) => damaged(),
+                StoreError::WrongSize { .. } => wrong_size(),
                 StoreError::Cancelled => MaterializeError::Cancelled,
                 other => MaterializeError::Store(other),
             })?;
@@ -257,9 +271,15 @@ fn place(
             .map_err(|e| io_err(target)(e.into_error()))?;
         finish_file(file, entry, options)?;
     }
-    fsx::set_mode(target, entry.mode).map_err(io_err(target))?;
+    fsx::set_mode(target, placed_mode(entry.mode)).map_err(io_err(target))?;
     guard.disarm();
     Ok(())
+}
+
+/// The bits a file is placed with: the entry's, and always the owner's write bit (see the
+/// module).
+pub fn placed_mode(mode: u32) -> u32 {
+    (mode & 0o777) | 0o200
 }
 
 /// Sets the file's time (when the entry has one) and flushes it.

@@ -318,3 +318,120 @@ fn an_object_whose_form_changed_is_still_marked_by_size() {
         Err(StoreError::Damaged(_))
     ));
 }
+
+/// An image that names a large file's object with the wrong size, as a manifest received
+/// from elsewhere may (any size validates, and a Modrinth or CurseForge entry needs no
+/// object of its own).
+fn misnamed(sha256: &str, size: u64) -> Image {
+    let mut image = Image::new(Kind::Content, fabric());
+    image.entries.push(Entry::new(
+        path("mods/same.jar"),
+        size,
+        sha256.to_string(),
+        Source::Curseforge {
+            project: 1,
+            file: 2,
+            downloadable: true,
+        },
+    ));
+    image.seal();
+    image
+}
+
+/// Whether an object is a chunk list is decided from the object, never from whichever
+/// manifest is read first: a manifest naming a list with the list's own length (which
+/// anyone with the same file can work out) must not make its chunks garbage, in either
+/// order of the instance folders.
+#[test]
+fn a_list_named_with_its_own_length_keeps_its_chunks() {
+    for (good_instance, bad_instance) in [("aa", "zz"), ("zz", "aa")] {
+        let (_dir, store) = store(Encoding::Raw);
+        let big = region_like(8, 2_500_000);
+        let image = stored_image(&store, &[("mods/big.jar", &big)]);
+        store.save_manifest(good_instance, &image).unwrap();
+        let sha256 = image.entries[0].sha256.clone();
+        let list_len = fs::metadata(store.object_path(&sha256).unwrap())
+            .unwrap()
+            .len();
+        store
+            .save_manifest(bad_instance, &misnamed(&sha256, list_len))
+            .unwrap();
+        age_all(&store);
+        let chunks = count(&store, Area::Chunks);
+        let report = store.gc(&now_options()).unwrap();
+        assert_eq!(report.chunks_removed, 0, "{good_instance}: {report:?}");
+        assert_eq!(count(&store, Area::Chunks), chunks);
+        assert_eq!(report.wrong_sizes, 1);
+        assert_eq!(
+            store.read_object_bytes(&sha256, big.len() as u64).unwrap(),
+            big
+        );
+    }
+}
+
+/// A manifest naming a live list with a merely wrong size blocks nothing: the list's
+/// chunks stay, and other garbage chunks still go.
+#[test]
+fn a_wrong_size_doesnt_block_chunk_collection() {
+    let (_dir, store) = store(Encoding::Raw);
+    let big = region_like(9, 2_000_000);
+    let image = stored_image(&store, &[("mods/big.jar", &big)]);
+    store.save_manifest("one", &image).unwrap();
+    let sha256 = image.entries[0].sha256.clone();
+    store
+        .save_manifest("two", &misnamed(&sha256, 5_000_000))
+        .unwrap();
+    // A whole file named with a wrong size, too.
+    let small = store.put_bytes(b"small").unwrap();
+    store
+        .save_manifest("three", &misnamed(&small.sha256, 9_000_000))
+        .unwrap();
+    let garbage = region_like(10, 2_000_000);
+    store.put_bytes(&garbage).unwrap();
+    age_all(&store);
+    let report = store.gc(&now_options()).unwrap();
+    assert!(report.chunks_skipped.is_none(), "{report:?}");
+    assert!(report.chunks_removed > 0);
+    assert_eq!(report.wrong_sizes, 2);
+    assert_eq!(
+        store.read_object_bytes(&sha256, big.len() as u64).unwrap(),
+        big
+    );
+    assert!(store.has_object(&small.sha256, 5));
+}
+
+/// An object only an older format names (no size known) that the store keeps as a chunk
+/// list (stored again after its whole copy was damaged and removed) keeps its chunks.
+#[test]
+fn an_also_live_chunk_list_keeps_its_chunks() {
+    for encoding in encodings() {
+        let (_dir, store) = store(encoding);
+        let big = region_like(11, 3 << 20);
+        let stored = store.put_bytes(&big).unwrap();
+        assert!(matches!(
+            store.object_form(&stored.sha256, stored.size).unwrap(),
+            ObjectForm::Chunked(_)
+        ));
+        // A whole file that starts like a list is just a whole file.
+        let lookalike = store
+            .put_bytes(b"lodestone-chunks 1\nsize 2000000\nnot really")
+            .unwrap();
+        age_all(&store);
+        let mut options = now_options();
+        options.also_live.insert(stored.sha256.clone());
+        options.also_live.insert(lookalike.sha256.clone());
+        let report = store.gc(&options).unwrap();
+        assert_eq!(
+            (report.objects_removed, report.chunks_removed),
+            (0, 0),
+            "{report:?}"
+        );
+        assert!(report.chunks_skipped.is_none());
+        assert_eq!(
+            store
+                .read_object_bytes(&stored.sha256, stored.size)
+                .unwrap(),
+            big
+        );
+    }
+}

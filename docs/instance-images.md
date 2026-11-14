@@ -65,12 +65,19 @@ Decisions this builds on:
 
 Reading is forward compatible within a schema. Fields a reader doesn't know are kept (on
 the image and on each entry) and written back as they were, so the id still verifies.
-Informational values it doesn't know (a withheld reason, an `env_from` input, a loader, a
-flavour) are kept as text. An unknown `source`, `kind`, `base` or `env` value makes the
-manifest invalid, since nothing can act on it safely. A newer schema is refused with its
-own error, and an older one goes to the v1 readers. Settings are the exception: fields a
-reader doesn't know are dropped, so local settings can never get into an image; a new
-setting needs a new schema.
+Numbers in such fields must be integers that fit 64 bits (signed or unsigned); any other
+number makes the manifest invalid, since a reader couldn't write it back as it was.
+Anywhere else (`game`, `base`, a `source`, an `env`, a world, a withheld file) an unknown
+field makes the manifest invalid with an error naming it, so a new field there needs a new
+schema: dropping it would change the id, and the image would fail its check with a
+misleading mismatch instead. Informational values it doesn't know (a withheld reason, an
+`env_from` input, a loader, a flavour) are kept as text. An unknown `source`, `kind`,
+`base` or `env` value makes the manifest invalid, since nothing can act on it safely. A
+newer schema is refused with its own error, and an older one goes to the v1 readers.
+Settings are the exception: fields a reader doesn't know are dropped, so local settings can
+never get into an image; a new setting needs a new schema.
+
+A `content` image has no worlds (and so no world files); `data` and `full` images may.
 
 `parent`, `created`, `producer`, `label`, `projected_from` and entries' `modified` are
 informational. `entries[].modified` is optional, `mode` defaults to 420 and `env` to
@@ -158,7 +165,10 @@ Typed fields, each with a scope. Local fields are never written into an image.
 
 Secret properties (`rcon.password`, `management-server-secret`) are never carried; a
 manifest with them is invalid. A Paper or Spigot server's `game.loader` is `vanilla`: players
-run vanilla, and the flavour is a server setting.
+run vanilla, and the flavour is a server setting. A side with no settings at all is the same
+as no settings for that side (it is left out, so it gives the same id). `icon` and
+`background` are store keys: their `sha256` must be a SHA-256 and their `size` at most
+256 MiB.
 
 ### World
 
@@ -279,7 +289,10 @@ does (only `"`, `\` and control characters) and integers in decimal.
 
 Between any two images: entries by path (`replaced` when anything about one differs), and
 each other field that differs, whole, with its new value. Applying refuses a delta for
-another image, paths that aren't where it says, and a result whose id isn't `to`.
+another image, paths that aren't where it says, a result whose id isn't `to`, and a result
+that isn't a valid image (a delta's entries are checked like any manifest's). `from` and
+`to` are empty only between unsealed images; a sealed image refuses a delta that leaves
+either out.
 
 ## Store
 
@@ -316,12 +329,18 @@ Content-addressed, shared by every instance on one machine:
   large files the core stored whole before chunking); any other length must be a chunk
   list for that size. A list is under 1% of its file, so the two can't be confused.
   Reading a list reassembles the file and checks each chunk's and the whole file's
-  SHA-256.
+  SHA-256. A manifest from elsewhere can name an object with any size, so the store never
+  judges an object by the size it is asked about: an object that is no file of that size
+  is the asker's error when its own bytes check out (a whole file hashing to its name, or
+  a list whose chunks do) and damaged only when they don't.
 - Writes: temp file, fsync, read-only, rename; manifests last (after the folders of the
-  objects written since the last manifest are flushed). Reads verify the SHA-256. Like the
-  core's backups, presence is checked cheaply (a raw object's length, a zstd frame's
-  header); a damaged object is found when read, and deleting it lets the next write store
-  it again.
+  objects written since the last manifest are flushed). Saving a manifest checks that every
+  object its `object` entries and stored files name is present (and touches it like a write
+  that finds it, below), and fails if one isn't: an image never names what the store lost.
+  Reads verify the SHA-256. Like the core's backups, presence is checked cheaply (a raw
+  object's length, a zstd frame's header, a chunk list's header for exactly that size); a
+  damaged object is found when read, and deleting it lets the next write store it again
+  (only an object damaged by its own bytes is deleted).
 - A stat cache (path, size, mtime, older than scan start minus 2 s) skips rehashing
   unchanged files, as backups already do; the Launcher gains it too. It is kept per
   instance next to its manifests, keyed by the path relative to the folder walked, and is
@@ -333,12 +352,19 @@ Content-addressed, shared by every instance on one machine:
   can't be read or has a schema other than 2 (newer, or from before images: those live in
   their own folders); temp files are swept after an hour. Objects named by entries (any
   source: the store may hold a downloadable file's bytes) and by the settings' stored files
-  (icon, background) are live, and so are the chunks of live chunk lists. When a live
-  chunk list can't be read, no chunk is deleted. Objects and chunks modified in the last
-  hour are kept (with the chunks of such lists), and a write that finds an object already
-  there touches it when it is older than 10 minutes, so a snapshot running at the same
-  time never loses what it is about to name. Objects only older formats use are passed
-  in by the caller, which refuses the same way when it can't read those manifests.
+  (icon, background) are live, and so are the chunks of live chunk lists. Whether a live
+  object is a list is decided from the object, never from the sizes manifests give it: it
+  is read when some name could mean a list (a size over 1 MiB other than its length, or no
+  size, for objects older formats name), and is a list exactly when it parses as one. A
+  name with a size the object doesn't have is that manifest's error and blocks nothing.
+  When a live chunk list can't be read, no chunk is deleted. Objects and chunks modified in
+  the last hour are kept (with the chunks of such lists), and a write that finds an object
+  already there, a snapshot that takes a file from its stat cache, and saving a manifest
+  touch it (and a list's chunks) when it is older than 10 minutes, so a snapshot running
+  at the same time never loses what it is about to name, and a save after a snapshot longer
+  than the hour of grace fails rather than name what was collected. Objects only older
+  formats use are passed in by the caller, which refuses the same way when it can't read
+  those manifests.
 - Snapshots walk the folder with the side's disk layout. Files never recorded, outside a
   client's game folder, or left out by the image's `excludes` are skipped without a
   withheld record (`excludes` says what they are). `excludes` match canonical paths
@@ -351,7 +377,9 @@ Content-addressed, shared by every instance on one machine:
   it); files that change while read, three tries each, as `kept_changing`. A withheld
   path is canonical where the layout gives one, else as found relative to the game
   folder. Entries record `mode` as the unix bits without setuid, setgid and sticky
-  (0o444 or 0o644 on Windows); placing a file applies only those bits.
+  (0o444 or 0o644 on Windows); placing a file applies only those bits, plus the owner's
+  write bit, as the core's and the Launcher's restores always did (the game, mods and
+  Lodestone must be able to change what a restore put back).
 - Materializing places files in a staging folder, never over an existing file, checking
   every byte, and refuses names that differ only in letter case when the staging disk
   ignores case.
@@ -433,7 +461,8 @@ image.json            the image, sealed
 images/<id>.json      only the image's `content` link
 objects/<sha256>      plain bytes of each object entries with source `object` and the
                       settings' stored files (icon, background) name; for a file over
-                      1 MiB, its chunk list
+                      1 MiB, its chunk list (a file the store keeps whole is cut on the
+                      way out, as a store cuts it)
 chunks/<sha256>       the chunks those lists name, each once
 ```
 
@@ -441,7 +470,9 @@ Entries are deflated with a fixed timestamp, so the same image gives the same fi
 written as `<file>.part` and renamed when whole. The reader refuses any other name (folder
 entries `objects/`, `chunks/` and `images/` aside), a name twice, local headers that differ
 from the central directory, encrypted entries, more than 1,000,000 entries or 64 GB
-declared, manifests over 512 MiB, a manifest whose contents don't hash to its id, a linked
+declared, an image whose files add up to more than 64 GB (entries can share an object and
+a list can repeat a chunk, so a small export could otherwise name an image that fills the
+disk when placed), manifests over 512 MiB, a manifest whose contents don't hash to its id, a linked
 manifest the image doesn't link to, an object the images need that is missing or of the
 wrong size, a chunk list that isn't one or names a missing or wrongly sized chunk, and any
 object or chunk nothing needs. Import asks the caller whether the disk has room for what
@@ -465,6 +496,10 @@ names anything by it.
   can't write outside the game folder or to Lodestone's own files.
 - Files that aren't on Modrinth are flagged in the install summary.
 - CurseForge files whose authors block distribution travel only as references.
+- Secrets stay out of typed settings, but a server's own `server.properties` is an ordinary
+  `object` entry of its data images, `rcon.password` and `management-server-secret`
+  included. That is fine in the local store; an export that leaves the computer (M6) must
+  strip or withhold those properties.
 
 ## Migration
 
@@ -525,7 +560,9 @@ Per format:
   (`worlds/survival`) is no world, and its files keep their server paths.
 - **Snapshots and `.lodesnap` (schema 1)** become images through the client layout; the
   kind follows the selection (content categories only: content; worlds, screenshots and
-  other files only: data; both: full). `instance.json` gives the game and the recommended
+  other files only: data; both: full). A file without a mode (0, from before the Launcher
+  kept modes) gets 0o644, what the Launcher's restore gave it, and the rest remembers it so
+  writing back says 0 again. `instance.json` gives the game and the recommended
   memory, and `icon.png` and `background.jpg` the client settings' icon and background;
   every other instance field is local, reported and kept in the rest, never in the image.
   Files beside the game folder (`content.json`, `modpack.json`, shared options) are kept in

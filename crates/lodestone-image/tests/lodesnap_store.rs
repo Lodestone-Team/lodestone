@@ -197,3 +197,36 @@ fn a_lodesnap_object_that_doesnt_match_its_name_is_refused() {
     let hash = tampered.strip_prefix("objects/").unwrap();
     assert!(!store.object_path(hash).unwrap().exists());
 }
+
+/// A snapshot from before the Launcher kept modes has none (0) on its files. Restored
+/// through the store they come back as the Launcher's restore made them, 0o644, never
+/// unreadable; written back, the manifest says 0 again.
+#[test]
+fn a_snapshot_without_modes_restores_readable_files() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::new(dir.path().join("store"), Encoding::Raw);
+    store.put_bytes(b"mod bytes").unwrap();
+    let converted = lodesnap::read(&fixture("snapshot-modeless.json")).unwrap();
+    assert_eq!(converted.image.entries[0].mode, 0o644);
+    let back = lodesnap::from_image(&converted.image, &converted.rest).unwrap();
+    assert_eq!(back.files[0].mode, 0);
+
+    let staging = dir.path().join("staging");
+    fs::create_dir(&staging).unwrap();
+    materialize(
+        &store,
+        &converted.image,
+        &DiskLayout::Client,
+        &staging,
+        &MaterializeOptions::default(),
+    )
+    .unwrap();
+    let placed = staging.join("minecraft/mods/a.jar");
+    assert_eq!(fs::read(&placed).unwrap(), b"mod bytes");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = fs::metadata(&placed).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o644);
+    }
+}

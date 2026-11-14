@@ -8,6 +8,15 @@
 //! unknown `source`, `kind`, `base` or `env` value) can't be guessed and make the manifest
 //! invalid, and a newer schema is refused with [`ManifestError::NewerSchema`], so nothing
 //! acts on a manifest it only half understands.
+//!
+//! Only the image and its entries have room for unknown fields. Anywhere else (the game,
+//! the base, a source, an env, a world, a withheld file) an unknown field makes the
+//! manifest invalid with an error that names it, rather than being dropped: a dropped field
+//! would change the id, and the image would then fail its check with a misleading
+//! "contents hash to …" instead. So a new field there needs a new schema. (Settings drop
+//! unknown fields instead, so local settings can never get into an image.) Numbers in
+//! unknown fields must be whole numbers that fit 64 bits: this version can't write any
+//! other number back exactly as it was, so its id wouldn't verify.
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
@@ -88,8 +97,10 @@ impl Default for Producer {
 /// A whole pack the instance is built on, both sides of it. Each view reads its own share
 /// (`overrides/` plus `server-overrides/` or `client-overrides/`, index files by `env`).
 /// The pack's files are not listed in `entries` unless the instance differs there.
+///
+/// Unknown fields inside a base make the manifest invalid (see the module documentation).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum Base {
     ModrinthPack {
         project: String,
@@ -120,6 +131,7 @@ open_enum! {
 /// The game both sides run. The Minecraft version and the loader are fixed when an
 /// instance is made; only the loader version changes in place.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Game {
     pub minecraft: String,
     pub loader: Loader,
@@ -129,7 +141,7 @@ pub struct Game {
 
 /// Where an entry's bytes come from.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum Source {
     /// The base pack's copy, changed nowhere. Carried in an export as nothing.
     Base {},
@@ -256,6 +268,7 @@ impl Entry {
 /// A world of a data or full image. `name` is its folder (`saves/<name>/`); the rest is
 /// read from its `level.dat` where known.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct World {
     pub name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -296,6 +309,7 @@ open_enum! {
 /// A known file an image doesn't carry. `path` is as found, which may not be a valid
 /// canonical path (that may be why it was withheld): show it, never place it.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Withheld {
     pub path: String,
     pub reason: WithheldReason,
@@ -502,6 +516,10 @@ impl Image {
             Some(Base::CurseforgePack { .. } | Base::Loader {}) | None => {}
         }
         self.settings.validate()?;
+        check_unknown_numbers("the image", &self.extra)?;
+        if self.kind == Kind::Content && !self.worlds.is_empty() {
+            return Err("a content image has no worlds".into());
+        }
 
         if self.entries.len() > MAX_ENTRIES || self.withheld.len() > MAX_ENTRIES {
             return Err(format!("more than {MAX_ENTRIES} entries"));
@@ -524,6 +542,7 @@ impl Image {
         let mut paths: HashSet<&CanonicalPath> = HashSet::with_capacity(self.entries.len());
         for entry in &self.entries {
             entry.validate()?;
+            check_unknown_numbers(entry.path.as_str(), &entry.extra)?;
             if let Some(world) = &entry.world {
                 if !world_names.contains(world.as_str()) {
                     return Err(format!("{}: world {world:?} isn't in worlds", entry.path));
@@ -578,6 +597,27 @@ impl Image {
             .binary_search_by(|e| e.path.cmp(path))
             .ok()
             .map(|i| &self.entries[i])
+    }
+}
+
+/// Refuses numbers in unknown fields that aren't whole numbers fitting 64 bits (a float,
+/// or an integer beyond `u64` or `i64`): serde_json reads those as floats and writes them
+/// back differently (`1.0`, `1.8446744073709552e19`), so the canonical manifest, and the
+/// id, would no longer be the writer's.
+fn check_unknown_numbers(owner: &str, extra: &BTreeMap<String, Value>) -> Result<(), String> {
+    fn whole(value: &Value) -> bool {
+        match value {
+            Value::Number(n) => n.is_i64() || n.is_u64(),
+            Value::Array(items) => items.iter().all(whole),
+            Value::Object(map) => map.values().all(whole),
+            Value::Null | Value::Bool(_) | Value::String(_) => true,
+        }
+    }
+    match extra.iter().find(|(_, value)| !whole(value)) {
+        Some((key, _)) => Err(format!(
+            "{owner}: the unknown field {key:?} holds a number that isn't a whole 64-bit number"
+        )),
+        None => Ok(()),
     }
 }
 
@@ -755,6 +795,78 @@ pub(crate) mod tests {
         let again = serde_json::to_value(&image).unwrap();
         assert_eq!(again["future_field"], value["future_field"]);
         assert_eq!(again["entries"][0]["future_entry_field"], "y");
+    }
+
+    #[test]
+    fn unknown_fields_below_the_entries_are_refused_by_name() {
+        // Dropping them would change the id; refusing names the field instead.
+        // (where, the field added there)
+        let cases = [
+            ("/worlds/0", "seed"),
+            ("/game", "future"),
+            ("/entries/1/source/object", "future"),
+            ("/entries/0/source/modrinth", "future"),
+            ("/base/modrinth_pack", "future"),
+            ("/entries/0/env", "future"),
+            ("/withheld/0", "future"),
+        ];
+        for (pointer, field) in cases {
+            let mut image = sample();
+            image.withheld.push(Withheld {
+                path: "mods/x.jar".into(),
+                reason: WithheldReason::Symlink,
+            });
+            let mut value = serde_json::to_value(&image).unwrap();
+            value
+                .pointer_mut(pointer)
+                .and_then(serde_json::Value::as_object_mut)
+                .unwrap_or_else(|| panic!("{pointer}"))
+                .insert(field.to_string(), 42.into());
+            let error = Image::from_json(&serde_json::to_vec(&value).unwrap()).unwrap_err();
+            assert!(
+                matches!(&error, ManifestError::Invalid(m) if m.contains(field)),
+                "{pointer}: {error}"
+            );
+        }
+    }
+
+    #[test]
+    fn unknown_numbers_must_be_whole_64_bit_numbers() {
+        for (number, ok) in [
+            ("18446744073709551615", true),
+            ("-9223372036854775808", true),
+            ("18446744073709551616", false),
+            ("1.0", false),
+            ("1e3", false),
+        ] {
+            let mut value = serde_json::to_value(sample()).unwrap();
+            value["future"] = serde_json::from_str(&format!("[{{\"n\": {number}}}]")).unwrap();
+            value["entries"][0]["future"] = serde_json::from_str(number).unwrap();
+            let read = Image::from_json(&serde_json::to_vec(&value).unwrap());
+            assert_eq!(read.is_ok(), ok, "{number}: {read:?}");
+            if let Ok(mut image) = read {
+                image.seal();
+                let again = Image::from_json(&image.to_json_pretty()).unwrap();
+                assert_eq!(again.verify(), Ok(()));
+            }
+        }
+        // In an entry alone too.
+        let mut value = serde_json::to_value(sample()).unwrap();
+        value["entries"][0]["future"] = serde_json::json!(0.5);
+        let error = Image::from_json(&serde_json::to_vec(&value).unwrap()).unwrap_err();
+        assert!(error.to_string().contains("mods/jei.jar"), "{error}");
+    }
+
+    #[test]
+    fn content_images_have_no_worlds() {
+        let mut image = sample();
+        image.kind = Kind::Content;
+        assert!(image.validate().unwrap_err().contains("no worlds"));
+        image.worlds.clear();
+        // Its world files then name a world that isn't there.
+        assert!(image.validate().is_err());
+        image.entries.retain(|e| e.world.is_none());
+        assert_eq!(image.validate(), Ok(()));
     }
 
     #[test]

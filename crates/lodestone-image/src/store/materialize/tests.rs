@@ -334,6 +334,12 @@ fn modes_are_applied() {
     let mut image = stored_image(&store, &[("start.sh", b"#!/bin/sh"), ("ro.txt", b"ro")]);
     image.entries[0].mode = 0o444;
     image.entries[1].mode = 0o4755;
+    image.entries.push({
+        let mut entry = image.entries[0].clone();
+        entry.path = CanonicalPath::new("unreadable.txt").unwrap();
+        entry.mode = 0;
+        entry
+    });
     image.seal();
     let staging = dir.path().join("staging");
     fs::create_dir(&staging).unwrap();
@@ -353,8 +359,13 @@ fn modes_are_applied() {
             .mode()
             & 0o7777
     };
-    // Entries are sorted: ro.txt, start.sh.
-    assert_eq!(mode("ro.txt"), 0o444);
+    // Entries are sorted: ro.txt, start.sh. A file recorded read-only comes back
+    // writable by its owner, as both old restores did.
+    assert_eq!(mode("ro.txt"), 0o644);
     // Setuid never comes from an image.
     assert_eq!(mode("start.sh"), 0o755);
+    // Even mode 0 is owner-writable (and the v1 snapshot reader never gives 0).
+    assert_eq!(mode("unreadable.txt"), 0o200);
+    assert_eq!(placed_mode(0o4755), 0o755);
+    assert_eq!(placed_mode(0o444), 0o644);
 }

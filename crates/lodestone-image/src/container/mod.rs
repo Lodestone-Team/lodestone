@@ -10,13 +10,20 @@
 //! chunks/<sha256>       the chunks those lists name
 //! ```
 //!
+//! A file over 1 MiB always travels as its chunk list, even when the store keeps it whole
+//! (the core's large files from before chunking): it is cut on the way out exactly as a
+//! store cuts it, so the same image gives the same export from any store.
+//!
 //! Files with any other source travel as references (a Modrinth or CurseForge version, the
 //! base pack), so an export of a modded instance is mostly its worlds and configs.
 //!
 //! An export comes from another computer, so reading one trusts nothing, with the same rules
 //! as the Launcher's `.lodesnap` reader: only the names above, no name twice, local headers
 //! that match the central directory, at most [`Limits::max_entries`] entries and
-//! [`Limits::max_total_bytes`] unpacked, manifests whose contents hash to their ids, every
+//! [`Limits::max_total_bytes`] unpacked, no image whose files add up to more than
+//! [`Limits::max_total_bytes`] either (entries can share one object, and a list can repeat
+//! one chunk, so a small export could otherwise name an image that fills the disk when it
+//! is placed), manifests whose contents hash to their ids, every
 //! object an image needs present and no file it doesn't, every declared size what the
 //! manifest says, and every byte read checked against its SHA-256 before the store keeps
 //! it. Names are only ever looked up, never joined onto a folder, so no entry can reach
@@ -32,8 +39,8 @@ use sha2::{Digest, Sha256};
 use crate::hex::{is_sha256, sha256_hex};
 use crate::identity::IdentityError;
 use crate::manifest::{Image, ManifestError, Source};
-use crate::store::cdc::MAX_CHUNK;
-use crate::store::chunklist::{ChunkList, CHUNKED_ABOVE};
+use crate::store::cdc::{Chunker, MAX_CHUNK};
+use crate::store::chunklist::{ChunkList, ChunkRef, CHUNKED_ABOVE};
 use crate::store::{
     hex_digest, manifest_id, Cancel, ObjectForm, Store, StoreError, MAX_MANIFEST_BYTES,
 };
@@ -45,7 +52,7 @@ pub const IMAGE_FILE: &str = "image.json";
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Limits {
     pub max_entries: usize,
-    /// The sum of the entries' declared sizes.
+    /// The sum of the zip entries' declared sizes, and of each image's files' sizes.
     pub max_total_bytes: u64,
     /// Each manifest's size.
     pub max_manifest_bytes: u64,
@@ -237,11 +244,40 @@ fn write_zip(
             return Err(ContainerError::Cancelled);
         }
         match store.object_form(sha256, size)? {
+            ObjectForm::Whole if size > CHUNKED_ABOVE => {
+                // Stored whole (the core's, from before chunking): cut as a store would,
+                // listing the chunks first and then writing them, reading the object
+                // twice (and checking its hash each time) rather than holding it.
+                let mut chunks = Vec::new();
+                cut_whole(store, sha256, size, cancel, &mut |chunk| {
+                    chunks.push(ChunkRef {
+                        sha256: sha256_hex(chunk),
+                        // Chunks are at most 256 KiB.
+                        size: u32::try_from(chunk.len()).unwrap_or(u32::MAX),
+                    });
+                    Ok(())
+                })?;
+                let encoded = ChunkList { size, chunks }.encode();
+                zip.start_file(format!("objects/{sha256}"), options(encoded.len() as u64))
+                    .map_err(zip_err)?;
+                zip.write_all(&encoded).map_err(io)?;
+                cut_whole(store, sha256, size, cancel, &mut |chunk| {
+                    let chunk_sha = sha256_hex(chunk);
+                    if written_chunks.insert(chunk_sha.clone()) {
+                        zip.start_file(format!("chunks/{chunk_sha}"), options(chunk.len() as u64))
+                            .map_err(zip_err)?;
+                        zip.write_all(chunk).map_err(io)?;
+                        report.chunks += 1;
+                        report.bytes = report.bytes.saturating_add(chunk.len() as u64);
+                    }
+                    Ok(())
+                })?;
+            }
             ObjectForm::Whole => {
                 zip.start_file(format!("objects/{sha256}"), options(size))
                     .map_err(zip_err)?;
                 store.read_object(sha256, size, &mut zip, cancel)?;
-                report.bytes += size;
+                report.bytes = report.bytes.saturating_add(size);
             }
             ObjectForm::Chunked(list) => {
                 let encoded = list.encode();
@@ -282,6 +318,58 @@ fn write_zip(
         .map_err(|e| io(e.into_error()))?;
     file.sync_all().map_err(io)?;
     Ok(report)
+}
+
+/// Reads the whole object `sha256` (checking its hash) and cuts it into chunks as the store
+/// cuts a large file, giving each chunk to `emit` in order.
+fn cut_whole(
+    store: &Store,
+    sha256: &str,
+    size: u64,
+    cancel: Cancel,
+    emit: &mut dyn FnMut(&[u8]) -> Result<(), ContainerError>,
+) -> Result<(), ContainerError> {
+    /// A writer that cuts what it is given, keeping the first error `emit` gave.
+    struct Cutter<'e> {
+        chunker: Chunker,
+        emit: &'e mut dyn FnMut(&[u8]) -> Result<(), ContainerError>,
+        failed: Option<ContainerError>,
+    }
+    impl Write for Cutter<'_> {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            let Cutter {
+                chunker,
+                emit,
+                failed,
+            } = self;
+            if failed.is_some() {
+                return Err(io::Error::other("an earlier chunk failed"));
+            }
+            match chunker.push(bytes, &mut **emit) {
+                Ok(()) => Ok(bytes.len()),
+                Err(e) => {
+                    *failed = Some(e);
+                    Err(io::Error::other("a chunk failed"))
+                }
+            }
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+    let mut cutter = Cutter {
+        chunker: Chunker::new(),
+        emit,
+        failed: None,
+    };
+    let read = store.read_object(sha256, size, &mut cutter, cancel);
+    if let Some(failed) = cutter.failed.take() {
+        return Err(failed);
+    }
+    read?;
+    let Cutter { chunker, emit, .. } = cutter;
+    chunker.finish(emit)
 }
 
 /// How an export holds one object.
@@ -430,6 +518,7 @@ pub fn open(path: &Path, limits: &Limits) -> Result<Container, ContainerError> {
 
     let image = Image::from_json(&read_entry(&mut archive, IMAGE_FILE, image_declared)?)?;
     image.verify()?;
+    check_files_size(&image, limits)?;
     let mut linked = Vec::new();
     for (id, declared) in &linked_declared {
         if image.content.as_deref() != Some(id.as_str()) {
@@ -446,6 +535,7 @@ pub fn open(path: &Path, limits: &Limits) -> Result<Container, ContainerError> {
         if other.id != *id {
             return Err(invalid(format!("images/{id}.json holds another image")));
         }
+        check_files_size(&other, limits)?;
         linked.push(other);
     }
 
@@ -513,6 +603,27 @@ pub fn open(path: &Path, limits: &Limits) -> Result<Container, ContainerError> {
     })
 }
 
+/// The sum of `image`'s files' sizes, whatever their source: what placing it all writes.
+pub fn files_size(image: &Image) -> u64 {
+    image
+        .entries
+        .iter()
+        .map(|e| e.size)
+        .fold(0, u64::saturating_add)
+}
+
+/// Refuses an image whose files add up to more than the limit.
+fn check_files_size(image: &Image, limits: &Limits) -> Result<(), ContainerError> {
+    if files_size(image) > limits.max_total_bytes {
+        return Err(invalid(format!(
+            "its image {} has files adding up to more than {} GB",
+            image.id,
+            limits.max_total_bytes / 1_000_000_000
+        )));
+    }
+    Ok(())
+}
+
 /// Reads an entry of exactly `declared` bytes (the zip checks its CRC at the end).
 fn read_entry(
     archive: &mut zip::ZipArchive<BufReader<File>>,
@@ -547,6 +658,12 @@ impl Container {
     /// The bytes importing may unpack (objects, lists and chunks), for a free-space check.
     pub fn unpacked_bytes(&self) -> u64 {
         self.unpacked
+    }
+
+    /// What placing the image's files writes ([`files_size`]), for a free-space check
+    /// before materializing it; a linked image's is `files_size` of it.
+    pub fn image_bytes(&self) -> u64 {
+        files_size(&self.image)
     }
 
     /// Adds the export's objects to `store`, after `check_room` agreed to

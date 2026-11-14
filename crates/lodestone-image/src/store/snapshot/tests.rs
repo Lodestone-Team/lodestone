@@ -439,3 +439,91 @@ fn modes_are_recorded() {
         vec![("server.properties", 0o600), ("start.sh", 0o755)]
     );
 }
+
+/// A file taken from the stat cache is never read, so planning claims its object: a
+/// garbage collection that runs after the previous image was deleted, while the next
+/// snapshot is under way, must not delete what that snapshot is about to name. And if a
+/// collection still took an object (it was claimed over an hour before the save),
+/// saving the manifest says so instead of naming what the store lost.
+#[test]
+fn cached_files_keep_their_objects_through_a_collection() {
+    use crate::store::gc::GcOptions;
+    for encoding in encodings() {
+        let (dir, store) = store(encoding);
+        let root = dir.path().join("instance");
+        write(&root, "minecraft/mods/a.jar", b"hello world");
+        write(&root, "minecraft/mods/big.jar", &region_like(3, 2_000_000));
+        for entry in walkdir::WalkDir::new(&root).into_iter().flatten() {
+            if entry.file_type().is_file() {
+                age(entry.path(), 7200);
+            }
+        }
+        let first = snapshot(
+            &store,
+            &root,
+            &DiskLayout::Client,
+            &SnapshotOptions::default(),
+        )
+        .unwrap();
+        let mut image = Image::new(Kind::Content, fabric());
+        first.fill(&mut image);
+        image.seal();
+        store.save_manifest("inst", &image).unwrap();
+        store.save_stat_cache("inst", &first.cache).unwrap();
+        // Snapshot 1 was hours ago.
+        for entry in walkdir::WalkDir::new(store.root())
+            .min_depth(3)
+            .into_iter()
+            .flatten()
+        {
+            if entry.file_type().is_file()
+                && entry
+                    .path()
+                    .components()
+                    .any(|c| c.as_os_str() == "objects" || c.as_os_str() == "chunks")
+            {
+                age(entry.path(), 7200);
+            }
+        }
+
+        let cache = store.load_stat_cache("inst");
+        let options = SnapshotOptions {
+            cache: Some(&cache),
+            ..SnapshotOptions::default()
+        };
+        let plan = plan(&store, &root, &DiskLayout::Client, &options).unwrap();
+        assert_eq!((plan.cached.len(), plan.to_read.len()), (2, 0));
+        // Meanwhile image 1 is deleted and a collection runs (with its usual grace).
+        store.delete_manifest("inst", &image.id).unwrap();
+        let report = store.gc(&GcOptions::default()).unwrap();
+        assert_eq!(
+            (report.objects_removed, report.chunks_removed),
+            (0, 0),
+            "{report:?}"
+        );
+        let second = run(&store, plan, &options, &|_, _| {}).unwrap();
+        let mut next = Image::new(Kind::Content, fabric());
+        second.fill(&mut next);
+        next.seal();
+        store.save_manifest("inst", &next).unwrap();
+        for entry in &next.entries {
+            store
+                .verify_object(&entry.sha256, entry.size, NEVER)
+                .unwrap();
+        }
+
+        // A collection without grace (as if an hour passed) takes them after all: the
+        // save refuses.
+        store.delete_manifest("inst", &next.id).unwrap();
+        store
+            .gc(&GcOptions {
+                grace: Duration::ZERO,
+                ..GcOptions::default()
+            })
+            .unwrap();
+        assert!(matches!(
+            store.save_manifest("inst", &next),
+            Err(StoreError::Missing(_))
+        ));
+    }
+}

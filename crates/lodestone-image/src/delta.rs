@@ -3,9 +3,10 @@
 //! Images are stored as full listings and sent as deltas. [`diff`] works between any two
 //! images (no chain of parents needed): entries added, removed and replaced, by path, and
 //! every other field that differs, whole. [`apply`] turns the `from` image into exactly the
-//! `to` image, and checks the result against the `to` id when there is one, so a receiver
-//! knows it has what the sender meant. Both are deterministic: the same two images always
-//! give the same delta, byte for byte.
+//! `to` image, and checks the result against the `to` id, so a receiver knows it has what
+//! the sender meant, and validates it like any manifest from elsewhere (a delta's entries
+//! are only as trustworthy as the image they make). Both are deterministic: the same two
+//! images always give the same delta, byte for byte.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -98,6 +99,14 @@ pub enum DeltaError {
     Repeated(CanonicalPath),
     #[error("the result has id {actual}, not {expected}")]
     WrongResult { expected: String, actual: String },
+    /// The image is sealed but the delta doesn't name both images, so nothing could check
+    /// that it is for this image or gives what the sender meant.
+    #[error("the delta doesn't say which images it is between")]
+    Unsealed,
+    /// The result isn't a valid image (a Modrinth source off the CDN, a world file of a
+    /// world it doesn't list…).
+    #[error("the result isn't a valid image: {0}")]
+    Invalid(String),
 }
 
 /// The changes from `from` to `to`.
@@ -161,10 +170,15 @@ pub fn diff(from: &Image, to: &Image) -> Delta {
 }
 
 /// `from` with `delta` applied: the image the delta was made to. Errors (and changes
-/// nothing) when the delta is for another image, names paths that aren't where it says, or
-/// gives a result whose id isn't the delta's `to`.
+/// nothing) when the delta is for another image, names paths that aren't where it says,
+/// gives a result whose id isn't the delta's `to`, or gives an invalid image. A delta
+/// applied to a sealed image must name both ids: an empty `from` or `to` (which [`diff`]
+/// gives only for unsealed images) would skip those checks.
 pub fn apply(from: &Image, delta: &Delta) -> Result<Image, DeltaError> {
-    if !delta.from.is_empty() && delta.from != from.id {
+    if !from.id.is_empty() && (delta.from.is_empty() || delta.to.is_empty()) {
+        return Err(DeltaError::Unsealed);
+    }
+    if delta.from != from.id {
         return Err(DeltaError::WrongBase {
             expected: delta.from.clone(),
             actual: from.id.clone(),
@@ -227,6 +241,7 @@ pub fn apply(from: &Image, delta: &Delta) -> Result<Image, DeltaError> {
         }
     }
     image.normalize();
+    image.validate().map_err(DeltaError::Invalid)?;
     image.id = delta.to.clone();
     if !delta.to.is_empty() {
         let actual = image.compute_id();
@@ -394,8 +409,7 @@ mod tests {
             Err(DeltaError::Repeated(path("mods/a.jar")))
         );
         let mut adds_present = diff(&content(&[]), &a);
-        adds_present.from.clear();
-        adds_present.to.clear();
+        adds_present.from = a.id.clone();
         assert_eq!(
             apply(&a, &adds_present),
             Err(DeltaError::AlreadyThere(path("mods/a.jar")))
@@ -414,6 +428,57 @@ mod tests {
         assert!(matches!(
             apply(&a, &tampered),
             Err(DeltaError::WrongResult { .. })
+        ));
+    }
+
+    #[test]
+    fn a_sealed_image_takes_only_deltas_naming_both_ids() {
+        let a = content(&["mods/a.jar"]);
+        let other = content(&["mods/zzz.jar"]);
+        let delta = diff(&a, &content(&["mods/b.jar"]));
+        for (from, to) in [("", ""), ("", delta.to.as_str()), (a.id.as_str(), "")] {
+            let mut blank = delta.clone();
+            blank.from = from.to_string();
+            blank.to = to.to_string();
+            assert_eq!(apply(&a, &blank), Err(DeltaError::Unsealed));
+            assert!(apply(&other, &blank).is_err());
+        }
+    }
+
+    #[test]
+    fn results_are_validated() {
+        let from = content(&["mods/a.jar"]);
+        // A Modrinth source off the CDN: the sender's image is invalid, and so is the
+        // result, even though its id matches.
+        let mut to = from.clone();
+        let mut evil = object("mods/evil.jar");
+        evil.source = Source::Modrinth {
+            project: "p".into(),
+            version: "v".into(),
+            url: "https://evil.example/x.jar".into(),
+        };
+        evil.sha512 = Some("a".repeat(128));
+        to.entries.push(evil);
+        to.seal();
+        assert!(to.validate().is_err());
+        assert!(matches!(
+            apply(&from, &diff(&from, &to)),
+            Err(DeltaError::Invalid(m)) if m.contains("cdn.modrinth.com")
+        ));
+
+        // A world file of a world the image doesn't list.
+        let mut ghost = diff(&from, &from);
+        ghost.added.push(object("saves/ghost/level.dat"));
+        assert!(matches!(apply(&from, &ghost), Err(DeltaError::Invalid(_))));
+
+        // A bad hash in an added entry.
+        let mut bad_hash = diff(&from, &from);
+        let mut entry = object("mods/b.jar");
+        entry.sha256 = "../../etc".into();
+        bad_hash.added.push(entry);
+        assert!(matches!(
+            apply(&from, &bad_hash),
+            Err(DeltaError::Invalid(_))
         ));
     }
 

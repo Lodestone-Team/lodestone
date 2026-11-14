@@ -349,6 +349,10 @@ pub struct Rest {
     pub unmapped: Vec<(FileEntry, WithheldReason)>,
     /// Modification times too far from 1970 for an image's nanoseconds, by path.
     pub wide_times: BTreeMap<String, u64>,
+    /// Files whose mode was 0 (manifests from before modes were kept), by path. Their
+    /// entries have 0o644, what the Launcher's restore always gave them; writing back
+    /// gives them 0 again.
+    pub zero_modes: BTreeSet<String>,
 }
 
 /// A converted snapshot.
@@ -413,6 +417,7 @@ pub fn to_image(snapshot: &Snapshot) -> Result<Converted, LegacyError> {
     let mut instance_files = Vec::new();
     let mut unmapped = Vec::new();
     let mut wide_times = BTreeMap::new();
+    let mut zero_modes = BTreeSet::new();
     let game_prefix = format!("{CLIENT_GAME_FOLDER}/");
     for file in &snapshot.files {
         if !file.path.starts_with(&game_prefix) {
@@ -422,7 +427,13 @@ pub fn to_image(snapshot: &Snapshot) -> Result<Converted, LegacyError> {
         let reason = match DiskLayout::Client.from_disk(&file.path) {
             Ok(Some(path)) => {
                 let mut entry = Entry::new(path, file.size, &file.sha256, Source::Object {});
-                entry.mode = file.mode;
+                entry.mode = if file.mode == 0 {
+                    // Not kept back then; the Launcher restored such files as 0o644.
+                    zero_modes.insert(file.path.clone());
+                    0o644
+                } else {
+                    file.mode
+                };
                 entry.modified = file.modified.and_then(|seconds| {
                     let nanos = i64::try_from(seconds)
                         .ok()
@@ -452,7 +463,9 @@ pub fn to_image(snapshot: &Snapshot) -> Result<Converted, LegacyError> {
     let mut world_sizes: BTreeMap<String, u64> = BTreeMap::new();
     for entry in &image.entries {
         if let Some(world) = &entry.world {
-            *world_sizes.entry(world.clone()).or_default() += entry.size;
+            // Sizes come from the old manifest: a hostile one can't overflow the sum.
+            let size = world_sizes.entry(world.clone()).or_default();
+            *size = size.saturating_add(entry.size);
         }
     }
     image.worlds = world_sizes
@@ -523,6 +536,7 @@ pub fn to_image(snapshot: &Snapshot) -> Result<Converted, LegacyError> {
         instance_files,
         unmapped,
         wide_times,
+        zero_modes,
     };
     Ok(Converted {
         image: finish(image)?,
@@ -548,13 +562,18 @@ pub fn from_image(image: &Image, rest: &Rest) -> Result<Snapshot, LegacyError> {
                 .modified
                 .and_then(|nanos| u64::try_from(nanos / 1_000_000_000).ok()),
         };
+        let mode = if rest.zero_modes.contains(&path) && entry.mode == 0o644 {
+            0
+        } else {
+            entry.mode
+        };
         files.push(FileEntry {
             path,
             category,
             world,
             size: entry.size,
             sha256: entry.sha256.clone(),
-            mode: entry.mode,
+            mode,
             modified,
         });
     }
@@ -744,7 +763,10 @@ mod tests {
         let converted = round_trip(&s);
         assert_eq!(converted.image.label.as_deref(), Some("two lines"));
         assert_eq!(converted.image.entries[0].modified, None);
-        assert_eq!(converted.image.entries[0].mode, 0);
+        // A manifest from before modes were kept: restored as the Launcher did, written
+        // back as it was.
+        assert_eq!(converted.image.entries[0].mode, 0o644);
+        assert!(converted.rest.zero_modes.contains("minecraft/mods/a.jar"));
     }
 
     #[test]

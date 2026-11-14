@@ -15,12 +15,15 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
+use crate::hex::is_sha256;
 use crate::strings::open_enum;
 use crate::Side;
 
 /// `server.properties` keys that hold secrets. They are never put in an image's settings
 /// ([`ServerSettings::from_properties`] drops them, and validation refuses them).
 pub const SECRET_PROPERTIES: [&str; 2] = ["rcon.password", "management-server-secret"];
+/// An icon or background is at most this large (256 MiB): anything bigger isn't one.
+pub const MAX_STORED_FILE: u64 = 256 << 20;
 
 /// Every setting an image may carry, by side.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -47,7 +50,9 @@ impl Settings {
     }
 
     /// Sorts the lists whose order means nothing (ops, whitelist), so equal settings
-    /// serialize alike. The resource pack order means something and is kept.
+    /// serialize alike. The resource pack order means something and is kept. A side whose
+    /// settings are all empty becomes no settings for that side, so "none recorded" has one
+    /// spelling and gives one id.
     pub fn normalize(&mut self) {
         if let Some(server) = &mut self.server {
             server.ops.sort();
@@ -55,9 +60,17 @@ impl Settings {
             server.whitelist.sort();
             server.whitelist.dedup();
         }
+        if self.server.as_ref() == Some(&ServerSettings::default()) {
+            self.server = None;
+        }
+        if self.client.as_ref() == Some(&ClientSettings::default()) {
+            self.client = None;
+        }
     }
 
-    /// Problems a manifest from elsewhere might have: secrets in the properties.
+    /// Problems a manifest from elsewhere might have: secrets in the properties, and stored
+    /// files (icon, background) that aren't named by a SHA-256 or are impossibly large.
+    /// Those are store keys that garbage collection and exports act on.
     pub fn validate(&self) -> Result<(), String> {
         if let Some(server) = &self.server {
             if let Some(key) = server
@@ -66,6 +79,21 @@ impl Settings {
                 .find(|key| SECRET_PROPERTIES.contains(&key.as_str()))
             {
                 return Err(format!("settings.server.properties has the secret {key:?}"));
+            }
+        }
+        if let Some(client) = &self.client {
+            for (name, stored) in [("icon", &client.icon), ("background", &client.background)] {
+                let Some(stored) = stored else { continue };
+                if !is_sha256(&stored.sha256) {
+                    return Err(format!(
+                        "settings.client.{name}.sha256 isn't 64 lowercase hex characters"
+                    ));
+                }
+                if stored.size > MAX_STORED_FILE {
+                    return Err(format!(
+                        "settings.client.{name} is larger than {MAX_STORED_FILE} bytes"
+                    ));
+                }
             }
         }
         Ok(())
@@ -283,6 +311,58 @@ mod tests {
             settings.client.as_ref().unwrap().resource_packs,
             ["file/z.zip", "vanilla"]
         );
+    }
+
+    #[test]
+    fn stored_files_must_be_store_keys() {
+        let with_icon = |sha256: &str, size: u64| Settings {
+            server: None,
+            client: Some(ClientSettings {
+                icon: Some(StoredFile {
+                    sha256: sha256.into(),
+                    size,
+                }),
+                ..Default::default()
+            }),
+        };
+        assert_eq!(with_icon(&"a".repeat(64), 10).validate(), Ok(()));
+        for (sha256, size) in [
+            ("../../etc", 1),
+            (&*"A".repeat(64), 1),
+            (&*"a".repeat(63), 1),
+            (&*"a".repeat(64), MAX_STORED_FILE + 1),
+        ] {
+            let error = with_icon(sha256, size).validate().unwrap_err();
+            assert!(error.contains("icon"), "{error}");
+        }
+        let mut background = Settings::default();
+        background.client = Some(ClientSettings {
+            background: Some(StoredFile {
+                sha256: "x".into(),
+                size: 1,
+            }),
+            ..Default::default()
+        });
+        assert!(background.validate().unwrap_err().contains("background"));
+    }
+
+    #[test]
+    fn empty_sides_are_no_settings() {
+        let mut settings = Settings {
+            server: Some(ServerSettings::default()),
+            client: Some(ClientSettings::default()),
+        };
+        settings.normalize();
+        assert_eq!(settings, Settings::default());
+        let mut kept = Settings {
+            server: Some(ServerSettings {
+                port: Some(25565),
+                ..Default::default()
+            }),
+            client: None,
+        };
+        kept.normalize();
+        assert!(kept.server.is_some());
     }
 
     #[test]

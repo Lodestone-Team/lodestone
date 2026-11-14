@@ -19,6 +19,12 @@
 //! at missing bytes or a name holding part of a file. Every read checks the SHA-256 (and
 //! size) of what comes out, so damage on disk is an error, never wrong bytes.
 //!
+//! A manifest from elsewhere can name an object with any size, so the store never trusts
+//! the size it is asked about to judge an object: an object that doesn't stand for a file
+//! of that size is [`StoreError::WrongSize`] when its own bytes check out (it is a healthy
+//! file, or list, of another size) and [`StoreError::Damaged`] only when they don't, and
+//! [`Store::remove_damaged`] deletes only the latter.
+//!
 //! The parts:
 //! - [`cdc`] and [`chunklist`]: how large files are cut into chunks and listed.
 //! - [`statcache`]: skipping files that haven't changed since the last snapshot.
@@ -51,13 +57,14 @@ use sha2::{Digest, Sha256};
 
 use crate::hex::{is_sha256, sha256_hex};
 use crate::identity::IdentityError;
-use crate::manifest::{Image, ManifestError};
+use crate::manifest::{Image, ManifestError, Source};
 use crate::paths::is_reserved_windows_name;
 
 use cdc::Chunker;
+use chunklist::MAX_LIST_BYTES;
 use chunklist::{ChunkList, ChunkRef, CHUNKED_ABOVE};
 pub use encoding::Encoding;
-use encoding::{buffer_len, decoded_len, decoder, encode_into, read_limited};
+use encoding::{buffer_len, decoded_len, decoder, encode_into, read_limited, IO_CHUNK};
 pub use statcache::StatCache;
 
 /// Temporary files older than this were left by a crash and are swept.
@@ -99,6 +106,10 @@ pub enum StoreError {
     /// The object is there but its bytes aren't what its name says.
     #[error("the stored object {0} is damaged")]
     Damaged(String),
+    /// The object is healthy but stands for a file of another size than the one asked
+    /// about: whatever named it with that size is wrong, not the store.
+    #[error("the stored object {sha256} isn't a file of {size} bytes")]
+    WrongSize { sha256: String, size: u64 },
     #[error("{0:?} isn't a SHA-256")]
     BadHash(String),
     #[error("{0:?} isn't a valid instance id")]
@@ -158,6 +169,21 @@ pub struct StoredFile {
     /// The permission bits an entry records ([`crate::Entry::mode`]).
     pub mode: u32,
     pub added_bytes: u64,
+}
+
+/// An object found present for a file of a given size, and how it holds it.
+enum Presence {
+    Whole(PathBuf),
+    Chunked(PathBuf, ChunkList),
+}
+
+/// What an object is by its own bytes, whatever size anything names it with.
+enum SelfCheck {
+    /// Its bytes (or, for a list, its chunks) hash to its name: a file of this size.
+    Healthy {
+        size: u64,
+    },
+    Damaged,
 }
 
 /// How an object holds its file.
@@ -261,27 +287,66 @@ impl Store {
     // Objects
 
     /// Whether the object for a file of `size` bytes with this hash looks present: there,
-    /// and as long as the file (whole) or as a chunk list for it can be. Reading it all is
-    /// left to reads, which check every byte.
+    /// and as long as the file (whole), or a chunk list for exactly that size. Reading the
+    /// file's bytes is left to reads, which check every one.
     pub fn has_object(&self, sha256: &str, size: u64) -> bool {
-        let Ok(path) = self.object_path(sha256) else {
-            return false;
-        };
-        match decoded_len(self.encoding, &path) {
-            Some(len) if len == size => true,
-            Some(len) => size > CHUNKED_ABOVE && len > 0 && len <= ChunkList::max_encoded_len(size),
+        self.presence(sha256, size).is_some()
+    }
+
+    /// [`Store::has_object`], and also touches the object, and a chunk list's chunks, when
+    /// they are older than ten minutes, as a write that finds an object there does. So a
+    /// garbage collection running now keeps them for the hour of grace, for the manifest
+    /// about to name them ([`gc`]). A list with a missing chunk isn't present.
+    pub fn claim_object(&self, sha256: &str, size: u64) -> bool {
+        let now = SystemTime::now();
+        match self.presence(sha256, size) {
             None => false,
+            Some(Presence::Whole(path)) => {
+                touch_if_old(&path, now);
+                true
+            }
+            Some(Presence::Chunked(path, list)) => {
+                for chunk in &list.chunks {
+                    let Ok(chunk_path) = self.chunk_path(&chunk.sha256) else {
+                        return false;
+                    };
+                    if decoded_len(self.encoding, &chunk_path) != Some(u64::from(chunk.size)) {
+                        return false;
+                    }
+                    touch_if_old(&chunk_path, now);
+                }
+                touch_if_old(&path, now);
+                true
+            }
         }
     }
 
+    /// The object for a file of `size` bytes, if it looks present (see
+    /// [`Store::has_object`]).
+    fn presence(&self, sha256: &str, size: u64) -> Option<Presence> {
+        let path = self.object_path(sha256).ok()?;
+        let len = decoded_len(self.encoding, &path)?;
+        if len == size {
+            return Some(Presence::Whole(path));
+        }
+        if size <= CHUNKED_ABOVE || len == 0 || len > ChunkList::max_encoded_len(size) {
+            return None;
+        }
+        let list = read_limited(self.encoding, &path, len)
+            .ok()
+            .and_then(|bytes| ChunkList::parse(&bytes).ok())?;
+        (list.size == size).then_some(Presence::Chunked(path, list))
+    }
+
     /// How the object for a file of `size` bytes holds it. Reads and checks the chunk list
-    /// of a large file, not its chunks.
+    /// of a large file, not its chunks. An object that holds no file of that size is
+    /// [`StoreError::WrongSize`] if its own bytes check out and [`StoreError::Damaged`] if
+    /// they don't (which takes reading it).
     pub fn object_form(&self, sha256: &str, size: u64) -> Result<ObjectForm, StoreError> {
         let path = self.object_path(sha256)?;
-        let damaged = || StoreError::Damaged(sha256.to_string());
         let Some(len) = decoded_len(self.encoding, &path) else {
             return Err(if fs::symlink_metadata(&path).is_ok() {
-                damaged()
+                StoreError::Damaged(sha256.to_string())
             } else {
                 StoreError::Missing(sha256.to_string())
             });
@@ -289,15 +354,91 @@ impl Store {
         if len == size {
             return Ok(ObjectForm::Whole);
         }
-        if size <= CHUNKED_ABOVE || len > ChunkList::max_encoded_len(size) {
-            return Err(damaged());
+        if size > CHUNKED_ABOVE && len <= ChunkList::max_encoded_len(size) {
+            let list = read_limited(self.encoding, &path, len)
+                .ok()
+                .and_then(|bytes| ChunkList::parse(&bytes).ok());
+            match list {
+                Some(list) if list.size == size => return Ok(ObjectForm::Chunked(list)),
+                Some(_) => {
+                    return Err(StoreError::WrongSize {
+                        sha256: sha256.to_string(),
+                        size,
+                    })
+                }
+                None => {}
+            }
         }
-        let bytes = read_limited(self.encoding, &path, len).map_err(|_| damaged())?;
-        let list = ChunkList::parse(&bytes).map_err(|_| damaged())?;
-        if list.size != size {
-            return Err(damaged());
+        Err(self.mismatch(sha256, size))
+    }
+
+    /// Why the object `sha256` isn't a file of `size` bytes: [`StoreError::WrongSize`] when
+    /// it is a healthy file (or a well-formed list) of another size, else
+    /// [`StoreError::Damaged`].
+    fn mismatch(&self, sha256: &str, size: u64) -> StoreError {
+        match self.check_itself(sha256, false) {
+            Ok(SelfCheck::Healthy { size: actual }) if actual != size => StoreError::WrongSize {
+                sha256: sha256.to_string(),
+                size,
+            },
+            Ok(_) => StoreError::Damaged(sha256.to_string()),
+            Err(e) => e,
         }
-        Ok(ObjectForm::Chunked(list))
+    }
+
+    /// Reads the object `sha256` all the way through to find what it is by its own bytes:
+    /// a whole file whose bytes hash to its name, or a chunk list (whose chunks, with
+    /// `verify_chunks`, are read too and must hash to its name). Anything else is damaged.
+    /// With `verify_chunks`, a missing or damaged chunk is that chunk's error.
+    fn check_itself(&self, sha256: &str, verify_chunks: bool) -> Result<SelfCheck, StoreError> {
+        let path = self.object_path(sha256)?;
+        let file = match File::open(&path) {
+            Ok(file) => file,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {
+                return Err(StoreError::Missing(sha256.to_string()))
+            }
+            Err(_) => return Ok(SelfCheck::Damaged),
+        };
+        let Ok(mut reader) = decoder(self.encoding, file) else {
+            return Ok(SelfCheck::Damaged);
+        };
+        let mut hasher = Sha256::new();
+        let mut total: u64 = 0;
+        // The first bytes, kept while they could still be a chunk list.
+        let mut head: Option<Vec<u8>> = Some(Vec::new());
+        let mut buffer = vec![0u8; IO_CHUNK];
+        loop {
+            let n = match reader.read(&mut buffer) {
+                Ok(0) => break,
+                Ok(n) => n,
+                Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+                Err(_) => return Ok(SelfCheck::Damaged),
+            };
+            hasher.update(&buffer[..n]);
+            total = total.saturating_add(n as u64);
+            if let Some(bytes) = &mut head {
+                bytes.extend_from_slice(&buffer[..n]);
+                if bytes.len() as u64 > MAX_LIST_BYTES || !ChunkList::could_start(bytes) {
+                    head = None;
+                }
+            }
+        }
+        if hex_digest(hasher) == sha256 {
+            return Ok(SelfCheck::Healthy { size: total });
+        }
+        let Some(list) = head.and_then(|bytes| ChunkList::parse(&bytes).ok()) else {
+            return Ok(SelfCheck::Damaged);
+        };
+        if verify_chunks {
+            let mut hasher = Sha256::new();
+            for chunk in &list.chunks {
+                hasher.update(self.read_chunk(chunk)?);
+            }
+            if hex_digest(hasher) != sha256 {
+                return Ok(SelfCheck::Damaged);
+            }
+        }
+        Ok(SelfCheck::Healthy { size: list.size })
     }
 
     /// Starts storing a file of `size` bytes given in pieces. When `expected` is given, the
@@ -480,13 +621,7 @@ impl Store {
         if decoded_len(self.encoding, path) != Some(len) {
             return false;
         }
-        let old = fs::metadata(path)
-            .ok()
-            .and_then(|meta| fsx::age(&meta, SystemTime::now()))
-            .is_some_and(|age| age >= TOUCH_AFTER);
-        if old {
-            fsx::touch(path);
-        }
+        touch_if_old(path, SystemTime::now());
         true
     }
 
@@ -579,7 +714,14 @@ impl Store {
         match self.object_form(sha256, size)? {
             ObjectForm::Whole => {
                 let path = self.object_path(sha256)?;
-                self.stream_whole(&path, sha256, size, out, cancel)
+                match self.stream_whole(&path, sha256, size, out, cancel) {
+                    // As long as the file but not its bytes: damaged, or a chunk list of
+                    // another file that happens to be that long.
+                    Err(StoreError::Damaged(name)) if name == sha256 => {
+                        Err(self.mismatch(sha256, size))
+                    }
+                    other => other,
+                }
             }
             ObjectForm::Chunked(list) => {
                 let mut hasher = Sha256::new();
@@ -667,18 +809,19 @@ impl Store {
         self.read_object(sha256, size, &mut io::sink(), cancel)
     }
 
-    /// Deletes the object for `sha256` if reading it all finds it damaged, so the next
-    /// write of those bytes stores them again ([`Store::has_object`] only looks at its
-    /// length or frame header, which survive most damage). Chunks shared with other files
-    /// are left: a damaged chunk is found and deleted with [`Store::remove_damaged_chunk`].
-    /// Returns whether it deleted the object.
-    pub fn remove_damaged(&self, sha256: &str, size: u64) -> Result<bool, StoreError> {
-        match self.verify_object(sha256, size, NEVER) {
-            Err(StoreError::Damaged(name)) if name == sha256 => {}
-            Err(StoreError::Damaged(chunk)) => {
-                return Err(StoreError::Damaged(chunk));
-            }
-            Ok(()) | Err(StoreError::Missing(_)) => return Ok(false),
+    /// Deletes the object for `sha256` if reading it all finds it damaged by its own
+    /// bytes, so the next write of those bytes stores them again ([`Store::has_object`] only
+    /// looks at its length or frame header, which survive most damage). Damaged means
+    /// neither a whole file that hashes to its name nor a chunk list whose chunks do; no
+    /// size is asked for, since an image naming a healthy object with the wrong size
+    /// ([`StoreError::WrongSize`]) mustn't cost every other image that object. Chunks shared
+    /// with other files are left: a missing or damaged chunk is that chunk's error, and is
+    /// deleted with [`Store::remove_damaged_chunk`]. Returns whether it deleted the object.
+    pub fn remove_damaged(&self, sha256: &str) -> Result<bool, StoreError> {
+        match self.check_itself(sha256, true) {
+            Ok(SelfCheck::Damaged) => {}
+            Ok(SelfCheck::Healthy { .. }) => return Ok(false),
+            Err(StoreError::Missing(name)) if name == sha256 => return Ok(false),
             Err(e) => return Err(e),
         }
         let path = self.object_path(sha256)?;
@@ -709,12 +852,36 @@ impl Store {
     /// Writes `image` (valid and sealed) as its instance's manifest `<id>.json`, after
     /// flushing the folders of the objects this store wrote. Writing the same image again
     /// replaces the file, keeping the newer informational fields (label, time).
+    ///
+    /// Every object the image names is claimed first ([`Store::claim_object`]): touched
+    /// when old, so a garbage collection running now keeps it. The objects only this store
+    /// has (entries with source `object`, and the settings' icon and background) must be
+    /// there, or the save fails with [`StoreError::Missing`]: a collection that ran while a
+    /// long snapshot was still reading may have deleted an object it stored over an hour
+    /// before, and an image must never name what the store lost. Objects of downloadable
+    /// files are claimed when the store has them, and needn't be there.
     pub fn save_manifest(&self, instance: &str, image: &Image) -> Result<PathBuf, StoreError> {
         image
             .validate()
             .map_err(|e| StoreError::Manifest(ManifestError::Invalid(e)))?;
         image.verify()?;
         let path = self.manifest_path(instance, &image.id)?;
+        for entry in &image.entries {
+            if !self.claim_object(&entry.sha256, entry.size) && entry.source == (Source::Object {})
+            {
+                return Err(StoreError::Missing(entry.sha256.clone()));
+            }
+        }
+        let stored_files = image
+            .settings
+            .client
+            .iter()
+            .flat_map(|c| c.icon.iter().chain(c.background.iter()));
+        for stored in stored_files {
+            if !self.claim_object(&stored.sha256, stored.size) {
+                return Err(StoreError::Missing(stored.sha256.clone()));
+            }
+        }
         self.sync()?;
         let dir = self.instance_dir(instance)?;
         let created = !dir.exists();
@@ -851,6 +1018,18 @@ impl Store {
             }
         }
         removed
+    }
+}
+
+/// Touches the file at `path` when it was modified more than [`TOUCH_AFTER`] before `now`,
+/// so a garbage collection running now keeps it for its hour of grace.
+fn touch_if_old(path: &Path, now: SystemTime) {
+    let old = fs::metadata(path)
+        .ok()
+        .and_then(|meta| fsx::age(&meta, now))
+        .is_some_and(|age| age >= TOUCH_AFTER);
+    if old {
+        fsx::touch(path);
     }
 }
 

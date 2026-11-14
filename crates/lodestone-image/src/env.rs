@@ -47,8 +47,10 @@ impl EnvValue {
     }
 }
 
-/// A file's need on each side.
+/// A file's need on each side. An unknown field in it makes the manifest invalid (see
+/// [`crate::manifest`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Env {
     pub client: EnvValue,
     pub server: EnvValue,

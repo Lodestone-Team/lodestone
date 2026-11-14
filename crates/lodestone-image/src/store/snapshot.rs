@@ -103,7 +103,10 @@ pub struct Plan {
 impl Plan {
     /// The bytes [`run`] will read: at most what it can add to the store.
     pub fn bytes_to_read(&self) -> u64 {
-        self.to_read.iter().map(|f| f.size).sum()
+        self.to_read
+            .iter()
+            .map(|f| f.size)
+            .fold(0, u64::saturating_add)
     }
 }
 
@@ -181,7 +184,9 @@ pub fn plan(
         let cached = options
             .cache
             .and_then(|cache| cache.lookup(&file.disk, file.size, file.modified_ns))
-            .filter(|sha256| store.has_object(sha256, file.size))
+            // Claimed, not only looked up: a file taken from the cache is never read, so
+            // this is the only time its object is touched before the manifest names it.
+            .filter(|sha256| store.claim_object(sha256, file.size))
             .map(str::to_string);
         match cached {
             Some(sha256) => plan.cached.push((file, sha256)),
