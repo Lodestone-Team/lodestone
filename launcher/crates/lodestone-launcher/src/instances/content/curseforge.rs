@@ -81,6 +81,18 @@ pub struct BlockedDownloads {
     _watch: Option<Task<()>>,
 }
 
+impl BlockedDownloads {
+    /// The files not in the instance yet.
+    pub fn unfinished(&self) -> Vec<CfPlannedFile> {
+        self.files
+            .iter()
+            .zip(&self.added)
+            .filter(|(_, added)| !**added)
+            .map(|(file, _)| file.clone())
+            .collect()
+    }
+}
+
 impl ContentView {
     pub(super) fn curseforge(&self, cx: &gpui::App) -> Option<Arc<CurseForge>> {
         self.instances.read(cx).curseforge()
@@ -248,21 +260,17 @@ impl ContentView {
 
     // ---- Installing ----
 
-    /// Installs a file from the project view.
+    /// Installs a file, with its dependencies when `with_dependencies`: a result's
+    /// Install always, the project page's as its toggle says.
     pub fn install_cf_file(
         &mut self,
         kind: ContentKind,
         file: CfFile,
         project: Option<CfMod>,
         force: bool,
+        with_dependencies: bool,
         cx: &mut Context<Self>,
     ) {
-        let with_dependencies = self
-            .section(kind)
-            .cf
-            .project
-            .as_ref()
-            .is_none_or(|p| p.with_dependencies);
         self.cf_install(
             vec![CfInstallRequest {
                 kind,
@@ -286,6 +294,7 @@ impl ContentView {
         };
         let modrinth = self.modrinth(cx);
         let downloader = self.instances.read(cx).content_downloader();
+        let busy = self.instances.read(cx).mark_files_busy(&id);
         let progress = Arc::new(InstallProgress::default());
         let cancel = launcher_core::game::download::CancelToken::new();
         let kinds: Vec<ContentKind> = requests.iter().map(|r| r.kind).collect();
@@ -296,6 +305,9 @@ impl ContentView {
                 let mut total = InstallOutcome::default();
                 let mut blocked: Vec<CfPlannedFile> = Vec::new();
                 let mut target = target;
+                // The tab may not have read the instance's shader mod yet: "Update all"
+                // goes on here when its instance is shown again, as the tab starts over.
+                target.shader_loader = listing::shader_state(&dirs)?.loader;
                 for request in requests {
                     let kind = request.kind;
                     progress.set_label(match &request.project {
@@ -335,8 +347,22 @@ impl ContentView {
         let task = cx.spawn(async move |this, cx| {
             let result = work.await;
             this.update(cx, |this, cx| {
-                this.job = None;
-                if this.instance_id.as_deref() != Some(id.as_str()) {
+                let Some((_, shown)) = this.finish_job(&id) else {
+                    return;
+                };
+                if !shown {
+                    let message = match result {
+                        Ok((outcome, blocked)) => {
+                            let said = !outcome.installed.is_empty() || blocked.is_empty();
+                            // the card shows them when the instance is shown again
+                            this.instances.update(cx, |instances, _| {
+                                instances.put_back_pending_downloads(&id, blocked)
+                            });
+                            said.then(|| (super::outcome_message(&outcome).into(), false))
+                        }
+                        Err(err) => Some((err.to_string().into(), true)),
+                    };
+                    this.keep_finished(&id, message, Vec::new());
                     return;
                 }
                 match result {
@@ -378,8 +404,10 @@ impl ContentView {
         self.job = Some(Job {
             progress,
             cancel,
+            queued_cf: Vec::new(),
             _task: task,
             _ticker: ticker,
+            _busy: busy,
         });
         cx.notify();
     }
@@ -716,7 +744,7 @@ impl ContentView {
                     return;
                 }
                 match picked {
-                    Ok(Some(file)) => this.install_cf_file(kind, file, None, false, cx),
+                    Ok(Some(file)) => this.install_cf_file(kind, file, None, false, true, cx),
                     Ok(None) => this.open_cf_project(kind, project_id, cx),
                     Err(err) => this.set_message(err.to_string(), true, cx),
                 }
@@ -1256,6 +1284,7 @@ impl ContentView {
                         file_for_click.clone(),
                         Some(project_for_click.clone()),
                         forcing,
+                        with_dependencies,
                         cx,
                     )
                 }))
@@ -1324,5 +1353,39 @@ impl ContentView {
             );
         }
         column.into_any_element()
+    }
+}
+
+#[cfg(test)]
+pub(super) mod tests {
+    use super::*;
+
+    /// A file CurseForge doesn't let launchers download.
+    pub(in crate::instances::content) fn planned(id: u64) -> CfPlannedFile {
+        let file = serde_json::json!({
+            "id": id,
+            "modId": id,
+            "fileName": format!("lodestone-test-blocked-{id}.jar"),
+        });
+        CfPlannedFile {
+            kind: ContentKind::Mod,
+            file: serde_json::from_value(file).expect("a CurseForge file"),
+            project: None,
+            on_modrinth: None,
+            depth: 0,
+        }
+    }
+
+    #[test]
+    fn unfinished_leaves_out_the_files_added() {
+        let blocked = BlockedDownloads {
+            files: vec![planned(1), planned(2), planned(3)],
+            added: vec![false, true, false],
+            folder: None,
+            error: None,
+            _watch: None,
+        };
+        let ids: Vec<u64> = blocked.unfinished().iter().map(|f| f.file.id).collect();
+        assert_eq!(ids, vec![1, 3]);
     }
 }

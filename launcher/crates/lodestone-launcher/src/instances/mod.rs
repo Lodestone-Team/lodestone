@@ -9,6 +9,7 @@ pub mod content;
 pub mod fields;
 mod files;
 pub mod import;
+mod jobs;
 pub mod loader_picker;
 mod main_instance;
 pub mod mod_finder;
@@ -380,6 +381,9 @@ pub struct Instances {
     /// Instances whose files are being copied, moved to the Trash or given an image,
     /// off the window's thread (see `files.rs`).
     file_ops: HashMap<String, FileOp>,
+    /// Instances whose files a job of their Content or Worlds tab, or a snapshot, is
+    /// writing (see `jobs.rs`).
+    busy_files: jobs::BusyCount,
     /// Instance images read for Undo, with the file's modification time and size when
     /// read: a change that leaves an image alone doesn't read it again.
     undo_images: HashMap<PathBuf, (SystemTime, u64, Arc<Vec<u8>>)>,
@@ -546,6 +550,7 @@ impl Instances {
             icons: HashMap::new(),
             icon_task: None,
             file_ops: HashMap::new(),
+            busy_files: jobs::BusyCount::default(),
             undo_images: HashMap::new(),
             backgrounds: HashMap::new(),
             background_tasks: HashMap::new(),
@@ -1334,6 +1339,23 @@ impl Instances {
         self.pending_downloads.remove(id)
     }
 
+    /// Gives back files the Content tab took with [`Self::take_pending_downloads`] and
+    /// that aren't in the instance yet, when it stops showing the instance: its card
+    /// comes back with them. Files left since (a pack added meanwhile) follow them.
+    pub fn put_back_pending_downloads(
+        &mut self,
+        id: &str,
+        files: Vec<launcher_core::content::curseforge_install::CfPlannedFile>,
+    ) {
+        // an instance that is gone has no card to show (and a new one may get its id)
+        if files.is_empty() || !self.list.iter().any(|instance| instance.id == id) {
+            return;
+        }
+        let pending = self.pending_downloads.entry(id.to_string()).or_default();
+        let newer = std::mem::replace(pending, files);
+        pending.extend(newer);
+    }
+
     /// The CurseForge client, when this build has an API key and the app is online.
     pub fn curseforge(&self) -> Option<Arc<CurseForge>> {
         self.curseforge.clone()
@@ -1549,8 +1571,9 @@ impl Instances {
             });
             return;
         }
-        // its folder is on its way to the Trash
-        if self.file_op(id) == Some(FileOp::Delete) {
+        // its folder is on its way to the Trash, or a tab is still installing mods or
+        // restoring a world into it
+        if self.file_op(id) == Some(FileOp::Delete) || self.files_busy(id) {
             cx.emit(InstancesEvent::LaunchFailed {
                 title: t(M::CouldntStartMinecraft).into(),
                 message: t(M::FilesBusy).into(),

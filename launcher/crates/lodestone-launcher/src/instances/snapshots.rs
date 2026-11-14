@@ -469,6 +469,8 @@ impl SnapshotDialog {
         };
         let dir = instances.store().dir(&id);
         let store = instances.snapshot_store();
+        // Play waits until the work is done, even if the dialog is closed meanwhile
+        let busy = instances.mark_files_busy(&id);
         let typed = self.name.read(cx).text().trim().to_string();
         let name = if typed.is_empty() {
             format::short_date(chrono::Local::now().date_naive(), true)
@@ -479,6 +481,7 @@ impl SnapshotDialog {
         self.run(
             M::TakingSnapshot,
             move |progress| {
+                let _busy = busy;
                 store
                     .create(&instance, &dir, &name, None, &selection, false, progress)
                     .map_err(|err| err.to_string())
@@ -510,6 +513,8 @@ impl SnapshotDialog {
         };
         let dir = instances.store().dir(&id);
         let store = instances.snapshot_store();
+        // Play waits until the files are put back, even if the dialog is closed meanwhile
+        let busy = instances.mark_files_busy(&id);
         launcher_core::trace::emit(
             "snapshot.revert",
             || serde_json::json!({ "instance": id, "snapshot": snapshot.id }),
@@ -517,6 +522,7 @@ impl SnapshotDialog {
         self.run(
             M::RevertingSnapshot,
             move |progress| {
+                let _busy = busy;
                 store
                     .revert(&snapshot, &current, &dir, &selection, progress)
                     .map(|(settings, _)| settings)

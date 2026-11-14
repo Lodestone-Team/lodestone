@@ -39,6 +39,7 @@ use lodestone_minecraft::modrinth::{
 };
 
 use super::Instances;
+use super::jobs::{BusyFiles, Parked};
 use crate::components::{Icon, TextInput};
 use crate::file_dialog::{self, Pick};
 use crate::i18n::{ContentMsg as M, format, t, tr};
@@ -246,8 +247,20 @@ impl Section {
 pub struct Job {
     pub progress: Arc<InstallProgress>,
     pub cancel: CancelToken,
+    /// CurseForge updates to install once the Modrinth ones of "Update all" are in.
+    queued_cf: Vec<CfInstallRequest>,
     _task: Task<()>,
     _ticker: Task<()>,
+    /// Play waits while the install runs.
+    _busy: BusyFiles,
+}
+
+/// How an install went that finished while its instance wasn't shown, for when it is
+/// again.
+struct Finished {
+    message: Option<(SharedString, bool)>,
+    /// The CurseForge half of "Update all", which starts then.
+    queued_cf: Vec<CfInstallRequest>,
 }
 
 /// An icon from Modrinth's CDN.
@@ -299,9 +312,12 @@ pub struct ContentView {
     /// where Fabric doesn't run), or `None` when no loader supports its version.
     pub mod_loader_offer: Load<Option<LoaderKind>>,
     mod_loader_offer_task: Option<Task<()>>,
+    /// The shown instance's install.
     pub job: Option<Job>,
-    /// CurseForge updates to install once the Modrinth ones of "Update all" are in.
-    queued_cf: Vec<CfInstallRequest>,
+    /// The installs of instances not shown, which go on meanwhile.
+    parked: Parked<Job>,
+    /// Installs that finished while their instance wasn't shown, by instance.
+    finished: HashMap<String, Finished>,
     /// Files to download from curseforge.com by hand, and the folder watched for them.
     pub blocked: Option<curseforge::BlockedDownloads>,
     /// The last result or error.
@@ -389,7 +405,8 @@ impl ContentView {
             mod_loader_offer: Load::NotLoaded,
             mod_loader_offer_task: None,
             job: None,
-            queued_cf: Vec::new(),
+            parked: Parked::default(),
+            finished: HashMap::new(),
             blocked: None,
             message: None,
             confirm_delete: None,
@@ -455,10 +472,26 @@ impl ContentView {
         let changed = revision != self.revision;
         self.revision = revision;
         if selected != self.instance_id || loader != self.loader {
-            self.instance_id = selected;
+            let from = std::mem::replace(&mut self.instance_id, selected);
+            let same = from == self.instance_id;
+            // the card of files to download by hand stays with its instance
+            let blocked = self.blocked.take();
+            if !same && let (Some(from), Some(blocked)) = (from.as_deref(), &blocked) {
+                let files = blocked.unfinished();
+                self.instances.update(cx, |instances, _| {
+                    instances.put_back_pending_downloads(from, files)
+                });
+            }
+            // an install goes on, and is the tab's again when its instance is
+            self.parked
+                .switch(&mut self.job, from.as_deref(), self.instance_id.as_deref());
             self.loader = loader;
             self.prerelease = prerelease;
             self.reset(cx);
+            if same {
+                self.blocked = blocked;
+            }
+            self.resume_finished(cx);
         } else if prerelease != self.prerelease {
             // "Beta and alpha updates" changed: the updates found no longer apply.
             self.prerelease = prerelease;
@@ -512,11 +545,45 @@ impl ContentView {
         self.shader_offer_task = None;
         self.mod_loader_offer = Load::NotLoaded;
         self.mod_loader_offer_task = None;
-        self.job = None;
-        self.queued_cf.clear();
         self.blocked = None;
         self.message = None;
         self.confirm_delete = None;
+    }
+
+    /// Says how the shown instance's install went if it finished while another was
+    /// shown, and starts the CurseForge half of its "Update all".
+    fn resume_finished(&mut self, cx: &mut Context<Self>) {
+        let Some(finished) = self
+            .instance_id
+            .as_ref()
+            .and_then(|id| self.finished.remove(id))
+        else {
+            return;
+        };
+        if !finished.queued_cf.is_empty() {
+            self.cf_install(finished.queued_cf, cx);
+        }
+        if let Some((message, error)) = finished.message {
+            self.set_message(message, error, cx);
+        }
+    }
+
+    /// The install of instance `id` finished: takes its job from where it is, with
+    /// whether its instance is shown.
+    pub(super) fn finish_job(&mut self, id: &str) -> Option<(Job, bool)> {
+        self.parked
+            .finish(&mut self.job, self.instance_id.as_deref(), id)
+    }
+
+    /// Keeps how the install of `id`, not shown, went, for when it is.
+    pub(super) fn keep_finished(
+        &mut self,
+        id: &str,
+        message: Option<(SharedString, bool)>,
+        queued_cf: Vec<CfInstallRequest>,
+    ) {
+        self.finished
+            .insert(id.to_string(), Finished { message, queued_cf });
     }
 
     /// The instance's folders and what it accepts, with its shader mod.
@@ -651,7 +718,7 @@ impl ContentView {
                     return;
                 }
                 match picked {
-                    Ok(Some(version)) => this.install_version(kind, version, None, false, cx),
+                    Ok(Some(version)) => this.install_version(kind, version, None, false, true, cx),
                     Ok(None) => this.open_project(kind, project_id, None, cx),
                     Err(err) => this.set_message(err.to_string(), true, cx),
                 }
@@ -857,6 +924,16 @@ impl ContentView {
 
     /// Installs `requests` one after the other in the background, with progress.
     pub fn install(&mut self, requests: Vec<InstallRequest>, cx: &mut Context<Self>) {
+        self.install_then(requests, Vec::new(), cx);
+    }
+
+    /// Like [`Self::install`], then the CurseForge requests `queued_cf` once they are in.
+    fn install_then(
+        &mut self,
+        requests: Vec<InstallRequest>,
+        queued_cf: Vec<CfInstallRequest>,
+        cx: &mut Context<Self>,
+    ) {
         if requests.is_empty() || !self.can_change(cx) {
             return;
         }
@@ -864,6 +941,7 @@ impl ContentView {
             return;
         };
         let downloader = self.instances.read(cx).content_downloader();
+        let busy = self.instances.read(cx).mark_files_busy(&id);
         let progress = Arc::new(InstallProgress::default());
         let cancel = CancelToken::new();
         let kinds: Vec<ContentKind> = requests.iter().map(|r| r.kind).collect();
@@ -904,11 +982,21 @@ impl ContentView {
         let task = cx.spawn(async move |this, cx| {
             let result = work.await;
             this.update(cx, |this, cx| {
-                this.job = None;
-                if this.instance_id.as_deref() != Some(id.as_str()) {
+                let Some((job, shown)) = this.finish_job(&id) else {
+                    return;
+                };
+                let succeeded = result.is_ok();
+                // "Update all": the CurseForge updates follow the Modrinth ones.
+                let queued = if succeeded { job.queued_cf } else { Vec::new() };
+                if !shown {
+                    let message = match &result {
+                        Ok(outcome) => (outcome_message(outcome).into(), false),
+                        Err(err) => (err.to_string().into(), true),
+                    };
+                    let message = Some(message);
+                    this.keep_finished(&id, message, queued);
                     return;
                 }
-                let succeeded = result.is_ok();
                 match result {
                     Ok(outcome) => {
                         let message = outcome_message(&outcome);
@@ -919,9 +1007,7 @@ impl ContentView {
                     }
                     Err(err) => this.set_message(err.to_string(), true, cx),
                 }
-                // "Update all": the CurseForge updates follow the Modrinth ones.
-                let queued = std::mem::take(&mut this.queued_cf);
-                if succeeded && !queued.is_empty() {
+                if !queued.is_empty() {
                     this.cf_install(queued, cx);
                 }
                 let mut reload: Vec<ContentKind> = kinds.clone();
@@ -948,8 +1034,10 @@ impl ContentView {
         self.job = Some(Job {
             progress,
             cancel,
+            queued_cf,
             _task: task,
             _ticker: ticker,
+            _busy: busy,
         });
         cx.notify();
     }
@@ -961,22 +1049,19 @@ impl ContentView {
         cx.notify();
     }
 
-    /// Installs a version from the project view. A shader pack on an instance without a
-    /// shader mod installs the offered shader mod first.
+    /// Installs a version, with its dependencies when `with_dependencies`: a result's
+    /// Install always, the project page's as its toggle says (the toggle is that page's
+    /// alone, and results stay clickable beside it). A shader pack on an instance
+    /// without a shader mod installs the offered shader mod first.
     pub fn install_version(
         &mut self,
         kind: ContentKind,
         version: RawVersion,
         project: Option<ModrinthProject>,
         force: bool,
+        with_dependencies: bool,
         cx: &mut Context<Self>,
     ) {
-        let with_dependencies = self
-            .section(kind)
-            .browse
-            .project
-            .as_ref()
-            .is_none_or(|p| p.with_dependencies);
         let mut requests = Vec::new();
         if kind == ContentKind::ShaderPack
             && self.shaders.loader.is_none()
@@ -1022,7 +1107,6 @@ impl ContentView {
             self.cf_install(cf_requests, cx);
             return;
         }
-        self.queued_cf = cf_requests;
         let mut versions: Vec<RawVersion> = self.section(kind).updates.values().cloned().collect();
         versions.sort_by(|a, b| a.project_id.cmp(&b.project_id));
         let requests = versions
@@ -1035,7 +1119,7 @@ impl ContentView {
                 force: false,
             })
             .collect();
-        self.install(requests, cx);
+        self.install_then(requests, cf_requests, cx);
     }
 
     pub fn update_one(&mut self, kind: ContentKind, file_name: &str, cx: &mut Context<Self>) {
@@ -2059,6 +2143,68 @@ mod tests {
         assert_eq!(
             outcome_message(&InstallOutcome::default()),
             "Nothing was installed."
+        );
+    }
+}
+
+/// The card of files to download by hand across a change of the selected instance,
+/// with the sample instances of the offscreen screenshots.
+#[cfg(all(test, feature = "screenshot"))]
+mod blocked_tests {
+    use gpui::TestAppContext;
+
+    use super::curseforge::tests::planned;
+    use super::*;
+
+    fn waiting(view: &Entity<ContentView>, cx: &mut TestAppContext) -> Option<Vec<u64>> {
+        view.read_with(cx, |view, _| {
+            let files = view.blocked.as_ref()?.unfinished();
+            Some(files.iter().map(|f| f.file.id).collect())
+        })
+    }
+
+    #[test]
+    fn the_card_comes_back_with_its_instance() {
+        let mut cx = TestAppContext::single();
+        let instances = cx.update(|cx| {
+            let accounts = crate::preview::accounts("signed-out", cx);
+            crate::preview::instances("worlds", &accounts, cx)
+        });
+        let (a, b) = instances.read_with(&cx, |instances, _| {
+            (
+                instances.list()[0].id.clone(),
+                instances.list()[1].id.clone(),
+            )
+        });
+        instances.update(&mut cx, |instances, cx| instances.select(&a, cx));
+        let view = cx.new(|cx| ContentView::new(instances.clone(), cx));
+        cx.run_until_parked();
+
+        // an imported pack left two files to download from curseforge.com
+        instances.update(&mut cx, |instances, cx| {
+            instances
+                .pending_downloads
+                .insert(a.clone(), vec![planned(1), planned(2)]);
+            cx.notify();
+        });
+        cx.run_until_parked();
+        assert_eq!(waiting(&view, &mut cx), Some(vec![1, 2]));
+        view.update(&mut cx, |view, _| {
+            view.blocked.as_mut().expect("the card").added[0] = true
+        });
+
+        // LS-25: another instance is shown, and then this one again
+        let select = |id: &str, cx: &mut TestAppContext| {
+            instances.update(cx, |instances, cx| instances.select(id, cx));
+            cx.run_until_parked();
+        };
+        select(&b, &mut cx);
+        assert_eq!(waiting(&view, &mut cx), None);
+        select(&a, &mut cx);
+        assert_eq!(
+            waiting(&view, &mut cx),
+            Some(vec![2]),
+            "the file not added yet"
         );
     }
 }
