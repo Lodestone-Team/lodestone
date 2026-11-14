@@ -1446,6 +1446,13 @@ class GitHubRelease:
         info = self.info(fresh=True)
         return [asset["name"] for asset in info["assets"]] if info else []
 
+    def assets(self) -> list[dict]:
+        """The release's files as GitHub lists them now (`name`, `size`, and `digest`,
+        `sha256:<hex>`), without any still uploading."""
+        info = self.info(fresh=True)
+        return [asset for asset in info["assets"]
+                if asset.get("state", "uploaded") == "uploaded"] if info else []
+
     def download(self, name: str, into: Path) -> Path:
         self.gh("release", "download", self.tag, "--repo", self.repo,
                 "--pattern", name, "--dir", str(into), "--clobber")
@@ -1778,6 +1785,12 @@ class Folder:
             return []
         return sorted(p.name for p in self.path.iterdir() if p.is_file())
 
+    def assets(self) -> list[dict]:
+        """Its files as GitHub would list them."""
+        return [{"name": name, "size": (self.path / name).stat().st_size,
+                 "digest": "sha256:" + sha256(self.path / name), "state": "uploaded"}
+                for name in self.names()]
+
     def download(self, name: str, into: Path) -> Path:
         shutil.copyfile(self.path / name, into / name)
         return into / name
@@ -1888,6 +1901,82 @@ def merged_manifest(current: dict | None, stages: list[tuple[Path, dict]],
     return manifest
 
 
+def platform_files(assets: list[dict]) -> dict[str, dict]:
+    """Each platform's build among a release's files (as `assets` lists them):
+    {key: {"build", "binary", "core"}}, the binary and the Host's core being the files'
+    listings. Only platforms with one build count, and a Host's only once its core is
+    in too (it's uploaded before the binary)."""
+    by_name = {asset["name"]: asset for asset in assets}
+    builds: dict[str, list[tuple[int, str]]] = {}
+    for name in by_name:
+        match = ASSET_NAME.match(name)
+        if match and match.group(3) not in ("-setup", "-core") and match.group(4) != ".dmg":
+            builds.setdefault(match.group(2), []).append((int(match.group(1)), name))
+    found = {}
+    for key, named in builds.items():
+        if len(named) != 1:
+            continue
+        build, name = named[0]
+        core = by_name.get(core_name(build, key)) if PRODUCT.core else None
+        if PRODUCT.core and core is None:
+            continue
+        found[key] = {"build": build, "binary": by_name[name], "core": core}
+    return found
+
+
+def listed_sha256(asset: dict) -> str | None:
+    digest = asset.get("digest") or ""
+    return digest[len("sha256:"):] if digest.startswith("sha256:") else None
+
+
+def describes(entry: dict | None, files: dict) -> bool:
+    """Whether a manifest entry describes a platform's files in the release (by name
+    and size, and by digest where GitHub lists one)."""
+    if not entry:
+        return False
+    pairs = [(entry, files["binary"])]
+    if files["core"] is not None:
+        pairs.append((entry.get("core") or {}, files["core"]))
+    for described, asset in pairs:
+        if described.get("name") != asset["name"] or described.get("size") != asset.get("size"):
+            return False
+        digest = listed_sha256(asset)
+        if digest and described.get("sha256") != digest:
+            return False
+    return True
+
+
+def entry_from_files(target, files: dict, commit: str) -> dict:
+    """A platform's manifest entry, from its files in the release."""
+    def described(asset: dict) -> dict:
+        digest = listed_sha256(asset)
+        if digest is None:
+            with tempfile.TemporaryDirectory() as tmp:
+                digest = sha256(target.download(asset["name"], Path(tmp)))
+        return {"name": asset["name"], "size": asset["size"], "sha256": digest}
+    entry = dict(described(files["binary"]), build=files["build"], commit=commit)
+    if files["core"] is not None:
+        entry["core"] = described(files["core"])
+    return entry
+
+
+def with_release_files(target, current: dict | None, files: dict[str, dict], skip: set[str],
+                       commit: str, version: str, tag: str | None) -> dict | None:
+    """`current` with an entry for every platform whose build is in the release but
+    not (or not as it is) in the manifest: another upload's, whose manifest this one
+    read before it was written, or while `--clobber` had it deleted."""
+    manifest = current
+    now = utc_now()
+    for key, platform in sorted(files.items()):
+        if key in skip or describes((current or {}).get("assets", {}).get(key), platform):
+            continue
+        print(f"    {MANIFEST} doesn't list the release's {key} build {platform['build']}; "
+              "adding it.")
+        manifest = updated_manifest(manifest, key, entry_from_files(target, platform, commit),
+                                    version, now, tag)
+    return manifest
+
+
 def publish(target, stages: list[tuple[Path, dict]], force: bool = False,
             skip_existing: bool = False, tag: str | None = None) -> dict | None:
     """Uploads staged folders to `target` and merges their platforms into its
@@ -1913,19 +2002,32 @@ def publish(target, stages: list[tuple[Path, dict]], force: bool = False,
                     shutil.copyfile(folder / name, copy)
                     target.upload(copy)
         # Builds of other platforms can be uploaded at the same time, from CI or
-        # another developer's machine: merge into the manifest as it is now, and
-        # check it kept ours.
+        # another developer's machine, each merging into the manifest it read. One
+        # that read it before another's was written (or while --clobber had it
+        # deleted) would drop that one's platforms, so a version's release, whose
+        # files are all of one commit, also lists every platform whose files are in
+        # it, and checks the manifest it wrote lists them all, as well as ours.
         ours = {key: entry["sha256"] for _, record in stages
                 for key, entry in record["assets"].items()}
-        for _ in range(3):
-            manifest = merged_manifest(target.manifest(), stages, tag)
+        commit, version = stages[0][1]["commit"], stages[0][1]["version"]
+        one_commit = not target.keeps_history
+
+        def release_files() -> dict[str, dict]:
+            return platform_files(target.assets()) if one_commit else {}
+
+        for _ in range(5):
+            current = with_release_files(target, target.manifest(), release_files(),
+                                         set(ours), commit, version, tag)
+            manifest = merged_manifest(current, stages, tag)
             manifest_file = Path(tmp) / MANIFEST
             manifest_file.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
             step(f"Uploading {MANIFEST}")
             target.upload(manifest_file)
             written = target.manifest() or {"assets": {}}
-            if all(written["assets"].get(key, {}).get("sha256") == digest
-                   for key, digest in ours.items()):
+            if (all(written["assets"].get(key, {}).get("sha256") == digest
+                    for key, digest in ours.items())
+                    and all(describes(written["assets"].get(key), platform)
+                            for key, platform in release_files().items())):
                 manifest = written
                 break
             print(f"    Another upload replaced {MANIFEST} meanwhile; merging again.")
