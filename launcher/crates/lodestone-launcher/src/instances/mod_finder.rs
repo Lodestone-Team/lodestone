@@ -89,6 +89,9 @@ pub struct ModFinder {
     by_hand: bool,
     focus: FocusHandle,
     _events: Subscription,
+    /// Redraws when the try's game moves on from preparing to running, which turns
+    /// the answers on.
+    _observe: Subscription,
     task: Option<Task<()>>,
     settle: Option<Task<()>>,
 }
@@ -169,6 +172,7 @@ impl ModFinder {
         let events = cx.subscribe(&instances, |this: &mut Self, _, event, cx| {
             this.on_event(event, cx)
         });
+        let observe = cx.observe(&instances, |_, _, cx| cx.notify());
         Self {
             instances,
             id: id.to_string(),
@@ -182,6 +186,7 @@ impl ModFinder {
             by_hand: false,
             focus: cx.focus_handle(),
             _events: events,
+            _observe: observe,
             task: None,
             settle: None,
         }
@@ -342,7 +347,8 @@ impl ModFinder {
         self.instances
             .update(cx, |instances, cx| instances.play(&id, cx));
         if !self.instances.read(cx).is_active(&self.id) {
-            // It refused to start (an update of the modpack, say); it said why.
+            // It refused to start (an update of the modpack, say); it says why once
+            // this dialog has closed.
             self.fail(t(M::FinderFailed).into(), cx);
         }
         cx.notify();
@@ -437,12 +443,33 @@ impl ModFinder {
                     self.stop_game(true, AfterStop::Refused, cx);
                 }
             }
-            InstancesEvent::LaunchFailed { message, .. }
-                if matches!(self.state, State::Playing { .. })
-                    && !self.instances.read(cx).is_active(&self.id) =>
-            {
-                self.fail(message.clone(), cx);
+            InstancesEvent::PlayFailed { id, message, .. } if *id == self.id => {
+                match self.state {
+                    // Stopped anyway: the try's start failing changes nothing.
+                    State::Stopping { crashed } if self.after_stop == AfterStop::Cancel => {
+                        self.stopped(crashed, cx)
+                    }
+                    State::Playing { .. } | State::Stopping { .. } => {
+                        self.fail(message.clone(), cx)
+                    }
+                    _ => {}
+                }
             }
+            // The try was stopped while its game was still preparing: it never ran, and
+            // no Exited or Crashed will come.
+            InstancesEvent::PlayCancelled(id) if *id == self.id => match self.state {
+                // Only the person stops a try that hasn't started (the answers wait
+                // for the game): put the mods back.
+                State::Stopping { crashed } if self.after_stop != AfterStop::Record => {
+                    self.stopped(crashed, cx)
+                }
+                // Nothing ran to count: play the same try again.
+                State::Stopping { .. } => self.play(cx),
+                // Cancelled from outside the dialog (the control API): that stops the
+                // search as Stop does.
+                State::Playing { .. } => self.stop_game(false, AfterStop::Cancel, cx),
+                _ => {}
+            },
             _ => {}
         }
     }
@@ -522,7 +549,24 @@ impl ModFinder {
     fn cancel(&mut self, cx: &mut Context<Self>) {
         match &self.state {
             State::Over { .. } => cx.emit(ModFinderClosed),
-            State::Restoring | State::Stopping { .. } => {}
+            State::Restoring => {}
+            // Closing the dialog while the game stops ends the search once the game
+            // has exited, and asks again in case the stop didn't take. A game that is
+            // already gone ends it now: nothing else may say so.
+            State::Stopping { crashed } => {
+                let crashed = *crashed;
+                if self.after_stop == AfterStop::Record {
+                    self.after_stop = AfterStop::Cancel;
+                }
+                if self.instances.read(cx).is_active(&self.id) {
+                    let id = self.id.clone();
+                    self.instances
+                        .update(cx, |instances, cx| instances.stop(&id, cx));
+                } else {
+                    self.stopped(crashed, cx);
+                }
+                cx.notify();
+            }
             State::Playing { .. } => self.stop_game(false, AfterStop::Cancel, cx),
             // Nothing is off yet: there is nothing to put back.
             State::Reading => cx.emit(ModFinderClosed),
@@ -536,7 +580,20 @@ impl ModFinder {
         }
     }
 
+    /// Whether "It crashed" and "It didn't crash" mean anything yet: not while the try's
+    /// game is still being prepared, before it has run at all.
+    fn can_answer(&self, cx: &App) -> bool {
+        match self.state {
+            State::Playing { .. } => self.instances.read(cx).is_running(&self.id),
+            State::Asking => true,
+            _ => false,
+        }
+    }
+
     fn answer(&mut self, crashed: bool, cx: &mut Context<Self>) {
+        if !self.can_answer(cx) {
+            return;
+        }
         match self.state {
             State::Playing { .. } => self.stop_game(crashed, AfterStop::Record, cx),
             State::Asking => self.record(crashed, cx),
@@ -756,11 +813,13 @@ impl Render for ModFinder {
                     .footer(
                         Button::new("finder-no-crash", t(M::FinderDidntCrash))
                             .variant(ButtonVariant::Primary)
+                            .disabled(!self.can_answer(cx))
                             .on_click(cx.listener(|this, _, _, cx| this.answer(false, cx))),
                     )
                     .footer(
                         Button::new("finder-crashed", t(M::FinderItCrashed))
                             .variant(ButtonVariant::Secondary)
+                            .disabled(!self.can_answer(cx))
                             .on_click(cx.listener(|this, _, _, cx| this.answer(true, cx))),
                     )
                     .footer_start(
@@ -800,5 +859,150 @@ impl Render for ModFinder {
                 State::Stopping { .. } | State::Restoring => dialog,
             };
         dialog
+    }
+}
+
+#[cfg(all(test, feature = "screenshot"))]
+mod tests {
+    use gpui::{Entity, TestAppContext};
+
+    use super::*;
+
+    /// A search half way through a try of a sample instance (signed out, in a
+    /// temporary data folder, so nothing is downloaded or started).
+    fn searching(cx: &mut TestAppContext) -> (Entity<Instances>, Entity<ModFinder>, String) {
+        cx.update(crate::components::init);
+        let (instances, finder, id) = cx.update(|cx| {
+            let accounts = crate::preview::accounts("signed-out", cx);
+            let instances = crate::preview::instances("sidebar-groups", &accounts, cx);
+            let id = instances.read(cx).list()[0].id.clone();
+            let finder = cx.new(|cx| {
+                let mut finder = ModFinder::preview(instances.clone(), &id, false, cx);
+                // Nothing was renamed, so putting the mods back only forgets the search.
+                if let Some(search) = finder.search.as_mut() {
+                    search.turned_off.clear();
+                }
+                finder
+            });
+            (instances, finder, id)
+        });
+        cx.run_until_parked();
+        (instances, finder, id)
+    }
+
+    fn set_state(
+        finder: &Entity<ModFinder>,
+        state: State,
+        after: AfterStop,
+        cx: &mut TestAppContext,
+    ) {
+        finder.update(cx, |finder, _| {
+            finder.state = state;
+            finder.after_stop = after;
+        });
+    }
+
+    fn stopping(finder: &Entity<ModFinder>, cx: &mut TestAppContext) -> bool {
+        finder.read_with(cx, |finder, _| {
+            matches!(finder.state, State::Stopping { .. })
+        })
+    }
+
+    fn over(finder: &Entity<ModFinder>, cx: &mut TestAppContext) -> Option<String> {
+        finder.read_with(cx, |finder, _| match &finder.state {
+            State::Over { message, .. } => Some(message.to_string()),
+            _ => None,
+        })
+    }
+
+    /// Stop pressed while the try's game was still preparing: the preparation ends
+    /// cancelled, with no Exited or Crashed, and the search ends instead of waiting
+    /// on "Stopping the game" for good (LS-56).
+    #[test]
+    fn a_try_stopped_while_preparing_ends_the_search() {
+        let mut cx = TestAppContext::single();
+        let (instances, finder, id) = searching(&mut cx);
+        set_state(
+            &finder,
+            State::Stopping { crashed: false },
+            AfterStop::Cancel,
+            &mut cx,
+        );
+        instances.update(&mut cx, |_, cx| {
+            cx.emit(InstancesEvent::PlayCancelled(id.clone()))
+        });
+        cx.run_until_parked();
+        assert!(!stopping(&finder, &mut cx));
+        assert_eq!(over(&finder, &mut cx).as_deref(), Some(t(M::FinderStopped)));
+    }
+
+    /// Signing in failing after Stop ends the search too (LS-56).
+    #[test]
+    fn a_failed_start_after_stop_ends_the_search() {
+        let mut cx = TestAppContext::single();
+        let (instances, finder, id) = searching(&mut cx);
+        set_state(
+            &finder,
+            State::Stopping { crashed: false },
+            AfterStop::Record,
+            &mut cx,
+        );
+        // Another job's failure isn't the try's.
+        instances.update(&mut cx, |_, cx| {
+            cx.emit(InstancesEvent::PlayFailed {
+                id: "another".into(),
+                title: "Couldn't sign in".into(),
+                message: "offline".into(),
+            })
+        });
+        cx.run_until_parked();
+        assert!(stopping(&finder, &mut cx));
+        instances.update(&mut cx, |_, cx| {
+            cx.emit(InstancesEvent::PlayFailed {
+                id: id.clone(),
+                title: "Couldn't sign in".into(),
+                message: "offline".into(),
+            })
+        });
+        cx.run_until_parked();
+        assert_eq!(over(&finder, &mut cx).as_deref(), Some(t(M::FinderFailed)));
+    }
+
+    /// Closing the dialog while it says "Stopping the game" with no game left ends the
+    /// search: nothing else would (LS-56).
+    #[test]
+    fn closing_while_stopping_ends_the_search() {
+        let mut cx = TestAppContext::single();
+        let (_instances, finder, _id) = searching(&mut cx);
+        set_state(
+            &finder,
+            State::Stopping { crashed: true },
+            AfterStop::Record,
+            &mut cx,
+        );
+        finder.update(&mut cx, |finder, cx| finder.cancel(cx));
+        cx.run_until_parked();
+        assert_eq!(over(&finder, &mut cx).as_deref(), Some(t(M::FinderStopped)));
+    }
+
+    /// The answers wait for the try's game to run: an answer while it is still being
+    /// prepared would count a try that never ran (LS-56).
+    #[test]
+    fn answers_wait_for_the_game() {
+        let mut cx = TestAppContext::single();
+        let (_instances, finder, _id) = searching(&mut cx);
+        set_state(
+            &finder,
+            State::Playing { loaded: false },
+            AfterStop::Record,
+            &mut cx,
+        );
+        let answerable = finder.read_with(&cx, |finder, cx| finder.can_answer(cx));
+        assert!(!answerable, "the game isn't running");
+        finder.update(&mut cx, |finder, cx| finder.answer(true, cx));
+        assert!(!stopping(&finder, &mut cx), "ignored");
+        set_state(&finder, State::Asking, AfterStop::Record, &mut cx);
+        let answerable = finder.read_with(&cx, |finder, cx| finder.can_answer(cx));
+        assert!(answerable, "the game closed by itself");
     }
 }
