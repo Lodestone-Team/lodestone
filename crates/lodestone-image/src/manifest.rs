@@ -366,8 +366,6 @@ open_enum! {
         Unreadable => "unreadable",
         /// Its name isn't a valid canonical path.
         BadName => "bad_name",
-        /// Left out by the image's excludes.
-        Excluded => "excluded",
         /// Changed while being read, every try.
         KeptChanging => "kept_changing",
     }

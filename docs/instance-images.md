@@ -14,6 +14,10 @@ each do part of the job:
 | `LDS2:` share codes (`launcher-core/src/content/share.rs`) | A text encoding of an image whose files can all be downloaded |
 | The server's client pack (`core/src/mods/client.rs`) | The client view of the server's content image (the `.mrpack` client pack stays for other launchers) |
 
+Images replace these formats outright. Nothing reads, converts or keeps working data in
+them: Lodestone was never released with backups, snapshots or modpack history in them that
+must be kept, so each old format's code and data go when its milestone lands.
+
 Decisions this builds on:
 
 - An instance's **game version and loader type are fixed** when it is made. Only the
@@ -76,7 +80,8 @@ there needs a new schema: dropping it would change the id, and the image would f
 check with a misleading mismatch instead. Informational values it doesn't know (a withheld reason, an
 `env_from` input, a loader, a flavour) are kept as text. An unknown `source`, `kind`,
 `base` or `env` value makes the manifest invalid, since nothing can act on it safely. A
-newer schema is refused with its own error, and an older one goes to the v1 readers.
+newer schema is refused with its own error, and so is an older one (schema 2 is the first
+of images).
 Settings are the exception: fields a reader doesn't know are dropped, so local settings can
 never get into an image; a new setting needs a new schema.
 
@@ -127,9 +132,8 @@ again), so walkers stop at an id they have seen.
 A base is a reference to a whole pack, both sides of it. Each view reads its own share
 (`overrides/` plus `server-overrides/` or `client-overrides/`, and index files by their
 `env`). The pack's files are not listed in `entries` unless the instance differs from
-the pack there. Images converted from the old modpack records list them anyway, with
-explicit sources, since those records are the only list of what the pack wrote (see "v1
-readers").
+the pack there. The core's content images list them anyway, with explicit sources (see "M2
+decisions").
 
 ### Entry
 
@@ -217,15 +221,13 @@ as no settings for that side (it is left out, so it gives the same id). `icon` a
 ### Withheld
 
 ```jsonc
-{ "path": "mods/blocked.jar", "reason": "curseforge_not_downloadable" | "symlink" | "unreadable" | "bad_name" | "excluded" | "kept_changing" }
+{ "path": "mods/blocked.jar", "reason": "curseforge_not_downloadable" | "symlink" | "unreadable" | "bad_name" | "kept_changing" }
 ```
 
 `path` is the file's path as found, which may not be a valid canonical path (that may be
-why it was withheld): shown, never placed. For an image converted from an old format it is
-the path that format had (relative to the server folder, the instance folder or the zip).
-`bad_name` also covers a path the side's disk layout can't place or read back as itself;
-`excluded` also covers a path an image never records that an old listing had; `unreadable`
-also covers a file an old format knew only by SHA-1 whose bytes no one could hash.
+why it was withheld): shown, never placed. `bad_name` also covers a path the side's disk
+layout can't place or read back as itself. Files left out by `excludes` aren't withheld
+(`excludes` says what they are).
 
 ## Paths
 
@@ -402,21 +404,19 @@ Content-addressed, shared by every instance on one machine:
 <root>/images/<instance>/stat-cache.<name>.json     other named stat caches (the core's "content")
 <root>/images/<instance>/content-state.json         the core: current content image and baseline
 <root>/images/<instance>/pack.json                  the core: the pack a server is built on
+<root>/images/collection.lock                       held by GC (see below)
 <root>/{objects,lists,chunks,images/<instance>}/.incoming-<16 hex>.tmp    writes in flight
 ```
 
 - Objects are named by the SHA-256 of their uncompressed bytes. Encoding belongs to the
   store, not the manifest: the core stores zstd frames (level 3, checksum and content size
-  in the frame, exactly as its backups write them, so its existing objects are read in
-  place), the Launcher stores raw files (APFS clones where possible, checked by hash
+  in the frame), the Launcher stores raw files (APFS clones where possible, checked by hash
   before they are kept). Moving an object between stores re-encodes it.
 - Files over 1 MiB are split with FastCDC (min 16 KiB, average 64 KiB, max 256 KiB,
   implemented in the shared crate, no new dependency). The file is then stored as a chunk
-  list in `lists/`, never in `objects/`: released Launchers share that folder and take any
-  file at `objects/ab/<sha256>` for that file's bytes (they skip storing a file whose name
-  is there and restore by copying it unchecked), so a list there would be written over a
-  world after a downgrade. A file is present when `objects/` has it whole or `lists/` has
-  its list.
+  list in `lists/`, never in `objects/`, which only ever holds a file's own bytes, so
+  nothing has to tell a list from a file there. A file of up to 1 MiB is present when
+  `objects/` has it, a larger one when `lists/` has its list.
   Region files dedup well because Minecraft rewrites a chunk in place or moves only that
   chunk. FastCDC here is the 2016 paper's, with cut-point skipping and normalized chunking
   level 2: a gear fingerprint `fp = (fp << 1) + GEAR[byte]`, no cut before 16 KiB (those
@@ -428,11 +428,10 @@ Content-addressed, shared by every instance on one machine:
 - A chunk list is text with one spelling, `lodestone-chunks 1\n`, `size <file size>\n`,
   then `<chunk sha256> <chunk size>\n` per chunk in order (decimal, no leading zeros).
   Readers refuse anything else: a size of 1 MiB or less, chunks of 0 or over 256 KiB,
-  chunks before the last under 16 KiB, sizes that don't add up. In the store a whole object
-  (every file up to 1 MiB, and large files the core stored whole before chunking) is in
-  `objects/` and a list in `lists/`; in an export, which has one `objects/`, an object whose
-  plain bytes are as long as the entry's `size` is the file itself and any other length
-  must be a chunk list for that size. A list is under 1% of its file, so the two can't be
+  chunks before the last under 16 KiB, sizes that don't add up. In the store a file of up to
+  1 MiB is a whole object in `objects/` and a larger one a list in `lists/`; in an export,
+  which has one `objects/`, an object whose plain bytes are as long as the entry's `size` is
+  the file itself and any other length must be a chunk list for that size. A list is under 1% of its file, so the two can't be
   confused. A list from elsewhere is checked as it is read, a line at a time, so one that
   names a small chunk millions of times costs no memory to check.
   Reading a list reassembles the file and checks each chunk's and the whole file's
@@ -482,8 +481,9 @@ Content-addressed, shared by every instance on one machine:
   Launcher's name folders on the same disk): two ids differing only in case share one
   folder on most disks.
 - GC: mark and sweep over every manifest; refuses to delete anything while a manifest
-  can't be read or has a schema other than 2 (newer, or from before images: those live in
-  their own folders); temp files are swept after an hour. Objects named by entries (any
+  can't be read or has a schema other than 2 (a newer one); temp files (only the store's
+  own `.incoming-*.tmp`) are swept after an hour. The store's folder holds nothing else that
+  names objects, so manifests are all it marks. Objects named by entries (any
   source: the store may hold a downloadable file's bytes) and by the settings' stored files
   (icon, background) are live, whole and as lists, and so are the chunks of live lists.
   Whether a live object has a list is decided from the store, never from the sizes
@@ -505,42 +505,16 @@ Content-addressed, shared by every instance on one machine:
   a claim touches, then checks the file is still there, and fails (so the manifest isn't
   saved) when GC took it, and so does a touch that doesn't land (a file another user owns).
   The grace is never under 20 minutes, twice the touch interval, or GC could take a file a
-  claim found new enough not to touch. Writers that don't claim (the older formats' writers
-  that share the folder until they are retired: the Launcher's snapshot store until M5,
-  the core's schema-1 backups until M2, which neither touch an object they reuse nor give a
-  clone a new time) are held off by the collection lock, an operating-system file lock on
-  `images/collection.lock`: such a writer holds it shared (`Store::hold_off_collection`)
-  from before it first relies on any object being in the store until the manifest naming
-  those objects is saved, without letting go between passes (a live backup's prefetch and
-  final scan), and GC holds it exclusively for its whole run. Relying covers more than
-  storing: an existence check that skips a store, a stat-cache hit and an entry carried
-  over from an earlier manifest count too (the core's `Store::scan_with` with its
-  `object_present` checks, and `carry_over_unlistable`), as `Store::claim_object` covers
-  the image store's own stat cache. The objects of older manifests are read only inside that hold:
-  `Store::gc_with_older_formats` calls the caller's reader once it has the lock, so any
-  older manifest it doesn't see was written by a writer that started after it ended.
-  Plain `Store::gc` refuses while an older manifest (a `.json` under `servers/<id>/` or
-  `instances/<id>/` other than the guard's) is in the folder. Rests count as older
-  manifests, but it can't see them, so a store that keeps rests (wherever it keeps them)
-  always collects with `Store::gc_with_older_formats`, even once every old manifest is
-  converted. A thread holding the shared lock
-  must not start GC, and GC's reader of older manifests must not take the shared lock
-  (either would wait for itself). Lock order: an older format's own store lock (the
-  Launcher's in-process `store_lock`, the core's backups `store_lock`) is taken before the
-  collection lock, never while holding it: a writer takes its store lock shared, then
-  `hold_off_collection`; a GC that reads the older manifests under its store lock's
-  exclusive side takes it around `gc_with_older_formats`, never inside the reader (the
-  other order deadlocks a writer waiting for the file lock against a GC waiting for the
-  store lock). Released programs don't take the lock, so a released
-  writer running on the same folder at the same time as a new collection isn't protected,
-  as two launchers sharing one data folder already aren't. A save doesn't claim again what the same store
+  claim found new enough not to touch. A save doesn't claim again what the same store
   claimed in the last 5 minutes by the wall clock (objects age by it; a monotonic clock
   stops while a laptop sleeps), and forgets those claims once the manifest is written, so a
-  long-lived store holds none between snapshots. Objects only older
-  formats use are returned by the caller's reader, which refuses the same way when it
-  can't read those manifests. GC also sweeps the Launcher's snapshot store's objects in
-  flight (`objects/ab/.<sha256>.<tag>`) once they are a day old, its own rule, since its
-  collector never runs again once the guard is in place.
+  long-lived store holds none between snapshots. A caller that relies on objects without
+  claiming them (reading an image's files while its manifest may be deleted meanwhile: a
+  restore from a backup that retention could prune) holds collections off with the
+  collection lock, an operating-system file lock on `images/collection.lock`: it holds it
+  shared (`Store::hold_off_collection`) and GC holds it exclusively for its whole run, so
+  two collections never run at once either. A thread holding the shared lock must not
+  start GC (it would wait for itself).
 - Snapshots walk the folder with the side's disk layout. Files never recorded, outside a
   client's game folder, or left out by the image's `excludes` are skipped without a
   withheld record (`excludes` says what they are). `excludes` match canonical paths
@@ -604,8 +578,8 @@ rewrites at startup) don't make content images; snapshots and backups capture th
 - Content images: the lineage is kept like modpack history (newest 30, plus every image a
   data image links to). Manifests only; objects are shared.
 - Data images: the core's backup rules (keep last N, hourly, daily, weekly buckets;
-  manual and pinned never deleted; safety images before a restore kept 30 days). The
-  Launcher offers the same, per instance.
+  manual and pinned never deleted; safety images before a restore kept 30 days), never
+  the content lineage's. The Launcher offers the same, per instance.
 - A player whose image was pruned sends a summary of what it has (paths and hashes), and
   the core computes the delta from that.
 
@@ -651,8 +625,7 @@ rename aside, roll back on error, replay at startup); the Launcher adopts the sa
 
 An export is a zip: `image.json`, the referenced manifests (content image of a data image),
 and `objects/` holding only objects whose `source` is `object`. Import checks every path and
-hash with the `.lodesnap` reader's rules (entry and size limits, no duplicates, free space)
-and always creates a new instance or server first; launch settings are reset unless chosen,
+hash (entry and size limits, no duplicates, free space) and always creates a new instance or server first; launch settings are reset unless chosen,
 as today.
 
 ```
@@ -708,194 +681,26 @@ names anything by it.
   included. That is fine in the local store; an export that leaves the computer (M6) must
   strip or withhold those properties.
 
-## Migration
-
-- Readers for core backup manifests (schema 1), `.lodesnap` (schema 1), the core's
-  `record.json` and `history.json`, and the Launcher's `modpack.json`, `content.json` and
-  world backup zips. Old data stays readable; new writes use schema 2.
-- GC understands both until everything is converted. Conversion is lazy; old objects are
-  never rewritten (core objects are already SHA-256 zstd, Launcher objects SHA-256 raw).
-  The image store at the core's backup folder, zstd encoded, reads the core's objects in
-  place, and an image store at the Launcher's snapshot folder, raw, the Launcher's. The
-  caller's reader passed to the image store's GC (`Store::gc_with_older_formats`) returns
-  the objects of the old manifests that remain (`core_backup::Manifest::objects`), and,
-  for an old manifest replaced by an image and its rest, the objects only the rest names
-  (`core_backup::Rest::objects`, `lodesnap::Rest::objects`: files the image withholds,
-  files beside a Launcher game folder). While an old format still writes to the folder,
-  its writer holds `Store::hold_off_collection` from before it first relies on any object
-  being in the store (storing one, an existence check, a stat-cache hit, an entry carried
-  over) until its manifest is saved (the Launcher's snapshots, safety snapshots and `.lodesnap` imports until M5;
-  the core's schema-1 backups until M2), since it neither touches what it reuses nor gives
-  clones a new time; the reader runs inside GC's exclusive hold, so it sees every manifest
-  such a writer saved before GC began.
-- **Converting is a writer that doesn't claim.** Saving the image claims only its entries;
-  the objects only the rest names are never claimed and are usually old (legacy objects,
-  clones that keep the source's time). So a conversion holds `Store::hold_off_collection`
-  (after its old store's own lock, in the order above) from before it reads the old
-  manifest until the image is saved, the rest is durably written and the old manifest is
-  deleted. GC then sees the old manifest or the rest, whichever order its reader reads
-  them in. Rests count as older manifests for GC: a store that keeps them always collects
-  with `Store::gc_with_older_formats`, whose reader returns their objects, since plain
-  `Store::gc` only finds old manifests in `servers/<id>/` and `instances/<id>/`.
-- **Downgrades never lose images.** Released cores (Lodestone Host 0.6.0-beta.2 on) and
-  Launchers (0.1.0-beta.1 on) collect their shared `objects/` against their own manifests
-  only, so after going back to one, its first cleanup would delete every object only
-  images name (whole files and chunk lists). Before a store writes anything to its folder
-  it puts a guard where each old collector looks: `servers/.images/images.json`, a manifest
-  of schema 2, which makes the core's collector refuse ("made by a newer Lodestone"), and
-  `instances/.images/images.json`, which isn't a snapshot manifest, so the Launcher's keeps
-  everything. `.images` is no valid server id, and neither file parses as a backup or a
-  snapshot, so nothing else in the old programs sees them. The guard stays for as long as
-  images use the folder; while a released version runs it frees no space there, and loses
-  nothing. This was chosen over a separate image root (every old object an image reuses
-  would have to be copied or linked across, and an image naming an old-root object would
-  break when the old collector deleted it) and over a schema-1 list of everything images
-  use (rewritten with every image, and losing objects whenever it fell behind). Once a
-  folder has the guard, the old collectors' sweeps never run there again, in any version:
-  M2 and M5 only read the old manifests (skipping the `.images` folders) to build the
-  image store's GC, and the image store's GC is the only one that deletes.
-- **Downgrades never misread images' files.** Where a released program reads a shared
-  folder, a name in `objects/` never holds anything but that file's bytes: released
-  Launchers skip storing a file whose object is there and restore by copying it unchecked
-  (a released core checks the frame's size and replaces what isn't the file). So chunk
-  lists live in `lists/`, which no released program reads. Both are tested against the
-  released code (`tests/downgrade_guard.rs`).
-- A converted core backup restores through the store: `core_backup::disk_layout` is the
-  server layout its paths went through, so materializing with it puts every entry back at
-  its backup path. Files the image withholds (a name no canonical path has, a vanilla
-  `DIM-1` left in a Paper level, a world named only by letter case, a file named like a
-  world) aren't entries: their objects are in the store and the rest lists them
-  (`core_backup::Rest::unmapped_files`), and a restore that puts back everything the
-  backup had places them itself at their disk paths (reading each through the store, which
-  checks every byte), or uses the old restorer for backups that have them. The same holds
-  for a snapshot's files beside the game folder and withheld game-folder files
-  (`lodesnap::Rest`). The old backup is also the first image snapshot's stat cache
-  (`core_backup::stat_cache`, its files by server path, trusted up to its scan time), so
-  that snapshot reads only what changed.
-- A large file the core stored whole stays whole. When a full scan reads it again
-  unchanged, the store cuts it into chunks as it does any large file (it can't know the
-  file's hash before reading it), finds the whole object already there and keeps it as the
-  object; the chunks it wrote are unused, and GC frees them. Only files that change move
-  to chunks.
-  Writing chunks is cheap once flushes are batched (above), so a full scan of a large
-  unchanged file costs one more write of its chunks, freed again by GC; hashing such files
-  first would read every new large file twice to save that.
-- Round-trip tests: every old format converts to an image and back without changing a byte.
-  World backup zips are the exception: they are only read (a zip can't be rewritten byte for
-  byte, and images replace them). Byte for byte holds for the fields each format had at
-  commit f5ce27ad, which the readers mirror: the Launcher adds defaulted fields to its
-  documents without a new version, and the core's files have none, so a field added later
-  is dropped by a conversion and its write-back (keeping unknown fields would mean
-  buffering them, which is what made reading costly).
-
-### v1 readers
-
-`lodestone_image::legacy` reads each old format without depending on the core or the
-Launcher (it carries copies of their serde types). A conversion gives the image (valid,
-sealed), the *rest*, and notes:
-
-- **The rest** is what the old file has and an image doesn't model: a backup's id, server,
-  kind, pinned, live, statistics and stat-cache time; a snapshot's selection, note and
-  whole `instance.json`; a history entry's time in milliseconds, origin, changes, kept files
-  and changelog, and its index of how to get files back; the titles, slugs, dates and
-  lookups of `content.json`; files the image withholds. It belongs beside the image (the
-  backup store keeps a backup's bookkeeping), never in it, so ids depend only on contents.
-  Writing back takes the image's values for what it carries and the rest for the others;
-  for an unchanged image the result is the original file, byte for byte (core backups,
-  snapshot manifests, `record.json`, `history.json`, `modpack.json`, `content.json`, as
-  each program's own writer formats them). The rest types are serde, so a store can keep a
-  rest beside its image once the old file is gone.
-- **Old files from elsewhere** (a `.lodesnap` someone sent) are read as manifests are: the
-  shape is checked before parsing, only the version field is probed, lists are bounded
-  while read, an instance's settings are read within a budget (4,096 values, 64 KiB) and
-  other unknown fields are skipped without being kept, and a zip with a name twice or
-  local headers that disagree with its directory is refused. A path longer than an image's
-  withheld list may show (4096 bytes) stays in the rest with a note instead of failing the
-  conversion.
-- **Withheld paths** of a converted image are the old format's paths (relative to the
-  server folder, the instance folder or the zip), as "Withheld" says, so the rest can name
-  each one for the write-back; a snapshot of the same folder withholds canonical paths.
-  A file that is also a folder of another file in an old file from elsewhere is withheld as
-  `bad_name` rather than failing the conversion.
-- **Notes** say what didn't go into the image: withheld files, local settings dropped, a
-  pack that couldn't be the base, a level that isn't a world folder, unrecorded excludes.
-- **Hashes the old formats lack.** The modpack records list files by SHA-1 only, and an
-  entry needs a SHA-256 and size; a `modrinth_pack` base needs the `.mrpack`'s SHA-512. The
-  caller supplies them (hashing files on disk or in the old store, asking Modrinth); a file
-  no one could hash is withheld as `unreadable`, and a pack without its hash is no base.
-
-Per format:
-
-- **Core backups (schema 1)** become data images. Paths go through the server layout: the
-  level and every other top-level folder with a `level.dat` are worlds, and a Paper or
-  Spigot level is folded back into one world. `name` is the label, `level_name` the
-  `level-name` property, `quiesced` each world's, `skipped` the withheld files, the execute
-  bit mode 755 (else 644). Schema 1 recorded no excludes: the image's `excludes` are empty
-  without meaning nothing was left out. A `level_name` that isn't a single folder
-  (`worlds/survival`) is no world, and its files keep their server paths.
-- **Snapshots and `.lodesnap` (schema 1)** become images through the client layout; the
-  kind follows the selection (content categories only: content; worlds, screenshots and
-  other files only: data; both: full), and a content selection whose files include worlds
-  (one from elsewhere) is full. A file without a mode (0, from before the Launcher
-  kept modes) gets 0o644, what the Launcher's restore gave it, and the rest remembers it so
-  writing back says 0 again. `instance.json` gives the game and the recommended
-  memory, and `icon.png` and `background.jpg` the client settings' icon and background (one
-  over 256 MiB is left out of the settings, with a note); modes keep only their permission
-  bits (0o777; the Launcher's writer never wrote more, and the rest keeps any other bits a
-  file from elsewhere had);
-  every other instance field is local, reported and kept in the rest, never in the image.
-  Files beside the game folder (`content.json`, `modpack.json`, shared options) are kept in
-  the rest. `.lodesnap` files are read with the Launcher's limits.
-- **The core's `record.json` and `history.json`** go through the server's disk layout (its
-  level, other worlds and split, as for backups): their paths are server paths, and a pack
-  override the core put in a world folder (`world/datapacks/x.zip`, Paper's
-  `world_nether/…`) is a world's file, which a content image never holds, so it is
-  withheld as `excluded` and kept in the rest. They become one content image per history
-  entry, chained by `parent`, plus one for the record (on the newest entry's base and game;
-  the same id when nothing changed since). An entry's parent is the nearest earlier entry
-  with another id, never itself. Entries with the same files share one id (a restore to
-  entry 1 is entry 1's image again), so a store keeps one manifest for them; the rest says
-  which image each entry had, so the history can be written back from a store. They list the files the pack wrote, which is all
-  the record knew, with explicit sources: a CDN download `modrinth` (project and version from
-  its URL), an override `base` when the pack is the base, anything else `object`. The server's
-  own files join the lineage with the first content image the core records. Neither file has
-  a version, and the core ignores unknown fields, so a newer file can't be refused. The
-  record keeps neither the pack index's `env` nor which overrides folder a file came from,
-  so every converted entry's `env` is unknown: such an image must never be served as a
-  client view before its env is resolved from the base pack (M2, M3), or players would get
-  server-only pack mods and `server-overrides` files.
-- **The Launcher's `modpack.json` and `content.json`** become one content image: the base is
-  the pack (`modrinth_pack`, `curseforge_pack`, or `loader` for an instance not made from a
-  pack); a file `content.json` knows on Modrinth's CDN is `modrinth` with its env from the
-  project's `client_side`/`server_side`, on CurseForge `curseforge`, an unchanged pack file
-  `base`, anything else `object`. `content.json` (like the core's `record.json`) keys files
-  by their enabled name; the caller says which are disabled on disk (`Known::disabled`),
-  and their entries have the disabled name, as on disk, so placing the image doesn't
-  enable them. Old history entries keep the names they recorded. The game is the caller's
-  (neither file has it).
-- **World backup zips** become data images of `saves/<world>/…`, each entry hashed straight
-  from the zip, with the Launcher's limits; entries that fail a check are withheld. The
-  world is found where the Launcher's restore finds it: `level.dat` at the zip's root
-  first, then the world folder's own name, then the one folder holding a `level.dat`
-  (else the world folder's name); Mac metadata is withheld as `excluded`. Zip times are
-  local without a zone, so entries have no `modified`.
-
 ## Milestones
 
 1. Shared crate `crates/lodestone-image`: manifest, identity, paths, views, store, FastCDC,
-   v1 readers, property tests. (Done first: manifest, identity, paths and disk layouts, env,
-   views, deltas. Then: store, FastCDC, snapshots, materializing, GC and exports; v1
-   readers.)
-2. Core: backups write data images with their content link and excludes; content images on
-   Lodestone actions and before start; modpack history as lineage; Paper world layout.
+   property tests. (Done first: manifest, identity, paths and disk layouts, env, views,
+   deltas. Then: store, FastCDC, snapshots, materializing, GC and exports.)
+2. Core: backups and modpack history become images outright. Backups are data images with
+   their content link and excludes; modpack history is the content-image lineage; content
+   images on Lodestone actions and before start; Paper world layout. The schema-1 backup
+   store and the modpack history's own storage are removed, not converted.
 3. Core: client view and delta endpoints; objects endpoint. The `.mrpack` client pack stays.
 4. Launcher: build and update instances from a server image, replacing the client pack sync;
    content images on actions and before launch.
-5. Launcher: snapshots as images (exports drop downloadable jars), `LDS2:` as an encoding,
-   `.lodesnap` v1 import; world snapshots on demand and before risky operations, after
-   sessions optional; restore with linked content.
+5. Launcher: snapshots become images (exports drop downloadable jars), `LDS2:` as an
+   encoding; world snapshots on demand and before risky operations, after sessions
+   optional; restore with linked content. No `.lodesnap` import and no conversion of the
+   old snapshot store or world backup zips: they are removed.
 6. Moving images between computers (Host to Host, Launcher to Host, Host to Launcher,
    Launcher to Launcher) and a full-image option in the UI.
+
+Nothing converts old data in any milestone.
 
 ### M2 decisions
 
@@ -904,18 +709,13 @@ of M2 adds its own subsection.
 
 #### Foundation: the core's images service (`core/src/images/`)
 
-- **One store, one collector.** The core's image store is the backup folder, zstd encoded
-  (`ImageService`, sharing the backups' `store_lock`). `ImageService::collect_blocking` is
-  the folder's only collector: `Store::gc_with_older_formats` with a reader of
-  `servers/<id>/*.json` (skipping `.images/`, `policy.json`, `restore-journal.json` and
-  files not ending in `.json`). It reads a manifest with a missing schema, 0 or 1 as
-  leniently as the old collector did (`files[].sha256`), so whatever that kept is kept; a
-  schema-2 file there is a backup record, and the reader keeps the SHA-256 of each item of
-  its `unmapped` and `carried` lists (each an object with at least `sha256`), the objects
-  saving its image never claims. Anything else (unreadable, not a JSON object, another
-  schema) refuses the collection. The caller holds `store_lock` exclusively around the call;
-  the reader takes no lock. Until the backups part calls it, the old collector refuses as
-  soon as the guard exists (it then frees no space, and logs that it refused).
+- **One store, one collector.** The core's image store is the backup folder, zstd encoded,
+  owned by `ImageService`. Its collector is the store's own GC: `ImageService::request_gc`
+  runs one in the background (one at a time; a request while one runs makes it run once
+  more when it ends), and `ImageService::collect_blocking` runs one and waits. No lock of
+  the core's is taken around it: the store's writers claim what they rely on, and a caller
+  that relies on objects without claiming them holds the store's collection lock shared
+  (`Store::hold_off_collection`).
 - **What content is.** Content is an allowlist (`images/scope.rs`), since data is "worlds and
   everything else": everything in `mods/`, `config/`, `defaultconfigs/`, `kubejs/`,
   `libraries/` and `versions/`; `plugins/*.jar` and `*.jar.disabled` and the config files
@@ -936,10 +736,10 @@ of M2 adds its own subsection.
   can't place back: a vanilla `DIM-1` in a Paper level, a server folder named `saves`,
   `options.txt` or `resourcepacks/` on a server, a world named like `mods`), with disk path,
   size, time and mode, including the files inside a folder withheld once for its name, so a
-  backup can still keep what schema-1 backups kept.
+  backup can still keep them.
 - **One way to find a server's worlds.** `ServerLayout::discover` (the level, then each
   top-level folder with a `level.dat` that keeps the layout valid; an unused level name when
-  `level-name` can't be a world) is what the core's records and the schema-1 reader use.
+  `level-name` can't be a world) is what the core's backups and content images use.
 - **Backup excludes as image excludes.** A policy's server-disk patterns are translated to
   canonical ones (`images/excludes.rs`): non-world paths as they are, `<world>/x` to
   `saves/<world>/x`, a Paper level's `<level>_nether/DIM-1/x` to `saves/<level>/DIM-1/x` and
@@ -958,8 +758,7 @@ of M2 adds its own subsection.
   `excludes`) and the `content` stat cache, on one thread while the server runs; the image's
   game is the server's (Paper and Spigot: `vanilla`), its settings only the flavour for now,
   and its `parent` the current image. Recording the same contents again writes no manifest.
-  Every file is listed as an entry, the pack's too, with explicit sources as the converted
-  records have: `modrinth` for a pack download whose bytes are the pack's (or a file whose
+  Every file is listed as an entry, the pack's too, with explicit sources: `modrinth` for a pack download whose bytes are the pack's (or a file whose
   SHA-512 Lodestone matched to a Modrinth CDN file while installing or listing mods), `base`
   for another unchanged pack file, `object` otherwise. The image's `base` is the pack in
   `pack.json` (written by the modpack code), or none (not `loader`) when there is none, since
@@ -987,11 +786,11 @@ of M2 adds its own subsection.
   recording": at startup when it is stopped (one at a time, one thread), else when it stops.
   The baseline is what the walk found, so a file that can't be read doesn't make every
   check fire.
-- **Retention.** Under the instance's lock: keep every image a registered `ImageRefs`
-  source names (the backups' records, the modpack history), the current pointer, the
-  `content` of each kept data image, and the newest 30 content images by `created`; delete
-  the other readable manifests, keep unreadable ones, and delete nothing if a source fails.
-  A data image no source names is deleted (its backup was). Pruning that deleted something
+- **Retention.** Under the instance's lock: keep every data and full image (backups: the
+  backup rules delete them, never pruning) and the `content` each links to, every image a
+  registered `ImageRefs` source names (the modpack history), the current pointer, and the
+  newest 30 content images by `created`; delete the other readable content manifests, keep
+  unreadable ones, and delete nothing if a source fails. Pruning that deleted something
   asks for a collection.
 - **Deleting a server** deletes `images/<uuid>/` (`ImageService::delete_instance`); its
   objects go at the next collection.
@@ -1048,15 +847,14 @@ of M2 adds its own subsection.
 
 #### Lineage: modpack history as content images (`core/src/modpack/lineage.rs`)
 
-- **`history.json` stays the lineage's bookkeeping.** It is the "rest" beside the images
+- **`history.json` stays the lineage's bookkeeping.** It keeps what an image doesn't model
   (each entry's kind, origin, changes, kept files, changelog and how to get files back), and
   `record.json` stays the update engine's record for its three-way merge. Each entry gains an
-  optional `image`, the id of its content image, left out when there is none, so released
-  cores read and write the file as before (they ignore the field). Both files live in the
-  server folder, so a backup restores them consistently with the files; a separate index in
-  `images/` would go out of step after a backup restore. Nothing deletes `history.json`,
-  `record.json` or `.lodestone_modpack/objects` in M2: downgrades and restores of old entries
-  need them. No history kind is added: Mods-tab images are lineage only, never entries.
+  optional `image`, the id of its content image, left out when there is none. Both files
+  live in the server folder, so a backup restores them consistently with the files; a
+  separate index in `images/` would go out of step after a backup restore. No history kind
+  is added: Mods-tab images are lineage only, never entries. (Being reworked: M2 makes the
+  history the lineage of content images alone, without `history.json` beside them.)
 - **Writes.** An install, update or restore records one content image of the whole server
   (the recorder's, see the foundation) only after it succeeded: after the record is saved and
   the server software is installed. Before it, the update records anything queued (so the
@@ -1077,21 +875,8 @@ of M2 adds its own subsection.
   keeps the pack's `env`. A restore uses the restored version's `.mrpack` (from the
   downloaded packs, else downloaded again, waiting at most 60 s); without it, the base the
   restored entry's image had (when it is the same version), with `env` unknown.
-- **Converting older entries (backfill).** The first time an update or restore runs on a
-  server whose history has entries without `image`, before it changes any file, the history
-  is converted with `core_modpack::read` (no record: a real image is recorded right after)
-  through the server's disk layout. Known files are the history's stored copies and the
-  pack's files on disk, each SHA-1-checked and `put_file`d first, so every `object` entry is
-  present when the image is saved; anything else (a download no longer on disk) is withheld
-  as `unreadable`, and world files (a Paper `world_nether/…` override) as `excluded`, while
-  the history keeps them. `.mrpack` hashes come only from the current `pack.json` and the
-  downloaded packs, without asking Modrinth, so most converted images have no base. The
-  images are saved and `history.json` written once, under the instance's lock (so pruning
-  never sees an image not yet named). This stays even when the operation then fails: it only
-  links old entries. Converted images have `env` unknown and never become the current image;
-  they are never served.
-- **Restoring from either kind.** Old and new entries restore through the same engine
-  (plan, stage, journaled place), so the three-way merge and kept files behave as before. A
+- **Restoring.** Entries with and without an image restore through the same engine (plan,
+  stage, journaled place), so the three-way merge and kept files behave as before. A
   file the restore must write that neither the history's store nor a download has is read
   from the entry's image: the image's entry at that path (or the mod's disabled name), whose
   SHA-1 (the entry's, or the object's, read and hashed) equals the history's, and whose
@@ -1101,7 +886,8 @@ of M2 adds its own subsection.
   does stored copies. The History API's `missing` counts these files as ones Lodestone has.
 - **History API.** `GET /instance/{uuid}/modpack/history` keeps its shape; each entry gains
   an optional `image` (left out when none). Entries, newest first, are every entry of
-  `history.json`, old (converted or not) and new.
+  `history.json`, with or without an image (entries written before the server recorded
+  images have none).
 - **Retention.** The history is an `ImageRefs` source: every entry's `image`. A history
   that can't be read, or a server the core doesn't list, fails the source, so pruning deletes
   nothing; a server being created is found at its folder until the core lists it.
