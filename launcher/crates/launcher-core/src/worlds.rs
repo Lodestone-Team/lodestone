@@ -1016,8 +1016,9 @@ pub fn restore(
     )
 }
 
-/// Restores a backup of the world `folder`. `remove` moves the replaced world to the
-/// Trash; if it can't, the old world is kept as `<folder> (replaced <date>)`.
+/// Restores a backup of the world `folder`. The replaced world is renamed
+/// `<folder> (replaced <date>)` and `remove` moves it to the Trash; if it can't, it is
+/// kept there.
 pub fn restore_with(
     dirs: &InstanceDirs,
     folder: &str,
@@ -1080,12 +1081,18 @@ pub fn restore_with(
                 let _ = fs::remove_dir_all(&staged_dir);
                 return Err(io_error(&current)(err));
             }
-            if remove(&replaced).is_err() {
-                let keep = unused(
-                    &saves,
-                    &folder_name(&format!("{folder} (replaced {today})")),
-                );
-                let _ = crate::fsx::rename(&replaced, saves.join(keep));
+            // The Trash keeps a folder's name, so it goes there as one the person
+            // knows, not hidden under the swap's.
+            let keep = saves.join(unused(
+                &saves,
+                &folder_name(&format!("{folder} (replaced {today})")),
+            ));
+            let replaced = match crate::fsx::rename(&replaced, &keep) {
+                Ok(()) => keep.clone(),
+                Err(_) => replaced,
+            };
+            if remove(&replaced).is_err() && replaced != keep {
+                let _ = crate::fsx::rename(&replaced, &keep);
             }
             Ok(Restored {
                 folder: folder.to_string(),

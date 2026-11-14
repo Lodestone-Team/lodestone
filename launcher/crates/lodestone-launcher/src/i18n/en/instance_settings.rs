@@ -98,6 +98,9 @@ crate::i18n::messages! {
         SavedNextStart = "Saved. It applies the next time the game starts.",
         /// {error} is the problem, in English.
         CouldntTurnModsOff = "Couldn't turn the mods off: {error}",
+        /// A modpack update changed the Minecraft version while the loader change
+        /// dialog was open; nothing was saved.
+        GameVersionChangedMeanwhile = "The Minecraft version changed meanwhile. Choose the loader again, then save.",
 
         // The loader picker.
         /// No mod loader: the game as Mojang ships it.

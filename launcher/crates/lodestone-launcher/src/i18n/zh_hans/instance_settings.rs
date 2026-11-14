@@ -86,6 +86,9 @@ pub fn text(message: M) -> &'static str {
         M::LoaderInstallsNextPlay => "{loader} 将在你下次点击“开始游戏”时安装。",
         M::SavedNextStart => "已保存。将在游戏下次启动时生效。",
         M::CouldntTurnModsOff => "无法禁用模组：{error}",
+        M::GameVersionChangedMeanwhile => {
+            "Minecraft 版本已在此期间更改。请重新选择加载器，然后保存。"
+        }
 
         M::Vanilla => "原版",
         M::ModLoader => "模组加载器",

@@ -1779,7 +1779,8 @@ impl Instances {
                         join.as_ref(),
                     )
                     .map_err(|err| InstallError::Invalid(err.to_string()))?;
-                    let outside = if find_outside {
+                    // not worth the scan once cancelled
+                    let outside = if find_outside && !cancel.is_cancelled() {
                         launcher_core::configurator::outside_candidates()
                     } else {
                         Vec::new()
