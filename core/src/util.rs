@@ -676,12 +676,29 @@ pub mod fs {
         })
     }
 
-    pub async fn create(file: impl AsRef<Path>) -> Result<File, Error> {
-        let file = file.as_ref();
-        let file = tokio::fs::File::create(file)
+    /// Creates a new, empty file, never replacing one that is already there: "New file" with
+    /// the name of an existing file used to empty it. Fails with a `Conflict` error when
+    /// something already has that name (a file, a folder or a symbolic link, which isn't
+    /// followed).
+    pub async fn create_new(file: impl AsRef<Path>) -> Result<File, Error> {
+        let path = file.as_ref();
+        tokio::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(path)
             .await
-            .context(format!("Failed to create file at {}", file.display()))?;
-        Ok(file)
+            .map_err(|e| {
+                if e.kind() == std::io::ErrorKind::AlreadyExists {
+                    Error {
+                        kind: ErrorKind::Conflict,
+                        source: eyre!("{} already exists", path.display()),
+                    }
+                } else {
+                    eyre!(e)
+                        .wrap_err(format!("Failed to create file at {}", path.display()))
+                        .into()
+                }
+            })
     }
 }
 /// Starts a console program (Java) without a console on Windows. DETACHED_PROCESS rather
@@ -731,6 +748,27 @@ mod tests {
 
     fn read(path: impl AsRef<Path>) -> String {
         std::fs::read_to_string(path).unwrap().trim().to_string()
+    }
+
+    /// "New file" with the name of an existing file must not empty it (LS-04).
+    #[tokio::test]
+    async fn create_new_never_replaces_a_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("server.properties");
+        std::fs::write(&path, "motd=hello").unwrap();
+        let error = crate::util::fs::create_new(&path).await.unwrap_err();
+        assert!(matches!(error.kind, crate::error::ErrorKind::Conflict));
+        assert_eq!(read(&path), "motd=hello");
+        // nor a folder's name
+        std::fs::create_dir(tmp.path().join("world")).unwrap();
+        let error = crate::util::fs::create_new(tmp.path().join("world"))
+            .await
+            .unwrap_err();
+        assert!(matches!(error.kind, crate::error::ErrorKind::Conflict));
+        // a new name is created empty
+        let new = tmp.path().join("notes.txt");
+        crate::util::fs::create_new(&new).await.unwrap();
+        assert_eq!(read(&new), "");
     }
 
     #[test]

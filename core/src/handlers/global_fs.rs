@@ -579,9 +579,8 @@ async fn new_file(
         require_code_write(&state, &requester)?;
     }
 
-    tokio::fs::File::create(&path)
-        .await
-        .context(format!("Failed to create file {}", path.display()))?;
+    // never replaces an existing file, see `create_new`
+    crate::util::fs::create_new(&path).await?;
 
     let caused_by = requester.caused_by();
     state.event_broadcaster.send(new_fs_event(
