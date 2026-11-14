@@ -55,7 +55,7 @@ impl Backend for Fake {
             }
             "content.install" => Ok(json!({ "job": { "id": 1, "state": "running" } })),
             "play.logs" => Ok(
-                json!({ "instance": "a1", "state": "running", "rows": [{ "instance": "a1", "text": "old line" }] }),
+                json!({ "instance": "a1", "state": "running", "cursor": 12, "rows": [{ "instance": "a1", "text": "old line" }] }),
             ),
             "events.subscribe" if p.get("instance").is_none() => {
                 // `events`: a notice every few milliseconds, until the client goes away
@@ -273,6 +273,16 @@ fn follow_stops_at_the_line_asked_for() {
         })
         .collect();
     assert_eq!(texts, ["old line", "Loading", "Sound engine started"]);
+    // LS-69: the subscription goes on from where play.logs left off, with the state it
+    // said, so no line is lost in between and a game that exited still ends it
+    let requests = launcher.fake.requests.lock().unwrap();
+    let subscribe = requests
+        .iter()
+        .find(|r| r.method == "events.subscribe")
+        .unwrap();
+    assert_eq!(subscribe.params["instance"], "a1");
+    assert_eq!(subscribe.params["since"], 12);
+    assert_eq!(subscribe.params["last_state"], "running");
 }
 
 /// LS-68: `events | head -n 1` never ended, because writes to the closed pipe failed

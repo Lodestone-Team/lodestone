@@ -181,7 +181,13 @@ impl Notices {
         }
     }
 
-    fn push_window_notice(&mut self, kind: &'static str, title: &str, message: &str, about: &About) {
+    fn push_window_notice(
+        &mut self,
+        kind: &'static str,
+        title: &str,
+        message: &str,
+        about: &About,
+    ) {
         let (instance, import) = match about {
             About::Nothing => (None, None),
             About::Instance(id) => (Some(id.clone()), None),
@@ -239,6 +245,20 @@ pub fn row_json(instance: &str, row: &LogRow) -> Value {
     })
 }
 
+/// The state names `run_status` gives, for `last_state`.
+fn known_state(state: &str) -> Option<&'static str> {
+    ["idle", "preparing", "running"]
+        .into_iter()
+        .find(|known| *known == state)
+}
+
+/// Whether a subscription sends an instance's state: when it changed from the one sent
+/// (or the one the client said it saw). Instances idle at the start are left out, as
+/// nothing happened to them, but not one the client saw doing something.
+fn state_event_due(before: Option<&str>, now: &str, first: bool) -> bool {
+    before != Some(now) && !(first && before.is_none() && now == "idle")
+}
+
 /// Every topic.
 pub const TOPICS: [&str; 5] = ["log", "state", "progress", "jobs", "notices"];
 
@@ -252,6 +272,15 @@ struct SubscribeParams {
     /// Console rows from before the subscription to send first.
     #[serde(default)]
     backlog: usize,
+    /// With `instance`: the `cursor` of the `play.logs` the client read, so the rows
+    /// logged since then come first, not lost between the two requests.
+    #[serde(default)]
+    since: Option<u64>,
+    /// With `instance`: the state the client last saw it in (`play.logs`' `state`). The
+    /// first round sends the state when it differs, idle included, so a game that
+    /// exited between the two requests still says so.
+    #[serde(default)]
+    last_state: Option<String>,
     #[serde(skip)]
     topics_were_empty: bool,
 }
@@ -288,6 +317,22 @@ pub fn subscribe(call: Call, cx: &mut App) -> Reply {
         },
         None => None,
     };
+    if only.is_none() && (params.since.is_some() || params.last_state.is_some()) {
+        return ready(Err(api_error(
+            codes::INVALID_PARAMS,
+            "since and last_state are about one instance: name it with instance.",
+        )));
+    }
+    let last_state = match params.last_state.as_deref().map(known_state) {
+        Some(Some(state)) => Some(state),
+        Some(None) => {
+            return ready(Err(api_error(
+                codes::INVALID_PARAMS,
+                "last_state is idle, preparing or running.",
+            )));
+        }
+        None => None,
+    };
     let wants = |topic: &str| topics.iter().any(|t| t == topic);
     let (log, state, progress, jobs, notices) = (
         wants("log"),
@@ -302,14 +347,19 @@ pub fn subscribe(call: Call, cx: &mut App) -> Reply {
         let instances = control.instances.read(cx);
         for instance in instances.list() {
             let (_, cursor) = instances.log_tail(&instance.id, 0);
-            cursors.insert(
-                instance.id.clone(),
-                cursor.saturating_sub(params.backlog as u64),
-            );
+            let cursor = match params.since {
+                // where the client read up to; never past the tail
+                Some(since) if only.as_ref() == Some(&instance.id) => since.min(cursor),
+                _ => cursor.saturating_sub(params.backlog as u64),
+            };
+            cursors.insert(instance.id.clone(), cursor);
         }
     }
     let mut notice_seq = control.notices.borrow().last_seq();
     let mut states: HashMap<String, (&'static str, Value)> = HashMap::new();
+    if let (Some(id), Some(state)) = (&only, last_state) {
+        states.insert(id.clone(), (state, Value::Null));
+    }
     let mut job_states: HashMap<u64, (JobState, Value)> = HashMap::new();
     let number = control.reserve_subscription();
     let outbox = call.outbox.clone();
@@ -347,10 +397,7 @@ pub fn subscribe(call: Call, cx: &mut App) -> Reply {
                         .map(|(stage, snapshot)| progress_json(stage.label(), snapshot))
                         .unwrap_or(Value::Null);
                     let before = states.get(&id).cloned();
-                    if state
-                        && before.as_ref().map(|b| b.0) != Some(status.state)
-                        && !(first && status.state == "idle")
-                    {
+                    if state && state_event_due(before.as_ref().map(|b| b.0), status.state, first) {
                         events.push((
                             "state",
                             json!({
@@ -555,5 +602,22 @@ mod tests {
         let import = notices.find_since(seq, |n| n.import == Some(7)).unwrap();
         assert_eq!(import.title, "Modpack ready");
         assert_eq!(import.instance, None);
+    }
+
+    /// LS-69: a game that went idle before a subscription's first round was never
+    /// reported, though the client had seen it running.
+    #[test]
+    fn a_state_the_client_saw_is_compared_on_the_first_round() {
+        // idle from the start: nothing to say
+        assert!(!state_event_due(None, "idle", true));
+        assert!(state_event_due(None, "running", true));
+        // the client saw it running, and it exited before the first round
+        assert!(state_event_due(Some("running"), "idle", true));
+        assert!(!state_event_due(Some("running"), "running", true));
+        // later rounds send changes only
+        assert!(state_event_due(Some("preparing"), "idle", false));
+        assert!(!state_event_due(Some("idle"), "idle", false));
+        assert_eq!(known_state("running"), Some("running"));
+        assert_eq!(known_state("crashed"), None);
     }
 }

@@ -292,10 +292,17 @@ mod connected {
             return Ok(());
         }
         let id = value["instance"].as_str().unwrap_or(instance).to_string();
+        // from where play.logs left off, so no line is lost between the two requests,
+        // and with the state it said, so a game that exited in between still ends this
         let subscribed = client
             .call(
                 "events.subscribe",
-                json!({ "topics": ["log", "state"], "instance": id }),
+                json!({
+                    "topics": ["log", "state"],
+                    "instance": id,
+                    "since": value["cursor"],
+                    "last_state": value["state"],
+                }),
             )
             .map_err(|err| err.to_error())??;
         let subscription = subscribed["subscription"].as_u64();
