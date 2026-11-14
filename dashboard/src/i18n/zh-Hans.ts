@@ -1197,6 +1197,11 @@ export const zhHans: Messages = {
     '玩家只需原版 Fabric 即可加入（Minecraft {gameVersion}，{loader}）。',
   'mods.clientPack.title': { other: '玩家需要 {count} 个模组才能加入' },
   'mods.clientPack.download': '下载客户端整合包（.mrpack）',
+  'mods.clientPack.showAll': {
+    one: '显示全部 {count} 个模组',
+    other: '显示全部 {count} 个模组',
+  },
+  'mods.clientPack.showFewer': '收起',
   'mods.clientPack.downloadFailed': '无法下载客户端整合包：{error}',
   'mods.clientPack.importHint':
     '将其导入 Prism Launcher、Modrinth App 或 ATLauncher，即可获得所有正确版本的内容。',

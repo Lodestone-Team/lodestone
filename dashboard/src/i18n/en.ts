@@ -1577,6 +1577,13 @@ export const en = {
     other: 'Players need {count} mods to join',
   },
   'mods.clientPack.download': 'Download client modpack (.mrpack)',
+  /** Under the first few of a big client pack's mods: shows them all */
+  'mods.clientPack.showAll': {
+    one: 'Show all {count} mod',
+    other: 'Show all {count} mods',
+  },
+  /** Folds the client pack's mods again, after mods.clientPack.showAll */
+  'mods.clientPack.showFewer': 'Show fewer',
   'mods.clientPack.downloadFailed':
     'Failed to download the client modpack: {error}',
   'mods.clientPack.importHint':

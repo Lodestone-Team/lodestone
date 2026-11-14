@@ -1395,6 +1395,11 @@ export const fr: Messages = {
     other: 'Les joueurs ont besoin de {count} mods pour se connecter',
   },
   'mods.clientPack.download': 'Télécharger le modpack client (.mrpack)',
+  'mods.clientPack.showAll': {
+    one: 'Afficher {count} mod',
+    other: 'Afficher les {count} mods',
+  },
+  'mods.clientPack.showFewer': 'Afficher moins',
   'mods.clientPack.downloadFailed':
     'Impossible de télécharger le modpack client : {error}',
   'mods.clientPack.importHint':

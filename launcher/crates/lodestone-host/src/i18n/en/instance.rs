@@ -174,6 +174,8 @@ crate::i18n::messages! {
         ModsLoaderNoVersion = "Fabric Loader",
         ModsPlainFabric = "Players can join with plain Fabric (Minecraft {gameVersion}, {loader}).",
         ModsDownloadPack = "Download client modpack (.mrpack)",
+        /// Folds the client pack's list of mods again, after ModsPackShowAll.
+        ModsPackShowFewer = "Show fewer",
         ModsDownloadPackFailed = "Couldn’t download the client modpack: {error}",
         /// {name} is the file's name.
         ModsPackSaved = "Saved {name}",
@@ -317,6 +319,8 @@ crate::i18n::messages! {
         ModsCountPlugin = ("{count} plugin in {directory}/", "{count} plugins in {directory}/"),
         ModsPackTitle = ("Players need {count} mod to join", "Players need {count} mods to join"),
         ModsImportHintJars = ("Import it into Prism Launcher, the Modrinth App or ATLauncher to get everything at the right versions. {count} mod isn’t on Modrinth, so its file is in the pack.", "Import it into Prism Launcher, the Modrinth App or ATLauncher to get everything at the right versions. {count} mods aren’t on Modrinth, so their files are in the pack."),
+        /// Under the first few of a big client pack's mods: shows them all.
+        ModsPackShowAll = ("Show all {count} mod", "Show all {count} mods"),
         ModsShowMore = ("Show more ({count} left)", "Show more ({count} left)"),
         ModsMoreGameVersions = ("+{count} more", "+{count} more"),
         ModpackAdded = ("{count} file added", "{count} files added"),
