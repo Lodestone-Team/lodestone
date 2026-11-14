@@ -21,6 +21,7 @@ import { UnzipOption } from 'bindings/UnzipOption';
 import { CopyInstanceFileRequest } from 'bindings/CopyInstanceFileRequest';
 import { ZipRequest } from 'bindings/ZipRequest';
 import { t } from 'i18n';
+import { basicAuthHeader } from './basicAuth';
 
 /*
  * Error convention
@@ -431,9 +432,12 @@ export async function loginToCore(
       method: 'post',
       url: '/user/login',
       data: {},
-      auth: {
-        username: loginValue.username,
-        password: loginValue.password,
+      // not axios's `auth`, which sends the username as Latin-1
+      headers: {
+        Authorization: basicAuthHeader(
+          loginValue.username,
+          loginValue.password
+        ),
       },
     });
     return response.data;
