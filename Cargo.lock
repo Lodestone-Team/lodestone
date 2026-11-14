@@ -3186,6 +3186,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "lodestone_image"
+version = "0.5.1"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "lodestone_minecraft"
 version = "0.5.1"
 dependencies = [

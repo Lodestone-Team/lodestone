@@ -1,0 +1,24 @@
+[package]
+name = "lodestone_image"
+description = "Instance images: the one format Lodestone Core and Lodestone Launcher use for backups, snapshots, modpack history, what a server sends players, and sharing"
+publish = false
+rust-version.workspace = true
+authors.workspace = true
+homepage.workspace = true
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+# Lodestone Launcher (launcher/) depends on this crate too, and its dependencies must be
+# the crates and versions already in its lockfile (Zed stable's). So every requirement
+# below is a version both lockfiles have, and nothing here is new to either of them.
+# docs/instance-images.md is the format this crate implements.
+#
+# The store's zstd encoding (core only) will come behind an optional `zstd` feature when
+# the store is added: zstd is only in the root lockfile, and an optional dependency is
+# still written into every lockfile that can see it.
+[dependencies]
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+sha2 = "0.10.9"
+thiserror = "2.0.17"

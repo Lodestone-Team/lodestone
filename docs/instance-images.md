@@ -57,9 +57,24 @@ Decisions this builds on:
   "content": "<content image id>",                  // data images: the content they ran with
   "excludes": [ "dynmap/web/tiles/" ],              // what this image left out on purpose
   "withheld": [ WITHHELD, ... ],                    // known files not carried, and why
-  "rules": 1                                        // version of the view and env rules
+  "rules": 1,                                       // version of the view and env rules
+  "side": "client" | "server",                      // views only; part of the id
+  "projected_from": "<image id>"                    // views only; not part of the id
 }
 ```
+
+Reading is forward compatible within a schema. Fields a reader doesn't know are kept (on
+the image and on each entry) and written back as they were, so the id still verifies.
+Informational values it doesn't know (a withheld reason, an `env_from` input, a loader, a
+flavour) are kept as text. An unknown `source`, `kind`, `base` or `env` value makes the
+manifest invalid, since nothing can act on it safely. A newer schema is refused with its
+own error, and an older one goes to the v1 readers. Settings are the exception: fields a
+reader doesn't know are dropped, so local settings can never get into an image; a new
+setting needs a new schema.
+
+`parent`, `created`, `producer`, `label`, `projected_from` and entries' `modified` are
+informational. `entries[].modified` is optional, `mode` defaults to 420 and `env` to
+unknown on both sides.
 
 ### Base
 
@@ -102,9 +117,23 @@ the pack there.
 
 `env` values are `required`, `optional`, `unsupported`, `unknown`. `env_from` records why,
 so views can be recomputed when the rules change and the UI can say why a file did or
-didn't go to players. Inputs, in order of precedence: the owner's "For players" mark, the
-base pack's `env`, Modrinth's version `environment`, Modrinth's project
-`client_side`/`server_side`, the jar's own `environment`.
+didn't go to players. Inputs, in order of precedence, with their `env_from` names: the
+owner's "For players" mark (`owner_mark`), the base pack's `env` (`base_pack`), Modrinth's
+version `environment` (`modrinth_environment`), Modrinth's project
+`client_side`/`server_side` (`modrinth_project`), the jar's own `environment`
+(`jar_environment`). Each side is decided on its own: the first input that says something
+other than `unknown` for that side wins, and `env_from` lists the inputs that decided a
+side, sorted. The owner's mark only decides the client side: "For players" is `required`,
+"Not for players" is `unsupported`. Modrinth's version `environment` maps as:
+`client_and_server` required/required, `client_only` and `singleplayer_only`
+required/unsupported, `client_only_server_optional` required/optional, `server_only` and
+`dedicated_server_only` unsupported/required, `server_only_client_optional`
+optional/required, `client_or_server` and `client_or_server_prefers_both`
+optional/optional (client/server); `unknown` and values not listed are no input.
+
+A `modrinth` source must have a `url` on `https://cdn.modrinth.com/` and the entry a
+`sha512`. `world` is set exactly when the path is `saves/<world>/…`, and names a world in
+`worlds`.
 
 ### Settings
 
@@ -117,6 +146,18 @@ Typed fields, each with a scope. Local fields are never written into an image.
 | client | recommended memory, resource pack order, shader in use, icon, background |
 | local (never in an image) | Java path, Rosetta, JVM and game arguments, window, play time |
 
+```jsonc
+{ "server": { "port": 25565, "properties": { "motd": "…" },
+              "ops": [ { "uuid": "…", "name": "…", "level": 4, "bypasses_player_limit": false } ],
+              "whitelist": [ { "uuid": "…", "name": "…" } ], "flavour": "paper" },
+  "client": { "recommended_memory_mb": 6144, "resource_packs": [ "vanilla", "file/x.zip" ],
+              "shader": "x.zip", "icon": { "sha256": "…", "size": 1234 }, "background": null } }
+```
+
+Secret properties (`rcon.password`, `management-server-secret`) are never carried; a
+manifest with them is invalid. A Paper or Spigot server's `game.loader` is `vanilla`: players
+run vanilla, and the flavour is a server setting.
+
 ### World
 
 ```jsonc
@@ -125,16 +166,30 @@ Typed fields, each with a scope. Local fields are never written into an image.
   "quiesced": true }
 ```
 
+`name` is the folder (`saves/<name>/`); the other fields are optional.
+
 ### Withheld
 
 ```jsonc
 { "path": "mods/blocked.jar", "reason": "curseforge_not_downloadable" | "symlink" | "unreadable" | "bad_name" | "excluded" | "kept_changing" }
 ```
 
+`path` is the file's path as found, which may not be a valid canonical path (that may be
+why it was withheld): shown, never placed.
+
 ## Paths
 
 Paths are relative to the game folder and the same on both sides, `/`-separated, NFC,
-no `..`, no absolute paths, no NUL, `\` or `:`.
+no `..`, no absolute paths, no NUL, `\` or `:`. So that every path can be created on
+Windows, macOS and Linux alike, they also have no empty or `.` parts, no control
+characters, none of `<>"|?*`, no Windows device names (`CON`, `PRN`, `AUX`, `NUL`,
+`COM0`–`COM9`, `LPT0`–`LPT9`, `COM¹²³`, `LPT¹²³`, `CONIN$`, `CONOUT$`, in any case and
+with any extension), no part ending with a space or a dot, at most 4096 bytes and 255 bytes
+per part. NFC without Unicode's tables (no shared dependency has them): names with what NFC
+changes in practice (combining accents, conjoining jamo, combining kana marks, NFC's
+singletons and composition exclusions) are refused, the rest is trusted to be NFC. A file
+whose name breaks these rules is withheld as `bad_name`. Names that differ only in letter
+case are valid; the shared crate reports them so a case-insensitive disk can refuse them.
 
 | Canonical | Server disk | Client disk |
 | --- | --- | --- |
@@ -143,36 +198,82 @@ no `..`, no absolute paths, no NUL, `\` or `:`.
 | `options.txt`, `resourcepacks/…`, `shaderpacks/…`, `screenshots/…` | never placed | `minecraft/…` |
 | `saves/<world>/…` (vanilla layout: `DIM-1`, `DIM1` inside) | `<level>/…`; Paper/Bukkit split `<level>_nether/DIM-1`, `<level>_the_end/DIM1` | `minecraft/saves/<world>/…` |
 
+Server-only also covers `banned-players.json`, `banned-ips.json` and `eula.txt`;
+client-only also `optionsof.txt`, `optionsshaders.txt`, `servers.dat`, `servers.dat_old`,
+`realms_persistence.json`, and loose files in `saves/` (not in a world). On a server, a
+world is any top-level folder the layout knows as one (the level and folders with a
+`level.dat`); its files are `saves/<world>/…`. Only the level is split. The split folders'
+other files (their own `level.dat`, `uid.dat`, Paper's settings) are kept in the world as
+`saves/<level>/.bukkit_nether/…` and `saves/<level>/.bukkit_the_end/…`, which vanilla
+ignores. What the mapping can't read back as itself is an error and the file is withheld: a
+vanilla `DIM-1`/`DIM1` left inside a split level, a server folder named `saves`, a non-world
+file inside a world's folder, a world named like other server content (`mods`, `config`,
+`plugins`, `libraries`…).
+
 The mapping is a two-way function per side and per server flavour, tested both ways
 (including Windows names and names that differ only in letter case).
 
 Always left out: logs, crash reports, caches, `natives`, `session.lock`, Lodestone's own
 working folders (`.lodestone-restore*`, staging), and `.lodestone_config` (a server's
-identity).
+identity). Precisely: the top-level folders `logs`, `crash-reports`, `cache`, `.cache`,
+`natives`, `.fabric`, `.mixin.out`, `debug` and `.lodestone-snapshot`; `session.lock` and
+`.lodestone-restore*` at any depth; `.lodestone_modpack/{objects,staging,snapshot}/`; the
+top-level file `.lodestone_config`. A manifest with an entry there is invalid.
 
 ## Views
 
 ```
-view(image, side, rules) = entries with env[side] ≠ unsupported
+view(image, side, rules) = entries with env[side] ≠ unsupported that the side can hold
                            (configs only when marked shared with players)
                          + the side's share of the base
                          + the side's settings
-                         + { projected_from: image id, rules }
+                         + { side, projected_from: image id, rules }
 ```
+
+- Configs are files in `config/`, `defaultconfigs/` and `kubejs/`. "Marked shared" is an
+  `owner_mark` in `env_from` with `env.client` not `unsupported`. The server view carries
+  every config.
+- A view keeps the image's base, game, `removed`, worlds, content link, excludes, withheld
+  files and unknown fields, and none of its informational fields (`parent`, `created`,
+  `producer`, `label`, entries' `modified`). World files go to both views, so the server
+  view of a Launcher snapshot is what "Host this" makes; the server-to-player flow uses
+  the content image, which has no worlds.
 
 - Client view rule: everything that is not client-unsupported goes to players, so
   `optional` mods (JEI) are included and players can always join. The owner's mark
   forces a mod in; Modrinth's `server_only` and `client: unsupported` keep it out.
 - A view is canonical (sorted, no timestamps), so its id is its hash and "is the player in
-  step?" is a hash comparison. The core recomputes views; it doesn't store them.
-- Losslessness: `view(server) ∪ view(client) ∪ local settings = image`, tested for every
-  fixture pack.
+  step?" is a hash comparison. `projected_from` is not part of the id, so a change only the
+  server sees leaves the client view's id as it was. The core recomputes views; it doesn't
+  store them.
+- Losslessness: `view(server) ∪ view(client) ∪ local = image`, tested for every fixture
+  pack, where local is the entries neither view carries (a mod unsupported on both sides)
+  and the local settings, which are never in an image anyway. Compared by id.
 
 ## Identity
 
 An image's `id` is the SHA-256 of its canonical manifest: sorted keys and entries, without
-`id`, `created`, `modified`, `label` and `producer`. Two images with the same files,
-sources, base, game and settings have the same id, wherever they were made.
+`id`, `created`, `modified`, `label`, `producer`, `parent` and `projected_from`. Two images
+with the same files, sources, base, game and settings have the same id, wherever they were
+made and whatever they were recorded after.
+
+Canonical means: lists that are sets sorted (entries by path, each `env_from`, `removed`,
+worlds by name, `excludes`, `withheld`, ops, whitelist; the resource pack order is kept),
+compact JSON with every object's keys sorted by their UTF-8 bytes, `null` values left out
+(a missing optional field and `null` are the same image), strings escaped as serde_json
+does (only `"`, `\` and control characters) and integers in decimal.
+
+## Deltas
+
+```jsonc
+{ "from": "<image id>", "to": "<image id>",
+  "added": [ ENTRY, ... ], "removed": [ "<path>", ... ], "replaced": [ ENTRY, ... ],
+  "changes": [ { "game": GAME }, { "settings": SETTINGS }, ... ] }
+```
+
+Between any two images: entries by path (`replaced` when anything about one differs), and
+each other field that differs, whole, with its new value. Applying refuses a delta for
+another image, paths that aren't where it says, and a result whose id isn't `to`.
 
 ## Store
 
@@ -299,7 +400,8 @@ as today.
 ## Milestones
 
 1. Shared crate `crates/lodestone-image`: manifest, identity, paths, views, store, FastCDC,
-   v1 readers, property tests.
+   v1 readers, property tests. (Done first: manifest, identity, paths and disk layouts, env,
+   views, deltas. Then: store, FastCDC, v1 readers.)
 2. Core: backups write data images with their content link and excludes; content images on
    Lodestone actions and before start; modpack history as lineage; Paper world layout.
 3. Core: client view and delta endpoints; objects endpoint. The `.mrpack` client pack stays.

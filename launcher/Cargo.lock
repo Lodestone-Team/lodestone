@@ -3005,6 +3005,7 @@ dependencies = [
  "launcher-control",
  "libc",
  "lodestone_connect",
+ "lodestone_image",
  "lodestone_minecraft",
  "lodestone_trace",
  "md-5",
@@ -3241,6 +3242,16 @@ dependencies = [
  "url",
  "webpki-roots",
  "zeroize",
+]
+
+[[package]]
+name = "lodestone_image"
+version = "0.5.1"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror 2.0.17",
 ]
 
 [[package]]

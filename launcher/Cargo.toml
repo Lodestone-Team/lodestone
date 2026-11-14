@@ -137,6 +137,10 @@ zip = { version = "=9.0.5", default-features = false, features = ["deflate-flate
 # and writing .mrpack files and jars) is off: it turns on zip's bzip2, zstd and deflate64
 # codecs, which the launcher does not need.
 lodestone_minecraft = { path = "../crates/lodestone-minecraft", default-features = false }
+# Instance images (docs/instance-images.md), shared with the core: snapshots, modpack
+# history and what a server sends players. Its dependencies are all in this lockfile
+# already; the core's zstd store encoding will be a feature the launcher leaves off.
+lodestone_image = { path = "../crates/lodestone-image" }
 # Debug traces (local only), shared with the core.
 lodestone_trace = { path = "../crates/lodestone-trace" }
 # Lodestone Connect: joining a server a friend shares (`join`), and sharing the person's
