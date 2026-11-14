@@ -483,6 +483,15 @@ fn legacy_libraries(
         if library.get("clientreq").and_then(Value::as_bool) == Some(false) {
             continue;
         }
+        // Forge 1.6's profiles copy vanilla's LWJGL and JInput entries: natives,
+        // whose jars have a classifier per OS (the bare jar doesn't exist), and
+        // jars only some systems take. Vanilla's own profile already lists them,
+        // with their classifiers and rules; a plain copy here would ask for jars
+        // that aren't there, put every system's LWJGL on the classpath, and
+        // replace vanilla's entries in the merge.
+        if library.get("natives").is_some() || library.get("rules").is_some() {
+            continue;
+        }
         let name = library
             .get("name")
             .and_then(Value::as_str)
@@ -864,6 +873,61 @@ pub(crate) mod tests {
             normalize_legacy(&raw["versionInfo"], &install, "x", &hashes, b"u").unwrap();
         assert!(normalized.get("jar").is_none());
         assert_eq!(normalized["id"], "x");
+    }
+
+    #[test]
+    fn legacy_profiles_leave_natives_and_os_specific_jars_to_vanilla() {
+        // As Forge 1.6.4's installer lists them.
+        let os_x_10_5 =
+            json!([{"action": "allow", "os": {"name": "osx", "version": "^10\\.5\\.\\d$"}}]);
+        let not_os_x_10_5 = json!([
+            {"action": "allow"},
+            {"action": "disallow", "os": {"name": "osx", "version": "^10\\.5\\.\\d$"}},
+        ]);
+        let natives =
+            json!({"linux": "natives-linux", "windows": "natives-windows", "osx": "natives-osx"});
+        let version = json!({
+            "mainClass": "net.minecraft.launchwrapper.Launch",
+            "libraries": [
+                {"name": "net.minecraftforge:minecraftforge:9.11.1.1345", "url": "https://maven.minecraftforge.net/"},
+                {"name": "net.minecraft:launchwrapper:1.8"},
+                {"name": "net.java.jinput:jinput:2.0.5"},
+                {"name": "org.lwjgl.lwjgl:lwjgl:2.9.0", "rules": not_os_x_10_5},
+                {"name": "org.lwjgl.lwjgl:lwjgl-platform:2.9.0", "natives": natives, "extract": {"exclude": ["META-INF/"]}, "rules": not_os_x_10_5},
+                {"name": "org.lwjgl.lwjgl:lwjgl:2.9.1-nightly-20130708-debug3", "rules": os_x_10_5},
+                {"name": "org.lwjgl.lwjgl:lwjgl-platform:2.9.1-nightly-20130708-debug3", "natives": natives, "rules": os_x_10_5},
+                {"name": "net.java.jinput:jinput-platform:2.0.5", "natives": natives, "extract": {"exclude": ["META-INF/"]}},
+            ],
+        });
+        let install = LegacyInstall {
+            path: "net.minecraftforge:minecraftforge:9.11.1.1345".into(),
+            file_path: "minecraftforge-universal-1.6.4-9.11.1.1345.jar".into(),
+            minecraft: Some("1.6.4".into()),
+        };
+        let urls = legacy_downloads(&version, &install).unwrap();
+        assert_eq!(
+            urls,
+            [
+                "https://libraries.minecraft.net/net/minecraft/launchwrapper/1.8/launchwrapper-1.8.jar",
+                "https://libraries.minecraft.net/net/java/jinput/jinput/2.0.5/jinput-2.0.5.jar",
+            ]
+        );
+        let hashes = urls.into_iter().map(|url| (url, "0".repeat(40))).collect();
+        let normalized = normalize_legacy(&version, &install, "x", &hashes, b"u").unwrap();
+        let names: Vec<&str> = normalized["libraries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|library| library["name"].as_str().unwrap())
+            .collect();
+        assert_eq!(
+            names,
+            [
+                "net.minecraftforge:minecraftforge:9.11.1.1345",
+                "net.minecraft:launchwrapper:1.8",
+                "net.java.jinput:jinput:2.0.5",
+            ]
+        );
     }
 
     #[test]
