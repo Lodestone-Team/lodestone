@@ -241,8 +241,9 @@ export default function FileViewer() {
           toast.info(t('files.zippingForDownload'));
         }
         try {
-          await downloadInstanceFile(instance.uuid, file, timeout);
-          tickFile(file, false);
+          // a file that didn't start downloading stays ticked, to try again
+          if (await downloadInstanceFile(instance.uuid, file, timeout))
+            tickFile(file, false);
         } catch (e) {
           toast.error(
             t('files.downloadFailed', {

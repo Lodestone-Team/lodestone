@@ -22,6 +22,8 @@ import { CopyInstanceFileRequest } from 'bindings/CopyInstanceFileRequest';
 import { ZipRequest } from 'bindings/ZipRequest';
 import { t } from 'i18n';
 import { basicAuthHeader } from './basicAuth';
+import { startDownload } from './download';
+import { tauri } from './tauriUtil';
 
 /*
  * Error convention
@@ -153,11 +155,27 @@ export const deleteInstanceDirectory = async (
 
 /**
  * The URL that downloads a file the core registered under `key` (see
- * `/file/{key}` in the core's global_fs.rs). Opened in a new tab, it works in
- * browsers and in Lodestone Host.
+ * `/file/{key}` in the core's global_fs.rs). Start it with downloadFromCore.
  */
 export const fileDownloadUrl = (key: string) =>
   axios.defaults.baseURL + `/file/${key}`;
+
+/**
+ * Starts downloading a fileDownloadUrl link, in browsers and in Lodestone Host
+ * (where the system browser downloads it). See startDownload: no popup, so it
+ * still works after awaiting the link.
+ * @throws if Lodestone Host could not hand the link to the browser
+ */
+export const downloadFromCore = (url: string) => {
+  const host = tauri;
+  return startDownload(
+    url,
+    document,
+    host
+      ? (link) => host.core.invoke('plugin:opener|open_url', { url: link })
+      : undefined
+  );
+};
 
 /** @throws ApiError */
 export const requestInstanceFileUrl = async (
@@ -173,15 +191,18 @@ export const requestInstanceFileUrl = async (
   return fileDownloadUrl(tokenResponse);
 };
 
-/** Shows a toast on failure. */
+/**
+ * Shows a toast on failure. Resolves with whether the download started.
+ */
 export const downloadInstanceFile = async (
   uuid: string,
   file: ClientFile,
   timeout = 5000
-) => {
-  let url: string;
+): Promise<boolean> => {
   try {
-    url = await requestInstanceFileUrl(uuid, file, timeout);
+    const url = await requestInstanceFileUrl(uuid, file, timeout);
+    await downloadFromCore(url);
+    return true;
   } catch (error) {
     toast.error(
       t('server.api.downloadFailed', {
@@ -189,9 +210,8 @@ export const downloadInstanceFile = async (
         error: errorToString(error),
       })
     );
-    return;
+    return false;
   }
-  window.open(url, '_blank');
 };
 
 /** Shows a toast on failure. */
