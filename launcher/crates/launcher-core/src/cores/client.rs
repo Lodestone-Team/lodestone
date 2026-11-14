@@ -313,9 +313,8 @@ impl CoreClient {
         limit: u64,
         timeout: Duration,
     ) -> Result<RawResponse, CoreError> {
-        let body = || {
-            body().map(|(body, content_type, length)| Some((body, content_type, Some(length))))
-        };
+        let body =
+            || body().map(|(body, content_type, length)| Some((body, content_type, Some(length))));
         self.send_body(method, path, auth, body, None, limit, timeout)
             .await
     }

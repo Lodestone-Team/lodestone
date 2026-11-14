@@ -612,10 +612,8 @@ mod tests {
         }
         assert_eq!(streamed.len() as u64, upload.len());
         // the in-memory body, with this upload's boundary
-        let (in_memory, content_type) = multipart_files(&[
-            ("a.txt".into(), b"one".to_vec()),
-            ("b\".txt".into(), big),
-        ]);
+        let (in_memory, content_type) =
+            multipart_files(&[("a.txt".into(), b"one".to_vec()), ("b\".txt".into(), big)]);
         let theirs = content_type.split("boundary=").nth(1).unwrap();
         let ours = upload.content_type();
         let ours = ours.split("boundary=").nth(1).unwrap();

@@ -285,11 +285,7 @@ fn a_download_replaces_the_file_once_complete() {
         if request.path.ends_with("/url") {
             json("\"abc123\"")
         } else {
-            reply(
-                "200 OK",
-                &[("Content-Length", "9".into())],
-                b"motd=new!",
-            )
+            reply("200 OK", &[("Content-Length", "9".into())], b"motd=new!")
         }
     }));
     let dir = tempfile::tempdir().unwrap();

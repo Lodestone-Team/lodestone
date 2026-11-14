@@ -244,13 +244,11 @@ impl ModsPage {
             return;
         }
         let uuid = self.uuid.clone();
-        let started = self
-            .state
-            .update(cx, |state, cx| {
-                let started = state.set_updating_mods(&uuid, true);
-                cx.notify();
-                started
-            });
+        let started = self.state.update(cx, |state, cx| {
+            let started = state.set_updating_mods(&uuid, true);
+            cx.notify();
+            started
+        });
         if !started {
             return;
         }
