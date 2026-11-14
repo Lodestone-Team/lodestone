@@ -14,8 +14,9 @@
 //!   inside a plugin's own folder (`plugins/<name>/*.yml` and the like). Deeper plugin
 //!   folders hold what plugins write as the game runs (CoreProtect's database, Essentials'
 //!   player files), which would churn the lineage and bloat the store;
-//! - the server's own top-level files: jars, `server.properties`, `eula.txt`, ops and
-//!   whitelist, Forge's start scripts and JVM arguments, and the Bukkit family's settings.
+//! - the server's own top-level files: jars, `server.properties`, ops and whitelist,
+//!   Forge's start scripts and JVM arguments, and the Bukkit family's settings. Not
+//!   `eula.txt`: accepting the EULA is server state, not a content choice.
 //!
 //! Never content: Lodestone's own files (any name starting with `.lodestone`, at any depth:
 //! the modpack record and history, the instance's local settings, the "For players" marks,
@@ -30,7 +31,7 @@ use lodestone_image::CanonicalPath;
 
 /// The version of these rules. A baseline taken under other rules is out of date (see
 /// [`super::state::ContentState::scope_rules`]).
-pub const SCOPE_RULES: u32 = 1;
+pub const SCOPE_RULES: u32 = 2;
 
 /// Folders whose every file is content.
 const CONTENT_FOLDERS: [&str; 6] = [
@@ -43,9 +44,8 @@ const CONTENT_FOLDERS: [&str; 6] = [
 ];
 
 /// Top-level files that are content (besides any `*.jar`).
-const CONTENT_FILES: [&str; 15] = [
+const CONTENT_FILES: [&str; 14] = [
     "server.properties",
-    "eula.txt",
     "ops.json",
     "whitelist.json",
     "run.sh",
@@ -62,6 +62,22 @@ const CONTENT_FILES: [&str; 15] = [
 ];
 
 const PLUGINS: &str = "plugins";
+
+/// The server's settings and admin lists among the content files: Lodestone's settings and
+/// the server's own commands (`/op`, `/whitelist`) change them, and a server's own writes
+/// never make a content image, so a content image may hold older copies than a backup
+/// does. Restoring mods never brings them back (an op removed since must stay removed).
+const SERVER_SETTINGS_FILES: [&str; 3] = ["server.properties", "ops.json", "whitelist.json"];
+
+/// Whether `path` is one of the server's settings and admin lists
+/// ([`SERVER_SETTINGS_FILES`]), any letter case.
+pub fn is_server_settings_file(path: &CanonicalPath) -> bool {
+    let mut parts = path.components();
+    match (parts.next(), parts.next()) {
+        (Some(name), None) => SERVER_SETTINGS_FILES.iter().any(|file| same(name, file)),
+        _ => false,
+    }
+}
 
 /// The extensions of a plugin's config files, directly in its folder.
 const PLUGIN_CONFIG_EXTENSIONS: [&str; 9] = [
@@ -183,7 +199,6 @@ mod tests {
             "server.jar",
             "forge-1.20.1-47.2.0.jar",
             "server.properties",
-            "eula.txt",
             "ops.json",
             "whitelist.json",
             "run.sh",
@@ -195,6 +210,7 @@ mod tests {
             assert!(is_content(&p(yes), false), "{yes}");
         }
         for no in [
+            "eula.txt",
             "saves/world/level.dat",
             "saves/world/datapacks/x.zip",
             "plugins/Essentials/userdata/abc.yml",

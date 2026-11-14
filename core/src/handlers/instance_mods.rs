@@ -19,7 +19,7 @@ use super::util::{get_instance, AuthedUser};
 use crate::auth::user::UserAction;
 use crate::error::{Error, ErrorKind};
 use crate::events::{Event, ProgressionEndValue};
-use crate::images::{ModrinthHint, OpKind, Operation};
+use crate::images::{ModrinthHint, Operation};
 use crate::modrinth::links::check_api_segment;
 use crate::mods::client::{build_client_pack, ClientPackDownload};
 use crate::mods::install::{self, ModInstallRequest, ModInstallResult};
@@ -73,8 +73,8 @@ async fn note_change(
 /// Starts the content operation of a Mods tab change. Call it with the mods lock held and
 /// after every permission check passed: dropping it without [`note_change`] records
 /// nothing.
-async fn begin_change(state: &AppState, uuid: &InstanceUuid, kind: OpKind) -> Operation {
-    state.images.begin(uuid, kind, String::new()).await
+async fn begin_change(state: &AppState, uuid: &InstanceUuid) -> Operation {
+    state.images.begin(uuid, String::new()).await
 }
 
 /// Notes what Modrinth said about the mods in `mods` (by SHA-512) for the `env` and source
@@ -199,7 +199,7 @@ async fn install_mod(
 
     let lock = state.mods.lock_for(&uuid);
     let _guard = lock.lock().await;
-    let op = begin_change(&state, &uuid, OpKind::Mods).await;
+    let op = begin_change(&state, &uuid).await;
     let (start, event_id) = Event::new_progression_event_start(
         format!("Installing {}", project.title),
         None,
@@ -334,7 +334,7 @@ async fn upload_mods(
 
     let lock = state.mods.lock_for(&uuid);
     let _guard = lock.lock().await;
-    let op = begin_change(&state, &uuid, OpKind::Mods).await;
+    let op = begin_change(&state, &uuid).await;
     let files = save_uploads(&folder, uploads, query.overwrite.unwrap_or(false)).await?;
     let label = match files.as_slice() {
         [file] => format!("Uploaded {}", label_name(&file.file_name)),
@@ -359,7 +359,7 @@ async fn set_enabled(
     let (instance, folder) = mod_folder(&state, &uuid).await?;
     let lock = state.mods.lock_for(&uuid);
     let _guard = lock.lock().await;
-    let op = begin_change(&state, &uuid, OpKind::Mods).await;
+    let op = begin_change(&state, &uuid).await;
     // the copy that is checked is the one enabled, so the file can't be swapped meanwhile
     let (file, changed) = if enabled {
         crate::mods::enable_checked(&folder, &file_name, |name, sha512| {
@@ -412,7 +412,7 @@ async fn delete_mod(
     let (instance, folder) = mod_folder(&state, &uuid).await?;
     let lock = state.mods.lock_for(&uuid);
     let _guard = lock.lock().await;
-    let op = begin_change(&state, &uuid, OpKind::Mods).await;
+    let op = begin_change(&state, &uuid).await;
     crate::mods::delete(&folder, &file_name).await?;
     if let Err(e) = crate::mods::client::forget_mark(&folder, &file_name).await {
         tracing::warn!(
@@ -448,7 +448,7 @@ async fn set_client_mark(
     let (_, folder) = mod_folder(&state, &uuid).await?;
     let lock = state.mods.lock_for(&uuid);
     let _guard = lock.lock().await;
-    let op = begin_change(&state, &uuid, OpKind::ClientMark).await;
+    let op = begin_change(&state, &uuid).await;
     crate::mods::client::set_marked(&folder, &file_name, body.required).await?;
     // The mark is no file of the image but the jar's client `env`; the server needs no
     // restart for it.

@@ -63,21 +63,20 @@ pub(super) const JOURNAL_FILE: &str = ".lodestone_modpack/update.json";
 /// The folders a dropped override is removed from.
 const CONTENT_DIRS: [&str; 2] = ["mods/", "plugins/"];
 
-/// One file of a pack, as the record keeps it.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// One file a pack wrote, as an update compares it.
+#[derive(Debug, Clone, PartialEq)]
 pub struct RecordedFile {
     pub sha1: String,
     /// From the pack's overrides rather than its downloads.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub from_overrides: bool,
     /// The Modrinth project of a downloaded file, from its CDN URL.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub project_id: Option<String>,
 }
 
 /// The files a pack wrote, by path with `/` separators: what an update compares the server
-/// against. Kept in `pack.json` with the server's images ([`super::pack_info`]).
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+/// against. Worked out from `pack.json` ([`super::pack_info::record_of_base`]) or from the
+/// pack itself; never stored.
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct PackRecord {
     pub files: BTreeMap<String, RecordedFile>,
 }
@@ -125,17 +124,12 @@ pub fn sources_of(files: &BTreeMap<String, PackFile>) -> BTreeMap<String, FileSo
         .collect()
 }
 
-/// The Modrinth project of a `https://cdn.modrinth.com/data/<project>/versions/...` URL.
+/// The Modrinth project of a download from `https://cdn.modrinth.com/data/<project>/versions/...`.
 fn project_of(download: &PackDownload) -> Option<String> {
-    download.urls.iter().find_map(|url| {
-        if url.host_str() != Some(crate::modrinth::CDN_HOST) {
-            return None;
-        }
-        let mut segments = url.path_segments()?;
-        (segments.next()? == "data").then_some(())?;
-        let project = segments.next()?;
-        (segments.next()? == "versions").then(|| project.to_string())
-    })
+    download
+        .urls
+        .iter()
+        .find_map(|url| super::pack_info::project_of_url(url.as_str()))
 }
 
 /// Every file `pack` writes into a server, by path with `/` separators. Reads the pack's

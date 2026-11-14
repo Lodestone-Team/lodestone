@@ -38,7 +38,8 @@ use crate::images::layout::{game_of, server_layout, server_settings};
 use crate::implementations::minecraft::Flavour;
 use crate::types::InstanceUuid;
 
-use super::store::{cancelled, err, require_free_space, Cancel};
+use super::store::{cancelled, err, Cancel};
+use crate::util::disk::require_free_space;
 
 /// A live backup with more than this to read reads it first with saving on
 /// ([`Prepared::prefetch`]), so saving stays off only while reading what changed since.

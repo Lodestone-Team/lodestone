@@ -10,7 +10,6 @@ use super::util::{get_instance, require_code_execution};
 use crate::{
     auth::user::UserAction,
     error::{Error, ErrorKind},
-    images::OpKind,
     implementations::minecraft::server_properties,
     traits::t_configurable::{
         manifest::{ConfigurableManifest, ConfigurableValue},
@@ -80,7 +79,7 @@ pub async fn set_instance_setting(
         Some(
             state
                 .images
-                .begin(&uuid, OpKind::Settings, format!("Changed {setting_id}"))
+                .begin(&uuid, format!("Changed {setting_id}"))
                 .await,
         )
     } else {
@@ -165,7 +164,6 @@ pub async fn change_version(
             .images
             .record_now(
                 ctx,
-                OpKind::VersionChange,
                 format!("Changed Minecraft version to {new_version}"),
             )
             .await

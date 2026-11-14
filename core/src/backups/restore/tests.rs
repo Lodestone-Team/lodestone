@@ -479,6 +479,98 @@ fn the_world_and_its_mods_are_restored_together() {
     assert!(error.source.to_string().contains("mods can't be restored"));
 }
 
+/// "World and its mods" takes the content files from the backup itself, not from the
+/// content image it links to: what a running server rewrote (a config, the admin lists)
+/// never made a content image, so that image can be older than the files that ran with the
+/// world. The server's settings and admin lists stay as they are: an op removed since the
+/// backup must stay removed.
+#[test]
+fn the_world_and_its_mods_come_from_the_backup_and_leave_the_admin_lists() {
+    let env = env();
+    let root = &env.root;
+    base_server(root);
+    write(root, "config/a.toml", b"a = 1");
+    write(root, "ops.json", br#"[{"name":"griefer"}]"#);
+    let content = env.content_image(Flavour::Vanilla);
+    // the server ran: it rewrote its config and was deopped; no content image saw it
+    write(root, "config/a.toml", b"a = 2");
+    write(root, "ops.json", b"[]");
+    let (image, level) = env.backup(Flavour::Vanilla, &[]);
+    write(root, "config/a.toml", b"a = 3");
+    write(root, "ops.json", br#"[{"name":"admin"}]"#);
+    write(root, "whitelist.json", b"[\"friend\"]");
+    write(root, "server.properties", b"motd=changed\n");
+    write(root, "mods/b.jar", b"mod b");
+    let source = Source {
+        image: &image,
+        level: level.as_deref(),
+        content: Some(&content),
+    };
+    let ctx = env.ctx(Flavour::Vanilla, &[]);
+    let plan_ = env.plan(&source, RestoreScope::WorldAndMods, &ctx);
+    for left in ["ops.json", "whitelist.json", "server.properties"] {
+        assert!(!plan_.replaces(left), "{left}");
+        assert!(!plan_.files.iter().any(|f| f.disk == left), "{left}");
+    }
+    env.restore(&source, RestoreScope::WorldAndMods, &ctx, &Pin::default());
+    assert_eq!(read(root, "config/a.toml").unwrap(), "a = 2");
+    assert_eq!(read(root, "ops.json").unwrap(), r#"[{"name":"admin"}]"#);
+    assert_eq!(read(root, "whitelist.json").unwrap(), "[\"friend\"]");
+    assert_eq!(read(root, "server.properties").unwrap(), "motd=changed\n");
+    assert_eq!(read(root, "mods/b.jar"), None);
+}
+
+/// What a backup left out on purpose (its `excludes`) stays as it is in a restore, even
+/// when the policy no longer leaves it out: the backup has no copy of it to put back.
+#[test]
+fn a_restore_leaves_what_the_backup_excluded() {
+    let env = env();
+    let root = &env.root;
+    base_server(root);
+    write(root, "dynmap/tiles/0.png", b"tile");
+    let (image, level) = env.backup(Flavour::Vanilla, &["dynmap/"]);
+    assert!(!image.excludes.is_empty());
+    write(root, "dynmap/tiles/1.png", b"tile 2");
+    // the policy dropped the pattern since
+    let ctx = env.ctx(Flavour::Vanilla, &[]);
+    let source = everything(&image, level.as_deref());
+    let plan_ = env.plan(&source, RestoreScope::Everything, &ctx);
+    assert!(!plan_.replaces("dynmap/tiles/0.png"));
+    env.restore(&source, RestoreScope::Everything, &ctx, &Pin::default());
+    assert_eq!(read(root, "dynmap/tiles/0.png").unwrap(), "tile");
+    assert_eq!(read(root, "dynmap/tiles/1.png").unwrap(), "tile 2");
+}
+
+/// A "world and its mods" restore takes the server software's settings from the backup's
+/// copy of the settings file, since it puts back the backup's server software, and leaves
+/// the rest of the settings.
+#[test]
+fn adopting_the_backups_software_settings() {
+    let env = env();
+    let root = &env.root;
+    write(
+        root,
+        CONFIG_FILE,
+        br#"{"name":"Now","port":25570,"version":"1.21","flavour":{"forge":{"build_version":"47.3.0"}},"jre_major_version":21,"modpack":{"x":1},"max_ram":8}"#,
+    );
+    let backup: serde_json::Value = serde_json::from_slice(
+        br#"{"name":"Then","port":25565,"version":"1.20.1","flavour":{"forge":{"build_version":"47.2.0"}},"jre_major_version":17,"max_ram":4}"#,
+    )
+    .unwrap();
+    adopt_software(root, &backup).unwrap();
+    let after: serde_json::Value =
+        serde_json::from_slice(&fs::read(root.join(CONFIG_FILE)).unwrap()).unwrap();
+    assert_eq!(after["version"], "1.20.1");
+    assert_eq!(after["flavour"]["forge"]["build_version"], "47.2.0");
+    assert_eq!(after["jre_major_version"], 17);
+    // the backup had no modpack: neither does the server now
+    assert!(after.get("modpack").is_none());
+    // the rest is the server's
+    assert_eq!(after["name"], "Now");
+    assert_eq!(after["port"], 25570);
+    assert_eq!(after["max_ram"], 8);
+}
+
 #[test]
 fn diff_lists_changes_by_disk_path() {
     let env = env();

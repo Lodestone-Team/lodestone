@@ -87,16 +87,6 @@ pub fn save_base(store_root: &Path, uuid: &InstanceUuid, info: &BaseInfo) -> Res
     super::write_small_atomic(&path, &bytes)
 }
 
-/// Forgets the instance's pack (a pack removed from it). Blocking.
-pub fn remove_base(store_root: &Path, uuid: &InstanceUuid) -> Result<(), Error> {
-    match std::fs::remove_file(path(store_root, uuid)) {
-        Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(Error::from(
-            color_eyre::eyre::eyre!("Failed to forget the pack's files: {e}"),
-        )),
-        _ => Ok(()),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -126,9 +116,6 @@ mod tests {
         save_base(dir.path(), &uuid, &info).unwrap();
         assert_eq!(load_base(dir.path(), &uuid), Some(info));
         std::fs::write(path(dir.path(), &uuid), b"[").unwrap();
-        assert_eq!(load_base(dir.path(), &uuid), None);
-        remove_base(dir.path(), &uuid).unwrap();
-        remove_base(dir.path(), &uuid).unwrap();
         assert_eq!(load_base(dir.path(), &uuid), None);
     }
 }

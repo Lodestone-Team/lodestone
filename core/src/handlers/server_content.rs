@@ -449,7 +449,6 @@ async fn set_resource_pack(
         .images
         .begin(
             &uuid,
-            crate::images::OpKind::Settings,
             "Changed the resource pack",
         )
         .await;

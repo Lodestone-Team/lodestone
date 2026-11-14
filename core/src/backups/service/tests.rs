@@ -233,11 +233,11 @@ async fn an_image_goes_with_the_last_backup_that_names_it() {
     assert!(!images.has_object(&level_1.sha256, level_1.size));
 }
 
-/// A crash between saving a backup's image and its record leaves an image no record
-/// names; the next retention (or delete) deletes it, and never a content image or one a
-/// record names.
+/// A data image no record names (a crash between its manifest and its record, or a
+/// `backups.json` that went missing) is listed as a backup again, never deleted: it holds a
+/// whole copy of the server. Content images and unreadable manifests are left as they are.
 #[tokio::test]
-async fn an_image_a_crash_left_without_a_record_is_deleted() {
+async fn an_image_without_a_record_is_listed_as_a_backup() {
     let dir = tempfile::tempdir().unwrap();
     let service = service(dir.path());
     let root = dir.path().join("server");
@@ -270,9 +270,31 @@ async fn an_image_a_crash_left_without_a_record_is_deleted() {
     service.apply_retention(&uuid(), None).await;
     let has = |id: &str| images.manifest_path(uuid().as_ref(), id).unwrap().is_file();
     assert!(has(&named.id));
-    assert!(!has(&orphan.id));
+    assert!(has(&orphan.id));
     assert!(has(&content.id));
     assert!(has(&unreadable));
+    let records = service.store.load_records(&uuid()).unwrap();
+    assert_eq!(records.backups.len(), 2);
+    let adopted = records
+        .backups
+        .iter()
+        .find(|b| b.image == orphan.id)
+        .unwrap();
+    assert_eq!(adopted.kind, BackupKind::Manual);
+    assert_eq!(adopted.created, orphan.created);
+    assert_eq!(adopted.file_count, orphan.entries.len() as u64);
+    assert!(valid_backup_id(&adopted.id));
+
+    // With the list gone altogether, every backup comes back on the next retention.
+    std::fs::remove_file(service.store.records_path(&uuid()).unwrap()).unwrap();
+    service.apply_retention(&uuid(), None).await;
+    let records = service.store.load_records(&uuid()).unwrap();
+    let mut listed: Vec<&str> = records.backups.iter().map(|b| b.image.as_str()).collect();
+    listed.sort();
+    let mut expected = vec![named.id.as_str(), orphan.id.as_str()];
+    expected.sort();
+    assert_eq!(listed, expected);
+    assert!(has(&named.id) && has(&orphan.id));
 }
 
 /// A backup list that can't be read is an error, and then nothing is deleted: the images

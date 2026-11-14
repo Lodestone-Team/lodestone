@@ -20,7 +20,7 @@ use crate::backups::types::BackupList;
 use crate::events::CausedBy;
 use crate::handlers::instance::content_images_tests::{self as content, paths, write};
 use crate::handlers::modpack_update::UpdateSource;
-use crate::images::{AppInstances, OpKind, KEEP_CONTENT};
+use crate::images::{AppInstances, KEEP_CONTENT};
 use crate::modpack::lineage::tests as lineage;
 use crate::types::InstanceUuid;
 use crate::AppState;
@@ -490,7 +490,7 @@ async fn retention_and_collections_keep_what_backups_link_to() {
         let (images, core) = (images.clone(), &core);
         async move {
             let op = images
-                .begin(&core.uuid, OpKind::Mods, format!("Change {n}"))
+                .begin(&core.uuid, format!("Change {n}"))
                 .await;
             write(&core.root, "config/counter.toml", counter(n).as_bytes());
             let ctx = crate::images::context_of(&core.state, &core.uuid)

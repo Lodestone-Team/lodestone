@@ -167,7 +167,7 @@ async fn a_record_takes_only_content_and_saves_the_pointer_last() {
     let ctx = context(&s.root, fabric());
     let recorded = s
         .images
-        .record_now(ctx.clone(), OpKind::Mods, "Added A".into())
+        .record_now(ctx.clone(), "Added A".into())
         .await
         .unwrap()
         .unwrap();
@@ -183,7 +183,6 @@ async fn a_record_takes_only_content_and_saves_the_pointer_last() {
         paths(image),
         vec![
             "config/a.toml",
-            "eula.txt",
             "mods/a.jar",
             "server.properties"
         ]
@@ -207,7 +206,6 @@ async fn a_record_takes_only_content_and_saves_the_pointer_last() {
         state.baseline.keys().collect::<Vec<_>>(),
         vec![
             "config/a.toml",
-            "eula.txt",
             "mods/a.jar",
             "server.properties"
         ]
@@ -224,7 +222,7 @@ async fn a_record_takes_only_content_and_saves_the_pointer_last() {
     // Recording again with nothing changed writes no image.
     let again = s
         .images
-        .record_now(ctx.clone(), OpKind::Mods, "Nothing".into())
+        .record_now(ctx.clone(), "Nothing".into())
         .await
         .unwrap()
         .unwrap();
@@ -236,7 +234,7 @@ async fn a_record_takes_only_content_and_saves_the_pointer_last() {
     write(&s.root, "mods/b.jar", b"mod b");
     let next = s
         .images
-        .record_now(ctx, OpKind::Mods, "Added B".into())
+        .record_now(ctx, "Added B".into())
         .await
         .unwrap()
         .unwrap();
@@ -250,7 +248,7 @@ async fn a_failed_operation_records_nothing() {
     let s = setup();
     fabric_server(&s.root);
     let ctx = context(&s.root, fabric());
-    let operation = s.images.begin(&uuid(), OpKind::Mods, "Adding B").await;
+    let operation = s.images.begin(&uuid(), "Adding B").await;
     write(&s.root, "mods/b.jar", b"half");
     drop(operation);
     assert_eq!(s.images.flush(ctx).await.unwrap(), None);
@@ -265,11 +263,11 @@ async fn instances_without_images_are_ignored() {
         let mut ctx = context(&s.root, fabric());
         ctx.uuid = InstanceUuid::from(id.to_string());
         assert!(!ImageService::accepts(&ctx.uuid));
-        let op = s.images.begin(&ctx.uuid, OpKind::Mods, "x").await;
+        let op = s.images.begin(&ctx.uuid, "x").await;
         op.succeed();
         assert_eq!(
             s.images
-                .record_now(ctx.clone(), OpKind::Mods, "x".into())
+                .record_now(ctx.clone(), "x".into())
                 .await
                 .unwrap(),
             None
@@ -287,13 +285,13 @@ async fn successes_within_the_window_are_one_image() {
     let ctx = context(&s.root, fabric());
     s.images.set_instances(fixed(&ctx));
     for (n, label) in ["Added B", "Added C", "Removed A"].iter().enumerate() {
-        let operation = s.images.begin(&uuid(), OpKind::Mods, *label).await;
+        let operation = s.images.begin(&uuid(), *label).await;
         write(&s.root, &format!("mods/{n}.jar"), label.as_bytes());
         operation.succeed();
         clock.advance(Duration::from_secs(1));
     }
     // A failed operation in between adds nothing.
-    drop(s.images.begin(&uuid(), OpKind::Mods, "Failed").await);
+    drop(s.images.begin(&uuid(), "Failed").await);
     tokio::time::sleep(Duration::from_millis(50)).await;
     assert!(s.manifests().is_empty(), "nothing before the window closes");
     clock.advance(MERGE_WINDOW);
@@ -321,7 +319,7 @@ async fn a_busy_instance_records_by_the_deferral_cap() {
     for n in 0..15 {
         let operation = s
             .images
-            .begin(&uuid(), OpKind::Files, format!("Edit {n}"))
+            .begin(&uuid(), format!("Edit {n}"))
             .await;
         write(&s.root, "config/a.toml", format!("a = {n}").as_bytes());
         operation.succeed();
@@ -346,19 +344,19 @@ async fn an_operation_that_starts_during_a_record_waits() {
     // A record holds the gate alone.
     let record = slot.gate.clone().write_owned().await;
     let images = s.images.clone();
-    let begun = tokio::spawn(async move { images.begin(&uuid(), OpKind::Mods, "x").await });
+    let begun = tokio::spawn(async move { images.begin(&uuid(), "x").await });
     tokio::time::sleep(Duration::from_millis(50)).await;
     assert!(!begun.is_finished());
     drop(record);
     drop(begun.await.unwrap());
 
     // And a record waits for an operation in progress, then takes its label.
-    let operation = s.images.begin(&uuid(), OpKind::Mods, "Added A").await;
+    let operation = s.images.begin(&uuid(), "Added A").await;
     let images = s.images.clone();
     let ctx = context(&s.root, fabric());
     let recording = tokio::spawn(async move {
         images
-            .record_now(ctx, OpKind::Restore, "Restored".into())
+            .record_now(ctx, "Restored".into())
             .await
     });
     tokio::time::sleep(Duration::from_millis(50)).await;
@@ -376,7 +374,7 @@ async fn succeed_and_record_returns_the_image() {
     let ctx = context(&s.root, fabric());
     let operation = s
         .images
-        .begin(&uuid(), OpKind::Modpack, "Updated the pack")
+        .begin(&uuid(), "Updated the pack")
         .await;
     write(&s.root, "mods/pack.jar", b"pack mod");
     let recorded = operation.succeed_and_record(ctx).await.unwrap().unwrap();
@@ -406,7 +404,7 @@ async fn a_paper_content_image_skips_its_worlds() {
     write(root, "creative/level.dat", b"creative");
     let ctx = context(root, paper());
     s.images
-        .record_now(ctx, OpKind::Initial, INITIAL.into())
+        .record_now(ctx, INITIAL.into())
         .await
         .unwrap()
         .unwrap();
@@ -450,7 +448,7 @@ async fn the_quick_check_sees_changes_and_absorbs_what_a_server_writes() {
     assert_eq!(s.images.before_start(ctx.clone()).await.unwrap(), None);
     assert!(s.manifests().is_empty());
     s.images
-        .record_now(ctx.clone(), OpKind::Initial, INITIAL.into())
+        .record_now(ctx.clone(), INITIAL.into())
         .await
         .unwrap();
     let store = s.images.store();
@@ -542,14 +540,14 @@ async fn the_pointer_survives_a_crash_and_damage() {
     let ctx = context(&s.root, fabric());
     let first = s
         .images
-        .record_now(ctx.clone(), OpKind::Mods, "one".into())
+        .record_now(ctx.clone(), "one".into())
         .await
         .unwrap()
         .unwrap();
     write(&s.root, "mods/b.jar", b"b");
     let second = s
         .images
-        .record_now(ctx.clone(), OpKind::Mods, "two".into())
+        .record_now(ctx.clone(), "two".into())
         .await
         .unwrap()
         .unwrap();
@@ -559,7 +557,7 @@ async fn the_pointer_survives_a_crash_and_damage() {
     state::save(s.images.root(), &uuid(), &stale).unwrap();
     let again = s
         .images
-        .record_now(ctx.clone(), OpKind::Mods, "three".into())
+        .record_now(ctx.clone(), "three".into())
         .await
         .unwrap()
         .unwrap();
@@ -573,7 +571,7 @@ async fn the_pointer_survives_a_crash_and_damage() {
     std::fs::write(state::path(s.images.root(), &uuid()), b"{garbage").unwrap();
     let after = s
         .images
-        .record_now(ctx.clone(), OpKind::Mods, "four".into())
+        .record_now(ctx.clone(), "four".into())
         .await
         .unwrap()
         .unwrap();
@@ -585,24 +583,12 @@ async fn the_pointer_survives_a_crash_and_damage() {
     std::fs::remove_file(path).unwrap();
     let saved = s
         .images
-        .record_now(ctx, OpKind::Mods, "five".into())
+        .record_now(ctx, "five".into())
         .await
         .unwrap()
         .unwrap();
     assert!(saved.changed);
     assert!(s.manifests().iter().any(|image| image.id == second.id));
-}
-
-/// Names a fixed set of images, or fails.
-struct Refs(Result<HashSet<String>, ()>);
-
-#[async_trait]
-impl ImageRefs for Refs {
-    async fn refs(&self, _uuid: &InstanceUuid) -> Result<HashSet<String>, Error> {
-        self.0
-            .clone()
-            .map_err(|()| Error::from(color_eyre::eyre::eyre!("the source failed")))
-    }
 }
 
 fn content_image(n: i64) -> Image {
@@ -658,9 +644,9 @@ async fn prune_keeps_backups_and_what_is_named_linked_current_and_newest() {
         },
     )
     .unwrap();
-    s.images
-        .register_refs(Arc::new(Refs(Ok(HashSet::from([images[1].id.clone()])))));
+    let restoring = s.images.keep_while_restoring(&uuid(), &images[1].id);
     assert_eq!(s.images.prune(&uuid()).await.unwrap(), 1);
+    drop(restoring);
     let kept: HashSet<String> = s.manifests().into_iter().map(|i| i.id).collect();
     for n in [0, 1, 2, 3] {
         assert!(kept.contains(&images[n].id), "image {n}");
@@ -672,12 +658,20 @@ async fn prune_keeps_backups_and_what_is_named_linked_current_and_newest() {
     assert!(kept.contains(&other.id));
     assert!(!kept.contains(&images[4].id));
 
-    // When a source fails, nothing is deleted.
+    // While a manifest can't be read (it may be a backup linking to anything), nothing is
+    // deleted.
     let extra = content_image(-1);
     store.save_manifest(UUID, &extra).unwrap();
-    s.images.register_refs(Arc::new(Refs(Err(()))));
+    let damaged = store.manifest_path(UUID, &"ab".repeat(32)).unwrap();
+    std::fs::write(&damaged, b"{").unwrap();
     assert_eq!(s.images.prune(&uuid()).await.unwrap(), 0);
     assert!(s.manifests().iter().any(|i| i.id == extra.id));
+    std::fs::remove_file(&damaged).unwrap();
+    // the image the restore went back to is no longer kept either
+    assert_eq!(s.images.prune(&uuid()).await.unwrap(), 2);
+    let kept: HashSet<String> = s.manifests().into_iter().map(|i| i.id).collect();
+    assert!(!kept.contains(&extra.id));
+    assert!(!kept.contains(&images[1].id));
 }
 
 /// Images recorded in the same second are ordered by lineage, and the current image comes
@@ -696,7 +690,18 @@ fn newest_content_first_orders_one_second_by_lineage_and_current() {
     let mut older = content_image(4);
     older.created = 9;
     let ids = |images: &[Image], current: Option<&str>| -> Vec<String> {
-        retention::newest_content_first(images, current)
+        let headers: Vec<lodestone_image::store::ManifestHeader> = images
+            .iter()
+            .map(|i| lodestone_image::store::ManifestHeader {
+                id: i.id.clone(),
+                kind: i.kind,
+                parent: i.parent.clone(),
+                created: i.created,
+                label: i.label.clone(),
+                content: i.content.clone(),
+            })
+            .collect();
+        retention::newest_content_first(&headers, current)
             .into_iter()
             .map(|i| i.id.clone())
             .collect()
@@ -833,7 +838,7 @@ async fn a_collection_during_records_loses_nothing() {
     fabric_server(&s.root);
     let ctx = context(&s.root, fabric());
     s.images
-        .record_now(ctx.clone(), OpKind::Initial, INITIAL.into())
+        .record_now(ctx.clone(), INITIAL.into())
         .await
         .unwrap();
     let store = s.images.store();
@@ -853,7 +858,7 @@ async fn a_collection_during_records_loses_nothing() {
         let collecting = tokio::task::spawn_blocking(move || images.collect_blocking());
         let recorded = s
             .images
-            .record_now(ctx.clone(), OpKind::Mods, format!("round {round}"))
+            .record_now(ctx.clone(), format!("round {round}"))
             .await
             .unwrap()
             .unwrap();
@@ -875,7 +880,7 @@ async fn deleting_an_instance_forgets_its_images() {
     fabric_server(&s.root);
     let ctx = context(&s.root, fabric());
     s.images
-        .record_now(ctx, OpKind::Initial, INITIAL.into())
+        .record_now(ctx, INITIAL.into())
         .await
         .unwrap();
     let dir = s.images.store().instance_dir(UUID).unwrap();
@@ -944,7 +949,6 @@ async fn pack_files_get_their_sources_and_env() {
     s.images
         .record_now(
             context(&s.root, fabric()),
-            OpKind::Modpack,
             "Installed".into(),
         )
         .await
@@ -986,7 +990,7 @@ async fn modrinth_hints_give_sources_and_env_and_outlive_restarts() {
     let ctx = context(&s.root, fabric());
     let first = s
         .images
-        .record_now(ctx.clone(), OpKind::Mods, "Installed A".into())
+        .record_now(ctx.clone(), "Installed A".into())
         .await
         .unwrap()
         .unwrap();
@@ -1001,7 +1005,7 @@ async fn modrinth_hints_give_sources_and_env_and_outlive_restarts() {
     // A new core (no hints in memory) gives the same image from the saved state.
     let restarted = ImageService::new(s.images.root().to_path_buf());
     let again = Arc::new(restarted)
-        .record_now(ctx, OpKind::Mods, "Nothing".into())
+        .record_now(ctx, "Nothing".into())
         .await
         .unwrap()
         .unwrap();

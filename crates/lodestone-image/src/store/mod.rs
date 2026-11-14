@@ -64,6 +64,7 @@ use std::sync::Mutex;
 use std::time::{Duration, SystemTime};
 
 use crate::sha256::Sha256;
+use serde::Deserialize;
 
 use crate::hex::{is_sha256, sha256_hex};
 use crate::identity::IdentityError;
@@ -255,6 +256,24 @@ pub struct ManifestListing {
     pub images: Vec<Image>,
     /// Manifests that can't be read, by id, with why.
     pub unreadable: Vec<(String, String)>,
+}
+
+/// What listing an instance's images needs of a manifest, read without its entries
+/// ([`Store::load_header`]): a backup's data image lists every file of the server, and
+/// retention and the history only need these.
+///
+/// It isn't checked against its id (that needs every entry), so it is for choosing what to
+/// keep and what to list, never for what a restore places: load the manifest for that.
+/// `kind` and `content` are part of the id, so they never change for an id; `parent`,
+/// `created` and `label` are informational and change when an image is saved again.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ManifestHeader {
+    pub id: String,
+    pub kind: crate::manifest::Kind,
+    pub parent: Option<String>,
+    pub created: i64,
+    pub label: Option<String>,
+    pub content: Option<String>,
 }
 
 /// A store at a folder, with one encoding. Cheap to make; nothing is read or created until
@@ -1090,23 +1109,75 @@ impl Store {
         Ok(image)
     }
 
-    /// Every manifest of an instance that can be read, and those that can't.
-    pub fn list_manifests(&self, instance: &str) -> Result<ManifestListing, StoreError> {
+    /// Reads what listing needs of one manifest ([`ManifestHeader`]), skipping its entries
+    /// without building them. Refuses a schema other than this one's and a manifest whose
+    /// `id` isn't the one in its name; nothing else is checked.
+    pub fn load_header(&self, instance: &str, id: &str) -> Result<ManifestHeader, StoreError> {
+        // Every field named, without `#[serde(flatten)]`, so serde skips the rest (the
+        // entries) as it reads them instead of keeping them.
+        #[derive(Deserialize)]
+        struct Probe {
+            schema: u64,
+            id: String,
+            kind: crate::manifest::Kind,
+            #[serde(default)]
+            parent: Option<String>,
+            #[serde(default)]
+            created: i64,
+            #[serde(default)]
+            label: Option<String>,
+            #[serde(default)]
+            content: Option<String>,
+        }
+        let path = self.manifest_path(instance, id)?;
+        let bytes = read_capped(&path, MAX_MANIFEST_BYTES)?;
+        let probe: Probe = serde_json::from_slice(&bytes)
+            .map_err(|e| StoreError::Manifest(ManifestError::Json(e.to_string())))?;
+        if probe.schema != u64::from(crate::manifest::SCHEMA) {
+            return Err(StoreError::Manifest(ManifestError::Invalid(format!(
+                "schema {} isn't {}",
+                probe.schema,
+                crate::manifest::SCHEMA
+            ))));
+        }
+        if probe.id != id {
+            return Err(StoreError::Identity(IdentityError::Mismatch {
+                claimed: id.to_string(),
+                actual: probe.id,
+            }));
+        }
+        Ok(ManifestHeader {
+            id: probe.id,
+            kind: probe.kind,
+            parent: probe.parent,
+            created: probe.created,
+            label: probe.label,
+            content: probe.content,
+        })
+    }
+
+    /// The ids of an instance's manifests (the files named `<id>.json` in its folder), in
+    /// no order. Nothing is read.
+    pub fn manifest_ids(&self, instance: &str) -> Result<Vec<String>, StoreError> {
         let dir = self.instance_dir(instance)?;
-        let mut listing = ManifestListing::default();
         let entries = match fs::read_dir(&dir) {
             Ok(entries) => entries,
-            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(listing),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
             Err(e) => return Err(io_err("Failed to list the images")(e)),
         };
-        for entry in entries.flatten() {
-            let name = entry.file_name();
-            let Some(id) = name.to_str().and_then(manifest_id) else {
-                continue;
-            };
-            match self.load_manifest(instance, id) {
+        Ok(entries
+            .flatten()
+            .filter_map(|entry| entry.file_name().to_str().and_then(manifest_id).map(str::to_string))
+            .collect())
+    }
+
+    /// Every manifest of an instance that can be read, and those that can't.
+    pub fn list_manifests(&self, instance: &str) -> Result<ManifestListing, StoreError> {
+        let mut listing = ManifestListing::default();
+        for id in self.manifest_ids(instance)? {
+            match self.load_manifest(instance, &id) {
                 Ok(image) => listing.images.push(image),
-                Err(e) => listing.unreadable.push((id.to_string(), e.to_string())),
+                Err(e) => listing.unreadable.push((id, e.to_string())),
             }
         }
         listing

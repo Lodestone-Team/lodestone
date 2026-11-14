@@ -114,10 +114,49 @@ pub struct JarFacts {
     pub jar: Option<JarEnvironment>,
 }
 
+/// What a scan of a jar found that doesn't change while its bytes don't: its SHA-512 and
+/// what its own metadata says about its sides. Kept by the jar's SHA-256 ([`JarScans`]).
+#[derive(Debug, Clone, Default, PartialEq)]
+struct Scanned {
+    sha512: Option<String>,
+    jar: Option<JarEnvironment>,
+}
+
+/// Jars scanned before, by SHA-256, so a record reads only new or changed jars (a pack of
+/// hundreds of mods is otherwise read whole at every Mods-tab action). Bounded: past
+/// [`MAX_SCANS`] it starts again.
+#[derive(Default)]
+pub struct JarScans(StdMutex<HashMap<String, Scanned>>);
+
+/// The most jars [`JarScans`] keeps.
+const MAX_SCANS: usize = 16_384;
+
+impl JarScans {
+    fn get(&self, sha256: &str) -> Option<Scanned> {
+        self.0
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(sha256)
+            .cloned()
+    }
+
+    fn put(&self, sha256: &str, scanned: Scanned) {
+        let mut scans = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        if scans.len() >= MAX_SCANS {
+            scans.clear();
+        }
+        scans.insert(sha256.to_string(), scanned);
+    }
+}
+
 /// The jars of the server's mods or plugins folder among `paths` (canonical paths, which
 /// are their disk paths on a server): their SHA-512, owner mark and jar environment, by
 /// path. Hashes come from the mods folder's scan cache, so unchanged jars aren't read.
-pub async fn jar_facts(ctx: &InstanceContext, paths: &[String]) -> HashMap<String, JarFacts> {
+pub async fn jar_facts(
+    ctx: &InstanceContext,
+    files: &[(String, String)],
+    scans: &JarScans,
+) -> HashMap<String, JarFacts> {
     let mut facts = HashMap::new();
     let Some(loader) = mod_loader(&ctx.flavour) else {
         return facts;
@@ -131,7 +170,7 @@ pub async fn jar_facts(ctx: &InstanceContext, paths: &[String]) -> HashMap<Strin
     } else {
         ClientMarks::default()
     };
-    for path in paths {
+    for (path, sha256) in files {
         let Some(name) = path
             .strip_prefix(folder)
             .and_then(|rest| rest.strip_prefix('/'))
@@ -142,8 +181,25 @@ pub async fn jar_facts(ctx: &InstanceContext, paths: &[String]) -> HashMap<Strin
         if !crate::mods::is_mod_file_name(name) {
             continue;
         }
-        let on_disk = ctx.root.join(folder).join(name);
-        let scanned = crate::mods::scan::scan_file(&on_disk, loader).await.ok();
+        let scanned = match scans.get(sha256) {
+            Some(scanned) => scanned,
+            None => {
+                let on_disk = ctx.root.join(folder).join(name);
+                let scan = crate::mods::scan::scan_file(&on_disk, loader).await.ok();
+                let scanned = Scanned {
+                    sha512: scan.as_ref().map(|s| s.sha512.clone()),
+                    jar: scan.and_then(|s| s.environment).map(|env| match env {
+                        crate::mods::metadata::JarEnvironment::Client => JarEnvironment::Client,
+                        crate::mods::metadata::JarEnvironment::Server => JarEnvironment::Server,
+                    }),
+                };
+                // only a scan that worked: a jar being written could read as damaged
+                if scanned.sha512.is_some() {
+                    scans.put(sha256, scanned.clone());
+                }
+                scanned
+            }
+        };
         let marked = marks.of(name);
         let mark = if marked.required {
             Some(OwnerMark::ForPlayers)
@@ -155,12 +211,9 @@ pub async fn jar_facts(ctx: &InstanceContext, paths: &[String]) -> HashMap<Strin
         facts.insert(
             path.clone(),
             JarFacts {
-                sha512: scanned.as_ref().map(|s| s.sha512.clone()),
+                sha512: scanned.sha512,
                 mark,
-                jar: scanned.and_then(|s| s.environment).map(|env| match env {
-                    crate::mods::metadata::JarEnvironment::Client => JarEnvironment::Client,
-                    crate::mods::metadata::JarEnvironment::Server => JarEnvironment::Server,
-                }),
+                jar: scanned.jar,
             },
         );
     }

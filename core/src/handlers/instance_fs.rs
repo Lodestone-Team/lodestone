@@ -19,7 +19,7 @@ use crate::{
     auth::user::{User, UserAction},
     error::{Error, ErrorKind},
     events::{new_fs_event, Event, FSOperation, FSTarget, ProgressionEndValue, ProgressionEventID},
-    images::{ImageService, OpKind, Operation},
+    images::{ImageService, Operation},
     prelude::path_to_tmp,
     traits::t_configurable::TConfigurable,
     types::InstanceUuid,
@@ -330,14 +330,6 @@ async fn delete_entry(
     Ok((path, folder))
 }
 
-/// Where moving `source` to `dest` (both entries from [`instance_join_entry`]) puts it:
-/// `None` when they are the same path, so there is nothing to do, `dest` when it is free or
-/// is only `source` spelled with other letter case, and otherwise a free name next to it
-/// (`name_1.ext`). Fails when `dest` is inside the folder `source`.
-///
-/// On macOS's and Windows's file systems, which ignore case, a new name that only changes
-/// letter case (`Server.properties` to `server.properties`) "exists" as the source itself,
-/// and picking a free name made it `server_1.properties`.
 /// The content operation of deleting the entry `relative` of the instance folder `root`
 /// (see [`delete_entry`]), begun when the entry is content or can hold it.
 async fn delete_op(
@@ -353,6 +345,14 @@ async fn delete_op(
     content_op(state, uuid, root, &[(&entry, folder)], label).await
 }
 
+/// Where moving `source` to `dest` (both entries from [`instance_join_entry`]) puts it:
+/// `None` when they are the same path, so there is nothing to do, `dest` when it is free or
+/// is only `source` spelled with other letter case, and otherwise a free name next to it
+/// (`name_1.ext`). Fails when `dest` is inside the folder `source`.
+///
+/// On macOS's and Windows's file systems, which ignore case, a new name that only changes
+/// letter case (`Server.properties` to `server.properties`) "exists" as the source itself,
+/// and picking a free name made it `server_1.properties`.
 fn move_destination(source: &FsPath, dest: &FsPath) -> Result<Option<PathBuf>, Error> {
     if source == dest {
         return Ok(None);
@@ -523,7 +523,7 @@ impl ContentScope {
     /// `None` when no images are kept for it (a Docker container, an id the store can't
     /// name) or it is gone.
     async fn of(state: &AppState, uuid: &InstanceUuid, root: &FsPath) -> Option<ContentScope> {
-        if uuid.as_ref().starts_with("DOCKER-") || !ImageService::accepts(uuid) {
+        if !ImageService::accepts(uuid) {
             return None;
         }
         let ctx = crate::images::context_of(state, uuid).await?;
@@ -565,14 +565,17 @@ impl ContentScope {
     }
 
     /// Starts a content operation labelled `label` when any of `paths` (each with whether
-    /// it is a folder) is covered. Begin it after every permission check passed and right
-    /// before the change; dropping it without succeeding records nothing.
+    /// it is a folder) is covered: one that holds the content gate, or with `job` a long
+    /// job's, which doesn't ([`ImageService::begin_job`]). Begin it after every permission
+    /// check passed and right before the change; dropping it without succeeding records
+    /// nothing.
     async fn begin(
         &self,
         state: &AppState,
         uuid: &InstanceUuid,
         paths: &[(&FsPath, bool)],
         label: String,
+        job: bool,
     ) -> Option<Operation> {
         if !paths
             .iter()
@@ -580,7 +583,11 @@ impl ContentScope {
         {
             return None;
         }
-        Some(state.images.begin(uuid, OpKind::Files, label).await)
+        Some(if job {
+            state.images.begin_job(uuid, label)
+        } else {
+            state.images.begin(uuid, label).await
+        })
     }
 }
 
@@ -610,8 +617,35 @@ async fn content_op(
 ) -> Option<Operation> {
     ContentScope::of(state, uuid, root)
         .await?
-        .begin(state, uuid, paths, label)
+        .begin(state, uuid, paths, label, false)
         .await
+}
+
+/// [`content_op`] for a job that runs in the background for as long as its data takes (a
+/// copy, an unzip): it holds no content gate while it runs.
+async fn content_job(
+    state: &AppState,
+    uuid: &InstanceUuid,
+    root: &FsPath,
+    paths: &[(&FsPath, bool)],
+    label: String,
+) -> Option<Operation> {
+    ContentScope::of(state, uuid, root)
+        .await?
+        .begin(state, uuid, paths, label, true)
+        .await
+}
+
+/// Refuses a Files API change while a backup is being restored into the instance: the
+/// restore swaps whole folders, and a file written into one meanwhile would be lost with it.
+fn refuse_during_restore(state: &AppState, uuid: &InstanceUuid) -> Result<(), Error> {
+    if state.backups.restoring(uuid) {
+        return Err(Error {
+            kind: ErrorKind::Conflict,
+            source: eyre!("A backup is being restored into this server; try again when it is done"),
+        });
+    }
+    Ok(())
 }
 
 /// How a label names `path`, a path in the instance folder `root`.
@@ -719,6 +753,7 @@ async fn write_instance_file(
         &UserAction::WriteInstanceFile(uuid.clone()),
         state.safe_mode(),
     )?;
+    refuse_during_restore(&state, &uuid)?;
     let can_write_protected = can_write_protected(&requester);
     if uuid.to_string().starts_with("DOCKER-") {
         // Container paths are `<mount name>/<path in the mount>`, so check them by name:
@@ -796,6 +831,7 @@ async fn make_instance_directory(
         &UserAction::WriteInstanceFile(uuid.clone()),
         state.safe_mode(),
     )?;
+    refuse_during_restore(&state, &uuid)?;
     let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
         source: eyre!("Server not found"),
@@ -972,6 +1008,7 @@ async fn copy_instance_files(
         &UserAction::WriteInstanceFile(uuid.clone()),
         state.safe_mode(),
     )?;
+    refuse_during_restore(&state, &uuid)?;
     let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
         source: eyre!("Server not found"),
@@ -1064,7 +1101,7 @@ async fn copy_instance_files(
         .iter()
         .map(|(path, is_dir)| (path.as_path(), *is_dir))
         .collect();
-    let op = content_op(&state, &uuid, &root, &landing, label).await;
+    let op = content_job(&state, &uuid, &root, &landing, label).await;
 
     let event_broadcaster = state.event_broadcaster.clone();
     let caused_by = requester.caused_by();
@@ -1177,6 +1214,7 @@ async fn move_instance_file(
         &UserAction::WriteInstanceFile(uuid.clone()),
         state.safe_mode(),
     )?;
+    refuse_during_restore(&state, &uuid)?;
     let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
         source: eyre!("Server not found"),
@@ -1287,6 +1325,7 @@ async fn remove_instance_file(
         &UserAction::WriteInstanceFile(uuid.clone()),
         state.safe_mode(),
     )?;
+    refuse_during_restore(&state, &uuid)?;
     let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
         source: eyre!("Server not found"),
@@ -1325,6 +1364,7 @@ async fn remove_instance_dir(
         &UserAction::WriteInstanceFile(uuid.clone()),
         state.safe_mode(),
     )?;
+    refuse_during_restore(&state, &uuid)?;
     let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
         source: eyre!("Server not found"),
@@ -1358,6 +1398,7 @@ async fn new_instance_file(
         &UserAction::WriteInstanceFile(uuid.clone()),
         state.safe_mode(),
     )?;
+    refuse_during_restore(&state, &uuid)?;
     let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
         source: eyre!("Server not found"),
@@ -1471,6 +1512,7 @@ async fn upload_instance_file(
         &UserAction::WriteInstanceFile(uuid.clone()),
         state.safe_mode(),
     )?;
+    refuse_during_restore(&state, &uuid)?;
     let can_write_protected = can_write_protected(&requester);
     let caused_by = requester.caused_by();
     let instance = state.instances.get(&uuid).ok_or_else(|| Error {
@@ -1495,31 +1537,28 @@ async fn upload_instance_file(
     // at least 1 byte, so progress below never divides by zero
     let threshold = (total.unwrap_or(500000.0) / 100.0).max(1.0);
 
-    let mut created_files = Vec::new();
-    // begun at the first file that is content, so an upload elsewhere holds up no record
-    let scope = ContentScope::of(&state, &uuid, &root).await;
-    let mut op: Option<Operation> = None;
+    // Each file is written under a temporary name in the folder (a `.lodestone` name, which
+    // no content image or listing takes), and only renamed into place once the whole
+    // upload arrived. The content operation is held just for the renames: an upload that
+    // streams slowly never holds up the server's records, or the changes waiting for them.
+    let mut staged: Vec<(PathBuf, PathBuf)> = Vec::new();
     let result: Result<(), Error> = async {
         while let Some(mut field) = multipart.next_field().await.map_err(multipart_error)? {
             let name = upload_file_name(&field)?;
-            let path = resolve_path_conflict(instance_join(&path_to_dir, &name)?, None);
+            let wanted = instance_join(&path_to_dir, &name)?;
             // if the file has a protected extension, or no extension, deny
-            if !can_write_protected && is_instance_protected(&root, &path, false) {
+            if !can_write_protected && is_instance_protected(&root, &wanted, false) {
                 return Err(protected_error("File extension is protected"));
             }
-            if is_instance_code_path(&root, &path, false) {
+            if is_instance_code_path(&root, &wanted, false) {
                 require_code_write(&state, &requester)?;
             }
-            if op.is_none() {
-                if let Some(scope) = &scope {
-                    op = scope
-                        .begin(&state, &uuid, &[(&path, false)], String::new())
-                        .await;
-                }
-            }
-
-            let mut file = create_upload_file(&path).await?;
-            created_files.push(path.clone());
+            let temp = path_to_dir.join(format!(
+                "{UPLOAD_TEMP_PREFIX}{}.tmp",
+                crate::util::random_suffix()
+            ));
+            let mut file = create_upload_file(&temp).await?;
+            staged.push((temp, wanted));
 
             let mut elapsed_bytes = 0_u64;
             let mut last_progression = 0_u64;
@@ -1551,16 +1590,47 @@ async fn upload_instance_file(
             file.flush()
                 .await
                 .context(format!("Failed to write chunk of {name}"))?;
-
-            state.event_broadcaster.send(new_fs_event(
-                FSOperation::Upload,
-                FSTarget::File(path),
-                caused_by.clone(),
-            ));
         }
         Ok(())
     }
     .await;
+
+    let mut op: Option<Operation> = None;
+    let mut created_files = Vec::new();
+    let result = match result {
+        Ok(()) => {
+            let wanted: Vec<(&FsPath, bool)> = staged
+                .iter()
+                .map(|(_, wanted)| (wanted.as_path(), false))
+                .collect();
+            op = content_op(&state, &uuid, &root, &wanted, String::new()).await;
+            let mut placed = Ok(());
+            for (temp, wanted) in &staged {
+                match place_upload(temp, wanted).await {
+                    Ok(path) => created_files.push(path),
+                    Err(e) => {
+                        placed = Err(e);
+                        break;
+                    }
+                }
+            }
+            placed
+        }
+        Err(e) => Err(e),
+    };
+    // whatever wasn't renamed into place (all of it when the upload failed)
+    for (temp, _) in &staged {
+        tokio::fs::remove_file(temp).await.ok();
+    }
+    if result.is_ok() {
+        for path in &created_files {
+            state.event_broadcaster.send(new_fs_event(
+                FSOperation::Upload,
+                FSTarget::File(path.clone()),
+                caused_by.clone(),
+            ));
+        }
+    }
 
     finish_upload(
         &state,
@@ -1588,6 +1658,38 @@ async fn upload_instance_file(
         });
     }
     result.map(Json)
+}
+
+/// The start of the temporary name an upload writes a file under until the whole upload
+/// arrived. A `.lodestone` name: content images and backups' content scope skip it, and
+/// users without `WriteGlobalFile` can't touch it.
+const UPLOAD_TEMP_PREFIX: &str = ".lodestone-upload-";
+
+/// Moves an uploaded file from its temporary name to `wanted`, or a free name next to it
+/// when that is taken (`name_1.ext`), never replacing a file. Returns where it went.
+async fn place_upload(temp: &FsPath, wanted: &FsPath) -> Result<PathBuf, Error> {
+    let (temp, wanted) = (temp.to_path_buf(), wanted.to_path_buf());
+    tokio::task::spawn_blocking(move || {
+        loop {
+            let target = resolve_path_conflict(wanted.clone(), None);
+            // a link fails where the name was taken meanwhile, where a rename would replace
+            match std::fs::hard_link(&temp, &target) {
+                Ok(()) => {
+                    std::fs::remove_file(&temp).ok();
+                    return Ok(target);
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                // a disk without links
+                Err(_) => {
+                    std::fs::rename(&temp, &target)
+                        .context(format!("Failed to move the upload to {}", target.display()))?;
+                    return Ok(target);
+                }
+            }
+        }
+    })
+    .await
+    .map_err(|e| eyre!("The upload task failed: {e}"))?
 }
 
 /// Rejects archive entries that a user without `WriteGlobalFile` could not create
@@ -1688,6 +1790,7 @@ pub async fn unzip_instance_file(
         &UserAction::WriteInstanceFile(uuid.clone()),
         state.safe_mode(),
     )?;
+    refuse_during_restore(&state, &uuid)?;
     let can_write_protected = can_write_protected(&requester);
     let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
@@ -1719,7 +1822,7 @@ pub async fn unzip_instance_file(
         .iter()
         .map(|dir| (dir.as_path(), true))
         .collect();
-    let op = content_op(
+    let op = content_job(
         &state,
         &uuid,
         &root,
@@ -1796,6 +1899,7 @@ async fn zip_instance_files(
         &UserAction::WriteInstanceFile(uuid.clone()),
         state.safe_mode(),
     )?;
+    refuse_during_restore(&state, &uuid)?;
     let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
         source: eyre!("Server not found"),
@@ -1824,6 +1928,15 @@ async fn zip_instance_files(
         require_code_write(&state, &requester)?;
     }
 
+    // an archive that lands among the content (a zip in `config/`) is a content change
+    let op = content_job(
+        &state,
+        &uuid,
+        &root,
+        &[(&destination_relative_path, false)],
+        format!("Zipped to {}", label_path(&root, &destination_relative_path)),
+    )
+    .await;
     let event_broadcaster = state.event_broadcaster.clone();
     let aggregate_name = {
         let combined_file_name = target_relative_paths
@@ -1863,6 +1976,9 @@ async fn zip_instance_files(
                 }),
             ));
         } else {
+            if let Some(op) = op {
+                op.succeed();
+            }
             event_broadcaster.send(Event::new_progression_event_end(
                 event_id,
                 true,

@@ -3,28 +3,33 @@
 //! The spec keeps the content lineage like modpack history: the newest
 //! [`KEEP_CONTENT`] content images, plus every one a data image links to. Data and full
 //! images are backups: their own retention deletes them (the backup policy), never this.
-//! Other parts of the core can name images to keep too, registered at startup
-//! ([`ImageRefs`]). [`ImageService::prune`] keeps:
+//! [`ImageService::prune`] keeps:
 //!
 //! - every data and full image;
 //! - the content image each of those links to (`content`);
-//! - every image a registered source names;
+//! - the image a modpack restore in progress goes back to
+//!   ([`ImageService::keep_while_restoring`]);
 //! - the instance's current content image;
 //! - the newest [`KEEP_CONTENT`] content images ([`newest_content_first`], the order the
 //!   modpack history lists them in).
 //!
-//! Every other content image that can be read is deleted (manifests only: objects go when
-//! the collector finds nothing uses them). A manifest that can't be read is kept, since
-//! what it links to can't be known. If any source fails to say what it names, nothing is
-//! deleted.
+//! Every other content image is deleted (manifests only: objects go when the collector
+//! finds nothing uses them). While any manifest can't be read, nothing is deleted: what it
+//! links to can't be known.
+//!
+//! Listing reads manifest headers ([`ManifestHeader`]), not whole manifests: a backup's data
+//! image lists every file of the server, and pruning runs after every content record. A
+//! data image's kind and link are part of its id, so they are read once per id and kept in
+//! memory ([`ImageService`]'s link cache).
 //!
 //! Prune runs under the instance's lock, so a writer that saves a manifest and then
 //! something naming it (both under that lock) is never caught in between.
 
 use std::collections::{HashMap, HashSet};
+use std::sync::{Arc, Mutex as StdMutex};
 
-use async_trait::async_trait;
-use lodestone_image::{Image, Kind};
+use lodestone_image::store::{ManifestHeader, Store};
+use lodestone_image::Kind;
 use tracing::warn;
 
 use crate::error::Error;
@@ -32,17 +37,101 @@ use crate::types::InstanceUuid;
 
 use super::{blocking, ImageService};
 
-/// Something that names images an instance must keep (see the module).
-#[async_trait]
-pub trait ImageRefs: Send + Sync {
-    /// The ids of the images of `uuid` this source still needs.
-    async fn refs(&self, uuid: &InstanceUuid) -> Result<HashSet<String>, Error>;
-}
-
 /// How many of the newest content images are kept beyond those something names.
 pub const KEEP_CONTENT: usize = 30;
 
+/// The content image each data or full image links to, by the data image's id: an id is
+/// here only once its header said it isn't a content image. Kind and link are part of the
+/// id, so an entry never goes stale.
+pub(crate) type LinkCache = StdMutex<HashMap<String, Option<String>>>;
+
+/// An instance's manifests as retention and the history see them.
+#[derive(Debug, Default)]
+pub(crate) struct Listing {
+    /// The content images' headers, in no order.
+    pub content: Vec<ManifestHeader>,
+    /// Each data and full image's id, with the content image it links to.
+    pub links: Vec<(String, Option<String>)>,
+    /// Manifests whose header can't be read, by id, with why.
+    pub unreadable: Vec<(String, String)>,
+}
+
+/// Lists the instance's manifests (see the module). Blocking.
+pub(crate) fn list(store: &Store, links: &LinkCache, uuid: &InstanceUuid) -> Result<Listing, Error> {
+    let ids = store
+        .manifest_ids(uuid.as_ref())
+        .map_err(|e| color_eyre::eyre::eyre!("Failed to list the images: {e}"))?;
+    let mut listing = Listing::default();
+    for id in ids {
+        let cached = links
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&id)
+            .cloned();
+        if let Some(content) = cached {
+            listing.links.push((id, content));
+            continue;
+        }
+        match store.load_header(uuid.as_ref(), &id) {
+            Ok(header) if header.kind == Kind::Content => listing.content.push(header),
+            Ok(header) => {
+                links
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .insert(id.clone(), header.content.clone());
+                listing.links.push((id, header.content));
+            }
+            Err(e) => listing.unreadable.push((id, e.to_string())),
+        }
+    }
+    listing.unreadable.sort();
+    Ok(listing)
+}
+
+/// Keeps one image of an instance from pruning while it lives
+/// ([`ImageService::keep_while_restoring`]).
+pub struct Restoring {
+    service: Arc<ImageService>,
+    uuid: InstanceUuid,
+    id: String,
+}
+
+impl Drop for Restoring {
+    fn drop(&mut self) {
+        let mut restoring = self
+            .service
+            .restoring
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if let Some(ids) = restoring.get_mut(&self.uuid) {
+            if let Some(i) = ids.iter().position(|id| *id == self.id) {
+                ids.swap_remove(i);
+            }
+            if ids.is_empty() {
+                restoring.remove(&self.uuid);
+            }
+        }
+    }
+}
+
 impl ImageService {
+    /// Keeps the image `id` of `uuid` until the guard is dropped: the record before a
+    /// modpack restore may make the image it goes back to the 31st newest, which pruning
+    /// would delete right before the restore reads it.
+    pub fn keep_while_restoring(self: &Arc<Self>, uuid: &InstanceUuid, id: &str) -> Restoring {
+        self.restoring
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .entry(uuid.clone())
+            .or_default()
+            .push(id.to_string());
+        Restoring {
+            service: self.clone(),
+            uuid: uuid.clone(),
+            id: id.to_string(),
+        }
+    }
+
     /// Deletes the instance's images nothing keeps (see the module). Returns how many
     /// manifests were deleted; the caller asks for a collection when that is more than 0.
     pub async fn prune(&self, uuid: &InstanceUuid) -> Result<usize, Error> {
@@ -55,42 +144,40 @@ impl ImageService {
 
     /// [`Self::prune`] for a caller that holds the instance's lock.
     pub(crate) async fn prune_locked(&self, uuid: &InstanceUuid) -> Result<usize, Error> {
-        let sources: Vec<_> = self.refs.read().unwrap_or_else(|e| e.into_inner()).clone();
-        let mut keep: HashSet<String> = HashSet::new();
-        for source in sources {
-            match source.refs(uuid).await {
-                Ok(ids) => keep.extend(ids),
-                Err(e) => {
-                    warn!(
-                        "Not pruning the images of {uuid}: a source of what they're kept for failed: {}",
-                        e.source
-                    );
-                    return Ok(0);
-                }
-            }
-        }
+        let mut keep: HashSet<String> = self
+            .restoring
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(uuid)
+            .map(|ids| ids.iter().cloned().collect())
+            .unwrap_or_default();
         let store = self.store();
+        let links = self.links.clone();
         let root = self.root().to_path_buf();
         let id = uuid.clone();
         blocking(move || {
-            let listing = store
-                .list_manifests(id.as_ref())
-                .map_err(|e| color_eyre::eyre::eyre!("Failed to list the images: {e}"))?;
+            let listing = list(&store, &links, &id)?;
+            if let Some((unreadable, why)) = listing.unreadable.first() {
+                warn!(
+                    "Not pruning the images of {id}: the image {unreadable} can't be read ({why}), so what it links to is unknown"
+                );
+                return Ok(0);
+            }
             let current = super::state::load(&root, &id).current;
             keep.extend(current.clone());
             // Backups, and the content they ran with.
-            for image in listing.images.iter().filter(|i| i.kind != Kind::Content) {
-                keep.insert(image.id.clone());
-                keep.extend(image.content.clone());
+            for (image, content) in &listing.links {
+                keep.insert(image.clone());
+                keep.extend(content.clone());
             }
             keep.extend(
-                newest_content_first(&listing.images, current.as_deref())
+                newest_content_first(&listing.content, current.as_deref())
                     .into_iter()
                     .take(KEEP_CONTENT)
                     .map(|image| image.id.clone()),
             );
             let mut deleted = 0;
-            for image in &listing.images {
+            for image in &listing.content {
                 if keep.contains(&image.id) {
                     continue;
                 }
@@ -113,16 +200,18 @@ impl ImageService {
 /// after. Retention keeps the first [`KEEP_CONTENT`] of these, so the history shows what it
 /// keeps.
 pub(crate) fn newest_content_first<'a>(
-    images: &'a [Image],
+    images: &'a [ManifestHeader],
     current: Option<&str>,
-) -> Vec<&'a Image> {
-    let content: Vec<&Image> = images.iter().filter(|i| i.kind == Kind::Content).collect();
-    let by_id: HashMap<&str, &Image> = content.iter().map(|i| (i.id.as_str(), *i)).collect();
+) -> Vec<&'a ManifestHeader> {
+    let content: Vec<&ManifestHeader> =
+        images.iter().filter(|i| i.kind == Kind::Content).collect();
+    let by_id: HashMap<&str, &ManifestHeader> =
+        content.iter().map(|i| (i.id.as_str(), *i)).collect();
     // How many ancestors each has in the listing. A walk stops at an id it has seen:
     // returning to earlier content records an image under an id it had before, with the
     // image it came from as its parent, so parents can go round in a circle. That is why
     // the current image is put first rather than left to its depth.
-    let depth = |image: &Image| {
+    let depth = |image: &ManifestHeader| {
         let mut seen = HashSet::new();
         let mut at = image;
         while seen.insert(at.id.as_str()) {
@@ -133,7 +222,7 @@ pub(crate) fn newest_content_first<'a>(
         }
         seen.len()
     };
-    let mut ordered: Vec<(&Image, bool, usize)> = content
+    let mut ordered: Vec<(&ManifestHeader, bool, usize)> = content
         .into_iter()
         .map(|i| (i, Some(i.id.as_str()) == current, depth(i)))
         .collect();

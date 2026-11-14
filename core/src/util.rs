@@ -286,7 +286,7 @@ impl UnzipLimits {
     const DEFAULT: UnzipLimits = UnzipLimits {
         max_bytes: MAX_UNZIP_BYTES,
         max_entries: MAX_UNZIP_ENTRIES,
-        free_space: crate::backups::store::free_space,
+        free_space: disk::free_space,
     };
 }
 
@@ -295,7 +295,7 @@ impl UnzipLimits {
 /// downloads also always leave free). Extraction stops with an error, before writing it,
 /// at the first entry or byte that would go past either.
 ///
-/// [`FREE_SPACE_MARGIN`]: crate::backups::store::FREE_SPACE_MARGIN
+/// [`FREE_SPACE_MARGIN`]: disk::FREE_SPACE_MARGIN
 struct UnzipBudget {
     archive_name: String,
     max_bytes: u64,
@@ -355,7 +355,7 @@ impl UnzipBudget {
 
     /// `so_far` when `bytes` counts what was extracted so far, so the archive needs more.
     fn check_bytes(&self, bytes: u64, so_far: bool) -> Result<(), Error> {
-        use crate::backups::store::{format_bytes, FREE_SPACE_MARGIN};
+        use crate::util::disk::{format_bytes, FREE_SPACE_MARGIN};
         if bytes > self.max_bytes {
             return Err(Error {
                 kind: ErrorKind::BadRequest,
@@ -826,6 +826,13 @@ pub fn scoped_join_win_safe<R: AsRef<Path>, U: AsRef<Path>>(
     }
     Ok(ret)
 }
+pub mod disk;
+
+/// 16 random hex digits, for temporary and restore folder names.
+pub fn random_suffix() -> String {
+    format!("{:016x}", rand::rng().random::<u64>())
+}
+
 pub mod fs {
     use std::path::Path;
 
@@ -1256,7 +1263,7 @@ mod tests {
     /// for a zip before anything is extracted (LS-87).
     #[test]
     fn an_archive_that_does_not_fit_on_the_disk_is_refused() {
-        use crate::backups::store::FREE_SPACE_MARGIN;
+        use crate::util::disk::FREE_SPACE_MARGIN;
         let temp = tempfile::tempdir().unwrap();
         let tmp = temp.path().join("tmp");
         let dest = temp.path().join("dest");

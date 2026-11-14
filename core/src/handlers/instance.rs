@@ -262,6 +262,15 @@ pub(super) async fn spawn_minecraft_instance_creation(
                         None,
                     ));
                     remove_failed_instance_dir(setup_path).await;
+                    // what a modpack's setup recorded before the failure (its pack.json and
+                    // first image), whose objects would otherwise never be collected
+                    match state.images.delete_instance(&uuid).await {
+                        Ok(()) => state.images.request_gc(),
+                        Err(e) => error!(
+                            "Failed to delete the images of the failed server {uuid}: {}",
+                            e.source
+                        ),
+                    }
                     return;
                 }
             };
@@ -315,7 +324,6 @@ async fn record_created(state: &AppState, uuid: &InstanceUuid) {
         .images
         .record_now(
             ctx,
-            crate::images::OpKind::Created,
             format!("Created {name}"),
         )
         .await

@@ -625,11 +625,9 @@ fn a_path_too_long_to_withhold_is_reported_instead() {
     // and Linux can't make one, so the walk's withholding is fed one directly.
     let mut withheld = Vec::new();
     let mut too_long = Vec::new();
-    let mut unmapped = Vec::new();
     let mut withholding = super::Withholding {
         withheld: &mut withheld,
         too_long: &mut too_long,
-        unmapped: &mut unmapped,
     };
     let long = vec!["文".repeat(85); 17].join("/");
     assert!(long.len() > crate::paths::MAX_PATH_BYTES);
@@ -675,16 +673,8 @@ fn a_filter_narrows_the_snapshot_quietly() {
         paths(&snapshot),
         vec!["config/a.toml", "mods/a.jar", "server.properties"]
     );
-    // Only what the filter takes is withheld or unmapped.
+    // Only what the filter takes is withheld.
     assert_eq!(withheld(&snapshot), vec![("mods/bad:name.jar", "bad_name")]);
-    assert_eq!(
-        snapshot
-            .unmapped
-            .iter()
-            .map(|f| f.disk.as_str())
-            .collect::<Vec<_>>(),
-        vec!["mods/bad:name.jar"]
-    );
     // Folders turned down aren't walked.
     let offered = offered.into_inner().unwrap();
     assert!(offered.contains(&("world".to_string(), true)));
@@ -695,7 +685,7 @@ fn a_filter_narrows_the_snapshot_quietly() {
 }
 
 #[test]
-fn files_the_layout_cant_name_are_reported_as_unmapped() {
+fn files_the_layout_cant_name_are_withheld_and_bad_folders_not_walked() {
     let (dir, store) = store(Encoding::Raw);
     let root = dir.path().join("server");
     write(&root, "server.properties", b"level-name=world");
@@ -715,30 +705,19 @@ fn files_the_layout_cant_name_are_reported_as_unmapped() {
         paths(&snapshot),
         vec!["saves/world/level.dat", "server.properties"]
     );
-    let unmapped: Vec<(&str, u64)> = snapshot
-        .unmapped
-        .iter()
-        .map(|f| (f.disk.as_str(), f.size))
-        .collect();
-    assert_eq!(
-        unmapped,
-        vec![
-            ("aux/inner/deep.txt", 3),
-            ("notes?.txt", 1),
-            ("options.txt", 6),
-            ("resourcepacks/pack.zip", 3),
-            ("saves/oops.txt", 1),
-            ("world/DIM-1/region/r.0.0.mca", 5),
-        ]
-    );
-    for file in &snapshot.unmapped {
-        assert!(file.modified_ns > 0);
-        assert!(file.mode & 0o400 != 0);
-    }
-    // The folder withheld for its name is one withheld record.
     let withheld = withheld(&snapshot);
-    assert!(withheld.contains(&("aux", "bad_name")), "{withheld:?}");
+    for path in ["aux", "notes?.txt", "options.txt", "resourcepacks", "saves"] {
+        assert!(withheld.contains(&(path, "bad_name")), "{path}: {withheld:?}");
+    }
+    assert!(
+        withheld
+            .iter()
+            .any(|(path, reason)| path.contains("DIM-1") && *reason == "bad_name"),
+        "{withheld:?}"
+    );
+    // A folder withheld for its name is one record: nothing inside is walked.
     assert!(!withheld.iter().any(|(path, _)| path.starts_with("aux/")));
+    assert!(!withheld.iter().any(|(path, _)| path.starts_with("saves/")));
     // The image stays valid.
     let mut image = Image::new(Kind::Data, fabric());
     snapshot.fill(&mut image);

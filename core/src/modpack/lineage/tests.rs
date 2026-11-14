@@ -109,6 +109,7 @@ fn what_a_restore_changes() {
 struct Planner {
     _dir: tempfile::TempDir,
     root: PathBuf,
+    images: Arc<ImageService>,
     store: Arc<Store>,
     uuid: InstanceUuid,
 }
@@ -118,13 +119,12 @@ impl Planner {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().join("server");
         std::fs::create_dir_all(&root).unwrap();
-        let store = Arc::new(Store::new(
-            dir.path().join("backups"),
-            lodestone_image::store::Encoding::Zstd,
-        ));
+        let images = Arc::new(ImageService::new(dir.path().join("backups")));
+        let store = images.store();
         Planner {
             _dir: dir,
             root,
+            images,
             store,
             uuid: InstanceUuid::from("INSTANCE_aaaaaaaa-2222-3333-4444-555555555555".to_string()),
         }
@@ -250,17 +250,23 @@ fn a_restore_puts_back_mods_and_configs_only() {
         FileAction::Replace
     )));
 
-    // a file that is already gone isn't removed; one that is there already is replaced
+    // a file that is already gone isn't removed; one that is there that the current image
+    // has no copy of is never replaced: the restore is refused instead
     std::fs::remove_file(p.root.join("mods/new.jar")).unwrap();
     write(&p.root, "mods/gone.jar", b"something else");
     let plan = p.plan(&current.id, &old.id, false).unwrap();
     assert_eq!(
         actions(&plan),
-        [
-            ("mods/a.jar".to_string(), FileAction::Replace),
-            ("mods/gone.jar".to_string(), FileAction::Replace),
-        ]
+        [("mods/a.jar".to_string(), FileAction::Replace)]
     );
+    assert_eq!(plan.unrecorded, ["mods/gone.jar"]);
+    // each file it replaces must still be as the current image has it when it is placed
+    assert_eq!(plan.target.replaced.keys().collect::<Vec<_>>(), ["mods/a.jar"]);
+    check_unchanged(&p.root, &plan.target.replaced).unwrap();
+    write(&p.root, "mods/a.jar", b"edited meanwhile");
+    let error = check_unchanged(&p.root, &plan.target.replaced).unwrap_err();
+    assert!(matches!(error.kind, ErrorKind::Conflict));
+    write(&p.root, "mods/a.jar", b"a2");
 
     // a folder where a file goes is never moved
     std::fs::remove_file(p.root.join("mods/gone.jar")).unwrap();
@@ -292,7 +298,7 @@ fn a_restore_needs_the_files_or_their_downloads() {
     let plan = p.plan(&current.id, &old.id, false).unwrap();
     assert_eq!(plan.missing, ["mods/a.jar"]);
     assert!(plan.plan.changes.is_empty());
-    let history = history(&p.store, &p.uuid, None);
+    let history = history(&p.images, &p.uuid, None);
     let entry = history.entries.iter().find(|e| e.id == old.id).unwrap();
     assert_eq!(entry.missing, 1);
 
@@ -382,7 +388,7 @@ fn the_history_lists_content_images_newest_first() {
     )
     .unwrap();
 
-    let history = history(&p.store, &p.uuid, None);
+    let history = history(&p.images, &p.uuid, None);
     let ids: Vec<&str> = history.entries.iter().map(|e| e.id.as_str()).collect();
     assert_eq!(ids, [&third.id, &second.id, &first.id]);
     let labels: Vec<&str> = history.entries.iter().map(|e| e.label.as_str()).collect();
@@ -447,21 +453,20 @@ fn the_history_lists_content_images_newest_first() {
     assert_eq!(history_len(&p), 3);
     // a server the store can't name has none
     assert!(
-        super::history(&p.store, &InstanceUuid::from("DOCKER-x".to_string()), None)
+        super::history(&p.images, &InstanceUuid::from("DOCKER-x".to_string()), None)
             .entries
             .is_empty()
     );
 }
 
 fn history_len(p: &Planner) -> usize {
-    history(&p.store, &p.uuid, None).entries.len()
+    history(&p.images, &p.uuid, None).entries.len()
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn retention_keeps_what_a_restore_goes_back_to() {
     let dir = tempfile::tempdir().unwrap();
     let images = Arc::new(ImageService::new(dir.path().join("backups")));
-    images.register_refs(Arc::new(RestoreRefs));
     let uuid = InstanceUuid::from("INSTANCE_bbbbbbbb-2222-3333-4444-555555555555".to_string());
     let store = images.store();
     let mut ids = Vec::new();
@@ -479,9 +484,10 @@ async fn retention_keeps_what_a_restore_goes_back_to() {
         store.save_manifest(uuid.as_ref(), &image).unwrap();
         ids.push(image.id);
     }
-    let restoring = keep_while_restoring(&uuid, &ids[0]);
+    let restoring = images.keep_while_restoring(&uuid, &ids[0]);
     // another server's restore keeps nothing here
-    let _other = keep_while_restoring(&InstanceUuid::from("INSTANCE_other".to_string()), &ids[1]);
+    let _other =
+        images.keep_while_restoring(&InstanceUuid::from("INSTANCE_other".to_string()), &ids[1]);
     assert_eq!(images.prune(&uuid).await.unwrap(), 4);
     let kept: Vec<String> = store
         .list_manifests(uuid.as_ref())
@@ -770,7 +776,6 @@ impl Core {
         state
             .instances
             .insert(uuid.clone(), GameInstance::MinecraftInstance(instance));
-        state.images().register_refs(Arc::new(RestoreRefs));
         Core {
             _dir: dir,
             state,
@@ -845,7 +850,7 @@ impl Core {
     /// A Mods-tab-like change: an operation that writes a file and succeeds.
     pub(crate) async fn content_change(&self, path: &str, bytes: &[u8], label: &str) -> String {
         let images = self.state.images();
-        let op = images.begin(&self.uuid, OpKind::Mods, label).await;
+        let op = images.begin(&self.uuid, label).await;
         write(&self.root, path, bytes);
         let ctx = crate::images::context_of(&self.state, &self.uuid)
             .await
@@ -1104,7 +1109,7 @@ async fn a_restore_and_a_content_change_at_once() {
     let recorded = core
         .state
         .images()
-        .record_now(ctx, OpKind::Outside, "check".into())
+        .record_now(ctx, "check".into())
         .await
         .unwrap()
         .unwrap();
@@ -1157,9 +1162,37 @@ async fn a_new_server_records_its_first_image() {
         Env::new(EnvValue::Unsupported, EnvValue::Required)
     );
     assert_eq!(manifest.parent, None);
+    // The first record matched the pack's files by SHA-1 and noted their SHA-256, so the
+    // next ones read nothing; pack.json lists each file once.
     let info = crate::images::base::load_base(state.images().root(), &uuid).unwrap();
+    assert!(!info.files.contains_key("mods/new.jar.disabled"));
+    let new_jar = &info.files["mods/new.jar"];
     assert_eq!(
-        info.files["mods/new.jar.disabled"], info.files["mods/new.jar"],
-        "a disabled pack mod keeps what the pack says"
+        new_jar.sha256.as_deref(),
+        Some(entry(&manifest, "mods/new.jar").sha256.as_str())
     );
+    // A pack mod disabled in the Mods tab is still the pack's file, with what the pack says.
+    std::fs::rename(root.join("mods/new.jar"), root.join("mods/new.jar.disabled")).unwrap();
+    let ctx = new_server_context(
+        uuid.clone(),
+        root.clone(),
+        "1.20.1".into(),
+        fabric(),
+        Vec::new(),
+    )
+    .await;
+    let recorded = state
+        .images()
+        .record_now(ctx, "Disabled new.jar".into())
+        .await
+        .unwrap()
+        .unwrap();
+    let disabled = state
+        .images()
+        .store()
+        .load_manifest(uuid.as_ref(), &recorded.id)
+        .unwrap();
+    let jar = entry(&disabled, "mods/new.jar.disabled");
+    assert_eq!(jar.env, Env::new(EnvValue::Unsupported, EnvValue::Required));
+    assert!(jar.source != Source::Object {}, "{:?}", jar.source);
 }

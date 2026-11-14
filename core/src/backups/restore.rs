@@ -11,8 +11,12 @@
 //! - Everything: every such file.
 //! - World: the files of the backup's level (on Paper and Spigot, its `_nether` and
 //!   `_the_end` folders too).
-//! - World and its mods: the level, and the server's content (`crate::images::scope`) as
-//!   the content image the backup links to has it.
+//! - World and its mods: the level, and the server's content (`crate::images::scope`) but
+//!   its settings and admin lists, as the backup has them. The backup's data image is a
+//!   whole snapshot of the server, so its content files are the ones that ran with that
+//!   world; the content image it links to may be older, since what a running server writes
+//!   (an op removed, a config a mod rewrote) never makes a content image. The link is still
+//!   required: it says the backup knows the content it ran with.
 //!
 //! The image's canonical paths are placed with the server's layout: worlds at the top of the
 //! server folder, and on Paper and Spigot the level's `DIM-1` in `<level>_nether/` and its
@@ -53,14 +57,15 @@ use tracing::{info, warn};
 use crate::error::{Error, ErrorKind};
 use crate::images::excludes::canonical_excludes;
 use crate::images::layout::{server_flavour, server_layout};
-use crate::images::scope::is_content;
+use crate::images::scope::{is_content, is_server_settings_file};
 use crate::images::InstanceContext;
 use crate::types::{DotLodestoneConfig, InstanceUuid};
 
 use super::store::{
-    cancelled, err, join_rel, random_suffix, rename_with_retry, valid_rel_path, Cancel, Store,
+    cancelled, err, join_rel, rename_with_retry, valid_rel_path, Cancel, Store,
 };
 use super::types::RestoreScope;
+use crate::util::random_suffix;
 
 pub const STAGING_PREFIX: &str = ".lodestone-restore-staging-";
 pub const OLD_PREFIX: &str = ".lodestone-restore-old-";
@@ -193,6 +198,15 @@ impl RestorePlan {
         self.current.iter().any(|c| c.path.as_str() == path)
     }
 
+    /// Whether `other` places and replaces exactly the same files, as planned from the same
+    /// disk: then a permission check of one holds for the other.
+    pub fn same_as(&self, other: &RestorePlan) -> bool {
+        self.scope == other.scope
+            && self.owned == other.owned
+            && self.files == other.files
+            && self.current == other.current
+    }
+
     /// The bytes staging writes: what the free-space check needs.
     pub fn total_bytes(&self) -> u64 {
         self.files
@@ -222,45 +236,40 @@ pub fn plan(
                 .ok_or_else(|| bad_request("This backup has no world"))?,
         ),
     };
-    let content = match scope {
-        RestoreScope::WorldAndMods => Some(source.content.ok_or_else(|| {
-            bad_request(
-                "This backup doesn't know the content it ran with, so its mods can't be restored",
-            )
-        })?),
-        _ => None,
-    };
+    if scope == RestoreScope::WorldAndMods && source.content.is_none() {
+        return Err(bad_request(
+            "This backup doesn't know the content it ran with, so its mods can't be restored",
+        ));
+    }
     let selected = |path: &CanonicalPath| match scope {
         RestoreScope::Everything => true,
         RestoreScope::World => path.world() == level,
-        RestoreScope::WorldAndMods => path.world() == level || is_content(path, false),
+        RestoreScope::WorldAndMods => {
+            path.world() == level || (is_content(path, false) && !is_server_settings_file(path))
+        }
     };
 
+    // Left as they are: what the current policy excludes, and what the backup left out on
+    // purpose (it has no copy of those, so they must not be removed either).
     let (current_layout, _) = server_layout(&ctx.root, &ctx.level_name, &ctx.flavour)?;
-    let excludes = match &current_layout {
+    let mut excludes = match &current_layout {
         DiskLayout::Server(server) => canonical_excludes(&ctx.policy_exclude, server).canonical,
         DiskLayout::Client => Vec::new(),
     };
+    excludes.extend(source.image.excludes.iter().cloned());
+    excludes.sort();
+    excludes.dedup();
     let excluded = Excludes::new(&excludes);
     let split = server_flavour(&ctx.flavour).splits_worlds();
     let target_layout = image_layout(source.image, source.level, split)?;
 
     // What the restore places.
-    let entries: Vec<&Entry> = match content {
-        Some(content) => source
-            .image
-            .entries
-            .iter()
-            .filter(|e| e.world.as_deref() == level)
-            .chain(content.entries.iter())
-            .collect(),
-        None => source
-            .image
-            .entries
-            .iter()
-            .filter(|e| selected(&e.path))
-            .collect(),
-    };
+    let entries: Vec<&Entry> = source
+        .image
+        .entries
+        .iter()
+        .filter(|e| selected(&e.path))
+        .collect();
     let mut files = Vec::with_capacity(entries.len());
     for entry in entries {
         if excluded.excludes(entry.path.as_str(), false) {
@@ -291,7 +300,6 @@ pub fn plan(
         .image
         .withheld
         .iter()
-        .chain(content.iter().flat_map(|c| c.withheld.iter()))
         .map(|w| w.path.as_str())
         .collect();
     let filter = |candidate: &Candidate| candidate.is_dir || candidate.path.is_some_and(selected);
@@ -388,6 +396,31 @@ fn owned_tops(
         });
     }
     Ok(owned)
+}
+
+/// The fields of a server's settings file that describe its software and content, which a
+/// "world and its mods" restore takes from the backup's copy ([`adopt_software`]).
+const SOFTWARE_SETTINGS: [&str; 4] = ["version", "flavour", "jre_major_version", "modpack"];
+
+/// Sets [`SOFTWARE_SETTINGS`] in the settings file of the server in `root` to what `backup`
+/// (the backup's copy of that file) has, a field the backup lacks removed, leaving the rest
+/// (name, port, memory, command line). Blocking.
+pub fn adopt_software(root: &Path, backup: &serde_json::Value) -> Result<(), Error> {
+    let path = root.join(CONFIG_FILE);
+    let bytes = fs::read(&path).map_err(|e| io_error(e, format!("Failed to read {CONFIG_FILE}")))?;
+    let mut settings: serde_json::Value =
+        serde_json::from_slice(&bytes).context("The server's settings file is damaged")?;
+    let (Some(settings_map), Some(backup)) = (settings.as_object_mut(), backup.as_object()) else {
+        return Err(eyre!("A settings file isn't a JSON object").into());
+    };
+    for field in SOFTWARE_SETTINGS {
+        match backup.get(field) {
+            Some(value) => settings_map.insert(field.to_string(), value.clone()),
+            None => settings_map.remove(field),
+        };
+    }
+    let json = serde_json::to_vec_pretty(&settings).context("Failed to write the settings")?;
+    crate::persist::write_atomic_blocking(&path, &json, None)
 }
 
 // ---------------------------------------------------------------------------------------

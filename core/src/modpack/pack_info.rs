@@ -26,7 +26,6 @@ use super::{InstancePathPolicy, ModpackOrigin};
 use crate::error::Error;
 use crate::images::base::{BaseFile, BaseInfo};
 use crate::images::ImageService;
-use crate::mods::{disabled_name, enabled_name};
 use crate::types::InstanceUuid;
 
 /// The SHA-512 of the `.mrpack` at `path`, lowercase. Blocking.
@@ -99,16 +98,13 @@ fn cdn_url(file: &PackFile) -> Option<String> {
     })
 }
 
-/// The Modrinth project of a `https://cdn.modrinth.com/data/<project>/versions/...` URL.
-fn project_of_url(url: &str) -> Option<String> {
-    let url = url::Url::parse(url).ok()?;
-    if url.host_str() != Some(crate::modrinth::CDN_HOST) {
-        return None;
+/// The Modrinth project of a `https://cdn.modrinth.com/data/<project>/versions/...` URL,
+/// read the way content images read it ([`lodestone_image::Source::modrinth_from_url`]).
+pub(super) fn project_of_url(url: &str) -> Option<String> {
+    match lodestone_image::Source::modrinth_from_url(url)? {
+        lodestone_image::Source::Modrinth { project, .. } => Some(project),
+        _ => None,
     }
-    let mut segments = url.path_segments()?;
-    (segments.next()? == "data").then_some(())?;
-    let project = segments.next()?;
-    (segments.next()? == "versions").then(|| project.to_string())
 }
 
 /// `pack.json` for a server whose pack files are now `record` (by disk path), from the pack
@@ -119,8 +115,7 @@ fn project_of_url(url: &str) -> Option<String> {
 /// - each file has its SHA-1 and, when it is one of `files`' downloads, its SHA-512, size
 ///   and CDN URL (an override has none of these, which is how [`record_of_base`] tells
 ///   them apart), and the `env` the pack at `pack_path` gives it (unknown without the
-///   pack). A mod is listed under its disabled name too, so a pack mod disabled in the
-///   Mods tab keeps what the pack says.
+///   pack). A pack mod disabled in the Mods tab is found under its enabled name.
 ///
 /// Reads the pack, so call it on a blocking thread.
 pub fn base_info(
@@ -162,30 +157,18 @@ pub fn base_info(
             modrinth_url: download.and_then(|(file, _)| cdn_url(file)),
             sha512: download.map(|(_, d)| d.sha512.to_ascii_lowercase()),
         };
-        if path.to_ascii_lowercase().ends_with(".jar") {
-            info.files.insert(disabled_name(path), base_file.clone());
-        }
         info.files.insert(path.clone(), base_file);
     }
     info
 }
 
-/// The files the pack wrote, as an update compares them, from `pack.json`: every file but
-/// the disabled names [`base_info`] adds for mods. A file without a SHA-512 is one of the
-/// pack's overrides; a download's Modrinth project comes from its CDN URL.
+/// The files the pack wrote, as an update compares them, from `pack.json`. A file without
+/// a SHA-512 is one of the pack's overrides; a download's Modrinth project comes from its
+/// CDN URL.
 pub fn record_of_base(info: &BaseInfo) -> PackRecord {
     let files = info
         .files
         .iter()
-        .filter(|(path, file)| {
-            // a mod's disabled name, listed beside it
-            let enabled = enabled_name(path);
-            enabled == **path
-                || info
-                    .files
-                    .get(&enabled)
-                    .is_none_or(|original| original.sha1 != file.sha1)
-        })
         .map(|(path, file)| {
             (
                 path.clone(),
@@ -225,6 +208,32 @@ pub async fn save(images: &Arc<ImageService>, uuid: &InstanceUuid, info: BaseInf
         Ok(Err(e)) => warn!("Could not write the modpack files of {uuid}: {}", e.source),
         Err(e) => warn!("Could not write the modpack files of {uuid}: {e}"),
     }
+}
+
+/// After a restore that put back an image's content, which was built on `base`: makes the
+/// server's `pack.json` name that base, without the pack's file list (an image doesn't keep
+/// it), so the next update falls back to the files of the origin's pack version. A
+/// `pack.json` with that base already is left as it is. Call it inside the restore's
+/// content operation, before its image is recorded.
+pub async fn follow_base(images: &Arc<ImageService>, uuid: &InstanceUuid, base: Option<Base>) {
+    if !ImageService::accepts(uuid) {
+        return;
+    }
+    let current = {
+        let (images, uuid) = (images.clone(), uuid.clone());
+        tokio::task::spawn_blocking(move || load(&images, &uuid))
+            .await
+            .ok()
+            .flatten()
+    };
+    if current.as_ref().and_then(|info| info.base.as_ref()) == base.as_ref() {
+        return;
+    }
+    let info = BaseInfo {
+        base,
+        files: BTreeMap::new(),
+    };
+    save(images, uuid, info).await;
 }
 
 #[cfg(test)]
@@ -288,7 +297,7 @@ mod tests {
         let info = base_info(&origin, None, &record, &files);
         // without the .mrpack there is no base
         assert_eq!(info.base, None);
-        assert!(info.files.contains_key("mods/a.jar.disabled"));
+        assert!(!info.files.contains_key("mods/a.jar.disabled"));
         assert_eq!(info.files["mods/a.jar"].size, Some(3));
         assert_eq!(record_of_base(&info), record);
     }

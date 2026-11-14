@@ -53,7 +53,7 @@ use crate::events::{
     CausedBy, Event, ProgressionEndValue, ProgressionEventID, ProgressionStartValue,
 };
 use crate::images::recorder::INITIAL_LABEL;
-use crate::images::{ImageService, InstanceContext, OpKind, Operation};
+use crate::images::{blocking, ImageService, InstanceContext, Operation};
 use crate::implementations::minecraft::MinecraftInstance;
 use crate::prelude::GameInstance;
 use crate::traits::t_configurable::{GameType, TConfigurable};
@@ -66,9 +66,9 @@ use super::live::{with_saving_off, InstanceLines, Limits, LiveServer};
 use super::restore::{self, Pin, RestoreDiff, RestorePlan, Source, SwapError};
 use super::retention::{self, LastAttempt, RetentionItem};
 use super::store::{
-    cancelled, check_backup_name, err, free_space, new_backup_id, require_free_space,
-    valid_backup_id, valid_sha256, Store,
+    cancelled, check_backup_name, err, new_backup_id, valid_backup_id, Store,
 };
+use crate::util::disk::{free_space, require_free_space};
 use super::take::{self, needs_full_scan, Meta, Prepared, Request};
 use super::types::{
     BackupInfo, BackupKind, BackupList, BackupPolicy, BackupRecord, BackupUsage, JobKind, Records,
@@ -92,15 +92,6 @@ fn conflict(message: impl Into<String>) -> Error {
 
 fn not_found() -> Error {
     err(ErrorKind::NotFound, "Backup not found")
-}
-
-/// Runs blocking store work off the async runtime.
-async fn blocking<T: Send + 'static>(
-    work: impl FnOnce() -> Result<T, Error> + Send + 'static,
-) -> Result<T, Error> {
-    tokio::task::spawn_blocking(work)
-        .await
-        .map_err(|e| Error::from(eyre!("A backup task failed: {e}")))?
 }
 
 /// Holds the image store's collections off (see the module), waiting for one that runs.
@@ -516,12 +507,9 @@ fn not_in_safety_backup<'a>(plan: &RestorePlan, safety: &'a Image) -> Vec<&'a st
         .collect()
 }
 
-/// The modpack origin in the backup's copy of the server's settings: `None` when they name
-/// none (or the backup has no settings file). Blocking.
-fn backup_origin(
-    store: &ImageStore,
-    backup: &Backup,
-) -> Result<Option<crate::modpack::ModpackOrigin>, Error> {
+/// The backup's copy of the server's settings (`.lodestone_minecraft_config.json`), as
+/// JSON: `None` when the backup has none. Blocking.
+fn backup_settings(store: &ImageStore, backup: &Backup) -> Result<Option<serde_json::Value>, Error> {
     /// A settings file is a few KiB; anything this large is damaged.
     const MAX_CONFIG_BYTES: u64 = 4 << 20;
     let files = backup.files_on_disk()?;
@@ -534,14 +522,9 @@ fn backup_origin(
     let bytes = store
         .read_object_bytes(&config.entry.sha256, config.entry.size)
         .map_err(|e| eyre!("Failed to read its settings: {e}"))?;
-    let settings: serde_json::Value =
-        serde_json::from_slice(&bytes).context("Its settings file is damaged")?;
-    match settings.get("modpack") {
-        None => Ok(None),
-        Some(origin) => {
-            Ok(serde_json::from_value(origin.clone()).context("Its modpack origin is damaged")?)
-        }
-    }
+    Ok(Some(
+        serde_json::from_slice(&bytes).context("Its settings file is damaged")?,
+    ))
 }
 
 /// The stored size of an object (its whole file, or its chunk list and chunks): what a
@@ -566,34 +549,74 @@ fn stored_size(store: &ImageStore, sha256: &str, size: u64) -> u64 {
     }
 }
 
-/// Deletes the instance's data and full images no record names: what a crash between a
-/// backup's manifest and its record left. Content images are the image service's. A
-/// manifest that can't be read is kept. Blocking; the caller holds the instance's lock.
-fn delete_unnamed_images(store: &ImageStore, uuid: &InstanceUuid, records: &Records) {
-    let Ok(dir) = store.instance_dir(uuid.as_ref()) else {
-        return;
+/// Adds a record for each of the instance's data and full images no record names, so it is a
+/// backup again: what a crash between a backup's manifest and its record leaves, or every
+/// backup when `backups.json` went missing. An image holds a whole copy of the server, so it
+/// is never deleted just because the list doesn't name it. The record is a manual backup
+/// (retention never deletes those) named by the image's label, at the image's time, with
+/// its world as the level when it has exactly one. Returns whether it added any; the
+/// caller saves the records. A manifest that can't be read is left as it is. Blocking; the
+/// caller holds the instance's lock.
+fn adopt_unnamed_images(store: &ImageStore, uuid: &InstanceUuid, records: &mut Records) -> bool {
+    let Ok(ids) = store.manifest_ids(uuid.as_ref()) else {
+        return false;
     };
-    let Ok(entries) = std::fs::read_dir(&dir) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let name = entry.file_name();
-        let Some(id) = name.to_str().and_then(|n| n.strip_suffix(".json")) else {
-            continue;
-        };
-        if !valid_sha256(id) || records.names_image(id) {
+    let mut adopted = false;
+    for id in ids {
+        if records.names_image(&id) {
             continue;
         }
-        match store.load_manifest(uuid.as_ref(), id) {
-            Ok(image) if image.kind != Kind::Content => {
-                match store.delete_manifest(uuid.as_ref(), id) {
-                    Ok(_) => info!("Deleted the image {id} of {uuid}, which no backup names"),
-                    Err(e) => warn!("Failed to delete the image {id} of {uuid}: {e}"),
-                }
+        match store.load_header(uuid.as_ref(), &id) {
+            Ok(header) if header.kind != Kind::Content => {}
+            _ => continue,
+        }
+        let image = match store.load_manifest(uuid.as_ref(), &id) {
+            Ok(image) => image,
+            Err(e) => {
+                warn!("The image {id} of {uuid} names no backup and can't be read: {e}");
+                continue;
             }
-            _ => {}
-        }
+        };
+        let created = chrono::DateTime::from_timestamp(image.created, 0).unwrap_or_default();
+        let name = image.label.as_deref().and_then(|label| {
+            let clean: String = label
+                .chars()
+                .filter(|c| !c.is_control())
+                .take(MAX_NAME_LEN)
+                .collect();
+            check_backup_name(&clean).ok().flatten()
+        });
+        let level = match image.worlds.as_slice() {
+            [world] => Some(world.name.clone()),
+            _ => None,
+        };
+        records.backups.push(BackupRecord {
+            id: new_backup_id(created),
+            image: image.id.clone(),
+            name,
+            kind: BackupKind::Manual,
+            created: image.created,
+            pinned: false,
+            live: false,
+            quiesced: image.worlds.iter().all(|w| w.quiesced != Some(false)),
+            level,
+            instance_name: String::new(),
+            game_version: image.game.minecraft.clone(),
+            file_count: image.entries.len() as u64,
+            withheld_count: image.withheld.len() as u64,
+            total_bytes: image
+                .entries
+                .iter()
+                .map(|e| e.size)
+                .fold(0, u64::saturating_add),
+            new_bytes: 0,
+            stored_bytes: 0,
+            duration_ms: 0,
+        });
+        info!("Listed the image {id} of {uuid}, which no backup named, as a backup");
+        adopted = true;
     }
+    adopted
 }
 
 /// The objects a server's backups use, by the images they were worked out from, for the
@@ -736,6 +759,12 @@ impl BackupService {
     }
 
     /// Whether a backup or restore of the server is running.
+    /// Whether a backup is being restored into the server (in place) now.
+    pub fn restoring(&self, uuid: &InstanceUuid) -> bool {
+        self.running_job(uuid)
+            .is_some_and(|job| job.kind == JobKind::Restore)
+    }
+
     pub fn job_running(&self, uuid: &InstanceUuid) -> bool {
         lock_in(&self.jobs, uuid).try_lock().is_err()
     }
@@ -1042,9 +1071,9 @@ impl BackupService {
 
     /// Deletes the backups of the server `select` picks from its records (read under the
     /// instance's image lock, so a backup pinned meanwhile is never picked from an older
-    /// list): their records, then each image no record names any more and any such image a
-    /// crash left, then prunes the content images nothing links to and asks for a
-    /// collection. Returns the ids it deleted.
+    /// list, and with any image a crash left without a record listed first): their records,
+    /// then each of their images no record names any more, then prunes the content images
+    /// nothing links to and asks for a collection. Returns the ids it deleted.
     async fn delete_backups(
         &self,
         uuid: &InstanceUuid,
@@ -1057,14 +1086,24 @@ impl BackupService {
             let uuid = uuid.clone();
             blocking(move || {
                 let mut records = store.load_records(&uuid)?;
+                // Images a crash left without a record are backups too, before anything is
+                // chosen: a missing list must never make every backup look like a leftover.
+                let adopted = adopt_unnamed_images(&images, &uuid, &mut records);
                 let ids = select(&records);
                 let (gone, kept): (Vec<BackupRecord>, Vec<BackupRecord>) =
                     records.backups.drain(..).partition(|b| ids.contains(&b.id));
                 records.backups = kept;
-                if !gone.is_empty() {
+                if adopted || !gone.is_empty() {
                     store.save_records(&uuid, &records)?;
                 }
-                delete_unnamed_images(&images, &uuid, &records);
+                for image in gone.iter().map(|b| &b.image) {
+                    if records.names_image(image) {
+                        continue;
+                    }
+                    if let Err(e) = images.delete_manifest(uuid.as_ref(), image) {
+                        warn!("Failed to delete the image {image} of {uuid}: {e}");
+                    }
+                }
                 Ok(gone.into_iter().map(|b| b.id).collect::<Vec<_>>())
             })
             .await?
@@ -1161,31 +1200,30 @@ impl BackupService {
     async fn record_content(&self, instance: &MinecraftInstance, policy_exclude: &[String]) {
         let ctx = InstanceContext::of(instance, policy_exclude.to_vec()).await;
         let uuid = ctx.uuid.clone();
+        // The waits bound only getting the content gate: a record that has it runs to its
+        // end, so it never loses the labels it took.
         let recorded = if ctx.running {
-            tokio::time::timeout(FLUSH_WAIT, self.images.flush(ctx))
+            self.images
+                .flush_within(ctx, Some(FLUSH_WAIT))
                 .await
-                .map(|recorded| recorded.map(|_| ()))
+                .map(|_| ())
         } else {
             // logs its own failures, and waits for an operation in progress a while
             instance.check_content_before_start(&self.images).await;
             if self.images.current_content(&uuid).await.is_none() {
-                tokio::time::timeout(
-                    FLUSH_WAIT,
-                    self.images
-                        .record_now(ctx, OpKind::Initial, INITIAL_LABEL.to_string()),
-                )
-                .await
-                .map(|recorded| recorded.map(|_| ()))
+                self.images
+                    .record_now_within(ctx, INITIAL_LABEL.to_string(), Some(FLUSH_WAIT))
+                    .await
+                    .map(|_| ())
             } else {
-                Ok(Ok(()))
+                Ok(())
             }
         };
-        match recorded {
-            Ok(Ok(())) => {}
-            Ok(Err(e)) => warn!("Failed to record the content of {uuid}: {}", e.source),
-            Err(_) => warn!(
-                "Backing up {uuid} without recording its content first: an operation on it is still running"
-            ),
+        if let Err(e) = recorded {
+            warn!(
+                "Backing up {uuid} without recording its content first: {}",
+                e.source
+            );
         }
     }
 
@@ -1797,7 +1835,7 @@ impl BackupService {
             .plan(&instance, &backup, request.scope, &policy_exclude)
             .await?;
         if let Some(check) = &check {
-            let diff = self.diff(&instance, plan, None).await?;
+            let diff = self.diff(&instance, plan.clone(), None).await?;
             check(&diff)?;
         }
 
@@ -1825,6 +1863,7 @@ impl BackupService {
                     backup,
                     &request,
                     policy_exclude,
+                    plan,
                     check,
                     was_running,
                     &caused_by,
@@ -1914,6 +1953,7 @@ impl BackupService {
         backup: Backup,
         request: &RestoreRequest,
         policy_exclude: Vec<String>,
+        checked: RestorePlan,
         check: Option<DiffCheck>,
         was_running: bool,
         caused_by: &CausedBy,
@@ -1933,6 +1973,7 @@ impl BackupService {
                 &backup,
                 request,
                 &policy_exclude,
+                &checked,
                 check,
                 was_running,
                 job,
@@ -1967,6 +2008,14 @@ impl BackupService {
                 });
             }
         };
+        if request.scope == RestoreScope::WorldAndMods {
+            if let Err(e) = self.adopt_backup_software(instance, &backup).await {
+                warn!(
+                    "Failed to take the server software of {uuid} from the backup's settings: {}",
+                    e.source
+                );
+            }
+        }
         if let Err(e) = instance.reload_from_disk().await {
             return Err(err(
                 ErrorKind::Internal,
@@ -1977,8 +2026,7 @@ impl BackupService {
             ));
         }
         if let Some(operation) = operation {
-            self.follow_restored_pack(instance, &backup, request.scope)
-                .await;
+            self.follow_restored_pack(instance, &backup).await;
             // the content as restored, before the server can start and change it
             let ctx = InstanceContext::of(instance, policy_exclude).await;
             if let Err(e) = operation.succeed_and_record(ctx).await {
@@ -1999,67 +2047,39 @@ impl BackupService {
         Ok((message, safety_id))
     }
 
-    /// After a restore that put back a backup's content: makes what the server says it is
-    /// built on follow that content, so the next modpack update compares against the pack
-    /// those files came from, and the restore's content image gets the right base.
-    ///
-    /// - `pack.json` (with the images, so no restore brings it back) gets the base of the
-    ///   backup's content image when that differs from the current one. The pack's file
-    ///   list isn't kept with images, so it comes without files, and the next update falls
-    ///   back to the files of the origin's pack version, as for a server without one.
-    /// - The modpack origin is in the server's settings, which "everything" restores with
-    ///   the rest; "the world and its mods" leaves the settings, so the origin is taken
-    ///   from the backup's copy of them.
-    ///
-    /// Failures are logged: they cost an update the user's files it could have told from
-    /// the pack's, never a file.
-    async fn follow_restored_pack(
+    /// After a "world and its mods" restore, which leaves the server's settings file: takes
+    /// what that file says about the software and content from the backup's copy of it (the
+    /// Minecraft version, the server software and its loader version, the Java it runs on,
+    /// the modpack origin), since the restore put back the backup's server software and
+    /// mods. Without it a Forge server restored from an older build would start the newer
+    /// build's libraries, which are gone. Called before the settings are read again.
+    async fn adopt_backup_software(
         &self,
         instance: &MinecraftInstance,
         backup: &Backup,
-        scope: RestoreScope,
-    ) {
-        let uuid = instance.uuid().await;
+    ) -> Result<(), Error> {
+        let root = instance.path().await;
+        let (store, backup) = (self.image_store(), backup.clone());
+        blocking(move || {
+            let Some(settings) = backup_settings(&store, &backup)? else {
+                return Ok(());
+            };
+            restore::adopt_software(&root, &settings)
+        })
+        .await
+    }
+
+    /// After a restore that put back a backup's content: `pack.json` (with the images, so no
+    /// restore brings it back) follows the base of the backup's content image
+    /// ([`crate::modpack::pack_info::follow_base`]), so the next modpack update compares
+    /// against the pack those files came from, and the restore's content image gets the
+    /// right base. The modpack origin came back with the settings.
+    async fn follow_restored_pack(&self, instance: &MinecraftInstance, backup: &Backup) {
         let Some(content) = &backup.content else {
             return;
         };
-        let current = {
-            let (images, id) = (self.images.clone(), uuid.clone());
-            blocking(move || Ok(crate::modpack::pack_info::load(&images, &id)))
-                .await
-                .ok()
-                .flatten()
-        };
-        if current.as_ref().and_then(|info| info.base.as_ref()) != content.base.as_ref() {
-            let info = crate::images::base::BaseInfo {
-                base: content.base.clone(),
-                files: Default::default(),
-            };
-            crate::modpack::pack_info::save(&self.images, &uuid, info).await;
-        }
-        if scope != RestoreScope::WorldAndMods {
-            return;
-        }
-        let origin = {
-            let (store, backup) = (self.image_store(), backup.clone());
-            blocking(move || backup_origin(&store, &backup)).await
-        };
-        match origin {
-            Ok(origin) => {
-                if instance.modpack_origin().await != origin {
-                    if let Err(e) = instance.set_modpack_origin(origin).await {
-                        warn!(
-                            "Failed to set the modpack origin of {uuid} after the restore: {}",
-                            e.source
-                        );
-                    }
-                }
-            }
-            Err(e) => warn!(
-                "Could not read the modpack origin of the backup of {uuid}: {}",
-                e.source
-            ),
-        }
+        let uuid = instance.uuid().await;
+        crate::modpack::pack_info::follow_base(&self.images, &uuid, content.base.clone()).await;
     }
 
     /// [`Self::restore_locked`] from the stopped server to the swap. Returns the safety
@@ -2074,6 +2094,7 @@ impl BackupService {
         backup: &Backup,
         request: &RestoreRequest,
         policy_exclude: &[String],
+        checked: &RestorePlan,
         check: Option<DiffCheck>,
         was_running: bool,
         job: &Job,
@@ -2092,7 +2113,6 @@ impl BackupService {
                 self.images
                     .begin(
                         &uuid,
-                        OpKind::Restore,
                         format!("Restored backup “{}”", backup_label(&backup.record)),
                     )
                     .await,
@@ -2147,8 +2167,9 @@ impl BackupService {
         let safety_id = safety.as_ref().map(|(id, _)| id.clone());
 
         // a server that was stopped all along was checked against these same files, under
-        // `lock_stopped`; without a safety backup, don't hash it all again
-        let check = check.filter(|_| was_running || safety.is_some());
+        // `lock_stopped`; without a safety backup, don't hash it all again, unless the plan
+        // changed since (a Files API change, or another level-name, between the two)
+        let check = check.filter(|_| was_running || safety.is_some() || !plan.same_as(checked));
         if let Some(check) = &check {
             job.report(safety_share, Some("Checking what the restore changes"));
             let current = safety.as_ref().and_then(|(_, image)| image.as_ref());
@@ -2303,21 +2324,15 @@ impl BackupService {
                         .await
                         .map(|p| p.exclude)
                         .unwrap_or_default();
+                    // The pack its content is built on and its first content image, as a
+                    // new server gets, before any client can see it: nothing else can then
+                    // start it or change its content first.
+                    crate::modpack::pack_info::follow_base(&this.images, &new_uuid, base.clone())
+                        .await;
                     let ctx = InstanceContext::of(&instance, policy_exclude).await;
-                    state.instances.insert(new_uuid.clone(), instance.into());
-                    // the pack its content is built on (without the pack's file list, which
-                    // images don't keep), so its images and updates know it
-                    if let Some(base) = &base {
-                        let info = crate::images::base::BaseInfo {
-                            base: Some(base.clone()),
-                            files: Default::default(),
-                        };
-                        crate::modpack::pack_info::save(&this.images, &new_uuid, info).await;
-                    }
-                    // its first content image, as a new server gets
                     if let Err(e) = this
                         .images
-                        .record_now(ctx, OpKind::Created, format!("Created {}", request.name))
+                        .record_now(ctx, format!("Created {}", request.name))
                         .await
                     {
                         warn!(
@@ -2325,6 +2340,7 @@ impl BackupService {
                             e.source
                         );
                     }
+                    state.instances.insert(new_uuid.clone(), instance.into());
                     job.end(
                         true,
                         &format!("Restored the backup as {}", request.name),

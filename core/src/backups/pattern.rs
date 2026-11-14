@@ -15,9 +15,9 @@
 //!
 //! A pattern that matches a folder leaves out everything in it.
 //!
-//! Matching is linear in the pattern and path sizes (a table over parts, and wildcard
-//! matching that backtracks only to the last `*`), so patterns like `**/**/**/x` can't
-//! stall the backup.
+//! Backups never match these patterns themselves: they match the canonical translation in
+//! the image store's snapshot walk. `Matcher` matches the patterns as written, on disk
+//! paths, and exists only for tests, as the reference the translation is checked against.
 
 /// At most this many patterns in a policy.
 pub const MAX_PATTERNS: usize = 100;
@@ -41,6 +41,7 @@ pub fn default_patterns() -> Vec<String> {
 
 /// Calls `f` with each folder `path` is in (as a folder), then `path` itself, and returns
 /// true as soon as `f` does.
+#[cfg(test)]
 fn for_each_prefix(path: &str, is_dir: bool, mut f: impl FnMut(&str, bool) -> bool) -> bool {
     for (i, c) in path.char_indices() {
         if c == '/' && f(&path[..i], true) {
@@ -78,6 +79,7 @@ pub fn pattern_error(pattern: &str) -> Option<String> {
 }
 
 /// One part of a pattern.
+#[cfg(test)]
 #[derive(Debug, Clone, PartialEq)]
 enum Part {
     /// `**`: any number of path parts.
@@ -86,19 +88,25 @@ enum Part {
     Glob(Vec<char>),
 }
 
+#[cfg(test)]
 #[derive(Debug, Clone)]
 struct Pattern {
     parts: Vec<Part>,
     dir_only: bool,
 }
 
-/// The policy's exclude patterns, ready to match.
+/// The policy's exclude patterns matched as written, on server disk paths: the reference
+/// model `crate::images::excludes`' tests check the canonical translation against (see the
+/// module). Linear in the pattern and path sizes (a table over parts, and wildcard matching
+/// that backtracks only to the last `*`).
+#[cfg(test)]
 #[derive(Debug, Clone, Default)]
 pub struct Matcher {
     patterns: Vec<Pattern>,
     ignore_case: bool,
 }
 
+#[cfg(test)]
 impl Matcher {
     /// A matcher for `patterns`, ignoring case on Windows (where file names do).
     /// Patterns that [`pattern_error`] refuses are skipped.
@@ -118,8 +126,7 @@ impl Matcher {
         }
     }
 
-    /// Whether a pattern matches `path` itself (`is_dir`: it is a folder). The walk calls
-    /// this for each entry and doesn't go into excluded folders.
+    /// Whether a pattern matches `path` itself (`is_dir`: it is a folder).
     pub fn is_excluded(&self, path: &str, is_dir: bool) -> bool {
         if self.patterns.is_empty() {
             return false;
@@ -148,6 +155,7 @@ impl Matcher {
     }
 }
 
+#[cfg(test)]
 fn compile(pattern: &str, ignore_case: bool) -> Pattern {
     let dir_only = pattern.ends_with('/');
     let body = pattern.trim_end_matches('/');
@@ -174,6 +182,7 @@ fn compile(pattern: &str, ignore_case: bool) -> Pattern {
 
 /// Whether `pattern` matches all of `path`'s parts. `reach[j]` is true when the pattern
 /// parts seen so far can match exactly the first `j` path parts.
+#[cfg(test)]
 fn matches_parts(pattern: &[Part], path: &[Vec<char>]) -> bool {
     let n = path.len();
     let mut reach = vec![false; n + 1];
@@ -205,6 +214,7 @@ fn matches_parts(pattern: &[Part], path: &[Vec<char>]) -> bool {
 }
 
 /// `*` wildcard matching within one name, backtracking only to the last `*`.
+#[cfg(test)]
 fn glob_matches(glob: &[char], name: &[char]) -> bool {
     let (mut g, mut s) = (0, 0);
     let mut star: Option<(usize, usize)> = None;

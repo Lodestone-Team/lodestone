@@ -1465,15 +1465,11 @@ pub async fn run_with(
     // scheduled backups; ends when the backup service is cancelled at shutdown
     tokio::spawn(backups::scheduler::run(shared_state.clone()));
 
-    // Instance images: where merged records find their servers, the collection pruning
-    // asks for, and what keeps images (each part of the core that names images registers
-    // its source here).
+    // Instance images: where merged records find their servers.
     images.set_instances(Arc::new(images::AppInstances {
         instances: shared_state.instances.clone(),
         backups: backups.clone(),
     }));
-    // ImageRefs: the images restores in progress go back to
-    images.register_refs(Arc::new(crate::modpack::lineage::RestoreRefs));
     images::set_global(images.clone());
     // temporary files a crash left, and the first content image of each stopped server
     {

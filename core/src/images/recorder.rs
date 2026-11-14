@@ -36,7 +36,7 @@ use lodestone_image::store::snapshot::{self, Snapshot, SnapshotOptions};
 use lodestone_image::store::{Store, StoreError};
 use lodestone_image::{DiskLayout, Entry, Image, Kind, Producer, Source};
 use sha1::Digest;
-use tokio::sync::OwnedRwLockReadGuard;
+use tokio::sync::{OwnedRwLockReadGuard, OwnedRwLockWriteGuard};
 use tracing::warn;
 
 use crate::error::Error;
@@ -60,31 +60,6 @@ pub const CONTENT_STAT_CACHE: &str = "content";
 pub const INITIAL_LABEL: &str = "Content when Lodestone began recording";
 /// The label of an image the before-start check records.
 pub const OUTSIDE_LABEL: &str = "Changed outside Lodestone";
-
-/// What kind of operation changed the content.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum OpKind {
-    /// The Mods tab: install, update, upload, enable, disable, remove.
-    Mods,
-    /// A "For players" mark.
-    ClientMark,
-    /// The Files API in content folders.
-    Files,
-    /// A modpack install, update or restore.
-    Modpack,
-    /// A backup restored in place.
-    Restore,
-    /// A loader version change.
-    VersionChange,
-    /// Server settings that rewrite `server.properties`.
-    Settings,
-    /// A new server.
-    Created,
-    /// Found by the check before a start.
-    Outside,
-    /// The first image of a server that had none.
-    Initial,
-}
 
 /// What a record did.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -151,23 +126,28 @@ impl Pending {
     }
 }
 
+/// How an operation holds the instance's content gate.
+enum Gate {
+    /// Beside other operations ([`ImageService::begin`]).
+    #[allow(dead_code)]
+    Shared(OwnedRwLockReadGuard<()>),
+    /// Alone ([`ImageService::begin_exclusive`]).
+    #[allow(dead_code)]
+    Alone(OwnedRwLockWriteGuard<()>),
+}
+
 /// A content-changing action in progress (see the module). Holds the instance's content
-/// gate shared until it ends. Never begin a second operation on the same instance while
-/// holding one: a record waiting between them would wait for both.
+/// gate until it ends. Never begin a second operation on the same instance while holding
+/// one: a record waiting between them would wait for both.
 #[must_use = "an operation records nothing unless it succeeds"]
 pub struct Operation {
     service: Option<Arc<ImageService>>,
     uuid: InstanceUuid,
-    kind: OpKind,
     label: String,
-    gate: Option<OwnedRwLockReadGuard<()>>,
+    gate: Option<Gate>,
 }
 
 impl Operation {
-    pub fn kind(&self) -> OpKind {
-        self.kind
-    }
-
     /// The operation succeeded: its label is recorded with whatever else succeeds within
     /// the merge window.
     pub fn succeed(mut self) {
@@ -195,18 +175,7 @@ impl Operation {
         service.queue(&self.uuid, std::mem::take(&mut self.label), false);
         // The record takes the gate alone: let go of this operation's share first.
         drop(self.gate.take());
-        service
-            .record(ctx, None, threads_for(&OpKind::Modpack))
-            .await
-    }
-}
-
-/// Threads a record of this kind hashes on: the default, but one for a server's first image
-/// (taken at startup, in the background).
-fn threads_for(kind: &OpKind) -> usize {
-    match kind {
-        OpKind::Initial => 1,
-        _ => 0,
+        service.record(ctx, None, None).await
     }
 }
 
@@ -216,7 +185,6 @@ impl ImageService {
     pub async fn begin(
         self: &Arc<Self>,
         uuid: &InstanceUuid,
-        kind: OpKind,
         label: impl Into<String>,
     ) -> Operation {
         let label = label.into();
@@ -224,7 +192,6 @@ impl ImageService {
             return Operation {
                 service: None,
                 uuid: uuid.clone(),
-                kind,
                 label,
                 gate: None,
             };
@@ -233,9 +200,44 @@ impl ImageService {
         Operation {
             service: Some(self.clone()),
             uuid: uuid.clone(),
-            kind,
             label,
-            gate: Some(gate),
+            gate: Some(Gate::Shared(gate)),
+        }
+    }
+
+    /// [`Self::begin`] for a long job whose length the caller doesn't control (a copy or an
+    /// unzip into the server folder): it holds no gate, so it never holds up the server's
+    /// records, or the operations waiting behind one, for as long as it runs. A record that
+    /// runs meanwhile may take the job's files half written; the record of the job's own
+    /// label, queued when it succeeds, takes them whole.
+    pub fn begin_job(self: &Arc<Self>, uuid: &InstanceUuid, label: impl Into<String>) -> Operation {
+        Operation {
+            service: Self::accepts(uuid).then(|| self.clone()),
+            uuid: uuid.clone(),
+            label: label.into(),
+            gate: None,
+        }
+    }
+
+    /// [`Self::begin`] for an operation that must have the content to itself: no other
+    /// operation (a Files API change) runs while it does. A modpack update or restore,
+    /// which checks the files it replaces are as planned right before it moves them.
+    pub async fn begin_exclusive(
+        self: &Arc<Self>,
+        uuid: &InstanceUuid,
+        label: impl Into<String>,
+    ) -> Operation {
+        let label = label.into();
+        let gate = if Self::accepts(uuid) {
+            Some(Gate::Alone(self.slot(uuid).gate.clone().write_owned().await))
+        } else {
+            None
+        };
+        Operation {
+            service: gate.as_ref().map(|_| self.clone()),
+            uuid: uuid.clone(),
+            label,
+            gate,
         }
     }
 
@@ -304,6 +306,17 @@ impl ImageService {
     /// Records what is queued for the instance now, if anything (before a backup, a start
     /// or a modpack operation).
     pub async fn flush(self: &Arc<Self>, ctx: InstanceContext) -> Result<Option<Recorded>, Error> {
+        self.flush_within(ctx, None).await
+    }
+
+    /// [`Self::flush`], waiting at most `wait` for the content gate (an operation in
+    /// progress). Once it has the gate, the record runs to its end: a record is never cut
+    /// short, which would lose the labels it took.
+    pub async fn flush_within(
+        self: &Arc<Self>,
+        ctx: InstanceContext,
+        wait: Option<Duration>,
+    ) -> Result<Option<Recorded>, Error> {
         if !Self::accepts(&ctx.uuid) {
             return Ok(None);
         }
@@ -316,36 +329,53 @@ impl ImageService {
         if empty {
             return Ok(None);
         }
-        self.record(ctx, None, 0).await
+        self.record(ctx, None, wait).await
     }
 
     /// Records the instance's content now, labelled `label` (with anything queued).
     pub async fn record_now(
         self: &Arc<Self>,
         ctx: InstanceContext,
-        kind: OpKind,
         label: String,
+    ) -> Result<Option<Recorded>, Error> {
+        self.record_now_within(ctx, label, None).await
+    }
+
+    /// [`Self::record_now`], waiting at most `wait` for the content gate, like
+    /// [`Self::flush_within`].
+    pub async fn record_now_within(
+        self: &Arc<Self>,
+        ctx: InstanceContext,
+        label: String,
+        wait: Option<Duration>,
     ) -> Result<Option<Recorded>, Error> {
         if !Self::accepts(&ctx.uuid) {
             return Ok(None);
         }
-        self.record(ctx, Some(label), threads_for(&kind)).await
+        self.record(ctx, Some(label), wait).await
     }
 
-    /// Takes the gate alone and records (see the module). `fallback` labels the image when
-    /// nothing is queued.
+    /// Takes the gate alone (waiting at most `wait` for it) and records (see the module).
+    /// `fallback` labels the image when nothing is queued.
     pub(crate) async fn record(
         self: &Arc<Self>,
         ctx: InstanceContext,
         fallback: Option<String>,
-        threads: usize,
+        wait: Option<Duration>,
     ) -> Result<Option<Recorded>, Error> {
         let slot = self.slot(&ctx.uuid);
-        let _gate = slot.gate.clone().write_owned().await;
+        let gate = slot.gate.clone().write_owned();
+        let _gate = match wait {
+            Some(wait) => tokio::time::timeout(wait, gate).await.map_err(|_| Error {
+                kind: crate::error::ErrorKind::Conflict,
+                source: color_eyre::eyre::eyre!(
+                    "An operation on the server's content is still running"
+                ),
+            })?,
+            None => gate.await,
+        };
         let _lock = slot.lock.clone().lock_owned().await;
-        self.record_held(&slot, ctx, fallback, threads)
-            .await
-            .map(Some)
+        self.record_held(&slot, ctx, fallback, 0).await.map(Some)
     }
 
     /// [`Self::record`] for a caller holding the gate alone and the instance's lock.
@@ -505,14 +535,16 @@ impl ImageService {
     ) -> Result<Built, Error> {
         let (layout, excludes, snapshot, baseline) =
             take_snapshot(self.store(), ctx.clone(), threads).await?;
-        let jar_paths: Vec<String> = snapshot
+        let files: Vec<(String, String)> = snapshot
             .entries
             .iter()
-            .map(|e| e.path.to_string())
+            .map(|e| (e.path.to_string(), e.sha256.clone()))
             .collect();
-        let facts = env::jar_facts(ctx, &jar_paths).await;
+        let facts = env::jar_facts(ctx, &files, &self.jar_scans).await;
         let pack_files = match base {
-            Some(base) => matching_base_files(ctx, &layout, &snapshot.entries, base).await?,
+            Some(base) => {
+                matching_base_files(&self.root, ctx, &layout, &snapshot.entries, base).await?
+            }
             None => HashMap::new(),
         };
         let has_pack = base.and_then(|b| b.base.as_ref()).is_some();
@@ -618,7 +650,7 @@ async fn take_snapshot(
         };
         let plan = snapshot::plan(&store, &ctx.root, &layout, &options)
             .map_err(|e| color_eyre::eyre::eyre!("Failed to read the server's content: {e}"))?;
-        crate::backups::store::require_free_space(
+        crate::util::disk::require_free_space(
             store.root(),
             plan.bytes_to_read(),
             "to record the server's content",
@@ -637,41 +669,100 @@ async fn take_snapshot(
     .await
 }
 
-/// The pack files among `entries` that still have the pack's bytes, by canonical path:
-/// matched by SHA-256 when `pack.json` has it, else by size and SHA-1 (read from disk).
+/// The pack files among `entries` that still have the pack's bytes, by canonical path. A
+/// mod the Mods tab disabled is the pack's file under its enabled name. Matched by SHA-256
+/// when `pack.json` has it; else by size and SHA-1, read from disk once, after which the
+/// file's SHA-256 is written into `pack.json` ([`learn_sha256`]) so later records read
+/// nothing. A pack file the user changed (same size, other bytes) is read at each record.
 async fn matching_base_files(
+    store_root: &Path,
     ctx: &InstanceContext,
     layout: &DiskLayout,
     entries: &[Entry],
     base: &BaseInfo,
 ) -> Result<HashMap<String, BaseFile>, Error> {
-    let candidates: Vec<(String, String, Entry, BaseFile)> = entries
+    let candidates: Vec<(String, String, String, Entry, BaseFile)> = entries
         .iter()
         .filter_map(|entry| {
             let disk = layout.to_disk(&entry.path).ok()?;
-            let file = base.files.get(&disk)?;
-            Some((entry.path.to_string(), disk, entry.clone(), file.clone()))
+            let (key, file) = match base.files.get(&disk) {
+                Some(file) => (disk.clone(), file),
+                None => {
+                    let enabled = crate::mods::enabled_name(&disk);
+                    let file = base.files.get(&enabled)?;
+                    (enabled, file)
+                }
+            };
+            Some((entry.path.to_string(), disk, key, entry.clone(), file.clone()))
         })
         .collect();
     let root = ctx.root.clone();
+    let uuid = ctx.uuid.clone();
+    let store_root = store_root.to_path_buf();
+    let pack_base = base.base.clone();
     blocking(move || {
         let mut matched = HashMap::new();
-        for (path, disk, entry, file) in candidates {
+        let mut learned = Vec::new();
+        for (path, disk, key, entry, mut file) in candidates {
             let same = match &file.sha256 {
                 Some(sha256) => *sha256 == entry.sha256,
                 None => {
-                    file.size.is_none_or(|size| size == entry.size)
+                    let same = file.size.is_none_or(|size| size == entry.size)
                         && sha1_of(&lodestone_image::layout::join_disk(&root, &disk))
-                            .is_some_and(|sha1| sha1 == file.sha1)
+                            .is_some_and(|sha1| sha1 == file.sha1);
+                    if same {
+                        learned.push((key, entry.sha256.clone(), entry.size));
+                        file.sha256 = Some(entry.sha256.clone());
+                        file.size = Some(entry.size);
+                    }
+                    same
                 }
             };
             if same {
                 matched.insert(path, file);
             }
         }
+        if !learned.is_empty() {
+            learn_sha256(&store_root, &uuid, pack_base.as_ref(), &learned);
+        }
         Ok(matched)
     })
     .await
+}
+
+/// Writes the SHA-256 and size of pack files a record matched by SHA-1 (`learned`: the
+/// `pack.json` key, SHA-256, size) into the instance's `pack.json`, when it still names the
+/// same pack and the file has no SHA-256 yet. The same SHA-1 is the same bytes, so this
+/// holds for as long as the entry does. Runs inside a record, which has the content gate to
+/// itself, so no `pack.json` writer (each runs inside a content operation) is in between.
+/// A failure is only logged: the next record reads the files again. Blocking.
+fn learn_sha256(
+    store_root: &Path,
+    uuid: &InstanceUuid,
+    pack: Option<&lodestone_image::Base>,
+    learned: &[(String, String, u64)],
+) {
+    let Some(mut info) = super::base::load_base(store_root, uuid) else {
+        return;
+    };
+    if info.base.as_ref() != pack {
+        return;
+    }
+    let mut changed = false;
+    for (key, sha256, size) in learned {
+        if let Some(file) = info.files.get_mut(key) {
+            if file.sha256.is_none() {
+                file.sha256 = Some(sha256.clone());
+                file.size = Some(*size);
+                changed = true;
+            }
+        }
+    }
+    if changed {
+        if let Err(e) = super::base::save_base(store_root, uuid, &info) {
+            warn!("Failed to note the pack files' hashes of {uuid}: {}", e.source);
+        }
+    }
 }
 
 fn sha1_of(path: &Path) -> Option<String> {

@@ -721,6 +721,23 @@ fn manifests_round_trip_and_are_checked() {
         .iter()
         .any(|(id, why)| id == &newer && why.contains("newer")));
 
+    // Headers: what listing needs, without the entries; the same refusals of a newer
+    // schema, another id's manifest and garbage.
+    let header = store.load_header("server-1", &image.id).unwrap();
+    assert_eq!(header.id, image.id);
+    assert_eq!(header.kind, Kind::Data);
+    assert_eq!(header.label.as_deref(), Some("second"));
+    assert_eq!(header.created, 20);
+    assert_eq!(header.content, None);
+    for id in [&wrong_id, &newer, &garbage] {
+        assert!(store.load_header("server-1", id).is_err(), "{id}");
+    }
+    let mut ids = store.manifest_ids("server-1").unwrap();
+    ids.sort();
+    let mut all = vec![image.id.clone(), wrong_id.clone(), newer.clone(), garbage.clone()];
+    all.sort();
+    assert_eq!(ids, all);
+
     assert!(store.delete_manifest("server-1", &image.id).unwrap());
     assert!(!store.delete_manifest("server-1", &image.id).unwrap());
     assert!(matches!(

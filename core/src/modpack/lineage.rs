@@ -20,12 +20,11 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex as StdMutex, OnceLock};
+use std::sync::Arc;
 
-use async_trait::async_trait;
 use color_eyre::eyre::eyre;
 use lodestone_image::store::{Store, NEVER};
-use lodestone_image::{Base, DiskLayout, Entry, Game, Image, Kind, Loader, Source};
+use lodestone_image::{Base, CanonicalPath, DiskLayout, Entry, Game, Image, Kind, Loader, Source};
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 use ts_rs::TS;
@@ -34,7 +33,8 @@ use super::update::{record_of, FileAction, FileChange, FilePlan, FileSource, Ima
 use super::{InstancePathPolicy, ModpackOrigin, PackDownload};
 use crate::error::{Error, ErrorKind};
 use crate::images::recorder::{INITIAL_LABEL, OUTSIDE_LABEL};
-use crate::images::{ImageRefs, ImageService, InstanceContext, OpKind};
+use crate::images::scope::is_server_settings_file;
+use crate::images::{ImageService, InstanceContext};
 use crate::implementations::minecraft::{
     FabricLoaderVersion, Flavour, ForgeBuildVersion, NeoForgeBuildVersion,
 };
@@ -118,7 +118,7 @@ pub async fn record_install(
     )
     .await;
     match images
-        .record_now(ctx, OpKind::Modpack, install_label(origin))
+        .record_now(ctx, install_label(origin))
         .await
     {
         Ok(recorded) => recorded.map(|r| r.id),
@@ -165,25 +165,20 @@ pub async fn new_server_context(
 /// as it is now (what the Mods tab or the Files API changed in the last seconds, and what
 /// changed outside Lodestone), so the current image is the content on disk and every file
 /// the change takes off the server is in an image. A server with no image yet gets its
-/// first. Best effort: a failure is logged, and the change goes on.
-pub async fn before_change(images: &Arc<ImageService>, ctx: InstanceContext) {
+/// first. A restore must not go on when this fails ([`plan_restore`] trusts the current
+/// image to be what is on disk); an update compares the files themselves and may.
+pub async fn before_change(images: &Arc<ImageService>, ctx: InstanceContext) -> Result<(), Error> {
     if !ImageService::accepts(&ctx.uuid) {
-        return;
+        return Ok(());
     }
-    let uuid = ctx.uuid.clone();
-    let label = match images.current_content(&uuid).await {
+    let label = match images.current_content(&ctx.uuid).await {
         Some(_) => OUTSIDE_LABEL,
         None => INITIAL_LABEL,
     };
-    if let Err(e) = images
-        .record_now(ctx, OpKind::Modpack, label.to_string())
+    images
+        .record_now(ctx, label.to_string())
         .await
-    {
-        warn!(
-            "Could not record the content of {uuid} before its modpack changed: {}",
-            e.source
-        );
-    }
+        .map(|_| ())
 }
 
 // ---- which files a restore changes ----
@@ -191,29 +186,22 @@ pub async fn before_change(images: &Arc<ImageService>, ctx: InstanceContext) {
 /// The server software, which a restore never copies: when the loader version differs,
 /// the restore installs it again instead.
 const SOFTWARE_DIRS: [&str; 2] = ["libraries/", "versions/"];
-/// Content a restore leaves as it is: the server software's start files, and the server's
-/// settings and admin lists, which Lodestone and the server's commands manage (an older
-/// image must not bring back an op removed since, or another port).
-const LEFT_AS_THEY_ARE: [&str; 7] = [
-    "server.properties",
-    "eula.txt",
-    "ops.json",
-    "whitelist.json",
-    "run.sh",
-    "run.bat",
-    "user_jvm_args.txt",
-];
+/// The server software's start files, which a restore leaves as they are (the loader
+/// version a restore installs writes its own).
+const SOFTWARE_FILES: [&str; 3] = ["run.sh", "run.bat", "user_jvm_args.txt"];
 
 /// Whether a restore puts back the content file at canonical `path`: mods, configs,
 /// plugins and the rest of the content, but not the server software (`libraries/`,
-/// `versions/`, top-level jars) or the files in [`LEFT_AS_THEY_ARE`]. Scripts only when
+/// `versions/`, top-level jars, [`SOFTWARE_FILES`]) or the server's settings and admin
+/// lists ([`is_server_settings_file`]). Scripts only when
 /// `allow_scripts`, as for installing a pack. Names match ignoring ASCII case, as the
 /// content scope's do.
 fn restorable(path: &str, allow_scripts: bool) -> bool {
     let lower = path.to_ascii_lowercase();
     let top_level = !lower.contains('/');
     if SOFTWARE_DIRS.iter().any(|dir| lower.starts_with(dir))
-        || (top_level && (lower.ends_with(".jar") || LEFT_AS_THEY_ARE.contains(&lower.as_str())))
+        || (top_level && (lower.ends_with(".jar") || SOFTWARE_FILES.contains(&lower.as_str())))
+        || CanonicalPath::new(path).is_ok_and(|path| is_server_settings_file(&path))
     {
         return false;
     }
@@ -418,7 +406,7 @@ fn loader_of(game: &Game) -> String {
 /// manifest that can't be read is left out, with a warning. Reads the image store, so call
 /// it on a blocking thread.
 pub fn history(
-    store: &Store,
+    images: &ImageService,
     uuid: &InstanceUuid,
     update: Option<super::updates::AvailableUpdate>,
 ) -> ModpackHistory {
@@ -430,10 +418,11 @@ pub fn history(
     if !ImageService::accepts(uuid) {
         return history;
     }
-    let listing = match store.list_manifests(uuid.as_ref()) {
+    let store = images.store();
+    let listing = match crate::images::retention::list(&store, &images.links, uuid) {
         Ok(listing) => listing,
         Err(e) => {
-            warn!("Could not list the content images of {uuid}: {e}");
+            warn!("Could not list the content images of {uuid}: {}", e.source);
             return history;
         }
     };
@@ -441,8 +430,18 @@ pub fn history(
         warn!("Leaving the image {id} of {uuid} out of its history: {why}");
     }
     let current_id = crate::images::state::load(store.root(), uuid).current;
-    let images =
-        crate::images::retention::newest_content_first(&listing.images, current_id.as_deref());
+    // Whole manifests only for the content images, in the history's order.
+    let images: Vec<Image> =
+        crate::images::retention::newest_content_first(&listing.content, current_id.as_deref())
+            .into_iter()
+            .filter_map(|header| match store.load_manifest(uuid.as_ref(), &header.id) {
+                Ok(image) => Some(image),
+                Err(e) => {
+                    warn!("Leaving the image {} of {uuid} out of its history: {e}", header.id);
+                    None
+                }
+            })
+            .collect();
     let current = current_id
         .as_deref()
         .and_then(|id| images.iter().position(|image| image.id == id));
@@ -527,6 +526,10 @@ pub struct RestoreTarget {
     pub label: Option<String>,
     pub base: Option<Base>,
     pub game: Game,
+    /// The SHA-256 each file the restore replaces or removes had in the current image, by
+    /// disk path: checked again right before the files are placed ([`check_unchanged`]),
+    /// so a file changed since (by the Files API, or by hand) is never thrown away.
+    pub replaced: BTreeMap<String, String>,
 }
 
 /// A restore, worked out before anything changes.
@@ -542,6 +545,10 @@ pub struct RestorePlan {
     /// Paths where the restore would write a file but something else is in the way (a
     /// folder, a link), which it never moves.
     pub blocked: Vec<String>,
+    /// Files on disk the restore would replace that the current image has no copy of (it
+    /// withheld them, or they appeared since it was recorded): replacing them would lose
+    /// them for good, so the restore is refused.
+    pub unrecorded: Vec<String>,
     /// The bytes it downloads.
     pub download_size: u64,
     /// How many files the image has that a restore puts back.
@@ -606,11 +613,13 @@ pub fn plan_restore(
             label: target_image.label.clone(),
             base: target_image.base.clone(),
             game: target_image.game.clone(),
+            replaced: BTreeMap::new(),
         },
         plan: FilePlan::default(),
         sources: BTreeMap::new(),
         missing: Vec::new(),
         blocked: Vec::new(),
+        unrecorded: Vec::new(),
         download_size: 0,
         file_count,
     };
@@ -630,19 +639,32 @@ pub fn plan_restore(
         target: path.to_string(),
         action,
     };
-    for disk in have.keys() {
+    for (disk, entry) in &have {
         if !wanted.contains_key(disk) && matches!(there(disk), There::File) {
             plan.plan.changes.push(change(disk, FileAction::Remove));
+            plan.target
+                .replaced
+                .insert(disk.clone(), entry.sha256.clone());
         }
     }
     for (disk, entry) in &wanted {
-        if have.get(disk).is_some_and(|c| c.sha256 == entry.sha256) {
+        let current = have.get(disk);
+        if current.is_some_and(|c| c.sha256 == entry.sha256) {
             continue;
         }
-        let action = match there(disk) {
-            There::File => FileAction::Replace,
-            There::Nothing => FileAction::Add,
-            There::Other => {
+        let action = match (there(disk), current) {
+            (There::File, Some(current)) => {
+                plan.target
+                    .replaced
+                    .insert(disk.clone(), current.sha256.clone());
+                FileAction::Replace
+            }
+            (There::File, None) => {
+                plan.unrecorded.push(disk.clone());
+                continue;
+            }
+            (There::Nothing, _) => FileAction::Add,
+            (There::Other, _) => {
                 plan.blocked.push(disk.clone());
                 continue;
             }
@@ -663,6 +685,46 @@ pub fn plan_restore(
         plan.plan.changes.push(change(disk, action));
     }
     Ok(plan)
+}
+
+/// Fails unless each file in `replaced` (disk path to SHA-256, [`RestoreTarget::replaced`])
+/// is still a file with those contents: what a restore checks right before it moves them
+/// aside, so a change made since it was planned is never lost. Blocking.
+pub fn check_unchanged(root: &Path, replaced: &BTreeMap<String, String>) -> Result<(), Error> {
+    use sha2::Digest;
+    let changed: Vec<&str> = replaced
+        .iter()
+        .filter(|(disk, sha256)| {
+            let same = (|| -> std::io::Result<bool> {
+                let path = root.join(disk.as_str());
+                if !std::fs::symlink_metadata(&path)?.is_file() {
+                    return Ok(false);
+                }
+                let mut hasher = sha2::Sha256::new();
+                std::io::copy(&mut std::fs::File::open(&path)?, &mut hasher)?;
+                let hex: String = hasher
+                    .finalize()
+                    .iter()
+                    .map(|b| format!("{b:02x}"))
+                    .collect();
+                Ok(hex == **sha256)
+            })();
+            !same.unwrap_or(false)
+        })
+        .map(|(disk, _)| disk.as_str())
+        .collect();
+    if changed.is_empty() {
+        return Ok(());
+    }
+    let first: Vec<&str> = changed.iter().take(5).copied().collect();
+    Err(Error {
+        kind: ErrorKind::Conflict,
+        source: eyre!(
+            "{} file(s) the restore would replace changed since it was planned ({}); try again",
+            changed.len(),
+            first.join(", ")
+        ),
+    })
 }
 
 /// The server software an image's game ran, for a restore that installs it again. `None`
@@ -708,56 +770,6 @@ pub fn image_sha512(store: &Store, image: &ImageFile) -> Option<String> {
             .map(|b| format!("{b:02x}"))
             .collect(),
     )
-}
-
-// ---- retention during a restore ----
-
-/// The images restores in progress go back to, by server.
-fn restoring() -> &'static StdMutex<Vec<(InstanceUuid, String)>> {
-    static RESTORING: OnceLock<StdMutex<Vec<(InstanceUuid, String)>>> = OnceLock::new();
-    RESTORING.get_or_init(Default::default)
-}
-
-/// While it lives, pruning keeps the image a restore goes back to ([`RestoreRefs`]).
-pub struct Restoring(InstanceUuid, String);
-
-impl Drop for Restoring {
-    fn drop(&mut self) {
-        let mut restoring = restoring().lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(i) = restoring
-            .iter()
-            .position(|(uuid, id)| *uuid == self.0 && *id == self.1)
-        {
-            restoring.swap_remove(i);
-        }
-    }
-}
-
-/// Keeps the image `id` of `uuid` until the guard is dropped: the record before a restore
-/// ([`before_change`]) may make it the 31st newest, which pruning would delete right before
-/// the restore reads it.
-pub fn keep_while_restoring(uuid: &InstanceUuid, id: &str) -> Restoring {
-    restoring()
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .push((uuid.clone(), id.to_string()));
-    Restoring(uuid.clone(), id.to_string())
-}
-
-/// The images restores in progress go back to, for the image service's pruning.
-pub struct RestoreRefs;
-
-#[async_trait]
-impl ImageRefs for RestoreRefs {
-    async fn refs(&self, uuid: &InstanceUuid) -> Result<HashSet<String>, Error> {
-        Ok(restoring()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .iter()
-            .filter(|(of, _)| of == uuid)
-            .map(|(_, id)| id.clone())
-            .collect())
-    }
 }
 
 #[cfg(test)]

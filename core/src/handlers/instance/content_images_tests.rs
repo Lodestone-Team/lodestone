@@ -343,7 +343,7 @@ impl Core {
             .unwrap();
         self.state
             .images
-            .record_now(ctx, crate::images::OpKind::Initial, "Initial".into())
+            .record_now(ctx, "Initial".into())
             .await
             .unwrap()
             .unwrap()
@@ -760,6 +760,54 @@ async fn files_api_changes_record_only_content() {
     assert_eq!(core.recorded_label().await, "Unzipped config/pack.zip");
     assert!(paths(&core.current().await).contains(&"config/zipped.toml"));
 
+    // an archive zipped into config is a content change; one zipped into the world isn't
+    let (status, body) = core
+        .call(
+            Method::PUT,
+            &format!("/instance/{}/fs/zip", core.uuid),
+            &core.owner,
+            Some(json!({
+                "target_relative_paths": ["world/notes2.txt"],
+                "destination_relative_path": "config/notes.zip",
+            })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    wait_until("the zip is queued", || async { core.pending() }).await;
+    assert_eq!(core.recorded_label().await, "Zipped to config/notes.zip");
+    let (status, body) = core
+        .call(
+            Method::PUT,
+            &format!("/instance/{}/fs/zip", core.uuid),
+            &core.owner,
+            Some(json!({
+                "target_relative_paths": ["world/notes2.txt"],
+                "destination_relative_path": "world/notes.zip",
+            })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    wait_until("the zip is written", || async {
+        core.root.join("world/notes.zip").exists()
+    })
+    .await;
+    assert!(!core.pending());
+
+    // an upload leaves no temporary file behind, and a name taken gets a free one
+    let status = core
+        .upload(
+            &core.fs("config", "upload"),
+            &core.owner,
+            &[("up.toml", b"b = 2")],
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(core.recorded_label().await, "Uploaded config/up_1.toml");
+    assert!(!std::fs::read_dir(core.root.join("config"))
+        .unwrap()
+        .flatten()
+        .any(|e| e.file_name().to_string_lossy().starts_with(".lodestone")));
+
     // the image never took the world or the logs
     let image = core.current().await;
     assert!(paths(&image)
@@ -945,7 +993,6 @@ async fn a_paper_servers_split_worlds_are_never_content() {
     assert_eq!(
         paths(&image),
         vec![
-            "eula.txt",
             "plugins/WorldEdit.jar",
             "plugins/WorldEdit/config.yml",
             "server.properties"

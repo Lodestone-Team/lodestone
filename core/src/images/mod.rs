@@ -55,8 +55,8 @@ use crate::types::InstanceUuid;
 
 pub use env::ModrinthHint;
 pub use layout::InstanceContext;
-pub use recorder::{OpKind, Operation, Recorded, MAX_DEFER, MERGE_WINDOW};
-pub use retention::{ImageRefs, KEEP_CONTENT};
+pub use recorder::{Operation, Recorded, MAX_DEFER, MERGE_WINDOW};
+pub use retention::{Restoring, KEEP_CONTENT};
 
 /// A boxed future, for [`Clock`].
 pub type BoxFuture<T> = Pin<Box<dyn Future<Output = T> + Send>>;
@@ -136,8 +136,14 @@ pub struct ImageService {
     store: Arc<Store>,
     root: PathBuf,
     slots: StdMutex<HashMap<InstanceUuid, Arc<Slot>>>,
-    pub(crate) refs: StdRwLock<Vec<Arc<dyn ImageRefs>>>,
+    /// The images modpack restores in progress go back to, which pruning keeps
+    /// ([`Self::keep_while_restoring`]).
+    pub(crate) restoring: StdMutex<HashMap<InstanceUuid, Vec<String>>>,
+    /// What each data image links to, read once per id ([`retention`]).
+    pub(crate) links: Arc<retention::LinkCache>,
     hints: env::ModrinthHints,
+    /// What scanning each jar found, by SHA-256 ([`env::JarScans`]).
+    pub(crate) jar_scans: env::JarScans,
     pub(crate) clock: Arc<dyn Clock>,
     source: StdRwLock<Option<Arc<dyn InstanceSource>>>,
     gc: Arc<gc::GcState>,
@@ -171,8 +177,10 @@ impl ImageService {
             store: Arc::new(Store::new(backups_root.clone(), Encoding::Zstd)),
             root: backups_root,
             slots: Default::default(),
-            refs: Default::default(),
+            restoring: Default::default(),
+            links: Default::default(),
             hints: Default::default(),
+            jar_scans: Default::default(),
             clock,
             source: Default::default(),
             gc: Default::default(),
@@ -186,14 +194,6 @@ impl ImageService {
     /// The store's folder, `<lodestone>/backups`.
     pub fn root(&self) -> &Path {
         &self.root
-    }
-
-    /// Adds a source of the images an instance must keep ([`retention`]). At startup.
-    pub fn register_refs(&self, refs: Arc<dyn ImageRefs>) {
-        self.refs
-            .write()
-            .unwrap_or_else(|e| e.into_inner())
-            .push(refs);
     }
 
     /// Where merged records find their server ([`InstanceSource`]). At startup.
@@ -352,7 +352,7 @@ pub(crate) fn write_small_atomic(path: &Path, bytes: &[u8]) -> Result<(), Error>
         .map_err(|e| color_eyre::eyre::eyre!("Failed to create {}: {e}", dir.display()))?;
     let temp = dir.join(format!(
         ".incoming-{}.tmp",
-        crate::backups::store::random_suffix()
+        crate::util::random_suffix()
     ));
     let written = (|| -> std::io::Result<()> {
         let mut file = std::fs::File::options()
@@ -378,7 +378,7 @@ pub(crate) fn write_small_atomic(path: &Path, bytes: &[u8]) -> Result<(), Error>
     Ok(())
 }
 
-/// Runs blocking work on tokio's blocking threads.
+/// Runs blocking work on tokio's blocking threads (the image store's, and the backups').
 pub(crate) async fn blocking<T, F>(work: F) -> Result<T, Error>
 where
     F: FnOnce() -> Result<T, Error> + Send + 'static,
@@ -386,7 +386,7 @@ where
 {
     tokio::task::spawn_blocking(work)
         .await
-        .map_err(|e| Error::from(color_eyre::eyre::eyre!("An image task failed: {e}")))?
+        .map_err(|e| Error::from(color_eyre::eyre::eyre!("A background task failed: {e}")))?
 }
 
 #[cfg(test)]

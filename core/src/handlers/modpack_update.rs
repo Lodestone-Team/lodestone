@@ -37,7 +37,6 @@ use crate::auth::user::UserAction;
 use crate::error::{Error, ErrorKind};
 use crate::events::{CausedBy, Event};
 use crate::images::base::BaseInfo;
-use crate::images::OpKind;
 use crate::implementations::minecraft::{Flavour, MinecraftInstance};
 use crate::modpack::lineage::{self, ModpackHistory, RestoreTarget};
 use crate::modpack::pack_info;
@@ -476,6 +475,12 @@ async fn from_history(
             target.game.minecraft,
             target.game.loader.as_str()
         ))
+    } else if !restore.unrecorded.is_empty() {
+        Some(format!(
+            "Lodestone has no copy of {} file(s) this version would replace, so the restore couldn't be undone: {}",
+            restore.unrecorded.len(),
+            first_five(&restore.unrecorded)
+        ))
     } else if !restore.blocked.is_empty() {
         Some(format!(
             "Something other than a file is where this version has {} file(s): {}",
@@ -543,6 +548,29 @@ fn protected_new_files(
         .collect()
 }
 
+/// The protected files (see [`is_protected`]) a restore's `plan` removes, which only a user
+/// who can write global files may delete, as through the Files API. Mod and plugin jars
+/// (`mods/*.jar`, `plugins/*.jar`, enabled or disabled) are the exception: the Mods tab lets
+/// any user who may change the server's files remove those.
+fn protected_removals(plan: &FilePlan) -> Vec<String> {
+    let removable_jar = |path: &str| {
+        let lower = path.to_ascii_lowercase();
+        let name = lower.strip_suffix(".disabled").unwrap_or(&lower);
+        let mut parts = name.split('/');
+        matches!(
+            (parts.next(), parts.next(), parts.next()),
+            (Some("mods" | "plugins"), Some(jar), None) if jar.ends_with(".jar")
+        )
+    };
+    plan.changes
+        .iter()
+        .filter(|c| c.action == FileAction::Remove)
+        .filter(|c| is_protected(std::path::Path::new(&c.target), false))
+        .filter(|c| !removable_jar(&c.target))
+        .map(|c| c.target.clone())
+        .collect()
+}
+
 /// For a restore by a user without `WriteGlobalFile`: fails unless Modrinth knows every
 /// protected file it puts back. An image holds whatever was on the server, so without this
 /// a restore could put back a jar that only a user who can write global files could add
@@ -593,6 +621,17 @@ async fn check_restore(
 ) -> Result<(), Error> {
     if !prepared.change.is_restore() || requester.can_perform_action(&UserAction::WriteGlobalFile) {
         return Ok(());
+    }
+    let removed = protected_removals(&prepared.plan);
+    if !removed.is_empty() {
+        return Err(Error {
+            kind: ErrorKind::PermissionDenied,
+            source: eyre!(
+                "This version removes {} protected file(s) ({}). Only users who can write global files can restore it",
+                removed.len(),
+                first_five(&removed)
+            ),
+        });
     }
     require_known_restored_files(
         state.mods.modrinth.as_ref(),
@@ -794,10 +833,6 @@ async fn apply(
         ),
         Change::Restore(_) => (None, None),
     };
-    // held until the change is recorded; dropped on failure, which records nothing
-    let op = images
-        .begin(&uuid, OpKind::Modpack, prepared.change.label())
-        .await;
     {
         // A restore copies objects out of the store: no collection deletes them meanwhile.
         let _hold = match &prepared.change {
@@ -824,12 +859,26 @@ async fn apply(
         )
         .await?;
     }
+    // Staging wrote only Lodestone's own folder. From here to the record the change has the
+    // server's content to itself: no Files API change lands between the check that the
+    // files it replaces are as planned and their placement. Dropped on failure, which
+    // records nothing.
+    let op = images
+        .begin_exclusive(&uuid, prepared.change.label())
+        .await;
     progress("Replacing the server's files".to_string());
     {
         // the journal lets the next start put the files back if the core stops before
         // the change is committed (LS-19)
         let (root, plan) = (root.clone(), plan.clone());
+        let replaced = match &prepared.change {
+            Change::Restore(target) => Some(target.replaced.clone()),
+            Change::Update(_) => None,
+        };
         spawn_blocking(move || {
+            if let Some(replaced) = &replaced {
+                lineage::check_unchanged(&root, replaced)?;
+            }
             begin_update(&root, &plan)?;
             let placed = place_files(&root, &plan);
             if placed.is_err() {
@@ -918,13 +967,26 @@ pub(crate) async fn update_modpack(
         spawn_blocking(move || Ok(recover_interrupted(&root))).await?;
     }
     let restoring = match &request.source {
-        UpdateSource::History { entry_id } => Some(lineage::keep_while_restoring(&uuid, entry_id)),
+        UpdateSource::History { entry_id } => Some(state.images().keep_while_restoring(&uuid, entry_id)),
         _ => None,
     };
     // the content as it is now, so the change is planned from it and what it takes off the
     // server is in an image
     if let Some(ctx) = crate::images::context_of(&state, &uuid).await {
-        lineage::before_change(state.images(), ctx).await;
+        if let Err(e) = lineage::before_change(state.images(), ctx).await {
+            if restoring.is_some() {
+                return Err(Error {
+                    kind: e.kind,
+                    source: e
+                        .source
+                        .wrap_err("Could not record the server's content before restoring"),
+                });
+            }
+            warn!(
+                "Could not record the content of {uuid} before its modpack changed: {}",
+                e.source
+            );
+        }
     }
     let prepared = prepare(&state, &requester, &uuid, &request.source).await?;
     if let Some(reason) = &prepared.summary.target.unsupported_reason {
@@ -996,8 +1058,8 @@ pub(crate) async fn modpack_history(
         .await?;
     get_instance(&state, &uuid)?;
     let update = state.mods.updates.get(&uuid);
-    let store = state.images().store();
-    let history = spawn_blocking(move || Ok(lineage::history(&store, &uuid, update))).await?;
+    let images = state.images().clone();
+    let history = spawn_blocking(move || Ok(lineage::history(&images, &uuid, update))).await?;
     Ok(Json(history))
 }
 
@@ -1042,6 +1104,43 @@ mod tests {
                 .collect(),
             ..Default::default()
         }
+    }
+
+    /// A restore removes protected files only for a user who may delete them through the
+    /// Files API, but mod and plugin jars, which the Mods tab lets anyone remove.
+    #[test]
+    fn protected_removals_spare_mod_and_plugin_jars() {
+        let plan = FilePlan {
+            changes: [
+                "mods/a.jar",
+                "mods/b.jar.disabled",
+                "plugins/x.jar",
+                "config/start-hook.sh",
+                "config/native.dll",
+                "config/somefile",
+                "config/a.toml",
+                "mods/sub/c.jar",
+            ]
+            .iter()
+            .map(|path| FileChange {
+                path: path.to_string(),
+                target: path.to_string(),
+                action: FileAction::Remove,
+            })
+            .collect(),
+            ..Default::default()
+        };
+        assert_eq!(
+            protected_removals(&plan),
+            [
+                "config/start-hook.sh",
+                "config/native.dll",
+                "config/somefile",
+                "mods/sub/c.jar"
+            ]
+        );
+        // adding is the other check's
+        assert!(protected_removals(&adds(&["config/native.dll"])).is_empty());
     }
 
     /// A restore by a user who can't write global files puts a jar into `mods/` only when
