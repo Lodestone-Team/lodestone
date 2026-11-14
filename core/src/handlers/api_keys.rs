@@ -421,6 +421,10 @@ mod tests {
             login_with_key(&core, "not a key").await.0,
             StatusCode::UNAUTHORIZED
         );
+        // in a table of their own: made-up key ids, which cost nothing to try, can't push
+        // a locked-out username out of the logins' table
+        assert_eq!(core.state.key_login_limiter.len(), 2);
+        assert_eq!(core.state.login_limiter.len(), 0);
     }
 
     #[tokio::test]
