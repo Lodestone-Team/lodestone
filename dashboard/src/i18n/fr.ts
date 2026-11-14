@@ -1179,6 +1179,7 @@ export const fr: Messages = {
   'files.createFolder.label': 'Nommez votre dossier',
   'files.createFolder.placeholder': 'Dossier sans titre',
   'files.createFolder.submit': 'Créer le dossier',
+  'files.nameTaken': '{name} existe déjà dans ce dossier',
   'files.rename.label': 'Nommez votre fichier',
   'files.rename.submit': 'Renommer le fichier',
 

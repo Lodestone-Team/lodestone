@@ -243,6 +243,58 @@ pub(crate) fn changed_fields(a: &Instance, b: &Instance) -> Vec<Field> {
     fields
 }
 
+/// Copies `fields` from `from` onto `to`, and nothing else: an Undo step puts back
+/// only what it changed. Other writes of `instance.json` record no step (switching to
+/// Fabric from the Content tab, a modpack update, automatic setup), and the step's
+/// snapshot of everything else is older than they are.
+pub(crate) fn put_back(from: &Instance, to: &mut Instance, fields: &[Field]) {
+    for field in fields {
+        match field {
+            Field::Name => to.name = from.name.clone(),
+            Field::Group => to.group = from.group.clone(),
+            Field::Icon => to.icon = from.icon.clone(),
+            Field::Background => {
+                to.background = from.background.clone();
+                to.slideshow = from.slideshow;
+            }
+            Field::Loader => {
+                to.loader = from.loader;
+                to.loader_version = from.loader_version.clone();
+            }
+            Field::Prerelease => to.prerelease_updates = from.prerelease_updates,
+            Field::Colors => {
+                to.play_color = from.play_color;
+                to.accent = from.accent;
+            }
+            Field::Memory => to.memory = from.memory,
+            Field::Java => to.java_override = from.java_override.clone(),
+            Field::JvmArgs => to.jvm_args = from.jvm_args.clone(),
+            Field::GameArgs => to.game_args = from.game_args.clone(),
+            Field::Window => to.window = from.window,
+            Field::Env => to.env = from.env.clone(),
+        }
+    }
+}
+
+/// Which of `fields` can still be put back from `snapshot` onto `current`. A loader
+/// version is made for one game version: once a modpack update moved the instance to
+/// another (which records no step), the old loader would no longer start it, so that
+/// part of the step is gone.
+fn still_apply(snapshot: &Instance, current: &Instance, fields: &[Field]) -> Vec<Field> {
+    fields
+        .iter()
+        .copied()
+        .filter(|field| *field != Field::Loader || snapshot.game_version == current.game_version)
+        .collect()
+}
+
+/// Whether `current` is the instance `snapshot` was taken of. Its id is its folder's
+/// name, which a new instance gets again once the old one is in the Trash; the time it
+/// was created tells them apart (and stays when it is put back from the Trash).
+fn same_instance(snapshot: &Instance, current: &Instance) -> bool {
+    snapshot.created == current.created
+}
+
 /// What `instance` says for `fields`: "Name → Survival", or "Settings of Survival"
 /// for several.
 pub(crate) fn describe_instance(instance: &Instance, fields: &[Field]) -> String {
@@ -408,29 +460,42 @@ impl Instances {
             move || said_after.clone(),
             {
                 let entity = entity.clone();
-                move |cx| entity.update(cx, |this, cx| this.restore_instance(&before, cx))
+                let fields = fields.clone();
+                move |cx| entity.update(cx, |this, cx| this.restore_instance(&before, &fields, cx))
             },
-            move |cx| entity.update(cx, |this, cx| this.restore_instance(&after, cx)),
+            move |cx| entity.update(cx, |this, cx| this.restore_instance(&after, &fields, cx)),
         );
         undo::record(step, cx);
     }
 
-    /// Puts an instance's settings back as `snapshot` has them. How much it was
-    /// played stays.
+    /// Puts the settings `fields` of an instance back as `snapshot` has them. The rest
+    /// of its record stays as it is now.
     fn restore_instance(
         &mut self,
         snapshot: &InstanceSnapshot,
+        fields: &[Field],
         cx: &mut Context<Self>,
     ) -> Result<(), UndoError> {
         let id = &snapshot.instance.id;
-        let current = self.store.get(id).map_err(|_| UndoError::Gone)?;
-        let mut instance = snapshot.instance.clone();
-        instance.last_played = current.last_played;
-        instance.play_time = current.play_time;
-        for image in [&snapshot.icon, &snapshot.background] {
-            image
-                .write()
-                .map_err(|err| UndoError::Refused(err.to_string()))?;
+        let mut instance = self.store.get(id).map_err(|_| UndoError::Gone)?;
+        if !same_instance(&snapshot.instance, &instance) {
+            return Err(UndoError::Gone);
+        }
+        let fields = still_apply(&snapshot.instance, &instance, fields);
+        if fields.is_empty() {
+            return Err(UndoError::Gone);
+        }
+        let fields = fields.as_slice();
+        put_back(&snapshot.instance, &mut instance, fields);
+        for (image, field) in [
+            (&snapshot.icon, Field::Icon),
+            (&snapshot.background, Field::Background),
+        ] {
+            if fields.contains(&field) {
+                image
+                    .write()
+                    .map_err(|err| UndoError::Refused(err.to_string()))?;
+            }
         }
         self.store
             .save(&instance)
@@ -454,13 +519,24 @@ impl Instances {
         }
         let said = || t(SM::SharedGameSettings).to_string();
         let entity = cx.entity();
+        // the instance as it is now, to tell it from a new one that gets its id later
+        let instance = instance.map(|id| {
+            let record = self.store.get(&id).ok();
+            (id, record)
+        });
         let restore = move |files: Files| {
             let entity = entity.clone();
             let instance = instance.clone();
             move |cx: &mut App| {
                 entity.update(cx, |this, cx| {
-                    if let Some(id) = &instance {
-                        if !this.store.dir(id).is_dir() {
+                    if let Some((id, record)) = &instance {
+                        let Ok(current) = this.store.get(id) else {
+                            return Err(UndoError::Gone);
+                        };
+                        if record
+                            .as_ref()
+                            .is_some_and(|record| !same_instance(record, &current))
+                        {
                             return Err(UndoError::Gone);
                         }
                         if this.is_active(id) {
@@ -524,6 +600,78 @@ mod tests {
     }
 
     #[test]
+    fn put_back_restores_only_the_steps_fields() {
+        use launcher_core::instances::{AutoConfig, Loader, Memory};
+        // LS-20: renamed (a step), then switched to Fabric and set up automatically
+        // (no steps); undoing the rename puts back the name and nothing else.
+        let before = Instance {
+            name: "Old".into(),
+            game_version: "1.21.1".into(),
+            ..Instance::default()
+        };
+        let mut now = before.clone();
+        now.name = "New".into();
+        now.loader = Loader::Fabric;
+        now.loader_version = Some("0.16.9".into());
+        now.game_version = "1.21.4".into();
+        now.recommended_memory = Some(6144);
+        now.memory = Some(Memory {
+            min: 512,
+            max: 4096,
+        });
+        now.auto_config = Some(AutoConfig::default());
+        let mut expected = now.clone();
+        expected.name = "Old".into();
+        put_back(&before, &mut now, &[Field::Name]);
+        assert_eq!(now, expected);
+    }
+
+    #[test]
+    fn put_back_covers_every_field_it_describes() {
+        use launcher_core::instances::{Loader, Memory, SlideshowSource, WindowSettings};
+        let a = Instance::default();
+        let mut b = Instance {
+            name: "B".into(),
+            group: Some("Friends".into()),
+            icon: Some("emoji:x".into()),
+            background: Some("custom".into()),
+            slideshow: Some(SlideshowSource::Custom),
+            loader: Loader::Quilt,
+            loader_version: Some("1".into()),
+            prerelease_updates: true,
+            play_color: Some(launcher_core::ui_skin::Rgb(0x010203)),
+            memory: Some(Memory { min: 1, max: 2 }),
+            java_override: Some("/java".into()),
+            jvm_args: Some("-X".into()),
+            game_args: Some("--y".into()),
+            window: Some(WindowSettings {
+                fullscreen: true,
+                ..WindowSettings::default()
+            }),
+            env: Some([("K".to_string(), "V".to_string())].into()),
+            ..Instance::default()
+        };
+        let fields = changed_fields(&a, &b);
+        assert_eq!(fields.len(), 13);
+        put_back(&a, &mut b, &fields);
+        assert_eq!(b, a);
+    }
+
+    #[test]
+    fn a_new_instance_with_the_same_id_is_another_instance() {
+        // LS-21: deleted, then created again under the same name (and id)
+        let old = Instance {
+            id: "survival".into(),
+            created: 1_700_000_000,
+            ..Instance::default()
+        };
+        let mut new = old.clone();
+        assert!(same_instance(&old, &new));
+        new.created = 1_700_000_100;
+        assert!(!same_instance(&old, &new));
+    }
+
+    #[test]
     fn launcher_values_put_back_only_their_own_settings() {
         let mut settings = Settings::default();
         let values = LauncherValues::of(&settings);
@@ -532,5 +680,115 @@ mod tests {
         values.apply(&mut settings);
         assert_eq!(settings.zoom, 1.0);
         assert!(settings.collapsed_groups.contains("Friends"));
+    }
+}
+
+/// Undoing a recorded step of an instance, with the sample instances of the offscreen
+/// screenshots.
+#[cfg(all(test, feature = "screenshot"))]
+mod step_tests {
+    use gpui::TestAppContext;
+    use launcher_core::instances::Loader;
+
+    use super::*;
+    use crate::undo::Outcome;
+
+    fn setup(cx: &mut TestAppContext) -> (Entity<Instances>, String) {
+        let instances = cx.update(|cx| {
+            let accounts = crate::preview::accounts("signed-out", cx);
+            crate::preview::instances("worlds", &accounts, cx)
+        });
+        let id = instances.read_with(cx, |instances, _| instances.list()[0].id.clone());
+        (instances, id)
+    }
+
+    /// Changes the instance's record with `change`: as a recorded step when `step`,
+    /// else as the Content tab or a modpack update do, with no step.
+    fn change(
+        instances: &Entity<Instances>,
+        id: &str,
+        step: bool,
+        change: impl FnOnce(&mut Instance),
+        cx: &mut TestAppContext,
+    ) {
+        instances.update(cx, |this, cx| {
+            let save = |this: &mut Instances| {
+                let mut instance = this.store.get(id).map_err(|err| err.to_string())?;
+                change(&mut instance);
+                this.store.save(&instance).map_err(|err| err.to_string())
+            };
+            if step {
+                this.undoable(id, cx, |this, _| save(this)).unwrap();
+            } else {
+                save(this).unwrap();
+            }
+        });
+    }
+
+    fn record(instances: &Entity<Instances>, id: &str, cx: &mut TestAppContext) -> Instance {
+        instances.read_with(cx, |this, _| this.store.get(id).unwrap())
+    }
+
+    #[gpui::test]
+    fn undo_puts_back_only_the_steps_setting(cx: &mut TestAppContext) {
+        // LS-20: renamed (a step), then the loader switched with no step
+        let (instances, id) = setup(cx);
+        let name = record(&instances, &id, cx).name;
+        change(&instances, &id, true, |i| i.name = "Renamed".into(), cx);
+        change(
+            &instances,
+            &id,
+            false,
+            |i| {
+                i.loader = Loader::Quilt;
+                i.loader_version = Some("0.27.1".into());
+            },
+            cx,
+        );
+        let outcome = cx.update(undo::undo);
+        assert!(matches!(outcome, Outcome::Undid(_)));
+        let now = record(&instances, &id, cx);
+        assert_eq!(now.name, name);
+        assert_eq!(now.loader, Loader::Quilt);
+        assert_eq!(now.loader_version.as_deref(), Some("0.27.1"));
+    }
+
+    #[gpui::test]
+    fn undo_leaves_a_new_instance_with_the_same_id_alone(cx: &mut TestAppContext) {
+        // LS-21: the instance went, and a new one was made in its folder
+        let (instances, id) = setup(cx);
+        change(&instances, &id, true, |i| i.name = "Renamed".into(), cx);
+        change(&instances, &id, false, |i| i.created += 100, cx);
+        let outcome = cx.update(undo::undo);
+        assert!(matches!(outcome, Outcome::Nothing));
+        assert_eq!(record(&instances, &id, cx).name, "Renamed");
+    }
+
+    #[gpui::test]
+    fn a_loader_for_another_game_version_isnt_put_back(cx: &mut TestAppContext) {
+        // the loader changed (a step), then a modpack update moved the game version
+        let (instances, id) = setup(cx);
+        change(
+            &instances,
+            &id,
+            true,
+            |i| {
+                i.loader = Loader::Quilt;
+                i.loader_version = Some("0.27.1".into());
+            },
+            cx,
+        );
+        change(
+            &instances,
+            &id,
+            false,
+            |i| i.game_version = "1.21.4".into(),
+            cx,
+        );
+        let outcome = cx.update(undo::undo);
+        assert!(matches!(outcome, Outcome::Nothing));
+        let now = record(&instances, &id, cx);
+        assert_eq!(now.loader, Loader::Quilt);
+        assert_eq!(now.game_version, "1.21.4");
     }
 }

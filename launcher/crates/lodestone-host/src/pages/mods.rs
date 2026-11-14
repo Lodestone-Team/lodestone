@@ -35,7 +35,7 @@ use self::{browse::Browse, project::ProjectView};
 use crate::{
     i18n::{InstanceMsg as M, t, tr},
     routes::{ModSupport, mod_support},
-    state::HostState,
+    state::{HostEvent, HostState},
 };
 
 /// Installed or Browse.
@@ -131,7 +131,6 @@ pub struct ModsPage {
     check_updates: bool,
     /// Mods being turned on or off, or updated, by file name.
     busy_files: HashSet<String>,
-    updating_all: bool,
     uploading: bool,
     downloading_pack: bool,
     /// The check for a newer version of the server's modpack.
@@ -160,7 +159,17 @@ pub struct ModsPage {
 
 impl ModsPage {
     pub fn new(state: Entity<HostState>, uuid: String, cx: &mut Context<Self>) -> Self {
-        let subscriptions = vec![cx.observe(&state, |_, _, cx| cx.notify())];
+        let subscriptions = vec![
+            cx.observe(&state, |_, _, cx| cx.notify()),
+            // an "Update all" started on an earlier Mods tab finished
+            cx.subscribe(&state, |this, _, event, cx| {
+                if let HostEvent::ModsChanged(uuid) = event
+                    && *uuid == this.uuid
+                {
+                    this.reload(cx);
+                }
+            }),
+        ];
         let mut this = Self {
             state,
             uuid,
@@ -172,7 +181,6 @@ impl ModsPage {
             loading: false,
             check_updates: false,
             busy_files: HashSet::new(),
-            updating_all: false,
             uploading: false,
             downloading_pack: false,
             modpack_check: modpack::ModpackCheck::default(),

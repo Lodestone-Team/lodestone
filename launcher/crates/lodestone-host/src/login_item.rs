@@ -12,6 +12,11 @@
 //! Each starts this executable with [`BACKGROUND_FLAG`], which keeps the window out of
 //! the way ([`crate::app::hide`]). It counts as on only while it names this
 //! executable.
+//!
+//! On macOS the Host is the launch agent's job, so when it exits launchd kills what is
+//! left in its process group: the agent abandons the group, or Restart to update would
+//! lose the Host it just started. Agents written before that are rewritten when the
+//! Host starts ([`refresh`]).
 
 use std::path::Path;
 
@@ -34,6 +39,16 @@ pub fn started_in_background() -> bool {
 /// Whether this Host opens when the user signs in.
 pub fn is_enabled() -> bool {
     std::env::current_exe().is_ok_and(|exe| platform::is_enabled(&exe))
+}
+
+/// Brings an entry written by an older Host up to date, so it keeps working the way
+/// this one writes it (the macOS agent's `AbandonProcessGroup`). Call it when the Host
+/// starts; only an entry that names this executable is touched, and it takes effect
+/// from the next sign-in, when the system reads it again.
+pub fn refresh() {
+    if let Ok(exe) = std::env::current_exe() {
+        platform::refresh(&exe);
+    }
 }
 
 /// Turns opening at sign-in on or off for this executable.
@@ -68,11 +83,41 @@ mod entry_file {
             _ => Ok(()),
         }
     }
+
+    /// Rewrites the file as `content` when it holds one of the `outdated` contents (an
+    /// older Host's entry for this executable). Returns whether it did.
+    pub fn refresh(path: &Path, content: &str, outdated: &[String]) -> std::io::Result<bool> {
+        match std::fs::read_to_string(path) {
+            Ok(found) if outdated.contains(&found) => std::fs::write(path, content).map(|_| true),
+            _ => Ok(false),
+        }
+    }
 }
 
 /// The launch agent that opens `exe` at sign-in on macOS.
+///
+/// `AbandonProcessGroup`: the Host is the job, and without it launchd kills the rest of
+/// the job's process group when the Host exits. That would take the Host that Restart
+/// to update just started, and the core if the Host crashed (which stops by itself
+/// once the Host is gone, saving its servers' worlds).
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 fn launch_agent(label: &str, exe: &Path) -> String {
+    launch_agent_with(
+        label,
+        exe,
+        "    <key>AbandonProcessGroup</key>\n    <true/>\n",
+    )
+}
+
+/// The launch agent older Hosts wrote, without `AbandonProcessGroup`: [`refresh`]
+/// rewrites it.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn launch_agent_before_abandon(label: &str, exe: &Path) -> String {
+    launch_agent_with(label, exe, "")
+}
+
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn launch_agent_with(label: &str, exe: &Path, extra: &str) -> String {
     let escape = |text: &str| {
         text.replace('&', "&amp;")
             .replace('<', "&lt;")
@@ -94,7 +139,7 @@ fn launch_agent(label: &str, exe: &Path) -> String {
     <true/>
     <key>ProcessType</key>
     <string>Interactive</string>
-</dict>
+{extra}</dict>
 </plist>
 "#,
         escape(label),
@@ -147,13 +192,28 @@ mod platform {
         )
     }
 
+    /// An older Host's agent for `exe` still counts as on (it opens this Host), in case
+    /// [`refresh`] couldn't rewrite it.
     pub fn is_enabled(exe: &Path) -> bool {
-        path().is_some_and(|path| entry_file::is_enabled(&path, &launch_agent(LABEL, exe)))
+        path().is_some_and(|path| {
+            entry_file::is_enabled(&path, &launch_agent(LABEL, exe))
+                || entry_file::is_enabled(&path, &launch_agent_before_abandon(LABEL, exe))
+        })
     }
 
     pub fn enable(exe: &Path) -> std::io::Result<()> {
         let path = path().ok_or(std::io::ErrorKind::NotFound)?;
         entry_file::enable(&path, &launch_agent(LABEL, exe))
+    }
+
+    pub fn refresh(exe: &Path) {
+        let Some(path) = path() else {
+            return;
+        };
+        let outdated = [launch_agent_before_abandon(LABEL, exe)];
+        if let Err(error) = entry_file::refresh(&path, &launch_agent(LABEL, exe), &outdated) {
+            eprintln!("could not update the launch agent: {error}");
+        }
     }
 
     pub fn disable() -> std::io::Result<()> {
@@ -187,6 +247,9 @@ mod platform {
         entry_file::enable(&path, &autostart_entry(NAME, exe))
     }
 
+    /// The autostart entry hasn't changed.
+    pub fn refresh(_exe: &Path) {}
+
     pub fn disable() -> std::io::Result<()> {
         match path() {
             Some(path) => entry_file::disable(&path),
@@ -209,6 +272,9 @@ mod platform {
     pub fn enable(exe: &Path) -> std::io::Result<()> {
         registry::write(RUN_KEY, NAME, &run_command(exe))
     }
+
+    /// The `Run` command hasn't changed.
+    pub fn refresh(_exe: &Path) {}
 
     pub fn disable() -> std::io::Result<()> {
         registry::delete(RUN_KEY, NAME)
@@ -406,6 +472,8 @@ mod tests {
         ));
         assert!(agent.contains("<string>--background</string>"));
         assert!(agent.contains("<key>RunAtLoad</key>\n    <true/>"));
+        // LS-39: launchd leaves the restarted Host (and the core) running
+        assert!(agent.contains("<key>AbandonProcessGroup</key>\n    <true/>\n</dict>"));
 
         let entry = autostart_entry(
             "Lodestone Host",
@@ -434,5 +502,34 @@ mod tests {
 
         entry_file::disable(&path).unwrap();
         assert!(!path.exists());
+    }
+
+    /// LS-39: an older Host's launch agent for this executable gains
+    /// `AbandonProcessGroup`; anything else is left alone.
+    #[test]
+    fn an_older_launch_agent_is_rewritten() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("LaunchAgents").join("host.plist");
+        let exe = Path::new("/Applications/Lodestone Host.app/Contents/MacOS/lodestone-host");
+        let current = launch_agent("cc.lodestone.host.login", exe);
+        let older = launch_agent_before_abandon("cc.lodestone.host.login", exe);
+        assert!(!older.contains("AbandonProcessGroup"));
+        let outdated = [older.clone()];
+
+        // none: nothing is made
+        assert!(!entry_file::refresh(&path, &current, &outdated).unwrap());
+        assert!(!path.exists());
+
+        entry_file::enable(&path, &older).unwrap();
+        assert!(entry_file::refresh(&path, &current, &outdated).unwrap());
+        assert!(entry_file::is_enabled(&path, &current));
+        // already up to date
+        assert!(!entry_file::refresh(&path, &current, &outdated).unwrap());
+
+        // another copy of the Host's agent isn't this one's to change
+        let other = launch_agent_before_abandon("cc.lodestone.host.login", Path::new("/opt/host"));
+        entry_file::enable(&path, &other).unwrap();
+        assert!(!entry_file::refresh(&path, &current, &outdated).unwrap());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), other);
     }
 }

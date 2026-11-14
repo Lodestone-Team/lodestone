@@ -27,6 +27,11 @@ pub struct RetentionItem<'a> {
     pub pinned: bool,
 }
 
+/// Whether retention never deletes a backup of this kind: manual and pinned ones.
+pub fn never_deleted(kind: BackupKind, pinned: bool) -> bool {
+    kind == BackupKind::Manual || pinned
+}
+
 /// The ids of the backups retention deletes, from all of a server's backups.
 ///
 /// - Manual and pinned backups are never deleted.

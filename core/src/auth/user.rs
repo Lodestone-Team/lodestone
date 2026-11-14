@@ -42,6 +42,9 @@ pub enum AuthSource {
         id: String,
         name: String,
         expires_at: Option<i64>,
+        /// Whether the key is a full one ([`api_key::ApiKeyScope::Full`]): it may do
+        /// everything its user can, including changing the account's own details.
+        full: bool,
     },
 }
 
@@ -147,6 +150,19 @@ impl User {
             return Err(Error {
                 kind: ErrorKind::PermissionDenied,
                 source: eyre!(api_key::SESSION_REQUIRED_MESSAGE),
+            });
+        }
+        Ok(())
+    }
+
+    /// Fails with 403 for a request made with a custom or launcher API key. Sessions and
+    /// full keys pass: for account details a full key may change (the username) but a
+    /// scoped key, which only has the permissions it lists, must not.
+    pub fn require_session_or_full_key(&self) -> Result<(), Error> {
+        if matches!(self.auth_source, AuthSource::ApiKey { full: false, .. }) {
+            return Err(Error {
+                kind: ErrorKind::PermissionDenied,
+                source: eyre!(api_key::FULL_KEY_REQUIRED_MESSAGE),
             });
         }
         Ok(())

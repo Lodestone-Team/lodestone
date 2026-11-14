@@ -9,7 +9,6 @@ use axum::{
 };
 use axum_auth::AuthBearer;
 use color_eyre::eyre::{eyre, Context};
-use fs_extra::TransitProcess;
 use serde::Deserialize;
 use tokio::io::AsyncWriteExt;
 use tracing::error;
@@ -103,6 +102,17 @@ pub(crate) fn is_protected(path: &FsPath, is_dir: bool) -> bool {
     if PROTECTED_FILE_NAMES.contains(&name.as_str()) {
         return true;
     }
+    // a disabled jar (`x.jar.disabled`) is a jar that the Mods tab enables by renaming it
+    if let Some(enabled) = name.strip_suffix(".disabled") {
+        let enabled = FsPath::new(enabled.trim_end_matches(['.', ' ']));
+        if enabled
+            .extension()
+            .and_then(|e| e.to_str())
+            .is_some_and(|ext| PROTECTED_EXTENSIONS.contains(&ext))
+        {
+            return true;
+        }
+    }
     match FsPath::new(&name).extension().and_then(|e| e.to_str()) {
         Some(ext) => PROTECTED_EXTENSIONS.contains(&ext),
         // files without an extension, such as `.lodestone_config` or native binaries
@@ -194,6 +204,187 @@ fn instance_join(root: impl AsRef<FsPath>, relative: impl AsRef<FsPath>) -> Resu
     Ok(path)
 }
 
+/// Joins `relative` to the instance folder `root` like [`instance_join`], except that the
+/// last part is kept as it is rather than resolved: the entry itself, not what a symbolic
+/// link there points to. Deleting or renaming a link then deletes or renames the link:
+/// deleting a link to `world` used to delete the world, and a link pointing out of the
+/// instance couldn't be deleted or renamed at all. Returns the entry and the path it
+/// resolves to, for the checks (the same path unless the entry is a link).
+///
+/// Fails for a path that names the instance folder itself, such as `""`, `/`, `.` or
+/// `world/..`: moving or zipping to it used to pick a free name next to the instance
+/// folder (`<folder>_1`), outside it.
+fn instance_join_entry(
+    root: impl AsRef<FsPath>,
+    relative: impl AsRef<FsPath>,
+) -> Result<(PathBuf, PathBuf), Error> {
+    let root = root.as_ref();
+    let relative = relative.as_ref();
+    let resolved = instance_join(root, relative)?;
+    let not_an_entry = || Error {
+        kind: ErrorKind::BadRequest,
+        source: eyre!("Choose a file or folder in the server, not the server's folder itself"),
+    };
+    // `None` when the path ends in `..`, or names no file at all (`""`, `/`, `.`)
+    let name = relative.file_name().ok_or_else(not_an_entry)?;
+    let parent = instance_join(root, relative.parent().unwrap_or(FsPath::new("")))?;
+    let entry = parent.join(name);
+    if entry == root || !entry.starts_with(root) {
+        return Err(not_an_entry());
+    }
+    Ok((entry, resolved))
+}
+
+/// Whether a user without `WriteGlobalFile` may not delete or rename `entry`, an entry of
+/// the instance folder `root` (`metadata` is its own, not following links) that resolves to
+/// `target`. A symbolic link is checked as the kind of entry it points to (a link to a
+/// folder as a folder), and what it points to is checked too: by the instance's rules when
+/// it is in the instance, and by name alone when it is outside, since only the link is
+/// deleted or renamed.
+async fn is_entry_protected(
+    root: &FsPath,
+    entry: &FsPath,
+    target: &FsPath,
+    metadata: &std::fs::Metadata,
+) -> bool {
+    if !metadata.is_symlink() {
+        return is_instance_protected(root, entry, metadata.is_dir());
+    }
+    let target_is_dir = tokio::fs::metadata(target)
+        .await
+        .map(|m| m.is_dir())
+        .unwrap_or(false);
+    if is_instance_protected(root, entry, target_is_dir) {
+        return true;
+    }
+    if target.starts_with(root) {
+        is_path_protected(root, target).await
+    } else {
+        is_protected(target, target_is_dir)
+    }
+}
+
+/// Deletes the symbolic link `path` itself, never what it points to. On Windows a link to a
+/// folder (or a junction) is a folder entry that `remove_file` refuses, so that falls back
+/// to `remove_dir`, which also deletes only the link.
+async fn remove_link(path: &FsPath) -> std::io::Result<()> {
+    match tokio::fs::remove_file(path).await {
+        Err(e) if cfg!(windows) => tokio::fs::remove_dir(path).await.map_err(|_| e),
+        result => result,
+    }
+}
+
+/// Deletes the entry `relative` of the instance folder `root` for the `rm` (`folder` false)
+/// and `rmdir` (`folder` true) routes, and returns its path and whether it was a folder. A
+/// symbolic link is deleted itself by either route, since the file list shows a link to a
+/// folder as a folder; what it points to is left alone.
+async fn delete_entry(
+    root: &FsPath,
+    relative: &str,
+    folder: bool,
+    can_write_protected: bool,
+) -> Result<(PathBuf, bool), Error> {
+    let (path, target) = instance_join_entry(root, relative)?;
+    let metadata = tokio::fs::symlink_metadata(&path)
+        .await
+        .context(format!("Failed to find {relative}"))?;
+    if metadata.is_symlink() {
+        if !can_write_protected && is_entry_protected(root, &path, &target, &metadata).await {
+            return Err(protected_error("File extension is protected"));
+        }
+        remove_link(&path)
+            .await
+            .context(format!("Failed to remove {relative}"))?;
+        return Ok((path, false));
+    }
+    if folder {
+        if !metadata.is_dir() {
+            return Err(Error {
+                kind: ErrorKind::BadRequest,
+                source: eyre!("{relative} is not a folder"),
+            });
+        }
+        // the folder itself, or anything in it, is protected
+        if !can_write_protected && contains_protected_entry(root, path.clone()).await? {
+            return Err(protected_error("Directory contains protected files"));
+        }
+        tokio::fs::remove_dir_all(&path)
+            .await
+            .context("Failed to remove directory")?;
+    } else {
+        if metadata.is_dir() {
+            return Err(Error {
+                kind: ErrorKind::BadRequest,
+                source: eyre!("{relative} is a folder"),
+            });
+        }
+        // if target has a protected extension, or no extension, deny
+        if !can_write_protected && is_instance_protected(root, &path, false) {
+            return Err(protected_error("File extension is protected"));
+        }
+        tokio::fs::remove_file(&path)
+            .await
+            .context(format!("Failed to remove {relative}"))?;
+    }
+    Ok((path, folder))
+}
+
+/// Where moving `source` to `dest` (both entries from [`instance_join_entry`]) puts it:
+/// `None` when they are the same path, so there is nothing to do, `dest` when it is free or
+/// is only `source` spelled with other letter case, and otherwise a free name next to it
+/// (`name_1.ext`). Fails when `dest` is inside the folder `source`.
+///
+/// On macOS's and Windows's file systems, which ignore case, a new name that only changes
+/// letter case (`Server.properties` to `server.properties`) "exists" as the source itself,
+/// and picking a free name made it `server_1.properties`.
+fn move_destination(source: &FsPath, dest: &FsPath) -> Result<Option<PathBuf>, Error> {
+    if source == dest {
+        return Ok(None);
+    }
+    if dest.starts_with(source) {
+        return Err(Error {
+            kind: ErrorKind::BadRequest,
+            source: eyre!("Destination is a subdirectory of the source"),
+        });
+    }
+    if is_other_case_of(source, dest) {
+        return Ok(Some(dest.to_path_buf()));
+    }
+    // a symbolic link counts as taken even when what it points to doesn't exist
+    let taken = |path: &FsPath| std::fs::symlink_metadata(path).is_ok();
+    Ok(Some(resolve_path_conflict(
+        dest.to_path_buf(),
+        Some(&taken),
+    )))
+}
+
+/// Whether `dest` exists only as `source` under another spelling: both are in the same
+/// folder, their names differ only in letter case, and the folder has no entry with
+/// exactly `dest`'s name although the file system finds one. On a file system that
+/// tells case apart, a `dest` that exists is listed under its own name, so it is never
+/// mistaken for the source.
+fn is_other_case_of(source: &FsPath, dest: &FsPath) -> bool {
+    let (Some(folder), Some(source_name), Some(dest_name)) =
+        (dest.parent(), source.file_name(), dest.file_name())
+    else {
+        return false;
+    };
+    if source.parent() != Some(folder)
+        || source_name == dest_name
+        || source_name.to_string_lossy().to_lowercase()
+            != dest_name.to_string_lossy().to_lowercase()
+        || std::fs::symlink_metadata(dest).is_err()
+    {
+        return false;
+    }
+    match std::fs::read_dir(folder) {
+        Ok(entries) => !entries
+            .filter_map(Result::ok)
+            .any(|entry| entry.file_name() == dest_name),
+        Err(_) => false,
+    }
+}
+
 /// Windows 8.3 short names end the stem with `~` and a digit, as in `PROGRA~1`.
 fn looks_like_short_name(name: &str) -> bool {
     let stem = name.split('.').next().unwrap_or(name);
@@ -201,24 +392,53 @@ fn looks_like_short_name(name: &str) -> bool {
         .is_some_and(|(_, tail)| tail.starts_with(|c: char| c.is_ascii_digit()))
 }
 
-/// Like [`is_protected`], reading from disk whether `path` is a folder. Symbolic links are
-/// not followed, so a link is checked as a file.
-async fn is_path_protected(path: &FsPath) -> bool {
+/// Whether `name` (one path part) is one of Lodestone's own files or folders in an
+/// instance, whose names start with `.lodestone` (`.lodestone_config`, the modpack's
+/// `.lodestone_modpack`), compared the way Windows and macOS resolve names. A Windows 8.3
+/// short name that may be one of them (`LODEST~1`) counts too.
+fn names_lodestone_entry(name: &str) -> bool {
+    let trimmed = name.trim_end_matches(['.', ' ']).to_lowercase();
+    trimmed.starts_with(".lodestone") || may_be_restore_folder_short_name(&trimmed)
+}
+
+/// [`is_protected`] for `path` in the instance folder `root`, which also protects
+/// Lodestone's own files there: everything at or below a name starting with `.lodestone`.
+/// Lodestone trusts what it wrote there: the modpack's record says which files an update
+/// may remove, and its history which files a restore downloads and puts back. Someone who
+/// could edit them could have a restore put any jar into `mods/`. A path outside `root`
+/// is protected.
+pub(crate) fn is_instance_protected(root: &FsPath, path: &FsPath, is_dir: bool) -> bool {
+    if is_protected(path, is_dir) {
+        return true;
+    }
+    match path.strip_prefix(root) {
+        Ok(inside) => inside
+            .components()
+            .any(|part| part.as_os_str().to_str().is_none_or(names_lodestone_entry)),
+        Err(_) => true,
+    }
+}
+
+/// Like [`is_instance_protected`], reading from disk whether `path` is a folder. Symbolic
+/// links are not followed, so a link is checked as a file.
+async fn is_path_protected(root: &FsPath, path: &FsPath) -> bool {
     let is_dir = tokio::fs::symlink_metadata(path)
         .await
         .map(|m| m.is_dir())
         .unwrap_or(false);
-    is_protected(path, is_dir)
+    is_instance_protected(root, path, is_dir)
 }
 
-/// Returns true if `dir` or anything below it is protected. Runs on a blocking thread and
-/// does not follow symbolic links.
-async fn contains_protected_entry(dir: PathBuf) -> Result<bool, Error> {
+/// Returns true if `dir` (in the instance folder `root`) or anything below it is protected,
+/// see [`is_instance_protected`]. Runs on a blocking thread and does not follow symbolic
+/// links.
+async fn contains_protected_entry(root: &FsPath, dir: PathBuf) -> Result<bool, Error> {
+    let root = root.to_path_buf();
     tokio::task::spawn_blocking(move || {
         for entry in WalkDir::new(&dir) {
             let entry =
                 entry.context("Failed to walk directory while scanning for protected files")?;
-            if is_protected(entry.path(), entry.file_type().is_dir()) {
+            if is_instance_protected(&root, entry.path(), entry.file_type().is_dir()) {
                 return Ok(true);
             }
         }
@@ -372,18 +592,23 @@ async fn write_instance_file(
     )?;
     let can_write_protected = can_write_protected(&requester);
     if uuid.to_string().starts_with("DOCKER-") {
-        // container paths are not on this disk, so check the name only
-        if !can_write_protected && is_protected(FsPath::new(&relative_path), false) {
-            return Err(protected_error(
-                "You don't have permission to write to this file",
-            ));
-        }
-        if is_code_path(FsPath::new(&relative_path), false) {
-            require_code_write(&state, &requester)?;
-        }
+        // Container paths are `<mount name>/<path in the mount>`, so check them by name:
+        // the path asked for, and the path it resolves to (through links in the mount).
+        let check = |path: &FsPath| {
+            if !can_write_protected && is_instance_protected(FsPath::new(""), path, false) {
+                return Err(protected_error(
+                    "You don't have permission to write to this file",
+                ));
+            }
+            if is_code_path(path, false) {
+                require_code_write(&state, &requester)?;
+            }
+            Ok(())
+        };
+        check(FsPath::new(&relative_path))?;
         state
             .docker_bridge
-            .write_container_file(&uuid, relative_path.into(), &body)
+            .write_container_file(&uuid, relative_path.into(), &body, check)
             .await?;
         return Ok(Json(()));
     }
@@ -395,7 +620,7 @@ async fn write_instance_file(
     drop(instance);
     let path = instance_join(&root, relative_path)?;
     // if target has a protected extension, or no extension, deny
-    if !can_write_protected && is_path_protected(&path).await {
+    if !can_write_protected && is_path_protected(&root, &path).await {
         return Err(protected_error(
             "You don't have permission to write to this file",
         ));
@@ -453,6 +678,128 @@ async fn make_instance_directory(
     Ok(Json(()))
 }
 
+/// Copies each of `sources` into the folder `dest` under its own name, or a free name next
+/// to it (`name_1.ext`) when that is taken, and returns where each went. Everything is
+/// copied into a temporary folder in `tmp_root` first and moved into `dest` once all of it
+/// copied, so a copy that fails leaves nothing behind.
+///
+/// The first file or folder that can't be read or written ends the copy with an error that
+/// names it. `fs_extra`, used before, retried a file it couldn't read forever, on a thread
+/// that never finished. Folders are walked without following symbolic links, and links
+/// are skipped, as zipping skips them: a link in a copied folder that pointed out of the
+/// instance (into Lodestone's stores, say) had what it pointed to copied in, where it could
+/// be read. Other special files, such as sockets and pipes, are skipped too. Sources with
+/// the same name (`a/config.yml` and `b/config.yml`) each get their own name instead of
+/// the second being dropped.
+///
+/// `progress` gets the bytes copied so far, the bytes to copy in all and the name of the
+/// file being copied: first once with nothing copied yet, then as each file copies.
+fn copy_entries_in(
+    sources: &[PathBuf],
+    dest: &FsPath,
+    tmp_root: &FsPath,
+    mut progress: impl FnMut(u64, u64, &str),
+) -> Result<Vec<PathBuf>, Error> {
+    use std::io::{Read, Write};
+
+    // a path as the person copying sees it: from the folder the source is in
+    let shown = |source: &FsPath, path: &FsPath| -> String {
+        let base = source.parent().unwrap_or(source);
+        path.strip_prefix(base)
+            .unwrap_or(path)
+            .display()
+            .to_string()
+    };
+    let walk_error = |source: &FsPath, e: walkdir::Error| -> Error {
+        let path = e.path().unwrap_or(source).to_path_buf();
+        eyre!(e)
+            .wrap_err(format!("Failed to read {}", shown(source, &path)))
+            .into()
+    };
+
+    let mut names = Vec::with_capacity(sources.len());
+    let mut total_bytes = 0_u64;
+    for source in sources {
+        let name = source.file_name().ok_or_else(|| Error {
+            kind: ErrorKind::BadRequest,
+            source: eyre!("Cannot copy {}", source.display()),
+        })?;
+        names.push(name.to_owned());
+        for entry in WalkDir::new(source) {
+            let entry = entry.map_err(|e| walk_error(source, e))?;
+            if entry.file_type().is_file() {
+                total_bytes += entry.metadata().map_err(|e| walk_error(source, e))?.len();
+            }
+        }
+    }
+    progress(0, total_bytes, "");
+
+    let tmp_dir = tempfile::tempdir_in(tmp_root).context("Failed to create temporary folder")?;
+    let mut copied_bytes = 0_u64;
+    let mut buffer = vec![0_u8; 256 * 1024];
+    let mut staged = Vec::with_capacity(sources.len());
+    for (i, (source, name)) in sources.iter().zip(&names).enumerate() {
+        // each source in a folder of its own, so sources with the same name don't meet
+        let folder = tmp_dir.path().join(i.to_string());
+        std::fs::create_dir(&folder).context("Failed to create temporary folder")?;
+        let to = folder.join(name);
+        for entry in WalkDir::new(source) {
+            let entry = entry.map_err(|e| walk_error(source, e))?;
+            let from = entry.path();
+            let target = match from.strip_prefix(source) {
+                Ok(inside) if inside.as_os_str().is_empty() => to.clone(),
+                Ok(inside) => to.join(inside),
+                Err(_) => continue,
+            };
+            let file_type = entry.file_type();
+            if file_type.is_dir() {
+                std::fs::create_dir(&target)
+                    .context(format!("Failed to copy {}", shown(source, from)))?;
+            } else if file_type.is_file() {
+                let read_error = || format!("Failed to read {}", shown(source, from));
+                let write_error = || format!("Failed to copy {}", shown(source, from));
+                let mut reader = std::fs::File::open(from).with_context(read_error)?;
+                let permissions = reader.metadata().with_context(read_error)?.permissions();
+                let mut writer = std::fs::OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .open(&target)
+                    .with_context(write_error)?;
+                let file_name = entry.file_name().to_string_lossy();
+                loop {
+                    let read = reader.read(&mut buffer).with_context(read_error)?;
+                    if read == 0 {
+                        break;
+                    }
+                    writer
+                        .write_all(&buffer[..read])
+                        .with_context(write_error)?;
+                    copied_bytes += read as u64;
+                    progress(copied_bytes, total_bytes, &file_name);
+                }
+                drop(writer);
+                // keeps a script runnable, as copying it did before
+                std::fs::set_permissions(&target, permissions).with_context(write_error)?;
+            }
+            // symbolic links and special files are skipped, see above
+        }
+        staged.push(to);
+    }
+
+    let mut copied = Vec::with_capacity(staged.len());
+    for (from, name) in staged.iter().zip(&names) {
+        // a symbolic link counts as taken even when what it points to doesn't exist
+        let taken = |path: &FsPath| std::fs::symlink_metadata(path).is_ok();
+        let to = resolve_path_conflict(dest.join(name), Some(&taken));
+        std::fs::rename(from, &to).context(format!(
+            "Failed to move {} into place",
+            name.to_string_lossy()
+        ))?;
+        copied.push(to);
+    }
+    Ok(copied)
+}
+
 #[derive(Deserialize, TS)]
 #[ts(export)]
 struct CopyInstanceFileRequest {
@@ -506,7 +853,7 @@ async fn copy_instance_files(
     }
 
     if !can_write_protected(&requester) {
-        if is_path_protected(&path_dest).await {
+        if is_path_protected(&root, &path_dest).await {
             return Err(protected_error(
                 "You don't have permission to write to this file",
             ));
@@ -522,8 +869,8 @@ async fn copy_instance_files(
                 kind: ErrorKind::BadRequest,
                 source: eyre!("Cannot copy {}", source.display()),
             })?;
-            if is_protected(&path_dest.join(name), is_dir)
-                || (is_dir && contains_protected_entry(source.clone()).await?)
+            if is_instance_protected(&root, &path_dest.join(name), is_dir)
+                || (is_dir && contains_protected_entry(&root, source.clone()).await?)
             {
                 return Err(protected_error(
                     "You don't have permission to copy protected files",
@@ -549,13 +896,13 @@ async fn copy_instance_files(
         let mut last_progression = 0_u64;
         let mut progression_event_id: Option<ProgressionEventID> = None;
 
-        let handle = |process_info: TransitProcess| {
+        let handle = |copied_bytes: u64, total_bytes: u64, file_name: &str| {
             if first {
                 // at least 1, so small copies do not divide by zero below
-                threshold = (process_info.total_bytes / 100).max(1);
+                threshold = (total_bytes / 100).max(1);
                 let (progression_event_start, id) = Event::new_progression_event_start(
                     "Copying files(s)",
-                    Some(process_info.total_bytes as f64),
+                    Some(total_bytes as f64),
                     None,
                     caused_by.clone(),
                 );
@@ -563,44 +910,25 @@ async fn copy_instance_files(
                 progression_event_id = Some(id);
                 first = false;
             } else if let Some(id) = progression_event_id.as_ref() {
-                let progression = process_info.copied_bytes / threshold;
+                let progression = copied_bytes / threshold;
                 if progression > last_progression {
+                    let steps = progression - last_progression;
                     last_progression = progression;
                     event_broadcaster.send(Event::new_progression_event_update(
                         id,
                         format!(
                             "Copying file {}, {}",
-                            process_info.file_name,
-                            format_byte_download(
-                                process_info.copied_bytes,
-                                process_info.total_bytes
-                            )
+                            file_name,
+                            format_byte_download(copied_bytes, total_bytes)
                         ),
-                        threshold as f64,
+                        (steps * threshold) as f64,
                     ));
                 }
             }
-            fs_extra::dir::TransitProcessResult::SkipAll
         };
 
         let inner = || -> Result<(), Error> {
-            let tmp_dir =
-                tempfile::tempdir_in(path_to_tmp()).context("Failed to create temporary file")?;
-            let temp_dir_path = tmp_dir.path().to_owned();
-
-            fs_extra::copy_items_with_progress(
-                &paths_source,
-                &temp_dir_path,
-                &fs_extra::dir::CopyOptions::new(),
-                handle,
-            )
-            .context("Failed to copy file(s)")?;
-
-            for entry in std::fs::read_dir(temp_dir_path).context("Failed to read tmp directory")? {
-                let entry = entry.context("Failed to read tmp directory")?;
-                let dest_path = resolve_path_conflict(path_dest.join(entry.file_name()), None);
-                std::fs::rename(entry.path(), dest_path).context("Failed to move file")?;
-            }
+            copy_entries_in(&paths_source, &path_dest, path_to_tmp(), handle)?;
             Ok(())
         };
 
@@ -666,8 +994,9 @@ async fn move_instance_file(
     })?;
     let root = real_root(instance.path().await).await;
     drop(instance);
-    let path_source = instance_join(&root, relative_path_source)?;
-    let path_dest = instance_join(&root, relative_path_dest)?;
+    // the entries themselves: renaming a symbolic link renames the link
+    let (path_source, source_target) = instance_join_entry(&root, relative_path_source)?;
+    let (path_dest, _) = instance_join_entry(&root, relative_path_dest)?;
 
     let relative_path_source = path_source
         .strip_prefix(&root)
@@ -676,43 +1005,51 @@ async fn move_instance_file(
         .strip_prefix(&root)
         .context("Error stripping prefix")?;
 
-    let is_dir = tokio::fs::symlink_metadata(&path_source)
+    let metadata = tokio::fs::symlink_metadata(&path_source)
         .await
         .context(format!(
             "Error moving file from {} to {}",
             relative_path_source.display(),
             relative_path_dest.display()
-        ))?
-        .is_dir();
+        ))?;
+    let is_dir = metadata.is_dir();
+    let is_link = metadata.is_symlink();
+    // a link is checked as what it points to as well, as it was before links were
+    // renamed themselves
+    let target_is_dir = if is_link {
+        tokio::fs::metadata(&source_target)
+            .await
+            .map(|m| m.is_dir())
+            .unwrap_or(false)
+    } else {
+        is_dir
+    };
 
     // moving a script creates code at the destination
-    if is_instance_code_path(&root, &path_dest, is_dir)
+    if is_instance_code_path(&root, &path_dest, target_is_dir)
         || (!is_dir && is_script_path(&path_source))
-        || (is_dir && contains_script(path_source.clone()).await?)
+        || (is_link && !target_is_dir && is_script_path(&source_target))
+        || (target_is_dir && contains_script(source_target.clone()).await?)
     {
         require_code_write(&state, &requester)?;
     }
 
-    // the destination becomes the same kind of entry as the source
+    // the destination becomes the same kind of entry as the source. A link moves alone, so
+    // what is in the folder it points to stays where it is.
     if !can_write_protected(&requester)
-        && (is_protected(&path_source, is_dir)
-            || is_protected(&path_dest, is_dir)
-            || (is_dir && contains_protected_entry(path_source.clone()).await?))
+        && (is_entry_protected(&root, &path_source, &source_target, &metadata).await
+            || is_instance_protected(&root, &path_dest, target_is_dir)
+            || (is_dir && contains_protected_entry(&root, path_source.clone()).await?))
     {
         return Err(protected_error(
             "You don't have permission to write to this file",
         ));
     }
 
-    // if the destination is a subdirectory of the source, we reject the request
-    if path_dest.starts_with(&path_source) {
-        return Err(Error {
-            kind: ErrorKind::BadRequest,
-            source: eyre!("Destination is a subdirectory of the source"),
-        });
-    }
-
-    let path_dest = resolve_path_conflict(path_dest.to_owned(), None);
+    let Some(path_dest) = move_destination(&path_source, &path_dest)? else {
+        // renamed to the name it has
+        return Ok(Json(()));
+    };
 
     tokio::fs::rename(&path_source, &path_dest)
         .await
@@ -752,24 +1089,13 @@ async fn remove_instance_file(
     })?;
     let root = real_root(instance.path().await).await;
     drop(instance);
-    let path = instance_join(root, &relative_path)?;
-    let metadata = tokio::fs::symlink_metadata(&path)
-        .await
-        .context(format!("Failed to find {relative_path}"))?;
-    if metadata.is_dir() {
-        return Err(Error {
-            kind: ErrorKind::BadRequest,
-            source: eyre!("{relative_path} is a folder"),
-        });
-    }
-    // if target has a protected extension, or no extension, deny
-    if !can_write_protected(&requester) && is_protected(&path, false) {
-        return Err(protected_error("File extension is protected"));
-    }
-
-    tokio::fs::remove_file(&path)
-        .await
-        .context(format!("Failed to remove {relative_path}"))?;
+    let (path, _) = delete_entry(
+        &root,
+        &relative_path,
+        false,
+        can_write_protected(&requester),
+    )
+    .await?;
 
     let caused_by = requester.caused_by();
     state.event_broadcaster.send(new_fs_event(
@@ -797,26 +1123,13 @@ async fn remove_instance_dir(
     })?;
     let root = real_root(instance.path().await).await;
     drop(instance);
-    let path = instance_join(&root, relative_path)?;
-    if path == root {
-        return Err(Error {
-            kind: ErrorKind::PermissionDenied,
-            source: eyre!("Cannot delete the server's root folder"),
-        });
-    }
-    // the folder itself, or anything in it, is protected
-    if !can_write_protected(&requester) && contains_protected_entry(path.clone()).await? {
-        return Err(protected_error("Directory contains protected files"));
-    }
-
-    tokio::fs::remove_dir_all(&path)
-        .await
-        .context("Failed to remove directory")?;
+    let (path, is_dir) =
+        delete_entry(&root, &relative_path, true, can_write_protected(&requester)).await?;
 
     let caused_by = requester.caused_by();
     state.event_broadcaster.send(new_fs_event(
         FSOperation::Delete,
-        FSTarget::Directory(path),
+        fs_target(path, is_dir),
         caused_by,
     ));
     Ok(Json(()))
@@ -841,14 +1154,15 @@ async fn new_instance_file(
     drop(instance);
     let path = instance_join(&root, relative_path)?;
     // if target has a protected extension, or no extension, deny
-    if !can_write_protected(&requester) && is_protected(&path, false) {
+    if !can_write_protected(&requester) && is_instance_protected(&root, &path, false) {
         return Err(protected_error("File extension is protected"));
     }
     if is_instance_code_path(&root, &path, false) {
         require_code_write(&state, &requester)?;
     }
 
-    crate::util::fs::create(&path).await?;
+    // never replaces an existing file, see `create_new`
+    crate::util::fs::create_new(&path).await?;
 
     let caused_by = requester.caused_by();
     state.event_broadcaster.send(new_fs_event(
@@ -972,7 +1286,7 @@ async fn upload_instance_file(
             let name = upload_file_name(&field)?;
             let path = resolve_path_conflict(instance_join(&path_to_dir, &name)?, None);
             // if the file has a protected extension, or no extension, deny
-            if !can_write_protected && is_protected(&path, false) {
+            if !can_write_protected && is_instance_protected(&root, &path, false) {
                 return Err(protected_error("File extension is protected"));
             }
             if is_instance_code_path(&root, &path, false) {
@@ -1095,10 +1409,20 @@ fn code_entry_check(
         for dir in &destinations {
             refuse_restore_folder_short_names(&root, &dir.join(relative_path))?;
         }
+        let is_dir = file_type.is_dir();
         if !can_write_protected {
             check_unzipped_entry(relative_path, file_type)?;
+            // and where it lands: not in Lodestone's own folders
+            let lands_protected = destinations
+                .iter()
+                .any(|dir| is_instance_protected(&root, &dir.join(relative_path), is_dir));
+            if lands_protected {
+                return Err(protected_error(&format!(
+                    "The archive contains a protected file ({})",
+                    relative_path.display()
+                )));
+            }
         }
-        let is_dir = file_type.is_dir();
         let is_code = (!is_dir && is_script_path(relative_path))
             || destinations
                 .iter()
@@ -1141,7 +1465,7 @@ pub async fn unzip_instance_file(
     let unzip_option = match unzip_option {
         UnzipOption::ToDir(dir) => {
             let dir = instance_join(&root, dir)?;
-            if !can_write_protected && is_protected(&dir, true) {
+            if !can_write_protected && is_instance_protected(&root, &dir, true) {
                 return Err(protected_error("Destination is protected"));
             }
             UnzipOption::ToDir(dir)
@@ -1236,9 +1560,13 @@ async fn zip_instance_files(
     for path in &mut target_relative_paths {
         *path = instance_join(&root, &*path)?;
     }
-    destination_relative_path = instance_join(&root, &destination_relative_path)?;
+    // never the instance folder itself, which `zip_files_async` would replace with a free
+    // name next to it, outside the instance
+    (destination_relative_path, _) = instance_join_entry(&root, &destination_relative_path)?;
 
-    if !can_write_protected(&requester) && is_protected(&destination_relative_path, false) {
+    if !can_write_protected(&requester)
+        && is_instance_protected(&root, &destination_relative_path, false)
+    {
         return Err(protected_error("Destination is protected"));
     }
     if is_instance_code_path(&root, &destination_relative_path, false) {
@@ -1500,6 +1828,274 @@ mod tests {
         assert!(is_instance_code_path(&root, &joined, false));
     }
 
+    /// Moving or zipping to the instance folder itself is refused, since it would pick a
+    /// free name next to the instance folder, outside it (LS-12).
+    #[test]
+    fn the_instance_folder_itself_is_not_an_entry() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(temp.path()).unwrap();
+        std::fs::create_dir_all(root.join("world")).unwrap();
+        for path in ["", ".", "/", "./", "world/..", "world/../.", "../.."] {
+            assert!(instance_join_entry(&root, path).is_err(), "{path:?}");
+            // as it was: the whole path resolves to the root
+            assert_eq!(instance_join(&root, path).unwrap(), root, "{path:?}");
+        }
+        for (path, entry) in [
+            ("world", "world"),
+            ("world/.", "world"),
+            ("world/../level.dat", "level.dat"),
+            ("/world/level.dat", "world/level.dat"),
+            ("../../world", "world"),
+        ] {
+            let (joined, resolved) = instance_join_entry(&root, path).unwrap();
+            assert_eq!(joined, root.join(entry), "{path:?}");
+            assert_eq!(resolved, joined, "{path:?}");
+        }
+        // and the move picks no name outside it
+        assert!(move_destination(&root.join("world"), &root.join("world"))
+            .unwrap()
+            .is_none());
+    }
+
+    /// Deleting or renaming a symbolic link acts on the link, not on what it points to
+    /// (LS-14).
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn links_are_deleted_and_renamed_themselves() {
+        use std::os::unix::fs::symlink;
+        let temp = tempfile::tempdir().unwrap();
+        let base = std::fs::canonicalize(temp.path()).unwrap();
+        let root = base.join("server");
+        std::fs::create_dir_all(root.join("world")).unwrap();
+        std::fs::write(root.join("world/level.dat"), "level").unwrap();
+        std::fs::write(root.join("start.sh"), "").unwrap();
+        std::fs::create_dir_all(base.join("outside")).unwrap();
+        std::fs::write(base.join("outside/keep.txt"), "keep").unwrap();
+        symlink("world", root.join("backup_world")).unwrap();
+        symlink(base.join("outside"), root.join("out")).unwrap();
+        symlink("world/level.dat", root.join("level.txt")).unwrap();
+        symlink("start.sh", root.join("readme.txt")).unwrap();
+
+        let (entry, resolved) = instance_join_entry(&root, "backup_world").unwrap();
+        assert_eq!(entry, root.join("backup_world"));
+        assert_eq!(resolved, root.join("world"));
+
+        // a link to a folder, deleted as a folder: the folder stays
+        let (path, is_dir) = delete_entry(&root, "backup_world", true, false)
+            .await
+            .unwrap();
+        assert_eq!((path, is_dir), (root.join("backup_world"), false));
+        assert!(std::fs::symlink_metadata(root.join("backup_world")).is_err());
+        assert_eq!(
+            std::fs::read_to_string(root.join("world/level.dat")).unwrap(),
+            "level"
+        );
+
+        // a link that points out of the instance can be deleted, and only the link goes.
+        // What it points to isn't in the instance, so its name is checked as a file's, and
+        // a name without an extension is protected.
+        assert!(delete_entry(&root, "out", true, false).await.is_err());
+        delete_entry(&root, "out", true, true).await.unwrap();
+        assert!(std::fs::symlink_metadata(root.join("out")).is_err());
+        assert!(base.join("outside/keep.txt").exists());
+
+        // a link to a file, deleted as a file
+        delete_entry(&root, "level.txt", false, false)
+            .await
+            .unwrap();
+        assert!(root.join("world/level.dat").exists());
+
+        // a harmless name linked to a protected file is protected as that file
+        assert!(delete_entry(&root, "readme.txt", false, false)
+            .await
+            .is_err());
+        delete_entry(&root, "readme.txt", false, true)
+            .await
+            .unwrap();
+        assert!(root.join("start.sh").exists());
+
+        // a real folder is deleted, and still isn't deleted as a file
+        assert!(delete_entry(&root, "world", false, true).await.is_err());
+        delete_entry(&root, "world", true, true).await.unwrap();
+        assert!(!root.join("world").exists());
+
+        // a rename moves the link: its new name is free, so it is used as it is
+        symlink("start.sh", root.join("run")).unwrap();
+        let (source, _) = instance_join_entry(&root, "run").unwrap();
+        let (dest, _) = instance_join_entry(&root, "run2").unwrap();
+        assert_eq!(
+            move_destination(&source, &dest).unwrap(),
+            Some(root.join("run2"))
+        );
+        // a dangling link is taken too, rather than replaced
+        symlink("nowhere", root.join("dangling")).unwrap();
+        let (dest, _) = instance_join_entry(&root, "dangling").unwrap();
+        assert_eq!(
+            move_destination(&source, &dest).unwrap(),
+            Some(root.join("dangling_1"))
+        );
+    }
+
+    /// Renaming to the same name changes nothing, and a rename that only changes letter
+    /// case keeps the new name, also where the file system ignores case (LS-31).
+    #[test]
+    fn renames_to_the_same_name_or_other_case() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(temp.path()).unwrap();
+        std::fs::write(root.join("Server.properties"), "motd=hi").unwrap();
+        let source = root.join("Server.properties");
+        assert_eq!(move_destination(&source, &source).unwrap(), None);
+
+        let dest = root.join("server.properties");
+        assert_eq!(
+            move_destination(&source, &dest).unwrap(),
+            Some(dest.clone())
+        );
+        std::fs::rename(&source, &dest).unwrap();
+        let names: Vec<_> = std::fs::read_dir(&root)
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        assert_eq!(names, ["server.properties"]);
+
+        // where both spellings are separate files, the other one isn't replaced
+        std::fs::write(root.join("A.txt"), "upper").unwrap();
+        if !root.join("a.txt").exists() {
+            std::fs::write(root.join("a.txt"), "lower").unwrap();
+            assert_eq!(
+                move_destination(&root.join("A.txt"), &root.join("a.txt")).unwrap(),
+                Some(root.join("a_1.txt"))
+            );
+        }
+        // a different file whose name differs only in case is never "the source"
+        std::fs::write(root.join("b.txt"), "b").unwrap();
+        assert_eq!(
+            move_destination(&root.join("A.txt"), &root.join("b.txt")).unwrap(),
+            Some(root.join("b_1.txt"))
+        );
+        // a folder still can't move into itself
+        std::fs::create_dir(root.join("world")).unwrap();
+        assert!(move_destination(&root.join("world"), &root.join("world/sub")).is_err());
+    }
+
+    /// Copying a folder with a file that can't be read ends with an error naming the file,
+    /// and leaves nothing behind (LS-37). `fs_extra` retried it forever.
+    #[cfg(unix)]
+    #[test]
+    fn a_copy_that_cant_read_a_file_fails_and_leaves_nothing() {
+        use std::os::unix::fs::PermissionsExt;
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("server");
+        let tmp = temp.path().join("tmp");
+        std::fs::create_dir_all(root.join("world/region")).unwrap();
+        std::fs::create_dir_all(&tmp).unwrap();
+        std::fs::write(root.join("world/level.dat"), "level").unwrap();
+        let locked = root.join("world/region/r.0.0.mca");
+        std::fs::write(&locked, "region").unwrap();
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+        if std::fs::File::open(&locked).is_ok() {
+            // running as root, which reads anything
+            return;
+        }
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        let (sources, dest, tmp_root) =
+            (vec![root.join("world")], root.join("backup"), tmp.clone());
+        std::fs::create_dir_all(&dest).unwrap();
+        std::thread::spawn(move || {
+            let _ = done_tx.send(copy_entries_in(&sources, &dest, &tmp_root, |_, _, _| {}));
+        });
+        let result = done_rx
+            .recv_timeout(std::time::Duration::from_secs(30))
+            .expect("the copy never finished");
+        let error = result.unwrap_err().to_string();
+        assert!(error.contains("world/region/r.0.0.mca"), "{error}");
+        assert_eq!(std::fs::read_dir(root.join("backup")).unwrap().count(), 0);
+        assert_eq!(std::fs::read_dir(&tmp).unwrap().count(), 0);
+    }
+
+    /// A copied folder's symbolic links aren't followed: what they point to, maybe outside
+    /// the instance, isn't copied in (LS-37).
+    #[cfg(unix)]
+    #[test]
+    fn a_copy_skips_symbolic_links() {
+        use std::os::unix::fs::{symlink, PermissionsExt};
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("server");
+        let tmp = temp.path().join("tmp");
+        let stores = temp.path().join("stores");
+        std::fs::create_dir_all(root.join("d")).unwrap();
+        std::fs::create_dir_all(&tmp).unwrap();
+        std::fs::create_dir_all(&stores).unwrap();
+        std::fs::write(stores.join("users.json"), "secret").unwrap();
+        std::fs::write(root.join("d/start.sh"), "echo").unwrap();
+        std::fs::set_permissions(
+            root.join("d/start.sh"),
+            std::fs::Permissions::from_mode(0o755),
+        )
+        .unwrap();
+        symlink(&stores, root.join("d/s")).unwrap();
+        symlink(stores.join("users.json"), root.join("d/users.json")).unwrap();
+
+        let mut calls = Vec::new();
+        let copied = copy_entries_in(&[root.join("d")], &root, &tmp, |copied, total, _| {
+            calls.push((copied, total))
+        })
+        .unwrap();
+        assert_eq!(copied, [root.join("d_1")]);
+        assert!(std::fs::symlink_metadata(root.join("d_1/s")).is_err());
+        assert!(std::fs::symlink_metadata(root.join("d_1/users.json")).is_err());
+        assert_eq!(
+            std::fs::read_to_string(root.join("d_1/start.sh")).unwrap(),
+            "echo"
+        );
+        // still runnable
+        let mode = std::fs::metadata(root.join("d_1/start.sh"))
+            .unwrap()
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o777, 0o755);
+        // starts with nothing copied, and counts only the real file
+        assert_eq!(calls.first(), Some(&(0, 4)));
+        assert_eq!(calls.last(), Some(&(4, 4)));
+    }
+
+    /// Copying sources that share a name keeps each of them (LS-37).
+    #[test]
+    fn a_copy_keeps_sources_with_the_same_name() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("server");
+        let tmp = temp.path().join("tmp");
+        for folder in ["a", "b", "backup"] {
+            std::fs::create_dir_all(root.join(folder)).unwrap();
+        }
+        std::fs::create_dir_all(&tmp).unwrap();
+        std::fs::write(root.join("a/config.yml"), "a").unwrap();
+        std::fs::write(root.join("b/config.yml"), "b").unwrap();
+        let copied = copy_entries_in(
+            &[root.join("a/config.yml"), root.join("b/config.yml")],
+            &root.join("backup"),
+            &tmp,
+            |_, _, _| {},
+        )
+        .unwrap();
+        assert_eq!(
+            copied,
+            [
+                root.join("backup/config.yml"),
+                root.join("backup/config_1.yml")
+            ]
+        );
+        assert_eq!(std::fs::read_to_string(&copied[0]).unwrap(), "a");
+        assert_eq!(std::fs::read_to_string(&copied[1]).unwrap(), "b");
+        // and copying a folder to where it is gives the copy a new name
+        let copied = copy_entries_in(&[root.join("a")], &root, &tmp, |_, _, _| {}).unwrap();
+        assert_eq!(copied, [root.join("a_1")]);
+        assert_eq!(
+            std::fs::read_to_string(root.join("a_1/config.yml")).unwrap(),
+            "a"
+        );
+    }
+
     #[test]
     fn test_protected_extensions() {
         assert!(file("server.jar"));
@@ -1636,14 +2232,127 @@ mod tests {
         let world = temp.path().join("world");
         std::fs::create_dir_all(world.join("region")).unwrap();
         std::fs::write(world.join("level.dat"), "").unwrap();
-        assert!(!contains_protected_entry(world.clone()).await.unwrap());
+        let root = temp.path();
+        assert!(!contains_protected_entry(root, world.clone()).await.unwrap());
 
         std::fs::write(world.join("region").join("Payload.JAR"), "").unwrap();
-        assert!(contains_protected_entry(world.clone()).await.unwrap());
+        assert!(contains_protected_entry(root, world.clone()).await.unwrap());
 
         let modded = temp.path().join("modded");
         std::fs::create_dir_all(modded.join("mods")).unwrap();
-        assert!(contains_protected_entry(modded).await.unwrap());
+        assert!(contains_protected_entry(root, modded).await.unwrap());
+
+        // Lodestone's own folders, and any folder in them
+        let modpack = temp.path().join(".lodestone_modpack");
+        std::fs::create_dir_all(modpack.join("objects")).unwrap();
+        assert!(contains_protected_entry(root, modpack.clone())
+            .await
+            .unwrap());
+        assert!(contains_protected_entry(root, modpack.join("objects"))
+            .await
+            .unwrap());
+        let parent = temp.path().join("old");
+        std::fs::create_dir_all(parent.join(".lodestone_modpack")).unwrap();
+        assert!(contains_protected_entry(root, parent).await.unwrap());
+    }
+
+    /// The Mods tab enables a disabled jar by renaming it, so it is protected as a jar is
+    /// (LS-17).
+    #[test]
+    fn disabled_jars_are_protected() {
+        for name in [
+            "x.jar.disabled",
+            "X.JAR.Disabled",
+            "x.jar.disabled.",
+            "x.jar..disabled",
+        ] {
+            assert!(file(name), "{name}");
+        }
+        assert!(file("mods/x.jar.disabled"));
+        for name in ["config.toml.disabled", "notes.txt.disabled"] {
+            assert!(!file(name), "{name}");
+        }
+    }
+
+    /// The modpack's record and history decide what an update removes and what a restore
+    /// downloads, so only users who can write protected files may change them (LS-02).
+    #[test]
+    fn lodestones_own_files_are_protected() {
+        let root = FsPath::new("/home/me/.lodestone/instances/a");
+        for path in [
+            ".lodestone_modpack/history.json",
+            ".lodestone_modpack/record.json",
+            ".lodestone_modpack/objects/ab/abcdef",
+            ".Lodestone_Modpack./history.json",
+            "LODEST~1/history.json",
+            ".lodestone_config",
+            ".lodestone_whatever/notes.txt",
+        ] {
+            assert!(
+                is_instance_protected(root, &root.join(path), false),
+                "{path}"
+            );
+        }
+        assert!(is_instance_protected(
+            root,
+            &root.join(".lodestone_modpack"),
+            true
+        ));
+        // the data folder's own `.lodestone` above the instance doesn't count
+        for path in [
+            "world/level.dat",
+            "config/a.json",
+            "notes.txt",
+            "lodestone.txt",
+        ] {
+            assert!(
+                !is_instance_protected(root, &root.join(path), false),
+                "{path}"
+            );
+        }
+        assert!(!is_instance_protected(root, &root.join("world"), true));
+        // the name rules still hold, and a path elsewhere is protected
+        assert!(is_instance_protected(root, &root.join("mods/a.jar"), false));
+        assert!(is_instance_protected(
+            root,
+            FsPath::new("/elsewhere/a.txt"),
+            false
+        ));
+        // a container's paths are relative
+        assert!(is_instance_protected(
+            FsPath::new(""),
+            FsPath::new(".lodestone_modpack/history.json"),
+            false
+        ));
+        assert!(!is_instance_protected(
+            FsPath::new(""),
+            FsPath::new("config/a.json"),
+            false
+        ));
+    }
+
+    #[test]
+    fn archives_cant_write_into_lodestones_folders() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().to_path_buf();
+        std::fs::write(root.join("history.json"), "").unwrap();
+        let file_type = std::fs::symlink_metadata(root.join("history.json"))
+            .unwrap()
+            .file_type();
+        let restricted = |destination: PathBuf| {
+            code_entry_check(
+                root.clone(),
+                vec![destination],
+                false,
+                true,
+                CodeExecutionSwitch::new(true),
+            )
+        };
+        let into_root = restricted(root.clone());
+        assert!(into_root(FsPath::new(".lodestone_modpack/history.json"), &file_type).is_err());
+        assert!(into_root(FsPath::new("config/history.json"), &file_type).is_ok());
+        let into_modpack = restricted(root.join(".lodestone_modpack"));
+        assert!(into_modpack(FsPath::new("history.json"), &file_type).is_err());
     }
 
     #[test]

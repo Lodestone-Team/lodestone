@@ -58,6 +58,7 @@ jobs:
     with:
       version: ${{ needs.draft.outputs.tag }}
       ref: ${{ needs.draft.outputs.commit }}
+      prerelease: ${{ needs.draft.outputs.prerelease }}
       debug: false
     secrets:
       TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
@@ -72,6 +73,7 @@ jobs:
     with:
       version: ${{ needs.draft.outputs.tag }}
       ref: ${{ needs.draft.outputs.commit }}
+      prerelease: ${{ needs.draft.outputs.prerelease }}
 
   # Both build jobs put their files in the draft as well as in this run's
   # artifacts, so the artifacts go once both succeeded. A failed run keeps them.

@@ -76,6 +76,7 @@ pub fn text(message: M) -> &'static str {
         M::FilesCreateFolder => "Créer le dossier",
         M::FilesRenameFile => "Renommer le fichier",
         M::FilesNameRequired => "Saisissez un nom.",
+        M::FilesNameTaken => "Un fichier ou un dossier nommé {name} existe déjà ici.",
         M::FilesDeletedFile => "Fichier supprimé : {name}",
         M::FilesDeletedFolder => "Dossier supprimé : {path}",
         M::FilesMoveFailed => "Échec du déplacement de {name} : {error}",

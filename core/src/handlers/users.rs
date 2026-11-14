@@ -177,7 +177,16 @@ pub async fn rename_user(
     requester: AuthedUser,
     Json(new_name): Json<String>,
 ) -> Result<Json<()>, Error> {
+    // The username is what people sign in with, so a key scoped to some permissions (a
+    // launcher's, or a script's custom one) must not change it, even its own user's.
+    requester.require_session_or_full_key()?;
     require_self_or_manage_user(&requester, &uid, "rename other users")?;
+    // The same rules as the owner's username, so nobody ends up with a blank name they
+    // can't sign in with.
+    let new_name = crate::remote_access::owner_username(&new_name).map_err(|_| Error {
+        kind: ErrorKind::BadRequest,
+        source: eyre!("A username must have 1 to 64 characters"),
+    })?;
     state
         .users_manager
         .write()

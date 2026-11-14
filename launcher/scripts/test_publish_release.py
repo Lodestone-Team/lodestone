@@ -1,8 +1,10 @@
 """Tests for publish_release.py's manifest logic: python3 launcher/scripts/test_publish_release.py"""
 
 import os
+import re
 import sys
 import tempfile
+import tomllib
 import unittest
 from pathlib import Path
 
@@ -652,6 +654,21 @@ class Host(unittest.TestCase):
         self.assertTrue(any("EULA" in line for line in lines))
         self.assertFalse(any(line.startswith("Windows:") for line in lines))
 
+    def test_the_core_links_the_c_runtime_statically_on_windows_only(self):
+        # LS-40: the core builds from the root workspace, where the launcher's
+        # .cargo/config.toml (and its +crt-static) doesn't apply.
+        cmd = pr.core_build_command("release", "x86_64-pc-windows-msvc")
+        self.assertIn("--no-default-features", cmd)
+        self.assertEqual(cmd[cmd.index("--target") + 1], "x86_64-pc-windows-msvc")
+        config = tomllib.loads(cmd[cmd.index("--config") + 1])
+        launcher = tomllib.loads((pr.LAUNCHER / ".cargo" / "config.toml").read_text())
+        # the same target table the launcher's config uses, so only MSVC builds get it
+        self.assertEqual(set(config["target"]), set(launcher["target"]))
+        (scope,) = config["target"]
+        self.assertEqual(scope, 'cfg(all(windows, target_env = "msvc"))')
+        self.assertEqual(config["target"][scope]["rustflags"], ["-C", "target-feature=+crt-static"])
+        self.assertNotIn("--target", pr.core_build_command("dev-build", None))
+
 
 def staged_dev(folder, build, keys, commit="abc1234def", extras=()):
     """A developer build staged as `stage(dev=True)` leaves it."""
@@ -802,6 +819,35 @@ class Dev(unittest.TestCase):
                           pr.dev_release_notes("host-dev-12-ab12cd3", "ab12cd3ef0"))
         finally:
             pr.use_product("launcher")
+
+
+class Workflows(unittest.TestCase):
+    """The release workflows' steps that run this script."""
+
+    def test_a_failure_isnt_hidden_by_a_pipe(self):
+        # LS-34: a step without `shell: bash` runs as `bash -e` without pipefail, so
+        # `publish_release.py ... | tee` passed even when the script exited 1.
+        folder = pr.ROOT / ".github" / "workflows"
+        checked = 0
+        for path in sorted(folder.glob("*.yml")):
+            steps = re.split(r"\n(?=\s*- (?:name|uses):)", path.read_text())
+            for text in steps:
+                if "publish_release.py" in text and re.search(r"\|\s*tee\b", text):
+                    checked += 1
+                    with self.subTest(workflow=path.name, step=text.strip().splitlines()[0]):
+                        self.assertTrue(re.search(r"^\s*shell: bash\s*$", text, re.M)
+                                        or "pipefail" in text)
+        self.assertGreater(checked, 0)
+
+    def test_builds_keep_the_drafts_prerelease_flag(self):
+        # LS-66: the core and dashboard builds updated release-draft.yml's stable
+        # vX.Y.Z draft with `prerelease: true`, so it was published as a pre-release.
+        folder = pr.ROOT / ".github" / "workflows"
+        for path in sorted(folder.glob("*.yml")):
+            with self.subTest(workflow=path.name):
+                self.assertNotRegex(path.read_text(), r"(?m)^\s*prerelease: true\s*$")
+        release = (folder / "release.yml").read_text()
+        self.assertEqual(release.count("prerelease: ${{ needs.draft.outputs.prerelease }}"), 2)
 
 
 if __name__ == "__main__":

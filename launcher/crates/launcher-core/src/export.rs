@@ -120,8 +120,8 @@ pub fn curseforge_only_files(instance_dir: &Path) -> HashMap<String, String> {
         .collect()
 }
 
-/// Whether a file at `relative` can be an index entry: a mod jar, or a resource or
-/// shader pack zip, directly in its folder.
+/// Whether a file at `relative` can be an index entry: a mod jar (turned off too, as
+/// `.jar.disabled`), or a resource or shader pack zip, directly in its folder.
 fn index_candidate(relative: &str) -> Option<ContentKind> {
     let (dir, name) = relative.split_once('/')?;
     if name.contains('/') {
@@ -129,7 +129,12 @@ fn index_candidate(relative: &str) -> Option<ContentKind> {
     }
     let lower = name.to_ascii_lowercase();
     match dir {
-        "mods" if lower.ends_with(".jar") => Some(ContentKind::Mod),
+        // A mod that is turned off is the same file renamed, and `content.json` has it
+        // under its own name, so it is listed or left out like one that is on: copying it
+        // would hand out a CurseForge author's file all the same.
+        "mods" if lower.ends_with(".jar") || crate::content::is_disabled_name(name) => {
+            Some(ContentKind::Mod)
+        }
         "resourcepacks" if lower.ends_with(".zip") => Some(ContentKind::ResourcePack),
         "shaderpacks" if lower.ends_with(".zip") => Some(ContentKind::ShaderPack),
         _ => None,
@@ -517,6 +522,40 @@ mod tests {
             sodium.hashes.sha1,
             lodestone_minecraft::hash::sha1_of(&game.join("mods/sodium.jar")).unwrap()
         );
+    }
+
+    #[test]
+    fn mods_turned_off_are_listed_or_left_out_like_the_others() {
+        let dir = tempfile::tempdir().unwrap();
+        let game = dir.path().join("minecraft");
+        fs::create_dir_all(game.join("mods")).unwrap();
+        fs::write(game.join("mods/jei.jar.disabled"), b"curseforge only").unwrap();
+        fs::write(game.join("mods/sodium.jar.DISABLED"), b"sodium").unwrap();
+        fs::write(game.join("mods/mine.jar.disabled"), b"my own").unwrap();
+        let sha512 = |name: &str| lodestone_minecraft::hash::sha512_of(&game.join(name)).unwrap();
+        let on_modrinth = HashMap::from([(
+            sha512("mods/sodium.jar.DISABLED"),
+            ModrinthFile {
+                url: "https://cdn.modrinth.com/data/sodium.jar".to_string(),
+                server_side: "optional".into(),
+            },
+        )]);
+        let curseforge_only = HashMap::from([(
+            sha512("mods/jei.jar.disabled"),
+            "Just Enough Items".to_string(),
+        )]);
+        let plan = plan_leaving_out(&instance(), &game, &on_modrinth, &curseforge_only).unwrap();
+        assert_eq!(plan.curseforge_left_out, ["Just Enough Items"]);
+        assert!(
+            plan.skipped
+                .iter()
+                .any(|(path, _)| path == "mods/jei.jar.disabled")
+        );
+        // Downloaded off, as it was.
+        let index: Vec<&str> = plan.index.files.iter().map(|f| f.path.as_str()).collect();
+        assert_eq!(index, ["mods/sodium.jar.DISABLED"]);
+        let overrides: Vec<&str> = plan.overrides.iter().map(|(n, _)| n.as_str()).collect();
+        assert_eq!(overrides, ["overrides/mods/mine.jar.disabled"]);
     }
 
     #[test]

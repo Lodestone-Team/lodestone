@@ -3012,6 +3012,7 @@ impl ContentView {
                             version_for_click.clone(),
                             Some(project_for_click.clone()),
                             forcing,
+                            with_dependencies,
                             cx,
                         )
                     }))

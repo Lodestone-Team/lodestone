@@ -493,17 +493,31 @@ impl Installer {
                 self.run_recorded(items, &record_path, &version.sha1, verify, progress, cancel)
                     .await?;
                 if let Some(installer) = &child.installer {
-                    self.restore_installer_files(&child.version, installer, verify)?;
-                    self.run_processors(
-                        &version.id,
-                        installer,
-                        &vanilla,
-                        &vanilla_jar,
-                        &java_path,
-                        verify,
-                        progress,
-                        cancel,
-                    )?;
+                    let from_installer = || -> Result<(), InstallError> {
+                        self.restore_installer_files(&child.version, installer, verify)?;
+                        self.run_processors(
+                            &version.id,
+                            installer,
+                            &vanilla,
+                            &vanilla_jar,
+                            &java_path,
+                            verify,
+                            progress,
+                            cancel,
+                        )
+                    };
+                    match (from_installer(), loader) {
+                        // The installer jar is only downloaded with the profile, and
+                        // only opened when something has to come out of it. Gone
+                        // since (deleted with `libraries/`, say), it is downloaded
+                        // again, so Play and "Verify game files" can repair the files.
+                        (Err(_), Some(choice)) if !installer.is_file() => {
+                            self.fetch_installer(choice, installer, progress, cancel)
+                                .await?;
+                            from_installer()?;
+                        }
+                        (result, _) => result?,
+                    }
                 }
                 (merged, client_jar)
             }

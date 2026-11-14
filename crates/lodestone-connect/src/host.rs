@@ -17,7 +17,7 @@
 use std::{
     collections::{HashMap, VecDeque},
     fmt,
-    net::{SocketAddr, UdpSocket},
+    net::{Ipv4Addr, SocketAddr, UdpSocket},
     sync::{
         atomic::{AtomicU64, AtomicUsize, Ordering},
         Arc, Mutex,
@@ -26,11 +26,16 @@ use std::{
 };
 
 use serde::{Deserialize, Serialize};
-use tokio::{io::AsyncWriteExt as _, sync::watch, task::JoinHandle};
+use tokio::{
+    io::AsyncWriteExt as _,
+    sync::{watch, Notify},
+    task::JoinHandle,
+};
 
 use crate::{
     addr::{canonical, ConnectionKind},
-    gather::{self, Candidate, GatherOptions},
+    friend::gate::Gate,
+    gather::{self, Candidate, CandidateKind, GatherOptions},
     hex, portmap, probe,
     service::{Event, Registered, Service},
     tunnel::{self, StreamKind, TunnelStream, HELLO_ANSWER, PROVE_WITHIN, TOKEN_LEN},
@@ -43,8 +48,9 @@ const SPRAY_FOR: Duration = Duration::from_secs(60);
 const RENEW_EVERY: Duration = Duration::from_secs(23 * 60 * 60);
 /// Renew early once this many friends have joined (a kept invite takes 64 a day).
 const RENEW_AFTER_JOINS: u64 = 48;
-/// How often the router's forwarding is renewed (it lasts an hour).
-const PORTMAP_EVERY: Duration = Duration::from_secs(20 * 60);
+/// How often the host collects its addresses again (renewing the invite with them if
+/// they changed) and renews the router's forwarding (which lasts an hour).
+const REFRESH_EVERY: Duration = Duration::from_secs(10 * 60);
 /// The most friends connected at once.
 pub const MAX_FRIENDS: usize = 32;
 /// The most connections at once that haven't shown the token yet. Anyone who reaches
@@ -259,7 +265,7 @@ pub struct HostStatus {
     pub code: String,
     /// The link keeps working across restarts (the service keeps the code).
     pub stable_link: bool,
-    /// The addresses offered to friends.
+    /// The addresses offered to friends. Collected again every few minutes.
     pub candidates: Vec<Candidate>,
     /// This network's router picks a new port per destination, which punching rarely
     /// gets through: friends may not be able to connect.
@@ -308,7 +314,10 @@ struct Shared {
     friends: Mutex<HashMap<FriendId, Friend>>,
     next_friend: AtomicU64,
     mapping: Mutex<Option<portmap::Mapping>>,
-    candidates: Vec<SocketAddr>,
+    /// The addresses the invite carries. Collected again every [`REFRESH_EVERY`].
+    candidates: Mutex<Vec<SocketAddr>>,
+    /// Told when [`Self::candidates`] changed, for the invite to be renewed with them.
+    readdressed: Notify,
     tag: [u8; 8],
     /// Changes whenever the status or identity does.
     changed: watch::Sender<u64>,
@@ -339,6 +348,38 @@ impl Shared {
             status.state = HostState::Sharing;
             status.problem = None;
         });
+    }
+
+    fn candidates(&self) -> Vec<SocketAddr> {
+        self.candidates.lock().expect("not poisoned").clone()
+    }
+
+    /// Takes the addresses collected again. When they changed, the invite is renewed
+    /// with them at once: friends who join get only the addresses the service holds.
+    /// Returns whether they changed.
+    fn readdress(&self, candidates: Vec<Candidate>, symmetric: bool) -> bool {
+        let addrs: Vec<SocketAddr> = candidates.iter().map(|c| c.addr).collect();
+        let changed = {
+            let mut current = self.candidates.lock().expect("not poisoned");
+            let changed = *current != addrs;
+            *current = addrs;
+            changed
+        };
+        let shown = {
+            let status = self.status.lock().expect("not poisoned");
+            status.candidates == candidates && status.symmetric_nat == symmetric
+        };
+        if !shown {
+            self.update(|status| {
+                status.candidates = candidates;
+                status.symmetric_nat = symmetric;
+            });
+        }
+        if changed {
+            tracing::debug!("connect: this computer's addresses changed; renewing the invite");
+            self.readdressed.notify_one();
+        }
+        changed
     }
 
     fn saved(&self) -> Option<SavedInvite> {
@@ -373,6 +414,14 @@ impl Host {
         let gathered = gather::gather_async(config.gather).await?;
         let candidates = gathered.addrs();
         let sprayer = gathered.socket.try_clone()?;
+        let stunner = gathered.socket.try_clone()?;
+        let lan_v4 = gathered.candidates.iter().find_map(|c| match c {
+            Candidate {
+                kind: CandidateKind::LocalNetwork,
+                addr: SocketAddr::V4(addr),
+            } => Some(*addr.ip()),
+            _ => None,
+        });
         let token = identity.token;
         let shared = Arc::new(Shared {
             identity: Mutex::new(identity),
@@ -392,7 +441,8 @@ impl Host {
             friends: Mutex::new(HashMap::new()),
             next_friend: AtomicU64::new(1),
             mapping: Mutex::new(gathered.mapping),
-            candidates,
+            candidates: Mutex::new(candidates),
+            readdressed: Notify::new(),
             tag: probe::tag(&token),
             changed: watch::channel(0).0,
         });
@@ -423,7 +473,9 @@ impl Host {
             },
         }
 
-        let endpoint = tunnel::endpoint(gathered.socket, Some(server))?;
+        // Everyone may reach the host (they show the token over QUIC); the gate only
+        // takes the answers to the STUN requests that collect its addresses again.
+        let (endpoint, gate) = Gate::endpoint(gathered.socket, server, Arc::new(|_| true))?;
         let (stop, stop_rx) = watch::channel(false);
         let handler: Arc<dyn StreamHandler> = Arc::new(handler);
         let tasks = vec![
@@ -434,7 +486,14 @@ impl Host {
                 handler,
             )),
             tokio::spawn(service_loop(shared.clone(), sprayer, stop_rx.clone())),
-            tokio::spawn(portmap_loop(shared.clone(), stop_rx)),
+            tokio::spawn(refresh_loop(
+                shared.clone(),
+                gate,
+                stunner,
+                config.gather,
+                lan_v4,
+                stop_rx,
+            )),
         ];
         Ok(Host {
             shared,
@@ -546,7 +605,7 @@ async fn open_invite(shared: &Shared, reopen: bool) -> Result<Registered> {
     if let Some(saved) = shared.saved() {
         if saved.kept || !reopen {
             match service
-                .renew(&saved.code, &saved.secret, &shared.candidates)
+                .renew(&saved.code, &saved.secret, &shared.candidates())
                 .await
             {
                 Ok(registered) => return Ok(registered),
@@ -558,7 +617,7 @@ async fn open_invite(shared: &Shared, reopen: bool) -> Result<Registered> {
             }
         }
     }
-    service.create(&shared.candidates, shared.keep).await
+    service.create(&shared.candidates(), shared.keep).await
 }
 
 /// Waits on the invite for joins, punches towards each friend, keeps the invite open
@@ -621,8 +680,12 @@ async fn service_loop(shared: Arc<Shared>, sprayer: UdpSocket, mut stop: watch::
         loop {
             tokio::select! {
                 _ = stop.changed() => return,
+                // this computer's addresses changed: renew now, with the new ones
+                _ = shared.readdressed.notified() => {
+                    renew_at = tokio::time::Instant::now();
+                }
                 _ = tokio::time::sleep_until(renew_at) => {
-                    match shared.service.renew(&saved.code, &saved.secret, &shared.candidates).await {
+                    match shared.service.renew(&saved.code, &saved.secret, &shared.candidates()).await {
                         Ok(registered) => {
                             shared.registered(&registered);
                             seen = 0;
@@ -701,23 +764,85 @@ async fn wait_or_stop(
     *backoff = (*backoff * 2).min(Duration::from_secs(60));
 }
 
-/// Keeps the router's forwarding alive.
-async fn portmap_loop(shared: Arc<Shared>, mut stop: watch::Receiver<bool>) {
+/// Every [`REFRESH_EVERY`], collects this computer's addresses again and renews the
+/// router's forwarding ([`refresh`]).
+async fn refresh_loop(
+    shared: Arc<Shared>,
+    gate: Arc<Gate>,
+    socket: UdpSocket,
+    options: GatherOptions,
+    mut lan_v4: Option<Ipv4Addr>,
+    mut stop: watch::Receiver<bool>,
+) {
+    if options.loopback_only {
+        return;
+    }
+    let socket = Arc::new(socket);
     loop {
         tokio::select! {
-            _ = tokio::time::sleep(PORTMAP_EVERY) => {}
+            _ = tokio::time::sleep(REFRESH_EVERY) => {}
             _ = stop.changed() => return,
         }
-        let shared = shared.clone();
-        let _ = tokio::task::spawn_blocking(move || {
-            if let Some(mapping) = shared.mapping.lock().expect("not poisoned").as_ref() {
-                if let Err(err) = mapping.renew() {
-                    tracing::debug!("connect: couldn't renew the router's forwarding: {err}");
-                }
-            }
+        let (shared, gate, socket, stop) =
+            (shared.clone(), gate.clone(), socket.clone(), stop.clone());
+        match tokio::task::spawn_blocking(move || {
+            refresh(&shared, &gate, &socket, options, lan_v4, &stop)
         })
-        .await;
+        .await
+        {
+            Ok(now) => lan_v4 = now,
+            // try again next time
+            Err(err) => tracing::debug!("connect: collecting the addresses again failed: {err}"),
+        }
     }
+}
+
+/// Collects this computer's addresses again: its network or public address may have
+/// changed since sharing started, and friends get only the addresses the invite
+/// carries. Renews the router's forwarding, or asks for it again on another network
+/// ([`gather::reforward`]; `lan_v4` was the address on the local network). Renews the
+/// invite if the addresses changed. Returns the address on the local network now.
+/// Blocking.
+fn refresh(
+    shared: &Shared,
+    gate: &Gate,
+    socket: &UdpSocket,
+    options: GatherOptions,
+    lan_v4: Option<Ipv4Addr>,
+    stop: &watch::Receiver<bool>,
+) -> Option<Ipv4Addr> {
+    let Ok(port) = socket.local_addr().map(|addr| addr.port()) else {
+        return lan_v4;
+    };
+    let found = gather::addresses(port, |server, v6| gate.mapped_address(socket, server, v6));
+    let old = shared.mapping.lock().expect("not poisoned").take();
+    let mapping = gather::reforward(old, port, found.lan_v4, lan_v4, options.portmap);
+    let mut candidates = found.candidates;
+    if let Some(mapping) = &mapping {
+        gather::add(
+            &mut candidates,
+            mapping.external,
+            CandidateKind::RouterForwarded,
+        );
+    }
+    {
+        // `stop` says so before the host takes the mapping to remove it: if it hasn't,
+        // the host will find this one.
+        let mut slot = shared.mapping.lock().expect("not poisoned");
+        if *stop.borrow() {
+            drop(slot);
+            if let Some(mapping) = mapping {
+                mapping.remove();
+            }
+            return found.lan_v4;
+        }
+        *slot = mapping;
+    }
+    // offline for now: keep the old addresses
+    if !candidates.is_empty() {
+        shared.readdress(candidates, found.symmetric);
+    }
+    found.lan_v4
 }
 
 async fn accept_loop(
@@ -857,6 +982,12 @@ async fn serve_connection(
     }
 }
 
+/// The in-process introduction service the integration tests use.
+#[cfg(test)]
+#[allow(dead_code)]
+#[path = "../tests/support/fake_service.rs"]
+mod fake_service;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -907,7 +1038,8 @@ mod tests {
             friends: Mutex::new(HashMap::new()),
             next_friend: AtomicU64::new(1),
             mapping: Mutex::new(None),
-            candidates: Vec::new(),
+            candidates: Mutex::new(Vec::new()),
+            readdressed: Notify::new(),
             tag: probe::tag(&identity.token),
             changed: watch::channel(0).0,
         });
@@ -929,6 +1061,53 @@ mod tests {
             .unwrap()
             .await
             .unwrap()
+    }
+
+    /// After this computer's addresses change, the invite is renewed with the new ones
+    /// at once, so friends who join get them (LS-53).
+    #[tokio::test]
+    async fn new_addresses_reach_the_invite() {
+        let service = fake_service::FakeService::start().await;
+        let config = HostConfig {
+            service: Service::from_setting(&service.url()).unwrap(),
+            gather: GatherOptions {
+                portmap: false,
+                loopback_only: true,
+            },
+            keep: true,
+        };
+        let host = Host::start(HostIdentity::generate().unwrap(), config, Discard)
+            .await
+            .unwrap();
+        let code = host.status().code;
+        let registered = |service: &fake_service::FakeService| -> Vec<SocketAddr> {
+            service
+                .host_candidates(&code)
+                .iter()
+                .map(|addr| addr.parse().unwrap())
+                .collect()
+        };
+        assert_eq!(registered(&service), host.shared.candidates());
+
+        let moved = Candidate {
+            addr: "198.51.100.9:40000".parse().unwrap(),
+            kind: CandidateKind::Public,
+        };
+        assert!(host.shared.readdress(vec![moved], true));
+        tokio::time::timeout(Duration::from_secs(10), async {
+            while registered(&service) != vec![moved.addr] {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect("the invite carries the new addresses");
+        let status = host.status();
+        assert_eq!(status.candidates, vec![moved]);
+        assert!(status.symmetric_nat);
+        assert_eq!(status.code, code, "the same link");
+        // the same addresses again: nothing to renew
+        assert!(!host.shared.readdress(vec![moved], true));
+        host.stop(true).await;
     }
 
     /// Someone who reaches the host's port but has no token can't make the host hold

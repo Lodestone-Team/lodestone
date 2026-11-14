@@ -1030,10 +1030,9 @@ pub fn switch_loader(call: Call, cx: &mut App) -> Reply {
                 |cx| (!control.instances.read(cx).loader_switch_running()).then_some(()),
             )
             .await?;
-            let notice = control
-                .notices
-                .borrow()
-                .find_since(seq, |n| matches!(n.kind, "notice" | "launch_failed"));
+            let notice = control.notices.borrow().find_since(seq, |n| {
+                n.is_about(&id) && matches!(n.kind, "notice" | "launch_failed")
+            });
             match notice {
                 Some(n) if n.is_failure() => Err(api_error(
                     codes::FAILED,
@@ -1282,10 +1281,10 @@ fn follow_import(call: &Call, before: Option<u64>, seq: u64, label: String, cx: 
             (!watch.instances.read(cx).imports().iter().any(|j| j.id == import)).then_some(())
         })
         .await?;
-        let notice = watch
-            .notices
-            .borrow()
-            .find_since(seq, |n| matches!(n.kind, "notice" | "launch_failed"));
+        // its own notice: another import's or instance's can come first
+        let notice = watch.notices.borrow().find_since(seq, |n| {
+            n.import == Some(import) && matches!(n.kind, "notice" | "launch_failed")
+        });
         match notice {
             Some(n) if n.is_failure() => Err(api_error(codes::FAILED, format!("{}: {}", n.title, n.message))),
             Some(n) => Ok(cx.update(|cx| {
@@ -1450,7 +1449,10 @@ pub fn modpack_update(call: Call, cx: &mut App) -> Reply {
                 instances.apply_modpack_update(prompt, params.backup_worlds, cx)
             });
             let Some(job) = control.instances.read(cx).modpack_update(&id) else {
-                let notice = control.notices.borrow().find_since(seq, |n| n.is_failure());
+                let notice = control
+                    .notices
+                    .borrow()
+                    .find_since(seq, |n| n.is_about(&id) && n.is_failure());
                 return ready(Err(match notice {
                     Some(n) => api_error(codes::FAILED, format!("{}: {}", n.title, n.message)),
                     None => api_error(codes::FAILED, "The update didn't start."),
@@ -1465,10 +1467,10 @@ pub fn modpack_update(call: Call, cx: &mut App) -> Reply {
                     watch.instances.read(cx).modpack_update(&id).is_none().then_some(())
                 })
                 .await?;
-                let notice = watch
-                    .notices
-                    .borrow()
-                    .find_since(seq, |n| matches!(n.kind, "notice" | "launch_failed"));
+                // its own notice: another instance's can come first
+                let notice = watch.notices.borrow().find_since(seq, |n| {
+                    n.is_about(&id) && matches!(n.kind, "notice" | "launch_failed")
+                });
                 match notice {
                     Some(n) if n.is_failure() => Err(api_error(codes::FAILED, format!("{}: {}", n.title, n.message))),
                     Some(n) => Ok(json!({ "instance": id, "title": n.title, "message": n.message, "plan": plan })),
@@ -1679,7 +1681,10 @@ pub fn modpack_add(call: Call, cx: &mut App) -> Reply {
                 .instances
                 .update(cx, |instances, cx| instances.apply_add_modpack(prompt, cx));
             let Some(job) = control.instances.read(cx).modpack_update(&id) else {
-                let notice = control.notices.borrow().find_since(seq, |n| n.is_failure());
+                let notice = control
+                    .notices
+                    .borrow()
+                    .find_since(seq, |n| n.is_about(&id) && n.is_failure());
                 return ready(Err(match notice {
                     Some(n) => api_error(codes::FAILED, format!("{}: {}", n.title, n.message)),
                     None => api_error(codes::FAILED, "Adding the modpack didn't start."),
@@ -1695,10 +1700,10 @@ pub fn modpack_add(call: Call, cx: &mut App) -> Reply {
                     watch.instances.read(cx).modpack_update(&id).is_none().then_some(())
                 })
                 .await?;
-                let notice = watch
-                    .notices
-                    .borrow()
-                    .find_since(seq, |n| matches!(n.kind, "notice" | "launch_failed"));
+                // its own notice: another instance's can come first
+                let notice = watch.notices.borrow().find_since(seq, |n| {
+                    n.is_about(&id) && matches!(n.kind, "notice" | "launch_failed")
+                });
                 match notice {
                     Some(n) if n.is_failure() => Err(api_error(codes::FAILED, format!("{}: {}", n.title, n.message))),
                     Some(n) => {

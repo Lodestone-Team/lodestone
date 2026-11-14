@@ -1009,25 +1009,7 @@ fn refresh(
     };
     let found = gather::addresses(port, |server, v6| gate.mapped_address(socket, server, v6));
     let old = shared.mapping.lock().expect("not poisoned").take();
-    let mapping = match (old, found.lan_v4) {
-        (Some(old), Some(lan)) if old.local_ip() == lan => match old.renew() {
-            Ok(()) => Some(old),
-            Err(err) => {
-                tracing::debug!("friends: couldn't renew the router's forwarding: {err}");
-                old.remove();
-                gather::forward(port, lan)
-            }
-        },
-        // on another network now
-        (Some(old), lan) => {
-            old.remove();
-            lan.and_then(|lan| gather::forward(port, lan))
-        }
-        (None, Some(lan)) if options.portmap && found.lan_v4 != lan_v4 => {
-            gather::forward(port, lan)
-        }
-        (None, _) => None,
-    };
+    let mapping = gather::reforward(old, port, found.lan_v4, lan_v4, options.portmap);
     let mut candidates = found.candidates;
     if let Some(mapping) = &mapping {
         gather::add(

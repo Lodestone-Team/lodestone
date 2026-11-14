@@ -18,6 +18,11 @@ on:
         required: false
         type: string
         default: ""
+      prerelease:
+        description: "\"true\" or \"false\": whether the version's draft is a pre-release (release-draft.yml's output). Empty: a version with a -suffix is one"
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -141,4 +146,6 @@ jobs:
           # Cargo.toml's version.
           tag_name: ${{ inputs.version }}
           draft: true
-          prerelease: true
+          # The draft's own flag: a stable vX.Y.Z draft stays stable, so it can be
+          # published as Latest (and Docker tags it latest-stable).
+          prerelease: ${{ inputs.prerelease == 'true' || (inputs.prerelease == '' && contains(inputs.version, '-')) }}

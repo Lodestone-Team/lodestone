@@ -131,6 +131,17 @@ impl FakeService {
             .collect()
     }
 
+    /// The addresses the host of `code` last registered.
+    pub fn host_candidates(&self, code: &str) -> Vec<String> {
+        self.state
+            .lock()
+            .unwrap()
+            .invites
+            .get(code)
+            .map(|i| i.host.clone())
+            .unwrap_or_default()
+    }
+
     pub fn joins(&self, code: &str) -> usize {
         self.state
             .lock()

@@ -231,8 +231,10 @@ async fn quit_app(
     app.exit(0);
 }
 
+/// Brings back the main window, which closing only hides (the core keeps running).
 fn show_main_window(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
+        let _ = window.unminimize();
         let _ = window.show();
         let _ = window.set_focus();
     }
@@ -293,6 +295,8 @@ async fn main() {
     #[cfg_attr(dev, allow(unused_mut))]
     let mut builder =
         tauri::Builder::default().plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
+            // Launching the app again is how people look for its window once it is closed.
+            show_main_window(app);
             if let Err(e) = app.emit("single-instance", Payload { args: argv, cwd }) {
                 eprintln!("Failed to forward the second instance's arguments: {e}");
             }
@@ -342,8 +346,10 @@ async fn main() {
             }
         })
         .setup(move |app| {
+            // On macOS the tray icon only opens this menu, so it needs a way back to the window.
+            let show = MenuItem::with_id(app, "show", "Show Lodestone Host", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-            let tray_menu = Menu::with_items(app, &[&quit])?;
+            let tray_menu = Menu::with_items(app, &[&show, &quit])?;
 
             TrayIconBuilder::new()
                 .icon(tauri::include_image!("icons/icon.png"))
@@ -352,7 +358,9 @@ async fn main() {
                 // v1 opened the menu on left click only on macOS; on Windows left click shows the window
                 .show_menu_on_left_click(cfg!(target_os = "macos"))
                 .on_menu_event(move |app, event| {
-                    if event.id().as_ref() == "quit" {
+                    if event.id().as_ref() == "show" {
+                        show_main_window(app);
+                    } else if event.id().as_ref() == "quit" {
                         quit_requested.store(true, Ordering::SeqCst);
                         let tx = match shutdown_tx.lock() {
                             Ok(mut tx) => tx.take(),
@@ -407,6 +415,15 @@ async fn main() {
             #[cfg(all(debug_assertions, target_os = "macos"))]
             if let tauri::RunEvent::Ready = _event {
                 set_dev_dock_icon();
+            }
+            // Clicking the Dock icon (or opening the app again) while the window is hidden.
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Reopen {
+                has_visible_windows: false,
+                ..
+            } = _event
+            {
+                show_main_window(_app);
             }
         }),
         Err(e) => show_startup_error(&e),

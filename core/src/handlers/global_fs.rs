@@ -250,7 +250,7 @@ async fn resolved_secret_paths() -> Vec<PathBuf> {
 /// own data ([`lodestone_secret_paths`]), or is a folder holding some of it (such as the
 /// data folder itself). Symbolic links are resolved first; a path that can't be checked
 /// is refused. This applies to every user, including users with `WriteGlobalFile`.
-async fn reject_protected_change(path: &std::path::Path) -> Result<(), Error> {
+pub(crate) async fn reject_protected_change(path: &std::path::Path) -> Result<(), Error> {
     let protected = || Error {
         kind: ErrorKind::PermissionDenied,
         source: eyre!("Lodestone's own data cannot be changed through the file API"),
@@ -265,7 +265,7 @@ async fn reject_protected_change(path: &std::path::Path) -> Result<(), Error> {
 /// Canonicalizes `path` and rejects it if it is Lodestone's own data: the `stores` folder,
 /// which holds users.json with every user's password hash and token secret and the API
 /// keys, the old playit.gg key file, and the `local_claim` folder. This applies to every user, including users with `ReadGlobalFile`.
-pub(super) async fn canonicalize_global_read(
+pub(crate) async fn canonicalize_global_read(
     path: &std::path::Path,
     include_parents: bool,
 ) -> Result<PathBuf, Error> {
@@ -579,9 +579,8 @@ async fn new_file(
         require_code_write(&state, &requester)?;
     }
 
-    tokio::fs::File::create(&path)
-        .await
-        .context(format!("Failed to create file {}", path.display()))?;
+    // never replaces an existing file, see `create_new`
+    crate::util::fs::create_new(&path).await?;
 
     let caused_by = requester.caused_by();
     state.event_broadcaster.send(new_fs_event(

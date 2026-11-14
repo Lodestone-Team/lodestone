@@ -204,15 +204,64 @@ pub enum ShareConnection {
 // The shares
 
 enum Slot {
-    /// `Host::start` is running.
-    Starting,
+    /// `Host::start` is running. The ticket tells this start apart from a later one of
+    /// the same instance: stopping and sharing again while it runs leaves the later
+    /// start's slot here, which this one must not take over.
+    Starting(Arc<StartTicket>),
     Running {
         host: Box<Host>,
         tasks: Vec<JoinHandle<()>>,
     },
     /// Was starting when the core began shutting down ([`ConnectShares::stop_all`]): the
-    /// start stops its host once it has one, keeping the link.
-    Abandoned,
+    /// start stops its host once it has one, keeping the link. The start's ticket, as
+    /// in [`Slot::Starting`].
+    Abandoned(Arc<StartTicket>),
+}
+
+/// A share being started, held by the start and by its [`Slot::Starting`].
+#[derive(Default)]
+struct StartTicket {
+    /// Set by [`ConnectShares::stop`] as it stops this start: whether it ended the
+    /// link. The start, once it has its host, ends the link then, as the stop couldn't
+    /// without a host.
+    end_link: AtomicBool,
+}
+
+impl StartTicket {
+    fn new() -> Arc<Self> {
+        Arc::new(Self::default())
+    }
+}
+
+/// What a start does with its host once `Host::start` returned.
+#[derive(Debug, PartialEq, Eq)]
+enum Finish {
+    /// It's still this start's slot: save the identity and share.
+    Install,
+    /// The core began shutting down meanwhile: stop, keeping the link.
+    ShuttingDown,
+    /// The owner stopped sharing meanwhile, maybe sharing again since (the slot is
+    /// then another start's or share's, and the saved identity theirs): stop the host,
+    /// ending the link if the stop did, and touch nothing else.
+    Stopped { end_link: bool },
+}
+
+impl Finish {
+    /// Decides, under the slots' lock, what the start with `ticket` does.
+    fn of(slot: Option<&Slot>, ticket: &Arc<StartTicket>) -> Self {
+        match slot {
+            Some(Slot::Starting(current)) if Arc::ptr_eq(current, ticket) => Finish::Install,
+            Some(Slot::Abandoned(current)) if Arc::ptr_eq(current, ticket) => Finish::ShuttingDown,
+            _ => Finish::Stopped {
+                end_link: ticket.end_link.load(Ordering::SeqCst),
+            },
+        }
+    }
+
+    /// Whether the slot is still this start's (Starting or Abandoned), for it to remove.
+    fn owns_slot(&self) -> bool {
+        !matches!(self, Finish::Stopped { .. })
+    }
 }
 
 /// The instances shared with friends.
@@ -307,8 +356,8 @@ impl ConnectShares {
     /// How sharing `uuid` is going.
     pub async fn status(&self, uuid: &InstanceUuid) -> InstanceShare {
         match self.slots.lock().await.get(uuid) {
-            None | Some(Slot::Abandoned) => InstanceShare::off(),
-            Some(Slot::Starting) => InstanceShare::starting(),
+            None | Some(Slot::Abandoned(_)) => InstanceShare::off(),
+            Some(Slot::Starting(_)) => InstanceShare::starting(),
             Some(Slot::Running { host, .. }) => InstanceShare::of(host.status()),
         }
     }
@@ -328,6 +377,7 @@ impl ConnectShares {
                 source: eyre!("Only Minecraft Java Edition servers can be shared with friends"),
             });
         }
+        let ticket = StartTicket::new();
         {
             let mut slots = self.slots.lock().await;
             // under the lock that `stop_all` drains the slots with, so a share either
@@ -339,51 +389,69 @@ impl ConnectShares {
                 drop(slots);
                 return Ok(self.status(uuid).await);
             }
-            slots.insert(uuid.clone(), Slot::Starting);
+            slots.insert(uuid.clone(), Slot::Starting(ticket.clone()));
         }
         let started = self.start_host(state, uuid).await;
         let mut slots = self.slots.lock().await;
-        match started {
-            Ok((host, tasks)) => {
-                if matches!(slots.get(uuid), Some(Slot::Abandoned)) {
-                    // the core began shutting down meanwhile: keep the link, as
-                    // `stop_all` does, to resume with it at the next start
-                    slots.remove(uuid);
-                    drop(slots);
-                    for task in tasks {
-                        task.abort();
-                    }
-                    host.stop(false).await;
-                    return Err(Self::shutting_down());
-                }
-                if !matches!(slots.get(uuid), Some(Slot::Starting)) {
-                    // the owner stopped sharing meanwhile
-                    drop(slots);
-                    for task in tasks {
-                        task.abort();
-                    }
-                    host.stop(true).await;
-                    self.forget(uuid).await;
-                    return Ok(InstanceShare::off());
-                }
-                let status = InstanceShare::of(host.status());
-                slots.insert(
-                    uuid.clone(),
-                    Slot::Running {
-                        host: Box::new(host),
-                        tasks,
-                    },
-                );
-                info!("Sharing {} with friends", instance.name().await);
-                Ok(status)
-            }
+        let (host, tasks) = match started {
+            Ok(started) => started,
             Err(e) => {
-                slots.remove(uuid);
+                // only this start's slot: a later start may have taken it meanwhile
+                if Finish::of(slots.get(uuid), &ticket).owns_slot() {
+                    slots.remove(uuid);
+                }
                 if self.stopping.load(Ordering::SeqCst) {
                     return Err(Self::shutting_down());
                 }
+                return Err(e);
+            }
+        };
+        let finish = Finish::of(slots.get(uuid), &ticket);
+        // The identity is saved under the lock, and only while the slot is still this
+        // start's: a stop deletes the file under the same lock, so a start it stopped
+        // can't write it back, nor a later start load this one's link.
+        let saved = match finish {
+            Finish::Install | Finish::ShuttingDown => self.save(uuid, &host.identity()).await,
+            Finish::Stopped { .. } => Ok(()),
+        };
+        if finish == Finish::Install && saved.is_ok() {
+            let status = InstanceShare::of(host.status());
+            slots.insert(
+                uuid.clone(),
+                Slot::Running {
+                    host: Box::new(host),
+                    tasks,
+                },
+            );
+            info!("Sharing {} with friends", instance.name().await);
+            return Ok(status);
+        }
+        if finish.owns_slot() {
+            slots.remove(uuid);
+        }
+        drop(slots);
+        for task in tasks {
+            task.abort();
+        }
+        match (finish, saved) {
+            (_, Err(e)) => {
+                // a link nobody could open again after a restart
+                host.stop(true).await;
                 Err(e)
             }
+            (Finish::ShuttingDown, Ok(())) => {
+                // keep the link, as `stop_all` does, to resume with it at the next start
+                host.stop(false).await;
+                Err(Self::shutting_down())
+            }
+            (Finish::Stopped { end_link }, Ok(())) => {
+                // The stop found no host, so it's this start that ends the link it
+                // renewed. The saved identity is the stop's or a later start's to keep
+                // or delete.
+                host.stop(end_link).await;
+                Ok(InstanceShare::off())
+            }
+            (Finish::Install, Ok(())) => unreachable!("installed above"),
         }
     }
 
@@ -410,10 +478,6 @@ impl ConnectShares {
         let host = Host::start(identity, config, handler)
             .await
             .map_err(|e| external(format!("Couldn't start sharing: {e}")))?;
-        if let Err(e) = self.save(uuid, &host.identity()).await {
-            host.stop(true).await;
-            return Err(e);
-        }
         let tasks = vec![
             tokio::spawn(serve_info(state.clone(), uuid.clone(), info_rx)),
             tokio::spawn(self.clone().keep_saved(uuid.clone(), host.subscribe())),
@@ -429,7 +493,10 @@ impl ConnectShares {
     ) {
         let mut saved = None;
         while changed.changed().await.is_ok() {
-            let identity = match self.slots.lock().await.get(&uuid) {
+            // Saved under the lock a stop deletes the file with, so a share stopped
+            // meanwhile can't write its identity back.
+            let slots = self.slots.lock().await;
+            let identity = match slots.get(&uuid) {
                 Some(Slot::Running { host, .. }) => host.identity(),
                 _ => continue,
             };
@@ -437,7 +504,9 @@ impl ConnectShares {
             if saved.as_ref() == Some(&json) {
                 continue;
             }
-            match self.save(&uuid, &identity).await {
+            let result = self.save(&uuid, &identity).await;
+            drop(slots);
+            match result {
                 Ok(()) => saved = Some(json),
                 Err(e) => warn!("Failed to save the sharing identity of {uuid}: {e}"),
             }
@@ -447,17 +516,29 @@ impl ConnectShares {
     /// Stops sharing `uuid`. With `end_link`, the link stops working for good and the
     /// saved identity is deleted (the owner stopped sharing, or the instance is
     /// deleted); without it the link works again once sharing resumes.
+    ///
+    /// A share still starting is told to end its link (or keep it) once it has its
+    /// host, as there's none to stop yet.
     pub async fn stop(&self, uuid: &InstanceUuid, end_link: bool) {
-        let slot = self.slots.lock().await.remove(uuid);
+        let slot = {
+            let mut slots = self.slots.lock().await;
+            let slot = slots.remove(uuid);
+            if let Some(Slot::Starting(ticket)) = &slot {
+                ticket.end_link.store(end_link, Ordering::SeqCst);
+            }
+            // Under the lock a start inserts its slot with, so a share started after
+            // this stop never loads the identity being deleted.
+            if end_link {
+                self.forget(uuid).await;
+            }
+            slot
+        };
         if let Some(Slot::Running { host, tasks }) = slot {
             for task in tasks {
                 task.abort();
             }
             (*host).stop(end_link).await;
             info!("Stopped sharing {uuid} with friends");
-        }
-        if end_link {
-            self.forget(uuid).await;
         }
     }
 
@@ -473,8 +554,8 @@ impl ConnectShares {
             let drained: Vec<_> = slots.drain().collect();
             // a share still starting stops once it has its host, keeping its link
             for (uuid, slot) in &drained {
-                if matches!(slot, Slot::Starting) {
-                    slots.insert(uuid.clone(), Slot::Abandoned);
+                if let Slot::Starting(ticket) = slot {
+                    slots.insert(uuid.clone(), Slot::Abandoned(ticket.clone()));
                 }
             }
             drained

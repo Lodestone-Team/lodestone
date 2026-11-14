@@ -1432,7 +1432,8 @@ pub enum Snapshots {
         path: PathBuf,
     },
     /// Makes a new instance from a .lodesnap file. --preview only reads it (its mods,
-    /// parts and sizes). One with mods needs --yes: only use files from people you trust.
+    /// launch settings, parts and sizes). One with mods, or with launch settings and the
+    /// settings part, needs --yes: only use files from people you trust.
     #[command(
         after_help = "Examples:\n  lodestone-launcher-cli snapshots import ~/Downloads/Survival.lodesnap --preview\n  lodestone-launcher-cli snapshots import ~/Downloads/Survival.lodesnap --yes"
     )]
