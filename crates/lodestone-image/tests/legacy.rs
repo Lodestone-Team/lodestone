@@ -22,7 +22,7 @@ use std::io::Cursor;
 use lodestone_image::legacy::{
     core_backup, core_modpack, launcher_modpack, lodesnap, world_zip, KnownFiles, Note,
 };
-use lodestone_image::{Base, Game, Kind, Loader, Source, WithheldReason};
+use lodestone_image::{Base, Game, Kind, Loader, ServerLayout, Source, WithheldReason};
 use sha1::Digest as _;
 
 fn fixture(name: &str) -> Vec<u8> {
@@ -268,6 +268,11 @@ const PACK_CONTENTS: [&[u8]; 9] = [
     b"mine",
 ];
 
+/// The fixtures' server: a Fabric server with the level `world`.
+fn server() -> ServerLayout {
+    ServerLayout::new("world", [], false).unwrap()
+}
+
 #[test]
 fn history_becomes_a_lineage_and_back_byte_for_byte() {
     let record = fixture("record.json");
@@ -275,7 +280,7 @@ fn history_becomes_a_lineage_and_back_byte_for_byte() {
     let mut known = known(&PACK_CONTENTS);
     known.add_pack("pack", "v1", &"1".repeat(128));
     known.add_pack("pack", "v2", &"2".repeat(128));
-    let lineage = core_modpack::read(Some(&record), Some(&history), &known).unwrap();
+    let lineage = core_modpack::read(Some(&record), Some(&history), &server(), &known).unwrap();
     assert_eq!(lineage.images.len(), 3);
     for (i, image) in lineage.images.iter().enumerate() {
         image.verify().unwrap();
@@ -374,10 +379,10 @@ fn a_disabled_file_is_listed_as_it_is_on_disk() {
     let history = fixture("history.json");
     let mut known = known(&PACK_CONTENTS);
     known.add_pack("pack", "v1", &"1".repeat(128));
-    let plain = core_modpack::read(Some(&record), Some(&history), &known).unwrap();
+    let plain = core_modpack::read(Some(&record), Some(&history), &server(), &known).unwrap();
     let a_record_path = plain.record.as_ref().unwrap().entries[0].path.to_string();
     known.add_disabled(&a_record_path);
-    let lineage = core_modpack::read(Some(&record), Some(&history), &known).unwrap();
+    let lineage = core_modpack::read(Some(&record), Some(&history), &server(), &known).unwrap();
     let record_image = lineage.record.as_ref().unwrap();
     let disabled = format!("{a_record_path}.disabled");
     assert!(record_image
@@ -437,6 +442,7 @@ fn every_converted_image_is_lossless() {
     let lineage = core_modpack::read(
         Some(&fixture("record.json")),
         Some(&fixture("history.json")),
+        &server(),
         &known_pack,
     )
     .unwrap();
@@ -471,7 +477,7 @@ fn every_converted_image_is_lossless() {
 fn history_without_hashes_withholds_every_file_and_still_goes_back() {
     let record = fixture("record.json");
     let history = fixture("history.json");
-    let lineage = core_modpack::read(Some(&record), Some(&history), &()).unwrap();
+    let lineage = core_modpack::read(Some(&record), Some(&history), &server(), &()).unwrap();
     for image in &lineage.images {
         assert!(image.entries.is_empty());
         assert!(image.base.is_none());
@@ -492,7 +498,7 @@ fn history_without_hashes_withholds_every_file_and_still_goes_back() {
 #[test]
 fn baseline_of_an_uploaded_pack() {
     let history = fixture("history-baseline.json");
-    let lineage = core_modpack::read(None, Some(&history), &()).unwrap();
+    let lineage = core_modpack::read(None, Some(&history), &server(), &()).unwrap();
     assert_eq!(lineage.images.len(), 1);
     let image = &lineage.images[0];
     assert_eq!(image.base, None);

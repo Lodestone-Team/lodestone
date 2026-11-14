@@ -295,6 +295,11 @@ pub fn apply(from: &Image, delta: &Delta) -> Result<Image, DeltaError> {
     image.id = String::new();
     image.validate().map_err(DeltaError::Invalid)?;
     image.id = delta.to.clone();
+    if !delta.to.is_empty() && image.parent.as_deref() == Some(delta.to.as_str()) {
+        // The parent is outside the id, so the id check below can't catch it, and the
+        // result would fail its own validation (and loop a walker of parents).
+        return Err(DeltaError::Invalid("parent is the image itself".into()));
+    }
     if !delta.to.is_empty() {
         let actual = image.compute_id();
         if actual != delta.to {
@@ -322,6 +327,21 @@ mod tests {
         image.entries = paths.iter().map(|p| object(p)).collect();
         image.seal();
         image
+    }
+
+    #[test]
+    fn a_delta_never_makes_an_image_its_own_parent() {
+        let a = content(&["mods/a.jar"]);
+        let b = content(&["mods/a.jar", "mods/b.jar"]);
+        let mut delta = diff(&a, &b);
+        delta.changes.push(FieldChange::Parent(Some(b.id.clone())));
+        assert!(matches!(apply(&a, &delta), Err(DeltaError::Invalid(_))));
+        // With `from` as the parent it applies.
+        delta.changes.pop();
+        delta.changes.push(FieldChange::Parent(Some(a.id.clone())));
+        let applied = apply(&a, &delta).unwrap();
+        assert_eq!(applied.id, b.id);
+        applied.validate().unwrap();
     }
 
     #[test]

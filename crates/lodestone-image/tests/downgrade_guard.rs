@@ -286,6 +286,27 @@ fn launcher_gc_beta_1(root: &Path) -> u64 {
 }
 
 // ---------------------------------------------------------------------------------------
+// The Launcher's snapshot writes and restores (`store_file` and `revert_shared` in
+// `launcher/crates/launcher-core/src/snapshots.rs`, the same since 0.1.0-beta.1): any file
+// at `objects/ab/<sha256>` is taken for that file's bytes.
+
+/// `store_file`: stores `bytes` (a file being snapshotted) unless its object is there.
+fn launcher_store_file(root: &Path, bytes: &[u8]) -> String {
+    let sha256 = sha256_hex(bytes);
+    let object = root.join("objects").join(&sha256[..2]).join(&sha256);
+    if !object.is_file() {
+        fs::create_dir_all(object.parent().unwrap()).unwrap();
+        fs::write(&object, bytes).unwrap();
+    }
+    sha256
+}
+
+/// `revert_shared`: copies the object over the instance's file, unchecked.
+fn launcher_revert(root: &Path, sha256: &str, to: &Path) {
+    fs::copy(root.join("objects").join(&sha256[..2]).join(sha256), to).unwrap();
+}
+
+// ---------------------------------------------------------------------------------------
 
 /// Bytes that don't repeat, so a large file is cut into many chunks.
 fn noise(len: usize, mut seed: u64) -> Vec<u8> {
@@ -400,7 +421,7 @@ fn a_released_core_collects_nothing_while_images_share_its_folder() {
 
     // Without the guard, the same collector breaks the image: this is what it prevents.
     remove_guards(&root);
-    assert!(core_gc(&root).unwrap() >= 3);
+    assert!(core_gc(&root).unwrap() >= 2);
     assert!(!intact(&store, &image));
 }
 
@@ -428,4 +449,29 @@ fn a_released_launcher_collects_nothing_while_images_share_its_folder() {
             .join(&old_sha)
             .exists());
     }
+}
+
+/// After going back to a released Launcher, its snapshots of a file images already stored
+/// (chunked) store the file whole and restore it as it was: `objects/` never holds a chunk
+/// list, which it would take for the file and skip storing, then write over the world.
+#[test]
+fn a_released_launcher_never_mistakes_an_image_object_for_a_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("snapshots");
+    let (_store, image, _) = shared_store(&root, launcher_manifest());
+    // Every file in `objects/` is the file its name says.
+    for entry in walkdir::WalkDir::new(root.join("objects")).min_depth(2) {
+        let entry = entry.unwrap();
+        if entry.file_type().is_file() {
+            let name = entry.file_name().to_str().unwrap().to_string();
+            assert_eq!(sha256_hex(&fs::read(entry.path()).unwrap()), name);
+        }
+    }
+    // The released Launcher snapshots the large file (unchanged), then restores it.
+    let large = noise(3 << 20, 99);
+    let large_sha = &image.entries[1].sha256;
+    assert_eq!(launcher_store_file(&root, &large), *large_sha);
+    let restored = dir.path().join("big.jar");
+    launcher_revert(&root, large_sha, &restored);
+    assert_eq!(fs::read(&restored).unwrap(), large);
 }

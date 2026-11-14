@@ -574,3 +574,26 @@ fn cached_files_keep_their_objects_through_a_collection() {
         ));
     }
 }
+
+#[test]
+fn a_path_too_long_to_withhold_is_reported_instead() {
+    // Windows lists paths past 4096 bytes (17 folders of 85 CJK characters each); macOS
+    // and Linux can't make one, so the walk's withholding is fed one directly.
+    let mut withheld = Vec::new();
+    let mut too_long = Vec::new();
+    let mut withholding = super::Withholding {
+        withheld: &mut withheld,
+        too_long: &mut too_long,
+    };
+    let long = vec!["文".repeat(85); 17].join("/");
+    assert!(long.len() > crate::paths::MAX_PATH_BYTES);
+    withholding.withhold(long.clone(), WithheldReason::BadName);
+    withholding.withhold("ok".into(), WithheldReason::Unreadable);
+    assert_eq!(too_long, [long]);
+    assert_eq!(withheld.len(), 1);
+    // An image with what was withheld stays valid.
+    let mut image = Image::new(Kind::Data, crate::manifest::tests::fabric());
+    image.withheld = withheld;
+    image.seal();
+    image.validate().unwrap();
+}

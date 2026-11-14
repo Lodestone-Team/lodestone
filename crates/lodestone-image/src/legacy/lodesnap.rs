@@ -486,6 +486,8 @@ pub fn to_image(snapshot: &Snapshot) -> Result<Converted, LegacyError> {
     let mut zero_modes = BTreeSet::new();
     let mut wide_modes = BTreeMap::new();
     let game_prefix = format!("{CLIENT_GAME_FOLDER}/");
+    // The file each entry came from, in step with `image.entries`.
+    let mut entry_files: Vec<&FileEntry> = Vec::new();
     for file in &snapshot.files {
         if !file.path.starts_with(&game_prefix) {
             instance_files.push(file.clone());
@@ -519,6 +521,7 @@ pub fn to_image(snapshot: &Snapshot) -> Result<Converted, LegacyError> {
                     nanos
                 });
                 image.entries.push(entry);
+                entry_files.push(file);
                 continue;
             }
             Ok(None) => WithheldReason::Excluded,
@@ -526,6 +529,23 @@ pub fn to_image(snapshot: &Snapshot) -> Result<Converted, LegacyError> {
         };
         super::withhold(&mut image, &mut notes, &file.path, reason.clone());
         unmapped.push((file.clone(), reason));
+    }
+    // A file that is also a folder of another (a snapshot from elsewhere): withheld and
+    // kept in the rest, not fatal.
+    let clashes = super::file_folder_clashes(image.entries.iter().map(|e| e.path.as_str()));
+    if !clashes.is_empty() {
+        let entries = std::mem::take(&mut image.entries);
+        for (index, (entry, file)) in entries.into_iter().zip(entry_files).enumerate() {
+            if !clashes.contains(&index) {
+                image.entries.push(entry);
+                continue;
+            }
+            zero_modes.remove(&file.path);
+            wide_modes.remove(&file.path);
+            wide_times.remove(&file.path);
+            super::withhold(&mut image, &mut notes, &file.path, WithheldReason::BadName);
+            unmapped.push((file.clone(), WithheldReason::BadName));
+        }
     }
 
     let mut world_sizes: BTreeMap<String, u64> = BTreeMap::new();
@@ -850,6 +870,30 @@ mod tests {
         // back as it was.
         assert_eq!(converted.image.entries[0].mode, 0o644);
         assert!(converted.rest.zero_modes.contains("minecraft/mods/a.jar"));
+    }
+
+    #[test]
+    fn a_file_that_is_also_a_folder_is_withheld_not_fatal() {
+        let mut odd = file("minecraft/saves/W/a", 2);
+        odd.mode = 0;
+        let s = snapshot(
+            plain(),
+            vec![
+                file("minecraft/saves/W/level.dat", 1),
+                odd,
+                file("minecraft/saves/W/a/b", 3),
+            ],
+        );
+        let converted = round_trip(&s);
+        let paths: Vec<&str> = converted
+            .image
+            .entries
+            .iter()
+            .map(|e| e.path.as_str())
+            .collect();
+        assert_eq!(paths, ["saves/W/a/b", "saves/W/level.dat"]);
+        assert_eq!(converted.image.withheld[0].path, "minecraft/saves/W/a");
+        assert!(converted.rest.zero_modes.is_empty());
     }
 
     #[test]

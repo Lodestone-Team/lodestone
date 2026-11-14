@@ -21,7 +21,7 @@
 //! [`from_image`] writes the manifest back: equal to the original, and byte for byte the
 //! same once serialized ([`Manifest::to_json`] writes it the way the core does).
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use serde::{Deserialize, Serialize};
 
@@ -476,19 +476,19 @@ pub fn from_image(image: &Image, rest: &Rest) -> Result<Manifest, LegacyError> {
     files.extend(rest.unmapped.iter().map(|(file, _)| file.clone()));
     files.sort_by(|a, b| a.path.cmp(&b.path));
 
-    let mut unmapped: Vec<(&str, &WithheldReason)> = rest
-        .unmapped
-        .iter()
-        .map(|(file, reason)| (file.path.as_str(), reason))
-        .collect();
+    // How many unmapped files each (path, reason) has, to match withheld items against in
+    // one pass: a Fabric server's backup can have tens of thousands (its `.fabric/`).
+    let mut unmapped: HashMap<(&str, &WithheldReason), usize> = HashMap::new();
+    for (file, reason) in &rest.unmapped {
+        *unmapped.entry((file.path.as_str(), reason)).or_default() += 1;
+    }
     let mut skipped = Vec::new();
     for withheld in &image.withheld {
-        if let Some(i) = unmapped
-            .iter()
-            .position(|(path, reason)| *path == withheld.path && **reason == withheld.reason)
-        {
-            unmapped.swap_remove(i);
-            continue;
+        if let Some(left) = unmapped.get_mut(&(withheld.path.as_str(), &withheld.reason)) {
+            if *left > 0 {
+                *left -= 1;
+                continue;
+            }
         }
         let Some(reason) = skip_reason_back(&withheld.reason) else {
             return Err(LegacyError::Invalid(format!(

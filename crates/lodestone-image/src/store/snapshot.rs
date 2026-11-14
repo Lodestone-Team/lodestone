@@ -16,7 +16,10 @@
 //! - `kept_changing`: files that changed while being read, every try.
 //!
 //! A withheld path is the canonical path where the layout gives one, otherwise the path as
-//! found relative to the game folder; it is for showing, never placing.
+//! found relative to the game folder; it is for showing, never placing. A path as found
+//! that is longer than an image's withheld list may show ([`MAX_PATH_BYTES`]: Windows can
+//! list deeper paths) is left out of the list and reported in [`Snapshot::too_long`]
+//! instead, so one such file can't make every snapshot of the folder invalid.
 //!
 //! Snapshotting is two steps so a caller can check free space between them: [`plan`] walks
 //! the folder and takes what it can from the stat cache, and [`run`] hashes and stores the
@@ -32,7 +35,7 @@ use std::time::{Duration, SystemTime};
 
 use crate::layout::{DiskLayout, CLIENT_GAME_FOLDER};
 use crate::manifest::{Entry, Image, Source, Withheld, WithheldReason, World};
-use crate::paths::{validate_component, CanonicalPath};
+use crate::paths::{validate_component, CanonicalPath, MAX_PATH_BYTES};
 
 use super::excludes::Excludes;
 use super::fsx;
@@ -103,6 +106,9 @@ pub struct Plan {
     pub cached: Vec<(FoundFile, String)>,
     pub to_read: Vec<FoundFile>,
     pub withheld: Vec<Withheld>,
+    /// Paths that would be withheld but are longer than the withheld list may show, as
+    /// found relative to the game folder.
+    pub too_long: Vec<String>,
 }
 
 impl Plan {
@@ -121,6 +127,9 @@ impl Plan {
 pub struct Snapshot {
     pub entries: Vec<Entry>,
     pub withheld: Vec<Withheld>,
+    /// Files that couldn't be taken and whose paths are too long for the withheld list
+    /// ([`MAX_PATH_BYTES`]), as found relative to the game folder: for the caller to show.
+    pub too_long: Vec<String>,
     pub cache: StatCache,
     /// The worlds the entries are in.
     pub worlds: BTreeSet<String>,
@@ -183,22 +192,82 @@ pub fn plan(
         cached: Vec::new(),
         to_read: Vec::new(),
         withheld: Vec::new(),
+        too_long: Vec::new(),
     };
-    let found = walk(root, layout, &excludes, options.cancel, &mut plan.withheld)?;
-    for file in found {
-        let cached = options
-            .cache
-            .and_then(|cache| cache.lookup(&file.disk, file.size, file.modified_ns))
-            // Claimed, not only looked up: a file taken from the cache is never read, so
-            // this is the only time its object is touched before the manifest names it.
-            .filter(|sha256| store.claim_object(sha256, file.size))
-            .map(str::to_string);
+    let found = walk(
+        root,
+        layout,
+        &excludes,
+        options.cancel,
+        &mut Withholding {
+            withheld: &mut plan.withheld,
+            too_long: &mut plan.too_long,
+        },
+    )?;
+    // Claims older than a save may trust are forgotten here too, not only when a manifest
+    // is saved, so the map doesn't keep the last snapshot's until the next save.
+    store.forget_old_claims();
+    let looked_up: Vec<(FoundFile, Option<String>)> = found
+        .into_iter()
+        .map(|file| {
+            let cached = options
+                .cache
+                .and_then(|cache| cache.lookup(&file.disk, file.size, file.modified_ns))
+                .map(str::to_string);
+            (file, cached)
+        })
+        .collect();
+    // Claimed, not only looked up: a file taken from the cache is never read, so this is
+    // the only time its object is touched before the manifest names it. On the snapshot's
+    // threads, since every chunk of a large file is looked at (and touched when old).
+    let claimed = claim_all(store, &looked_up, thread_count(options, looked_up.len()));
+    if (options.cancel)() {
+        return Err(SnapshotError::Cancelled);
+    }
+    for ((file, cached), claimed) in looked_up.into_iter().zip(claimed) {
         match cached {
-            Some(sha256) => plan.cached.push((file, sha256)),
-            None => plan.to_read.push(file),
+            Some(sha256) if claimed => plan.cached.push((file, sha256)),
+            _ => plan.to_read.push(file),
         }
     }
     Ok(plan)
+}
+
+/// Claims the object of every file the stat cache gave a hash for, on `threads` threads.
+/// One bool per file: whether its object was claimed (false for files without a hash).
+fn claim_all(store: &Store, files: &[(FoundFile, Option<String>)], threads: usize) -> Vec<bool> {
+    let claimed: Vec<AtomicBool> = files.iter().map(|_| AtomicBool::new(false)).collect();
+    let next = AtomicUsize::new(0);
+    std::thread::scope(|scope| {
+        for _ in 0..threads {
+            scope.spawn(|| loop {
+                let index = next.fetch_add(1, Ordering::Relaxed);
+                let Some((file, Some(sha256))) = files.get(index).map(|(f, s)| (f, s.as_ref()))
+                else {
+                    if index >= files.len() {
+                        break;
+                    }
+                    continue;
+                };
+                if store.claim_object(sha256, file.size) {
+                    claimed[index].store(true, Ordering::Relaxed);
+                }
+            });
+        }
+    });
+    claimed.into_iter().map(AtomicBool::into_inner).collect()
+}
+
+/// The threads to hash, store and claim `work` files with: [`SnapshotOptions::threads`], or
+/// half the processors and at most [`DEFAULT_MAX_THREADS`], and no more than the work.
+fn thread_count(options: &SnapshotOptions, work: usize) -> usize {
+    match options.threads {
+        0 => std::thread::available_parallelism()
+            .map_or(2, |n| n.get() / 2)
+            .clamp(1, DEFAULT_MAX_THREADS),
+        n => n,
+    }
+    .clamp(1, work.max(1))
 }
 
 /// What became of one file [`run`] read.
@@ -218,13 +287,7 @@ pub fn run(
     progress: &(dyn Fn(u64, u64) + Sync),
 ) -> Result<Snapshot, SnapshotError> {
     let total = plan.bytes_to_read();
-    let threads = match options.threads {
-        0 => std::thread::available_parallelism()
-            .map_or(2, |n| n.get() / 2)
-            .clamp(1, DEFAULT_MAX_THREADS),
-        n => n,
-    }
-    .clamp(1, plan.to_read.len().max(1));
+    let threads = thread_count(options, plan.to_read.len());
     let next = AtomicUsize::new(0);
     let done = AtomicU64::new(0);
     let stop = AtomicBool::new(false);
@@ -276,6 +339,7 @@ pub fn run(
     let mut snapshot = Snapshot {
         entries: Vec::with_capacity(plan.cached.len() + plan.to_read.len()),
         withheld: plan.withheld,
+        too_long: plan.too_long,
         cache: StatCache::new(plan.scan_started_ns),
         worlds: BTreeSet::new(),
         files_read: 0,
@@ -373,19 +437,35 @@ fn as_found(layout: &DiskLayout, disk: &str) -> String {
     }
 }
 
+/// Where a walk puts what it withholds.
+struct Withholding<'w> {
+    withheld: &'w mut Vec<Withheld>,
+    too_long: &'w mut Vec<String>,
+}
+
+impl Withholding<'_> {
+    /// Withholds `path`, unless it is longer than a withheld list may show: then it is
+    /// only reported, so the image stays valid.
+    fn withhold(&mut self, path: String, reason: WithheldReason) {
+        if path.len() > MAX_PATH_BYTES {
+            self.too_long.push(path);
+        } else {
+            self.withheld.push(Withheld { path, reason });
+        }
+    }
+}
+
 /// Walks `root` without following links below it. Returns the files to take; adds what it
-/// withholds to `withheld`.
+/// withholds to `withholding`.
 fn walk(
     root: &Path,
     layout: &DiskLayout,
     excludes: &Excludes,
     cancel: Cancel,
-    withheld: &mut Vec<Withheld>,
+    withholding: &mut Withholding,
 ) -> Result<Vec<FoundFile>, SnapshotError> {
     let mut files = Vec::new();
-    let mut withhold = |path: String, reason: WithheldReason| {
-        withheld.push(Withheld { path, reason });
-    };
+    let mut withhold = |path: String, reason: WithheldReason| withholding.withhold(path, reason);
     let mut entries = walkdir::WalkDir::new(root)
         .follow_root_links(true)
         .follow_links(false)

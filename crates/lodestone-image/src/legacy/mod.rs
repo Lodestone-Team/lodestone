@@ -38,10 +38,12 @@ pub mod launcher_modpack;
 pub mod lodesnap;
 pub mod world_zip;
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 
 use crate::hex::{is_sha1, is_sha256, is_sha512};
-use crate::manifest::{prescan, Image, Withheld, WithheldReason, MAX_TEXT_LEN};
+use crate::manifest::{
+    whole_number_field, Image, ProbeError, Withheld, WithheldReason, MAX_TEXT_LEN,
+};
 use crate::paths::MAX_PATH_BYTES;
 
 /// Why an old file can't be read or written.
@@ -201,149 +203,18 @@ const UNHASHED: WithheldReason = WithheldReason::Unreadable;
 /// Checks that `bytes` is a JSON object of a sane shape ([`prescan`]: an old file from
 /// elsewhere, a `.lodesnap`'s manifest, compresses a thousand to one) and returns its
 /// whole-number field `key` (a schema or document version), `None` when it is missing.
-/// Nothing but that field is kept: the rest is skipped without building JSON values, so
-/// a hostile file can't make this cost much more memory than its size. Anything other
-/// than an object is refused (serde would read a struct from an array too).
+/// Nothing but that field is kept ([`whole_number_field`]), so a hostile file can't make
+/// this cost much more memory than its size.
+///
+/// [`prescan`]: crate::manifest::prescan
 fn version_probe(bytes: &[u8], key: &str) -> Result<Option<u64>, LegacyError> {
-    use serde::de::{DeserializeSeed, Deserializer, IgnoredAny, MapAccess, SeqAccess, Visitor};
-    use std::fmt;
-
-    /// What the probed field held.
-    enum Version {
-        Whole(u64),
-        NotWhole,
-        NotNumber,
-    }
-
-    struct VersionVisitor;
-
-    impl<'de> Visitor<'de> for VersionVisitor {
-        type Value = Version;
-
-        fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            f.write_str("a version")
-        }
-
-        fn visit_u64<E: serde::de::Error>(self, v: u64) -> Result<Version, E> {
-            Ok(Version::Whole(v))
-        }
-
-        fn visit_i64<E: serde::de::Error>(self, v: i64) -> Result<Version, E> {
-            Ok(u64::try_from(v).map_or(Version::NotWhole, Version::Whole))
-        }
-
-        fn visit_f64<E: serde::de::Error>(self, _: f64) -> Result<Version, E> {
-            Ok(Version::NotWhole)
-        }
-
-        fn visit_bool<E: serde::de::Error>(self, _: bool) -> Result<Version, E> {
-            Ok(Version::NotNumber)
-        }
-
-        fn visit_str<E: serde::de::Error>(self, _: &str) -> Result<Version, E> {
-            Ok(Version::NotNumber)
-        }
-
-        fn visit_unit<E: serde::de::Error>(self) -> Result<Version, E> {
-            Ok(Version::NotNumber)
-        }
-
-        fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Version, A::Error> {
-            while seq.next_element::<IgnoredAny>()?.is_some() {}
-            Ok(Version::NotNumber)
-        }
-
-        fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Version, A::Error> {
-            while map.next_entry::<IgnoredAny, IgnoredAny>()?.is_some() {}
-            Ok(Version::NotNumber)
-        }
-    }
-
-    impl<'de> serde::Deserialize<'de> for Version {
-        fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Version, D::Error> {
-            d.deserialize_any(VersionVisitor)
-        }
-    }
-
-    /// The whole document: `None` when it isn't an object, else the field (if any).
-    struct Probe<'k> {
-        key: &'k str,
-    }
-
-    impl<'de> DeserializeSeed<'de> for Probe<'_> {
-        type Value = Option<Option<Version>>;
-
-        fn deserialize<D: Deserializer<'de>>(self, d: D) -> Result<Self::Value, D::Error> {
-            d.deserialize_any(self)
-        }
-    }
-
-    impl<'de> Visitor<'de> for Probe<'_> {
-        type Value = Option<Option<Version>>;
-
-        fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            f.write_str("a JSON object")
-        }
-
-        fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
-            let mut found = None;
-            while let Some(name) = map.next_key::<String>()? {
-                if name == self.key && found.is_none() {
-                    found = Some(map.next_value::<Version>()?);
-                } else {
-                    map.next_value::<IgnoredAny>()?;
-                }
-            }
-            Ok(Some(found))
-        }
-
-        fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
-            while seq.next_element::<IgnoredAny>()?.is_some() {}
-            Ok(None)
-        }
-
-        fn visit_bool<E: serde::de::Error>(self, _: bool) -> Result<Self::Value, E> {
-            Ok(None)
-        }
-
-        fn visit_i64<E: serde::de::Error>(self, _: i64) -> Result<Self::Value, E> {
-            Ok(None)
-        }
-
-        fn visit_u64<E: serde::de::Error>(self, _: u64) -> Result<Self::Value, E> {
-            Ok(None)
-        }
-
-        fn visit_f64<E: serde::de::Error>(self, _: f64) -> Result<Self::Value, E> {
-            Ok(None)
-        }
-
-        fn visit_str<E: serde::de::Error>(self, _: &str) -> Result<Self::Value, E> {
-            Ok(None)
-        }
-
-        fn visit_unit<E: serde::de::Error>(self) -> Result<Self::Value, E> {
-            Ok(None)
-        }
-    }
-
-    prescan(bytes).map_err(|e| LegacyError::Invalid(format!("it {e}")))?;
-    let mut deserializer = serde_json::Deserializer::from_slice(bytes);
-    let probed = Probe { key }
-        .deserialize(&mut deserializer)
-        .and_then(|probed| deserializer.end().map(|()| probed))
-        .map_err(|e| LegacyError::Json(e.to_string()))?;
-    match probed {
-        None => Err(LegacyError::Invalid("it isn't a JSON object".into())),
-        Some(None) => Ok(None),
-        Some(Some(Version::Whole(v))) => Ok(Some(v)),
-        Some(Some(Version::NotWhole)) => Err(LegacyError::Invalid(format!(
-            "{key:?} isn't a whole number"
-        ))),
-        Some(Some(Version::NotNumber)) => {
-            Err(LegacyError::Invalid(format!("{key:?} isn't a number")))
-        }
-    }
+    whole_number_field(bytes, key).map_err(|e| match e {
+        ProbeError::Shape(e) => LegacyError::Invalid(format!("it {e}")),
+        ProbeError::Json(e) => LegacyError::Json(e),
+        ProbeError::NotObject => LegacyError::Invalid("it isn't a JSON object".into()),
+        ProbeError::NotWhole => LegacyError::Invalid(format!("{key:?} isn't a whole number")),
+        ProbeError::NotNumber => LegacyError::Invalid(format!("{key:?} isn't a number")),
+    })
 }
 
 /// Checks that `bytes` is a JSON object of a sane shape, for files without a version.
@@ -387,6 +258,34 @@ fn withhold(image: &mut Image, notes: &mut Vec<Note>, path: &str, reason: Withhe
     } else {
         notes.push(Note::PathTooLong(path.to_string()));
     }
+}
+
+/// The indices of `paths` that are also the folder of another of them (`w/a` beside
+/// `w/a/b`). An image can't hold both, so a conversion withholds these files as bad names
+/// rather than failing whole on one odd entry of an old file from elsewhere. Linear after
+/// a sort: one binary search per path, as [`Image::validate`] finds them.
+fn file_folder_clashes<'p>(paths: impl IntoIterator<Item = &'p str>) -> BTreeSet<usize> {
+    let mut sorted: Vec<(&str, usize)> = paths
+        .into_iter()
+        .enumerate()
+        .map(|(index, path)| (path, index))
+        .collect();
+    sorted.sort_unstable();
+    let mut clashes = BTreeSet::new();
+    let mut folder = String::new();
+    for &(path, index) in &sorted {
+        folder.clear();
+        folder.push_str(path);
+        folder.push('/');
+        let next = sorted.partition_point(|(other, _)| *other < folder.as_str());
+        if sorted
+            .get(next)
+            .is_some_and(|(other, _)| other.starts_with(folder.as_str()))
+        {
+            clashes.insert(index);
+        }
+    }
+    clashes
 }
 
 /// Seals `image` and checks it, so a conversion never hands out an invalid image.
@@ -453,6 +352,12 @@ mod tests {
         assert_eq!(known.pack_sha512("p", "v"), Some("d".repeat(128)));
         assert_eq!(known.pack_sha512("p", "w"), None);
         assert_eq!(().file(&"a".repeat(40)), None);
+    }
+
+    #[test]
+    fn files_that_are_also_folders_are_found() {
+        let clashes = file_folder_clashes(["w/a/b", "w/a", "w/ab", "w/a.b", "x", "x/y/z"]);
+        assert_eq!(clashes.into_iter().collect::<Vec<_>>(), [1, 4]);
     }
 
     #[test]

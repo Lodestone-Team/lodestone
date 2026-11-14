@@ -372,11 +372,19 @@ fn cut_whole(
     chunker.finish(emit)
 }
 
-/// How an export holds one object.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// How an export holds one object. A chunk list is only checked by [`open`], not kept: a
+/// list can name one small chunk millions of times, so lists are read again, one at a
+/// time, when they are imported.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Carried {
-    Whole { size: u64 },
-    Chunked(ChunkList),
+    Whole {
+        size: u64,
+    },
+    /// The file's size, and the list's in the export.
+    Chunked {
+        size: u64,
+        list_bytes: u64,
+    },
 }
 
 /// An export that passed every check [`open`] makes. Its objects go into a store with
@@ -558,33 +566,52 @@ pub fn open(path: &Path, limits: &Limits) -> Result<Container, ContainerError> {
         if size <= CHUNKED_ABOVE || declared > ChunkList::max_encoded_len(size) {
             return Err(invalid(format!("{name} isn't the size its image says")));
         }
-        let list = ChunkList::parse(&read_entry(&mut archive, &name, declared)?)
-            .map_err(|why| invalid(format!("{name}: {why}")))?;
-        if list.size != size {
-            return Err(invalid(format!("{name} is a chunk list for another size")));
-        }
-        for chunk in &list.chunks {
-            match chunks_declared.get(&chunk.sha256) {
-                Some(&declared) if declared == u64::from(chunk.size) => {}
+        // Streamed: a line in memory at a time, and only the chunks the export has kept
+        // (each once), however many times the list names them.
+        let entry = archive
+            .by_name(&name)
+            .map_err(|_| invalid(format!("{name} can't be read")))?;
+        let mut reader = BufReader::new(entry.take(declared));
+        let mut problem: Option<ContainerError> = None;
+        let visited = ChunkList::visit(&mut reader, &mut |hash, chunk_size| {
+            match chunks_declared.get(hash) {
+                Some(&declared) if declared == u64::from(chunk_size) => {}
                 Some(_) => {
-                    return Err(invalid(format!(
-                        "chunks/{} isn't the size its list says",
-                        chunk.sha256
-                    )))
+                    problem = Some(invalid(format!(
+                        "chunks/{hash} isn't the size its list says"
+                    )));
+                    return Err(String::new());
                 }
                 None => {
-                    return Err(invalid(format!(
-                        "chunks/{} is missing from it",
-                        chunk.sha256
-                    )))
+                    problem = Some(invalid(format!("chunks/{hash} is missing from it")));
+                    return Err(String::new());
                 }
             }
-            if used_chunks.insert(chunk.sha256.clone()) {
-                unpacked = unpacked.saturating_add(u64::from(chunk.size));
+            if !used_chunks.contains(hash) {
+                used_chunks.insert(hash.to_string());
+                unpacked = unpacked.saturating_add(u64::from(chunk_size));
             }
+            Ok(())
+        });
+        let read = reader.into_inner().limit();
+        if let Some(problem) = problem {
+            return Err(problem);
+        }
+        let list_size = visited.map_err(|why| invalid(format!("{name}: {why}")))?;
+        if read != 0 {
+            return Err(invalid(format!("{name} isn't the size it says")));
+        }
+        if list_size != size {
+            return Err(invalid(format!("{name} is a chunk list for another size")));
         }
         unpacked = unpacked.saturating_add(declared);
-        objects.insert(sha256.clone(), Carried::Chunked(list));
+        objects.insert(
+            sha256.clone(),
+            Carried::Chunked {
+                size,
+                list_bytes: declared,
+            },
+        );
     }
     if let Some(extra) = objects_declared.keys().find(|h| !needed.contains_key(*h)) {
         return Err(invalid(format!("objects/{extra} isn't used by its image")));
@@ -679,13 +706,12 @@ impl Container {
     ) -> Result<ImportReport, ContainerError> {
         check_room(self.unpacked).map_err(ContainerError::NoRoom)?;
         let mut report = ImportReport::default();
-        for (sha256, carried) in &self.objects {
+        for (sha256, &carried) in &self.objects {
             if cancel() {
                 return Err(ContainerError::Cancelled);
             }
             let size = match carried {
-                Carried::Whole { size } => *size,
-                Carried::Chunked(list) => list.size,
+                Carried::Whole { size } | Carried::Chunked { size, .. } => size,
             };
             // Complete, every chunk of a list included (a list that lost a damaged chunk
             // gets it back from the export), and touched against a collection running now.
@@ -708,23 +734,39 @@ impl Container {
                         .map_err(|_| invalid(format!("{name} can't be read")))?;
                     let mut limited = entry.take(size.saturating_add(1));
                     store
-                        .put_reader(&mut limited, *size, Some(sha256), cancel)
+                        .put_reader(&mut limited, size, Some(sha256), cancel)
                         .map_err(bad)?
                 }
-                Carried::Chunked(list) => {
-                    let mut writer = store.writer(list.size, Some(sha256))?;
-                    for chunk in &list.chunks {
-                        if cancel() {
-                            return Err(ContainerError::Cancelled);
-                        }
-                        let chunk_name = format!("chunks/{}", chunk.sha256);
-                        let bytes =
-                            read_entry(&mut self.archive, &chunk_name, u64::from(chunk.size))?;
-                        if sha256_hex(&bytes) != chunk.sha256 {
-                            return Err(invalid(format!("{chunk_name} doesn't match its hash")));
-                        }
-                        writer.push(&bytes).map_err(bad)?;
+                Carried::Chunked { size, list_bytes } => {
+                    // This one list in memory (its chunks are read from the archive while
+                    // it is walked), never every list at once.
+                    let list = read_entry(&mut self.archive, &name, list_bytes)?;
+                    let mut writer = store.writer(size, Some(sha256))?;
+                    let mut problem: Option<ContainerError> = None;
+                    let archive = &mut self.archive;
+                    let walked = ChunkList::visit(&mut &list[..], &mut |hash, chunk_size| {
+                        let pushed = (|| {
+                            if cancel() {
+                                return Err(ContainerError::Cancelled);
+                            }
+                            let chunk_name = format!("chunks/{hash}");
+                            let bytes = read_entry(archive, &chunk_name, u64::from(chunk_size))?;
+                            if sha256_hex(&bytes) != hash {
+                                return Err(invalid(format!(
+                                    "{chunk_name} doesn't match its hash"
+                                )));
+                            }
+                            writer.push(&bytes).map_err(bad)
+                        })();
+                        pushed.map_err(|e| {
+                            problem = Some(e);
+                            String::new()
+                        })
+                    });
+                    if let Some(problem) = problem {
+                        return Err(problem);
                     }
+                    walked.map_err(|why| invalid(format!("{name}: {why}")))?;
                     writer.finish().map_err(bad)?
                 }
             };

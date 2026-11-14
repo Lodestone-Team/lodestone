@@ -158,49 +158,83 @@ pub(crate) fn sync_dir(dir: &Path) -> io::Result<()> {
     Ok(())
 }
 
-/// Hands what was written to a content-addressed file to the drive, before it is renamed
-/// into place.
+/// Hands what was written to a file to the drive as part of a batch that [`full_flush`]
+/// ends, before the file is renamed into place: what the store does per object and chunk,
+/// and materializing per placed file.
 ///
-/// On Apple platforms that is plain `fsync(2)`, which doesn't flush the drive's own cache:
-/// std's `sync_all` there is `F_FULLFSYNC`, a whole-device cache flush of about 6 ms that
-/// doesn't overlap between threads, and chunking makes one flush per 64 KiB of a large
-/// file (minutes for a world's first snapshot). The store issues one full flush
-/// ([`full_flush`]) after the batch instead, before any manifest names the files, as git's
-/// `core.fsyncMethod=batch` does. Elsewhere `fsync` (Linux) and `FlushFileBuffers`
-/// (Windows) already are what the store needs, and run here, one per file.
+/// Flushing every file to the drive's own storage is a device cache flush per file (std's
+/// `sync_all`), and chunking makes one file per 64 KiB of a large file: a world's first
+/// snapshot takes minutes that way. So, as git's `core.fsyncMethod=batch` does, each file
+/// is only handed to the drive here, and one flush per batch makes them all durable:
+///
+/// - Apple platforms: plain `fsync(2)` per file (std's `sync_all` is `F_FULLFSYNC`, about
+///   6 ms each and not overlapping between threads), and one `F_FULLFSYNC` at the end.
+/// - Linux: nothing per file; at the end one `syncfs(2)` of the file system, which writes
+///   out every dirty file and folder on it and flushes the drive's cache.
+/// - Windows: `NtFlushBuffersFileEx` with `FLUSH_FLAGS_NO_SYNC` per file (its data to the
+///   drive without a cache flush), and one `FlushFileBuffers` at the end, which flushes the
+///   volume's cache. Where that call isn't supported, `FlushFileBuffers` per file.
+/// - Elsewhere: `fsync` per file, and nothing at the end.
 pub(crate) fn write_out(file: &File) -> io::Result<()> {
     #[cfg(target_vendor = "apple")]
     {
         apple::fsync(file)
     }
-    #[cfg(not(target_vendor = "apple"))]
+    #[cfg(target_os = "linux")]
+    {
+        let _ = file;
+        Ok(())
+    }
+    #[cfg(windows)]
+    {
+        windows::flush_no_sync(file)
+    }
+    #[cfg(not(any(target_vendor = "apple", target_os = "linux", windows)))]
     {
         file.sync_all()
     }
 }
 
 /// Flushes a folder's entries as part of a batch that [`full_flush`] ends: on Apple
-/// platforms a plain `fsync(2)`, elsewhere [`sync_dir`].
+/// platforms a plain `fsync(2)`; on Linux nothing (the batch's `syncfs` covers folders);
+/// elsewhere [`sync_dir`].
 pub(crate) fn write_out_dir(dir: &Path) -> io::Result<()> {
     #[cfg(target_vendor = "apple")]
     {
         apple::fsync(&File::open(dir)?)
     }
-    #[cfg(not(target_vendor = "apple"))]
+    #[cfg(target_os = "linux")]
+    {
+        let _ = dir;
+        Ok(())
+    }
+    #[cfg(not(any(target_vendor = "apple", target_os = "linux")))]
     {
         sync_dir(dir)
     }
 }
 
-/// Ends a batch of [`write_out`]s: on Apple platforms one `F_FULLFSYNC` (std's `sync_all`)
-/// through the folder `dir`, which asks the drive to write out its cache, the files of
-/// the batch included. Elsewhere each file was already flushed, and this does nothing.
+/// Ends a batch of [`write_out`]s on the file system of the folder `dir`, making every file
+/// and folder of the batch durable (see [`write_out`]).
 pub(crate) fn full_flush(dir: &Path) -> io::Result<()> {
     #[cfg(target_vendor = "apple")]
     {
+        // F_FULLFSYNC through any file asks the drive to write out its whole cache.
         File::open(dir)?.sync_all()
     }
-    #[cfg(not(target_vendor = "apple"))]
+    #[cfg(target_os = "linux")]
+    {
+        linux::syncfs(&File::open(dir)?)
+    }
+    #[cfg(windows)]
+    {
+        // FlushFileBuffers on a file of the volume flushes the drive's cache too (git's
+        // batch mode on Windows does the same with a file of its own).
+        let (file, path) = create_temp(dir)?;
+        let _guard = TempGuard::new(path);
+        file.sync_all()
+    }
+    #[cfg(not(any(target_vendor = "apple", target_os = "linux", windows)))]
     {
         let _ = dir;
         Ok(())
@@ -237,23 +271,107 @@ mod apple {
     }
 }
 
-/// Sets `path`'s modification time to now, best effort. The store does this to an object
-/// it reuses, so a garbage collection running at the same time sees it as new and keeps it
-/// until the manifest that uses it is written (see `gc`). Read-only files can have their
-/// times set by their owner.
-pub(crate) fn touch(path: &Path) {
+#[cfg(target_os = "linux")]
+mod linux {
+    use std::ffi::c_int;
+    use std::fs::File;
+    use std::io;
+    use std::os::fd::AsRawFd;
+
+    // The C library's syncfs(2) (glibc 2.14 on, musl), which std links anyway.
+    unsafe extern "C" {
+        #[link_name = "syncfs"]
+        fn c_syncfs(fd: c_int) -> c_int;
+    }
+
+    /// `syncfs(2)`: writes out every dirty file and folder of the file system `file` is
+    /// on and flushes the drive's cache, reporting write-back errors (Linux 5.8 on).
+    pub(super) fn syncfs(file: &File) -> io::Result<()> {
+        loop {
+            // SAFETY: the descriptor belongs to `file`, which stays open for the call;
+            // syncfs reads nothing from memory.
+            if unsafe { c_syncfs(file.as_raw_fd()) } == 0 {
+                return Ok(());
+            }
+            let error = io::Error::last_os_error();
+            if error.kind() != io::ErrorKind::Interrupted {
+                return Err(error);
+            }
+        }
+    }
+}
+
+#[cfg(windows)]
+mod windows {
+    use std::ffi::c_void;
+    use std::fs::File;
+    use std::io;
+    use std::os::windows::io::AsRawHandle;
+
+    /// `IO_STATUS_BLOCK`: a status (or pointer) and a count.
+    #[repr(C)]
+    struct IoStatusBlock {
+        status: usize,
+        information: usize,
+    }
+
+    /// Write the data to the drive without asking it to flush its cache.
+    const FLUSH_FLAGS_NO_SYNC: u32 = 0x0000_0002;
+
+    // ntdll's NtFlushBuffersFileEx (Windows 8 on), linked without an import library.
+    #[link(name = "ntdll", kind = "raw-dylib")]
+    unsafe extern "system" {
+        fn NtFlushBuffersFileEx(
+            file: *mut c_void,
+            flags: u32,
+            parameters: *mut c_void,
+            parameters_size: u32,
+            io_status: *mut IoStatusBlock,
+        ) -> i32;
+    }
+
+    /// Hands the file's data to the drive without a cache flush; where the file system
+    /// doesn't support that, flushes it fully (`FlushFileBuffers`).
+    pub(super) fn flush_no_sync(file: &File) -> io::Result<()> {
+        let mut status = IoStatusBlock {
+            status: 0,
+            information: 0,
+        };
+        // SAFETY: the handle belongs to `file`, which stays open for the call; no
+        // parameters are passed, and the status block lives on this stack for the call.
+        let result = unsafe {
+            NtFlushBuffersFileEx(
+                file.as_raw_handle(),
+                FLUSH_FLAGS_NO_SYNC,
+                std::ptr::null_mut(),
+                0,
+                &mut status,
+            )
+        };
+        if result >= 0 {
+            Ok(())
+        } else {
+            file.sync_all()
+        }
+    }
+}
+
+/// Sets `path`'s modification time to now. The store does this to an object it reuses, so
+/// a garbage collection running at the same time sees it as new and keeps it until the
+/// manifest that uses it is written (see `gc`). Read-only files can have their times set
+/// by their owner; a file another user owns can't, and that is an error the caller must
+/// not take for a touch.
+pub(crate) fn touch(path: &Path) -> io::Result<()> {
     let now = SystemTime::now();
     #[cfg(windows)]
     let file = {
         use std::os::windows::fs::OpenOptionsExt;
         // FILE_WRITE_ATTRIBUTES: allowed on read-only files.
-        File::options().access_mode(0x100).open(path)
+        File::options().access_mode(0x100).open(path)?
     };
     #[cfg(not(windows))]
-    let file = File::open(path);
-    if let Ok(file) = file {
-        let _ = file.set_modified(now);
-    }
+    let file = File::open(path)?;
+    file.set_modified(now)
 }
 
 /// How long ago `path` was last modified; `None` when that can't be told (then callers
@@ -372,7 +490,7 @@ mod tests {
             .set_modified(old)
             .unwrap();
         set_readonly(&path).unwrap();
-        touch(&path);
+        touch(&path).unwrap();
         let meta = fs::metadata(&path).unwrap();
         assert!(age(&meta, SystemTime::now()).unwrap() < Duration::from_secs(600));
         remove_file_forced(&path).unwrap();

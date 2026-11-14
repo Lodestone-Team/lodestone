@@ -1,8 +1,9 @@
 //! Garbage collection: deleting the objects and chunks no manifest uses.
 //!
 //! Mark and sweep. Every manifest under `images/` is read; the objects its entries and
-//! settings name are live, and so are the chunks of every live chunk list. Then every
-//! object and chunk that isn't live is deleted, along with temporary files a crash left.
+//! settings name are live (a whole file in `objects/`, a chunk list in `lists/`, or both),
+//! and so are the chunks of every live chunk list. Then every whole object, list and chunk
+//! that isn't live is deleted, along with temporary files a crash left.
 //!
 //! It never guesses:
 //!
@@ -11,15 +12,17 @@
 //!   objects can't be told apart from garbage.
 //! - If a live chunk list can't be read, no chunk is deleted (its chunks are unknown);
 //!   unused objects still are.
-//! - Whether a live object is a chunk list is decided from the object, never from the
+//! - Whether a live object has a chunk list is decided from the store, never from the
 //!   sizes manifests name it with: a manifest received from elsewhere can give any size.
-//!   An object is read to find out only when some name could mean a list (a size over
-//!   1 MiB that isn't the object's length, or no size at all, for [`GcOptions::also_live`]),
-//!   and it is a list exactly when it parses as one; then its chunks are live whatever
-//!   size anything gives it. Names with sizes the object doesn't have are counted in
-//!   [`GcReport::wrong_sizes`] and block nothing.
-//! - Objects and chunks modified within the grace period (an hour) are kept, with the
-//!   chunks of such lists: a snapshot running at the same time stores its objects before
+//!   A live object's list in `lists/` is read whatever size anything gives it, and its
+//!   chunks are live. Names with sizes neither the whole object nor the list has are
+//!   counted in [`GcReport::wrong_sizes`] and block nothing.
+//! - Objects, lists and chunks modified within the grace period (an hour) before the
+//!   collection started are kept, with the chunks of such lists. Age is judged against the
+//!   moment marking started, never the moment a file is swept, so a manifest saved while
+//!   the collection runs (which it didn't mark) never loses an object it names: that
+//!   object was either new when marking started, or claimed (touched) by the save, which
+//!   makes it newer than the start. A snapshot running at the same time stores its objects before
 //!   it writes the manifest that uses them, touches the objects it reuses (see
 //!   `Store::put_file`) and those it takes from its stat cache (`Store::claim_object`),
 //!   and claims them all again when it saves the manifest (`Store::save_manifest`, which
@@ -32,7 +35,10 @@
 //!   touch lands before the rename (and the collection sees it and puts the file back) or
 //!   the claim finds the file gone and fails, and the manifest isn't saved. A grace shorter
 //!   than twice the touch interval would let a collection take a file a claim found new
-//!   enough not to touch, so [`GcOptions::grace`] is never taken below [`MIN_GRACE`].
+//!   enough not to touch, so [`GcOptions::grace`] is never taken below [`MIN_GRACE`]: an
+//!   object a claim didn't touch was at most ten minutes old then, and a remembered claim
+//!   vouches for at most five minutes more, so it is still within the grace counted back
+//!   from any collection that started before the save.
 //! - Objects that only older formats use (the core's schema 1 backups, the Launcher's
 //!   snapshots) are kept when the caller passes them in [`GcOptions::also_live`]; the
 //!   caller reads those manifests and refuses as above when it can't.
@@ -44,13 +50,12 @@ use std::path::Path;
 use std::time::{Duration, SystemTime};
 
 use serde::Deserialize;
-use serde_json::Value;
 
-use crate::hex::{is_sha256, sha256_hex};
-use crate::manifest::SCHEMA;
+use crate::hex::is_sha256;
+use crate::manifest::{whole_number_field, ProbeError, SCHEMA};
 
-use super::chunklist::{ChunkList, CHUNKED_ABOVE, MAX_LIST_BYTES};
-use super::encoding::{decoded_len, read_limited, read_prefix};
+use super::chunklist::{ChunkList, MAX_LIST_BYTES};
+use super::encoding::{decoded_len, read_limited};
 use super::{fsx, manifest_id, read_capped, Area, Store, MAX_MANIFEST_BYTES, TEMP_MAX_AGE};
 use super::{StoreError, TOUCH_AFTER};
 
@@ -79,9 +84,6 @@ fn min_grace() -> Duration {
     }
     MIN_GRACE
 }
-/// The most bytes read from an object that isn't known to be a chunk list, to tell
-/// whether it is one.
-const MAX_UNKNOWN_LIST: u64 = 64 << 20;
 
 #[derive(Debug, Clone)]
 pub struct GcOptions {
@@ -107,6 +109,7 @@ impl Default for GcOptions {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct GcReport {
     pub manifests: usize,
+    /// Whole objects and chunk lists.
     pub objects_removed: u64,
     pub chunks_removed: u64,
     /// Encoded bytes.
@@ -135,10 +138,9 @@ pub enum GcError {
 }
 
 /// Only what marking needs from a manifest, so a manifest with fields this version doesn't
-/// know still marks its objects.
+/// know still marks its objects. The schema is probed first, on its own.
 #[derive(Deserialize)]
 struct MarkManifest {
-    schema: Value,
     /// `null` is no entries, as in any manifest.
     #[serde(default)]
     entries: Option<Vec<MarkObject>>,
@@ -173,20 +175,17 @@ impl Store {
             grace: options.grace.max(min_grace()),
             ..options.clone()
         };
+        // What is new is judged against this, taken before any manifest is read.
+        let started = SystemTime::now();
         let mut report = GcReport::default();
-        // (sha256, size) of every object a manifest names.
-        let mut live: Vec<(String, u64)> = Vec::new();
-        self.mark_manifests(&mut live, &mut report)?;
         // Every size each live object is named with; objects only older formats name
-        // have none.
+        // have none. Filled as each manifest is read, so memory follows the objects, not
+        // the manifests (backups share most of theirs).
         let mut sizes: HashMap<String, Vec<u64>> = HashMap::new();
-        for (sha256, size) in live {
-            sizes.entry(sha256).or_default().push(size);
-        }
+        self.mark_manifests(&mut sizes, &mut report)?;
         for sha256 in &options.also_live {
             sizes.entry(sha256.clone()).or_default();
         }
-        let live_objects: HashSet<String> = sizes.keys().cloned().collect();
 
         let mut live_chunks: HashSet<String> = HashSet::new();
         let mut chunks_blocked: Option<String> = None;
@@ -194,30 +193,44 @@ impl Store {
         let mut names: Vec<(&String, &Vec<u64>)> = sizes.iter().collect();
         names.sort();
         for (sha256, named) in names {
-            match self.live_list(sha256, named) {
-                Ok(LiveObject::List(list, wrong)) => {
+            match self.live_object(sha256, named) {
+                Ok((list, wrong)) => {
                     report.wrong_sizes += u64::from(wrong);
-                    live_chunks.extend(list.chunks.into_iter().map(|c| c.sha256));
+                    if let Some(list) = list {
+                        live_chunks.extend(list.chunks.into_iter().map(|c| c.sha256));
+                    }
                 }
-                Ok(LiveObject::Whole { wrong }) => report.wrong_sizes += u64::from(wrong),
                 Err(why) => {
                     chunks_blocked.get_or_insert(why);
                 }
             }
         }
 
-        let now = SystemTime::now();
         report.temp_removed = self.sweep_temp(options.temp_max_age);
-        // Objects first: new unused ones keep their chunks.
-        self.sweep(Area::Objects, now, options, &mut report, |sha256, new| {
-            if live_objects.contains(sha256) {
+        let sweep = Sweep { started, options };
+        self.sweep(Area::Objects, &sweep, &mut report, |sha256, new| {
+            if sizes.contains_key(sha256) {
+                Verdict::Live
+            } else if new {
+                Verdict::KeptNew
+            } else {
+                Verdict::Delete
+            }
+        })?;
+        // Lists before chunks: new unused ones keep their chunks.
+        self.sweep(Area::Lists, &sweep, &mut report, |sha256, new| {
+            if sizes.contains_key(sha256) {
                 return Verdict::Live;
             }
             if !new {
                 return Verdict::Delete;
             }
-            if let Err(why) = self.mark_unknown_list(sha256, &mut live_chunks) {
-                chunks_blocked.get_or_insert(why);
+            match self.read_list(sha256) {
+                Ok(Some(list)) => live_chunks.extend(list.chunks.into_iter().map(|c| c.sha256)),
+                Ok(None) => {}
+                Err(why) => {
+                    chunks_blocked.get_or_insert(why);
+                }
             }
             Verdict::KeptNew
         })?;
@@ -226,7 +239,7 @@ impl Store {
             report.chunks_skipped = Some(why);
             return Ok(report);
         }
-        self.sweep(Area::Chunks, now, options, &mut report, |sha256, new| {
+        self.sweep(Area::Chunks, &sweep, &mut report, |sha256, new| {
             if live_chunks.contains(sha256) {
                 Verdict::Live
             } else if new {
@@ -253,7 +266,7 @@ impl Store {
     /// Reads every manifest under `images/` for the objects it names.
     fn mark_manifests(
         &self,
-        live: &mut Vec<(String, u64)>,
+        live: &mut HashMap<String, Vec<u64>>,
         report: &mut GcReport,
     ) -> Result<(), GcError> {
         let instances = match fs::read_dir(self.images_dir()) {
@@ -294,85 +307,48 @@ impl Store {
         Ok(())
     }
 
-    /// What the live object `sha256` is, given the sizes manifests name it with (`named`,
-    /// empty when only an older format names it): a chunk list (its chunks are live), or a
-    /// whole file or missing (nothing more to keep). Decided from the object itself, so no
-    /// name can hide a list's chunks. An error when it could be a list and can't be read,
-    /// or starts like one and is neither a list nor a whole file of its own hash.
-    fn live_list(&self, sha256: &str, named: &[u64]) -> Result<LiveObject, String> {
-        let whole = |len: Option<u64>| LiveObject::Whole {
-            wrong: len.is_some_and(|len| named.iter().any(|&size| size != len)),
-        };
-        let Ok(path) = self.object_path(sha256) else {
-            return Ok(whole(None));
-        };
-        let could_be_list = |len: Option<u64>| {
-            named.is_empty()
-                || named
-                    .iter()
-                    .any(|&size| size > CHUNKED_ABOVE && Some(size) != len)
-        };
-        let Some(len) = decoded_len(self.encoding, &path) else {
-            return if fs::symlink_metadata(&path).is_ok() && could_be_list(None) {
-                Err(format!("the live object {sha256} can't be read"))
-            } else {
-                Ok(whole(None))
-            };
-        };
-        if !could_be_list(Some(len)) || len > MAX_LIST_BYTES {
-            return Ok(whole(Some(len)));
-        }
-        let head = read_prefix(self.encoding, &path, ChunkList::MAGIC_LEN)
-            .map_err(|e| format!("the live object {sha256} can't be read ({e})"))?;
-        if !ChunkList::looks_like(&head) {
-            return Ok(whole(Some(len)));
-        }
-        let bytes = read_limited(self.encoding, &path, len)
-            .map_err(|e| format!("the live object {sha256} can't be read ({e})"))?;
-        match ChunkList::parse(&bytes) {
-            Ok(list) => {
-                let wrong = named.iter().any(|&size| size != list.size);
-                Ok(LiveObject::List(list, wrong))
-            }
-            // A whole file that happens to start like a list.
-            Err(_) if sha256_hex(&bytes) == sha256 => Ok(whole(Some(len))),
-            Err(why) => Err(format!("the chunk list {sha256} can't be read ({why})")),
-        }
-    }
-
-    /// Marks the chunks of a new object no manifest names yet, if it is a chunk list.
-    fn mark_unknown_list(
+    /// The chunk list of the live object `sha256`, if the store has one (its chunks are
+    /// live), and whether a manifest names it with a size neither its whole object nor its
+    /// list has (`named`: the sizes, empty when only an older format names it). Decided
+    /// from the store, so no name can hide a list's chunks. An error when the list is there
+    /// and can't be read.
+    fn live_object(
         &self,
         sha256: &str,
-        live_chunks: &mut HashSet<String>,
-    ) -> Result<(), String> {
-        let Ok(path) = self.object_path(sha256) else {
-            return Ok(());
-        };
-        let Some(len) = decoded_len(self.encoding, &path) else {
-            return Ok(());
-        };
-        if len > MAX_UNKNOWN_LIST {
-            return Ok(());
+        named: &[u64],
+    ) -> Result<(Option<ChunkList>, bool), String> {
+        let list = self.read_list(sha256)?;
+        if named.is_empty() {
+            return Ok((list, false));
         }
-        // Its first bytes first, as for live objects: a new whole file isn't read through
-        // just to find it isn't a list.
-        let Ok(head) = read_prefix(self.encoding, &path, ChunkList::MAGIC_LEN) else {
-            return Err(format!("the new object {sha256} can't be read"));
+        let whole = self
+            .object_path(sha256)
+            .ok()
+            .and_then(|path| decoded_len(self.encoding, &path));
+        let listed = list.as_ref().map(|list| list.size);
+        let wrong = (whole.is_some() || listed.is_some())
+            && named
+                .iter()
+                .any(|&size| Some(size) != whole && Some(size) != listed);
+        Ok((list, wrong))
+    }
+
+    /// The chunk list in `lists/` for `sha256`; `None` when there is none, an error when
+    /// one is there and can't be read or isn't a list.
+    fn read_list(&self, sha256: &str) -> Result<Option<ChunkList>, String> {
+        let Ok(path) = self.list_path(sha256) else {
+            return Ok(None);
         };
-        if !ChunkList::looks_like(&head) {
-            return Ok(());
+        match fs::symlink_metadata(&path) {
+            Ok(_) => {}
+            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
+            Err(e) => return Err(format!("the chunk list {sha256} can't be read ({e})")),
         }
-        let Ok(bytes) = read_limited(self.encoding, &path, len) else {
-            return Err(format!("the new object {sha256} can't be read"));
-        };
-        // A small file that starts like a list but isn't one is kept anyway (it is new);
-        // its "chunks" can't be told, so none are deleted this time.
-        let list = ChunkList::parse(&bytes).map_err(|why| {
-            format!("the new object {sha256} looks like a chunk list but isn't ({why})")
-        })?;
-        live_chunks.extend(list.chunks.into_iter().map(|c| c.sha256));
-        Ok(())
+        let bytes = read_limited(self.encoding, &path, MAX_LIST_BYTES)
+            .map_err(|e| format!("the chunk list {sha256} can't be read ({e})"))?;
+        ChunkList::parse(&bytes)
+            .map(Some)
+            .map_err(|why| format!("the chunk list {sha256} can't be read ({why})"))
     }
 
     /// Deletes the files of `area` that `verdict(name, is_new)` says to. Files that aren't
@@ -380,8 +356,7 @@ impl Store {
     fn sweep(
         &self,
         area: Area,
-        now: SystemTime,
-        options: &GcOptions,
+        sweep: &Sweep,
         report: &mut GcReport,
         mut verdict: impl FnMut(&str, bool) -> Verdict,
     ) -> Result<(), GcError> {
@@ -406,7 +381,7 @@ impl Store {
                     continue;
                 }
                 let Ok(meta) = file.metadata() else { continue };
-                let new = fsx::age(&meta, now).is_none_or(|age| age < options.grace);
+                let new = sweep.is_new(&meta);
                 match verdict(name, new) {
                     Verdict::Live => continue,
                     Verdict::KeptNew => {
@@ -415,10 +390,10 @@ impl Store {
                     }
                     Verdict::Delete => {}
                 }
-                match collect(&file.path(), options.grace) {
+                match collect(&file.path(), sweep) {
                     Ok(Some(len)) => {
                         match area {
-                            Area::Objects => report.objects_removed += 1,
+                            Area::Objects | Area::Lists => report.objects_removed += 1,
                             Area::Chunks => report.chunks_removed += 1,
                         }
                         report.bytes_removed += len;
@@ -434,11 +409,19 @@ impl Store {
     }
 }
 
-/// What a live object turned out to be. `wrong`: some manifest names it with a size it
-/// doesn't stand for.
-enum LiveObject {
-    Whole { wrong: bool },
-    List(ChunkList, bool),
+/// When a sweep counts a file as new.
+struct Sweep<'o> {
+    /// When the collection started, before marking.
+    started: SystemTime,
+    options: &'o GcOptions,
+}
+
+impl Sweep<'_> {
+    /// Whether a file with this metadata was modified within the grace before the
+    /// collection started, or since (a time that can't be told counts as new).
+    fn is_new(&self, meta: &fs::Metadata) -> bool {
+        fsx::age(meta, self.started).is_none_or(|age| age < self.options.grace)
+    }
 }
 
 /// What a sweep does with one file.
@@ -454,7 +437,7 @@ enum Verdict {
 /// module): renames it away, reads its time again from the renamed file, and puts it back
 /// if it was touched since it was found old. Returns the bytes freed, or `None` when it was
 /// put back.
-fn collect(path: &Path, grace: Duration) -> io::Result<Option<u64>> {
+fn collect(path: &Path, sweep: &Sweep) -> io::Result<Option<u64>> {
     let dir = path
         .parent()
         .ok_or_else(|| io::Error::other("a store file without a folder"))?;
@@ -467,7 +450,8 @@ fn collect(path: &Path, grace: Duration) -> io::Result<Option<u64>> {
             return Err(e);
         }
     };
-    let touched = fsx::age(&meta, SystemTime::now()).is_none_or(|age| age < grace);
+    // Against the start, as when it was found old: a touch since then makes it new.
+    let touched = sweep.is_new(&meta);
     if touched {
         // On unix this replaces a copy written meanwhile (the same bytes, by its name);
         // where a rename can't replace, that copy is as good and ours goes.
@@ -482,7 +466,7 @@ fn collect(path: &Path, grace: Duration) -> io::Result<Option<u64>> {
 }
 
 /// Marks the objects of the manifest at `path`, or refuses.
-fn mark_one(path: &Path, live: &mut Vec<(String, u64)>) -> Result<(), GcError> {
+fn mark_one(path: &Path, live: &mut HashMap<String, Vec<u64>>) -> Result<(), GcError> {
     let refuse = |why: String| GcError::Refused {
         path: path.display().to_string(),
         why,
@@ -491,17 +475,19 @@ fn mark_one(path: &Path, live: &mut Vec<(String, u64)>) -> Result<(), GcError> {
         StoreError::Manifest(_) => refuse(format!("is larger than {MAX_MANIFEST_BYTES} bytes")),
         other => refuse(format!("can't be read ({other})")),
     })?;
-    let manifest: MarkManifest =
-        serde_json::from_slice(&bytes).map_err(|e| refuse(format!("can't be parsed ({e})")))?;
-    match manifest.schema.as_u64() {
-        Some(schema) if schema == u64::from(SCHEMA) => {}
-        Some(schema) if schema > u64::from(SCHEMA) => {
+    match whole_number_field(&bytes, "schema") {
+        Ok(Some(schema)) if schema == u64::from(SCHEMA) => {}
+        Ok(Some(schema)) if schema > u64::from(SCHEMA) => {
             return Err(refuse(format!(
                 "was made by a newer Lodestone (schema {schema})"
             )))
         }
+        Err(ProbeError::Json(e)) => return Err(refuse(format!("can't be parsed ({e})"))),
+        Err(ProbeError::Shape(e)) => return Err(refuse(format!("can't be parsed (it {e})"))),
         _ => return Err(refuse("has no schema this version reads".into())),
     }
+    let manifest: MarkManifest =
+        serde_json::from_slice(&bytes).map_err(|e| refuse(format!("can't be parsed ({e})")))?;
     let client = manifest.settings.and_then(|s| s.client).unwrap_or_default();
     for object in manifest
         .entries
@@ -510,7 +496,10 @@ fn mark_one(path: &Path, live: &mut Vec<(String, u64)>) -> Result<(), GcError> {
         .chain(client.icon)
         .chain(client.background)
     {
-        live.push((object.sha256, object.size));
+        let named = live.entry(object.sha256).or_default();
+        if !named.contains(&object.size) {
+            named.push(object.size);
+        }
     }
     Ok(())
 }

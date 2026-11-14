@@ -97,9 +97,13 @@ A `content` image has no worlds (and so no world files); `data` and `full` image
 informational. `entries[].modified` is optional, `mode` defaults to 420 and `env` to
 unknown on both sides. `null` is the same as a missing field everywhere: a field with a
 default (`settings`, `entries`, `mode`, `env`, `producer` and its `app` and `version`, a
-setting's list…) reads `null` as that default. Only the required fields can't be `null`:
-`schema`, `kind`, `game`; an entry's `path`, `size`, `sha256` and `source`; and in
-settings an op's or whitelisted player's `uuid` and `name` and an op's `level`.
+setting's list…) reads `null` as that default, and a missing `rules` reads as 1, the first
+rules (not the reader's newest, which would change a manifest's meaning and id as rules
+are added). Only the required fields can't be `null`: `schema`, `kind`, `game` and its
+`minecraft` and `loader`; an entry's `path`, `size`, `sha256` and `source`; a world's
+`name`; a withheld file's `path` and `reason`; an icon's or background's `sha256` and
+`size`; every field of a `source` and of a `base`; and in settings an op's or whitelisted
+player's `uuid` and `name` and an op's `level`.
 `producer` is informational but takes no unknown fields, like `game`.
 
 `parent` is never the image itself: images with the same contents have the same id, so an
@@ -303,10 +307,18 @@ view(image, side, rules) = entries with env[side] ≠ unsupported that the side 
   `bukkit.yml`, `spigot.yml`, `commands.yml`, `help.yml`, `permissions.yml`, `paper.yml`,
   `purpur.yml`, `pufferfish.yml`, Paper's `.console_history` (commands the admin typed)
   and `version_history.json`, `usercache.json`, `usernamecache.json`, Forge's and
-  NeoForge's `run.sh`, `run.bat` and `user_jvm_args.txt` (top-level, any letter case). Unlike server-only files these may be
+  NeoForge's `run.sh`, `run.bat` and `user_jvm_args.txt`, `versions/` (where vanilla's
+  bundler and Paper unpack the server jar) and every `*.jar` at the top level (old Forge's
+  `forge-<version>.jar` and `minecraft_server.<version>.jar`; a client loads mods from
+  `mods/`) (top-level, any letter case). Unlike server-only files these may be
   on a client (a client writes its own `usercache.json`) and stay in a Launcher's images;
   they only never go from a server to players, so a change to them leaves the client
-  view's id as it was.
+  view's id as it was. At any depth, the client view also leaves out disabled files (names
+  ending in `.disabled`) and names starting with `.lodestone` (the core's
+  `mods/.lodestone_client_mods.json`), any letter case.
+- A view of a view is that view filtered again by the same rules (for a view computed here,
+  the same view): a view received from elsewhere is checked by comparing its id with its
+  own view's.
 - A view keeps the image's base, game, `removed`, worlds, content link, excludes, withheld
   files and unknown fields, and none of its informational fields (`parent`, `created`,
   `producer`, `label`, entries' `modified`). World files go to both views, so the server
@@ -338,6 +350,20 @@ compact JSON with every object's keys sorted by their UTF-8 bytes, `null` values
 does (only `"`, `\` and U+0000 to U+001F, as `\n`, `\t`… or `\u00XX`; U+007F and the C1
 controls are written as they are, in UTF-8) and integers in decimal.
 
+The canonical form always writes these fields, with their defaults when unset: `schema`,
+`kind`, `game` (`minecraft` and `loader`), `settings` (`{}` when neither side has any),
+`entries`, `removed`, `worlds`, `excludes` and `withheld` (`[]`), and `rules`; on each entry
+`path`, `size`, `sha256`, `mode` (420), `source`, `env` (both sides, `unknown` by default)
+and `env_from` (`[]`); in a side's settings that is there, the server's `properties` (`{}`),
+`ops` and `whitelist` (`[]`) and the client's `resource_packs` (`[]`), and each op's
+`bypasses_player_limit` (`false`). Every other field is written only when it has a value
+(`side` only on views). For example, a data image with one file, one world, one op and
+one withheld file:
+
+```json
+{"entries":[{"env":{"client":"unknown","server":"unknown"},"env_from":[],"mode":420,"path":"mods/a.jar","sha256":"<64 hex>","size":10,"source":{"object":{}}}],"excludes":[],"game":{"loader":"fabric","loader_version":"0.16.10","minecraft":"1.21.1"},"kind":"data","removed":[],"rules":1,"schema":2,"settings":{"server":{"ops":[{"bypasses_player_limit":false,"level":4,"name":"n","uuid":"u"}],"properties":{},"whitelist":[]}},"withheld":[{"path":"x","reason":"symlink"}],"worlds":[{"name":"w"}]}
+```
+
 ## Deltas
 
 ```jsonc
@@ -360,11 +386,12 @@ entries' and `extra` change's unknown fields the same budgets.
 Content-addressed, shared by every instance on one machine:
 
 ```
-<root>/objects/ab/<sha256>        whole files (small) or chunk lists (large)
+<root>/objects/ab/<sha256>        whole files: only ever the file's own bytes
+<root>/lists/ab/<sha256>          chunk lists of large files, by the file's SHA-256
 <root>/chunks/ab/<sha256>         chunks of large files
 <root>/images/<instance>/<id>.json
 <root>/images/<instance>/stat-cache.json
-<root>/{objects,chunks,images/<instance>}/.incoming-<16 hex>.tmp    writes in flight
+<root>/{objects,lists,chunks,images/<instance>}/.incoming-<16 hex>.tmp    writes in flight
 ```
 
 - Objects are named by the SHA-256 of their uncompressed bytes. Encoding belongs to the
@@ -373,7 +400,12 @@ Content-addressed, shared by every instance on one machine:
   place), the Launcher stores raw files (APFS clones where possible, checked by hash
   before they are kept). Moving an object between stores re-encodes it.
 - Files over 1 MiB are split with FastCDC (min 16 KiB, average 64 KiB, max 256 KiB,
-  implemented in the shared crate, no new dependency). The object is then a chunk list.
+  implemented in the shared crate, no new dependency). The file is then stored as a chunk
+  list in `lists/`, never in `objects/`: released Launchers share that folder and take any
+  file at `objects/ab/<sha256>` for that file's bytes (they skip storing a file whose name
+  is there and restore by copying it unchecked), so a list there would be written over a
+  world after a downgrade. A file is present when `objects/` has it whole or `lists/` has
+  its list.
   Region files dedup well because Minecraft rewrites a chunk in place or moves only that
   chunk. FastCDC here is the 2016 paper's, with cut-point skipping and normalized chunking
   level 2: a gear fingerprint `fp = (fp << 1) + GEAR[byte]`, no cut before 16 KiB (those
@@ -385,22 +417,30 @@ Content-addressed, shared by every instance on one machine:
 - A chunk list is text with one spelling, `lodestone-chunks 1\n`, `size <file size>\n`,
   then `<chunk sha256> <chunk size>\n` per chunk in order (decimal, no leading zeros).
   Readers refuse anything else: a size of 1 MiB or less, chunks of 0 or over 256 KiB,
-  chunks before the last under 16 KiB, sizes that don't add up. An object whose plain
-  bytes are as long as the entry's `size` is the file itself (every file up to 1 MiB, and
-  large files the core stored whole before chunking); any other length must be a chunk
-  list for that size. A list is under 1% of its file, so the two can't be confused.
+  chunks before the last under 16 KiB, sizes that don't add up. In the store a whole object
+  (every file up to 1 MiB, and large files the core stored whole before chunking) is in
+  `objects/` and a list in `lists/`; in an export, which has one `objects/`, an object whose
+  plain bytes are as long as the entry's `size` is the file itself and any other length
+  must be a chunk list for that size. A list is under 1% of its file, so the two can't be
+  confused. A list from elsewhere is checked as it is read, a line at a time, so one that
+  names a small chunk millions of times costs no memory to check.
   Reading a list reassembles the file and checks each chunk's and the whole file's
   SHA-256. A manifest from elsewhere can name an object with any size, so the store never
   judges an object by the size it is asked about: an object that is no file of that size
   is the asker's error when its own bytes check out (a whole file hashing to its name, or
   a list whose chunks do) and damaged only when they don't.
-- Writes: temp file, written out to the drive, read-only, rename; manifests last, after
-  the store makes everything written since the last manifest durable (the objects'
-  folders flushed, and on Apple platforms one flush of the drive's cache). On Linux and
-  Windows each object is flushed on its own (`fsync`, `FlushFileBuffers`); on Apple
-  platforms an object gets a plain `fsync(2)` and the batch one `F_FULLFSYNC` before the
-  manifest, as git's batch mode does: `F_FULLFSYNC` per 64 KiB chunk made a first snapshot
-  about ten times slower (9 MB/s, against 80 MB/s batched). Saving a manifest checks that every
+- Writes: temp file, handed to the drive, read-only, rename; manifests last, after the
+  store makes everything written since the last manifest durable with one flush of the
+  drive's cache, as git's `core.fsyncMethod=batch` does. A flush of the device per 64 KiB
+  chunk made a first snapshot about ten times slower on a Mac (9 MB/s, against 80 MB/s
+  batched) and six to eight times slower on Linux (433 MB in 15.5 to 19.9 s on one thread,
+  against 2.3 s plus 1.9 s to save with one flush). On Apple platforms each file gets a
+  plain `fsync(2)` and the batch one `F_FULLFSYNC`; on Linux the batch is one `syncfs(2)` of
+  the store's file system (which writes out every file and folder and flushes the drive);
+  on Windows each file gets `NtFlushBuffersFileEx` without a cache flush and the batch one
+  `FlushFileBuffers`, which flushes the volume (`FlushFileBuffers` per file where the first
+  isn't supported). Materializing a staging folder that is swapped in next ends the same way:
+  each file and folder handed to the drive, one flush at the end. Saving a manifest checks that every
   object its `object` entries and stored files name is present (and touches it like a write
   that finds it, below), and fails if one isn't: an image never names what the store lost.
   Reads verify the SHA-256. Like the core's backups, presence is checked cheaply (a raw
@@ -427,13 +467,17 @@ Content-addressed, shared by every instance on one machine:
   can't be read or has a schema other than 2 (newer, or from before images: those live in
   their own folders); temp files are swept after an hour. Objects named by entries (any
   source: the store may hold a downloadable file's bytes) and by the settings' stored files
-  (icon, background) are live, and so are the chunks of live chunk lists. Whether a live
-  object is a list is decided from the object, never from the sizes manifests give it: it
-  is read when some name could mean a list (a size over 1 MiB other than its length, or no
-  size, for objects older formats name), and is a list exactly when it parses as one. A
-  name with a size the object doesn't have is that manifest's error and blocks nothing.
-  When a live chunk list can't be read, no chunk is deleted. Objects and chunks modified in
-  the last hour are kept (with the chunks of such lists), and a write that finds an object
+  (icon, background) are live, whole and as lists, and so are the chunks of live lists.
+  Whether a live object has a list is decided from the store, never from the sizes
+  manifests give it: its list in `lists/`, if there is one, is read whatever size names
+  it. A name with a size neither the whole object nor the list has is that manifest's
+  error and blocks nothing. Marking keeps each object once with the sizes it is named
+  with, so its memory follows the distinct objects, not the manifests (backups share most
+  of theirs). When a live chunk list can't be read, no chunk is deleted. Objects, lists
+  and chunks modified within the hour before the collection started are kept (with the
+  chunks of such lists): age is judged against when marking began, never when the sweep
+  reaches a file, so a manifest saved during a long sweep, which wasn't marked, keeps its
+  objects (each was new when marking began, or the save touched it). A write that finds an object
   already there, a snapshot that takes a file from its stat cache, and saving a manifest
   touch it (and a list's chunks) when it is older than 10 minutes, so a snapshot running
   at the same time never loses what it is about to name, and a save after a snapshot longer
@@ -441,9 +485,11 @@ Content-addressed, shared by every instance on one machine:
   between GC and writers: GC renames a file it found old to a temporary name, reads its
   time again and deletes it only if it is still old, putting back one touched meanwhile;
   a claim touches, then checks the file is still there, and fails (so the manifest isn't
-  saved) when GC took it. The grace is never under 20 minutes, twice the touch interval,
-  or GC could take a file a claim found new enough not to touch. A save doesn't claim
-  again what the same store claimed in the last 5 minutes. Objects only older
+  saved) when GC took it, and so does a touch that doesn't land (a file another user owns).
+  The grace is never under 20 minutes, twice the touch interval, or GC could take a file a
+  claim found new enough not to touch. A save doesn't claim again what the same store
+  claimed in the last 5 minutes by the wall clock (objects age by it; a monotonic clock
+  stops while a laptop sleeps). Objects only older
   formats use are passed in by the caller, which refuses the same way when it can't read
   those manifests.
 - Snapshots walk the folder with the side's disk layout. Files never recorded, outside a
@@ -451,13 +497,17 @@ Content-addressed, shared by every instance on one machine:
   withheld record (`excludes` says what they are). `excludes` match canonical paths
   (`saves/<world>/…` on both sides), case-sensitively, with the core's backup pattern
   syntax (`name` at any depth, `a/b` from the root, `*` within a part, `**` across parts,
-  trailing `/` for folders). Links are withheld as `symlink`; folders that can't be
+  trailing `/` for folders); a pattern outside that syntax (a backslash, a leading `!`, an
+  empty part) makes the manifest invalid, since a snapshot would ignore it and it would
+  claim to have left something out. Links are withheld as `symlink`; folders that can't be
   listed, files that can't be read and things that aren't files as `unreadable`; names
   that aren't canonical, files the layout can't read back as themselves and files never
   placed on this side as `bad_name` (a folder with such a name once, not each file in
   it); files that change while read, three tries each, as `kept_changing`. A withheld
   path is canonical where the layout gives one, else as found relative to the game
-  folder. Entries record `mode` as the unix bits without setuid, setgid and sticky
+  folder; one longer than a withheld list may show (4096 bytes, which Windows can list) is
+  left out of it and reported to the caller instead, so it can't make every snapshot of
+  the folder invalid. Entries record `mode` as the unix bits without setuid, setgid and sticky
   (0o444 or 0o644 on Windows); placing a file applies only those bits, plus the owner's
   write bit, as the core's and the Launcher's restores always did (the game, mods and
   Lodestone must be able to change what a restore put back).
@@ -467,7 +517,8 @@ Content-addressed, shared by every instance on one machine:
   volume of the folder it replaces: the swap is a rename, and the case check looks at the
   staging folder's disk.
 - Snapshots hash and store on a few threads (half the processors, at most 4, unless the
-  caller says); a backup of a running server asks for one or two.
+  caller says), and claim what the stat cache gives on the same threads; a backup of a
+  running server asks for one or two.
 
 ## When images are recorded
 
@@ -616,9 +667,16 @@ names anything by it.
   nothing. This was chosen over a separate image root (every old object an image reuses
   would have to be copied or linked across, and an image naming an old-root object would
   break when the old collector deleted it) and over a schema-1 list of everything images
-  use (rewritten with every image, and losing objects whenever it fell behind). M2's and
-  M5's own collection of old manifests skips the `.images` folders. Tested against the
-  released collectors' code (`tests/downgrade_guard.rs`).
+  use (rewritten with every image, and losing objects whenever it fell behind). Once a
+  folder has the guard, the old collectors' sweeps never run there again, in any version:
+  M2 and M5 only read the old manifests (skipping the `.images` folders) to build the
+  image store's `also_live`, and the image store's GC is the only one that deletes.
+- **Downgrades never misread images' files.** Where a released program reads a shared
+  folder, a name in `objects/` never holds anything but that file's bytes: released
+  Launchers skip storing a file whose object is there and restore by copying it unchecked
+  (a released core checks the frame's size and replaces what isn't the file). So chunk
+  lists live in `lists/`, which no released program reads. Both are tested against the
+  released code (`tests/downgrade_guard.rs`).
 - A converted core backup restores through the store: `core_backup::disk_layout` is the
   server layout its paths went through, so materializing with it puts every entry back at
   its backup path. Files the image withholds (a name no canonical path has, a vanilla
@@ -671,6 +729,11 @@ sealed), the *rest*, and notes:
   local headers that disagree with its directory is refused. A path longer than an image's
   withheld list may show (4096 bytes) stays in the rest with a note instead of failing the
   conversion.
+- **Withheld paths** of a converted image are the old format's paths (relative to the
+  server folder, the instance folder or the zip), as "Withheld" says, so the rest can name
+  each one for the write-back; a snapshot of the same folder withholds canonical paths.
+  A file that is also a folder of another file in an old file from elsewhere is withheld as
+  `bad_name` rather than failing the conversion.
 - **Notes** say what didn't go into the image: withheld files, local settings dropped, a
   pack that couldn't be the base, a level that isn't a world folder, unrecorded excludes.
 - **Hashes the old formats lack.** The modpack records list files by SHA-1 only, and an
@@ -700,7 +763,11 @@ Per format:
   every other instance field is local, reported and kept in the rest, never in the image.
   Files beside the game folder (`content.json`, `modpack.json`, shared options) are kept in
   the rest. `.lodesnap` files are read with the Launcher's limits.
-- **The core's `record.json` and `history.json`** become one content image per history
+- **The core's `record.json` and `history.json`** go through the server's disk layout (its
+  level, other worlds and split, as for backups): their paths are server paths, and a pack
+  override the core put in a world folder (`world/datapacks/x.zip`, Paper's
+  `world_nether/…`) is a world's file, which a content image never holds, so it is
+  withheld as `excluded` and kept in the rest. They become one content image per history
   entry, chained by `parent`, plus one for the record (on the newest entry's base and game;
   the same id when nothing changed since). An entry's parent is the nearest earlier entry
   with another id, never itself. Entries with the same files share one id (a restore to

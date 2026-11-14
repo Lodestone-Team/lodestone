@@ -63,7 +63,11 @@ impl Selection<'_> {
 pub struct MaterializeOptions<'a> {
     pub selection: Selection<'a>,
     /// Flush every file and folder to disk before returning (for a staging folder that is
-    /// swapped in next). Off for throwaway copies.
+    /// swapped in next). Off for throwaway copies. Flushed as one batch, as the store's
+    /// writes are (`fsx::write_out`): each file and folder handed to the drive, then one
+    /// flush of the drive's cache at the end (one `F_FULLFSYNC` on Apple platforms, one
+    /// `syncfs` on Linux, one `FlushFileBuffers` on Windows), never a device flush per
+    /// file, which made placing 3,100 files take 20 s instead of 4.5 s on a Mac.
     pub durable: bool,
     pub cancel: Cancel<'a>,
 }
@@ -202,6 +206,13 @@ pub fn materialize(
         if let Some(parent) = target.parent() {
             if folders.insert(parent.to_path_buf()) {
                 fs::create_dir_all(parent).map_err(io_err(parent))?;
+                // Every folder it made, for the flush at the end.
+                for above in parent.ancestors().skip(1) {
+                    if above == staging || !above.starts_with(staging) {
+                        break;
+                    }
+                    folders.insert(above.to_path_buf());
+                }
             }
         }
         place(store, entry, &target, options)?;
@@ -209,11 +220,12 @@ pub fn materialize(
         report.bytes = report.bytes.saturating_add(entry.size);
     }
     if options.durable {
-        // Deepest first, so each folder's entry in its parent is flushed after it.
+        // Deepest first, so each folder's entry in its parent is written after it.
         for folder in folders.iter().rev() {
-            fsx::sync_dir(folder).map_err(io_err(folder))?;
+            fsx::write_out_dir(folder).map_err(io_err(folder))?;
         }
-        fsx::sync_dir(staging).map_err(io_err(staging))?;
+        fsx::write_out_dir(staging).map_err(io_err(staging))?;
+        fsx::full_flush(staging).map_err(io_err(staging))?;
     }
     Ok(report)
 }
@@ -303,7 +315,8 @@ fn finish_file(
         let _ = file.set_modified(time);
     }
     if options.durable {
-        file.sync_all().map_err(|source| MaterializeError::Io {
+        // Durable with the batch's flush at the end (`materialize`).
+        fsx::write_out(&file).map_err(|source| MaterializeError::Io {
             what: format!("Failed to flush {}", entry.path),
             source,
         })?;

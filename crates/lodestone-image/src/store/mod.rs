@@ -4,19 +4,26 @@
 //! ```text
 //! <root>/
 //!   objects/ab/<sha256>              whole files (up to 1 MiB, and large files the core
-//!                                    stored whole), or chunk lists of larger files
+//!                                    stored whole): only ever the file's own bytes
+//!   lists/ab/<sha256>                chunk lists of larger files
 //!   chunks/ab/<sha256>               the chunks of large files (see `cdc`, `chunklist`)
 //!   images/<instance>/<id>.json      one manifest per image
 //!   images/<instance>/stat-cache.json   what the last snapshot read (`statcache`)
-//!   objects/.incoming-<16 hex>.tmp   writes in flight (also in chunks/ and images/…/),
-//!                                    swept once an hour old
+//!   objects/.incoming-<16 hex>.tmp   writes in flight (also in lists/, chunks/ and
+//!                                    images/…/), swept once an hour old
 //! ```
+//!
+//! A name in `objects/` never holds anything but that file's bytes, because released
+//! Launchers share the folder and read any file there as the file it names (they skip
+//! storing a file whose object is there, and restore by copying the object). Chunk lists
+//! live in `lists/`, which no released program reads; a file is present when `objects/`
+//! has it whole or `lists/` has its list.
 //!
 //! Objects are named by the SHA-256 of the file they stand for; how their bytes sit on
 //! disk is the store's [`Encoding`]. Every write goes to a temporary file that is written
 //! out to the drive, made read-only and renamed into place, and a manifest is written only
-//! after [`Store::sync`] made those writes durable (their folders flushed, and on Apple
-//! platforms one flush of the drive's cache for the whole batch, see `fsx::write_out`), so
+//! after [`Store::sync`] made those writes durable (their folders handed to the drive, and
+//! one flush of the drive's cache for the whole batch, see `fsx::write_out`), so
 //! a crash never leaves a manifest pointing at missing bytes or a name holding part of a
 //! file. Every read checks the SHA-256 (and
 //! size) of what comes out, so damage on disk is an error, never wrong bytes.
@@ -57,7 +64,7 @@ use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, SystemTime};
 
 use sha2::{Digest, Sha256};
 
@@ -147,17 +154,24 @@ fn io_err(what: impl Into<String>) -> impl FnOnce(io::Error) -> StoreError {
     move |source| StoreError::Io { what, source }
 }
 
-/// The two folders of content-addressed files.
+/// The folders of content-addressed files.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum Area {
+    /// Whole files, by their SHA-256.
     Objects,
+    /// Chunk lists of large files, by the file's SHA-256.
+    Lists,
+    /// Chunks, by their own SHA-256.
     Chunks,
 }
 
 impl Area {
+    pub(crate) const ALL: [Area; 3] = [Area::Objects, Area::Lists, Area::Chunks];
+
     fn folder(self) -> &'static str {
         match self {
             Area::Objects => "objects",
+            Area::Lists => "lists",
             Area::Chunks => "chunks",
         }
     }
@@ -228,13 +242,14 @@ pub struct ManifestListing {
 pub struct Store {
     root: PathBuf,
     encoding: Encoding,
-    /// Folders this value wrote objects into since the last manifest, flushed (on unix)
-    /// before the next manifest is written, with one full flush of the drive's cache on
-    /// Apple platforms ([`Store::sync`]).
+    /// Folders this value wrote objects into since the last manifest, handed to the drive
+    /// before the next manifest is written, with one flush of the drive's cache for the
+    /// batch ([`Store::sync`]).
     unsynced: Mutex<BTreeSet<(Area, String)>>,
     /// Objects this value claimed lately, by hash and size, and when: saving a manifest
-    /// right after a snapshot doesn't claim them all again.
-    claimed: Mutex<HashMap<(String, u64), Instant>>,
+    /// right after a snapshot doesn't claim them all again. Timed by the wall clock, as
+    /// objects age, not by `Instant`, which stops while a Mac sleeps.
+    claimed: Mutex<HashMap<(String, u64), SystemTime>>,
     /// Whether the downgrade guard is known to be in place.
     guarded: AtomicBool,
 }
@@ -295,9 +310,14 @@ impl Store {
         Ok(self.area_dir(area).join(&sha256[..2]).join(sha256))
     }
 
-    /// Where the object for `sha256` is (whether or not it is there).
+    /// Where the whole object for `sha256` is (whether or not it is there).
     pub fn object_path(&self, sha256: &str) -> Result<PathBuf, StoreError> {
         self.area_path(Area::Objects, sha256)
+    }
+
+    /// Where the chunk list of the file `sha256` is (whether or not it is there).
+    pub fn list_path(&self, sha256: &str) -> Result<PathBuf, StoreError> {
+        self.area_path(Area::Lists, sha256)
     }
 
     /// Where the chunk `sha256` is (whether or not it is there).
@@ -376,8 +396,12 @@ impl Store {
 
     fn remember_claim(&self, sha256: &str, size: u64) {
         if let Ok(mut claimed) = self.claimed.lock() {
+            let now = SystemTime::now();
+            if claimed.len() >= MAX_REMEMBERED_CLAIMS {
+                claimed.retain(|_, when| still_good(*when, now));
+            }
             if claimed.len() < MAX_REMEMBERED_CLAIMS {
-                claimed.insert((sha256.to_string(), size), Instant::now());
+                claimed.insert((sha256.to_string(), size), now);
             }
         }
     }
@@ -385,44 +409,46 @@ impl Store {
     /// [`Store::claim_object`], unless this store claimed the object within
     /// [`CLAIM_STILL_GOOD`] (a snapshot that took it from its stat cache, say).
     fn claim_for_save(&self, sha256: &str, size: u64) -> bool {
+        let now = SystemTime::now();
         let recent = self.claimed.lock().ok().is_some_and(|claimed| {
             claimed
                 .get(&(sha256.to_string(), size))
-                .is_some_and(|when| when.elapsed() < CLAIM_STILL_GOOD)
+                .is_some_and(|when| still_good(*when, now))
         });
         recent || self.claim_object(sha256, size)
     }
 
     /// Forgets claims too old to trust, so the map stays small between snapshots.
-    fn forget_old_claims(&self) {
+    pub(crate) fn forget_old_claims(&self) {
         if let Ok(mut claimed) = self.claimed.lock() {
-            claimed.retain(|_, when| when.elapsed() < CLAIM_STILL_GOOD);
+            let now = SystemTime::now();
+            claimed.retain(|_, when| still_good(*when, now));
         }
     }
 
     /// The object for a file of `size` bytes, if it looks present (see
-    /// [`Store::has_object`]).
+    /// [`Store::has_object`]): the whole file in `objects/`, or its chunk list in `lists/`.
     fn presence(&self, sha256: &str, size: u64) -> Option<Presence> {
         let path = self.object_path(sha256).ok()?;
-        let len = decoded_len(self.encoding, &path)?;
-        if len == size {
+        if decoded_len(self.encoding, &path) == Some(size) {
             return Some(Presence::Whole(path));
         }
-        let list = self.list_for(&path, len, size).ok()??;
-        (list.size == size).then_some(Presence::Chunked(path, list))
+        let path = self.list_path(sha256).ok()?;
+        let list = self.list_for(&path, size).ok()??;
+        Some(Presence::Chunked(path, list))
     }
 
-    /// The chunk list in the object at `path` (`len` plain bytes) if it could be one for a
-    /// file of `size` bytes. Reads only the header first: an object that doesn't start
-    /// like a list, or whose header gives another size, isn't read whole, so a wrong size
-    /// from a manifest from elsewhere never loads a large whole object into memory. `Ok(None)`
-    /// is "not a list for this size"; `Err` carries the size a list's header gives
-    /// instead, for the caller to report.
-    fn list_for(&self, path: &Path, len: u64, size: u64) -> Result<Option<ChunkList>, u64> {
-        if size <= CHUNKED_ABOVE
-            || len == 0
-            || len > ChunkList::max_encoded_len(size).min(MAX_LIST_BYTES)
-        {
+    /// The chunk list at `path` if it is one for a file of `size` bytes. Reads only the
+    /// header first: a list for another size isn't read whole. `Ok(None)` is "no list for
+    /// this size here"; `Err` carries the size a list's header gives instead.
+    fn list_for(&self, path: &Path, size: u64) -> Result<Option<ChunkList>, u64> {
+        if size <= CHUNKED_ABOVE {
+            return Ok(None);
+        }
+        let Some(len) = decoded_len(self.encoding, path) else {
+            return Ok(None);
+        };
+        if len == 0 || len > ChunkList::max_encoded_len(size).min(MAX_LIST_BYTES) {
             return Ok(None);
         }
         let Some(header) = read_prefix(self.encoding, path, ChunkList::HEADER_LEN)
@@ -436,7 +462,8 @@ impl Store {
         }
         Ok(read_limited(self.encoding, path, len)
             .ok()
-            .and_then(|bytes| ChunkList::parse(&bytes).ok()))
+            .and_then(|bytes| ChunkList::parse(&bytes).ok())
+            .filter(|list| list.size == size))
     }
 
     /// How the object for a file of `size` bytes holds it. Reads and checks the chunk list
@@ -444,83 +471,90 @@ impl Store {
     /// [`StoreError::WrongSize`] if its own bytes check out and [`StoreError::Damaged`] if
     /// they don't (which takes reading it).
     pub fn object_form(&self, sha256: &str, size: u64) -> Result<ObjectForm, StoreError> {
-        let path = self.object_path(sha256)?;
-        let Some(len) = decoded_len(self.encoding, &path) else {
-            return Err(if fs::symlink_metadata(&path).is_ok() {
-                StoreError::Damaged(sha256.to_string())
-            } else {
-                StoreError::Missing(sha256.to_string())
-            });
-        };
-        if len == size {
-            return Ok(ObjectForm::Whole);
+        match self.presence(sha256, size) {
+            Some(Presence::Whole(_)) => Ok(ObjectForm::Whole),
+            Some(Presence::Chunked(_, list)) => Ok(ObjectForm::Chunked(list)),
+            None => Err(self.mismatch(sha256, size)),
         }
-        if let Ok(Some(list)) = self.list_for(&path, len, size) {
-            if list.size == size {
-                return Ok(ObjectForm::Chunked(list));
+    }
+
+    /// Why the store has no object `sha256` for a file of `size` bytes:
+    /// [`StoreError::Missing`] when neither a whole file nor a list is there,
+    /// [`StoreError::WrongSize`] when one is a healthy file (or a well-formed list) of
+    /// another size, else [`StoreError::Damaged`].
+    fn mismatch(&self, sha256: &str, size: u64) -> StoreError {
+        let checks = [self.check_whole(sha256), self.check_list(sha256, false)];
+        let mut damaged = false;
+        for check in checks {
+            match check {
+                Ok(Some(SelfCheck::Healthy { size: actual })) if actual != size => {
+                    return StoreError::WrongSize {
+                        sha256: sha256.to_string(),
+                        size,
+                    }
+                }
+                Ok(Some(_)) => damaged = true,
+                Ok(None) => {}
+                Err(e) => return e,
             }
         }
-        // Not a list for this size: find out, by reading it through (streamed), whether it
-        // is a healthy object of another size or a damaged one.
-        Err(self.mismatch(sha256, size))
-    }
-
-    /// Why the object `sha256` isn't a file of `size` bytes: [`StoreError::WrongSize`] when
-    /// it is a healthy file (or a well-formed list) of another size, else
-    /// [`StoreError::Damaged`].
-    fn mismatch(&self, sha256: &str, size: u64) -> StoreError {
-        match self.check_itself(sha256, false) {
-            Ok(SelfCheck::Healthy { size: actual }) if actual != size => StoreError::WrongSize {
-                sha256: sha256.to_string(),
-                size,
-            },
-            Ok(_) => StoreError::Damaged(sha256.to_string()),
-            Err(e) => e,
+        if damaged {
+            StoreError::Damaged(sha256.to_string())
+        } else {
+            StoreError::Missing(sha256.to_string())
         }
     }
 
-    /// Reads the object `sha256` all the way through to find what it is by its own bytes:
-    /// a whole file whose bytes hash to its name, or a chunk list (whose chunks, with
-    /// `verify_chunks`, are read too and must hash to its name). Anything else is damaged.
-    /// With `verify_chunks`, a missing or damaged chunk is that chunk's error.
-    fn check_itself(&self, sha256: &str, verify_chunks: bool) -> Result<SelfCheck, StoreError> {
+    /// Reads the whole object `sha256` all the way through to find what it is by its own
+    /// bytes: a file whose bytes hash to its name, or damaged. `None` when it isn't there.
+    fn check_whole(&self, sha256: &str) -> Result<Option<SelfCheck>, StoreError> {
         let path = self.object_path(sha256)?;
         let file = match File::open(&path) {
             Ok(file) => file,
-            Err(e) if e.kind() == io::ErrorKind::NotFound => {
-                return Err(StoreError::Missing(sha256.to_string()))
-            }
-            Err(_) => return Ok(SelfCheck::Damaged),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
+            Err(_) => return Ok(Some(SelfCheck::Damaged)),
         };
         let Ok(mut reader) = decoder(self.encoding, file) else {
-            return Ok(SelfCheck::Damaged);
+            return Ok(Some(SelfCheck::Damaged));
         };
         let mut hasher = Sha256::new();
         let mut total: u64 = 0;
-        // The first bytes, kept while they could still be a chunk list.
-        let mut head: Option<Vec<u8>> = Some(Vec::new());
         let mut buffer = vec![0u8; IO_CHUNK];
         loop {
             let n = match reader.read(&mut buffer) {
                 Ok(0) => break,
                 Ok(n) => n,
                 Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
-                Err(_) => return Ok(SelfCheck::Damaged),
+                Err(_) => return Ok(Some(SelfCheck::Damaged)),
             };
             hasher.update(&buffer[..n]);
             total = total.saturating_add(n as u64);
-            if let Some(bytes) = &mut head {
-                bytes.extend_from_slice(&buffer[..n]);
-                if bytes.len() as u64 > MAX_LIST_BYTES || !ChunkList::could_start(bytes) {
-                    head = None;
-                }
-            }
         }
-        if hex_digest(hasher) == sha256 {
-            return Ok(SelfCheck::Healthy { size: total });
+        Ok(Some(if hex_digest(hasher) == sha256 {
+            SelfCheck::Healthy { size: total }
+        } else {
+            SelfCheck::Damaged
+        }))
+    }
+
+    /// Reads the chunk list of `sha256` to find what it is by its own bytes: a list (whose
+    /// chunks, with `verify_chunks`, are read too and must hash to its name), or damaged.
+    /// `None` when it isn't there. With `verify_chunks`, a missing or damaged chunk is that
+    /// chunk's error.
+    fn check_list(
+        &self,
+        sha256: &str,
+        verify_chunks: bool,
+    ) -> Result<Option<SelfCheck>, StoreError> {
+        let path = self.list_path(sha256)?;
+        if fs::symlink_metadata(&path).is_err() {
+            return Ok(None);
         }
-        let Some(list) = head.and_then(|bytes| ChunkList::parse(&bytes).ok()) else {
-            return Ok(SelfCheck::Damaged);
+        let Some(list) = read_limited(self.encoding, &path, MAX_LIST_BYTES)
+            .ok()
+            .and_then(|bytes| ChunkList::parse(&bytes).ok())
+        else {
+            return Ok(Some(SelfCheck::Damaged));
         };
         if verify_chunks {
             let mut hasher = Sha256::new();
@@ -528,10 +562,10 @@ impl Store {
                 hasher.update(self.read_chunk(chunk)?);
             }
             if hex_digest(hasher) != sha256 {
-                return Ok(SelfCheck::Damaged);
+                return Ok(Some(SelfCheck::Damaged));
             }
         }
-        Ok(SelfCheck::Healthy { size: list.size })
+        Ok(Some(SelfCheck::Healthy { size: list.size }))
     }
 
     /// Starts storing a file of `size` bytes given in pieces. When `expected` is given, the
@@ -773,9 +807,9 @@ impl Store {
     }
 
     /// Makes what this store wrote since the last call durable, so a manifest written next
-    /// never points at objects a power cut could lose: flushes the folders objects were
-    /// renamed into (unix), and on Apple platforms then asks the drive to write out its
-    /// cache once, which makes the whole batch of files durable (`fsx::write_out`).
+    /// never points at objects a power cut could lose: hands the folders objects were
+    /// renamed into to the drive, then flushes the drive's cache once, which makes the whole
+    /// batch of files durable (`fsx::write_out`, `fsx::full_flush`).
     /// [`Store::save_manifest`] calls it first.
     pub fn sync(&self) -> Result<(), StoreError> {
         let dirs = match self.unsynced.lock() {
@@ -791,10 +825,16 @@ impl Store {
             .map(|(area, prefix)| self.area_dir(*area).join(prefix))
             // A prefix folder may be new: its entry in the area's folder too.
             .chain(areas.iter().map(|area| self.area_dir(*area)));
+        // Through a folder the batch wrote into, where a temporary file (Windows makes one
+        // to flush through) is swept like any other if a crash leaves it.
+        let flush_through = areas
+            .iter()
+            .next()
+            .map_or_else(|| self.root.clone(), |area| self.area_dir(*area));
         let flushed = folders
             .map(|dir| fsx::write_out_dir(&dir))
             .collect::<io::Result<Vec<()>>>()
-            .and_then(|_| fsx::full_flush(&self.root));
+            .and_then(|_| fsx::full_flush(&flush_through));
         if let Err(e) = flushed {
             // Keep them for the next try.
             if let Ok(mut unsynced) = self.unsynced.lock() {
@@ -818,14 +858,7 @@ impl Store {
         match self.object_form(sha256, size)? {
             ObjectForm::Whole => {
                 let path = self.object_path(sha256)?;
-                match self.stream_whole(&path, sha256, size, out, cancel) {
-                    // As long as the file but not its bytes: damaged, or a chunk list of
-                    // another file that happens to be that long.
-                    Err(StoreError::Damaged(name)) if name == sha256 => {
-                        Err(self.mismatch(sha256, size))
-                    }
-                    other => other,
-                }
+                self.stream_whole(&path, sha256, size, out, cancel)
             }
             ObjectForm::Chunked(list) => {
                 let mut hasher = Sha256::new();
@@ -922,18 +955,17 @@ impl Store {
     /// with other files are left: a missing or damaged chunk is that chunk's error, and is
     /// deleted with [`Store::remove_damaged_chunk`]. Returns whether it deleted the object.
     pub fn remove_damaged(&self, sha256: &str) -> Result<bool, StoreError> {
-        match self.check_itself(sha256, true) {
-            Ok(SelfCheck::Damaged) => {}
-            Ok(SelfCheck::Healthy { .. }) => return Ok(false),
-            Err(StoreError::Missing(name)) if name == sha256 => return Ok(false),
+        let mut removed = false;
+        if let Some(SelfCheck::Damaged) = self.check_whole(sha256)? {
+            removed |= remove_if_there(&self.object_path(sha256)?)?;
+        }
+        match self.check_list(sha256, true) {
+            Ok(Some(SelfCheck::Damaged)) => removed |= remove_if_there(&self.list_path(sha256)?)?,
+            Ok(_) => {}
+            Err(StoreError::Missing(name)) if name == sha256 => {}
             Err(e) => return Err(e),
         }
-        let path = self.object_path(sha256)?;
-        match fsx::remove_file_forced(&path) {
-            Ok(()) => Ok(true),
-            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(false),
-            Err(e) => Err(io_err("Failed to delete a damaged object")(e)),
-        }
+        Ok(removed)
     }
 
     /// Deletes a chunk whose bytes don't match its hash (and size). Returns whether it did.
@@ -1088,14 +1120,14 @@ impl Store {
     }
 
     /// Deletes temporary files older than `max_age` (left by a crash) in `objects/`,
-    /// `chunks/` and every instance's folder. Returns how many.
+    /// `lists/`, `chunks/` and every instance's folder. Returns how many.
     pub fn sweep_temp(&self, max_age: Duration) -> u64 {
         let mut dirs = Vec::new();
-        for top in [
-            self.area_dir(Area::Objects),
-            self.area_dir(Area::Chunks),
-            self.images_dir(),
-        ] {
+        let tops = Area::ALL
+            .iter()
+            .map(|area| self.area_dir(*area))
+            .chain([self.images_dir()]);
+        for top in tops {
             if let Ok(entries) = fs::read_dir(&top) {
                 dirs.extend(
                     entries
@@ -1128,6 +1160,13 @@ impl Store {
     }
 }
 
+/// Whether a claim made at `when` still vouches for its object at `now`: less than
+/// [`CLAIM_STILL_GOOD`] ago by the wall clock. A clock that went back makes it too old.
+fn still_good(when: SystemTime, now: SystemTime) -> bool {
+    now.duration_since(when)
+        .is_ok_and(|age| age < CLAIM_STILL_GOOD)
+}
+
 /// Touches the file at `path` when it was modified more than [`TOUCH_AFTER`] before `now`,
 /// so a garbage collection running now keeps it for its hour of grace. Returns whether the
 /// file is still there afterwards: a collection renames a file away before it decides to
@@ -1141,8 +1180,18 @@ pub(crate) fn touch_if_old(path: &Path, now: SystemTime) -> bool {
         // New enough that no collection takes it (its grace is twice this at least).
         return true;
     }
-    fsx::touch(path);
-    fs::symlink_metadata(path).is_ok()
+    // A touch that didn't land (a file another user owns, an antivirus lock) leaves the
+    // file as old as it was, so a collection could still take it: no claim.
+    fsx::touch(path).is_ok() && fs::symlink_metadata(path).is_ok()
+}
+
+/// Deletes a damaged object or list. Returns whether it was there.
+fn remove_if_there(path: &Path) -> Result<bool, StoreError> {
+    match fsx::remove_file_forced(path) {
+        Ok(()) => Ok(true),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(false),
+        Err(e) => Err(io_err("Failed to delete a damaged object")(e)),
+    }
 }
 
 /// The id in a manifest's file name `<id>.json`.
@@ -1314,7 +1363,7 @@ impl ObjectWriter<'_> {
                 // A whole copy (the core's, from before chunking) is as good as a list.
                 if !store.reuse(&object, size) {
                     let list = ChunkList { size, chunks }.encode();
-                    added += store.write_area(Area::Objects, &sha256, &list)?;
+                    added += store.write_area(Area::Lists, &sha256, &list)?;
                 }
             }
         }

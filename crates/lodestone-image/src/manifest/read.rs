@@ -27,7 +27,7 @@ use serde::Deserialize;
 use serde_json::{Map, Number, Value};
 
 use super::{
-    default_mode, Entry, Image, MAX_ENTRIES, MAX_ENV_FROM, MAX_EXCLUDES, MAX_WORLDS, RULES,
+    default_mode, Entry, Image, FIRST_RULES, MAX_ENTRIES, MAX_ENV_FROM, MAX_EXCLUDES, MAX_WORLDS,
 };
 
 /// A manifest has at most this many JSON values (roughly: objects, arrays and the commas
@@ -684,7 +684,9 @@ impl<'de> Visitor<'de> for ImageVisitor {
             content,
             excludes: excludes.unwrap_or_default(),
             withheld: withheld.unwrap_or_default(),
-            rules: rules.unwrap_or(RULES),
+            // A manifest without rules was written under the first rules, whatever this
+            // version implements now; the canonical form always writes them.
+            rules: rules.unwrap_or(FIRST_RULES),
             side,
             projected_from,
             extra,
@@ -922,7 +924,9 @@ mod tests {
         )
         .unwrap();
         assert!(image.entries.is_empty());
-        assert_eq!(image.rules, RULES);
+        // The first rules, not this version's: a writer that left them out wrote under
+        // those, and the id was computed with them.
+        assert_eq!(image.rules, FIRST_RULES);
         let entry = format!(
             r#","entries":[{{"path":"mods/a.jar","size":1,"sha256":"{}","source":{{"object":{{}}}},
                 "mode":null,"env":null,"env_from":null,"world":null,"sha1":null}}]"#,

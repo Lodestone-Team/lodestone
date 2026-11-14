@@ -1,8 +1,9 @@
-//! Chunk lists: the object a file over [`CHUNKED_ABOVE`] bytes is stored as.
+//! Chunk lists: how a file over [`CHUNKED_ABOVE`] bytes is stored.
 //!
-//! A large file's object (named, like every object, by the SHA-256 of the file) holds the
-//! list of its chunks instead of its bytes; the chunks are stored under their own SHA-256
-//! in `chunks/`. A list is plain text, one line per chunk, and has exactly one spelling:
+//! A large file's chunks are stored under their own SHA-256 in `chunks/`, and the list of
+//! them under the file's SHA-256 in `lists/` (never in `objects/`, which only ever holds a
+//! file's own bytes: released Launchers share that folder and read any file there as the
+//! file it names). A list is plain text, one line per chunk, and has exactly one spelling:
 //!
 //! ```text
 //! lodestone-chunks 1
@@ -12,11 +13,12 @@
 //! …
 //! ```
 //!
-//! A reader tells a list from a whole file by length: an object whose plain bytes are as
-//! long as the entry's `size` is the file itself (every file up to 1 MiB, and large files
-//! the core stored whole before chunking existed); otherwise it must be a list for that
-//! size. A list is always far shorter than its file (at most 72 bytes per chunk of at least
-//! 16 KiB), so the two can't be confused.
+//! In an export, which has one `objects/` folder, a reader tells a list from a whole file
+//! by length: an object whose plain bytes are as long as the entry's `size` is the file
+//! itself; otherwise it must be a list for that size. A list is always far shorter than
+//! its file (at most 72 bytes per chunk of at least 16 KiB), so the two can't be confused.
+
+use std::io::{BufRead, Read};
 
 use crate::hex::is_sha256;
 
@@ -24,9 +26,8 @@ use super::cdc::{MAX_CHUNK, MIN_CHUNK};
 
 /// Files larger than this (1 MiB) are stored as chunk lists.
 pub const CHUNKED_ABOVE: u64 = 1 << 20;
-/// The longest object read whole to find out whether it is a chunk list without knowing
-/// the file's size (256 MiB): a list that long stands for a file of tens of terabytes, so
-/// anything longer is a whole file.
+/// The longest chunk list read (256 MiB): a list that long stands for a file of tens of
+/// terabytes.
 pub const MAX_LIST_BYTES: u64 = 256 << 20;
 
 const MAGIC: &str = "lodestone-chunks 1\n";
@@ -68,27 +69,58 @@ impl ChunkList {
     /// (all but the last at least [`MIN_CHUNK`]), lowercase hashes, and the one spelling
     /// [`ChunkList::encode`] writes. Anything else is damage or forgery.
     pub fn parse(bytes: &[u8]) -> Result<ChunkList, String> {
-        let text = std::str::from_utf8(bytes).map_err(|_| "the chunk list isn't text")?;
-        let rest = text
-            .strip_prefix(MAGIC)
+        let mut chunks = Vec::new();
+        let size = ChunkList::visit(&mut &bytes[..], &mut |sha256, size| {
+            chunks.push(ChunkRef {
+                sha256: sha256.to_string(),
+                size,
+            });
+            Ok(())
+        })?;
+        let list = ChunkList { size, chunks };
+        debug_assert!(list.encode() == bytes, "a list read in another spelling");
+        Ok(list)
+    }
+
+    /// Reads a list from `reader` with the rules of [`ChunkList::parse`], giving each chunk
+    /// (its hash and size) to `chunk` in order instead of keeping them, and returns the
+    /// file's size. Memory stays a line's worth however long the list is, so a list from
+    /// elsewhere (an export's, which can name one chunk millions of times) can be checked
+    /// without building it. The rules leave one spelling: exactly one space and one newline
+    /// per line, lowercase hashes, decimals without leading zeros. An error from `chunk`
+    /// stops the read and is returned.
+    pub fn visit(
+        reader: &mut dyn BufRead,
+        chunk: &mut dyn FnMut(&str, u32) -> Result<(), String>,
+    ) -> Result<u64, String> {
+        let mut line = Vec::with_capacity(MAX_LINE as usize + 1);
+        let magic = next_line(reader, &mut line, MAGIC.len() as u64)?
             .ok_or("the chunk list's header is wrong")?;
-        let (size_line, mut rest) = rest.split_once('\n').ok_or("the chunk list has no size")?;
-        let size = size_line
-            .strip_prefix("size ")
+        if magic != MAGIC.as_bytes() {
+            return Err("the chunk list's header is wrong".into());
+        }
+        let size_line =
+            next_line(reader, &mut line, 5 + 20 + 1)?.ok_or("the chunk list has no size")?;
+        let size = std::str::from_utf8(size_line)
+            .ok()
+            .and_then(|l| l.strip_suffix('\n'))
+            .and_then(|l| l.strip_prefix("size "))
             .and_then(parse_decimal)
             .ok_or("the chunk list's size is wrong")?;
         if size <= CHUNKED_ABOVE {
             return Err("a chunk list is only for files over 1 MiB".into());
         }
         let max_chunks = max_chunks(size);
-        let mut chunks = Vec::new();
+        let mut count: u64 = 0;
         let mut total: u64 = 0;
-        while !rest.is_empty() {
-            let (line, next) = rest
-                .split_once('\n')
-                .ok_or("the chunk list's last line is cut short")?;
-            rest = next;
-            let (hash, len) = line.split_once(' ').ok_or("a chunk line is wrong")?;
+        // Whether the last chunk seen was shorter than chunking makes all but the last.
+        let mut short_seen = false;
+        while let Some(text) = next_line(reader, &mut line, MAX_LINE)? {
+            let text = std::str::from_utf8(text)
+                .ok()
+                .and_then(|l| l.strip_suffix('\n'))
+                .ok_or("a chunk line is wrong")?;
+            let (hash, len) = text.split_once(' ').ok_or("a chunk line is wrong")?;
             if !is_sha256(hash) {
                 return Err("a chunk's hash isn't a SHA-256".into());
             }
@@ -96,28 +128,25 @@ impl ChunkList {
             if len == 0 || len > MAX_CHUNK as u64 {
                 return Err("a chunk's size is out of range".into());
             }
-            if chunks.len() as u64 >= max_chunks {
+            if count >= max_chunks {
                 return Err("the chunk list has more chunks than its size allows".into());
             }
+            if short_seen {
+                return Err("a chunk other than the last is shorter than chunking allows".into());
+            }
+            short_seen = len < MIN_CHUNK as u64;
+            count += 1;
             total = total.saturating_add(len);
-            chunks.push(ChunkRef {
-                sha256: hash.to_string(),
-                size: u32::try_from(len).map_err(|_| "a chunk's size is out of range")?,
-            });
+            // At most MAX_CHUNK, by the check above.
+            chunk(
+                hash,
+                u32::try_from(len).map_err(|_| "a chunk's size is out of range")?,
+            )?;
         }
         if total != size {
             return Err("the chunks don't add up to the file's size".into());
         }
-        if let Some((_, rest)) = chunks.split_last() {
-            if rest.iter().any(|c| (c.size as usize) < MIN_CHUNK) {
-                return Err("a chunk other than the last is shorter than chunking allows".into());
-            }
-        }
-        let list = ChunkList { size, chunks };
-        if list.encode() != bytes {
-            return Err("the chunk list isn't in its one spelling".into());
-        }
-        Ok(list)
+        Ok(size)
     }
 
     /// Whether `bytes` (an object's start) begin like a chunk list.
@@ -164,6 +193,31 @@ impl ChunkList {
 /// [`MIN_CHUNK`].
 fn max_chunks(size: u64) -> u64 {
     size / MIN_CHUNK as u64 + 1
+}
+
+/// The next line of `reader` into `buf`, newline included, if it is at most `max` bytes;
+/// `None` at the end. A last line without its newline is an error, and so is a longer one
+/// (read no further than `max` + 1 bytes, so a line never costs more memory than that).
+fn next_line<'b>(
+    reader: &mut dyn BufRead,
+    buf: &'b mut Vec<u8>,
+    max: u64,
+) -> Result<Option<&'b [u8]>, String> {
+    buf.clear();
+    (&mut *reader)
+        .take(max.saturating_add(1))
+        .read_until(b'\n', buf)
+        .map_err(|e| format!("the chunk list can't be read ({e})"))?;
+    if buf.is_empty() {
+        return Ok(None);
+    }
+    if buf.len() as u64 > max {
+        return Err("a chunk list line is too long".into());
+    }
+    if buf.last() != Some(&b'\n') {
+        return Err("the chunk list's last line is cut short".into());
+    }
+    Ok(Some(buf))
 }
 
 /// A decimal number without sign, leading zeros (other than `0` itself) or spaces.
@@ -270,10 +324,35 @@ mod tests {
         // A 1 MiB + 1 file can have at most 65 chunks.
         let mut text = String::from("lodestone-chunks 1\nsize 1048577\n");
         for i in 0..200 {
-            text.push_str(&format!("{i:064x} 5243\n"));
+            text.push_str(&format!("{i:064x} 16384\n"));
         }
         assert!(ChunkList::parse(text.as_bytes())
             .unwrap_err()
             .contains("more chunks"));
+    }
+
+    #[test]
+    fn visiting_streams_and_stops_at_the_first_error() {
+        let good = list(&[262_144, 262_144, 262_144, 262_144, 5]);
+        let bytes = good.encode();
+        let mut seen = Vec::new();
+        let size = ChunkList::visit(&mut &bytes[..], &mut |sha256, size| {
+            seen.push((sha256.to_string(), size));
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(size, good.size);
+        assert_eq!(seen.len(), 5);
+        let mut calls = 0;
+        let stopped = ChunkList::visit(&mut &bytes[..], &mut |_, _| {
+            calls += 1;
+            Err("no".into())
+        });
+        assert_eq!(stopped, Err("no".to_string()));
+        assert_eq!(calls, 1);
+        // A line far longer than any list's is refused without reading it all.
+        let mut long = b"lodestone-chunks 1\nsize 2000000\n".to_vec();
+        long.extend(std::iter::repeat_n(b'a', 10 << 20));
+        assert!(ChunkList::parse(&long).unwrap_err().contains("too long"));
     }
 }

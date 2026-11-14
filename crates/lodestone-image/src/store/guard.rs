@@ -5,8 +5,9 @@
 //! `servers/<uuid>/*.json`) and the Launcher's snapshot folder (`objects/`, manifests in
 //! `instances/<id>/*.json`). Their garbage collectors, in every release that has them
 //! (Lodestone Host 0.6.0-beta.2, Lodestone Launcher 0.1.0-beta.1 and later), know only
-//! their own manifests and delete every other object in `objects/`: whole files and chunk
-//! lists that only images name. After someone goes back to such a release, its first backup
+//! their own manifests and delete every other object in `objects/`: every whole file only
+//! images name (and the chunks those images' lists in `lists/` need would be all that is
+//! left of a large file). After someone goes back to such a release, its first backup
 //! cleanup would break every image.
 //!
 //! Neither collector can be taught about images, but both refuse to delete anything when
@@ -27,9 +28,14 @@
 //! use would have to be rewritten with every image, and lose objects if it fell behind. The
 //! cost is that a released version, while it runs, frees no space in that folder; it warns
 //! that its cleanup was refused, and nothing is lost. The guard stays for as long as images
-//! use the folder; the image store itself never reads or deletes it, and the core and the
-//! Launcher, when they collect their own old manifests' objects, skip the `.images`
-//! folders.
+//! use the folder; the image store itself never reads or deletes it.
+//!
+//! Once a folder has the guard, the old collectors' sweeps never run there again, in any
+//! version: the core and the Launcher only read their old manifests (skipping the
+//! `.images` folders) to pass the objects those name to the image store's collection as
+//! also live ([`super::gc::GcOptions::also_live`]), and that collection is the only one
+//! that deletes. An old sweep that merely skipped `.images` would delete every object only
+//! images name.
 
 use std::fs;
 use std::io::{self, Write};
@@ -46,13 +52,13 @@ pub const GUARD_FILE: &str = "images.json";
 pub const CORE_GUARD: &str = r#"{
   "schema": 2,
   "files": [],
-  "about": "Lodestone keeps instance images in this folder (images/, objects/, chunks/). This file stops older Lodestone versions from deleting the objects images use: their backup cleanup refuses to run while it is here. Don't delete it."
+  "about": "Lodestone keeps instance images in this folder (images/, objects/, lists/, chunks/). This file stops older Lodestone versions from deleting the objects images use: their backup cleanup refuses to run while it is here. Don't delete it."
 }
 "#;
 /// What the Launcher's snapshot collector reads: not a snapshot manifest at all.
 pub const LAUNCHER_GUARD: &str = r#"{
   "schema": 2,
-  "files": "Lodestone keeps instance images in this folder (images/, objects/, chunks/). This file stops older Lodestone versions from deleting the objects images use: their snapshot cleanup keeps everything while it is here. Don't delete it."
+  "files": "Lodestone keeps instance images in this folder (images/, objects/, lists/, chunks/). This file stops older Lodestone versions from deleting the objects images use: their snapshot cleanup keeps everything while it is here. Don't delete it."
 }
 "#;
 

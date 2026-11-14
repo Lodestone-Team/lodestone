@@ -30,7 +30,10 @@ use crate::settings::Settings;
 use crate::strings::open_enum;
 use crate::Side;
 
+mod probe;
 mod read;
+
+pub(crate) use probe::{whole_number_field, ProbeError};
 
 pub use read::MAX_SETTING_ITEMS;
 pub(crate) use read::{
@@ -46,6 +49,9 @@ pub use read::{
 pub const SCHEMA: u32 = 2;
 /// The version of the view and env rules this version implements ([`mod@crate::view`]).
 pub const RULES: u32 = 1;
+/// The first version of the view and env rules: what a manifest without `rules` means,
+/// whatever [`RULES`] is now.
+pub const FIRST_RULES: u32 = 1;
 /// An image lists at most this many entries (and withholds at most this many files).
 pub const MAX_ENTRIES: usize = 1_000_000;
 /// An image lists at most this many worlds.
@@ -393,13 +399,6 @@ pub struct Image {
     pub extra: BTreeMap<String, Value>,
 }
 
-/// Only the schema, read before the rest so a newer manifest is refused for its schema and
-/// not for whatever else changed.
-#[derive(Deserialize)]
-struct SchemaProbe {
-    schema: Option<Value>,
-}
-
 impl Image {
     /// An empty, unsealed image of this schema and rules.
     pub fn new(kind: Kind, game: Game) -> Image {
@@ -440,15 +439,27 @@ impl Image {
                 "the manifest isn't a JSON object".into(),
             ));
         }
-        prescan(bytes).map_err(|e| ManifestError::Invalid(format!("the manifest {e}")))?;
-        let probe: SchemaProbe =
-            serde_json::from_slice(bytes).map_err(|e| ManifestError::Json(e.to_string()))?;
-        let schema = match probe.schema {
-            Some(Value::Number(n)) => n
-                .as_u64()
-                .ok_or_else(|| ManifestError::Invalid("schema isn't a whole number".into()))?,
-            Some(_) => return Err(ManifestError::Invalid("schema isn't a number".into())),
-            None => return Err(ManifestError::Invalid("no schema".into())),
+        // Only the schema first, so a newer manifest is refused for its schema and not for
+        // whatever else changed. Probed without building JSON values, so a huge value in
+        // `schema` costs no memory.
+        let schema = match whole_number_field(bytes, "schema") {
+            Ok(Some(schema)) => schema,
+            Ok(None) => return Err(ManifestError::Invalid("no schema".into())),
+            Err(ProbeError::Shape(e)) => {
+                return Err(ManifestError::Invalid(format!("the manifest {e}")))
+            }
+            Err(ProbeError::Json(e)) => return Err(ManifestError::Json(e)),
+            Err(ProbeError::NotObject) => {
+                return Err(ManifestError::Json(
+                    "the manifest isn't a JSON object".into(),
+                ))
+            }
+            Err(ProbeError::NotWhole) => {
+                return Err(ManifestError::Invalid("schema isn't a whole number".into()))
+            }
+            Err(ProbeError::NotNumber) => {
+                return Err(ManifestError::Invalid("schema isn't a number".into()))
+            }
         };
         if schema > u64::from(SCHEMA) {
             return Err(ManifestError::NewerSchema { found: schema });
@@ -614,14 +625,11 @@ impl Image {
         if self.excludes.len() > MAX_EXCLUDES {
             return Err(format!("more than {MAX_EXCLUDES} excludes"));
         }
+        // Only patterns a snapshot applies: `excludes` says what an image left out, and a
+        // pattern the matcher refuses (and so ignores) left nothing out.
         for pattern in &self.excludes {
-            if pattern.is_empty()
-                || pattern.chars().count() > MAX_EXCLUDE_LEN
-                || pattern.chars().any(char::is_control)
-            {
-                return Err(format!(
-                    "exclude {pattern:?} is empty, too long or has control characters"
-                ));
+            if let Some(why) = crate::store::excludes::pattern_error(pattern) {
+                return Err(format!("exclude {pattern:?}: {why}"));
             }
         }
         for withheld in &self.withheld {
@@ -1103,6 +1111,12 @@ pub(crate) mod tests {
         let mut image = sample();
         image.label = Some("x".repeat(MAX_TEXT_LEN + 1));
         assert!(image.validate().is_err());
+        // Patterns the matcher would ignore can't be recorded as applied.
+        for pattern in ["!keep", "/", "a//b", "a\\b", " "] {
+            let mut image = sample();
+            image.excludes = vec![pattern.into()];
+            assert!(image.validate().is_err(), "{pattern:?}");
+        }
     }
 
     #[test]

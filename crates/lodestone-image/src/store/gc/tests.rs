@@ -19,7 +19,7 @@ fn now_options() -> GcOptions {
 
 /// Ages every object and chunk, as if written long ago.
 fn age_all(store: &Store) {
-    for area in [Area::Objects, Area::Chunks] {
+    for area in Area::ALL {
         for entry in walkdir::WalkDir::new(store.area_dir(area))
             .min_depth(2)
             .into_iter()
@@ -171,8 +171,8 @@ fn a_new_chunk_list_keeps_its_old_chunks() {
     let stored = store.put_bytes(&big).unwrap();
     age_all(&store);
     // Its chunks are old; the list itself is new again (reused by a writer).
-    let list = store.object_path(&stored.sha256).unwrap();
-    crate::store::fsx::touch(&list);
+    let list = store.list_path(&stored.sha256).unwrap();
+    crate::store::fsx::touch(&list).unwrap();
     let report = store.gc(&GcOptions::default()).unwrap();
     assert_eq!(
         (report.objects_removed, report.chunks_removed),
@@ -198,7 +198,7 @@ fn a_damaged_live_list_keeps_every_chunk() {
     let orphan_object = store.object_path(&sha256_hex(&orphan)).unwrap();
     age_all(&store);
     // The list of the live file loses its end.
-    let list = store.object_path(&image.entries[0].sha256).unwrap();
+    let list = store.list_path(&image.entries[0].sha256).unwrap();
     let bytes = fs::read(&list).unwrap();
     crate::store::fsx::remove_file_forced(&list).unwrap();
     fs::write(&list, &bytes[..bytes.len() - 10]).unwrap();
@@ -352,7 +352,7 @@ fn a_list_named_with_its_own_length_keeps_its_chunks() {
         let image = stored_image(&store, &[("mods/big.jar", &big)]);
         store.save_manifest(good_instance, &image).unwrap();
         let sha256 = image.entries[0].sha256.clone();
-        let list_len = fs::metadata(store.object_path(&sha256).unwrap())
+        let list_len = fs::metadata(store.list_path(&sha256).unwrap())
             .unwrap()
             .len();
         store
@@ -446,12 +446,17 @@ fn a_file_touched_while_it_is_collected_is_put_back() {
     age_all(&store);
     let old_path = store.object_path(&old.sha256).unwrap();
     let kept_path = store.object_path(&kept.sha256).unwrap();
+    let options = GcOptions::default();
+    let sweep = Sweep {
+        started: SystemTime::now(),
+        options: &options,
+    };
     // Still old once renamed away: deleted.
-    assert_eq!(collect(&old_path, GRACE).unwrap(), Some(14));
+    assert_eq!(collect(&old_path, &sweep).unwrap(), Some(14));
     assert!(!old_path.exists());
     // A claim touched it after the collection found it old: put back, whole.
-    fsx::touch(&kept_path);
-    assert_eq!(collect(&kept_path, GRACE).unwrap(), None);
+    fsx::touch(&kept_path).unwrap();
+    assert_eq!(collect(&kept_path, &sweep).unwrap(), None);
     assert_eq!(
         store.read_object_bytes(&kept.sha256, kept.size).unwrap(),
         b"claimed meanwhile"
@@ -523,4 +528,68 @@ fn manifests_with_null_lists_mark_and_oversized_ones_refuse() {
     file.set_len(MAX_MANIFEST_BYTES + 1).unwrap();
     let error = store.gc(&now_options()).unwrap_err();
     assert!(error.to_string().contains("larger than"), "{error}");
+}
+
+/// A manifest saved after marking began isn't marked; its objects are safe because age is
+/// judged against when the collection started, not when the sweep reaches them. A save
+/// that found an object eight minutes old didn't touch it, and a slow sweep reaching it
+/// half an hour later must still keep it.
+#[test]
+fn age_is_judged_against_the_start_of_the_collection() {
+    let (_dir, store) = store(Encoding::Raw);
+    let saved = store
+        .put_bytes(b"named by a manifest saved during the sweep")
+        .unwrap();
+    let path = store.object_path(&saved.sha256).unwrap();
+    let options = GcOptions {
+        grace: MIN_GRACE,
+        ..GcOptions::default()
+    };
+    // Started 30 minutes ago; the object was written 8 minutes before that, so 38 minutes
+    // old now: old by the clock at sweep time, new by the start.
+    let sweep = Sweep {
+        started: SystemTime::now() - Duration::from_secs(30 * 60),
+        options: &options,
+    };
+    age(&path, 38 * 60);
+    assert!(sweep.is_new(&fs::metadata(&path).unwrap()));
+    assert_eq!(collect(&path, &sweep).unwrap(), None);
+    assert!(store.has_object(&saved.sha256, saved.size));
+    // Older than the grace before the start: collected.
+    age(&path, 51 * 60);
+    assert!(!sweep.is_new(&fs::metadata(&path).unwrap()));
+    assert!(collect(&path, &sweep).unwrap().is_some());
+}
+
+/// Marking keeps each object once, however many manifests name it: memory follows the
+/// distinct objects, as backups of one server share most of theirs.
+#[test]
+fn marking_keeps_each_object_once() {
+    let (_dir, store) = store(Encoding::Raw);
+    let files: Vec<Vec<u8>> = (0..40).map(|i| format!("file {i}").into_bytes()).collect();
+    let names: Vec<String> = (0..40).map(|i| format!("mods/{i}.jar")).collect();
+    let pairs: Vec<(&str, &[u8])> = names
+        .iter()
+        .zip(&files)
+        .map(|(name, file)| (name.as_str(), file.as_slice()))
+        .collect();
+    for label in 0..25 {
+        let mut image = stored_image(&store, &pairs);
+        // A different file each time, so every manifest is its own.
+        let own = store.put_bytes(format!("own {label}").as_bytes()).unwrap();
+        image.entries.push(Entry::new(
+            path("config/own.txt"),
+            own.size,
+            own.sha256,
+            Source::Object {},
+        ));
+        image.seal();
+        store.save_manifest("one", &image).unwrap();
+    }
+    let mut sizes = HashMap::new();
+    let mut report = GcReport::default();
+    store.mark_manifests(&mut sizes, &mut report).unwrap();
+    assert_eq!(report.manifests, 25);
+    assert_eq!(sizes.len(), 40 + 25);
+    assert!(sizes.values().all(|named| named.len() == 1));
 }

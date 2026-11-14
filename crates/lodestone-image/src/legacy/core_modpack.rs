@@ -21,6 +21,12 @@
 //! - Images are chained by `parent`, oldest first; the label says what the entry was, and
 //!   `created` is its time in seconds.
 //!
+//! Record and history paths are the server's disk paths, so they go through the server's
+//! disk layout ([`ServerLayout`]), as a snapshot's would: a pack override the core put in
+//! a world folder (`world/datapacks/x.zip`, `world_nether/…` on Paper) is a world's file,
+//! which a content image never holds. Such files, and paths the layout refuses, are
+//! withheld and kept in the rest, so the files still write back byte for byte.
+//!
 //! The images list only what the pack wrote, which is all the record ever knew: the
 //! server's own mods and configs join the lineage with the first content image the core
 //! records itself. A disabled mod is listed by its pack path, since the history only names
@@ -39,11 +45,10 @@ use serde::{Deserialize, Serialize};
 
 use super::{clean_text, finish, object_probe, Known, LegacyError, Note, DISABLED, UNHASHED};
 use crate::hex::{is_sha1, is_sha512};
+use crate::layout::{DiskLayout, ServerLayout};
 use crate::manifest::{App, Base, Entry, Game, Image, Kind, Loader, Producer, Source};
 use crate::manifest::{WithheldReason, MODRINTH_CDN};
-use crate::paths::{always_excluded, placement, CanonicalPath};
 use crate::settings::{ServerFlavour, ServerSettings, Settings};
-use crate::Side;
 
 // The types below mirror `core/src/modpack/update.rs` (`RecordedFile`, `PackRecord`),
 // `core/src/modpack/history.rs` (`HistoryKind`, `ChangeAction`, `HistoryChange`,
@@ -311,10 +316,14 @@ pub struct Lineage {
     pub notes: Vec<Note>,
 }
 
-/// Reads `record.json` and `history.json` (either may be missing) and converts them.
+/// Reads `record.json` and `history.json` (either may be missing) and converts them, with
+/// `layout` the server's disk layout: its level (`level-name`, or a name no folder has when
+/// that isn't a single folder), its other world folders and whether it splits worlds, as
+/// [`super::core_backup`] derives them.
 pub fn read(
     record: Option<&[u8]>,
     history: Option<&[u8]>,
+    layout: &ServerLayout,
     known: &dyn Known,
 ) -> Result<Lineage, LegacyError> {
     let record = record.map(PackRecord::from_json).transpose()?;
@@ -322,15 +331,18 @@ pub fn read(
         .map(History::from_json)
         .transpose()?
         .unwrap_or_default();
-    to_images(record.as_ref(), &history, known)
+    to_images(record.as_ref(), &history, layout, known)
 }
 
-/// The lineage of `history`, and the image of `record`; see the module.
+/// The lineage of `history`, and the image of `record`, through the server's disk layout;
+/// see the module and [`read`].
 pub fn to_images(
     record: Option<&PackRecord>,
     history: &History,
+    layout: &ServerLayout,
     known: &dyn Known,
 ) -> Result<Lineage, LegacyError> {
+    let layout = &DiskLayout::Server(layout.clone());
     let mut notes = Vec::new();
     let mut images: Vec<Image> = Vec::with_capacity(history.entries.len());
     let mut entries = Vec::with_capacity(history.entries.len());
@@ -371,8 +383,11 @@ pub fn to_images(
             &mut image,
             &entry.files,
             &history.files,
-            known,
-            &|_| false,
+            &Context {
+                layout,
+                known,
+                disabled: &|_| false,
+            },
             &mut notes,
         );
         let image = with_parent(finish(image), &images)
@@ -411,8 +426,11 @@ pub fn to_images(
                 &mut image,
                 &record.files,
                 &history.files,
-                known,
-                &disabled,
+                &Context {
+                    layout,
+                    known,
+                    disabled: &disabled,
+                },
                 &mut notes,
             );
             let image = with_parent(finish(image), &images)
@@ -547,26 +565,34 @@ pub(crate) fn modrinth_cdn_ids(url: &str) -> Option<(&str, &str)> {
     Some((project, version))
 }
 
+/// What converting a set of pack files needs besides the files.
+struct Context<'c> {
+    /// The server's disk layout, which the record's paths are in.
+    layout: &'c DiskLayout,
+    known: &'c dyn Known,
+    /// Whether a file the record keys by its enabled name is disabled on disk.
+    disabled: &'c dyn Fn(&str) -> bool,
+}
+
 /// Adds the entries of a set of pack files to `image`, withholding what can't be listed,
 /// and returns what the image doesn't give back.
 fn add_files(
     image: &mut Image,
     files: &BTreeMap<String, RecordedFile>,
     index: &BTreeMap<String, FileRef>,
-    known: &dyn Known,
-    disabled: &dyn Fn(&str) -> bool,
+    context: &Context,
     notes: &mut Vec<Note>,
 ) -> FilesRest {
     let has_base = image.base.is_some();
     let mut rest = FilesRest::default();
     for (path, recorded) in files {
-        let on_disk = disabled(path).then(|| format!("{path}{DISABLED}"));
+        let on_disk = (context.disabled)(path).then(|| format!("{path}{DISABLED}"));
         match entry_of(
             on_disk.as_deref().unwrap_or(path),
             recorded,
             index,
             has_base,
-            known,
+            context,
         ) {
             Ok(entry) => {
                 if on_disk.is_some() {
@@ -586,23 +612,33 @@ fn add_files(
     rest
 }
 
-/// The entry of one pack file, or why it can't be one.
+/// The entry of one pack file (`path` on the server's disk), or why it can't be one.
 fn entry_of(
     path: &str,
     recorded: &RecordedFile,
     index: &BTreeMap<String, FileRef>,
     has_base: bool,
-    known: &dyn Known,
+    context: &Context,
 ) -> Result<Entry, WithheldReason> {
-    let path = CanonicalPath::new(path).map_err(|_| WithheldReason::BadName)?;
-    if always_excluded(&path) {
+    let known = context.known;
+    // Through the server's layout: a name no canonical path has, a file never placed on a
+    // server, or one the layout can't read back is a bad name; one never recorded is
+    // excluded.
+    let canonical = match context.layout.from_disk(path) {
+        Ok(Some(canonical)) => canonical,
+        Ok(None) => return Err(WithheldReason::Excluded),
+        Err(_) => return Err(WithheldReason::BadName),
+    };
+    // A world's file: a content image has no worlds, so it never records one.
+    if canonical.world().is_some() {
         return Err(WithheldReason::Excluded);
     }
-    // Pack files are a server's: never client-only, and never a world's (a content image
-    // has no worlds).
-    if !placement(&path).allows(Side::Server) || path.world().is_some() {
+    // Outside worlds the server layout keeps paths as they are; anything else couldn't be
+    // written back under the record's name.
+    if canonical.as_str() != path {
         return Err(WithheldReason::BadName);
     }
+    let path = canonical;
     let sha1 = recorded.sha1.to_ascii_lowercase();
     if !is_sha1(&sha1) {
         return Err(UNHASHED);
@@ -729,8 +765,13 @@ mod tests {
         }
     }
 
+    /// A Paper server's layout: the level `world`, split.
+    fn layout() -> ServerLayout {
+        ServerLayout::new("world", [], true).unwrap()
+    }
+
     fn round_trip(record: Option<&PackRecord>, history: &History, known: &dyn Known) -> Lineage {
-        let lineage = to_images(record, history, known).unwrap();
+        let lineage = to_images(record, history, &layout(), known).unwrap();
         let (record_back, history_back) =
             from_images(&lineage.images, lineage.record.as_ref(), &lineage.rest).unwrap();
         assert_eq!(record_back.as_ref(), record);
@@ -755,7 +796,7 @@ mod tests {
         // Unknown fields are ignored, as the core ignores them.
         let history = History::from_json(br#"{"entries": [], "files": {}, "future": 1}"#).unwrap();
         assert_eq!(history, History::default());
-        let lineage = read(None, None, &()).unwrap();
+        let lineage = read(None, None, &layout(), &()).unwrap();
         assert!(lineage.images.is_empty() && lineage.record.is_none());
     }
 
@@ -822,6 +863,57 @@ mod tests {
         let corrections = &lineage.rest.entries[0].files.corrections;
         let corrected: Vec<&str> = corrections.keys().map(String::as_str).collect();
         assert_eq!(corrected, ["config/a.toml", "mods/b.jar", "mods/upper.jar"]);
+    }
+
+    /// Overrides the core installed into the level's folders are world files on the server,
+    /// which a content image never holds: withheld, written back as they were, and the
+    /// record's image places on the server's layout.
+    #[test]
+    fn pack_files_in_world_folders_are_withheld() {
+        let files = [
+            ("mods/a.jar", recorded(1, false, None)),
+            ("world/datapacks/pack.zip", recorded(2, true, None)),
+            ("world_nether/x", recorded(3, true, None)),
+        ];
+        let history = History {
+            entries: vec![entry(&files, uploaded())],
+            files: BTreeMap::new(),
+        };
+        let record = PackRecord {
+            files: files
+                .iter()
+                .map(|(p, r)| (p.to_string(), r.clone()))
+                .collect(),
+        };
+        let lineage = round_trip(Some(&record), &history, &known(&[1, 2, 3]));
+        let image = lineage.record.as_ref().unwrap();
+        let paths: Vec<&str> = image.entries.iter().map(|e| e.path.as_str()).collect();
+        assert_eq!(paths, ["mods/a.jar"]);
+        let withheld: Vec<(&str, &str)> = image
+            .withheld
+            .iter()
+            .map(|w| (w.path.as_str(), w.reason.as_str()))
+            .collect();
+        assert_eq!(
+            withheld,
+            [
+                ("world/datapacks/pack.zip", "excluded"),
+                ("world_nether/x", "excluded")
+            ]
+        );
+        let disk = DiskLayout::Server(layout());
+        for entry in &image.entries {
+            assert_eq!(disk.to_disk(&entry.path).unwrap(), entry.path.as_str());
+        }
+        // On a vanilla server `world_nether` is an ordinary folder.
+        let vanilla = ServerLayout::new("world", [], false).unwrap();
+        let lineage = to_images(Some(&record), &history, &vanilla, &known(&[1, 2, 3])).unwrap();
+        let paths: Vec<&str> = lineage.images[0]
+            .entries
+            .iter()
+            .map(|e| e.path.as_str())
+            .collect();
+        assert_eq!(paths, ["mods/a.jar", "world_nether/x"]);
     }
 
     #[test]

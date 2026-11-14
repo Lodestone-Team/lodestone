@@ -381,13 +381,10 @@ fn a_list_named_with_its_own_length_is_a_wrong_size() {
     let (_dir, store) = store(Encoding::Raw);
     let large = region_like(22, 3 << 20);
     let hash = store.put_bytes(&large).unwrap().sha256;
-    let list_len = fs::metadata(store.object_path(&hash).unwrap())
-        .unwrap()
-        .len();
-    assert!(
-        store.has_object(&hash, list_len),
-        "looks whole by its length"
-    );
+    // Lists live in `lists/`, never in `objects/`.
+    assert!(!store.object_path(&hash).unwrap().exists());
+    let list_len = fs::metadata(store.list_path(&hash).unwrap()).unwrap().len();
+    assert!(!store.has_object(&hash, list_len));
     assert!(matches!(
         store.read_object_bytes(&hash, list_len),
         Err(StoreError::WrongSize { .. })
@@ -421,7 +418,7 @@ fn claiming_touches_old_objects_and_chunks() {
     let ObjectForm::Chunked(list) = store.object_form(&stored.sha256, stored.size).unwrap() else {
         panic!("chunked");
     };
-    let list_path = store.object_path(&stored.sha256).unwrap();
+    let list_path = store.list_path(&stored.sha256).unwrap();
     let chunk_paths: Vec<PathBuf> = list
         .chunks
         .iter()
@@ -896,6 +893,41 @@ fn store_throughput() {
             stored.size / (64 << 10),
             mb / elapsed.as_secs_f64()
         );
+
+        // Placing many small files durably: one flush of the drive at the end, not one per
+        // file.
+        let mut image = Image::new(Kind::Data, fabric());
+        for i in 0..3000u32 {
+            let bytes = format!("file {i} ").repeat(400).into_bytes();
+            let stored = store.put_bytes(&bytes).unwrap();
+            image.entries.push(Entry::new(
+                path(&format!("config/{}/{i}.txt", i % 30)),
+                stored.size,
+                stored.sha256,
+                Source::Object {},
+            ));
+        }
+        image.seal();
+        for durable in [false, true] {
+            let staging = dir.path().join(format!("staging-{durable}"));
+            fs::create_dir_all(&staging).unwrap();
+            let started = std::time::Instant::now();
+            materialize::materialize(
+                &store,
+                &image,
+                &crate::DiskLayout::Client,
+                &staging,
+                &materialize::MaterializeOptions {
+                    durable,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+            println!(
+                "{encoding:?}: placed 3000 files (durable: {durable}) in {:.2?}",
+                started.elapsed()
+            );
+        }
     }
 }
 

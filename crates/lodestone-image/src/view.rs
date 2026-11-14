@@ -18,7 +18,9 @@
 //!   server's modpack record and history are its bookkeeping, and images from a server
 //!   can't write Lodestone's files), nor a server's own state that a client never uses
 //!   ([`is_server_state`]: Bukkit plugins and their settings, the player-name caches,
-//!   Forge's start scripts).
+//!   Forge's start scripts, the server jars in `versions/` and at the top level), nor
+//!   disabled files and Lodestone's bookkeeping deeper down
+//!   ([`is_inactive_or_bookkeeping`]).
 //!
 //! Views are computed, never edited, and canonical: entries sorted, no timestamps, and
 //! none of the image's informational fields (label, producer, parent, created). So the same
@@ -76,21 +78,44 @@ pub const SERVER_STATE_FILES: [&str; 15] = [
     "run.bat",
     "user_jvm_args.txt",
 ];
-/// Top-level folders of a server's own state: Bukkit plugins and their data.
-pub const SERVER_STATE_FOLDERS: [&str; 1] = ["plugins"];
+/// Top-level folders of a server's own state: Bukkit plugins and their data, and
+/// `versions/`, where vanilla's bundler (1.18 on) and Paper's paperclip unpack the server
+/// jar (`versions/1.21.1/server-1.21.1.jar`, `paper-1.21.1.jar`).
+pub const SERVER_STATE_FOLDERS: [&str; 2] = ["plugins", "versions"];
+
+/// What disabling a file appends to its name, the Launcher's and the core's way.
+const DISABLED_SUFFIX: &str = ".disabled";
 
 /// Whether `path` is a server's own state, which the client view leaves out even though
 /// a client could hold it (rules 1): [`SERVER_STATE_FILES`] and [`SERVER_STATE_FOLDERS`],
-/// whatever their letter case. Unlike server-only files ([`placement`]) these stay in a
-/// Launcher's images (a client writes its own `usercache.json`); they just never go from
-/// a server to players.
+/// and jars at the top level (old Forge's `forge-<version>.jar` and
+/// `minecraft_server.<version>.jar`, a server's own jar under any name: a client loads
+/// mods from `mods/`, never jars beside its game folder), whatever their letter case.
+/// Unlike server-only files ([`placement`]) these stay in a Launcher's images (a client
+/// writes its own `usercache.json`); they just never go from a server to players.
 pub fn is_server_state(path: &CanonicalPath) -> bool {
     let mut parts = path.components();
     let first = parts.next().unwrap_or_default();
     match parts.next() {
-        None => in_names(first, &SERVER_STATE_FILES),
+        None => {
+            in_names(first, &SERVER_STATE_FILES) || first.to_ascii_lowercase().ends_with(".jar")
+        }
         Some(_) => in_names(first, &SERVER_STATE_FOLDERS),
     }
+}
+
+/// Whether `path` is a file nothing loads or Lodestone's own bookkeeping, at any depth: a
+/// disabled file (`mods/x.jar.disabled`; today's client pack sends only enabled mods) or a
+/// name starting with `.lodestone` (`mods/.lodestone_client_mods.json`), whatever their
+/// letter case. The client view leaves them out (rules 1).
+pub fn is_inactive_or_bookkeeping(path: &CanonicalPath) -> bool {
+    path.components().any(|part| {
+        let part = part.to_ascii_lowercase();
+        part.starts_with(".lodestone")
+    }) || path
+        .as_str()
+        .to_ascii_lowercase()
+        .ends_with(DISABLED_SUFFIX)
 }
 
 /// Whether `entry` belongs in `side`'s view (rules 1).
@@ -103,6 +128,7 @@ pub fn in_view(entry: &Entry, side: Side) -> bool {
         Side::Client => {
             !is_lodestone_path(&entry.path)
                 && !is_server_state(&entry.path)
+                && !is_inactive_or_bookkeeping(&entry.path)
                 && (!is_config(&entry.path) || marked_for_players(entry))
         }
     }
@@ -122,7 +148,12 @@ pub fn view(image: &Image, side: Side, rules: u32) -> Result<Image, ViewError> {
     check_rules(image.rules)?;
     match image.side {
         Some(already) if already == side => {
+            // Filtered again, though for a view this computed it changes nothing: a view
+            // from elsewhere (a server's answer) may carry what the side's view never does,
+            // so callers check one by comparing its id with its view's.
             let mut same = image.clone();
+            same.entries.retain(|entry| in_view(entry, side));
+            same.settings = same.settings.for_side(side);
             same.seal();
             return Ok(same);
         }
@@ -535,6 +566,15 @@ pub(crate) mod tests {
             "run.sh",
             "run.bat",
             "user_jvm_args.txt",
+            "versions/1.21.1/paper-1.21.1.jar",
+            "versions/1.21.1/server-1.21.1.jar",
+            "forge-1.16.5-36.2.39.jar",
+            "minecraft_server.1.16.5.jar",
+            "Server.JAR",
+            "mods/x.jar.disabled",
+            "mods/y.jar.DISABLED",
+            "mods/.lodestone_client_mods.json",
+            "config/.LODESTONE/x",
         ] {
             assert!(
                 !in_view(&object_entry(path), Side::Client),
@@ -551,6 +591,10 @@ pub(crate) mod tests {
         // Deeper down, the names are ordinary.
         assert!(in_view(&object_entry("mods/plugins/x.jar"), Side::Client));
         assert!(in_view(&object_entry("mods/usercache.json"), Side::Client));
+        assert!(in_view(&object_entry("mods/versions/x.jar"), Side::Client));
+        assert!(in_view(&object_entry("mods/a.jar"), Side::Client));
+        assert!(in_view(&object_entry("mods/disabled"), Side::Client));
+        assert!(in_view(&object_entry("mods/x.lodestone"), Side::Client));
     }
 
     fn object_entry(path: &str) -> Entry {
@@ -627,6 +671,20 @@ pub(crate) mod tests {
             view(&client, Side::Server, RULES),
             Err(ViewError::AlreadyView(Side::Client))
         );
+
+        // A "client view" from elsewhere that carries what no client view does is
+        // filtered, so its id differs from the view of it.
+        let mut hostile = client.clone();
+        hostile.entries.push(object_entry("plugins/x.jar"));
+        hostile.entries.push(object_entry("config/secret.toml"));
+        hostile.settings.server = Some(crate::settings::ServerSettings {
+            port: Some(25565),
+            ..Default::default()
+        });
+        hostile.seal();
+        let checked = view(&hostile, Side::Client, RULES).unwrap();
+        assert_ne!(checked.id, hostile.id);
+        assert_eq!(checked.id, client.id);
     }
 
     #[test]
@@ -785,10 +843,9 @@ pub(crate) mod tests {
             check_lossless(&image).unwrap_or_else(|e| panic!("case {case}: {e}"));
             // Nothing of Lodestone's or a server's own state ever reaches players.
             let client = view(&image, Side::Client, RULES).unwrap();
-            assert!(client
-                .entries
-                .iter()
-                .all(|e| !is_lodestone_path(&e.path) && !is_server_state(&e.path)));
+            assert!(client.entries.iter().all(|e| !is_lodestone_path(&e.path)
+                && !is_server_state(&e.path)
+                && !is_inactive_or_bookkeeping(&e.path)));
         }
     }
 

@@ -63,6 +63,7 @@ pub fn read<R: Read + Seek>(reader: R, folder: &str, game: Game) -> Result<Conve
     let mut seen: HashSet<CanonicalPath> = HashSet::new();
     let mut declared = 0u64;
     let mut world_size = 0u64;
+    let mut files: Vec<(String, Entry)> = Vec::new();
     for index in 0..archive.len() {
         let (name, outcome) = read_entry(&mut archive, index, &prefix, &mut declared)?;
         let entry = match outcome {
@@ -77,8 +78,17 @@ pub fn read<R: Read + Seek>(reader: R, folder: &str, game: Game) -> Result<Conve
             withhold(&mut image, &mut notes, name, WithheldReason::BadName);
             continue;
         }
+        files.push((name, *entry));
+    }
+    // A file that is also a folder of another (`w/a` and `w/a/b`): withheld, not fatal.
+    let clashes = super::file_folder_clashes(files.iter().map(|(_, e)| e.path.as_str()));
+    for (index, (name, entry)) in files.into_iter().enumerate() {
+        if clashes.contains(&index) {
+            withhold(&mut image, &mut notes, name, WithheldReason::BadName);
+            continue;
+        }
         world_size = world_size.saturating_add(entry.size);
-        image.entries.push(*entry);
+        image.entries.push(entry);
     }
     image.worlds.push(World {
         name: folder.to_string(),
@@ -236,6 +246,26 @@ mod tests {
     }
 
     #[test]
+    fn a_file_that_is_also_a_folder_is_withheld_not_fatal() {
+        let bytes = zip_of(&[
+            Item::File("w/level.dat", b"level"),
+            Item::File("w/a", b"a file"),
+            Item::File("w/a/b", b"and a folder"),
+        ]);
+        let converted = read(Cursor::new(bytes), "w", game()).unwrap();
+        let paths: Vec<&str> = converted
+            .image
+            .entries
+            .iter()
+            .map(|e| e.path.as_str())
+            .collect();
+        assert_eq!(paths, ["saves/w/a/b", "saves/w/level.dat"]);
+        assert_eq!(converted.image.withheld.len(), 1);
+        assert_eq!(converted.image.withheld[0].path, "w/a");
+        assert_eq!(converted.image.withheld[0].reason, WithheldReason::BadName);
+    }
+
+    #[test]
     fn checks_every_entry() {
         let bytes = zip_of(&[
             Item::Dir("W/"),
@@ -287,9 +317,6 @@ mod tests {
         let ok = zip_of(&[Item::File("W/level.dat", b"level")]);
         assert!(read(Cursor::new(ok.clone()), "../W", game()).is_err());
         assert!(read(Cursor::new(ok), "", game()).is_err());
-        // A file and a folder of the same name can't both be in an image.
-        let clash = zip_of(&[Item::File("W/a", b"1"), Item::File("W/a/b", b"2")]);
-        assert!(read(Cursor::new(clash), "W", game()).is_err());
     }
 
     #[test]
