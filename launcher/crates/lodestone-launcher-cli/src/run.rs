@@ -164,6 +164,20 @@ mod connected {
         );
     }
 
+    /// Whether a stream goes on after printing a line. Once stdout is gone (its reader,
+    /// such as `head`, exited) nothing more can be shown, so the stream ends without a
+    /// failure, as it does with SIGPIPE in other tools. Any other write error is one.
+    fn printed(result: std::io::Result<()>) -> Result<bool, ErrorObject> {
+        match result {
+            Ok(()) => Ok(true),
+            Err(err) if err.kind() == std::io::ErrorKind::BrokenPipe => Ok(false),
+            Err(err) => Err(ErrorObject::new(
+                codes::FAILED,
+                format!("Couldn't write the output: {err}"),
+            )),
+        }
+    }
+
     fn deadline(global: &Global) -> Option<Instant> {
         global
             .timeout
@@ -259,12 +273,20 @@ mod connected {
         let Some(follow) = follow else {
             match mode {
                 Mode::Json => output::result(mode, &value),
-                Mode::Human => rows.iter().for_each(|row| output::line(mode, row)),
+                Mode::Human => {
+                    for row in &rows {
+                        if !printed(output::line(mode, row))? {
+                            break;
+                        }
+                    }
+                }
             }
             return Ok(());
         };
         for row in &rows {
-            output::line(mode, row);
+            if !printed(output::line(mode, row))? {
+                return Ok(());
+            }
         }
         if follow.until_exit && value["state"] == "idle" {
             return Ok(());
@@ -295,7 +317,9 @@ mod connected {
             }
             match event.as_str() {
                 "log" => {
-                    output::line(mode, &data);
+                    if !printed(output::line(mode, &data))? {
+                        return Ok(());
+                    }
                     if let Some(until) = &follow.until
                         && data["text"]
                             .as_str()
@@ -352,9 +376,12 @@ mod connected {
                 && Some(number) == subscription
                 && event == "trace"
             {
-                match mode {
+                let line = match mode {
                     Mode::Json => output::line(mode, &data),
-                    Mode::Human => println!("{}", output::trace_line(&data)),
+                    Mode::Human => output::text_line(&output::trace_line(&data)),
+                };
+                if !printed(line)? {
+                    return Ok(());
                 }
                 seen += 1;
             }
@@ -398,7 +425,9 @@ mod connected {
                 && Some(number) == subscription
                 && event == "perf"
             {
-                output::line(mode, &data);
+                if !printed(output::line(mode, &data))? {
+                    return Ok(());
+                }
                 seen += 1;
             }
         }
@@ -442,7 +471,9 @@ mod connected {
             } = message
                 && Some(number) == subscription
             {
-                output::line(mode, &json!({ "event": event, "data": data }));
+                if !printed(output::line(mode, &json!({ "event": event, "data": data })))? {
+                    return Ok(());
+                }
                 seen += 1;
             }
         }
