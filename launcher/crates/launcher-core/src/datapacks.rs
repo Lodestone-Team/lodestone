@@ -591,28 +591,33 @@ pub async fn install_with(
             file.filename
         ))
     })?;
-    let mut provenance = Provenance::load(dirs);
+    let provenance = Provenance::load(dirs);
     // The file of this project that the app installed, to replace. Only a record whose
     // file is still the one installed counts: a file deleted outside the app and then
     // replaced by another of the same name (the user's own, say) is never trashed or
-    // overwritten. Records whose file is gone or changed are dropped.
+    // overwritten. Records whose file is gone or changed are dropped once this install
+    // is done.
     let mut old = None;
+    let mut stale = Vec::new();
     for (file, entry) in provenance.of_project(world, &version.project_id) {
         let installed = match recorded_file(dirs, world, &file, &entry) {
             Recorded::Same => true,
             Recorded::Changed => false,
+            // A record from before hashes were kept: Modrinth says whether the file is
+            // this project's. If it can't be asked (offline, rate limited), the install
+            // stops here with the record kept: dropping it would leave the old version
+            // untracked next to the new one for good, and both would load.
             Recorded::Unchecked(sha1) => api
                 .versions_by_sha1(std::slice::from_ref(&sha1))
                 .await
-                .ok()
-                .and_then(|found| found.get(&sha1).map(|v| v.project_id == version.project_id))
-                // Unsure (Modrinth can't be reached): left alone, not trashed.
-                .unwrap_or(false),
+                .map_err(|err| content_error(err.into()))?
+                .get(&sha1)
+                .is_some_and(|v| v.project_id == version.project_id),
         };
         if installed && old.is_none() {
             old = Some(file);
         } else if !installed {
-            provenance.remove(world, &file);
+            stale.push(file);
         }
     }
     if old.as_deref() == Some(name.as_str())
@@ -681,7 +686,13 @@ pub async fn install_with(
             }
         });
         let _ = existing(dirs, world, old).map(|path| remove(&path));
-        provenance.remove(world, old);
+    }
+    // Loaded again, since the download can take a while and adding a pack or renaming a
+    // world in the meantime also writes the records: only this install's changes are
+    // made to what is there now.
+    let mut provenance = Provenance::load(dirs);
+    for file in stale.iter().chain(&replaced) {
+        provenance.remove(world, file);
     }
     provenance.insert(
         world,

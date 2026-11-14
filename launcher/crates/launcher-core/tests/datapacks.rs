@@ -444,3 +444,65 @@ fn records_without_a_hash_are_checked_with_modrinth() {
         [named("dpk-2.zip", Some("DPK"))]
     );
 }
+
+#[test]
+fn an_old_record_is_kept_when_modrinth_cant_check_it() {
+    let (temp, dirs) = instance();
+    let mock = data_pack_mock(temp.path());
+    let api = mock.client();
+    make_world(&dirs, "World", LEVEL_DAT);
+    let folder = datapacks::dir(&dirs, "World").unwrap();
+    fs::create_dir_all(&folder).unwrap();
+    // DPK 1 under a record from before hashes were kept
+    let d1 = mock
+        .state()
+        .versions
+        .iter()
+        .find(|v| v.id == "d1")
+        .unwrap()
+        .bytes
+        .clone();
+    fs::write(folder.join("dpk-1.zip"), d1).unwrap();
+    let json = serde_json::json!({ "worlds": { "World": {
+        "dpk-1.zip": { "project_id": "DPK", "version_id": "d1" },
+    }}});
+    let records = dirs.instance.join("datapacks.json");
+    fs::write(&records, json.to_string()).unwrap();
+    let before = fs::read(&records).unwrap();
+
+    // The hash lookup fails (the next request after fetching the version is it): the
+    // install stops before downloading, and the record is kept.
+    let downloader = Downloader::new(http::download_client().unwrap(), recording_sleep().0);
+    let version = block_on(api.version("d2")).unwrap();
+    mock.state().next_status = Some((503, Vec::new()));
+    let result = block_on(datapacks::install_with(
+        &api,
+        &downloader,
+        &dirs,
+        "World",
+        &version,
+        &Progress::default(),
+        &CancelToken::new(),
+        |path| fs::remove_file(path).map_err(|e| e.to_string()),
+    ));
+    assert!(result.is_err(), "{result:?}");
+    assert!(!folder.join("dpk-2.zip").exists(), "nothing is downloaded");
+    assert_eq!(fs::read(&records).unwrap(), before, "the record is kept");
+    assert_eq!(
+        pack_names(&dirs, "World"),
+        [named("dpk-1.zip", Some("DPK"))]
+    );
+
+    // Trying again once Modrinth answers replaces the old file.
+    assert_eq!(
+        install(&api, &dirs, "World", "d2")
+            .unwrap()
+            .replaced
+            .as_deref(),
+        Some("dpk-1.zip")
+    );
+    assert_eq!(
+        pack_names(&dirs, "World"),
+        [named("dpk-2.zip", Some("DPK"))]
+    );
+}
