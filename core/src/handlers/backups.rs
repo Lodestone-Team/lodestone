@@ -162,7 +162,7 @@ async fn update_backup(
             .await?;
     }
     minecraft(&state, &uuid)?;
-    state.backups.store().server_dir(&uuid)?;
+    state.backups.store().instance_dir(&uuid)?;
     Ok(Json(
         state
             .backups
@@ -180,7 +180,7 @@ async fn delete_backup(
         .require(&state, UserAction::WriteInstanceFile(uuid.clone()))
         .await?;
     minecraft(&state, &uuid)?;
-    state.backups.store().server_dir(&uuid)?;
+    state.backups.store().instance_dir(&uuid)?;
     state.backups.delete(&uuid, &id).await?;
     Ok(Json(serde_json::json!({})))
 }
@@ -258,19 +258,21 @@ async fn restore_backup(
         .require(&state, UserAction::WriteInstanceFile(uuid.clone()))
         .await?;
     let instance = minecraft(&state, &uuid)?;
-    state.backups.store().server_dir(&uuid)?;
-    let manifest = state.backups.load_manifest(&uuid, &id).await?;
-    if request.scope == RestoreScope::World {
-        let has_world = manifest
-            .level_name
-            .as_deref()
-            .is_some_and(|level| super::server_content::world_folder(level).is_ok());
-        if !has_world {
-            return Err(Error {
-                kind: ErrorKind::BadRequest,
-                source: eyre!("This backup has no world"),
-            });
-        }
+    state.backups.store().instance_dir(&uuid)?;
+    let backup = state.backups.load(&uuid, &id).await?;
+    if request.scope != RestoreScope::Everything && backup.record.level.is_none() {
+        return Err(Error {
+            kind: ErrorKind::BadRequest,
+            source: eyre!("This backup has no world"),
+        });
+    }
+    if request.scope == RestoreScope::WorldAndMods && backup.content.is_none() {
+        return Err(Error {
+            kind: ErrorKind::BadRequest,
+            source: eyre!(
+                "This backup doesn't know the content it ran with, so its mods can't be restored"
+            ),
+        });
     }
     // what this checks holds only while the server's state stays as it is now: the
     // service refuses a server that started meanwhile (`may_stop`)
@@ -304,7 +306,7 @@ async fn restore_backup(
         .start_restore(
             &state,
             instance,
-            manifest,
+            backup,
             request,
             runs,
             check,
@@ -327,12 +329,13 @@ async fn restore_as_new(
         .require(&state, UserAction::ReadInstanceFile(uuid.clone()))
         .await?;
     minecraft(&state, &uuid)?;
-    state.backups.store().server_dir(&uuid)?;
-    let manifest = state.backups.load_manifest(&uuid, &id).await?;
+    state.backups.store().instance_dir(&uuid)?;
+    let backup = state.backups.load(&uuid, &id).await?;
+    let files = backup.files_on_disk()?;
     let user = &requester.0;
     // what the new server gets, the requester could otherwise only put there with these
-    let protected = manifest.files.iter().any(|file| {
-        let path = FsPath::new(&file.path);
+    let protected = files.iter().any(|file| {
+        let path = FsPath::new(&file.disk);
         is_protected(path, false)
             || path
                 .ancestors()
@@ -345,10 +348,9 @@ async fn restore_as_new(
             "This backup has protected files (such as .jar files or the mods folder), so restoring it as a new server needs permission to change global files",
         ));
     }
-    if manifest
-        .files
+    if files
         .iter()
-        .any(|file| is_code_path(FsPath::new(&file.path), false))
+        .any(|file| is_code_path(FsPath::new(&file.disk), false))
     {
         require_code_write(&state, user)?;
     }
@@ -357,7 +359,7 @@ async fn restore_as_new(
         .map(|name| name.trim().to_string())
         .filter(|name| !name.is_empty())
         .unwrap_or_else(|| {
-            let base: String = manifest.instance_name.chars().take(89).collect();
+            let base: String = backup.record.instance_name.chars().take(89).collect();
             format!("{} (restored)", base.trim())
         });
     let keep_command_line =
@@ -366,7 +368,7 @@ async fn restore_as_new(
         .backups
         .start_restore_as_new(
             &state,
-            manifest,
+            backup,
             NewServerRequest {
                 name,
                 keep_command_line,
@@ -424,7 +426,7 @@ async fn download_backup(
         .require(&state, UserAction::ReadInstanceFile(uuid.clone()))
         .await?;
     let instance = minecraft(&state, &uuid)?;
-    state.backups.store().server_dir(&uuid)?;
+    state.backups.store().instance_dir(&uuid)?;
     let name = instance.name().await;
     if !crate::backups::store::valid_backup_id(&id) {
         return Err(Error {

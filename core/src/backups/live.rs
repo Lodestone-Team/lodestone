@@ -2,7 +2,7 @@
 //!
 //! `save-off`, then `save-all flush`, then wait for the server to say it saved, then copy,
 //! then `save-on`, which is always sent (and awaited) however the copy ends. While saving is
-//! off, `servers/<uuid>/save-off.marker` exists, so a core that died in the middle can say so
+//! off, `images/<uuid>/save-off.marker` exists, so a core that died in the middle can say so
 //! at the next start.
 //!
 //! Written against two small traits ([`LiveServer`], [`ConsoleLines`]) so it can be tested
@@ -25,15 +25,13 @@ use crate::implementations::minecraft::line_parser::parse_system_msg;
 use crate::traits::t_server::State;
 use crate::types::InstanceUuid;
 
-use super::store::{cancelled, err, valid_server_id, Store};
+use super::store::{cancelled, err, Store};
 
 /// How long to wait for "Saved the game" after `save-all flush`.
 pub const SAVE_WAIT: Duration = Duration::from_secs(60);
 /// The longest saving may stay off. Past this, saving is turned back on and the backup fails,
 /// so a stuck backup can't lose the players' progress.
 pub const SAVE_OFF_CAP: Duration = Duration::from_secs(15 * 60);
-
-const MARKER_FILE: &str = "save-off.marker";
 
 /// The running server a live backup talks to.
 #[async_trait]
@@ -306,27 +304,20 @@ async fn write_marker(marker: &Path) -> Result<(), Error> {
 /// whose they were.
 pub fn remove_leftover_markers(store: &Store) -> Vec<InstanceUuid> {
     let mut found = Vec::new();
-    let Ok(entries) = std::fs::read_dir(store.servers_dir()) else {
-        return found;
-    };
-    for entry in entries.flatten() {
-        let Some(name) = entry.file_name().to_str().map(String::from) else {
+    for uuid in store.instances().unwrap_or_default() {
+        let Ok(marker) = store.marker_path(&uuid) else {
             continue;
         };
-        if !valid_server_id(&name) {
-            continue;
-        }
-        let marker = entry.path().join(MARKER_FILE);
         if !marker.is_file() {
             continue;
         }
         warn!(
-            "A backup of {name} was interrupted while the server's saving was off. If that server is still running outside Lodestone, run save-on in its console"
+            "A backup of {uuid} was interrupted while the server's saving was off. If that server is still running outside Lodestone, run save-on in its console"
         );
         if let Err(e) = std::fs::remove_file(&marker) {
             warn!("Failed to delete {}: {e}", marker.display());
         }
-        found.push(InstanceUuid::from(name));
+        found.push(uuid);
     }
     found
 }
