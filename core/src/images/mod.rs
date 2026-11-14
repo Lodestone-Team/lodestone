@@ -1,12 +1,9 @@
-//! Instance images in the core (`docs/instance-images.md`): the store backups share, the
-//! content images recorded as Lodestone changes a server's mods and configs, and the one
-//! collector of the backup folder.
+//! Instance images in the core (`docs/instance-images.md`): the one image store, the
+//! content images recorded as Lodestone changes a server's mods and configs, and the
+//! store's collector.
 //!
-//! The image store lives in the backup folder (`<lodestone>/backups`), zstd-encoded like
-//! the backups' objects, so images and schema-1 backups share every object. Before it first
-//! writes there it puts a guard where the old backup collector looks, which then refuses to
-//! run: from then on [`ImageService::collect_blocking`] is the only collector, and it keeps
-//! what the old manifests name ([`gc`]).
+//! The service owns the store, in the backup folder (`<lodestone>/backups`: `objects/`,
+//! `lists/`, `chunks/`, `images/<uuid>/`), zstd-encoded, and its collections ([`gc`]).
 //!
 //! - [`recorder`]: operations ([`ImageService::begin`]), merging what happens within a few
 //!   seconds into one image, and recording a content image.
@@ -19,10 +16,10 @@
 //! - [`retention`]: which manifests to keep. [`gc`]: the collector.
 //!
 //! Locks, outermost first: an instance's mods lock (`ModsState::lock_for`), its content
-//! gate (operations share it, a record has it alone), the backups' store lock (only
-//! backups and GC take it), the store's collection lock (`Store::hold_off_collection`,
-//! only writers that don't claim), the instance's lock ([`ImageService::instance_lock`]:
-//! saving manifests, the pointer, pruning), then the backups' manifests mutex.
+//! gate (operations share it, a record has it alone), then the instance's lock
+//! ([`ImageService::instance_lock`]: saving manifests, the pointer, pruning). The store
+//! needs none of the core's: its writers claim what they rely on, and a collection holds
+//! the store's own collection lock (see [`gc`]).
 //!
 //! Every blocking store call runs on `spawn_blocking`. Instance ids are the core's instance
 //! uuids; Docker instances and ids the store can't name are ignored everywhere.
@@ -138,13 +135,12 @@ pub(crate) struct Slot {
 pub struct ImageService {
     store: Arc<Store>,
     root: PathBuf,
-    store_lock: Arc<RwLock<()>>,
     slots: StdMutex<HashMap<InstanceUuid, Arc<Slot>>>,
     pub(crate) refs: StdRwLock<Vec<Arc<dyn ImageRefs>>>,
     hints: env::ModrinthHints,
     pub(crate) clock: Arc<dyn Clock>,
     source: StdRwLock<Option<Arc<dyn InstanceSource>>>,
-    gc_requester: StdRwLock<Option<Arc<dyn Fn() + Send + Sync>>>,
+    gc: Arc<gc::GcState>,
 }
 
 static GLOBAL: OnceLock<Arc<ImageService>> = OnceLock::new();
@@ -163,28 +159,23 @@ pub fn global() -> Option<Arc<ImageService>> {
 }
 
 impl ImageService {
-    /// The service for the store at `backups_root` (`<lodestone>/backups`), sharing the
-    /// backups' `store_lock`. Nothing is read or written until it is used.
-    pub fn new(backups_root: PathBuf, store_lock: Arc<RwLock<()>>) -> ImageService {
-        Self::with_clock(backups_root, store_lock, Arc::new(SystemClock))
+    /// The service for the store at `backups_root` (`<lodestone>/backups`). Nothing is read
+    /// or written until it is used.
+    pub fn new(backups_root: PathBuf) -> ImageService {
+        Self::with_clock(backups_root, Arc::new(SystemClock))
     }
 
     /// [`Self::new`] with another clock for the merge window (tests).
-    pub fn with_clock(
-        backups_root: PathBuf,
-        store_lock: Arc<RwLock<()>>,
-        clock: Arc<dyn Clock>,
-    ) -> ImageService {
+    pub fn with_clock(backups_root: PathBuf, clock: Arc<dyn Clock>) -> ImageService {
         ImageService {
             store: Arc::new(Store::new(backups_root.clone(), Encoding::Zstd)),
             root: backups_root,
-            store_lock,
             slots: Default::default(),
             refs: Default::default(),
             hints: Default::default(),
             clock,
             source: Default::default(),
-            gc_requester: Default::default(),
+            gc: Default::default(),
         }
     }
 
@@ -195,12 +186,6 @@ impl ImageService {
     /// The store's folder, `<lodestone>/backups`.
     pub fn root(&self) -> &Path {
         &self.root
-    }
-
-    /// The backups' store lock, which a collection holds exclusively around
-    /// [`Self::collect_blocking`] and older formats' writers hold shared.
-    pub fn store_lock(&self) -> Arc<RwLock<()>> {
-        self.store_lock.clone()
     }
 
     /// Adds a source of the images an instance must keep ([`retention`]). At startup.
@@ -214,23 +199,6 @@ impl ImageService {
     /// Where merged records find their server ([`InstanceSource`]). At startup.
     pub fn set_instances(&self, source: Arc<dyn InstanceSource>) {
         *self.source.write().unwrap_or_else(|e| e.into_inner()) = Some(source);
-    }
-
-    /// What asks for a collection after pruning deleted manifests (the backups'
-    /// `request_gc`, which takes the store lock). At startup.
-    pub fn set_gc_requester(&self, request: Arc<dyn Fn() + Send + Sync>) {
-        *self.gc_requester.write().unwrap_or_else(|e| e.into_inner()) = Some(request);
-    }
-
-    pub(crate) fn request_gc(&self) {
-        let request = self
-            .gc_requester
-            .read()
-            .unwrap_or_else(|e| e.into_inner())
-            .clone();
-        if let Some(request) = request {
-            request();
-        }
     }
 
     pub(crate) async fn context(&self, uuid: &InstanceUuid) -> Option<InstanceContext> {

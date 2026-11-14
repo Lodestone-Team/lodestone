@@ -181,10 +181,7 @@ pub(crate) mod test_util {
         ));
         crate::AppState {
             remote_access,
-            images: Arc::new(crate::images::ImageService::new(
-                dir.join("backups"),
-                backups.store_lock(),
-            )),
+            images: Arc::new(crate::images::ImageService::new(dir.join("backups"))),
             backups,
             instances: Arc::new(dashmap::DashMap::new()),
             users_manager: Arc::new(RwLock::new(users_manager)),
@@ -1368,11 +1365,8 @@ pub async fn run_with(
             error!("Backup recovery failed: {e}");
         }
     }
-    // Images share the backup folder, its objects and its store lock.
-    let images = Arc::new(images::ImageService::new(
-        path_to_backups(),
-        backups.store_lock(),
-    ));
+    // The image store is in the backup folder.
+    let images = Arc::new(images::ImageService::new(path_to_backups()));
 
     let instances = restore_instances(&path_to_instances, tx.clone(), code_execution.clone())
         .await
@@ -1478,10 +1472,6 @@ pub async fn run_with(
         instances: shared_state.instances.clone(),
         backups: backups.clone(),
     }));
-    {
-        let backups = backups.clone();
-        images.set_gc_requester(Arc::new(move || backups.request_gc()));
-    }
     // ImageRefs: backups, lineage
     images.register_refs(Arc::new(crate::modpack::lineage::LineageRefs::new(
         shared_state.instances.clone(),

@@ -5,7 +5,7 @@
 //! the images (what an image doesn't model: the entry's kind, origin, changes, kept files,
 //! changelog and how to get files back), and `record.json` stays the update engine's record
 //! for its three-way merge. Both live in the server folder, so a backup restores them with
-//! the files they describe, and cores from before images read them as they always did.
+//! the files they describe.
 //! Each entry names its content image ([`HistoryEntry::image`]); a separate index in the
 //! image store would go out of step with `history.json` after a backup restore.
 //!
@@ -14,38 +14,27 @@
 //!   pack as the image's base and the `env` its index and override folders give each file),
 //!   and links the new history entry to it. Recording never fails the operation: without
 //!   an image the entry is kept as before.
-//! - **Older entries.** The first time a server's history is written with entries that have
-//!   no image, [`backfill`] converts them with the legacy reader
-//!   (`lodestone_image::legacy::core_modpack`), storing the files it can hash (the pack's
-//!   files on disk and the history's stored copies) first, and links each entry to its
-//!   image. Converted images have `env` unknown and never become the current content image:
-//!   that is always one the core recorded from disk.
 //! - **Restoring.** An entry restores through the update engine as it always did. A file it
 //!   can't get back from the history's store or a download is read from its content image
 //!   ([`ImageLookup`]), checked against the entry's SHA-1.
 //! - **Retention.** [`LineageRefs`] tells the image service's pruning which images the
 //!   history names, so those stay besides the newest 30 and those backups link to.
-//!
-//! Nothing here deletes `history.json`, `record.json` or the history's stored copies:
-//! downgrades and restores of old entries still need them.
 
 use std::cell::RefCell;
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex as StdMutex, OnceLock};
 
 use async_trait::async_trait;
 use dashmap::DashMap;
-use lodestone_image::legacy::{core_modpack, KnownFiles};
 use lodestone_image::store::{Store, NEVER};
-use lodestone_image::{Base, DiskLayout, Entry, Env, EnvValue};
+use lodestone_image::{Base, Entry, Env, EnvValue};
 use lodestone_minecraft::mrpack::{for_each_override, open_pack, read_index, OverrideItem, Side};
 use sha1::Digest;
-use tracing::{info, warn};
+use tracing::warn;
 
-use super::history::{object_path, EntryFiles, History, HistoryEntry, HistoryKind};
-use super::store::PackStore;
-use super::update::{on_disk, FileAction, FilePlan, ImageFile, PackFile};
+use super::history::{EntryFiles, History, HistoryEntry, HistoryKind};
+use super::update::{FileAction, FilePlan, ImageFile, PackFile};
 use super::{InstancePathPolicy, ModpackOrigin};
 use crate::error::Error;
 use crate::images::base::{BaseFile, BaseInfo};
@@ -361,30 +350,12 @@ pub async fn new_server_context(
 pub struct Before {
     /// The current content image before the change: a baseline entry's image.
     pub current: Option<String>,
-    /// The images [`backfill`] linked older entries to, by entry id.
-    pub backfilled: BTreeMap<u32, String>,
-}
-
-impl Before {
-    /// Links the entries of `history` that `backfilled` names and that still have no image.
-    pub fn link(&self, history: &mut History) {
-        for entry in &mut history.entries {
-            if entry.image.is_none() {
-                entry.image = self.backfilled.get(&entry.id).cloned();
-            }
-        }
-    }
 }
 
 /// Before an update or restore of the server `ctx` changes its files: records what the Mods
 /// tab or the Files API changed in the last seconds (so the current image is the content
-/// as it is), notes the current image, and converts the history's older entries
-/// ([`backfill`]). Best effort; never fails.
-pub async fn before_change(
-    images: &Arc<ImageService>,
-    ctx: &InstanceContext,
-    packs: Option<&PackStore>,
-) -> Before {
+/// as it is) and notes the current image. Best effort; never fails.
+pub async fn before_change(images: &Arc<ImageService>, ctx: &InstanceContext) -> Before {
     if !ImageService::accepts(&ctx.uuid) {
         return Before::default();
     }
@@ -396,296 +367,6 @@ pub async fn before_change(
     }
     Before {
         current: images.current_content(&ctx.uuid).await,
-        backfilled: backfill(images, ctx, packs).await,
-    }
-}
-
-// ---- converting older entries ----
-
-/// Links the entries of the history of the server `ctx` that have no content image to
-/// images converted from the history itself (see the module), once: the first time the
-/// history is written with such entries. `packs` are the downloaded packs, for their
-/// `.mrpack` hashes. Best effort: never blocks or fails an update; what can't be converted
-/// stays without an image. Returns the links it made, by entry id.
-pub async fn backfill(
-    images: &Arc<ImageService>,
-    ctx: &InstanceContext,
-    packs: Option<&PackStore>,
-) -> BTreeMap<u32, String> {
-    if !ImageService::accepts(&ctx.uuid) {
-        return BTreeMap::new();
-    }
-    let history = match History::load_checked(&ctx.root).await {
-        Ok(history) => history,
-        Err(e) => {
-            warn!(
-                "Not converting the modpack history of {}: {}",
-                ctx.uuid, e.source
-            );
-            return BTreeMap::new();
-        }
-    };
-    if history.entries.iter().all(|e| e.image.is_some()) {
-        return BTreeMap::new();
-    }
-    // The `.mrpack` hashes Lodestone has: the pack the server's images are built on now,
-    // and packs downloaded in the last hour.
-    let current_base = {
-        let root = images.root().to_path_buf();
-        let uuid = ctx.uuid.clone();
-        tokio::task::spawn_blocking(move || crate::images::base::load_base(&root, &uuid))
-            .await
-            .ok()
-            .flatten()
-            .and_then(|info| info.base)
-    };
-    let mut pack_paths = Vec::new();
-    let versions: BTreeSet<(String, String)> = history
-        .entries
-        .iter()
-        .filter(|e| !e.origin.project_id.is_empty() && !e.origin.version_id.is_empty())
-        .map(|e| (e.origin.project_id.clone(), e.origin.version_id.clone()))
-        .collect();
-    let mut known_packs = Vec::new();
-    for (project, version) in versions {
-        match &current_base {
-            Some(Base::ModrinthPack {
-                project: p,
-                version: v,
-                sha512,
-            }) if *p == project && *v == version => {
-                known_packs.push((project, version, sha512.clone()));
-            }
-            _ => {
-                if let Some(stored) = packs.and_then(|packs| packs.find_version(&version)) {
-                    pack_paths.push((project, version, stored));
-                }
-            }
-        }
-    }
-
-    let store = images.store();
-    let converting = {
-        let ctx = ctx.clone();
-        let history = history.clone();
-        tokio::task::spawn_blocking(move || {
-            convert(&store, &ctx, &history, known_packs, pack_paths)
-        })
-        .await
-    };
-    let lineage = match converting {
-        Ok(Ok(lineage)) => lineage,
-        Ok(Err(e)) => {
-            warn!(
-                "Could not convert the modpack history of {}: {}",
-                ctx.uuid, e.source
-            );
-            return BTreeMap::new();
-        }
-        Err(e) => {
-            warn!("Could not convert the modpack history of {}: {e}", ctx.uuid);
-            return BTreeMap::new();
-        }
-    };
-
-    // Save the images and link them under the instance's lock, so pruning never sees an
-    // image saved but not yet named by the history.
-    let _lock = images.instance_lock(&ctx.uuid).await;
-    let store = images.store();
-    let uuid = ctx.uuid.clone();
-    let without_image: HashSet<u32> = history
-        .entries
-        .iter()
-        .filter(|e| e.image.is_none())
-        .map(|e| e.id)
-        .collect();
-    let saving = tokio::task::spawn_blocking(move || {
-        let by_id: HashMap<&str, &lodestone_image::Image> =
-            lineage.images.iter().map(|i| (i.id.as_str(), i)).collect();
-        let mut saved: HashMap<String, bool> = HashMap::new();
-        let mut links = BTreeMap::new();
-        for rest in &lineage.rest.entries {
-            if !without_image.contains(&rest.id) {
-                continue;
-            }
-            let ok = *saved.entry(rest.image.clone()).or_insert_with(|| {
-                let Some(image) = by_id.get(rest.image.as_str()) else {
-                    return false;
-                };
-                match store.save_manifest(uuid.as_ref(), image) {
-                    Ok(_) => true,
-                    Err(e) => {
-                        warn!(
-                            "Could not save the image of modpack history entry {} of {uuid}: {e}",
-                            rest.id
-                        );
-                        false
-                    }
-                }
-            });
-            if ok {
-                links.insert(rest.id, rest.image.clone());
-            }
-        }
-        links
-    })
-    .await;
-    let links = match saving {
-        Ok(links) => links,
-        Err(e) => {
-            warn!(
-                "Could not save the converted modpack history of {}: {e}",
-                ctx.uuid
-            );
-            return BTreeMap::new();
-        }
-    };
-    if links.is_empty() {
-        return links;
-    }
-    let mut linked = history;
-    Before {
-        current: None,
-        backfilled: links.clone(),
-    }
-    .link(&mut linked);
-    if let Err(e) = linked.save(&ctx.root).await {
-        // The images stay until pruning finds nothing names them; the next write converts
-        // the entries again, to the same ids.
-        warn!(
-            "Could not link the modpack history of {} to its images: {}",
-            ctx.uuid, e.source
-        );
-        return BTreeMap::new();
-    }
-    info!(
-        "Linked {} older modpack history entries of {} to content images",
-        links.len(),
-        ctx.uuid
-    );
-    links
-}
-
-/// Hashes and stores what the history's entries had that is still on the server or in the
-/// history's store, and converts the history (blocking; see [`backfill`]).
-fn convert(
-    store: &Store,
-    ctx: &InstanceContext,
-    history: &History,
-    known_packs: Vec<(String, String, String)>,
-    pack_paths: Vec<(String, String, super::store::StoredPack)>,
-) -> Result<core_modpack::Lineage, Error> {
-    let mut known = KnownFiles::new();
-    for (project, version, sha512) in known_packs {
-        known.add_pack(&project, &version, &sha512);
-    }
-    for (project, version, stored) in pack_paths {
-        if let Some(sha512) = pack_sha512(&stored.path()) {
-            known.add_pack(&project, &version, &sha512);
-        }
-    }
-    // Every SHA-1 the history names.
-    let mut wanted: BTreeSet<String> = BTreeSet::new();
-    let mut paths: BTreeSet<&str> = BTreeSet::new();
-    for entry in &history.entries {
-        for (path, file) in &entry.files {
-            wanted.insert(file.sha1.to_ascii_lowercase());
-            paths.insert(path);
-        }
-        for change in &entry.changes {
-            wanted.extend(change.old_sha1.iter().map(|s| s.to_ascii_lowercase()));
-            wanted.extend(change.new_sha1.iter().map(|s| s.to_ascii_lowercase()));
-        }
-    }
-    let mut found: HashSet<String> = HashSet::new();
-    // The history's stored copies first: they are named by their SHA-1, checked here.
-    for sha1 in &wanted {
-        if let Some(object) = object_path(&ctx.root, sha1) {
-            if object.is_file() {
-                store_known(store, &object, Some(sha1), &mut known, &mut found);
-            }
-        }
-    }
-    // Then the pack's files on the server (or their disabled names).
-    for path in paths {
-        if super::update::record_path(path).is_none() {
-            continue;
-        }
-        let Some((target, sha1)) = on_disk(&ctx.root, path) else {
-            continue;
-        };
-        let sha1 = sha1.to_ascii_lowercase();
-        if !wanted.contains(&sha1) || found.contains(&sha1) {
-            continue;
-        }
-        store_known(
-            store,
-            &ctx.root.join(&target),
-            Some(&sha1),
-            &mut known,
-            &mut found,
-        );
-    }
-    let (layout, _) =
-        crate::images::layout::server_layout(&ctx.root, &ctx.level_name, &ctx.flavour)?;
-    let DiskLayout::Server(layout) = layout else {
-        return Err(color_eyre::eyre::eyre!("A server has a server's layout").into());
-    };
-    let bytes = serde_json::to_vec(history)
-        .map_err(|e| color_eyre::eyre::eyre!("Failed to read the modpack history: {e}"))?;
-    let lineage = core_modpack::read(None, Some(&bytes), &layout, &known)
-        .map_err(|e| color_eyre::eyre::eyre!("The modpack history can't be converted: {e}"))?;
-    let withheld: usize = lineage.images.iter().map(|i| i.withheld.len()).sum();
-    if withheld > 0 {
-        info!(
-            "{withheld} files of the older modpack history of {} could not be put in its images (their bytes are gone, or they are world files)",
-            ctx.uuid
-        );
-    }
-    Ok(lineage)
-}
-
-/// Stores the file at `path` and notes its hashes in `known`, when it is still the file
-/// with `sha1`: its SHA-1 is read, then the store reads it, failing if it changes meanwhile.
-fn store_known(
-    store: &Store,
-    path: &Path,
-    sha1: Option<&str>,
-    known: &mut KnownFiles,
-    found: &mut HashSet<String>,
-) {
-    let Ok(before) = std::fs::symlink_metadata(path) else {
-        return;
-    };
-    if !before.is_file() {
-        return;
-    }
-    let Ok(actual) = lodestone_minecraft::hash::sha1_of(path) else {
-        return;
-    };
-    let actual = actual.to_ascii_lowercase();
-    if sha1.is_some_and(|sha1| sha1 != actual) {
-        return;
-    }
-    let stored = match store.put_file(path, NEVER) {
-        Ok(stored) => stored,
-        Err(e) => {
-            warn!(
-                "Could not keep {} for the modpack history: {e}",
-                path.display()
-            );
-            return;
-        }
-    };
-    // The file the store read must be the one hashed above.
-    let unchanged = std::fs::symlink_metadata(path).is_ok_and(|after| {
-        after.len() == before.len()
-            && after.len() == stored.size
-            && after.modified().ok() == before.modified().ok()
-    });
-    if unchanged {
-        known.add_file(&actual, &stored.sha256, stored.size);
-        found.insert(actual);
     }
 }
 

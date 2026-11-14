@@ -1284,6 +1284,14 @@ impl Store {
     /// Refuses (deleting nothing) when any manifest can't be parsed or was made by a newer
     /// Lodestone: its objects can't be told apart. Run only with the store to itself.
     pub fn gc(&self) -> Result<GcReport, Error> {
+        // The image store shares `objects/` and names objects no backup manifest does; its
+        // own collector (`images::ImageService`) is the only one that may run once it has
+        // written here. This store goes when backups become images.
+        if self.root.join("images").exists() {
+            let message = "Not deleting unused backup files: the image store shares this folder";
+            warn!("{message}");
+            return Err(err(ErrorKind::Internal, message.to_string()));
+        }
         let mut used: HashSet<String> = HashSet::new();
         let servers = match fs::read_dir(self.servers_dir()) {
             Ok(entries) => entries.flatten().collect(),

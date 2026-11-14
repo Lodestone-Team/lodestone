@@ -9,7 +9,7 @@ use std::time::{Duration, Instant, SystemTime};
 use async_trait::async_trait;
 use lodestone_image::store::Store;
 use lodestone_image::{Entry, Game, Image, Kind, Loader, Source};
-use tokio::sync::{watch, RwLock};
+use tokio::sync::watch;
 
 use super::*;
 use crate::implementations::minecraft::{FabricLoaderVersion, Flavour};
@@ -81,11 +81,7 @@ fn setup() -> Setup {
 fn setup_with(clock: Arc<dyn Clock>) -> Setup {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("server");
-    let images = Arc::new(ImageService::with_clock(
-        dir.path().join("backups"),
-        Arc::new(RwLock::new(())),
-        clock,
-    ));
+    let images = Arc::new(ImageService::with_clock(dir.path().join("backups"), clock));
     Setup {
         _dir: dir,
         root,
@@ -624,25 +620,25 @@ fn content_image(n: i64) -> Image {
 }
 
 #[tokio::test]
-async fn prune_keeps_what_is_named_linked_current_and_newest() {
+async fn prune_keeps_backups_and_what_is_named_linked_current_and_newest() {
     let s = setup();
     let store = s.images.store();
     let images: Vec<Image> = (0..35).map(content_image).collect();
     for image in &images {
         store.save_manifest(UUID, image).unwrap();
     }
-    // A data image something names, linked to the oldest content image.
+    // Backups (data images), linked to the oldest content image and the fourth: pruning
+    // never deletes a backup, whatever names it.
     let mut data = Image::new(Kind::Data, images[0].game.clone());
     data.content = Some(images[0].id.clone());
     data.created = 100;
     data.seal();
     store.save_manifest(UUID, &data).unwrap();
-    // An unnamed data image (its backup was deleted).
-    let mut orphan = Image::new(Kind::Data, images[0].game.clone());
-    orphan.content = Some(images[3].id.clone());
-    orphan.label = None;
-    orphan.created = 101;
-    orphan.worlds.push(lodestone_image::World {
+    let mut other = Image::new(Kind::Data, images[0].game.clone());
+    other.content = Some(images[3].id.clone());
+    other.label = None;
+    other.created = 101;
+    other.worlds.push(lodestone_image::World {
         name: "w".into(),
         level_name: None,
         data_version: None,
@@ -651,8 +647,8 @@ async fn prune_keeps_what_is_named_linked_current_and_newest() {
         last_played: None,
         quiesced: None,
     });
-    orphan.seal();
-    store.save_manifest(UUID, &orphan).unwrap();
+    other.seal();
+    store.save_manifest(UUID, &other).unwrap();
     state::save(
         s.images.root(),
         &uuid(),
@@ -662,22 +658,19 @@ async fn prune_keeps_what_is_named_linked_current_and_newest() {
         },
     )
     .unwrap();
-    s.images.register_refs(Arc::new(Refs(Ok(HashSet::from([
-        data.id.clone(),
-        images[1].id.clone(),
-    ])))));
-    assert_eq!(s.images.prune(&uuid()).await.unwrap(), 3);
+    s.images
+        .register_refs(Arc::new(Refs(Ok(HashSet::from([images[1].id.clone()])))));
+    assert_eq!(s.images.prune(&uuid()).await.unwrap(), 1);
     let kept: HashSet<String> = s.manifests().into_iter().map(|i| i.id).collect();
-    for n in [0, 1, 2] {
+    for n in [0, 1, 2, 3] {
         assert!(kept.contains(&images[n].id), "image {n}");
     }
     for (n, image) in images.iter().enumerate().skip(5) {
         assert!(kept.contains(&image.id), "image {n}");
     }
     assert!(kept.contains(&data.id));
-    assert!(!kept.contains(&images[3].id));
+    assert!(kept.contains(&other.id));
     assert!(!kept.contains(&images[4].id));
-    assert!(!kept.contains(&orphan.id));
 
     // When a source fails, nothing is deleted.
     let extra = content_image(-1);
@@ -717,33 +710,11 @@ fn age_objects(store: &Store) {
 }
 
 #[tokio::test]
-async fn the_collector_keeps_older_backups_objects_and_deletes_the_unused() {
+async fn the_collector_keeps_what_images_name_and_deletes_the_rest() {
     let s = setup();
     let store = s.images.store();
-    let old = store.put_bytes(b"named by a schema-1 backup").unwrap();
-    let unmapped = store.put_bytes(b"named by a backup record").unwrap();
     let unused = store.put_bytes(b"named by nothing").unwrap();
     let in_image = store.put_bytes(b"named by an image").unwrap();
-    let servers = s.images.root().join("servers").join(UUID);
-    std::fs::create_dir_all(&servers).unwrap();
-    std::fs::write(
-        servers.join("20260101-000000-aaaa.json"),
-        serde_json::json!({
-            "schema": 1, "id": "20260101-000000-aaaa",
-            "files": [{"path": "world/level.dat", "sha256": old.sha256, "size": old.size}],
-        })
-        .to_string(),
-    )
-    .unwrap();
-    std::fs::write(
-        servers.join("20260102-000000-bbbb.json"),
-        serde_json::json!({
-            "schema": 2,
-            "unmapped": [{"disk": "options.txt", "sha256": unmapped.sha256, "size": unmapped.size}],
-        })
-        .to_string(),
-    )
-    .unwrap();
     let mut image = content_image(1);
     image.entries.push(Entry::new(
         lodestone_image::CanonicalPath::new("mods/a.jar").unwrap(),
@@ -755,23 +726,20 @@ async fn the_collector_keeps_older_backups_objects_and_deletes_the_unused() {
     store.save_manifest(UUID, &image).unwrap();
     age_objects(&store);
 
-    let lock = s.images.store_lock();
-    let _alone = lock.write().await;
     let images = s.images.clone();
     let report = tokio::task::spawn_blocking(move || images.collect_blocking())
         .await
         .unwrap()
         .unwrap();
     assert_eq!(report.objects_removed, 1);
-    assert!(store.has_object(&old.sha256, old.size));
-    assert!(store.has_object(&unmapped.sha256, unmapped.size));
     assert!(store.has_object(&in_image.sha256, in_image.size));
     assert!(!store.has_object(&unused.sha256, unused.size));
 
     // A manifest it can't read stops it deleting anything.
     let unused = store.put_bytes(b"also named by nothing").unwrap();
     age_objects(&store);
-    std::fs::write(servers.join("20260103-000000-cccc.json"), b"{garbage").unwrap();
+    let unreadable = store.manifest_path(UUID, &"0".repeat(64)).unwrap();
+    std::fs::write(unreadable, b"{garbage").unwrap();
     let images = s.images.clone();
     assert!(
         tokio::task::spawn_blocking(move || images.collect_blocking())
@@ -780,6 +748,43 @@ async fn the_collector_keeps_older_backups_objects_and_deletes_the_unused() {
             .is_err()
     );
     assert!(store.has_object(&unused.sha256, unused.size));
+}
+
+/// Collections asked for while one runs make it run once more, never two at once, and
+/// the last request is never lost.
+#[tokio::test]
+async fn requested_collections_run_in_the_background() {
+    let s = setup();
+    let store = s.images.store();
+    let image = content_image(1);
+    store.save_manifest(UUID, &image).unwrap();
+    let unused = store.put_bytes(b"named by nothing").unwrap();
+    age_objects(&store);
+    for _ in 0..5 {
+        s.images.request_gc();
+    }
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while store.has_object(&unused.sha256, unused.size) {
+        assert!(Instant::now() < deadline, "the collection never ran");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    // Asked for again once that one ended: another runs and takes what is unused now.
+    while s
+        .images
+        .gc
+        .running
+        .load(std::sync::atomic::Ordering::SeqCst)
+    {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let later = store.put_bytes(b"unused later").unwrap();
+    age_objects(&store);
+    s.images.request_gc();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while store.has_object(&later.sha256, later.size) {
+        assert!(Instant::now() < deadline, "the second collection never ran");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
 }
 
 #[tokio::test]
@@ -954,7 +959,7 @@ async fn modrinth_hints_give_sources_and_env_and_outlive_restarts() {
     assert!(matches!(jar.source, Source::Modrinth { .. }));
     assert_eq!(jar.env.server, lodestone_image::EnvValue::Required);
     // A new core (no hints in memory) gives the same image from the saved state.
-    let restarted = ImageService::new(s.images.root().to_path_buf(), Arc::new(RwLock::new(())));
+    let restarted = ImageService::new(s.images.root().to_path_buf());
     let again = Arc::new(restarted)
         .record_now(ctx, OpKind::Mods, "Nothing".into())
         .await

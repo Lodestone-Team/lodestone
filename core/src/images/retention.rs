@@ -1,22 +1,23 @@
 //! Which of an instance's image manifests to keep.
 //!
 //! The spec keeps the content lineage like modpack history: the newest
-//! [`KEEP_CONTENT`] content images, plus every image something still names. What names
-//! images is registered at startup ([`ImageRefs`]): the backups (each backup's record
-//! names its data image) and the modpack history (each entry names its content image).
-//! [`ImageService::prune`] keeps:
+//! [`KEEP_CONTENT`] content images, plus every one a data image links to. Data and full
+//! images are backups: their own retention deletes them (the backup policy), never this.
+//! Other parts of the core can name images to keep too, registered at startup
+//! ([`ImageRefs`]). [`ImageService::prune`] keeps:
 //!
+//! - every data and full image;
+//! - the content image each of those links to (`content`);
 //! - every image a registered source names;
 //! - the instance's current content image;
-//! - the content image each kept data image links to (`content`);
 //! - the newest [`KEEP_CONTENT`] content images, by `created`.
 //!
-//! Everything else that can be read is deleted (manifests only: objects go when the
-//! collector finds nothing uses them). A manifest that can't be read is kept: it may be a
-//! newer core's. If any source fails to say what it names, nothing is deleted.
+//! Every other content image that can be read is deleted (manifests only: objects go when
+//! the collector finds nothing uses them). A manifest that can't be read is kept: it may be
+//! a newer core's. If any source fails to say what it names, nothing is deleted.
 //!
-//! Prune runs under the instance's lock, so a writer that saves a manifest and then the
-//! record naming it (both under that lock) is never caught in between.
+//! Prune runs under the instance's lock, so a writer that saves a manifest and then
+//! something naming it (both under that lock) is never caught in between.
 
 use std::collections::HashSet;
 
@@ -76,14 +77,11 @@ impl ImageService {
             if let Some(current) = super::state::load(&root, &id).current {
                 keep.insert(current);
             }
-            // Data images something keeps keep their content.
-            let linked: Vec<String> = listing
-                .images
-                .iter()
-                .filter(|image| image.kind != Kind::Content && keep.contains(&image.id))
-                .filter_map(|image| image.content.clone())
-                .collect();
-            keep.extend(linked);
+            // Backups, and the content they ran with.
+            for image in listing.images.iter().filter(|i| i.kind != Kind::Content) {
+                keep.insert(image.id.clone());
+                keep.extend(image.content.clone());
+            }
             // Newest first already (by created, then id).
             keep.extend(
                 listing

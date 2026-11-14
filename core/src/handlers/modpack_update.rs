@@ -578,9 +578,8 @@ pub(super) async fn plan_update(
 /// Adds the change to the server's history: keeps the files it took off the server that
 /// can't be downloaded again, and remembers where the new ones come from. A server
 /// without a history gets an entry for what it had first. The new entry is linked to
-/// `image`, the content image recorded after the change, and older entries to what
-/// `lineage` converted them to; a baseline entry gets the content image from before the
-/// change.
+/// `image`, the content image recorded after the change; a baseline entry gets the content
+/// image from before the change.
 async fn record_history(
     prepared: &Prepared,
     root: &std::path::Path,
@@ -588,7 +587,6 @@ async fn record_history(
     image: Option<String>,
 ) -> Result<(), Error> {
     let mut history = prepared.history.clone();
-    lineage.link(&mut history);
     let before = &prepared.before;
     if let Some(origin) = &before.origin {
         let was_empty = history.entries.is_empty();
@@ -712,7 +710,7 @@ async fn apply(
     let images = state.images().clone();
     // the content as it is before the change, and the history's older entries as images
     let lineage = match crate::images::context_of(state, &uuid).await {
-        Some(ctx) => lineage::before_change(&images, &ctx, Some(&state.mods.packs)).await,
+        Some(ctx) => lineage::before_change(&images, &ctx).await,
         None => lineage::Before::default(),
     };
     // held until the change is recorded; dropped on failure, which records nothing

@@ -1,18 +1,14 @@
-//! The modpack lineage on temporary server folders and image stores: genuine `history.json`
-//! and `record.json` written by the core before images (the shared crate's fixtures), and
-//! updates and restores through the HTTP handlers with a fake Modrinth. No server is started
-//! and nothing is downloaded from the network.
+//! The modpack lineage on temporary server folders and image stores: updates and restores
+//! through the HTTP handlers with a fake Modrinth. No server is started and nothing is
+//! downloaded from the network.
 
-use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 
 use axum::extract::{Path as AxumPath, State};
 use axum::Json;
-use lodestone_image::legacy::core_modpack;
-use lodestone_image::{Base, Env, EnvFrom, EnvValue, Image, Kind, Source, WithheldReason};
+use lodestone_image::{Base, Env, EnvFrom, EnvValue, Image, Kind, Source};
 use serde_json::json;
-use tokio::sync::RwLock;
 
 use super::*;
 use crate::auth::user::User;
@@ -21,12 +17,9 @@ use crate::handlers::modpack_update::{
 };
 use crate::handlers::util::AuthedUser;
 use crate::implementations::minecraft::{FabricLoaderVersion, MinecraftInstance};
-use crate::modpack::history::{ChangeKind, HISTORY_FILE};
+use crate::modpack::history::{object_path, ChangeKind, HISTORY_FILE};
 use crate::modpack::tests::{file_entry, index, pack, Entry as ZipEntry, TestPack};
-use crate::modpack::update::{
-    pack_files, place_files, plan_files, remove_work_dirs, stage_files_from, PackRecord,
-    RECORD_FILE,
-};
+use crate::modpack::update::{pack_files, PackRecord};
 use crate::modpack::{install_pack_contents, read_pack};
 use crate::modrinth::fake::{sha1_hex, sha512_hex, FakeModrinth, FakeVersion};
 
@@ -46,30 +39,10 @@ fn read(root: &Path, relative: &str) -> Option<Vec<u8>> {
     std::fs::read(root.join(relative)).ok()
 }
 
-fn fixture(name: &str) -> Vec<u8> {
-    let path = format!(
-        "{}/../crates/lodestone-image/tests/fixtures/legacy/{name}",
-        env!("CARGO_MANIFEST_DIR")
-    );
-    std::fs::read(&path).unwrap_or_else(|e| panic!("{path}: {e}"))
-}
-
 fn fabric() -> Flavour {
     Flavour::Fabric {
         loader_version: Some(FabricLoaderVersion::new("0.15.11".into())),
         installer_version: None,
-    }
-}
-
-fn context(root: &Path, flavour: Flavour) -> InstanceContext {
-    InstanceContext {
-        uuid: uuid(),
-        root: root.to_path_buf(),
-        game_version: "1.20.1".into(),
-        flavour,
-        level_name: "world".into(),
-        policy_exclude: Vec::new(),
-        running: false,
     }
 }
 
@@ -84,10 +57,7 @@ fn setup() -> Setup {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("server");
     std::fs::create_dir_all(&root).unwrap();
-    let images = Arc::new(ImageService::new(
-        dir.path().join("backups"),
-        Arc::new(RwLock::new(())),
-    ));
+    let images = Arc::new(ImageService::new(dir.path().join("backups")));
     Setup {
         _dir: dir,
         root,
@@ -99,285 +69,6 @@ impl Setup {
     fn manifests(&self) -> Vec<Image> {
         self.images.store().list_manifests(UUID).unwrap().images
     }
-}
-
-/// The fixtures' server as the core left it: version 1 of the test pack installed, updated
-/// to version 2 with `config/edited.toml` changed by the user, then restored to version 1.
-/// The history's store has both configs it replaced.
-fn fixture_server(root: &Path) {
-    write(root, RECORD_FILE, &fixture("record.json"));
-    write(root, HISTORY_FILE, &fixture("history.json"));
-    write(root, "server.properties", b"level-name=world\n");
-    write(root, "config/edited.toml", b"mine");
-    write(root, "config/pack.toml", b"v1");
-    write(root, "config/only-v2.toml", b"only in v2");
-    write(root, "mods/a-1.jar", b"a1");
-    write(root, "mods/dropped.jar", b"dropped");
-    write(root, "mods/keep.jar", b"keep");
-    write(root, "world/level.dat", b"level");
-    for content in [&b"v1"[..], b"v2"] {
-        let sha1 = sha1_hex(content);
-        write(
-            root,
-            &format!(".lodestone_modpack/objects/{}/{sha1}", &sha1[..2]),
-            content,
-        );
-    }
-}
-
-/// The History API's JSON of the server in `root`, as the handler builds it.
-fn api_json(root: &Path, images: &ImageService) -> serde_json::Value {
-    let history: History = serde_json::from_slice(&read(root, HISTORY_FILE).unwrap()).unwrap();
-    let lookup = ImageLookup::new(images.store(), &uuid());
-    serde_json::to_value(history.info_with(root, None, &lookup)).unwrap()
-}
-
-/// `value` without the `image` fields of its entries.
-fn without_images(mut value: serde_json::Value) -> serde_json::Value {
-    for entry in value["entries"].as_array_mut().unwrap() {
-        entry.as_object_mut().unwrap().remove("image");
-    }
-    value
-}
-
-#[tokio::test]
-async fn backfill_links_old_entries_and_changes_nothing_else() {
-    let s = setup();
-    fixture_server(&s.root);
-    let before = api_json(&s.root, &s.images);
-    assert!(before["entries"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .all(|e| e.get("image").is_none()));
-
-    let links = backfill(&s.images, &context(&s.root, fabric()), None).await;
-    assert_eq!(links.keys().copied().collect::<Vec<_>>(), [1, 2, 3]);
-    // Going back to entry 1 gives entry 1's image again: two manifests for three entries.
-    assert_eq!(links[&1], links[&3]);
-    assert_ne!(links[&1], links[&2]);
-    let manifests = s.manifests();
-    assert_eq!(manifests.len(), 2);
-    for image in &manifests {
-        assert_eq!(image.kind, Kind::Content);
-        // Converted: what the pack wrote, env unknown.
-        assert!(image.entries.iter().all(|e| e.env == Env::UNKNOWN));
-        // Version 2's mods aren't on the server or in the history's store any more (they
-        // can be downloaded again): withheld, never guessed.
-        let withheld: Vec<&str> = image.withheld.iter().map(|w| w.path.as_str()).collect();
-        if image.id == links[&2] {
-            assert_eq!(withheld, ["mods/a-2.jar", "mods/new.jar"]);
-            assert!(image
-                .withheld
-                .iter()
-                .all(|w| w.reason == WithheldReason::Unreadable));
-            // Its config the history's store kept is there.
-            assert!(image
-                .entries
-                .iter()
-                .any(|e| e.path.as_str() == "config/pack.toml"
-                    && e.sha1.as_deref() == Some(sha1_hex(b"v2").as_str())));
-        } else {
-            assert!(withheld.is_empty(), "{withheld:?}");
-        }
-    }
-    // Converted images never become the current content image.
-    assert_eq!(s.images.current_content(&uuid()).await, None);
-
-    // The API answers the same, but for the links.
-    let after = api_json(&s.root, &s.images);
-    assert_eq!(without_images(after.clone()), before);
-    let images: Vec<&str> = after["entries"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|e| e["image"].as_str().unwrap())
-        .collect();
-    assert_eq!(
-        images,
-        [links[&3].as_str(), links[&2].as_str(), links[&1].as_str()]
-    );
-
-    // A core from before images reads the new file, and writes back the original bytes.
-    let new_file = read(&s.root, HISTORY_FILE).unwrap();
-    let old_core = core_modpack::History::from_json(&new_file).unwrap();
-    assert_eq!(old_core.to_json(), fixture("history.json"));
-    // The record, the history's store and the files are untouched.
-    assert_eq!(read(&s.root, RECORD_FILE).unwrap(), fixture("record.json"));
-    assert_eq!(read(&s.root, "config/pack.toml").unwrap(), b"v1");
-    assert!(object_path(&s.root, &sha1_hex(b"v2")).unwrap().is_file());
-
-    // Once every entry has an image there is nothing more to do.
-    assert!(backfill(&s.images, &context(&s.root, fabric()), None)
-        .await
-        .is_empty());
-}
-
-#[tokio::test]
-async fn backfill_withholds_what_is_gone_and_still_saves_the_image() {
-    let s = setup();
-    fixture_server(&s.root);
-    // The dropped mod was taken off the server since, and nothing kept it.
-    std::fs::remove_file(s.root.join("mods/dropped.jar")).unwrap();
-    let links = backfill(&s.images, &context(&s.root, fabric()), None).await;
-    assert_eq!(links.len(), 3);
-    let first = s.images.store().load_manifest(UUID, &links[&1]).unwrap();
-    assert!(first
-        .withheld
-        .iter()
-        .any(|w| w.path == "mods/dropped.jar" && w.reason == WithheldReason::Unreadable));
-    assert!(first
-        .entries
-        .iter()
-        .any(|e| e.path.as_str() == "mods/keep.jar"));
-    // The history keeps the file, so nothing about it is lost.
-    let history = History::load(&s.root).await;
-    assert!(history.entries[0].files.contains_key("mods/dropped.jar"));
-}
-
-#[tokio::test]
-async fn backfill_of_a_paper_server_withholds_world_overrides() {
-    let s = setup();
-    let paper: Flavour = serde_json::from_value(json!({"paper": {"build_version": 100}})).unwrap();
-    // A pack override the core put in Paper's Nether folder: a world's file.
-    write(&s.root, "world/level.dat", b"level");
-    write(&s.root, "world_nether/level.dat", b"nether");
-    write(&s.root, "world_nether/datapacks/x.zip", b"datapack");
-    write(&s.root, "plugins/p.jar", b"plugin");
-    let mut history = History::default();
-    let record = PackRecord {
-        files: BTreeMap::from([
-            (
-                "world_nether/datapacks/x.zip".to_string(),
-                crate::modpack::update::RecordedFile {
-                    sha1: sha1_hex(b"datapack"),
-                    from_overrides: true,
-                    project_id: None,
-                },
-            ),
-            (
-                "plugins/p.jar".to_string(),
-                crate::modpack::update::RecordedFile {
-                    sha1: sha1_hex(b"plugin"),
-                    from_overrides: true,
-                    project_id: None,
-                },
-            ),
-        ]),
-    };
-    let entry = crate::modpack::history::entry_as_is(
-        HistoryKind::Install,
-        origin("1"),
-        "1.21.1".into(),
-        paper.clone(),
-        &record,
-    );
-    history.push(&s.root, entry);
-    history.save(&s.root).await.unwrap();
-
-    let mut ctx = context(&s.root, paper);
-    ctx.game_version = "1.21.1".into();
-    let links = backfill(&s.images, &ctx, None).await;
-    let image = s.images.store().load_manifest(UUID, &links[&1]).unwrap();
-    assert!(image
-        .withheld
-        .iter()
-        .any(|w| w.path == "world_nether/datapacks/x.zip" && w.reason == WithheldReason::Excluded));
-    assert!(image
-        .entries
-        .iter()
-        .any(|e| e.path.as_str() == "plugins/p.jar"));
-    assert!(image.entries.iter().all(|e| e.world.is_none()));
-    // Not lost: the history still lists it, and the old engine restores it from there.
-    let history = History::load(&s.root).await;
-    assert!(history.entries[0]
-        .files
-        .contains_key("world_nether/datapacks/x.zip"));
-    assert_eq!(
-        history.entries[0].image.as_deref(),
-        Some(links[&1].as_str())
-    );
-}
-
-#[tokio::test]
-async fn a_file_only_the_image_store_has_is_restored_and_checked() {
-    let s = setup();
-    fixture_server(&s.root);
-    let fake = FakeModrinth::default();
-    for (url, content) in [
-        (
-            "https://cdn.modrinth.com/data/a/versions/v2/a-2.jar",
-            &b"a2"[..],
-        ),
-        (
-            "https://cdn.modrinth.com/data/n/versions/v2/new.jar",
-            b"new",
-        ),
-    ] {
-        fake.add_file(url, content.to_vec());
-    }
-    backfill(&s.images, &context(&s.root, fabric()), None).await;
-    // The history's stored copy of version 2's config is lost since.
-    std::fs::remove_file(object_path(&s.root, &sha1_hex(b"v2")).unwrap()).unwrap();
-    let history = History::load(&s.root).await;
-    let entry = history.entry(2).unwrap().clone();
-
-    // Without images, version 2 can't be restored; with them it can.
-    assert!(history.info(&s.root, None).entries[1].missing > 0);
-    let lookup = ImageLookup::new(s.images.store(), &uuid());
-    assert_eq!(
-        history.info_with(&s.root, None, &lookup).entries[1].missing,
-        0
-    );
-
-    let old = PackRecord::load(&s.root).await.unwrap();
-    let mut files = history.files_of(&s.root, 2, false).unwrap();
-    let plan = plan_files(&s.root, &old, &files);
-    fill_from_image(&lookup, &entry, &plan, &mut files);
-    let config = &files["config/pack.toml"];
-    assert!(config.stored.is_none() && config.download.is_none());
-    assert!(config.image.is_some());
-    stage_files_from(
-        &fake,
-        None,
-        &files,
-        &plan,
-        &s.root,
-        false,
-        Some(s.images.store()),
-        &|_| {},
-    )
-    .await
-    .unwrap();
-    place_files(&s.root, &plan).unwrap();
-    remove_work_dirs(&s.root).await;
-    assert_eq!(read(&s.root, "config/pack.toml").unwrap(), b"v2");
-    assert_eq!(read(&s.root, "mods/a-2.jar").unwrap(), b"a2");
-
-    // An object that isn't the file the history names is never staged.
-    let mut wrong = files.clone();
-    wrong.get_mut("config/pack.toml").unwrap().sha1 = sha1_hex(b"else");
-    let elsewhere = tempfile::tempdir().unwrap();
-    let error = stage_files_from(
-        &fake,
-        None,
-        &wrong,
-        &plan,
-        elsewhere.path(),
-        false,
-        Some(s.images.store()),
-        &|_| {},
-    )
-    .await;
-    assert!(error.is_err());
-    assert!(!elsewhere
-        .path()
-        .join(".lodestone_modpack/staging/config/pack.toml")
-        .exists());
-    // And a lookup by the wrong SHA-1 finds nothing.
-    assert!(lookup
-        .file(&entry, "config/pack.toml", &sha1_hex(b"else"))
-        .is_none());
 }
 
 #[tokio::test]
@@ -442,12 +133,6 @@ fn entries_without_images_are_written_as_before() {
     linked.image = Some("a".repeat(64));
     let json = serde_json::to_vec(&linked).unwrap();
     assert!(String::from_utf8_lossy(&json).contains(&"a".repeat(64)));
-    // The old core's entry type reads it.
-    let history = format!(
-        "{{\"entries\":[{}],\"files\":{{}}}}",
-        String::from_utf8(json).unwrap()
-    );
-    assert!(core_modpack::History::from_json(history.as_bytes()).is_ok());
 }
 
 #[test]
@@ -736,9 +421,9 @@ async fn updates_and_restores_record_the_lineage() {
     .unwrap();
     let history = History::load(&core.root).await;
     assert_eq!(history.entries.len(), 2);
-    let installed = history.entries[0].image.clone().expect("converted");
+    // The install was written before this server recorded images.
+    assert!(history.entries[0].image.is_none());
     let updated = history.entries[1].image.clone().expect("recorded");
-    assert_ne!(installed, updated);
     let current = core.state.images().current_content(&core.uuid).await;
     assert_eq!(current.as_deref(), Some(updated.as_str()));
     let labels: Vec<String> = core
@@ -796,7 +481,7 @@ async fn updates_and_restores_record_the_lineage() {
         current
     );
 
-    // ---- restoring an old entry (converted from the history) ----
+    // ---- restoring an entry without an image ----
     core.change(UpdateSource::History { entry_id: 1 })
         .await
         .unwrap();
@@ -852,7 +537,7 @@ async fn updates_and_restores_record_the_lineage() {
     let api = core.history().await;
     let ids: Vec<u32> = api.entries.iter().map(|e| e.id).collect();
     assert_eq!(ids, [4, 3, 2, 1]);
-    assert!(api.entries.iter().all(|e| e.image.is_some()));
+    assert!(api.entries.iter().all(|e| e.image.is_some() == (e.id != 1)));
     assert!(api.entries[0].current);
     assert!(api.entries[1]
         .changes
@@ -881,8 +566,8 @@ async fn updates_and_restores_record_the_lineage() {
     // ---- retention keeps what the history names ----
     assert_eq!(core.state.images().prune(&core.uuid).await.unwrap(), 0);
     let kept: Vec<String> = core.images().into_iter().map(|i| i.id).collect();
-    for entry in &history.entries {
-        assert!(kept.contains(entry.image.as_ref().unwrap()));
+    for image in history.entries.iter().filter_map(|e| e.image.as_ref()) {
+        assert!(kept.contains(image));
     }
 }
 
