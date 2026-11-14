@@ -56,6 +56,9 @@ pub const RECORD_FILE: &str = ".lodestone_modpack/record.json";
 pub(super) const STAGING_DIR: &str = ".lodestone_modpack/staging";
 /// Where replaced and removed files are kept while an update runs.
 pub(super) const SNAPSHOT_DIR: &str = ".lodestone_modpack/snapshot";
+/// The update being applied: written before it moves any file, and removed once its
+/// record is saved. See [`begin_update`].
+pub(super) const JOURNAL_FILE: &str = ".lodestone_modpack/update.json";
 /// The folders a dropped override is removed from.
 const CONTENT_DIRS: [&str; 2] = ["mods/", "plugins/"];
 
@@ -217,7 +220,8 @@ pub(super) fn record_path(path: &str) -> Option<PathBuf> {
 }
 
 /// What an update does to one file.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum FileAction {
     Add,
     Replace,
@@ -646,9 +650,21 @@ pub fn snapshot_path(root: &Path, target: &str) -> PathBuf {
     root.join(SNAPSHOT_DIR).join(target)
 }
 
-/// Removes the update's staging and snapshot folders, if they are there.
+/// Removes the update's staging and snapshot folders, if they are there. The snapshot
+/// of an update that isn't finished ([`JOURNAL_FILE`] is there) is kept: it may hold the
+/// only copy of the files the update replaced, which [`recover_interrupted`] puts back.
 pub async fn remove_work_dirs(root: &Path) {
+    let unfinished = tokio::fs::symlink_metadata(root.join(JOURNAL_FILE))
+        .await
+        .is_ok();
     for dir in [STAGING_DIR, SNAPSHOT_DIR] {
+        if unfinished && dir == SNAPSHOT_DIR {
+            warn!(
+                "Keeping {} for the modpack update that didn't finish",
+                root.join(dir).display()
+            );
+            continue;
+        }
         let path = root.join(dir);
         if tokio::fs::symlink_metadata(&path).await.is_ok() {
             if let Err(e) = tokio::fs::remove_dir_all(&path).await {
@@ -800,6 +816,204 @@ pub fn undo_placed_files(root: &Path, plan: &FilePlan) {
             .collect(),
     };
     moves.undo(root);
+}
+
+/// One change of the update in [`JOURNAL_FILE`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+struct JournalChange {
+    target: String,
+    action: FileAction,
+    /// The SHA-1 of the file the update puts at `target` (an add or a replace).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    new_sha1: Option<String>,
+}
+
+/// [`JOURNAL_FILE`]: what an update changes, and the record it saves when it is done.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+struct Journal {
+    changes: Vec<JournalChange>,
+    record: PackRecord,
+}
+
+/// Writes [`JOURNAL_FILE`] for `plan`, before [`place_files`] moves anything. An update
+/// moves the files it replaces into the snapshot folder, then may reinstall the server
+/// software for minutes before it saves the record and the history. If the core stops in
+/// between (quit, a restart to update, a crash), the journal is how the next start knows
+/// to put the old files back ([`recover_interrupted`]); without it the next update would
+/// take the new files for the user's changes and delete the snapshot with the old ones.
+/// Writes a file, so call it on a blocking thread.
+pub fn begin_update(root: &Path, plan: &FilePlan) -> Result<(), Error> {
+    let journal = Journal {
+        changes: plan
+            .changes
+            .iter()
+            .map(|c| JournalChange {
+                target: c.target.clone(),
+                action: c.action,
+                new_sha1: match c.action {
+                    FileAction::Remove => None,
+                    _ => plan.record.files.get(&c.path).map(|f| f.sha1.clone()),
+                },
+            })
+            .collect(),
+        record: plan.record.clone(),
+    };
+    let json = serde_json::to_vec_pretty(&journal).context("Failed to write the update journal")?;
+    std::fs::create_dir_all(root.join(MODPACK_DIR))
+        .context("Failed to create the modpack folder")?;
+    crate::persist::write_atomic_blocking(&root.join(JOURNAL_FILE), &json, None)
+}
+
+/// Removes [`JOURNAL_FILE`]: the update is done, or its files are back as they were.
+pub fn end_update(root: &Path) -> Result<(), Error> {
+    match std::fs::remove_file(root.join(JOURNAL_FILE)) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(eyre!("Failed to remove {JOURNAL_FILE}: {e}").into()),
+    }
+}
+
+/// Finishes with an update that was stopped before it removed [`JOURNAL_FILE`]. When it
+/// hadn't saved its record, the files it placed are removed and the ones it moved into
+/// the snapshot are put back, so the server's files match the record again (as when an
+/// update fails). Files left in the snapshot after that (an update that saved its record
+/// but stopped before it finished, or a file that couldn't be put back) are moved to an
+/// `interrupted-*` folder next to it rather than deleted. Call it before anything starts
+/// the server or another update; returns whether there was such an update. Moves files,
+/// so call it on a blocking thread.
+pub fn recover_interrupted(root: &Path) -> bool {
+    let journal_path = root.join(JOURNAL_FILE);
+    let Ok(bytes) = std::fs::read(&journal_path) else {
+        return false;
+    };
+    match serde_json::from_slice::<Journal>(&bytes) {
+        Ok(journal) => {
+            let saved = std::fs::read(root.join(RECORD_FILE))
+                .ok()
+                .and_then(|bytes| serde_json::from_slice::<PackRecord>(&bytes).ok());
+            if saved.as_ref() == Some(&journal.record) {
+                warn!(
+                    "A modpack update of {} stopped after saving its record; keeping its files",
+                    root.display()
+                );
+            } else {
+                warn!(
+                    "A modpack update of {} was interrupted; putting the server's files back",
+                    root.display()
+                );
+                roll_back(root, &journal);
+            }
+        }
+        Err(e) => warn!(
+            "{} can't be read ({e}); the interrupted modpack update's files are left as they are",
+            journal_path.display()
+        ),
+    }
+    keep_leftover_snapshot(root);
+    let staging = root.join(STAGING_DIR);
+    if std::fs::symlink_metadata(&staging).is_ok() {
+        if let Err(e) = std::fs::remove_dir_all(&staging) {
+            warn!("Could not remove {}: {e}", staging.display());
+        }
+    }
+    if let Err(e) = end_update(root) {
+        warn!("{}", e.source);
+    }
+    true
+}
+
+/// Puts back the files of the update in `journal`, which may have stopped at any point of
+/// [`place_files`] or after it: a file is removed only when it is the one the update
+/// placed (its SHA-1 is the new one), and put back from the snapshot only when it is there
+/// and nothing took its place.
+fn roll_back(root: &Path, journal: &Journal) {
+    // the journal is Lodestone's own file, but a path that leads elsewhere isn't followed
+    let changes: Vec<&JournalChange> = journal
+        .changes
+        .iter()
+        .filter(|c| record_path(&c.target).is_some())
+        .collect();
+    for change in changes.iter().filter(|c| c.action != FileAction::Remove) {
+        let target = root.join(&change.target);
+        let placed = std::fs::symlink_metadata(&target).is_ok_and(|m| m.is_file())
+            && parent_inside(root, &target)
+            && change.new_sha1.as_ref().is_some_and(|new| {
+                lodestone_minecraft::hash::sha1_of(&target)
+                    .is_ok_and(|sha1| sha1.eq_ignore_ascii_case(new))
+            });
+        if placed {
+            if let Err(e) = std::fs::remove_file(&target) {
+                warn!(
+                    "Could not remove {} while undoing a modpack update: {e}",
+                    change.target
+                );
+            }
+        }
+    }
+    for change in changes.iter().filter(|c| c.action != FileAction::Add) {
+        let saved = snapshot_path(root, &change.target);
+        if !std::fs::symlink_metadata(&saved).is_ok_and(|m| m.is_file()) {
+            continue;
+        }
+        let target = root.join(&change.target);
+        if std::fs::symlink_metadata(&target).is_ok() {
+            warn!(
+                "Not putting back {}, which is there again; the old copy is kept",
+                change.target
+            );
+            continue;
+        }
+        if let Err(e) = move_file(root, &saved, &target) {
+            warn!(
+                "Could not put back {} while undoing a modpack update: {e}",
+                change.target
+            );
+        }
+    }
+}
+
+/// Moves the snapshot folder to `interrupted-<time>` next to it when it still has files,
+/// so the next update doesn't delete them, and removes it otherwise.
+fn keep_leftover_snapshot(root: &Path) {
+    let snapshot = root.join(SNAPSHOT_DIR);
+    if std::fs::symlink_metadata(&snapshot).is_err() {
+        return;
+    }
+    let has_files = walkdir::WalkDir::new(&snapshot)
+        .into_iter()
+        .flatten()
+        .any(|entry| !entry.file_type().is_dir());
+    if !has_files {
+        if let Err(e) = std::fs::remove_dir_all(&snapshot) {
+            warn!("Could not remove {}: {e}", snapshot.display());
+        }
+        return;
+    }
+    let seconds = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or_default();
+    let kept = (0..)
+        .map(|n| {
+            let name = match n {
+                0 => format!("interrupted-{seconds}"),
+                n => format!("interrupted-{seconds}-{n}"),
+            };
+            root.join(MODPACK_DIR).join(name)
+        })
+        .find(|path| std::fs::symlink_metadata(path).is_err())
+        .expect("some name is free");
+    match std::fs::rename(&snapshot, &kept) {
+        Ok(()) => warn!(
+            "Kept the files an interrupted modpack update took off the server in {}",
+            kept.display()
+        ),
+        Err(e) => warn!(
+            "Could not keep {} as {}: {e}",
+            snapshot.display(),
+            kept.display()
+        ),
+    }
 }
 
 /// What the dashboard shows before an update.

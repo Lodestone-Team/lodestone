@@ -390,6 +390,183 @@ fn a_path_that_only_changes_case() {
     }
 }
 
+/// The server's files and plan for an interrupted-update test: the old pack wrote
+/// `mods/old.jar` (replaced) and `mods/gone.jar` (removed), and the user added
+/// `mods/mine.jar` at a path the new pack uses (replaced, and the only copy of it).
+fn interrupted_setup(root: &Path) -> (PackRecord, FilePlan) {
+    write(root, "mods/old.jar", b"old 1");
+    write(root, "mods/gone.jar", b"gone");
+    write(root, "mods/mine.jar", b"the user's own");
+    let old = PackRecord {
+        files: BTreeMap::from([
+            ("mods/old.jar".into(), recorded(b"old 1", false, Some("o"))),
+            ("mods/gone.jar".into(), recorded(b"gone", false, Some("g"))),
+        ]),
+    };
+    let new = BTreeMap::from([
+        (
+            "mods/old.jar".into(),
+            download("mods/old.jar", b"old 2", "o"),
+        ),
+        (
+            "mods/mine.jar".into(),
+            download("mods/mine.jar", b"pack's", "m"),
+        ),
+        (
+            "mods/added.jar".into(),
+            download("mods/added.jar", b"added", "a"),
+        ),
+    ]);
+    let plan = plan_files(root, &old, &new);
+    assert_eq!(plan.changes.len(), 4, "{:?}", plan.changes);
+    for (path, content) in [
+        ("mods/old.jar", &b"old 2"[..]),
+        ("mods/mine.jar", b"pack's"),
+        ("mods/added.jar", b"added"),
+    ] {
+        write(root, &format!("{STAGING_DIR}/{path}"), content);
+    }
+    (old, plan)
+}
+
+fn assert_as_before(root: &Path) {
+    assert_eq!(
+        read_file(root, "mods/old.jar").as_deref(),
+        Some(&b"old 1"[..])
+    );
+    assert_eq!(
+        read_file(root, "mods/gone.jar").as_deref(),
+        Some(&b"gone"[..])
+    );
+    assert_eq!(
+        read_file(root, "mods/mine.jar").as_deref(),
+        Some(&b"the user's own"[..])
+    );
+    assert_eq!(read_file(root, "mods/added.jar"), None);
+}
+
+/// An update the core stopped in the middle of (during the server software's reinstall,
+/// after its files were placed but before its record was saved) is undone on the next
+/// start, and the next update doesn't delete the snapshot with the only copies of the
+/// old files meanwhile (LS-19).
+#[tokio::test]
+async fn an_interrupted_update_is_undone() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let (old, plan) = interrupted_setup(root);
+    old.save(root).await.unwrap();
+    begin_update(root, &plan).unwrap();
+    place_files(root, &plan).unwrap();
+    // the core stops here; the update task's cleanup, or the next update's staging,
+    // keeps the snapshot
+    remove_work_dirs(root).await;
+    assert_eq!(
+        read_file(root, &format!("{SNAPSHOT_DIR}/mods/mine.jar")).as_deref(),
+        Some(&b"the user's own"[..])
+    );
+
+    assert!(recover_interrupted(root));
+    assert_as_before(root);
+    assert_eq!(PackRecord::load(root).await, Some(old.clone()));
+    assert!(!root.join(JOURNAL_FILE).exists());
+    assert!(!root.join(SNAPSHOT_DIR).exists());
+    assert!(!root.join(STAGING_DIR).exists());
+    // and only once
+    assert!(!recover_interrupted(root));
+    assert_as_before(root);
+
+    // so the next plan sees the old pack's files as they were, not as user changes
+    let again = plan_files(
+        root,
+        &old,
+        &BTreeMap::from([(
+            "mods/old.jar".to_string(),
+            download("mods/old.jar", b"old 2", "o"),
+        )]),
+    );
+    assert!(again.kept.is_empty(), "{:?}", again.kept);
+}
+
+/// The core can stop at any point while the files are moved: a file is removed only when
+/// it is the one the update placed, and put back only from the snapshot (LS-19).
+#[tokio::test]
+async fn an_update_stopped_while_moving_files_is_undone() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let (_, plan) = interrupted_setup(root);
+    begin_update(root, &plan).unwrap();
+    // only the first file was moved into the snapshot
+    let first = plan
+        .changes
+        .iter()
+        .find(|c| c.action != FileAction::Add)
+        .unwrap();
+    write(
+        root,
+        &format!("{SNAPSHOT_DIR}/{}", first.target),
+        &read_file(root, &first.target).unwrap(),
+    );
+    std::fs::remove_file(root.join(&first.target)).unwrap();
+
+    assert!(recover_interrupted(root));
+    assert_as_before(root);
+    assert!(!root.join(SNAPSHOT_DIR).exists());
+}
+
+/// An update stopped after saving its record keeps its files, and what is left in its
+/// snapshot is kept rather than deleted (LS-19).
+#[tokio::test]
+async fn an_update_stopped_after_saving_its_record_keeps_its_files() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let (_, plan) = interrupted_setup(root);
+    begin_update(root, &plan).unwrap();
+    place_files(root, &plan).unwrap();
+    plan.record.save(root).await.unwrap();
+
+    assert!(recover_interrupted(root));
+    assert_eq!(
+        read_file(root, "mods/old.jar").as_deref(),
+        Some(&b"old 2"[..])
+    );
+    assert_eq!(
+        read_file(root, "mods/mine.jar").as_deref(),
+        Some(&b"pack's"[..])
+    );
+    assert_eq!(read_file(root, "mods/gone.jar"), None);
+    assert!(!root.join(JOURNAL_FILE).exists());
+    assert!(!root.join(SNAPSHOT_DIR).exists());
+    let kept: Vec<_> = std::fs::read_dir(root.join(MODPACK_DIR))
+        .unwrap()
+        .flatten()
+        .filter(|e| e.file_name().to_string_lossy().starts_with("interrupted-"))
+        .collect();
+    assert_eq!(kept.len(), 1);
+    assert_eq!(
+        std::fs::read(kept[0].path().join("mods/mine.jar")).unwrap(),
+        b"the user's own"
+    );
+}
+
+/// A finished update leaves no journal, and its snapshot goes as before.
+#[tokio::test]
+async fn a_finished_update_leaves_nothing_to_undo() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let (_, plan) = interrupted_setup(root);
+    begin_update(root, &plan).unwrap();
+    place_files(root, &plan).unwrap();
+    plan.record.save(root).await.unwrap();
+    end_update(root).unwrap();
+    remove_work_dirs(root).await;
+    assert!(!root.join(SNAPSHOT_DIR).exists());
+    assert!(!recover_interrupted(root));
+    assert_eq!(
+        read_file(root, "mods/old.jar").as_deref(),
+        Some(&b"old 2"[..])
+    );
+}
+
 #[test]
 fn project_ids_come_from_cdn_urls() {
     let file = download("mods/a.jar", b"a", "AANobbMI");

@@ -38,9 +38,10 @@ use crate::implementations::minecraft::{Flavour, MinecraftInstance};
 use crate::modpack::history::{entry_as_is, entry_for, History, HistoryKind, ModpackHistory};
 use crate::modpack::store::StoredPack;
 use crate::modpack::update::{
-    keep_unwritten_scripts, other_copies, pack_files, place_files, plan_files, record_of,
-    remove_other_copies, remove_work_dirs, stage_files, undo_placed_files, FileAction, FilePlan,
-    ModpackUpdatePlan, ModpackUpdateResult, PackFile, PackRecord,
+    begin_update, end_update, keep_unwritten_scripts, other_copies, pack_files, place_files,
+    plan_files, record_of, recover_interrupted, remove_other_copies, remove_work_dirs, stage_files,
+    undo_placed_files, FileAction, FilePlan, ModpackUpdatePlan, ModpackUpdateResult, PackFile,
+    PackRecord,
 };
 use crate::modpack::updates::{self, AvailableUpdate};
 use crate::modpack::{
@@ -612,31 +613,54 @@ async fn apply(
     .await?;
     progress("Replacing the modpack's files".to_string());
     {
+        // the journal lets the next start put the files back if the core stops before
+        // the record is saved (LS-19)
         let (root, plan) = (root.clone(), plan.clone());
-        spawn_blocking(move || place_files(&root, &plan)).await?;
+        spawn_blocking(move || {
+            begin_update(&root, &plan)?;
+            let placed = place_files(&root, &plan);
+            if placed.is_err() {
+                // place_files put the files back
+                end_update(&root)?;
+            }
+            placed
+        })
+        .await?;
     }
+    let undo = || {
+        let (root, plan) = (root.clone(), plan.clone());
+        spawn_blocking(move || {
+            undo_placed_files(&root, &plan);
+            end_update(&root)
+        })
+    };
     if let Some(flavour) = flavour {
         if let Err(e) = instance
             .install_server_software(summary.target.game_version.clone(), flavour, progress)
             .await
         {
-            let (root, plan) = (root.clone(), plan.clone());
-            spawn_blocking(move || {
-                undo_placed_files(&root, &plan);
-                Ok(())
-            })
-            .await?;
+            undo().await?;
             return Err(e);
         }
     }
-    plan.record.save(&root).await?;
+    if let Err(e) = plan.record.save(&root).await {
+        undo().await?;
+        return Err(e);
+    }
     // the files are in place: a history that can't be written only loses the undo
     if let Err(e) = record_history(prepared, &root).await {
         warn!("Could not add the modpack change to the history: {e}");
     }
-    instance
+    let origin = instance
         .set_modpack_origin(Some(prepared.origin.clone()))
-        .await?;
+        .await;
+    {
+        let root = root.clone();
+        if let Err(e) = spawn_blocking(move || end_update(&root)).await {
+            warn!("{}", e.source);
+        }
+    }
+    origin?;
     Ok(ModpackUpdateResult {
         added: summary.added.len() as u32,
         replaced: summary.replaced.len() as u32,
@@ -663,6 +687,11 @@ pub(super) async fn update_modpack(
     // the update is done; the mods lock keeps the Mods tab's changes out of the way
     let guard = instance.lock_stopped("changing its modpack").await?;
     let mods_guard = state.mods.lock_for(&uuid).lock_owned().await;
+    // with both held no other update runs, so an unfinished one was interrupted
+    {
+        let root = instance.path().await;
+        spawn_blocking(move || Ok(recover_interrupted(&root))).await?;
+    }
     let prepared = prepare(&state, &requester, &uuid, &request.source).await?;
     if let Some(reason) = &prepared.summary.target.unsupported_reason {
         return Err(bad_request(reason.clone()));
