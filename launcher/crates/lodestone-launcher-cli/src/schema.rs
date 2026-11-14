@@ -43,7 +43,7 @@ pub const COMMANDS: &[(&str, &str, bool, bool)] = &[
     ("instances duplicate", "instances.duplicate", false, false),
     ("instances copy-as", "instances.copy_as", true, true),
     (
-        "instances loader-version",
+        "instances set-loader-version",
         "instances.set_loader_version",
         false,
         false,

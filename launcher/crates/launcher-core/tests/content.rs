@@ -1016,6 +1016,20 @@ fn a_copy_for_another_version_takes_the_mods_with_a_build_for_it() {
     )
     .unwrap();
     fs::write(dirs.game.join("servers.dat"), b"servers").unwrap();
+    // shared game settings off, with a setting of its own kept and a game to read back
+    launcher_core::shared_options::update_instance(&dirs.instance, |sharing| {
+        sharing.enabled = false;
+        sharing.overrides.insert("fov".into());
+        sharing.session = Some(Default::default());
+        sharing.changed.insert("gamma".into(), "1.0".into());
+    })
+    .unwrap();
+    // the world's data packs' Modrinth records, and another world's
+    fs::write(
+        dirs.instance.join("datapacks.json"),
+        r#"{"worlds":{"New World":{"terralith.zip":{"project_id":"terra","version_id":"t1"}},"Gone":{"x.zip":{"project_id":"x","version_id":"x1"}}}}"#,
+    )
+    .unwrap();
 
     let contents = block_on(copy_as::contents(Some(&api), &dirs)).unwrap();
     assert!(contents.unchecked.is_empty());
@@ -1108,6 +1122,22 @@ fn a_copy_for_another_version_takes_the_mods_with_a_build_for_it() {
         fs::read(copy_dirs.game.join("servers.dat")).unwrap(),
         b"servers"
     );
+    // the copy keeps the shared settings off, and its own setting, so its first launch
+    // doesn't write the shared ones over the options copied; the original's game to
+    // read back and changes waiting stay with it
+    let sharing = launcher_core::shared_options::load_instance(&copy_dirs.instance).unwrap();
+    assert!(!sharing.enabled);
+    assert_eq!(sharing.overrides, ["fov".to_string()].into());
+    assert!(sharing.session.is_none() && sharing.changed.is_empty());
+    // the copied world's data packs keep their Modrinth records
+    let records: serde_json::Value =
+        serde_json::from_slice(&fs::read(copy_dirs.instance.join("datapacks.json")).unwrap())
+            .unwrap();
+    assert_eq!(
+        records["worlds"]["New World"]["terralith.zip"]["project_id"],
+        "terra"
+    );
+    assert!(records["worlds"].get("Gone").is_none());
     // the original is as it was
     let original = store.get(&source.id).unwrap();
     assert_eq!(
@@ -1116,6 +1146,33 @@ fn a_copy_for_another_version_takes_the_mods_with_a_build_for_it() {
     );
     assert!(names(&mods).contains(&"YL57xq9U-1.7.6+1.20.1.jar".to_string()));
     assert_eq!(store.list().0.len(), 2);
+
+    // A world deleted since the instance was read is skipped, and vanilla takes no
+    // mods (none counts as staying behind).
+    let mut stale = contents.clone();
+    stale.worlds.push("Deleted".into());
+    let plan = copy_as::plan(&stale, "1.21.1", Loader::None, options, rule, None);
+    assert!(plan.mods.is_empty() && plan.left_behind().is_empty());
+    let outcome = block_on(copy_as::execute(
+        &store,
+        Some(&api),
+        &downloader(),
+        &source,
+        &CopyAsRequest {
+            name: None,
+            loader: None,
+            plan,
+        },
+        &InstallProgress::default(),
+        &CancelToken::new(),
+        || {},
+    ))
+    .unwrap();
+    assert!(outcome.left_behind.is_empty());
+    let vanilla_dirs = InstanceDirs::new(store.dir(&outcome.instance.id));
+    assert_eq!(names(&vanilla_dirs.game.join("saves")), ["New World"]);
+    assert!(names(&vanilla_dirs.content_dir(ContentKind::Mod)).is_empty());
+    assert_eq!(store.list().0.len(), 3);
 
     // A cancelled copy leaves nothing behind.
     let cancel = CancelToken::new();
@@ -1143,5 +1200,5 @@ fn a_copy_for_another_version_takes_the_mods_with_a_build_for_it() {
         || {},
     ));
     assert!(matches!(cancelled, Err(copy_as::CopyAsError::Cancelled)));
-    assert_eq!(names(store.root()).len(), 2, "{:?}", names(store.root()));
+    assert_eq!(names(store.root()).len(), 3, "{:?}", names(store.root()));
 }

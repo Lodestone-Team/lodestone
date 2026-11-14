@@ -69,9 +69,10 @@ pub fn set_loader_version(call: Call, cx: &mut App) -> Reply {
     let control = call.control.clone();
     let instance = tri!(control.instance_param(&call, cx));
     tri!(control.idle(&instance, cx));
+    // vanilla has no loader: refused as installing a mod into it is
     let Some(kind) = instance.loader.kind() else {
         return ready(Err(api_error(
-            codes::INVALID_PARAMS,
+            codes::CONFLICT,
             format!(
                 "{} is vanilla: it has no mod loader. {}",
                 instance.name,
@@ -222,7 +223,7 @@ fn worlds_refusal(rule: WorldsRule, from: &str, to: &str) -> Option<String> {
 fn same_target(source: &Instance, version: &str, loader: Loader) -> Option<String> {
     (source.game_version == version && source.loader == loader).then(|| {
         format!(
-            "{} already is Minecraft {version} {}. Choose another --version or --loader; `instances duplicate` copies an instance as it is, and `instances loader-version` changes the loader's version.",
+            "{} already is Minecraft {version} {}. Choose another --version or --loader; `instances duplicate` copies an instance as it is, and `instances set-loader-version` changes the loader's version.",
             source.name,
             loader.label()
         )
@@ -266,6 +267,12 @@ pub fn copy_as(call: Call, cx: &mut App) -> Reply {
         Some(loader) => tri!(parse_loader(loader)),
         None => source.loader.kind(),
     };
+    if kind.is_none() && params.loader_version.is_some() {
+        return ready(Err(api_error(
+            codes::INVALID_PARAMS,
+            "Vanilla has no mod loader, so it takes no --loader-version.",
+        )));
+    }
     let installer = control.instances.read(cx).installer();
     cx.spawn(async move |cx| {
         let manifest_installer = installer.clone();
@@ -342,7 +349,12 @@ pub fn copy_as(call: Call, cx: &mut App) -> Reply {
                     "Modrinth can't be reached, so the mods can't be copied. Pass --no-mods to copy without them.",
                 ));
             };
-            Some(lookup.await.map_err(|err| api_error(codes::UNAVAILABLE, err))?)
+            Some(lookup.await.map_err(|err| {
+                api_error(
+                    codes::UNAVAILABLE,
+                    format!("Couldn't look the mods up on Modrinth: {err}. Try again, or pass --no-mods to copy without them."),
+                )
+            })?)
         } else {
             None
         };
@@ -500,7 +512,10 @@ mod tests {
         };
         let refusal = same_target(&source, "1.21.1", Loader::Fabric).unwrap();
         assert!(refusal.contains("instances duplicate"), "{refusal}");
-        assert!(refusal.contains("instances loader-version"), "{refusal}");
+        assert!(
+            refusal.contains("instances set-loader-version"),
+            "{refusal}"
+        );
         assert_eq!(same_target(&source, "1.21.4", Loader::Fabric), None);
         assert_eq!(same_target(&source, "1.21.1", Loader::Quilt), None);
         assert_eq!(same_target(&source, "1.21.1", Loader::None), None);

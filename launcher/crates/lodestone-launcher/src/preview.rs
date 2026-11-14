@@ -133,6 +133,7 @@ pub const SCENES: &[&str] = &[
     "copy-as",
     "copy-as-older",
     "copy-as-same",
+    "copy-as-loader",
     "instance-settings-game",
     "instance-settings-maintenance",
     "new-instance-modpack",
@@ -1227,7 +1228,9 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
             let view = shell.content().clone();
             view.update(cx, |view, cx| content::apply(scene, view, cx));
         }
-        "copy-as" | "copy-as-older" | "copy-as-same" => copy_as(scene, shell, cx),
+        "copy-as" | "copy-as-older" | "copy-as-same" | "copy-as-loader" => {
+            copy_as(scene, shell, cx)
+        }
         // the Minecraft version and loader as they are, the loader's version to pick,
         // and the way to a copy with others
         // (in a tall window, from the top), and the Maintenance section
@@ -2156,7 +2159,9 @@ Details:
 
 /// "Copy with another version or loader" for Survival 1.20.1 (Fabric, with mods and two
 /// worlds): to 26.3 with Fabric, the worlds going (upgraded) and some mods without a
-/// build, or (`copy-as-older`) to vanilla 1.16.5, where the worlds can't go.
+/// build, (`copy-as-older`) to vanilla 1.16.5, where the worlds can't go, or
+/// (`copy-as-loader`) to vanilla on its own version, the worlds going without the mods'
+/// blocks.
 fn copy_as(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherShell>) {
     use launcher_core::{
         content::copy_as::{self, CopyAsOptions},
@@ -2167,7 +2172,14 @@ fn copy_as(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherShel
         return;
     };
     let older = scene == "copy-as-older";
-    let version = if older { "1.16.5" } else { "26.3" };
+    let same_version = scene == "copy-as-loader";
+    let version = match () {
+        _ if older => "1.16.5",
+        _ if same_version => source.game_version.as_str(),
+        _ => "26.3",
+    }
+    .to_string();
+    let version = version.as_str();
     // the recorded Fabric builds, for the new version too
     let fabric = launcher_core::game::loaders::meta::parse_fabric_versions(
         include_bytes!("../../launcher-core/testdata/loaders/fabric/loaders-1.20.1.json"),
@@ -2196,6 +2208,19 @@ fn copy_as(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherShel
         }
         dialog.preview_version(version, cx);
         dialog.preview_copy_contents(contents, cx);
+        if same_version {
+            dialog.choose_loader_kind(None, cx);
+            // the same version: worlds are checked
+            dialog.preview_copy_lookup(
+                CopyAsOptions {
+                    worlds: true,
+                    ..CopyAsOptions::default()
+                },
+                |_| None,
+                cx,
+            );
+            return;
+        }
         if older {
             dialog.choose_loader_kind(None, cx);
             dialog.preview_copy_lookup(

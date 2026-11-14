@@ -3,7 +3,8 @@
 //! loader pickers are the dialog's own, and the copy needs another version or loader
 //! than the instance's (Duplicate copies it as it is). Under them, what to take along:
 //! the worlds (checked for the same version; to a newer one only when asked, with a
-//! word that the game upgrades them for good; never to an older one), the resource
+//! word that the game upgrades them for good; never to an older one; with a word, for
+//! another loader, that the mods' blocks don't come along), the resource
 //! packs, shaders and options, and the mods, as each one's build for the new version
 //! and loader, looked up on Modrinth as the choice changes. A lookup that fails can be
 //! tried again. The work is `Instances::copy_as`'s, a job in the sidebar.
@@ -376,16 +377,26 @@ impl NewInstanceDialog {
         // Worlds: only to the same or a newer version.
         let worlds = contents.map_or(0, |c| c.worlds.len());
         let worlds_allowed = rule.allowed() && worlds > 0;
+        // Another loader: the mods' blocks and items don't come along into the worlds.
+        let mods_gone = (worlds_wanted
+            && worlds_allowed
+            && source.loader != Loader::None
+            && loader != source.loader)
+            .then(|| note(tr!(M::CopyWorldsModsGone, name = source.name).into()));
         let worlds_note = match rule {
             _ if contents.is_some() && worlds == 0 => Some(note(t(M::CopyNoWorlds).into())),
             WorldsRule::Older => Some(note(t(M::CopyWorldsOlder).into())),
             WorldsRule::Unknown => Some(note(tr!(M::CopyWorldsUnknown, version = version).into())),
-            WorldsRule::Newer if worlds_wanted => Some(warning(tr!(
-                M::CopyWorldsUpgraded,
-                version = version,
-                name = source.name
-            ))),
-            _ => None,
+            WorldsRule::Newer if worlds_wanted => Some(column(
+                std::iter::once(warning(tr!(
+                    M::CopyWorldsUpgraded,
+                    version = version,
+                    name = source.name
+                )))
+                .chain(mods_gone)
+                .collect(),
+            )),
+            _ => mods_gone,
         };
         let worlds_row = option_row(
             Checkbox::new(

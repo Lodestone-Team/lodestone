@@ -231,10 +231,10 @@ pub enum Instances {
         after_help = "Examples:\n  lodestone-launcher-cli instances create --version 1.21.1 --loader fabric --name Survival\n  lodestone-launcher-cli instances create            # the newest release, vanilla\n  lodestone-launcher-cli instances create --loader forge --loader-version 47.4.0 --version 1.20.1 --group Modded"
     )]
     Create {
-        /// The name (default: \"<version> <loader>\").
+        /// The name (default: "<version> <loader>").
         #[arg(long)]
         name: Option<String>,
-        /// A Minecraft version, or \"latest\" (the newest release, the default).
+        /// A Minecraft version, or "latest" (the newest release, the default).
         #[arg(long)]
         version: Option<String>,
         /// vanilla, fabric, quilt, forge or neoforge.
@@ -322,11 +322,11 @@ pub enum Instances {
     /// when mods stay behind or worlds are upgraded: show the user the plan first.
     #[command(
         name = "copy-as",
-        after_help = "Examples:\n  lodestone-launcher-cli instances copy-as Survival --version 1.21.1\n  lodestone-launcher-cli instances copy-as Survival --loader neoforge --name \"Survival NeoForge\"\n  lodestone-launcher-cli instances copy-as Vanilla121 --loader fabric --worlds\n  lodestone-launcher-cli instances copy-as Survival --version latest --no-mods --yes"
+        after_help = "Examples:\n  lodestone-launcher-cli instances copy-as Survival --version 1.21.1\n  lodestone-launcher-cli instances copy-as Survival --loader neoforge --name \"Survival NeoForge\"\n  lodestone-launcher-cli instances copy-as Vanilla121 --loader fabric --worlds\n  lodestone-launcher-cli instances copy-as Survival --version latest --no-mods"
     )]
     CopyAs {
         instance: String,
-        /// A Minecraft version, or \"latest\" (default: the instance's).
+        /// A Minecraft version, or "latest" (default: the instance's).
         #[arg(long)]
         version: Option<String>,
         /// vanilla, fabric, quilt, forge or neoforge (default: the instance's).
@@ -335,7 +335,7 @@ pub enum Instances {
         /// The loader version (default: the recommended one).
         #[arg(long)]
         loader_version: Option<String>,
-        /// The copy's name (default: \"<name> (<version> <loader>)\").
+        /// The copy's name (default: "<name> (<version> <loader>)").
         #[arg(long)]
         name: Option<String>,
         /// Copy the worlds too (only to the same or a newer version, which upgrades them).
@@ -351,10 +351,10 @@ pub enum Instances {
     /// Changes the version of an instance's mod loader (installs next launch). The
     /// loader itself stays: `instances copy-as` makes a copy with another.
     #[command(
-        name = "loader-version",
-        after_help = "Examples:\n  lodestone-launcher-cli instances loader-version Survival 0.16.14\n  lodestone-launcher-cli instances loader-version Survival      # the recommended one"
+        name = "set-loader-version",
+        after_help = "Examples:\n  lodestone-launcher-cli instances set-loader-version Survival 0.16.14\n  lodestone-launcher-cli instances set-loader-version Survival      # the recommended one"
     )]
-    LoaderVersion {
+    SetLoaderVersion {
         instance: String,
         /// A version of its loader (default: the recommended one).
         loader_version: Option<String>,
@@ -471,13 +471,13 @@ pub struct GameSettingsArgs {
     /// Game arguments, as one string.
     #[arg(long, allow_hyphen_values = true)]
     pub game_args: Option<String>,
-    /// Window size, WIDTHxHEIGHT, or \"default\".
+    /// Window size, WIDTHxHEIGHT, or "default".
     #[arg(long)]
     pub resolution: Option<String>,
     /// Start fullscreen: true or false.
     #[arg(long)]
     pub fullscreen: Option<bool>,
-    /// Environment variables: \"NAME=value NAME2='a b'\".
+    /// Environment variables: "NAME=value NAME2='a b'".
     #[arg(long)]
     pub env: Option<String>,
 }

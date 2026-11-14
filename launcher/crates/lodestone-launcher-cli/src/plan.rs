@@ -313,7 +313,7 @@ pub fn plan(
                     ("mods", json!(!no_mods)),
                 ],
             ),
-            Instances::LoaderVersion {
+            Instances::SetLoaderVersion {
                 instance,
                 loader_version,
             } => call(
@@ -1223,7 +1223,7 @@ mod tests {
             json!({ "instance": "Survival", "loader": "neoforge", "loader_version": "21.1.77", "name": "Survival NeoForge", "worlds": false, "packs": false, "mods": false })
         );
         assert_eq!(
-            call_of(&["instances", "loader-version", "Survival", "0.16.14"]),
+            call_of(&["instances", "set-loader-version", "Survival", "0.16.14"]),
             (
                 "instances.set_loader_version",
                 json!({ "instance": "Survival", "loader_version": "0.16.14" }),
@@ -1231,7 +1231,7 @@ mod tests {
             )
         );
         assert_eq!(
-            call_of(&["instances", "loader-version", "Survival"]).1,
+            call_of(&["instances", "set-loader-version", "Survival"]).1,
             json!({ "instance": "Survival" })
         );
         let (method, params, _) = call_of(&["instances", "group", "Survival", "--none"]);

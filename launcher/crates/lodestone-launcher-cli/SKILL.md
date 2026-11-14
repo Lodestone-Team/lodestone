@@ -153,7 +153,7 @@ The user also sees each connected program (this CLI says
   version don't load on another, worlds lose modded blocks, and an older version can't
   open a newer world. To move to another version or loader, `instances copy-as` makes a
   new instance (the original stays as it is). Only the loader's own version can change
-  (`instances loader-version`). The user never moves them in place; only a modpack update,
+  (`instances set-loader-version`). The user never moves them in place; only a modpack update,
   a linked server's sync, or `snapshots revert` with the mods (which puts back the version
   and loader those mods were for) does.
 
@@ -177,7 +177,7 @@ lodestone-launcher-cli instances background Survival --slideshow custom --add ./
 lodestone-launcher-cli instances duplicate Survival
 lodestone-launcher-cli instances copy-as Survival --version 1.21.1          # long; a new instance, see below
 lodestone-launcher-cli instances copy-as Vanilla121 --loader fabric --worlds
-lodestone-launcher-cli instances loader-version Survival 0.16.14            # the loader's version only
+lodestone-launcher-cli instances set-loader-version Survival 0.16.14        # the loader's version only
 lodestone-launcher-cli instances select Survival          # shows it in the window
 lodestone-launcher-cli instances export Survival ./survival.mrpack          # long
 lodestone-launcher-cli instances verify Survival                            # long; downloads missing game files
@@ -189,12 +189,14 @@ lodestone-launcher-cli instances delete Survival --yes
 `copy-as` makes a new instance for another Minecraft version or loader (`--version`,
 `--loader`, `--loader-version`, `--name`; each defaults to the instance's own, but the
 Minecraft version or the loader must differ: for the same ones use `instances duplicate`,
-or `instances loader-version` for another loader build). It takes the server list
+or `instances set-loader-version` for another loader build). It takes the server list
 (servers.dat), the resource packs, shaders and options.txt (`--no-packs` leaves those
 out), and each mod
 Modrinth knows as that project's build for the new version and loader, with any required
-mods (`--no-mods` leaves them out). Mods with no such build, and mods not on Modrinth,
-stay behind. `config/` doesn't go (the new builds' settings can differ). Worlds go only
+mods (`--no-mods` leaves them out; a vanilla copy takes none, and takes no
+`--loader-version`). Mods with no such build, and mods not on Modrinth,
+stay behind. `config/` doesn't go (the new builds' settings can differ). The shared game
+settings choice goes with options.txt. Worlds go only
 with `--worlds` (the window's dialog starts with them checked for the same Minecraft
 version, but the API never copies them unasked), and only to the same or a newer version:
 the game upgrades them when it opens them and they can't go back (the originals stay).

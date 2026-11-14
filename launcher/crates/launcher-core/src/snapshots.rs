@@ -215,14 +215,16 @@ fn owned_entries(category: Category, world: Option<&str>) -> Vec<String> {
 
 /// The instance's settings after reverting `selection` from `snapshot`, when they
 /// change: the snapshot's settings with Settings chosen, and its Minecraft version and
-/// loader with Mods chosen (see [`Store::revert`]).
+/// loader with Mods chosen when the snapshot took the mods (see [`Store::revert`]).
 fn reverted_settings(
     snapshot: &Snapshot,
     current: &Instance,
     selection: &Selection,
 ) -> Option<Instance> {
     let settings = selection.categories.contains(&Category::Settings);
-    let mods = selection.categories.contains(&Category::Mods);
+    // only a snapshot that took the mods knows the version and loader they were for
+    let mods = selection.categories.contains(&Category::Mods)
+        && snapshot.selection.categories.contains(&Category::Mods);
     let base = if settings {
         Instance {
             // The instance stays itself: its id, name and history.
@@ -342,6 +344,23 @@ pub struct Snapshot {
 }
 
 impl Snapshot {
+    /// Whether reverting its mods would put back another Minecraft version or loader
+    /// than `current` has: it took the mods, and they were for another one. A
+    /// snapshot of an instance without mods has no Mods files, so the revert dialog
+    /// offers the part for this.
+    pub fn moves_version(&self, current: &Instance) -> bool {
+        self.selection.categories.contains(&Category::Mods)
+            && (
+                &self.instance.game_version,
+                self.instance.loader,
+                &self.instance.loader_version,
+            ) != (
+                &current.game_version,
+                current.loader,
+                &current.loader_version,
+            )
+    }
+
     /// Sizes and file counts by category (worlds by folder).
     pub fn summary(&self) -> Vec<Part> {
         summarize(
@@ -1935,6 +1954,25 @@ mod tests {
         // neither: nothing to save
         let (settings, _) = store
             .revert(&snapshot, &changed, &dir, &only(Category::Configs), &none)
+            .unwrap();
+        assert_eq!(settings, None);
+        assert!(snapshot.moves_version(&changed));
+        assert!(!snapshot.moves_version(&instance));
+        // a snapshot that didn't take the mods doesn't know their version: it stays
+        let worlds_only = store
+            .create(
+                &instance,
+                &dir,
+                "worlds",
+                None,
+                &only(Category::Worlds),
+                false,
+                &none,
+            )
+            .unwrap();
+        assert!(!worlds_only.moves_version(&changed));
+        let (settings, _) = store
+            .revert(&worlds_only, &changed, &dir, &only(Category::Mods), &none)
             .unwrap();
         assert_eq!(settings, None);
     }

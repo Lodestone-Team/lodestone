@@ -10,19 +10,25 @@
 //!   a world when it opens it, and the upgraded world can't go back
 //!   ([`worlds_rule`]);
 //! - resource packs, shader packs and `options.txt` (its pack ids named as the new
-//!   version names them), with the shader pack in use;
+//!   version names them), with the shader pack in use and whether the instance uses
+//!   the shared game settings (and which of its own it keeps), so the next launch
+//!   doesn't write the shared ones over the options copied;
 //! - the server list (`servers.dat`), always: it isn't tied to a version;
 //! - mods Modrinth knows (from `content.json`, after a lookup by SHA-1), as each
 //!   project's build for the new version and loader ([`resolve_mods`]), installed fresh
 //!   through the usual Modrinth path (hashes checked) with any required mods they need
 //!   now. A mod that was off stays off. Mods with no such build, and mods Modrinth
 //!   doesn't know (or that couldn't be checked), stay behind, unless another mod
-//!   requires them. `config/` stays: the new builds' settings can differ.
+//!   requires them. `config/` stays: the new builds' settings can differ. Vanilla runs
+//!   no mods, so none goes to it, and none counts as staying behind.
 //!
 //! The settings that aren't tied to the version (memory, arguments, window, group,
 //! icon, background) come along; play time, the modpack and a linked server don't. The
 //! copy is built in a hidden folder and renamed into place, so a failed or cancelled
-//! copy leaves nothing behind. The loader installs the next time the copy is played.
+//! copy leaves nothing behind (a world being copied stops at once when cancelled, and
+//! worlds the disk has no room for aren't started). Something deleted from the
+//! original since it was read is skipped. The loader installs the next time the copy
+//! is played.
 
 use std::{cmp::Ordering, fs, path::Path};
 
@@ -44,6 +50,7 @@ use crate::{
         self, BACKGROUND_FILE, ICON_FILE, Instance, InstanceError, InstanceStore, Loader,
         SLIDESHOW_DIR,
     },
+    shared_options, storage,
 };
 
 /// How many projects are looked up on Modrinth at once.
@@ -341,7 +348,8 @@ impl CopyPlan {
 
 /// Decides what goes: `contents` of the instance, by `options`, to `game_version` and
 /// `loader`. Worlds go only when `rule` allows them; mods only as `resolved` found them
-/// (none without it). With mods left out, none is listed as staying behind either.
+/// (none without it). With mods left out, or for vanilla (which runs none), none is
+/// listed as staying behind either.
 pub fn plan(
     contents: &Contents,
     game_version: &str,
@@ -351,7 +359,7 @@ pub fn plan(
     resolved: Option<&ResolvedMods>,
 ) -> CopyPlan {
     let packs = options.packs;
-    let (mods, no_build, not_on_modrinth, unchecked) = if options.mods {
+    let (mods, no_build, not_on_modrinth, unchecked) = if options.mods && loader != Loader::None {
         let resolved = resolved.cloned().unwrap_or_else(|| ResolvedMods {
             found: Vec::new(),
             missing: contents.mods.clone(),
@@ -537,11 +545,21 @@ async fn build(
 
     if !plan.worlds.is_empty() {
         progress.set_label("Copying the worlds");
+        check_room(
+            staging,
+            plan.worlds
+                .iter()
+                .map(|world| tree_size(&from.game.join("saves").join(world)))
+                .sum(),
+        )?;
         for world in &plan.worlds {
             check()?;
             let relative = Path::new("saves").join(world);
-            copy_entry(&from.game.join(&relative), &to.game.join(&relative))?;
+            copy_entry(&from.game.join(&relative), &to.game.join(&relative), cancel)?;
         }
+        check()?;
+        // their data packs' Modrinth records; without them the packs still work
+        let _ = crate::datapacks::worlds_copied(&from, &to, &plan.worlds);
     }
     let packs: Vec<(ContentKind, &String)> = plan
         .resource_packs
@@ -560,23 +578,29 @@ async fn build(
             copy_entry(
                 &from.content_dir(kind).join(name),
                 &to.content_dir(kind).join(name),
+                cancel,
             )?;
         }
         if plan.options {
-            copy_entry(&from.game.join(options::FILE), &to.game.join(options::FILE))?;
+            copy_entry(
+                &from.game.join(options::FILE),
+                &to.game.join(options::FILE),
+                cancel,
+            )?;
             // A file it can't rewrite still goes as it is: the game reads what it can.
             let _ = options::carry_packs(&to.game, &source.game_version, &plan.game_version);
+            carry_sharing(&from.instance, &to.instance)?;
         }
     }
     let servers = from.game.join(SERVERS_FILE);
     if servers.is_file() {
-        copy_entry(&servers, &to.game.join(SERVERS_FILE))?;
+        copy_entry(&servers, &to.game.join(SERVERS_FILE), cancel)?;
     }
     // The instance's own icon and Play backgrounds, which its settings refer to.
     for name in [ICON_FILE, BACKGROUND_FILE, SLIDESHOW_DIR] {
         let path = from.instance.join(name);
         if fs::symlink_metadata(&path).is_ok() {
-            copy_entry(&path, &to.instance.join(name))?;
+            copy_entry(&path, &to.instance.join(name), cancel)?;
         }
     }
     // Nothing more is read from the original.
@@ -710,18 +734,74 @@ fn sort_left_behind(
 }
 
 /// Copies the file or folder `from` to `to` (folders whole, skipping symbolic links).
-fn copy_entry(from: &Path, to: &Path) -> Result<(), ContentError> {
-    let metadata = fs::symlink_metadata(from).map_err(io_error(from))?;
+/// One that is gone (deleted since the instance was read) is skipped. Once `cancel` is
+/// cancelled, a folder's remaining files are skipped, and the caller then stops.
+fn copy_entry(from: &Path, to: &Path, cancel: &CancelToken) -> Result<(), ContentError> {
+    let metadata = match fs::symlink_metadata(from) {
+        Ok(metadata) => metadata,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(err) => return Err(io_error(from)(err)),
+    };
     if let Some(parent) = to.parent() {
         fs::create_dir_all(parent).map_err(io_error(parent))?;
     }
     if metadata.is_dir() {
-        instances::copy_tree(from, to, &|_| false)
+        instances::copy_tree(from, to, &|_| cancel.is_cancelled())
             .map_err(|err| ContentError::Invalid(err.to_string()))
     } else if metadata.is_file() {
         fs::copy(from, to).map(|_| ()).map_err(io_error(to))
     } else {
         Ok(())
+    }
+}
+
+/// Carries the instance's shared game settings choice (on or off, and the settings it
+/// keeps its own) from the instance folder `from` to `to`, with its `options.txt`.
+/// Without it the copy would count as using them, and its first launch would write the
+/// shared settings over the options copied. What a game left to read back, and changes
+/// waiting to be kept, stay with the original.
+fn carry_sharing(from: &Path, to: &Path) -> Result<(), ContentError> {
+    if !shared_options::instance_path(from).is_file() {
+        return Ok(());
+    }
+    // A file it can't read leaves the copy with the default (sharing on).
+    let Ok(sharing) = shared_options::load_instance(from) else {
+        return Ok(());
+    };
+    let carried = shared_options::InstanceSharing {
+        enabled: sharing.enabled,
+        overrides: sharing.overrides,
+        ..shared_options::InstanceSharing::default()
+    };
+    let path = shared_options::instance_path(to);
+    storage::save(&path, &carried).map_err(|err| ContentError::Invalid(err.to_string()))
+}
+
+/// The bytes of the files in the folder (or file) at `path`, skipping symbolic links.
+fn tree_size(path: &Path) -> u64 {
+    let Ok(metadata) = fs::symlink_metadata(path) else {
+        return 0;
+    };
+    if metadata.is_file() {
+        return metadata.len();
+    }
+    if !metadata.is_dir() {
+        return 0;
+    }
+    fs::read_dir(path)
+        .map(|entries| entries.flatten().map(|e| tree_size(&e.path())).sum())
+        .unwrap_or(0)
+}
+
+/// Refuses to copy `bytes` into `dir` when its disk has less room free.
+fn check_room(dir: &Path, bytes: u64) -> Result<(), ContentError> {
+    match crate::snapshots::free_space(dir) {
+        Some(free) if bytes > free => Err(ContentError::Invalid(format!(
+            "The worlds need {} MB and the disk has {} MB free.",
+            bytes.div_ceil(1_000_000),
+            free / 1_000_000
+        ))),
+        _ => Ok(()),
     }
 }
 

@@ -317,19 +317,38 @@ impl SnapshotDialog {
                 match store.get(&id, &snapshot_id) {
                     Ok(snapshot) => {
                         let mut parts = snapshot.summary();
-                        if snapshot.selection.categories.contains(&Category::Settings)
-                            && !parts.iter().any(|p| p.category == Category::Settings)
-                        {
-                            parts.push(Part {
-                                category: Category::Settings,
-                                world: None,
-                                files: 0,
-                                bytes: 0,
-                            });
-                            parts.sort_by(|a, b| {
-                                (a.category, &a.world).cmp(&(b.category, &b.world))
-                            });
+                        // The settings are in the manifest, not files; and mods with no
+                        // files (an instance without any) still put back the version
+                        // and loader they were for, when those moved since.
+                        let current = self
+                            .instances
+                            .read(cx)
+                            .list()
+                            .iter()
+                            .find(|i| i.id == id)
+                            .cloned();
+                        let file_less = [
+                            (
+                                Category::Settings,
+                                snapshot.selection.categories.contains(&Category::Settings),
+                            ),
+                            (
+                                Category::Mods,
+                                self.mode == Mode::Revert
+                                    && current.is_some_and(|c| snapshot.moves_version(&c)),
+                            ),
+                        ];
+                        for (category, offered) in file_less {
+                            if offered && !parts.iter().any(|p| p.category == category) {
+                                parts.push(Part {
+                                    category,
+                                    world: None,
+                                    files: 0,
+                                    bytes: 0,
+                                });
+                            }
                         }
+                        parts.sort_by(|a, b| (a.category, &a.world).cmp(&(b.category, &b.world)));
                         self.chosen = parts
                             .iter()
                             .map(|p| (p.category, p.world.clone()))

@@ -105,7 +105,7 @@ pub fn text(message: M) -> &'static str {
         M::VanillaCopyShaders => {
             "此实例是原版 Minecraft。光影需要通过 {loader} 等模组加载器运行，而实例会保留创建时的加载器。使用 {loader} 的副本可以带上你的世界和设置。"
         }
-        M::CopyWith => "以 {loader} 创建副本…",
+        M::CopyWith => "以 {loader} 复制…",
 
         M::ShaderModUsingPack => "{shader_mod} 正在使用 {pack}。",
         M::ShaderModUsingBuiltIn => "{shader_mod} 正在使用内置光影。",

@@ -82,6 +82,8 @@ pub fn text(message: M) -> &'static str {
         M::AutoGroupImported => "已匯入",
 
         M::GameVersionHint => "在建立實例時設定。",
+        M::GameVersionFollowsModpack => "隨模組包更新而變化。",
+        M::GameVersionFollowsServer => "隨連結伺服器的模組包而變化。",
         M::LoaderInstallsNextStart => "{loader} 會在遊戲下次啟動時安裝。",
         M::LoaderInstallsNextPlay => "{loader} 會在你下次按下「開始遊戲」時安裝。",
         M::SavedNextStart => "已儲存。會在遊戲下次啟動時生效。",
@@ -211,14 +213,14 @@ pub fn text(message: M) -> &'static str {
         M::Exporting => "正在匯出…",
         M::Duplicate => "製作副本",
         M::Duplicating => "正在製作副本…",
-        M::ChangeVersionOrLoader => "變更版本或載入器",
+        M::ChangeVersionOrLoader => "其他版本或載入器",
         M::ChangeVersionOrLoaderHint => {
             "實例會保留建立時的版本和載入器。副本可以使用其他版本或載入器。"
         }
-        M::CopyAs => "以其他版本或載入器製作副本",
-        M::CopyAsButton => "製作副本…",
+        M::CopyAs => "以其他版本或載入器複製",
+        M::CopyAsButton => "換版本複製…",
         M::CopyAsKeywords => "變更 切換 更新 升級 降級 版本 載入器 Fabric Forge NeoForge Quilt",
-        M::CopyAsTitle => "以其他版本或載入器製作副本",
+        M::CopyAsTitle => "以其他版本或載入器複製",
         M::CopyFrom => "以 {name}（{version}）為基礎新增一個實例，原實例保持不變。",
         M::CopyWhat => "要複製的內容",
         M::CopyWorlds => "世界",
@@ -227,6 +229,9 @@ pub fn text(message: M) -> &'static str {
         M::CopyWorldsUnknown => "世界不會複製：Lodestone Launcher 無法判斷 {version} 是否較新。",
         M::CopyWorldsUpgraded => {
             "Minecraft {version} 開啟世界時會將其升級，且無法還原。原本的世界仍保留在 {name} 中。"
+        }
+        M::CopyWorldsModsGone => {
+            "副本開啟世界時，未一同複製的模組中的方塊和物品會被移除。原本的世界仍保留在 {name} 中。"
         }
         M::CopyPacks => "資源包、光影和選項",
         M::CopyMods => "模組",
@@ -242,7 +247,7 @@ pub fn text(message: M) -> &'static str {
         M::CopySameTarget => {
             "請選擇其他 Minecraft 版本或載入器。若要原樣複製此實例，請使用「維護」中的「製作副本」。"
         }
-        M::CopyAsStart => "製作副本",
+        M::CopyAsStart => "開始複製",
         M::HostOnCore => "在 Lodestone 上架設",
         M::HostHint => "用此實例的模組建立伺服器。",
         M::HostButton => "架設…",

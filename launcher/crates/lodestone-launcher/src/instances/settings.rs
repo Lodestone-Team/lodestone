@@ -2382,9 +2382,22 @@ impl Render for InstanceSettings {
 
         // Game & loader.
         let loader_name = instance.as_ref().map(loader_label).unwrap_or_default();
+        // fixed, unless its modpack or linked server moves them
+        let fixed_hint = if self.instances.read(cx).is_linked(&self.instance_id) {
+            M::GameVersionFollowsServer
+        } else if self.modpack.is_some() {
+            M::GameVersionFollowsModpack
+        } else {
+            M::GameVersionHint
+        };
+        if self.loader.read(cx).fixed_hint() != fixed_hint {
+            // drawn after this view, in the same frame
+            self.loader
+                .update(cx, |picker, _| picker.set_fixed_hint(fixed_hint));
+        }
         let game: [SearchRow; 4] = [
             SettingRow::new("Minecraft")
-                .hint(t(M::GameVersionHint))
+                .hint(t(fixed_hint))
                 .search_text(self.game_version.clone())
                 .child(value(self.game_version.clone(), false))
                 .into(),
@@ -2700,9 +2713,8 @@ impl Render for InstanceSettings {
                     .detach();
                 })),
             ),
-            SettingRow::new(t(M::CopyAs))
-                .keywords(t(M::CopyAsKeywords))
-                .child(self.copy_as_button("copy-as-instance", cx)),
+            // Search finds the Game & loader row for these words, not this one too.
+            SettingRow::new(t(M::CopyAs)).child(self.copy_as_button("copy-as-instance", cx)),
             SettingRow::new(t(M::HostOnCore))
                 .hint(t(M::HostHint))
                 .child(

@@ -867,18 +867,32 @@ impl InstanceStore {
     }
 
     /// Makes the folder from [`InstanceStore::new_staging`] the instance `instance`, under
-    /// an unused id from its name, by renaming it into place.
+    /// an unused id from its name, by renaming it into place. Commits wait for each
+    /// other, so two jobs finishing at once (copies of one instance with the same name)
+    /// don't pick the same id; one that still finds its id taken (another launcher on
+    /// the data folder) takes the next.
     pub fn commit_staged(
         &self,
         staging: &Path,
         mut instance: Instance,
     ) -> Result<Instance, InstanceError> {
-        instance.name = self.unique_name(&clean_name(&instance.name)?);
-        instance.id = self.unused_id(&instance.name);
-        storage::save(&staging.join("instance.json"), &instance)?;
-        let dir = self.dir(&instance.id);
-        crate::fsx::rename(staging, &dir).map_err(io_error(staging))?;
-        Ok(instance)
+        static COMMITS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let _commits = COMMITS
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let name = clean_name(&instance.name)?;
+        let mut tries = 0;
+        loop {
+            instance.name = self.unique_name(&name);
+            instance.id = self.unused_id(&instance.name);
+            storage::save(&staging.join("instance.json"), &instance)?;
+            let dir = self.dir(&instance.id);
+            match crate::fsx::rename(staging, &dir) {
+                Ok(()) => return Ok(instance),
+                Err(_) if dir.exists() && tries < 3 => tries += 1,
+                Err(err) => return Err(io_error(staging)(err)),
+            }
+        }
     }
 
     /// The instance's own icon, if it has one.

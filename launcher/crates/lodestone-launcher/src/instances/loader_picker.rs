@@ -40,6 +40,8 @@ pub struct LoaderPicker {
     open: bool,
     /// A loader or a version was picked since the choice was last set.
     touched: bool,
+    /// The compact form's hint under the loader: why it doesn't change here.
+    fixed_hint: M,
     _observe: Subscription,
 }
 
@@ -69,6 +71,7 @@ impl LoaderPicker {
             compact: false,
             open: false,
             touched: false,
+            fixed_hint: M::GameVersionHint,
             _observe: observe,
         };
         this.load(cx);
@@ -80,6 +83,16 @@ impl LoaderPicker {
     pub fn compact(mut self) -> Self {
         self.compact = true;
         self
+    }
+
+    pub fn fixed_hint(&self) -> M {
+        self.fixed_hint
+    }
+
+    /// The hint under the loader in the compact form: set when the instance was made,
+    /// or following its modpack or linked server.
+    pub fn set_fixed_hint(&mut self, hint: M) {
+        self.fixed_hint = hint;
     }
 
     /// Shows `choice`, as the instance has it saved.
@@ -388,7 +401,7 @@ impl LoaderPicker {
             .flex_col()
             .child(
                 SettingRow::new(t(M::ModLoader))
-                    .hint(t(M::GameVersionHint))
+                    .hint(t(self.fixed_hint))
                     .child(value(
                         self.kind.map_or(t(M::Vanilla), |kind| kind.label()),
                         false,

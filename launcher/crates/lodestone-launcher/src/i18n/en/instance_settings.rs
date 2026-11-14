@@ -93,6 +93,10 @@ crate::i18n::messages! {
         // Game & loader.
         /// Under the Minecraft version and the mod loader, which never change.
         GameVersionHint = "Set when the instance was made.",
+        /// The same, for an instance a modpack's updates can move to another version.
+        GameVersionFollowsModpack = "Follows its modpack's updates.",
+        /// The same, for an instance a linked server's pack can move to another version.
+        GameVersionFollowsServer = "Follows the linked server's pack.",
         /// {loader} is a loader and its version, "Fabric 0.16.9".
         LoaderInstallsNextStart = "{loader} installs the next time the game starts.",
         LoaderInstallsNextPlay = "{loader} installs the next time you press Play.",
@@ -250,7 +254,7 @@ crate::i18n::messages! {
         Duplicating = "Duplicating…",
         /// The Game & loader row that leads to a copy: an instance's version and loader
         /// never change.
-        ChangeVersionOrLoader = "Change version or loader",
+        ChangeVersionOrLoader = "Another version or loader",
         ChangeVersionOrLoaderHint = "An instance keeps the version and loader it was made with. A copy can have others.",
         /// The Maintenance row that opens "Copy with another version or loader".
         CopyAs = "Copy with another version or loader",
@@ -273,6 +277,8 @@ crate::i18n::messages! {
         CopyWorldsUnknown = "Worlds stay: Lodestone Launcher can't tell whether {version} is newer.",
         /// {version} is the Minecraft version chosen; {name} is the instance copied.
         CopyWorldsUpgraded = "Minecraft {version} upgrades the worlds when it opens them, and they can't go back. The originals stay in {name}.",
+        /// Under Worlds, for another loader; {name} is the instance copied.
+        CopyWorldsModsGone = "Blocks and items from mods that don't come along are removed when the copy opens the worlds. The originals stay in {name}.",
         CopyPacks = "Resource packs, shaders and options",
         CopyMods = "Mods",
         /// While the instance's mods are read.

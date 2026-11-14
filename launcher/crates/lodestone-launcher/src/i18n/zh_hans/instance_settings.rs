@@ -82,6 +82,8 @@ pub fn text(message: M) -> &'static str {
         M::AutoGroupImported => "已导入",
 
         M::GameVersionHint => "在创建实例时设置。",
+        M::GameVersionFollowsModpack => "随整合包更新而变化。",
+        M::GameVersionFollowsServer => "随关联服务器的整合包而变化。",
         M::LoaderInstallsNextStart => "{loader} 将在游戏下次启动时安装。",
         M::LoaderInstallsNextPlay => "{loader} 将在你下次点击“开始游戏”时安装。",
         M::SavedNextStart => "已保存。将在游戏下次启动时生效。",
@@ -211,14 +213,14 @@ pub fn text(message: M) -> &'static str {
         M::Exporting => "正在导出…",
         M::Duplicate => "创建副本",
         M::Duplicating => "正在创建副本…",
-        M::ChangeVersionOrLoader => "更改版本或加载器",
+        M::ChangeVersionOrLoader => "其他版本或加载器",
         M::ChangeVersionOrLoaderHint => {
             "实例会保留创建时的版本和加载器。副本可以使用其他版本或加载器。"
         }
-        M::CopyAs => "以其他版本或加载器创建副本",
-        M::CopyAsButton => "创建副本…",
+        M::CopyAs => "以其他版本或加载器复制",
+        M::CopyAsButton => "换版本复制…",
         M::CopyAsKeywords => "更改 切换 更新 升级 降级 版本 加载器 Fabric Forge NeoForge Quilt",
-        M::CopyAsTitle => "以其他版本或加载器创建副本",
+        M::CopyAsTitle => "以其他版本或加载器复制",
         M::CopyFrom => "基于 {name}（{version}）新建一个实例，原实例保持不变。",
         M::CopyWhat => "要复制的内容",
         M::CopyWorlds => "世界",
@@ -227,6 +229,9 @@ pub fn text(message: M) -> &'static str {
         M::CopyWorldsUnknown => "世界不会复制：Lodestone Launcher 无法判断 {version} 是否更新。",
         M::CopyWorldsUpgraded => {
             "Minecraft {version} 打开世界时会将其升级，且无法还原。原世界仍保留在 {name} 中。"
+        }
+        M::CopyWorldsModsGone => {
+            "副本打开世界时，未一同复制的模组中的方块和物品会被移除。原世界仍保留在 {name} 中。"
         }
         M::CopyPacks => "资源包、光影和选项",
         M::CopyMods => "模组",
@@ -242,7 +247,7 @@ pub fn text(message: M) -> &'static str {
         M::CopySameTarget => {
             "请选择其他 Minecraft 版本或加载器。若要原样复制此实例，请使用“维护”中的“创建副本”。"
         }
-        M::CopyAsStart => "创建副本",
+        M::CopyAsStart => "开始复制",
         M::HostOnCore => "在 Lodestone 上托管",
         M::HostHint => "用此实例的模组创建服务器。",
         M::HostButton => "托管…",

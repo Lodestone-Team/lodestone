@@ -645,6 +645,7 @@
   function settingsTab(ctx, inst) {
     const active = ctx.params.sec || "general";
     const secs = ISEC.filter(([k]) => (k !== "modpack" || inst.modpack) && (k !== "linked" || inst.linked));
+    const fixedHint = is(inst.linked ? "GameVersionFollowsServer" : inst.modpack ? "GameVersionFollowsModpack" : "GameVersionHint");
     const content = {
       general: () => card(
         srow(is("Name"), null, field(inst.name)),
@@ -653,8 +654,8 @@
         srow(is("PlayBackground"), null, [h("span", { style: { width: "80px", height: "45px", borderRadius: "4px", background: "radial-gradient(circle at 70% 50%,#3e4f78,#1a1e28)" } }), btn(cm("Change"), { on: () => ctx.open("backgroundPicker") })]),
         srow(sh("SkinPlayColor"), null, swatches()), srow(sh("SkinAccent"), null, swatches())),
       game: () => [card(
-        srow(is("MinecraftVersion"), is("GameVersionHint"), h("span.lx-row-v", tx(inst.ver))),
-        srow(is("ModLoader"), is("GameVersionHint"), h("span.lx-row-v", inst.loader ? tx(inst.loader) : is("Vanilla"))),
+        srow(is("MinecraftVersion"), fixedHint, h("span.lx-row-v", tx(inst.ver))),
+        srow(is("ModLoader"), fixedHint, h("span.lx-row-v", inst.loader ? tx(inst.loader) : is("Vanilla"))),
         srow(is("LoaderVersion"), null, h("div", { style: { position: "relative" } }, select(h("span", tx(inst.lver || "0.16.14"), " ", badge(is("Recommended"), "green")), { on: toggleMenu("lver") }),
           ui.menu === "lver" ? menu([{ label: tx("0.16.14"), right: h("span.lx-mright", is("Recommended")) }, { label: tx("0.17.0-beta.2"), right: h("span.lx-mright", is("Beta")) }, { label: tx("0.16.13") }], "lx-rmenu") : null)),
         srow(is("ChangeVersionOrLoader"), is("ChangeVersionOrLoaderHint"), btn(is("CopyAsButton"), { sm: true, on: () => ctx.open("copyAs") })),
@@ -1112,6 +1113,7 @@
     const under = (el) => h("div", { style: { paddingLeft: "24px", fontSize: "13.5px" } }, el);
     const worlds = [check(isp("CopyWorldsCount", { count: 2 }), st === "newer"),
       older ? under(h("span.lx-muted", is("CopyWorldsOlder"))) : st === "newer" ? under(note(is("CopyWorldsUpgraded", { version, name: "Survival 1.20.1" }), "warn")) : null,
+      st === "newer" && loader !== "fabric" ? under(h("span.lx-muted", is("CopyWorldsModsGone", { name: "Survival 1.20.1" }))) : null,
       under(h("span.lx-muted", is("CopyWorlds"), " \u00b7 ", is("CopyNoWorlds"), " \u00b7 ", is("CopyWorldsUnknown", { version: "24w14a" })))];
     const mods = st === "reading" ? h("span.lx-muted", spinner(), " ", is("CopyReading")) :
       st === "checking" ? h("span.lx-muted", spinner(), " ", isp("CopyCheckingMods", { count: 9 })) :
@@ -1128,7 +1130,8 @@
       st === "same" ? h("p.lx-muted", is("CopySameTarget")) : null,
       h("div.lx-flabel", is("CopyWhat")),
       h("div.lx-scard", worlds, check(is("CopyPacks"), true), check(is("CopyMods"), loader !== "vanilla" && st !== "noMods"), under(mods))];
-    return dialog(ctx, is("CopyAsTitle"), body, [pbtn(is("CopyAsStart"), () => { ctx.close(); ctx.set("toast", "copied") }), btn(cm("Cancel"), { on: () => ctx.close() })], { wide: true });
+    const start = st === "same" ? btn(is("CopyAsStart"), { kind: "p", disabled: true }) : pbtn(is("CopyAsStart"), () => { ctx.close(); ctx.set("toast", "copied") });
+    return dialog(ctx, is("CopyAsTitle"), body, [start, btn(cm("Cancel"), { on: () => ctx.close() })], { wide: true });
   }
   function newInstanceDialog(ctx) {
     const mode = ctx.dparams.mode || "version", st = ctx.state.newinst, loader = ctx.dparams.loader || "vanilla";

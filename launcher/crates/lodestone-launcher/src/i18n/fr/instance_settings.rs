@@ -81,6 +81,8 @@ pub fn text(message: M) -> &'static str {
         M::AutoGroupImported => "Importées",
 
         M::GameVersionHint => "Ne change plus une fois l’instance créée.",
+        M::GameVersionFollowsModpack => "Suit les mises à jour de son modpack.",
+        M::GameVersionFollowsServer => "Suit le pack du serveur lié.",
         M::LoaderInstallsNextStart => "{loader} s’installera au prochain démarrage du jeu.",
         M::LoaderInstallsNextPlay => {
             "{loader} s’installera la prochaine fois que vous cliquerez sur Jouer."
@@ -224,7 +226,7 @@ pub fn text(message: M) -> &'static str {
         M::Exporting => "Exportation…",
         M::Duplicate => "Dupliquer",
         M::Duplicating => "Duplication…",
-        M::ChangeVersionOrLoader => "Changer de version ou de chargeur",
+        M::ChangeVersionOrLoader => "Une autre version ou un autre chargeur",
         M::ChangeVersionOrLoaderHint => {
             "Une instance garde la version et le chargeur choisis à sa création. Une copie peut en avoir d’autres."
         }
@@ -248,6 +250,9 @@ pub fn text(message: M) -> &'static str {
         }
         M::CopyWorldsUpgraded => {
             "Minecraft {version} met les mondes à niveau en les ouvrant, sans retour possible. Les originaux restent dans {name}."
+        }
+        M::CopyWorldsModsGone => {
+            "Les blocs et objets des mods qui ne suivent pas sont retirés quand la copie ouvre les mondes. Les originaux restent dans {name}."
         }
         M::CopyPacks => "Packs de ressources, shaders et options",
         M::CopyMods => "Mods",
