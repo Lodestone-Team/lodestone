@@ -1513,6 +1513,17 @@ impl Instances {
         self.curseforge = None;
     }
 
+    /// Has the Content tab offer Modrinth's projects while staying off the network:
+    /// every request to it fails (the list says Modrinth couldn't be reached), for
+    /// the offscreen screenshots of "Looking for something new?".
+    pub fn preview_modrinth_unreachable(&mut self) {
+        self.modrinth = Some(Arc::new(Modrinth::with_urls(
+            Arc::new(http_client::BlockedHttpClient::new()),
+            url::Url::parse(launcher_core::content::modrinth::API_BASE).expect("a valid URL"),
+            None,
+        )));
+    }
+
     pub fn content_downloader(&self) -> Downloader {
         self.content_downloader.clone()
     }

@@ -1,8 +1,8 @@
 //! The Content tab: an instance's mods, resource packs and shader packs. The list shows
 //! what is installed, then Modrinth's projects to browse (and CurseForge's, in builds
-//! with Lodestone's CurseForge key; see [`curseforge`]). One search field filters what
-//! is installed and, as it is typed, searches the platforms too; Modrinth's results
-//! also have filters (see [`filters`]).
+//! with Lodestone's CurseForge key; see [`curseforge`]), each a page at a time. One
+//! search field filters what is installed and, as it is typed, searches the platforms
+//! too; Modrinth's results also have filters (see [`filters`]).
 //!
 //! The work is done by `launcher-core::content`; this view keeps the state of each
 //! section, runs that work in the background and refuses changes while the game runs.
@@ -180,6 +180,15 @@ pub struct Section {
     /// The Installed list's scroll state and the entries it was last told about.
     rows: gpui::ListState,
     plan: Vec<view::Entry>,
+    /// The page of the Installed list shown, from 0 (see [`view::page_of_plan`]). It is
+    /// brought back to the last page when the list gets shorter.
+    installed_page: usize,
+    /// A file to show once the section has been read again after a change to it: a
+    /// resource pack moved, or turned on or off, which can land on another page.
+    follow: Option<String>,
+    /// The file the list's next frame scrolls to, and whether its page was turned to
+    /// show it (see [`ContentView::follow`]).
+    reveal: Option<(String, bool)>,
     load_task: Option<Task<()>>,
     updates_task: Option<Task<()>>,
 }
@@ -220,6 +229,9 @@ impl Section {
             view: ListView::default(),
             rows: gpui::ListState::new(0, gpui::ListAlignment::Top, crate::theme::px(400.)),
             plan: Vec::new(),
+            installed_page: 0,
+            follow: None,
+            reveal: None,
             load_task: None,
             updates_task: None,
         }
@@ -691,6 +703,16 @@ impl ContentView {
         cx.notify();
     }
 
+    /// Shows page `page` (from 0) of the Installed list of `kind`, from its top.
+    pub fn set_installed_page(&mut self, kind: ContentKind, page: usize, cx: &mut Context<Self>) {
+        let section = self.section_mut(kind);
+        section.installed_page = page;
+        section.follow = None;
+        section.reveal = None;
+        section.rows.scroll_to(gpui::ListOffset::default());
+        cx.notify();
+    }
+
     /// Scrolls the open project's page back to its top.
     pub fn scroll_page_to_top(&mut self, _kind: ContentKind, cx: &mut Context<Self>) {
         self.page_scroll.set_offset(gpui::Point::default());
@@ -811,8 +833,10 @@ impl ContentView {
                 match result {
                     Ok((listing, shaders)) => {
                         let loader_changed = this.shaders.loader != shaders.loader;
+                        let shader_pack = shaders.selection.pack.clone();
                         this.shaders = shaders;
                         let section = this.section_mut(kind);
+                        let first = section.listing.ready().is_none();
                         section.icons = listing
                             .items
                             .iter()
@@ -826,6 +850,13 @@ impl ContentView {
                             .collect();
                         let from_platform = listing.items.iter().any(|i| i.identified());
                         section.listing = Load::Ready(listing);
+                        // What a change moved is shown where it landed, and the shader
+                        // pack in use on its page when the packs are first listed.
+                        let follow = section.follow.take().or_else(|| {
+                            (first && kind == ContentKind::ShaderPack)
+                                .then_some(shader_pack)
+                                .flatten()
+                        });
                         if from_platform && !section.auto_checked {
                             section.auto_checked = true;
                             this.look_for_updates(kind, true, cx);
@@ -835,9 +866,14 @@ impl ContentView {
                         {
                             this.load_shader_offer(cx);
                         }
+                        if let Some(file) = follow {
+                            this.follow(kind, file, cx);
+                        }
                     }
                     Err(err) => {
-                        this.section_mut(kind).listing = Load::Failed(err.to_string().into())
+                        let section = this.section_mut(kind);
+                        section.listing = Load::Failed(err.to_string().into());
+                        section.follow = None;
                     }
                 }
                 cx.notify();
@@ -1162,24 +1198,32 @@ impl ContentView {
         }
     }
 
-    /// Runs a quick change to the files, then reads the section again.
+    /// Runs a quick change to the files, then reads the section again. Says whether
+    /// the change was made.
     fn change(
         &mut self,
         kind: ContentKind,
         change: impl FnOnce(&InstanceDirs, &Target) -> Result<(), launcher_core::content::ContentError>,
         cx: &mut Context<Self>,
-    ) {
+    ) -> bool {
         if !self.can_change(cx) {
-            return;
+            return false;
         }
         let Some((_, dirs, target)) = self.context(cx) else {
-            return;
+            return false;
         };
-        match change(&dirs, &target) {
-            Ok(()) => self.message = None,
-            Err(err) => self.message = Some((err.to_string().into(), true)),
-        }
+        let changed = match change(&dirs, &target) {
+            Ok(()) => {
+                self.message = None;
+                true
+            }
+            Err(err) => {
+                self.message = Some((err.to_string().into(), true));
+                false
+            }
+        };
         self.reload(kind, cx);
+        changed
     }
 
     /// A mod's toggle. Turning one off first looks for the enabled mods that can't
@@ -1295,7 +1339,9 @@ impl ContentView {
         compatibility: Compatibility,
         cx: &mut Context<Self>,
     ) {
-        self.change(
+        // A pack turned on goes to the top, and one turned off among those not in use:
+        // either can land on another page, which is turned to.
+        let changed = self.change(
             ContentKind::ResourcePack,
             |dirs, target| {
                 files::set_pack_enabled(dirs, target, &file_name, enabled, compatibility)
@@ -1303,11 +1349,15 @@ impl ContentView {
             },
             cx,
         );
+        if changed {
+            self.section_mut(ContentKind::ResourcePack).follow = Some(file_name);
+        }
     }
 
-    /// Raises (`up`) or lowers a resource pack's priority.
+    /// Raises (`up`) or lowers a resource pack's priority. A pack moved past the top or
+    /// bottom of its page is followed onto the page it lands on.
     pub fn move_pack(&mut self, file_name: String, up: bool, cx: &mut Context<Self>) {
-        self.change(
+        let moved = self.change(
             ContentKind::ResourcePack,
             |dirs, target| {
                 let name = file_name.clone();
@@ -1320,6 +1370,9 @@ impl ContentView {
             },
             cx,
         );
+        if moved {
+            self.section_mut(ContentKind::ResourcePack).follow = Some(file_name);
+        }
     }
 
     pub fn select_shader(&mut self, file_name: Option<String>, cx: &mut Context<Self>) {
@@ -1522,6 +1575,11 @@ impl ContentView {
         }
         self.section_mut(kind).browse.text = text.clone();
         self.section_mut(kind).browse.offset = 0;
+        // What is installed is filtered again, from its first page.
+        let section = self.section_mut(kind);
+        section.installed_page = 0;
+        section.follow = None;
+        section.reveal = None;
         // Typing leaves a project's page for the list it filters (unless the page is
         // beside the list).
         if self.panel_width.is_none() {
@@ -2051,6 +2109,24 @@ impl ContentView {
         cx.notify();
     }
 
+    /// Filters what is installed by `query`, on page `page`, for the offscreen
+    /// screenshots; the platforms aren't searched.
+    pub fn preview_installed(
+        &mut self,
+        kind: ContentKind,
+        query: &str,
+        page: usize,
+        cx: &mut Context<Self>,
+    ) {
+        self.kind = kind;
+        let section = self.section_mut(kind);
+        section.browse.text = query.to_string();
+        let search = section.browse.search.clone();
+        search.update(cx, |input, cx| input.set_text(query.to_string(), cx));
+        self.section_mut(kind).installed_page = page;
+        cx.notify();
+    }
+
     /// Shows a prepared shader mod offer and updates, for the offscreen screenshots.
     pub fn preview_state(
         &mut self,
@@ -2340,5 +2416,339 @@ mod finished_tests {
             .view
             .read_with(&s.cx, |view, _| view.finished.contains_key(&b));
         assert!(!kept);
+    }
+}
+
+/// The Installed list's page as files come and go, the search changes and another
+/// kind or instance is shown, with the sample instances of the offscreen screenshots
+/// (kept off the network).
+#[cfg(all(test, feature = "screenshot"))]
+mod page_tests {
+    use gpui::TestAppContext;
+    use launcher_core::content::scan::ScannedFile;
+
+    use super::view::Entry;
+    use super::*;
+
+    struct Setup {
+        cx: TestAppContext,
+        instances: Entity<Instances>,
+        view: Entity<ContentView>,
+        other: String,
+    }
+
+    fn setup() -> Setup {
+        let mut cx = TestAppContext::single();
+        let instances = cx.update(|cx| {
+            let accounts = crate::preview::accounts("signed-out", cx);
+            crate::preview::instances("worlds", &accounts, cx)
+        });
+        let other = instances.update(&mut cx, |instances, cx| {
+            instances.preview_offline();
+            let id = instances.list()[0].id.clone();
+            instances.select(&id, cx);
+            instances.list()[1].id.clone()
+        });
+        let view = cx.new(|cx| ContentView::new(instances.clone(), cx));
+        cx.run_until_parked();
+        Setup {
+            cx,
+            instances,
+            view,
+            other,
+        }
+    }
+
+    /// The resource packs of the `content-packs-paged` screenshot, read from its files:
+    /// 23 in use and 9 not, two pages.
+    fn packs() -> Setup {
+        filled("content-packs-paged", ContentKind::ResourcePack)
+    }
+
+    /// The files of `kind` the screenshot `scene` has, read from them.
+    fn filled(scene: &str, kind: ContentKind) -> Setup {
+        let mut cx = TestAppContext::single();
+        let instances = cx.update(|cx| {
+            let accounts = crate::preview::accounts("signed-out", cx);
+            crate::preview::instances(scene, &accounts, cx)
+        });
+        let other = instances.update(&mut cx, |instances, cx| {
+            instances.preview_offline();
+            let id = instances
+                .list()
+                .iter()
+                .find(|instance| instance.name == "Survival 1.20.1")
+                .expect("the filled instance")
+                .id
+                .clone();
+            instances.select(&id, cx);
+            id
+        });
+        let view = cx.new(|cx| ContentView::new(instances.clone(), cx));
+        view.update(&mut cx, |view, cx| {
+            view.select_kind(kind, cx);
+            view.ensure_loaded(kind, cx);
+        });
+        cx.run_until_parked();
+        Setup {
+            cx,
+            instances,
+            view,
+            other,
+        }
+    }
+
+    /// The packs' list as the next frame shows it, on `page` when it is given: the
+    /// page, the files of its rows, and whether a row is still to be scrolled to.
+    fn show_packs(s: &mut Setup, page: Option<usize>) -> (usize, Vec<String>, bool) {
+        show_kind(s, ContentKind::ResourcePack, page)
+    }
+
+    fn show_kind(
+        s: &mut Setup,
+        kind: ContentKind,
+        page: Option<usize>,
+    ) -> (usize, Vec<String>, bool) {
+        s.cx.run_until_parked();
+        s.view.update(&mut s.cx, |view, cx| {
+            if let Some(page) = page {
+                view.set_installed_page(kind, page, cx);
+            }
+            view.update_installed_list(kind, cx);
+            let section = view.section(kind);
+            let rows = section
+                .plan
+                .iter()
+                .filter_map(|entry| match entry {
+                    Entry::Row { file, .. } => Some(file.clone()),
+                    _ => None,
+                })
+                .collect();
+            (
+                section.installed_page,
+                rows,
+                section.follow.is_some() || section.reveal.is_some(),
+            )
+        })
+    }
+
+    /// The pack `file`'s place in the game's options.
+    fn pack(s: &mut Setup, file: &str) -> (bool, Compatibility) {
+        s.view.read_with(&s.cx, |view, _| {
+            let item = view
+                .section(ContentKind::ResourcePack)
+                .items()
+                .iter()
+                .find(|item| item.file.file_name == file)
+                .expect("a listed pack");
+            (item.priority.is_some(), item.compatibility)
+        })
+    }
+
+    /// `count` mods, "Extra mod 0" on.
+    fn mods(count: usize) -> Listing {
+        let items = (0..count)
+            .map(|i| Item {
+                file: ScannedFile {
+                    kind: ContentKind::Mod,
+                    file_name: format!("extra-mod-{i:02}.jar"),
+                    is_dir: false,
+                    size: 1,
+                    modified: None,
+                    meta: Default::default(),
+                },
+                sha512: None,
+                modrinth: None,
+                curseforge: None,
+                enabled: true,
+                priority: None,
+                compatibility: Compatibility::Unknown,
+            })
+            .collect();
+        Listing {
+            kind: ContentKind::Mod,
+            items,
+            lookup_error: None,
+            options_error: None,
+            shaders: ShaderState::default(),
+        }
+    }
+
+    /// The mods listed as `listing`, on `page` when it is given, as a frame shows
+    /// them: the page shown and the listing indexes of its rows.
+    fn show(s: &mut Setup, listing: Option<Listing>, page: Option<usize>) -> (usize, Vec<usize>) {
+        s.view.update(&mut s.cx, |view, cx| {
+            let section = view.section_mut(ContentKind::Mod);
+            if let Some(listing) = listing {
+                section.listing = Load::Ready(listing);
+            }
+            if let Some(page) = page {
+                section.installed_page = page;
+            }
+            view.update_installed_list(ContentKind::Mod, cx);
+            let section = view.section(ContentKind::Mod);
+            let rows = section
+                .plan
+                .iter()
+                .filter_map(|entry| match entry {
+                    Entry::Row { index, .. } => Some(*index),
+                    _ => None,
+                })
+                .collect();
+            (section.installed_page, rows)
+        })
+    }
+
+    fn page(s: &mut Setup) -> usize {
+        s.view.read_with(&s.cx, |view, _| {
+            view.section(ContentKind::Mod).installed_page
+        })
+    }
+
+    #[test]
+    fn the_page_is_brought_back_when_files_are_removed() {
+        let mut s = setup();
+        let (page, rows) = show(&mut s, Some(mods(45)), Some(2));
+        assert_eq!((page, rows), (2, (40..45).collect()));
+        // ten files removed: two pages left, the last one shown
+        let (page, rows) = show(&mut s, Some(mods(35)), None);
+        assert_eq!((page, rows), (1, (20..35).collect()));
+        // and it stays there when files are added again
+        assert_eq!(show(&mut s, Some(mods(45)), None).0, 1);
+        // twenty or fewer: one page, without a pager
+        let (page, rows) = show(&mut s, Some(mods(20)), None);
+        assert_eq!((page, rows), (0, (0..20).collect()));
+        let pager = s.view.read_with(&s.cx, |view, _| {
+            view.section(ContentKind::Mod)
+                .plan
+                .iter()
+                .any(|entry| matches!(entry, Entry::InstalledPager { .. }))
+        });
+        assert!(!pager);
+    }
+
+    #[test]
+    fn a_toggled_mod_stays_on_its_page() {
+        let mut s = setup();
+        show(&mut s, Some(mods(45)), Some(1));
+        // turned off: renamed, and listed in the same place
+        let mut listing = mods(45);
+        listing.items[25].file.file_name = "extra-mod-25.jar.disabled".into();
+        listing.items[25].enabled = false;
+        let (page, rows) = show(&mut s, Some(listing), None);
+        assert_eq!((page, rows), (1, (20..40).collect()));
+    }
+
+    #[test]
+    fn a_search_or_another_instance_starts_from_the_first_page() {
+        let mut s = setup();
+        show(&mut s, Some(mods(45)), Some(2));
+        // another kind shown and back: each kind keeps its page, as Modrinth's do
+        s.view.update(&mut s.cx, |view, cx| {
+            view.select_kind(ContentKind::ResourcePack, cx);
+            view.select_kind(ContentKind::Mod, cx);
+        });
+        assert_eq!(page(&mut s), 2);
+
+        let search = s.view.read_with(&s.cx, |view, _| {
+            view.section(ContentKind::Mod).browse.search.clone()
+        });
+        search.update(&mut s.cx, |input, cx| input.set_text("extra-mod-1", cx));
+        s.cx.run_until_parked();
+        assert_eq!(page(&mut s), 0);
+        // "extra-mod-10" to "extra-mod-19": one page
+        assert_eq!(show(&mut s, None, None), (0, (10..20).collect()));
+
+        search.update(&mut s.cx, |input, cx| input.set_text("", cx));
+        s.cx.run_until_parked();
+        show(&mut s, None, Some(2));
+        let other = s.other.clone();
+        s.instances
+            .update(&mut s.cx, |instances, cx| instances.select(&other, cx));
+        s.cx.run_until_parked();
+        assert_eq!(page(&mut s), 0);
+    }
+
+    #[test]
+    fn a_pack_turned_on_or_off_is_followed_onto_its_page() {
+        let mut s = packs();
+        let (page, rows, _) = show_packs(&mut s, Some(1));
+        assert_eq!((page, rows.len()), (1, 12));
+        // in use: from the second page to the top of the first
+        let file = "Extra pack 20.zip".to_string();
+        let (enabled, compatibility) = pack(&mut s, &file);
+        assert!(!enabled && rows.contains(&file));
+        s.view.update(&mut s.cx, |view, cx| {
+            view.set_pack_enabled(file.clone(), true, compatibility, cx)
+        });
+        let (page, rows, pending) = show_packs(&mut s, None);
+        assert_eq!((page, rows[0].as_str(), pending), (0, file.as_str(), false));
+        assert!(pack(&mut s, &file).0);
+
+        // and out of use again: among those not in use, on the second page
+        let (_, compatibility) = pack(&mut s, &file);
+        s.view.update(&mut s.cx, |view, cx| {
+            view.set_pack_enabled(file.clone(), false, compatibility, cx)
+        });
+        let (page, rows, pending) = show_packs(&mut s, None);
+        assert_eq!((page, pending), (1, false));
+        assert!(rows.contains(&file));
+    }
+
+    #[test]
+    fn a_pack_moved_past_its_page_is_followed() {
+        let mut s = packs();
+        let (_, rows, _) = show_packs(&mut s, Some(1));
+        // the first pack of the second page, raised: the last of the first
+        let file = rows[0].clone();
+        s.view
+            .update(&mut s.cx, |view, cx| view.move_pack(file.clone(), true, cx));
+        let (page, rows, pending) = show_packs(&mut s, None);
+        assert_eq!(
+            (page, rows[19].as_str(), pending),
+            (0, file.as_str(), false)
+        );
+        // lowered back: the first of the second
+        s.view.update(&mut s.cx, |view, cx| {
+            view.move_pack(file.clone(), false, cx)
+        });
+        let (page, rows, pending) = show_packs(&mut s, None);
+        assert_eq!((page, rows[0].as_str(), pending), (1, file.as_str(), false));
+        // moved on its page: the page stays
+        s.view.update(&mut s.cx, |view, cx| {
+            view.move_pack(file.clone(), false, cx)
+        });
+        let (page, rows, _) = show_packs(&mut s, None);
+        assert_eq!((page, rows[1].as_str()), (1, file.as_str()));
+    }
+
+    #[test]
+    fn a_followed_file_that_does_not_come_back_is_dropped() {
+        let mut s = packs();
+        show_packs(&mut s, Some(1));
+        // changed from outside before it was read again: gone
+        s.view.update(&mut s.cx, |view, cx| {
+            view.section_mut(ContentKind::ResourcePack).follow = Some("Gone.zip".into());
+            view.reload(ContentKind::ResourcePack, cx);
+        });
+        let (page, _, pending) = show_packs(&mut s, None);
+        assert_eq!((page, pending), (1, false));
+    }
+
+    #[test]
+    fn the_shader_packs_open_on_the_page_of_the_one_in_use() {
+        // 25 packs, the last in use
+        let mut s = filled("content-shaders-paged", ContentKind::ShaderPack);
+        let (page, rows, pending) = show_kind(&mut s, ContentKind::ShaderPack, None);
+        assert_eq!(
+            (page, rows.last().map(String::as_str), pending),
+            (1, Some("MakeUp-UltraFast-9.2.zip"), false)
+        );
+        // turned back to the first page, it stays there as the packs are read again
+        show_kind(&mut s, ContentKind::ShaderPack, Some(0));
+        s.view.update(&mut s.cx, |view, cx| {
+            view.reload(ContentKind::ShaderPack, cx)
+        });
+        assert_eq!(show_kind(&mut s, ContentKind::ShaderPack, None).0, 0);
     }
 }

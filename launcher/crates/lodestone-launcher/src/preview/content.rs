@@ -162,12 +162,17 @@ pub fn fill(instance_dir: &Path, scene: &str) {
     let shaders = dirs.content_dir(ContentKind::ShaderPack);
     let mut provenance = Provenance::default();
 
-    // `--mods N`: N more mods, for timing long lists (`--bench-scroll`).
+    // `--mods N`: N more mods, for timing long lists (`--bench-scroll`). The paged
+    // scenes have 45 mods, three pages.
     let extra = std::env::args()
         .skip_while(|arg| arg != "--mods")
         .nth(1)
         .and_then(|n| n.parse::<usize>().ok())
-        .unwrap_or(0);
+        .unwrap_or(if scene.starts_with("content-mods-paged") {
+            40
+        } else {
+            0
+        });
     for i in 0..extra {
         let shade = (i * 37 % 200) as u8;
         fabric_mod(
@@ -252,6 +257,7 @@ pub fn fill(instance_dir: &Path, scene: &str) {
         scene,
         "content-mods"
             | "content-shaders"
+            | "content-shaders-paged"
             | "content-browse"
             | "content-sort"
             | "content-browse-idle"
@@ -336,9 +342,29 @@ pub fn fill(instance_dir: &Path, scene: &str) {
             false,
         ),
     );
+    // The paged scene: 23 packs in use and 9 not, two pages.
+    let mut in_use = String::new();
+    if scene == "content-packs-paged" {
+        for i in 0..26 {
+            let shade = (i * 37 % 200) as u8;
+            let name = format!("Extra pack {i:02}.zip");
+            resource_pack(
+                &packs.join(&name),
+                &format!("Extra textures {i}"),
+                json!({"pack_format": 15}),
+                [60 + shade / 2, 120 - shade / 3, 90 + shade / 2],
+            );
+            // the lowest priority first, as the game lists them
+            if i < 20 {
+                in_use.push_str(&format!(",\"file/{name}\""));
+            }
+        }
+    }
     let _ = fs::write(
         dirs.game.join("options.txt"),
-        "version:3465\nautoJump:false\nresourcePacks:[\"vanilla\",\"fabric\",\"file/Old Classic Textures.zip\",\"file/FreshAnimations_v1.9.zip\",\"file/Faithful 32x - 1.20.1.zip\"]\nincompatibleResourcePacks:[\"file/Old Classic Textures.zip\"]\nlang:en_us\n",
+        format!(
+            "version:3465\nautoJump:false\nresourcePacks:[\"vanilla\",\"fabric\"{in_use},\"file/Old Classic Textures.zip\",\"file/FreshAnimations_v1.9.zip\",\"file/Faithful 32x - 1.20.1.zip\"]\nincompatibleResourcePacks:[\"file/Old Classic Textures.zip\"]\nlang:en_us\n"
+        ),
     );
 
     write_zip(
@@ -353,6 +379,15 @@ pub fn fill(instance_dir: &Path, scene: &str) {
         &shaders.join("MakeUp-UltraFast-9.2.zip"),
         &[("MakeUp-UltraFast/shaders/final.fsh", b"x".to_vec())],
     );
+    // The paged scene: 25 shader packs, two pages.
+    if scene == "content-shaders-paged" {
+        for i in 0..22 {
+            write_zip(
+                &shaders.join(format!("Extra shaders {i:02}.zip")),
+                &[("shaders/final.fsh", b"x".to_vec())],
+            );
+        }
+    }
     remember(
         &mut provenance,
         &dirs,
@@ -374,9 +409,17 @@ pub fn fill(instance_dir: &Path, scene: &str) {
         source("Q1vvjJYV", "bsl-shaders", "BSL Shaders", "v8.2.09", true),
     );
     let _ = fs::create_dir_all(dirs.game.join("config"));
+    // The paged scene's pack in use is the last, on the second page.
+    let in_use = if scene == "content-shaders-paged" {
+        "MakeUp-UltraFast-9.2.zip"
+    } else {
+        "ComplementaryReimagined_r5.3.zip"
+    };
     let _ = fs::write(
         dirs.game.join("config/iris.properties"),
-        "#This file stores configuration options for Iris\nenableShaders=true\nshaderPack=ComplementaryReimagined_r5.3.zip\n",
+        format!(
+            "#This file stores configuration options for Iris\nenableShaders=true\nshaderPack={in_use}\n"
+        ),
     );
     if scene.starts_with("content-formatted") {
         formatted(&packs, &shaders, &dirs.game);
@@ -527,6 +570,26 @@ pub fn apply(scene: &str, view: &mut ContentView, cx: &mut Context<ContentView>)
         ),
         "content-resourcepacks" | "content-formatted" => {
             view.preview_state(ContentKind::ResourcePack, None, HashMap::new(), icons(), cx)
+        }
+        // What is installed, a page at a time: the first, the last, and filtered.
+        "content-mods-paged" | "content-mods-paged-last" | "content-mods-paged-search" => {
+            view.preview_state(ContentKind::Mod, None, HashMap::new(), icons(), cx);
+            match scene {
+                "content-mods-paged-last" => view.preview_installed(ContentKind::Mod, "", 2, cx),
+                "content-mods-paged-search" => {
+                    view.preview_installed(ContentKind::Mod, "extra", 0, cx)
+                }
+                _ => {}
+            }
+        }
+        // The second page, with the end of the packs in use and those that aren't.
+        "content-packs-paged" => {
+            view.preview_state(ContentKind::ResourcePack, None, HashMap::new(), icons(), cx);
+            view.preview_installed(ContentKind::ResourcePack, "", 1, cx);
+        }
+        // Opened on the page of the pack in use, the second.
+        "content-shaders-paged" => {
+            view.preview_state(ContentKind::ShaderPack, None, HashMap::new(), icons(), cx)
         }
         "content-menu" => {
             view.preview_state(ContentKind::Mod, None, HashMap::new(), icons(), cx);
