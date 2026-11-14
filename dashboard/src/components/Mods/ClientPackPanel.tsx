@@ -1,4 +1,9 @@
-import { faDownload, faUsers } from '@fortawesome/free-solid-svg-icons';
+import {
+  faChevronDown,
+  faChevronRight,
+  faDownload,
+  faUsers,
+} from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { InstalledModList } from 'bindings/InstalledModList';
 import Button from 'components/Atoms/Button';
@@ -8,6 +13,7 @@ import { useState } from 'react';
 import { toast } from 'react-toastify';
 import { installedModName, installedModVersion } from 'utils/mods';
 import { errorToString } from 'utils/util';
+import { packChips } from './clientPackFold';
 import { ModIcon } from './common';
 
 /**
@@ -24,6 +30,8 @@ export default function ClientPackPanel({
 }) {
   const { t, formatList } = useI18n();
   const [downloading, setDownloading] = useState(false);
+  // a big pack shows its first few mods, until "Show all"
+  const [open, setOpen] = useState(false);
   if (list.loader !== 'fabric' || list.mods.length === 0) return null;
 
   const loader = list.loader_version
@@ -46,6 +54,7 @@ export default function ClientPackPanel({
   // the core puts jars that aren't on Modrinth into the pack's overrides
   const includedJars = needed.filter((mod) => !mod.modrinth).length;
   const count = list.client_required_count;
+  const { shown, folds } = packChips(needed.length, open);
 
   const download = async () => {
     setDownloading(true);
@@ -86,7 +95,7 @@ export default function ClientPackPanel({
         />
       </div>
       <div className="flex flex-row flex-wrap gap-2">
-        {needed.map((mod) => {
+        {needed.slice(0, shown).map((mod) => {
           const version = installedModVersion(mod);
           return (
             <div
@@ -109,6 +118,22 @@ export default function ClientPackPanel({
           );
         })}
       </div>
+      {folds && (
+        <button
+          type="button"
+          className="flex w-fit flex-row items-center gap-1 text-small text-blue-200 hover:underline"
+          aria-expanded={open}
+          onClick={() => setOpen(!open)}
+        >
+          <FontAwesomeIcon
+            icon={open ? faChevronDown : faChevronRight}
+            className="size-2"
+          />
+          {open
+            ? t('mods.clientPack.showFewer')
+            : t('mods.clientPack.showAll', { count: needed.length })}
+        </button>
+      )}
       <div className="text-small text-white/50">
         {includedJars > 0
           ? t('mods.clientPack.importHintWithJars', { count: includedJars })
