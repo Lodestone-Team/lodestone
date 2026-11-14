@@ -22,7 +22,7 @@ use crate::events::{Event, ProgressionEndValue};
 use crate::modrinth::links::check_api_segment;
 use crate::mods::client::{build_client_pack, ClientPackDownload};
 use crate::mods::install::{self, ModInstallRequest, ModInstallResult};
-use crate::mods::scan::{scan_file, scan_folder, sha512_of};
+use crate::mods::scan::{scan_folder, sha512_of};
 use crate::mods::{
     bad_request, build_list, match_files_or_none, safe_jar_name, save_uploads, InstalledMod,
     InstalledModList, InstalledModLoader, ModFolder, MAX_MOD_BYTES,
@@ -278,12 +278,16 @@ async fn set_enabled(
     let (instance, folder) = mod_folder(&state, &uuid).await?;
     let lock = state.mods.lock_for(&uuid);
     let _guard = lock.lock().await;
-    if enabled && crate::mods::is_disabled_name(&file_name) {
-        let path = crate::mods::existing_mod_path(&folder, &file_name).await?;
-        let file = scan_file(&path, folder.loader).await?;
-        require_known_jars(&state, &requester, &[(file.file_name, file.sha512)]).await?;
-    }
-    let (file, changed) = crate::mods::set_enabled(&folder, &file_name, enabled).await?;
+    // the copy that is checked is the one enabled, so the file can't be swapped meanwhile
+    let (file, changed) = if enabled {
+        crate::mods::enable_checked(&folder, &file_name, |name, sha512| {
+            let (state, requester) = (&state, &requester);
+            async move { require_known_jars(state, requester, &[(name, sha512)]).await }
+        })
+        .await?
+    } else {
+        crate::mods::set_enabled(&folder, &file_name, enabled).await?
+    };
     if changed {
         note_change(&state, &uuid, &instance).await;
     }

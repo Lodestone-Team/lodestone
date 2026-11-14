@@ -103,6 +103,17 @@ pub(crate) fn is_protected(path: &FsPath, is_dir: bool) -> bool {
     if PROTECTED_FILE_NAMES.contains(&name.as_str()) {
         return true;
     }
+    // a disabled jar (`x.jar.disabled`) is a jar that the Mods tab enables by renaming it
+    if let Some(enabled) = name.strip_suffix(".disabled") {
+        let enabled = FsPath::new(enabled.trim_end_matches(['.', ' ']));
+        if enabled
+            .extension()
+            .and_then(|e| e.to_str())
+            .is_some_and(|ext| PROTECTED_EXTENSIONS.contains(&ext))
+        {
+            return true;
+        }
+    }
     match FsPath::new(&name).extension().and_then(|e| e.to_str()) {
         Some(ext) => PROTECTED_EXTENSIONS.contains(&ext),
         // files without an extension, such as `.lodestone_config` or native binaries
@@ -1701,6 +1712,24 @@ mod tests {
         let parent = temp.path().join("old");
         std::fs::create_dir_all(parent.join(".lodestone_modpack")).unwrap();
         assert!(contains_protected_entry(root, parent).await.unwrap());
+    }
+
+    /// The Mods tab enables a disabled jar by renaming it, so it is protected as a jar is
+    /// (LS-17).
+    #[test]
+    fn disabled_jars_are_protected() {
+        for name in [
+            "x.jar.disabled",
+            "X.JAR.Disabled",
+            "x.jar.disabled.",
+            "x.jar..disabled",
+        ] {
+            assert!(file(name), "{name}");
+        }
+        assert!(file("mods/x.jar.disabled"));
+        for name in ["config.toml.disabled", "notes.txt.disabled"] {
+            assert!(!file(name), "{name}");
+        }
     }
 
     /// The modpack's record and history decide what an update removes and what a restore
