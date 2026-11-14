@@ -463,9 +463,11 @@ impl SnapshotDialog {
         cx.notify();
     }
 
-    /// Whether closing now would cut work short. Taking, putting back, deleting or
-    /// importing a snapshot can't be stopped, and the dialog shows how it ends; reading
-    /// a file to import, or writing one to share, can be left.
+    /// Whether closing now would cut work short. Taking, putting back or importing a
+    /// snapshot can't be stopped, and the dialog shows how it ends; reading a file to
+    /// import, writing one to share, or deleting a snapshot can be left. Deleting can
+    /// wait minutes for another instance's snapshot job, with no progress to show, and
+    /// the list is brought up to date when it ends whether the dialog is open or not.
     fn busy(&self) -> bool {
         busy(&self.state)
     }
@@ -876,7 +878,10 @@ impl SnapshotDialog {
 /// [`SnapshotDialog::busy`]).
 fn busy(state: &State) -> bool {
     match state {
-        State::Working(label) => !matches!(label, M::ReadingSnapshot | M::PreparingFile),
+        State::Working(label) => !matches!(
+            label,
+            M::ReadingSnapshot | M::PreparingFile | M::InstanceSnapshots
+        ),
         _ => false,
     }
 }
@@ -1097,14 +1102,14 @@ mod tests {
             M::TakingSnapshot,
             M::RevertingSnapshot,
             M::ImportingSnapshot,
-            // Deleting.
-            M::InstanceSnapshots,
         ] {
             assert!(busy(&State::Working(label)), "{label:?}");
         }
         // Only reading, or writing a file to share: closing leaves nothing half done.
         assert!(!busy(&State::Working(M::ReadingSnapshot)));
         assert!(!busy(&State::Working(M::PreparingFile)));
+        // Deleting: it can wait a long time for another job, and ends the same either way.
+        assert!(!busy(&State::Working(M::InstanceSnapshots)));
         assert!(!busy(&State::Ready));
         assert!(!busy(&State::Failed("".into())));
     }
