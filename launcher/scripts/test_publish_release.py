@@ -839,6 +839,16 @@ class Workflows(unittest.TestCase):
                                         or "pipefail" in text)
         self.assertGreater(checked, 0)
 
+    def test_builds_keep_the_drafts_prerelease_flag(self):
+        # LS-66: the core and dashboard builds updated release-draft.yml's stable
+        # vX.Y.Z draft with `prerelease: true`, so it was published as a pre-release.
+        folder = pr.ROOT / ".github" / "workflows"
+        for path in sorted(folder.glob("*.yml")):
+            with self.subTest(workflow=path.name):
+                self.assertNotRegex(path.read_text(), r"(?m)^\s*prerelease: true\s*$")
+        release = (folder / "release.yml").read_text()
+        self.assertEqual(release.count("prerelease: ${{ needs.draft.outputs.prerelease }}"), 2)
+
 
 if __name__ == "__main__":
     unittest.main()
