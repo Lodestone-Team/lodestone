@@ -21,7 +21,7 @@ use std::collections::HashMap;
 use std::io::Write;
 use std::path::Path;
 use std::process::Stdio;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, AtomicU64};
 use std::sync::{Arc, LazyLock};
 use std::time::Instant;
 use tokio::process::{Child, Command};
@@ -279,6 +279,11 @@ pub struct MinecraftInstance {
     stop_requested: Arc<AtomicBool>,
     /// Held while the version changes, so the instance can't start meanwhile
     version_change_lock: Arc<Mutex<()>>,
+    /// Counts the starts: each one takes the next number as it moves to Starting, and
+    /// spawns the server only while it is still the newest. A start that was stopped
+    /// before its process spawned, and then followed by another start, would otherwise
+    /// see the other start's Starting and spawn a second process.
+    launch_generation: Arc<AtomicU64>,
     /// When the instance last became stopped (or errored) from another state: a crash
     /// restart may follow, so scheduled work that holds off starts waits a while after it.
     last_stopped: Arc<std::sync::Mutex<Option<Instant>>>,
@@ -1140,6 +1145,7 @@ impl MinecraftInstance {
             stdin: Arc::new(Mutex::new(None)),
             stop_requested: Arc::new(AtomicBool::new(false)),
             version_change_lock: Arc::new(Mutex::new(())),
+            launch_generation: Arc::new(AtomicU64::new(0)),
             last_stopped: Arc::new(std::sync::Mutex::new(None)),
             properties_lock: Arc::new(Mutex::new(())),
             system: Arc::new(Mutex::new(crate::util::cpu_and_memory_system())),
