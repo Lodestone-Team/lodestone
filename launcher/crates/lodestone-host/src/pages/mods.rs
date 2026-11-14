@@ -133,6 +133,11 @@ pub struct ModsPage {
     busy_files: HashSet<String>,
     uploading: bool,
     downloading_pack: bool,
+    /// The installed list's page (from 0), `pager::PAGE_SIZE` mods to a page.
+    installed_page: usize,
+    /// The client pack's mods are all shown, not only the first few (when there are
+    /// many; see `installed::pack_chips`). Not kept: a new Mods tab shows a few.
+    pack_open: bool,
     /// The check for a newer version of the server's modpack.
     modpack_check: modpack::ModpackCheck,
     /// Preparing or running a modpack update.
@@ -183,6 +188,8 @@ impl ModsPage {
             busy_files: HashSet::new(),
             uploading: false,
             downloading_pack: false,
+            installed_page: 0,
+            pack_open: false,
             modpack_check: modpack::ModpackCheck::default(),
             modpack_busy: false,
             modpack_history: None,
@@ -260,6 +267,9 @@ impl ModsPage {
                 this.loading = false;
                 match list {
                     Ok(list) => {
+                        // a removed mod may have taken the last page with it
+                        this.installed_page =
+                            crate::pages::pager::clamp(this.installed_page, list.mods.len());
                         this.list = Some(list);
                         this.list_error = None;
                     }

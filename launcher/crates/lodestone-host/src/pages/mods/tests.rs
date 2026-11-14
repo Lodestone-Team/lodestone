@@ -2,7 +2,7 @@ use launcher_core::cores::admin::mods::{
     InstalledModKind, InstalledModLoader, ModInstallResult, ModrinthVersion,
 };
 
-use super::{ModsPage, Target, project::listed_versions};
+use super::{ModsPage, Target, installed::pack_chips, project::listed_versions};
 
 fn version(id: &str, game: &str, loader: &str) -> ModrinthVersion {
     serde_json::from_value(serde_json::json!({
@@ -85,4 +85,17 @@ fn the_install_toast_says_what_happened() {
     assert!(text.contains("old.jar"), "{text}");
     assert!(text.contains("fabric-api (already installed)"), "{text}");
     assert!(text.contains("Players will need Sodium too"), "{text}");
+}
+
+#[test]
+fn a_big_client_pack_folds_to_its_first_mods() {
+    // small packs show every mod, with no control
+    assert_eq!(pack_chips(0, false), (0, false));
+    assert_eq!(pack_chips(5, false), (5, false));
+    assert_eq!(pack_chips(16, false), (16, false));
+    assert_eq!(pack_chips(16, true), (16, false));
+    // bigger ones show the first twelve until "Show all", and can fold again
+    assert_eq!(pack_chips(17, false), (12, true));
+    assert_eq!(pack_chips(158, false), (12, true));
+    assert_eq!(pack_chips(158, true), (158, true));
 }

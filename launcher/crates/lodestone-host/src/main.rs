@@ -97,7 +97,7 @@ fn main() {
 
 /// `--screenshot <file.png> [--wait <seconds>] [--select-first] [--tab <tab>] [--toasts] [--demo]`
 /// `[--power-menu]` (the selected instance's power menu open)
-/// `[--friends <scene>] [--settings-search <text>]`,
+/// `[--friends <scene>] [--mods <scene>] [--settings-search <text>]`,
 /// with the `screenshot` feature: renders the window offscreen after the wait (10 s by
 /// default: the core starts and the Host signs in), optionally with the first instance
 /// selected (on its `--tab`: `console`, `files`, …), sample toasts shown and the page
@@ -377,6 +377,25 @@ mod screenshot {
                     .update(cx, |app, _, cx| {
                         let view = app.shell()?.read(cx).page_view()?;
                         lodestone_host::pages::friends_demo(&view, &scene, cx);
+                        Some(())
+                    })
+                    .ok();
+                cx.background_executor()
+                    .timer(Duration::from_millis(500))
+                    .await;
+            }
+            // `--mods many|last|pack|few[-end]`: sample mods on the Mods tab's Installed view
+            // (with `--tab mods --fake-instance`)
+            if let Some(scene) = arg_after("--mods") {
+                gpui::AppContext::update_window(cx, window.into(), |_, window, cx| {
+                    window.refresh();
+                    window.draw(cx).clear(cx);
+                })
+                .ok();
+                window
+                    .update(cx, |app, _, cx| {
+                        let view = app.shell()?.read(cx).page_view()?;
+                        lodestone_host::pages::mods_demo(&view, &scene, cx);
                         Some(())
                     })
                     .ok();

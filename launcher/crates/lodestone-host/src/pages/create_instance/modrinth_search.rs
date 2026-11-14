@@ -22,8 +22,7 @@ use launcher_core::cores::admin::{
 };
 use lodestone_ui::{
     components::{
-        Accessible as _, Checkbox, Dropdown, Icon, IconButton, KeyboardFocus as _, LoadingDots,
-        TextInput,
+        Accessible as _, Checkbox, Dropdown, Icon, KeyboardFocus as _, LoadingDots, TextInput,
         settings::{popover_panel, select_button},
     },
     theme::{colors, ink, px, radius, text, weights},
@@ -33,9 +32,10 @@ use super::Load;
 use crate::{
     i18n::{InstancesMsg as M, t, tr},
     instance_icons,
+    pages::pager,
 };
 
-const PAGE_SIZE: u32 = 20;
+const PAGE_SIZE: u32 = pager::PAGE_SIZE as u32;
 const PAUSE: Duration = Duration::from_millis(300);
 
 /// A project picked from the results, or from a link.
@@ -649,34 +649,12 @@ impl Render for ModrinthSearchView {
                     .flex_col()
                     .gap(px(8.))
                     .children(cards)
-                    .child(
-                        div()
-                            .flex()
-                            .flex_row()
-                            .items_center()
-                            .justify_center()
-                            .gap(px(12.))
-                            .pt(px(4.))
-                            .text_size(text::MEDIUM)
-                            .text_color(ink::muted())
-                            .child(
-                                IconButton::new("previous-page", Icon::ChevronLeft)
-                                    .label(t(M::PreviousPage))
-                                    .disabled(page == 0)
-                                    .on_click(cx.listener(move |this, _, _, cx| {
-                                        this.set_page(page.saturating_sub(1), cx)
-                                    })),
-                            )
-                            .child(tr!(M::SearchPage, page = page + 1, total = total_pages))
-                            .child(
-                                IconButton::new("next-page", Icon::ChevronRight)
-                                    .label(t(M::NextPage))
-                                    .disabled(page + 1 >= total_pages)
-                                    .on_click(cx.listener(move |this, _, _, cx| {
-                                        this.set_page(page + 1, cx)
-                                    })),
-                            ),
-                    )
+                    .child(pager::pager(
+                        page as usize,
+                        total_pages as usize,
+                        |this: &mut Self, page, cx| this.set_page(page as u32, cx),
+                        cx,
+                    ))
                     .into_any_element()
             }
         };
