@@ -117,9 +117,8 @@ impl ServerLayout {
     /// `level_name`, or one like `worlds/survival`), the layout gets a level no top-level
     /// name has (see [`ServerLayout::unused_level`]), so every file keeps its disk path.
     ///
-    /// The core's backups, its content images and the reader of its schema-1 backups
-    /// (`legacy::core_backup`) all decide a server's worlds this way, so a backup and the
-    /// image converted from it agree.
+    /// The core's backups and its content images both decide a server's worlds this way,
+    /// so a backup and the content image it links to agree.
     pub fn discover(
         level_name: Option<&str>,
         top_names: &BTreeSet<String>,

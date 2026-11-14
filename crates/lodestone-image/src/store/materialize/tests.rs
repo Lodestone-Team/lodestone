@@ -441,7 +441,7 @@ fn modes_are_applied() {
     assert_eq!(mode("ro.txt"), 0o644);
     // Setuid never comes from an image.
     assert_eq!(mode("start.sh"), 0o755);
-    // Even mode 0 is owner-writable (and the v1 snapshot reader never gives 0).
+    // Even mode 0 is owner-writable.
     assert_eq!(mode("unreadable.txt"), 0o200);
     assert_eq!(placed_mode(0o4755), 0o755);
     assert_eq!(placed_mode(0o444), 0o644);

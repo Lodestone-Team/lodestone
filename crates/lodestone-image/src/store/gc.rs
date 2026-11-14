@@ -1,15 +1,15 @@
 //! Garbage collection: deleting the objects and chunks no manifest uses.
 //!
 //! Mark and sweep. Every manifest under `images/` is read; the objects its entries and
-//! settings name are live (a whole file in `objects/`, a chunk list in `lists/`, or both),
+//! settings name are live (a whole file in `objects/` or a chunk list in `lists/`),
 //! and so are the chunks of every live chunk list. Then every whole object, list and chunk
 //! that isn't live is deleted, along with temporary files a crash left.
 //!
 //! It never guesses:
 //!
 //! - If any manifest can't be read or parsed, or has a schema other than this version's
-//!   (a newer Lodestone wrote it, or it is from before images), nothing is deleted: its
-//!   objects can't be told apart from garbage.
+//!   (a newer Lodestone wrote it), nothing is deleted: its objects can't be told apart
+//!   from garbage.
 //! - If a live chunk list can't be read, no chunk is deleted (its chunks are unknown);
 //!   unused objects still are.
 //! - Whether a live object has a chunk list is decided from the store, never from the
@@ -40,54 +40,16 @@
 //!   minutes old then, and a remembered claim vouches for at most five minutes more, so it
 //!   is still within the grace counted back from any collection that started before the
 //!   save.
-//! - Writers that don't claim are held off by the collection lock. The formats images
-//!   replace share the folder and still write there until they are retired (the
-//!   Launcher's snapshot store until M5, the core's schema-1 backups until M2), and they
-//!   neither touch an object they reuse nor give a clone a new time, so the claims can't
-//!   protect what they are about to name. Such a writer holds
-//!   [`Store::hold_off_collection`] (a shared lock on `images/collection.lock`) from
-//!   before it first relies on any object being in the store until the manifest naming
-//!   those objects is saved, without letting go in between (as between a live backup's
-//!   prefetch and its final scan). Relying covers more than storing: an existence check
-//!   that skips storing a file, a stat-cache hit, and an entry carried over from an
-//!   earlier manifest all count (the core's `Store::scan_with`, with its `object_present`
-//!   checks, and `carry_over_unlistable`), as `Store::claim_object` covers this store's
-//!   own stat cache. A collection
+//! - A caller that relies on objects being in the store without claiming them holds
+//!   collections off instead ([`Store::hold_off_collection`], a shared lock on
+//!   `images/collection.lock`): reading an image's files while its manifest may be deleted
+//!   meanwhile (a restore from a backup that retention could prune), say. A collection
 //!   holds the same lock exclusively for its whole run, from before it reads any manifest
-//!   until its last deletion. The objects of older manifests are read only inside that
-//!   hold ([`Store::gc_with_older_formats`] calls the caller's reader once it has the
-//!   lock), so every older manifest a collection doesn't read was saved after it ended,
-//!   by a writer that started after it ended too, and nothing it deleted was there for
-//!   that writer to reuse. The lock is an operating-system file lock, so it holds across
-//!   processes and threads, and it is released if a process dies. A thread that holds the
-//!   shared lock must not start a collection, and a collection's `read_older` must not
-//!   take the shared lock: either waits for itself. Released programs don't take the
-//!   lock, so a released writer (an older Launcher, say) running on the same folder at the
-//!   same time as a new collection isn't protected; that is accepted, as two launchers on
-//!   one data folder already are.
-//! - Lock order: an older format's own store lock (the Launcher's in-process `store_lock`,
-//!   the core's backups `store_lock`) is always taken before the collection lock, never
-//!   while holding it. A writer takes its store's lock (shared, `sharing`) and then
-//!   [`Store::hold_off_collection`]; a collection that needs its store's lock exclusively
-//!   (`alone`) to read the older manifests takes it around
-//!   [`Store::gc_with_older_formats`], not inside `read_older`. The other order deadlocks:
-//!   a writer with the store lock shared waiting for the file lock, and the collection
-//!   with the file lock waiting for the store lock's exclusive side.
-//! - Converting an older manifest to an image and its rest is such a writer too: the
-//!   objects only the rest names (files the image withholds, files beside a Launcher game
-//!   folder) are never claimed, since saving the image claims only its entries, and they
-//!   are usually old (legacy objects, clones with the source's time). The converter holds
-//!   [`Store::hold_off_collection`] from before it reads the old manifest until the image
-//!   is saved, the rest is durably written and the old manifest is deleted. A collection
-//!   then sees either the old manifest or the rest, whichever order its reader reads them
-//!   in.
-//! - [`Store::gc`] is for a folder no older format writes to and that has no older
-//!   manifest and no rest (rests count as older manifests): it refuses, deleting nothing,
-//!   while an older manifest is there (a `.json` in a folder under `servers/` or
-//!   `instances/` other than the guard's), since it can't know what that names. It can't
-//!   see rests kept anywhere else, so a store that keeps rests always collects with
-//!   [`Store::gc_with_older_formats`], whose reader returns the rests' objects, even once
-//!   every old manifest is converted.
+//!   until its last deletion, so two collections never run at once either. The lock is an
+//!   operating-system file lock, so it holds across processes and threads, and it is
+//!   released if a process dies. A thread that holds the shared lock must not start a
+//!   collection: it would wait for itself.
+//! - Only manifests mark: the store's folder holds nothing else that names objects.
 
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -147,9 +109,6 @@ impl Default for GcOptions {
         }
     }
 }
-
-/// What reads the objects older formats' manifests name, inside a collection's hold.
-type ReadOlder<'a> = Box<dyn FnOnce() -> Result<HashSet<String>, GcError> + 'a>;
 
 /// The collection lock's file, in `images/` (see the module).
 pub const COLLECTION_LOCK: &str = "collection.lock";
@@ -226,20 +185,12 @@ struct MarkClient {
 }
 
 impl Store {
-    /// Holds collections off until the hold is dropped, for a writer that stores objects
-    /// in this folder without claiming them (an older format's writer; see the module):
-    /// take it before first relying on any object being in the store (storing one, or
-    /// skipping a store because it is there: an existence check, a stat-cache hit, an
-    /// entry carried over from an earlier manifest) and keep it, without letting go
-    /// between passes, until the manifest naming those objects is saved. A conversion of
-    /// an older manifest to an image and its rest holds it from before reading the old
-    /// manifest until the image is saved, the rest is durably written and the old manifest
-    /// is deleted. Waits for a collection that is running. Many writers can hold it at
-    /// once. Take the older format's own store lock first, if it has one (see the module's
-    /// lock order). Never take it inside [`Store::gc_with_older_formats`]' reader, which
-    /// runs while the collection holds the lock: it would wait forever.
+    /// Holds collections off until the hold is dropped, for a caller that relies on
+    /// objects being in the store without claiming them (see the module): reading the files
+    /// of an image whose manifest may be deleted meanwhile, say. Waits for a collection
+    /// that is running. Many callers can hold it at once. A thread that holds it must not
+    /// start a collection, which would wait for it forever.
     pub fn hold_off_collection(&self) -> Result<CollectionHold, StoreError> {
-        self.ensure_guard()?;
         let file = self
             .open_collection_lock()
             .map_err(super::io_err("Failed to open the store's collection lock"))?;
@@ -259,38 +210,9 @@ impl Store {
             .open(dir.join(COLLECTION_LOCK))
     }
 
-    /// Deletes the objects and chunks no manifest uses (see the module documentation), in
-    /// a folder no older format writes to and that keeps no older manifest and no rest of
-    /// one: refuses while an older format's manifest is in a folder under `servers/` or
-    /// `instances/`, but can't see rests, so a store that keeps rests (wherever it keeps
-    /// them) always uses [`Store::gc_with_older_formats`]. Waits for writers that hold
-    /// collections off ([`Store::hold_off_collection`]).
+    /// Deletes the objects and chunks no manifest uses (see the module documentation).
+    /// Waits for callers that hold collections off ([`Store::hold_off_collection`]).
     pub fn gc(&self, options: &GcOptions) -> Result<GcReport, GcError> {
-        self.collect(options, None)
-    }
-
-    /// [`Store::gc`] in a folder older formats share: `read_older` returns every object
-    /// their manifests (and the rests of those replaced by images) name, by SHA-256, or
-    /// refuses. It is called once the collection holds the lock that holds those formats'
-    /// writers off, so nothing it doesn't see can be saved until the collection ends. It
-    /// must not take [`Store::hold_off_collection`] on this store (directly or through
-    /// anything it calls): the collection already holds the lock, so it would wait forever.
-    /// Nor may it take the older format's own store lock, which a writer may hold while it
-    /// waits for the collection to end: take that lock (exclusively, if reading needs it)
-    /// around this call instead (see the module's lock order).
-    pub fn gc_with_older_formats(
-        &self,
-        options: &GcOptions,
-        read_older: impl FnOnce() -> Result<HashSet<String>, GcError>,
-    ) -> Result<GcReport, GcError> {
-        self.collect(options, Some(Box::new(read_older)))
-    }
-
-    fn collect(
-        &self,
-        options: &GcOptions,
-        read_older: Option<ReadOlder<'_>>,
-    ) -> Result<GcReport, GcError> {
         let options = &GcOptions {
             grace: options.grace.max(min_grace()),
             ..options.clone()
@@ -303,34 +225,18 @@ impl Store {
             let what = what.to_string();
             move |source| GcError::Io { what, source }
         };
-        // The lock file is a write to the folder: the guard goes first, as for any.
-        self.ensure_guard().map_err(|e| GcError::Io {
-            what: "Failed to write the store's downgrade guard".into(),
-            source: io::Error::other(e.to_string()),
-        })?;
         let lock = self
             .open_collection_lock()
             .map_err(io("Failed to open the store's collection lock"))?;
         lock.lock()
             .map_err(io("Failed to take the store's collection lock"))?;
-        let older = match read_older {
-            Some(read) => read()?,
-            None => {
-                self.refuse_older_manifests()?;
-                HashSet::new()
-            }
-        };
         // What is new is judged against this, taken before any manifest is read.
         let started = SystemTime::now();
         let mut report = GcReport::default();
-        // Every size each live object is named with; objects only older formats name
-        // have none. Filled as each manifest is read, so memory follows the objects, not
-        // the manifests (backups share most of theirs).
+        // Every size each live object is named with. Filled as each manifest is read, so
+        // memory follows the objects, not the manifests (backups share most of theirs).
         let mut sizes: HashMap<String, Vec<u64>> = HashMap::new();
         self.mark_manifests(&mut sizes, &mut report)?;
-        for sha256 in older {
-            sizes.entry(sha256).or_default();
-        }
 
         let mut live_chunks: HashSet<String> = HashSet::new();
         let mut chunks_blocked: Option<String> = None;
@@ -397,43 +303,6 @@ impl Store {
         Ok(report)
     }
 
-    /// Refuses when an older format's manifest is in the folder (see the module).
-    fn refuse_older_manifests(&self) -> Result<(), GcError> {
-        for top in ["servers", "instances"] {
-            let top = self.root.join(top);
-            let refuse = |path: &Path, why: String| GcError::Refused {
-                path: path.display().to_string(),
-                why,
-            };
-            let folders = match fs::read_dir(&top) {
-                Ok(folders) => folders,
-                Err(e) if e.kind() == io::ErrorKind::NotFound => continue,
-                Err(e) => return Err(refuse(&top, format!("can't be listed ({e})"))),
-            };
-            for folder in folders {
-                let folder = folder.map_err(|e| refuse(&top, format!("can't be listed ({e})")))?;
-                if folder.file_name() == super::guard::GUARD_FOLDER
-                    || !folder.file_type().is_ok_and(|t| t.is_dir())
-                {
-                    continue;
-                }
-                let files = fs::read_dir(folder.path())
-                    .map_err(|e| refuse(&folder.path(), format!("can't be listed ({e})")))?;
-                for file in files.flatten() {
-                    if file.path().extension().is_some_and(|x| x == "json") {
-                        return Err(refuse(
-                            &file.path(),
-                            "is an older format's manifest; collect with \
-                             Store::gc_with_older_formats"
-                                .into(),
-                        ));
-                    }
-                }
-            }
-        }
-        Ok(())
-    }
-
     /// A claim this store remembers vouches for an object only while no collection could
     /// have taken it ([`MIN_GRACE`]); one that did delete files here, with a test's shorter
     /// grace, say, makes this store claim again.
@@ -491,18 +360,14 @@ impl Store {
 
     /// The chunk list of the live object `sha256`, if the store has one (its chunks are
     /// live), and whether a manifest names it with a size neither its whole object nor its
-    /// list has (`named`: the sizes, empty when only an older format names it). Decided
-    /// from the store, so no name can hide a list's chunks. An error when the list is there
-    /// and can't be read.
+    /// list has (`named`: the sizes manifests give it). Decided from the store, so no name
+    /// can hide a list's chunks. An error when the list is there and can't be read.
     fn live_object(
         &self,
         sha256: &str,
         named: &[u64],
     ) -> Result<(Option<ChunkList>, bool), String> {
         let list = self.read_list(sha256)?;
-        if named.is_empty() {
-            return Ok((list, false));
-        }
         let whole = self
             .object_path(sha256)
             .ok()

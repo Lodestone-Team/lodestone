@@ -37,8 +37,8 @@ pub(crate) use probe::{whole_number_field, ProbeError};
 
 pub use read::MAX_SETTING_ITEMS;
 pub(crate) use read::{
-    bounded_list, capped_fields, capped_value, entry_list, null_as_default, setting_list,
-    setting_map, ENTRY_FIELDS, IMAGE_FIELDS,
+    bounded_list, capped_fields, entry_list, null_as_default, setting_list, setting_map,
+    ENTRY_FIELDS, IMAGE_FIELDS,
 };
 pub use read::{
     prescan, UnknownBudget, ENTRIES_UNKNOWN, ENTRY_MAP_COST, ENTRY_UNKNOWN, IMAGE_UNKNOWN,
@@ -81,7 +81,7 @@ pub enum ManifestError {
     Json(String),
     #[error("the manifest has schema {found}, newer than schema {SCHEMA} that this version reads")]
     NewerSchema { found: u64 },
-    #[error("the manifest has schema {found}; older formats have their own readers")]
+    #[error("the manifest has schema {found}, older than schema {SCHEMA}, the first of images")]
     OlderSchema { found: u64 },
     #[error("the manifest is invalid: {0}")]
     Invalid(String),
@@ -212,7 +212,15 @@ impl Source {
     /// project and version come from the URL. `None` for anything else, which callers
     /// record as an `object`. The entry still needs the file's `sha512`.
     pub fn modrinth_from_url(url: &str) -> Option<Source> {
-        let (project, version) = crate::legacy::core_modpack::modrinth_cdn_ids(url)?;
+        let rest = url.strip_prefix(MODRINTH_CDN)?.strip_prefix("data/")?;
+        let mut parts = rest.split('/');
+        let project = parts.next().filter(|p| !p.is_empty())?;
+        (parts.next()? == "versions").then_some(())?;
+        let version = parts.next().filter(|v| !v.is_empty())?;
+        parts.next().filter(|file| !file.is_empty())?;
+        if url.chars().any(|c| c.is_control() || c.is_whitespace()) {
+            return None;
+        }
         Some(Source::Modrinth {
             project: project.to_string(),
             version: version.to_string(),
@@ -1285,6 +1293,10 @@ pub(crate) mod tests {
             "https://example.com/data/a/versions/b/x.jar",
             "http://cdn.modrinth.com/data/a/versions/b/x.jar",
             "https://cdn.modrinth.com/data/a/versions/b/x\ny.jar",
+            "https://cdn.modrinth.com/data/AANobbMI/files/u1OtTp2l/x.jar",
+            "https://cdn.modrinth.com.evil.example/data/a/versions/b/x.jar",
+            "https://cdn.modrinth.com/data//versions/b/x.jar",
+            "https://cdn.modrinth.com/data/a/versions/b/x y.jar",
             "",
         ] {
             assert_eq!(Source::modrinth_from_url(other), None, "{other:?}");

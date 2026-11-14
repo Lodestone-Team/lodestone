@@ -773,7 +773,7 @@ pub(crate) mod tests {
     /// marks included: the two views and the local entries always give the image back.
     #[test]
     fn lossless_for_random_images() {
-        let mut rng = crate::legacy::TestRng::new(0x1055_1e55);
+        let mut rng = crate::store::cdc::tests::TestRng::new(0x1055_1e55);
         let paths = [
             "mods/a.jar",
             "mods/b.jar",
@@ -815,7 +815,7 @@ pub(crate) mod tests {
             Some(EnvValue::Unsupported),
             Some(EnvValue::Unknown),
         ];
-        let side_values = |rng: &mut crate::legacy::TestRng| {
+        let side_values = |rng: &mut crate::store::cdc::tests::TestRng| {
             (rng.below(3) > 0).then(|| SideValues::new(*rng.pick(&values), *rng.pick(&values)))
         };
         for case in 0..3000 {

@@ -34,8 +34,8 @@
 //! - [`Snapshot::unmapped`] lists the regular files withheld as `bad_name` (a name no
 //!   canonical path has, or a file the layout can't place back as itself, such as a vanilla
 //!   `DIM-1` left in a Paper level or `options.txt` on a server), with their disk paths.
-//!   An image can't name them, but a backup must still keep them: the core's schema-1
-//!   backups did, and a restore of everything would otherwise delete them. The files inside
+//!   An image can't name them, but a backup must still keep them, or a restore of
+//!   everything would delete them. The files inside
 //!   a folder withheld for its name are listed too, though the folder is withheld once.
 
 use std::collections::BTreeSet;

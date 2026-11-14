@@ -2,8 +2,7 @@
 //!
 //! A large file's chunks are stored under their own SHA-256 in `chunks/`, and the list of
 //! them under the file's SHA-256 in `lists/` (never in `objects/`, which only ever holds a
-//! file's own bytes: released Launchers share that folder and read any file there as the
-//! file it names). A list is plain text, one line per chunk, and has exactly one spelling:
+//! file's own bytes, so the store never has to tell a list from a file there). A list is plain text, one line per chunk, and has exactly one spelling:
 //!
 //! ```text
 //! lodestone-chunks 1

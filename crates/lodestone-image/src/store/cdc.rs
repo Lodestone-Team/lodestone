@@ -193,6 +193,11 @@ pub(crate) mod tests {
             self.next_u64() % n.max(1)
         }
 
+        /// One of `items` (not empty).
+        pub(crate) fn pick<'a, T>(&mut self, items: &'a [T]) -> &'a T {
+            &items[self.below(items.len() as u64) as usize]
+        }
+
         pub(crate) fn bytes(&mut self, len: usize) -> Vec<u8> {
             let mut out = Vec::with_capacity(len + 8);
             while out.len() < len {
