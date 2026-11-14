@@ -186,6 +186,9 @@ pub fn text(message: M) -> &'static str {
         M::SnapshotModsWarning => {
             "其中包含 {count} 个模组：它们是游戏启动时会运行的程序。只使用来自你信任的人的快照。"
         }
+        M::SnapshotLaunchSettingsWarning => {
+            "它的实例设置会改变游戏的启动方式：Java、Java 参数、环境变量或内存。这些设置也能运行程序，所以只有选择了“实例设置”才会使用它们。只为来自你信任的人的快照选择它。"
+        }
         M::CreateInstanceButton => "创建实例",
         M::SnapshotGameRunning => "请先停止游戏。",
         M::ChooseSomething => "请至少选择一项。",
