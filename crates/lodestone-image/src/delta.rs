@@ -71,8 +71,70 @@ fn withheld_list<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<Withheld>
 /// A delta changes at most this many fields: each field of an image at most once.
 pub const MAX_CHANGES: usize = 64;
 
+impl FieldChange {
+    /// Which field it changes, to refuse a field changed twice.
+    fn field(&self) -> std::mem::Discriminant<FieldChange> {
+        std::mem::discriminant(self)
+    }
+}
+
+/// Whether `changes` changes a field twice.
+fn changes_a_field_twice(changes: &[FieldChange]) -> bool {
+    let mut seen = Vec::with_capacity(changes.len());
+    changes.iter().any(|change| {
+        let field = change.field();
+        let repeated = seen.contains(&field);
+        seen.push(field);
+        repeated
+    })
+}
+
+/// `deserialize_with` for a delta's changes: at most [`MAX_CHANGES`], each field at most
+/// once, refused as soon as a field comes twice. Each change's lists are bounded as one
+/// image's are, so a delta holds at most about two images' worth of lists, not
+/// [`MAX_CHANGES`] times that.
 fn changes_list<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<FieldChange>, D::Error> {
-    bounded_list::<D, FieldChange, MAX_CHANGES>(d)
+    use serde::de::{self, SeqAccess, Visitor};
+
+    struct ChangesVisitor;
+
+    impl<'de> Visitor<'de> for ChangesVisitor {
+        type Value = Vec<FieldChange>;
+
+        fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+            write!(f, "a list of at most {MAX_CHANGES} field changes")
+        }
+
+        fn visit_unit<E: de::Error>(self) -> Result<Self::Value, E> {
+            Ok(Vec::new())
+        }
+
+        fn visit_none<E: de::Error>(self) -> Result<Self::Value, E> {
+            Ok(Vec::new())
+        }
+
+        fn visit_some<D: serde::Deserializer<'de>>(self, d: D) -> Result<Self::Value, D::Error> {
+            d.deserialize_seq(self)
+        }
+
+        fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
+            let mut changes: Vec<FieldChange> = Vec::new();
+            while let Some(change) = seq.next_element::<FieldChange>()? {
+                if changes.len() == MAX_CHANGES {
+                    return Err(de::Error::custom(format!(
+                        "more than {MAX_CHANGES} field changes"
+                    )));
+                }
+                if changes.iter().any(|c| c.field() == change.field()) {
+                    return Err(de::Error::custom("a field is changed twice"));
+                }
+                changes.push(change);
+            }
+            Ok(changes)
+        }
+    }
+
+    d.deserialize_option(ChangesVisitor)
 }
 
 /// The changes from the image `from` to the image `to`. Read one that comes from elsewhere
@@ -233,6 +295,12 @@ pub fn apply(from: &Image, delta: &Delta) -> Result<Image, DeltaError> {
             expected: delta.from.clone(),
             actual: from.id.clone(),
         });
+    }
+    if changes_a_field_twice(&delta.changes) {
+        // Read deltas refuse this already; one built in code would keep the last silently.
+        return Err(DeltaError::Invalid(
+            "the delta changes a field twice".into(),
+        ));
     }
     let mut entries: BTreeMap<CanonicalPath, Entry> = from
         .entries
@@ -668,5 +736,61 @@ mod tests {
             applied.verify().unwrap();
             assert_eq!(delta.is_empty(), a == b);
         }
+    }
+
+    #[test]
+    fn unknown_fields_never_take_a_known_fields_name() {
+        // An `extra` key named `entries` would be serialized after the real entries and
+        // replace them in the canonical manifest: the id would hash a listing that isn't
+        // the image's, and the manifest couldn't be read back.
+        let a = content(&["mods/a.jar"]);
+        let entries = serde_json::to_value(&a.entries).unwrap();
+        let mut delta = diff(&a, &a);
+        delta.added.push(object("mods/evil.jar"));
+        delta.changes.push(FieldChange::Extra(BTreeMap::from([(
+            "entries".to_string(),
+            entries,
+        )])));
+        let json = serde_json::to_vec(&delta).unwrap();
+        let error = Delta::from_json(&json).unwrap_err().to_string();
+        assert!(error.contains("known field"), "{error}");
+        // Built in code, apply refuses it.
+        assert!(matches!(apply(&a, &delta), Err(DeltaError::Invalid(_))));
+        // Every known name, on the image and on an entry.
+        for name in ["kind", "side", "settings", "id", "schema"] {
+            let mut image = a.clone();
+            image.extra.insert(name.into(), Value::from("x"));
+            assert!(image.validate().is_err(), "{name}");
+        }
+        for name in ["path", "sha256", "env", "modified"] {
+            let mut image = a.clone();
+            image.entries[0].extra.insert(name.into(), Value::from("x"));
+            assert!(image.validate().is_err(), "{name}");
+        }
+        // Names nobody knows are still kept.
+        let mut image = a.clone();
+        image.extra.insert("future".into(), Value::from("x"));
+        image.entries[0]
+            .extra
+            .insert("future".into(), Value::from(1));
+        image.validate().unwrap();
+    }
+
+    #[test]
+    fn a_delta_changes_each_field_at_most_once() {
+        let a = content(&["mods/a.jar"]);
+        let b = content(&["mods/a.jar"]);
+        let mut delta = diff(&a, &b);
+        delta.changes.push(FieldChange::Label(Some("one".into())));
+        delta.changes.push(FieldChange::Label(Some("two".into())));
+        let json = serde_json::to_vec(&delta).unwrap();
+        let error = Delta::from_json(&json).unwrap_err().to_string();
+        assert!(error.contains("changed twice"), "{error}");
+        assert!(matches!(apply(&a, &delta), Err(DeltaError::Invalid(_))));
+        // Different fields are fine.
+        delta.changes.pop();
+        delta.changes.push(FieldChange::Created(5));
+        let read = Delta::from_json(&serde_json::to_vec(&delta).unwrap()).unwrap();
+        assert_eq!(read.changes.len(), 2);
     }
 }

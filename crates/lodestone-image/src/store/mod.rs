@@ -92,6 +92,10 @@ pub const MAX_INSTANCE_ID: usize = 100;
 /// An object reused by a write is touched when it is older than this, so a garbage
 /// collection keeps it for the rest of its hour of grace ([`gc`]).
 pub(crate) const TOUCH_AFTER: Duration = Duration::from_secs(600);
+/// Smaller files are written from the bytes already read rather than cloned: a clone (then
+/// a check of what it holds) costs more than writing a few blocks, and shares at most those
+/// few blocks.
+const CLONE_FROM: u64 = 64 << 10;
 /// A claim this store made this recently needn't be made again when the manifest is saved:
 /// what it claimed was touched (or new) then, so a collection, whose grace is at least
 /// twice [`TOUCH_AFTER`], keeps it for longer than this and the save after.
@@ -99,6 +103,13 @@ const CLAIM_STILL_GOOD: Duration = Duration::from_secs(300);
 /// Recent claims remembered at most; past this, saving claims everything again.
 const MAX_REMEMBERED_CLAIMS: usize = 2_000_000;
 const STAT_CACHE_FILE: &str = "stat-cache.json";
+
+/// A claimed object: its SHA-256 as bytes (half a hex string's size) and its size.
+type ClaimKey = ([u8; 32], u64);
+
+fn claim_key(sha256: &str, size: u64) -> Option<ClaimKey> {
+    Some((crate::hex::sha256_bytes(sha256)?, size))
+}
 
 /// Asked between pieces of work; true stops it with [`StoreError::Cancelled`].
 pub type Cancel<'a> = &'a (dyn Fn() -> bool + Sync);
@@ -249,7 +260,7 @@ pub struct Store {
     /// Objects this value claimed lately, by hash and size, and when: saving a manifest
     /// right after a snapshot doesn't claim them all again. Timed by the wall clock, as
     /// objects age, not by `Instant`, which stops while a Mac sleeps.
-    claimed: Mutex<HashMap<(String, u64), SystemTime>>,
+    claimed: Mutex<HashMap<ClaimKey, SystemTime>>,
     /// Whether the downgrade guard is known to be in place.
     guarded: AtomicBool,
 }
@@ -400,8 +411,10 @@ impl Store {
             if claimed.len() >= MAX_REMEMBERED_CLAIMS {
                 claimed.retain(|_, when| still_good(*when, now));
             }
-            if claimed.len() < MAX_REMEMBERED_CLAIMS {
-                claimed.insert((sha256.to_string(), size), now);
+            if let Some(key) =
+                claim_key(sha256, size).filter(|_| claimed.len() < MAX_REMEMBERED_CLAIMS)
+            {
+                claimed.insert(key, now);
             }
         }
     }
@@ -410,12 +423,28 @@ impl Store {
     /// [`CLAIM_STILL_GOOD`] (a snapshot that took it from its stat cache, say).
     fn claim_for_save(&self, sha256: &str, size: u64) -> bool {
         let now = SystemTime::now();
-        let recent = self.claimed.lock().ok().is_some_and(|claimed| {
-            claimed
-                .get(&(sha256.to_string(), size))
-                .is_some_and(|when| still_good(*when, now))
+        let recent = claim_key(sha256, size).is_some_and(|key| {
+            self.claimed
+                .lock()
+                .ok()
+                .is_some_and(|claimed| claimed.get(&key).is_some_and(|when| still_good(*when, now)))
         });
         recent || self.claim_object(sha256, size)
+    }
+
+    /// Forgets the claims of objects a saved manifest names: they were only kept so the save
+    /// needn't claim them again, so a long-lived store holds none between snapshots.
+    fn forget_claims_of(&self, image: &Image) {
+        if let Ok(mut claimed) = self.claimed.lock() {
+            if claimed.is_empty() {
+                return;
+            }
+            for entry in &image.entries {
+                if let Some(key) = claim_key(&entry.sha256, entry.size) {
+                    claimed.remove(&key);
+                }
+            }
+        }
     }
 
     /// Forgets claims too old to trust, so the map stays small between snapshots.
@@ -675,7 +704,7 @@ impl Store {
     }
 
     /// Stores a whole file's bytes under `sha256` (their hash), cloning them from `source`
-    /// where that is possible and checks out.
+    /// where that is possible and checks out (files of [`CLONE_FROM`] bytes or more).
     fn write_whole(
         &self,
         sha256: &str,
@@ -686,7 +715,10 @@ impl Store {
         if self.reuse(&path, bytes.len() as u64) {
             return Ok(0);
         }
-        if cfg!(target_os = "macos") && self.encoding == Encoding::Raw {
+        if cfg!(target_os = "macos")
+            && self.encoding == Encoding::Raw
+            && bytes.len() as u64 >= CLONE_FROM
+        {
             if let Some(source) = source {
                 if let Some(added) = self.try_clone_in(source, sha256, bytes.len() as u64)? {
                     return Ok(added);
@@ -806,18 +838,31 @@ impl Store {
         Ok(fs::metadata(&path).map(|m| m.len()).unwrap_or(0))
     }
 
-    /// Makes what this store wrote since the last call durable, so a manifest written next
-    /// never points at objects a power cut could lose: hands the folders objects were
-    /// renamed into to the drive, then flushes the drive's cache once, which makes the whole
-    /// batch of files durable (`fsx::write_out`, `fsx::full_flush`).
-    /// [`Store::save_manifest`] calls it first.
+    /// Makes the store's objects durable, so a manifest written next never points at
+    /// objects a power cut could lose: hands the folders this value renamed objects into to
+    /// the drive, then flushes the drive's cache once, which makes the whole batch of files
+    /// durable (`fsx::write_out`, `fsx::full_flush`). [`Store::save_manifest`] calls it
+    /// first.
+    ///
+    /// The cache is flushed even when this value wrote nothing: a manifest may name objects
+    /// that another `Store` value, thread or process wrote and hasn't flushed yet (it found
+    /// them there and reused them), and those are only durable after a flush of the drive.
     pub fn sync(&self) -> Result<(), StoreError> {
         let dirs = match self.unsynced.lock() {
             Ok(mut unsynced) => std::mem::take(&mut *unsynced),
             Err(_) => BTreeSet::new(),
         };
         if dirs.is_empty() {
-            return Ok(());
+            // Through an area's folder, where a temporary file (Windows makes one to flush
+            // through) is swept if a crash leaves it. With no area there are no objects.
+            let Some(dir) = Area::ALL
+                .iter()
+                .map(|area| self.area_dir(*area))
+                .find(|dir| dir.is_dir())
+            else {
+                return Ok(());
+            };
+            return fsx::full_flush(&dir).map_err(io_err("Failed to flush the store"));
         }
         let areas: BTreeSet<Area> = dirs.iter().map(|(area, _)| *area).collect();
         let folders = dirs
@@ -1030,6 +1075,7 @@ impl Store {
             fsx::sync_dir(&self.images_dir())
                 .map_err(io_err("Failed to flush the image folder"))?;
         }
+        self.forget_claims_of(image);
         Ok(path)
     }
 

@@ -66,7 +66,10 @@ Decisions this builds on:
 Reading is forward compatible within a schema. Fields a reader doesn't know are kept (on
 the image and on each entry) and written back as they were, so the id still verifies.
 Numbers in such fields must be integers that fit 64 bits (signed or unsigned); any other
-number makes the manifest invalid, since a reader couldn't write it back as it was.
+number makes the manifest invalid, since a reader couldn't write it back as it was. A kept
+field can never have a known field's name (one built in code, or a delta's `extra` change):
+that image is invalid, since its manifest would hold the name twice and couldn't be read
+back, and its canonical form always uses the known field.
 Anywhere else (`game`, `producer`, `base`, a `source`, an `env`, a world, a withheld
 file) an unknown field makes the manifest invalid with an error naming it, so a new field
 there needs a new schema: dropping it would change the id, and the image would fail its
@@ -315,10 +318,11 @@ view(image, side, rules) = entries with env[side] ≠ unsupported that the side 
   they only never go from a server to players, so a change to them leaves the client
   view's id as it was. At any depth, the client view also leaves out disabled files (names
   ending in `.disabled`) and names starting with `.lodestone` (the core's
-  `mods/.lodestone_client_mods.json`), any letter case.
+  `mods/.lodestone_client_mods.json`), any letter case (folded like every guarding name,
+  so `.lodeſtone…` counts: NTFS upper-cases `ſ` to `S`).
 - A view of a view is that view filtered again by the same rules (for a view computed here,
-  the same view): a view received from elsewhere is checked by comparing its id with its
-  own view's.
+  the same view), its informational fields dropped as any view's are: a view received from
+  elsewhere is checked by comparing its id with its own view's.
 - A view keeps the image's base, game, `removed`, worlds, content link, excludes, withheld
   files and unknown fields, and none of its informational fields (`parent`, `created`,
   `producer`, `label`, entries' `modified`). World files go to both views, so the server
@@ -378,8 +382,10 @@ another image, paths that aren't where it says, a result whose id isn't `to`, an
 that isn't a valid image (a delta's entries are checked like any manifest's). `from` and
 `to` are empty only between unsealed images; a sealed image refuses a delta that leaves
 either out. A delta from elsewhere (a server's answer) is read like a manifest: its shape is
-checked first, its lists have the manifest's bounds (and at most 64 `changes`), and its
-entries' and `extra` change's unknown fields the same budgets.
+checked first, its lists have the manifest's bounds (and at most 64 `changes`, each field
+at most once, so a delta holds at most about two images' worth of lists), and its
+entries' and `extra` change's unknown fields the same budgets (an `extra` change naming a
+known field is refused).
 
 ## Store
 
@@ -439,7 +445,10 @@ Content-addressed, shared by every instance on one machine:
   the store's file system (which writes out every file and folder and flushes the drive);
   on Windows each file gets `NtFlushBuffersFileEx` without a cache flush and the batch one
   `FlushFileBuffers`, which flushes the volume (`FlushFileBuffers` per file where the first
-  isn't supported). Materializing a staging folder that is swapped in next ends the same way:
+  isn't supported). Saving a manifest flushes the drive's cache even when that store wrote
+  nothing itself: the objects it names may be ones another store value or process wrote
+  and hasn't flushed yet. Small files (under 64 KiB) are written from the bytes already
+  read, never cloned. Materializing a staging folder that is swapped in next ends the same way:
   each file and folder handed to the drive, one flush at the end. Saving a manifest checks that every
   object its `object` entries and stored files name is present (and touches it like a write
   that finds it, below), and fails if one isn't: an image never names what the store lost.
@@ -489,7 +498,8 @@ Content-addressed, shared by every instance on one machine:
   The grace is never under 20 minutes, twice the touch interval, or GC could take a file a
   claim found new enough not to touch. A save doesn't claim again what the same store
   claimed in the last 5 minutes by the wall clock (objects age by it; a monotonic clock
-  stops while a laptop sleeps). Objects only older
+  stops while a laptop sleeps), and forgets those claims once the manifest is written, so a
+  long-lived store holds none between snapshots. Objects only older
   formats use are passed in by the caller, which refuses the same way when it can't read
   those manifests.
 - Snapshots walk the folder with the side's disk layout. Files never recorded, outside a
@@ -499,7 +509,9 @@ Content-addressed, shared by every instance on one machine:
   syntax (`name` at any depth, `a/b` from the root, `*` within a part, `**` across parts,
   trailing `/` for folders); a pattern outside that syntax (a backslash, a leading `!`, an
   empty part) makes the manifest invalid, since a snapshot would ignore it and it would
-  claim to have left something out. Links are withheld as `symlink`; folders that can't be
+  claim to have left something out. Matching costs time linear in the walked paths' parts
+  times the patterns' size, however deep the folders: all patterns run as one automaton
+  over path parts, and the walk reuses each folder's state for what is in it. Links are withheld as `symlink`; folders that can't be
   listed, files that can't be read and things that aren't files as `unreadable`; names
   that aren't canonical, files the layout can't read back as themselves and files never
   placed on this side as `bad_name` (a folder with such a name once, not each file in

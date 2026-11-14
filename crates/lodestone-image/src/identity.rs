@@ -13,10 +13,20 @@
 //! escaped; everything else as UTF-8) and integers in decimal, which is the same on every
 //! platform.
 
-use serde_json::Value;
+//!
+//! The canonical form is written straight into the hasher, one entry at a time, and the
+//! image isn't copied when it is already normalized (as a read or sealed image is): hashing
+//! a manifest of a million entries costs memory for one entry, not for the manifest.
 
-use crate::hex::sha256_hex;
-use crate::manifest::Image;
+use std::cmp::Ordering;
+use std::io::Write;
+
+use serde::Serialize;
+use serde_json::Value;
+use sha2::{Digest, Sha256};
+
+use crate::hex::lower_hex;
+use crate::manifest::{Entry, Image, IMAGE_FIELDS};
 
 /// Top-level fields that are not part of the id.
 const INFORMATIONAL: [&str; 6] = [
@@ -41,75 +51,221 @@ pub enum IdentityError {
 
 /// The canonical manifest of `image`, the bytes its id is the hash of.
 pub fn canonical_bytes(image: &Image) -> Vec<u8> {
-    let mut normalized = image.clone();
-    normalized.normalize();
-    // An image is maps with string keys and plain values: it always becomes a JSON value.
-    let mut value = serde_json::to_value(&normalized).unwrap_or(Value::Null);
-    if let Value::Object(map) = &mut value {
-        for key in INFORMATIONAL {
-            map.remove(key);
-        }
-        if let Some(Value::Array(entries)) = map.get_mut("entries") {
-            for entry in entries {
-                if let Value::Object(entry) = entry {
-                    for key in ENTRY_INFORMATIONAL {
-                        entry.remove(key);
-                    }
-                }
-            }
+    let mut out = Vec::new();
+    write_image(image, &mut out);
+    out
+}
+
+/// The id `image` should have: the SHA-256 of [`canonical_bytes`], hashed as it is written.
+pub fn compute_id(image: &Image) -> String {
+    let mut hasher = Hashing(Sha256::new());
+    write_image(image, &mut hasher);
+    lower_hex(&hasher.0.finalize())
+}
+
+/// A hasher that takes writes.
+struct Hashing(Sha256);
+
+impl Write for Hashing {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.0.update(bytes);
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+/// One top-level field of the canonical form.
+enum Field<'a> {
+    /// A small field, as a JSON value.
+    Value(Value),
+    /// A borrowed unknown field.
+    Extra(&'a Value),
+    /// A list written one item at a time, in order.
+    Entries(Vec<&'a Entry>),
+    Strings(Vec<&'a str>),
+    Items(Vec<Value>),
+}
+
+/// `value` as JSON. An image is maps with string keys and plain values: it always becomes
+/// one.
+fn json<T: Serialize + ?Sized>(value: &T) -> Value {
+    serde_json::to_value(value).unwrap_or(Value::Null)
+}
+
+/// `items` sorted (stably) by `order` if they aren't already, and with repeats dropped when
+/// `dedup`: as [`Image::normalize`] leaves them, without copying the items.
+fn normalized<T: PartialEq>(
+    items: &[T],
+    order: impl Fn(&T, &T) -> Ordering,
+    dedup: bool,
+) -> Vec<&T> {
+    let mut out: Vec<&T> = items.iter().collect();
+    if !items.is_sorted_by(|a, b| order(a, b).is_le()) {
+        out.sort_by(|a, b| order(a, b));
+    }
+    if dedup {
+        out.dedup_by(|a, b| a == b);
+    }
+    out
+}
+
+/// Writes the canonical form of `image`, normalized as [`Image::normalize`] would, without
+/// copying it.
+fn write_image<W: Write>(image: &Image, out: &mut W) {
+    let mut settings = image.settings.clone();
+    settings.normalize();
+    let mut worlds: Vec<_> = image.worlds.iter().collect();
+    worlds.sort_by(|a, b| a.name.cmp(&b.name));
+    let mut excludes: Vec<&String> = image.excludes.iter().collect();
+    excludes.sort();
+    excludes.dedup();
+
+    let mut fields: Vec<(&str, Field)> = vec![
+        ("schema", Field::Value(json(&image.schema))),
+        ("kind", Field::Value(json(&image.kind))),
+        ("base", Field::Value(json(&image.base))),
+        ("game", Field::Value(json(&image.game))),
+        ("settings", Field::Value(json(&settings))),
+        (
+            "entries",
+            Field::Entries(normalized(
+                &image.entries,
+                |a, b| a.path.cmp(&b.path),
+                false,
+            )),
+        ),
+        (
+            "removed",
+            Field::Strings(
+                normalized(&image.removed, Ord::cmp, true)
+                    .into_iter()
+                    .map(|p| p.as_str())
+                    .collect(),
+            ),
+        ),
+        ("worlds", Field::Value(json(&worlds))),
+        ("content", Field::Value(json(&image.content))),
+        ("excludes", Field::Value(json(&excludes))),
+        (
+            "withheld",
+            Field::Items(
+                normalized(&image.withheld, Ord::cmp, true)
+                    .into_iter()
+                    .map(json)
+                    .collect(),
+            ),
+        ),
+        ("rules", Field::Value(json(&image.rules))),
+        ("side", Field::Value(json(&image.side))),
+    ];
+    debug_assert!(fields.iter().all(|(name, _)| IMAGE_FIELDS.contains(name)));
+    debug_assert_eq!(fields.len() + INFORMATIONAL.len(), IMAGE_FIELDS.len());
+    // An unknown field named after a known one is invalid ([`Image::validate`]); the known
+    // field wins here, so the id always hashes the image's own fields.
+    for (key, value) in &image.extra {
+        if !IMAGE_FIELDS.contains(&key.as_str()) {
+            fields.push((key, Field::Extra(value)));
         }
     }
-    let mut out = Vec::new();
-    write_canonical(&value, &mut out);
-    out
+    fields.retain(|(_, field)| {
+        !matches!(field, Field::Value(Value::Null) | Field::Extra(Value::Null))
+    });
+    fields.sort_by(|a, b| a.0.as_bytes().cmp(b.0.as_bytes()));
+
+    let _ = out.write_all(b"{");
+    for (i, (key, field)) in fields.iter().enumerate() {
+        if i > 0 {
+            let _ = out.write_all(b",");
+        }
+        write_string(key, out);
+        let _ = out.write_all(b":");
+        match field {
+            Field::Value(value) => write_canonical(value, out),
+            Field::Extra(value) => write_canonical(value, out),
+            Field::Entries(entries) => write_list(entries, out, |entry, out| {
+                write_entry(entry, out);
+            }),
+            Field::Strings(items) => write_list(items, out, |item, out| write_string(item, out)),
+            Field::Items(items) => write_list(items, out, |item, out| write_canonical(item, out)),
+        }
+    }
+    let _ = out.write_all(b"}");
+}
+
+fn write_list<T, W: Write>(items: &[T], out: &mut W, mut each: impl FnMut(&T, &mut W)) {
+    let _ = out.write_all(b"[");
+    for (i, item) in items.iter().enumerate() {
+        if i > 0 {
+            let _ = out.write_all(b",");
+        }
+        each(item, out);
+    }
+    let _ = out.write_all(b"]");
+}
+
+/// One entry, normalized and without its informational fields, built as a JSON value only
+/// while it is written.
+fn write_entry<W: Write>(entry: &Entry, out: &mut W) {
+    let sorted = entry.env_from.windows(2).all(|w| w[0] < w[1]);
+    let mut value = if sorted {
+        json(entry)
+    } else {
+        let mut entry = entry.clone();
+        entry.env_from.sort();
+        entry.env_from.dedup();
+        json(&entry)
+    };
+    if let Value::Object(map) = &mut value {
+        for key in ENTRY_INFORMATIONAL {
+            map.remove(key);
+        }
+    }
+    write_canonical(&value, out);
 }
 
 /// Writes `value` as compact JSON with sorted keys and without `null` object values. Sorts
 /// explicitly rather than trusting the map's order, which a serde_json feature turned on
 /// elsewhere in the build would change.
-fn write_canonical(value: &Value, out: &mut Vec<u8>) {
+fn write_canonical<W: Write>(value: &Value, out: &mut W) {
     match value {
-        Value::Null => out.extend_from_slice(b"null"),
-        Value::Bool(true) => out.extend_from_slice(b"true"),
-        Value::Bool(false) => out.extend_from_slice(b"false"),
-        Value::Number(n) => out.extend_from_slice(n.to_string().as_bytes()),
-        Value::String(s) => write_string(s, out),
-        Value::Array(items) => {
-            out.push(b'[');
-            for (i, item) in items.iter().enumerate() {
-                if i > 0 {
-                    out.push(b',');
-                }
-                write_canonical(item, out);
-            }
-            out.push(b']');
+        Value::Null => {
+            let _ = out.write_all(b"null");
         }
+        Value::Bool(true) => {
+            let _ = out.write_all(b"true");
+        }
+        Value::Bool(false) => {
+            let _ = out.write_all(b"false");
+        }
+        Value::Number(n) => {
+            let _ = write!(out, "{n}");
+        }
+        Value::String(s) => write_string(s, out),
+        Value::Array(items) => write_list(items, out, |item, out| write_canonical(item, out)),
         Value::Object(map) => {
             let mut fields: Vec<(&String, &Value)> =
                 map.iter().filter(|(_, v)| !v.is_null()).collect();
             fields.sort_by(|a, b| a.0.as_bytes().cmp(b.0.as_bytes()));
-            out.push(b'{');
+            let _ = out.write_all(b"{");
             for (i, (key, item)) in fields.into_iter().enumerate() {
                 if i > 0 {
-                    out.push(b',');
+                    let _ = out.write_all(b",");
                 }
                 write_string(key, out);
-                out.push(b':');
+                let _ = out.write_all(b":");
                 write_canonical(item, out);
             }
-            out.push(b'}');
+            let _ = out.write_all(b"}");
         }
     }
 }
 
-fn write_string(text: &str, out: &mut Vec<u8>) {
-    // Writing a string into a Vec can't fail.
+fn write_string<W: Write>(text: &str, out: &mut W) {
+    // Writing a string into a Vec or a hasher can't fail.
     let _ = serde_json::to_writer(&mut *out, text);
-}
-
-/// The id `image` should have: the SHA-256 of [`canonical_bytes`].
-pub fn compute_id(image: &Image) -> String {
-    sha256_hex(&canonical_bytes(image))
 }
 
 impl Image {
@@ -151,6 +307,7 @@ impl Image {
 mod tests {
     use super::*;
     use crate::env::{Env, EnvFrom, EnvValue};
+    use crate::hex::sha256_hex;
     use crate::manifest::tests::{fabric, object, path};
     use crate::manifest::{App, Kind, Producer, Source, Withheld, WithheldReason, World};
     use crate::settings::{Op, ServerSettings, Settings};
@@ -373,5 +530,67 @@ mod tests {
         value.as_object_mut().unwrap().remove("removed");
         let read = Image::from_json(&serde_json::to_vec(&value).unwrap()).unwrap();
         read.verify().unwrap();
+    }
+
+    /// The canonical form the plain way: the whole image normalized, as one JSON value.
+    fn reference(image: &Image) -> Vec<u8> {
+        let mut normalized = image.clone();
+        normalized.normalize();
+        let mut value = serde_json::to_value(&normalized).unwrap();
+        let map = value.as_object_mut().unwrap();
+        for key in INFORMATIONAL {
+            map.remove(key);
+        }
+        for entry in map["entries"].as_array_mut().unwrap() {
+            for key in ENTRY_INFORMATIONAL {
+                entry.as_object_mut().unwrap().remove(key);
+            }
+        }
+        let mut out = Vec::new();
+        write_canonical(&value, &mut out);
+        out
+    }
+
+    #[test]
+    fn streamed_form_is_the_plain_one() {
+        let mut full = sample();
+        full.entries.reverse();
+        full.entries[0].env_from = vec![EnvFrom::Jar, EnvFrom::BasePack, EnvFrom::Jar];
+        full.entries[1].modified = Some(5);
+        full.entries[1]
+            .extra
+            .insert("future".into(), serde_json::json!({"b": 1, "a": [null, 2]}));
+        full.removed = vec![path("mods/z.jar"), path("mods/a.jar"), path("mods/z.jar")];
+        full.worlds.reverse();
+        full.content = Some("c".repeat(64));
+        full.base = Some(crate::manifest::Base::Loader {});
+        full.side = Some(crate::Side::Server);
+        full.projected_from = Some("d".repeat(64));
+        full.parent = Some("e".repeat(64));
+        full.label = Some("label".into());
+        full.created = 3;
+        full.extra.insert("zzz".into(), serde_json::json!("last"));
+        full.extra.insert("aaa".into(), serde_json::json!(null));
+        full.extra.insert("Rules".into(), serde_json::json!(1));
+        let mut sealed = full.clone();
+        sealed.seal();
+        for image in [sample(), full, sealed, Image::new(Kind::Content, fabric())] {
+            assert_eq!(
+                String::from_utf8(canonical_bytes(&image)).unwrap(),
+                String::from_utf8(reference(&image)).unwrap()
+            );
+            assert_eq!(compute_id(&image), sha256_hex(&reference(&image)));
+        }
+    }
+
+    #[test]
+    fn an_unknown_field_never_replaces_a_known_one_in_the_id() {
+        let mut image = sample();
+        image.seal();
+        let mut forged = image.clone();
+        forged.extra.insert("entries".into(), serde_json::json!([]));
+        // Invalid, and its canonical form still lists its own entries.
+        assert!(forged.validate().is_err());
+        assert_eq!(forged.canonical_bytes(), image.canonical_bytes());
     }
 }

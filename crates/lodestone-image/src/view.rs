@@ -37,7 +37,10 @@ use std::collections::BTreeMap;
 
 use crate::env::{EnvFrom, EnvValue};
 use crate::manifest::{Entry, Image, Producer, RULES};
-use crate::paths::{in_names, is_config, is_lodestone_path, placement, CanonicalPath};
+use crate::paths::{
+    ends_with_name, in_names, is_config, is_lodestone_path, placement, starts_with_name,
+    CanonicalPath,
+};
 use crate::settings::Settings;
 use crate::Side;
 
@@ -97,9 +100,7 @@ pub fn is_server_state(path: &CanonicalPath) -> bool {
     let mut parts = path.components();
     let first = parts.next().unwrap_or_default();
     match parts.next() {
-        None => {
-            in_names(first, &SERVER_STATE_FILES) || first.to_ascii_lowercase().ends_with(".jar")
-        }
+        None => in_names(first, &SERVER_STATE_FILES) || ends_with_name(first, ".jar"),
         Some(_) => in_names(first, &SERVER_STATE_FOLDERS),
     }
 }
@@ -107,15 +108,18 @@ pub fn is_server_state(path: &CanonicalPath) -> bool {
 /// Whether `path` is a file nothing loads or Lodestone's own bookkeeping, at any depth: a
 /// disabled file (`mods/x.jar.disabled`; today's client pack sends only enabled mods) or a
 /// name starting with `.lodestone` (`mods/.lodestone_client_mods.json`), whatever their
-/// letter case. The client view leaves them out (rules 1).
+/// letter case (folded as every other guarding name is, so `.lodeſtone` counts too: NTFS
+/// upper-cases `ſ` to `S`). The client view leaves them out (rules 1).
 pub fn is_inactive_or_bookkeeping(path: &CanonicalPath) -> bool {
-    path.components().any(|part| {
-        let part = part.to_ascii_lowercase();
-        part.starts_with(".lodestone")
-    }) || path
-        .as_str()
-        .to_ascii_lowercase()
-        .ends_with(DISABLED_SUFFIX)
+    let mut parts = path.components().peekable();
+    while let Some(part) = parts.next() {
+        if starts_with_name(part, ".lodestone")
+            || (parts.peek().is_none() && ends_with_name(part, DISABLED_SUFFIX))
+        {
+            return true;
+        }
+    }
+    false
 }
 
 /// Whether `entry` belongs in `side`'s view (rules 1).
@@ -150,12 +154,15 @@ pub fn view(image: &Image, side: Side, rules: u32) -> Result<Image, ViewError> {
         Some(already) if already == side => {
             // Filtered again, though for a view this computed it changes nothing: a view
             // from elsewhere (a server's answer) may carry what the side's view never does,
-            // so callers check one by comparing its id with its view's.
-            let mut same = image.clone();
-            same.entries.retain(|entry| in_view(entry, side));
-            same.settings = same.settings.for_side(side);
-            same.seal();
-            return Ok(same);
+            // so callers check one by comparing its id with its view's. Built like a new
+            // view, so it keeps none of the informational fields a view never has (label,
+            // timestamps, producer, parent) either.
+            return Ok(project(
+                image,
+                side,
+                image.rules,
+                image.projected_from.clone(),
+            ));
         }
         Some(other) => return Err(ViewError::AlreadyView(other)),
         None => {}
@@ -165,6 +172,12 @@ pub fn view(image: &Image, side: Side, rules: u32) -> Result<Image, ViewError> {
     } else {
         image.id.clone()
     };
+    Ok(project(image, side, rules, Some(source_id)))
+}
+
+/// `side`'s view of `image`, sealed: only what the view carries, and none of the
+/// informational fields (parent, created, producer, label, each entry's `modified`).
+fn project(image: &Image, side: Side, rules: u32, projected_from: Option<String>) -> Image {
     let entries = image
         .entries
         .iter()
@@ -193,11 +206,11 @@ pub fn view(image: &Image, side: Side, rules: u32) -> Result<Image, ViewError> {
         withheld: image.withheld.clone(),
         rules,
         side: Some(side),
-        projected_from: Some(source_id),
+        projected_from,
         extra: image.extra.clone(),
     };
     view.seal();
-    Ok(view)
+    view
 }
 
 /// The entries of `image` that neither view carries: they stay only where the image is.
@@ -685,6 +698,35 @@ pub(crate) mod tests {
         let checked = view(&hostile, Side::Client, RULES).unwrap();
         assert_ne!(checked.id, hostile.id);
         assert_eq!(checked.id, client.id);
+
+        // Its informational fields, which no view has, are dropped too.
+        let mut labelled = client.clone();
+        labelled.label = Some("hostile".into());
+        labelled.created = 7;
+        labelled.parent = Some(image.id.clone());
+        labelled.producer.version = "9".into();
+        labelled.entries[0].modified = Some(9);
+        let checked = view(&labelled, Side::Client, RULES).unwrap();
+        assert_eq!(checked, client);
+    }
+
+    #[test]
+    fn guarding_names_fold_beyond_ascii() {
+        let p = |path: &str| CanonicalPath::new(path).unwrap();
+        // NTFS upper-cases the long s to S, so these are a `.lodestone` file and a disabled
+        // mod on a Windows client.
+        for path in [
+            "mods/.lode\u{17F}tone_client_mods.json",
+            "mods/.LODESTONE_x",
+            "mods/x.jar.di\u{17F}abled",
+            "mods/x.jar.DISABLED",
+        ] {
+            assert!(is_inactive_or_bookkeeping(&p(path)), "{path}");
+        }
+        // Only the file's own name counts as disabled.
+        assert!(!is_inactive_or_bookkeeping(&p("mods/x.disabled/a.jar")));
+        assert!(!is_inactive_or_bookkeeping(&p("mods/a.jar")));
+        assert!(is_server_state(&p("server.JAR")));
     }
 
     #[test]

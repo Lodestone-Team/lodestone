@@ -214,9 +214,17 @@ pub(crate) fn write_out_dir(dir: &Path) -> io::Result<()> {
     }
 }
 
+#[cfg(test)]
+thread_local! {
+    /// How many times this thread called [`full_flush`].
+    pub(crate) static FULL_FLUSHES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 /// Ends a batch of [`write_out`]s on the file system of the folder `dir`, making every file
 /// and folder of the batch durable (see [`write_out`]).
 pub(crate) fn full_flush(dir: &Path) -> io::Result<()> {
+    #[cfg(test)]
+    FULL_FLUSHES.with(|count| count.set(count.get() + 1));
     #[cfg(target_vendor = "apple")]
     {
         // F_FULLFSYNC through any file asks the drive to write out its whole cache.

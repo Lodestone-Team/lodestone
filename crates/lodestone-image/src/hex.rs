@@ -4,13 +4,39 @@ use sha2::{Digest, Sha256};
 
 /// The SHA-256 of `bytes`, as 64 lowercase hex characters.
 pub fn sha256_hex(bytes: &[u8]) -> String {
-    let digest = Sha256::digest(bytes);
-    let mut out = String::with_capacity(64);
-    for byte in digest {
+    lower_hex(&Sha256::digest(bytes))
+}
+
+/// `bytes` as lowercase hex, two characters each.
+pub(crate) fn lower_hex(bytes: &[u8]) -> String {
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for &byte in bytes {
         out.push(char::from(b"0123456789abcdef"[usize::from(byte >> 4)]));
         out.push(char::from(b"0123456789abcdef"[usize::from(byte & 0xf)]));
     }
     out
+}
+
+/// A SHA-256 written as 64 lowercase hex characters, as its 32 bytes.
+pub(crate) fn sha256_bytes(text: &str) -> Option<[u8; 32]> {
+    fn nibble(c: u8) -> Option<u8> {
+        match c {
+            b'0'..=b'9' => Some(c - b'0'),
+            b'a'..=b'f' => Some(c - b'a' + 10),
+            _ => None,
+        }
+    }
+    let (pairs, []) = text.as_bytes().as_chunks::<2>() else {
+        return None;
+    };
+    if pairs.len() != 32 {
+        return None;
+    }
+    let mut out = [0u8; 32];
+    for (byte, [high, low]) in out.iter_mut().zip(pairs) {
+        *byte = nibble(*high)? << 4 | nibble(*low)?;
+    }
+    Some(out)
 }
 
 /// Whether `text` is exactly `len` lowercase hex characters. Uppercase is refused so a hash

@@ -24,6 +24,11 @@ serde = { version = "1.0.229", features = ["derive"] }
 # preserve_order, as both the core and the Launcher already have it: the v1 readers keep
 # parts of old manifests as JSON values and write them back in their original order.
 serde_json = { version = "1.0.151", features = ["preserve_order"] }
+# Without its `asm` feature (sha2-asm, in neither lockfile), sha2 0.10 hashes in software
+# on ARM (Apple silicon, ARM servers): about 550 MB/s, against FastCDC's 2 GB/s. A chunked
+# file is hashed twice (whole and per chunk), so hashing caps storing one large file at
+# about 150 MiB/s there. Hardware SHA-256 (ring has it, in both lockfiles) would be a new
+# dependency of this crate, so it waits for a decision.
 sha2 = "0.10.9"
 thiserror = "2.0.17"
 # Walking folders to snapshot them.

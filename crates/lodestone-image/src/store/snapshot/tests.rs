@@ -165,6 +165,49 @@ fn excludes_leave_files_out_quietly() {
 }
 
 #[test]
+fn deep_folders_and_many_excludes_plan_quickly() {
+    // Chains of nested folders with a file at every level, and the most excludes an image
+    // can have: matching reuses each folder's work for what is in it, so a plan stays
+    // linear in the paths' depth instead of cubic.
+    let (dir, store) = store(Encoding::Raw);
+    let root = dir.path().join("server");
+    let depth = 300;
+    for chain in 0..3 {
+        let mut folder = root.join(format!("b{chain}"));
+        for _ in 0..depth {
+            folder.push("a");
+        }
+        fs::create_dir_all(&folder).unwrap();
+        let mut level = root.join(format!("b{chain}"));
+        for _ in 0..depth {
+            fs::write(level.join("f"), b"f").unwrap();
+            level.push("a");
+        }
+    }
+    let layout = DiskLayout::Server(ServerLayout::new("world", [], false).unwrap());
+    let excludes: Vec<String> = (0..1000)
+        .map(|i| match i % 3 {
+            0 => format!("dynmap{i}/web/tiles"),
+            1 => format!("*.bak{i}"),
+            _ => format!("**/a/**/c{i}/"),
+        })
+        .chain(["b2".to_string()])
+        .collect();
+    let options = SnapshotOptions {
+        excludes: &excludes,
+        ..SnapshotOptions::default()
+    };
+    let started = std::time::Instant::now();
+    let planned = plan(&store, &root, &layout, &options).unwrap();
+    assert_eq!(planned.to_read.len(), 2 * depth);
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(20),
+        "{:?}",
+        started.elapsed()
+    );
+}
+
+#[test]
 fn excludes_never_skip_a_folder_whose_files_map_elsewhere() {
     let (dir, store) = store(Encoding::Raw);
     // A Paper server: `world_nether/x` is `saves/world/.bukkit_nether/x`, but its

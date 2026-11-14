@@ -681,15 +681,24 @@ fn files_are_stored_with_their_metadata() {
         );
         let object = store.object_path(&stored.sha256).unwrap();
         assert!(fs::metadata(&object).unwrap().permissions().readonly());
-        // A clone keeps the source's time; the object must look new to a running GC.
-        age(&small, 7200);
-        fs::write(dir.path().join("other.txt"), b"other").unwrap();
-        age(&dir.path().join("other.txt"), 7200);
-        let other = store
-            .put_file(&dir.path().join("other.txt"), NEVER)
-            .unwrap();
+        // A file large enough to be cloned (on a Mac's raw store): a clone keeps the
+        // source's time, and the object must look new to a running GC; and it is its own
+        // file too.
+        let medium = dir.path().join("other.txt");
+        let medium_bytes = b"other".repeat(30_000);
+        fs::write(&medium, &medium_bytes).unwrap();
+        age(&medium, 7200);
+        let other = store.put_file(&medium, NEVER).unwrap();
         let meta = fs::metadata(store.object_path(&other.sha256).unwrap()).unwrap();
         assert!(fsx::age(&meta, SystemTime::now()).unwrap() < Duration::from_secs(600));
+        fsx::set_mode(&medium, 0o644).unwrap();
+        fs::write(&medium, b"changed").unwrap();
+        assert_eq!(
+            store
+                .read_object_bytes(&other.sha256, medium_bytes.len() as u64)
+                .unwrap(),
+            medium_bytes
+        );
 
         let large = dir.path().join("large.mca");
         let data = region_like(17, 2_000_000);
@@ -929,6 +938,58 @@ fn store_throughput() {
             );
         }
     }
+}
+
+#[test]
+fn saving_flushes_objects_another_store_value_wrote() {
+    // Two values on one root (two snapshots sharing files, two processes): `a` writes an
+    // object and doesn't flush; `b` finds it, reuses it and saves a manifest naming it. The
+    // save must still flush the drive, or the manifest could outlive the object.
+    let (_dir, a) = store(Encoding::Raw);
+    let b = Store::new(a.root(), Encoding::Raw);
+    let bytes = b"shared between two instances".repeat(100);
+    a.put_bytes(&bytes).unwrap();
+    let image = stored_image(&b, &[("config/shared.txt", &bytes)]);
+    let flushes = || fsx::FULL_FLUSHES.with(|count| count.get());
+    let before = flushes();
+    b.save_manifest("x", &image).unwrap();
+    assert_eq!(flushes(), before + 1);
+    // With nothing stored at all there is nothing to flush.
+    let (_empty_dir, empty) = store(Encoding::Raw);
+    let before = flushes();
+    empty.sync().unwrap();
+    assert_eq!(flushes(), before);
+}
+
+#[test]
+fn saving_forgets_the_claims_it_used() {
+    let (_dir, store) = store(Encoding::Raw);
+    let image = stored_image(&store, &[("config/a.txt", b"a"), ("config/b.txt", b"b")]);
+    for entry in &image.entries {
+        assert!(store.claim_object(&entry.sha256, entry.size));
+    }
+    assert_eq!(store.claimed.lock().unwrap().len(), 2);
+    store.save_manifest("x", &image).unwrap();
+    assert!(store.claimed.lock().unwrap().is_empty());
+}
+
+#[test]
+fn unknown_fields_named_after_known_ones_are_never_saved() {
+    let (_dir, store) = store(Encoding::Raw);
+    let mut image = stored_image(&store, &[("config/a.txt", b"a")]);
+    image.extra.insert("kind".into(), serde_json::json!("full"));
+    image.seal();
+    assert!(matches!(
+        store.save_manifest("x", &image),
+        Err(StoreError::Manifest(_))
+    ));
+    let mut image = stored_image(&store, &[("config/a.txt", b"a")]);
+    image.entries[0]
+        .extra
+        .insert("sha256".into(), serde_json::json!("0"));
+    image.seal();
+    assert!(store.save_manifest("x", &image).is_err());
+    assert!(store.list_manifests("x").unwrap().images.is_empty());
 }
 
 #[test]

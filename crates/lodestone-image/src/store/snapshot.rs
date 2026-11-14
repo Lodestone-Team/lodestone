@@ -37,7 +37,7 @@ use crate::layout::{DiskLayout, CLIENT_GAME_FOLDER};
 use crate::manifest::{Entry, Image, Source, Withheld, WithheldReason, World};
 use crate::paths::{validate_component, CanonicalPath, MAX_PATH_BYTES};
 
-use super::excludes::Excludes;
+use super::excludes::{ExcludeCursor, Excludes};
 use super::fsx;
 use super::statcache::StatCache;
 use super::{Cancel, Store, StoreError, NEVER};
@@ -466,6 +466,8 @@ fn walk(
 ) -> Result<Vec<FoundFile>, SnapshotError> {
     let mut files = Vec::new();
     let mut withhold = |path: String, reason: WithheldReason| withholding.withhold(path, reason);
+    // Walked depth first, so each check reuses the steps for the folders it is in.
+    let mut excludes = excludes.cursor();
     let mut entries = walkdir::WalkDir::new(root)
         .follow_root_links(true)
         .follow_links(false)
@@ -481,7 +483,7 @@ fn walk(
             Err(e) => {
                 // A folder that can't be listed: what is in it is unknown.
                 if let Some(disk) = e.path().and_then(|p| relative(root, p)) {
-                    if recorded_folder(layout, &disk, excludes) != Folder::Skip {
+                    if recorded_folder(layout, &disk, &mut excludes) != Folder::Skip {
                         withhold(as_found(layout, &disk), WithheldReason::Unreadable);
                     }
                 }
@@ -508,7 +510,7 @@ fn walk(
             continue;
         };
         if file_type.is_dir() {
-            match recorded_folder(layout, &disk, excludes) {
+            match recorded_folder(layout, &disk, &mut excludes) {
                 Folder::Descend => {}
                 Folder::Skip => entries.skip_current_dir(),
                 Folder::BadName => {
@@ -581,7 +583,7 @@ enum Folder {
 /// and its other files (`saves/world/.bukkit_nether/…`). So the probe asks for a plain
 /// file and for files under `DIM-1/` and `DIM1/`, and descends unless all three land in
 /// the same folder; each file is then checked against the excludes on its own.
-fn recorded_folder(layout: &DiskLayout, disk: &str, excludes: &Excludes) -> Folder {
+fn recorded_folder(layout: &DiskLayout, disk: &str, excludes: &mut ExcludeCursor) -> Folder {
     match layout.from_disk(&format!("{disk}/x")) {
         Ok(None) => Folder::Skip,
         Ok(Some(probe)) => {

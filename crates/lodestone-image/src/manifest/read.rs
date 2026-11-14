@@ -377,7 +377,7 @@ where
 }
 
 /// `deserialize_with` for fields kept as they were (a delta's unknown fields): within
-/// [`IMAGE_UNKNOWN`] together, a key given twice refused.
+/// [`IMAGE_UNKNOWN`] together, a key given twice or named after a known field refused.
 pub(crate) fn capped_fields<'de, D: Deserializer<'de>>(
     deserializer: D,
 ) -> Result<BTreeMap<String, Value>, D::Error> {
@@ -394,6 +394,13 @@ pub(crate) fn capped_fields<'de, D: Deserializer<'de>>(
             let mut budget = IMAGE_UNKNOWN;
             let mut out = BTreeMap::new();
             while let Some(key) = map.next_key::<String>()? {
+                if IMAGE_FIELDS.contains(&key.as_str()) {
+                    // Serialized after the known fields, it would take that field's place
+                    // in the manifest and its id.
+                    return Err(de::Error::custom(format!(
+                        "`{key}` is a known field, not an unknown one"
+                    )));
+                }
                 keep_unknown(&mut map, &mut out, &mut budget, key)?;
             }
             Ok(out)
@@ -562,6 +569,12 @@ field_names!(EntryField {
     EnvFrom => "env_from",
     World => "world",
 });
+
+/// An image's field names. An unknown field can't take one: it is serialized after the
+/// known fields, so it would replace that field in the manifest and in its id.
+pub(crate) const IMAGE_FIELDS: &[&str] = ImageField::NAMES;
+/// An entry's field names, which an entry's unknown field can't take either.
+pub(crate) const ENTRY_FIELDS: &[&str] = EntryField::NAMES;
 
 /// Which known fields were seen, to refuse one given twice.
 #[derive(Default)]

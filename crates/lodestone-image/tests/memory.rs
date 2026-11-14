@@ -2,7 +2,8 @@
 //!
 //! This test binary counts every allocation (its own global allocator) and checks the peak
 //! while a manifest or an export that compresses a thousand to one is read. Everything is
-//! in one test so no other test's allocations land in the count.
+//! in one test so no other test's allocations land in the count. Hashing an image, which
+//! every reader does right after, is checked the same way.
 
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::fs::File;
@@ -130,4 +131,33 @@ fn hostile_input_costs_little_more_than_its_size() {
     let list_len = header.len() as u64 + count * line.len() as u64;
     assert_eq!(opened.unpacked_bytes(), list_len + chunk.len() as u64);
     assert!(peak < 8 * MIB, "opening the export took {peak} bytes");
+
+    drop(opened);
+
+    // Hashing an image (seal, verify, compute_id) writes its canonical form straight into
+    // the hasher, an entry at a time: a 100,000-entry image (about 40 MB as a manifest)
+    // costs memory for an entry, not for the image.
+    let mut big = Image::new(
+        Kind::Content,
+        Game {
+            minecraft: "1.21.1".into(),
+            loader: Loader::Fabric,
+            loader_version: None,
+        },
+    );
+    for i in 0..100_000 {
+        let name = format!("config/folder{}/file{i}.toml", i % 100);
+        big.entries.push(Entry::new(
+            CanonicalPath::new(&name).unwrap(),
+            i,
+            sha256_hex(name.as_bytes()),
+            Source::Object {},
+        ));
+    }
+    big.seal();
+    let (verified, peak) = peak_during(|| big.verify());
+    verified.unwrap();
+    assert!(peak < MIB, "verifying a 100k-entry image took {peak} bytes");
+    let (_, peak) = peak_during(|| big.seal());
+    assert!(peak < MIB, "sealing a 100k-entry image took {peak} bytes");
 }

@@ -561,6 +561,11 @@ pub(crate) fn starts_with_name(part: &str, prefix: &str) -> bool {
     folded(part).starts_with(prefix)
 }
 
+/// Whether `part`, folded, ends with `suffix` (lower-case ASCII).
+pub(crate) fn ends_with_name(part: &str, suffix: &str) -> bool {
+    folded(part).ends_with(suffix)
+}
+
 /// Whether `part` is one of `names` (lower-case ASCII), ignoring letter case.
 pub(crate) fn in_names(part: &str, names: &[&str]) -> bool {
     let part = folded(part);

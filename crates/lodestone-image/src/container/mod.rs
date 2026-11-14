@@ -525,8 +525,9 @@ pub fn open(path: &Path, limits: &Limits) -> Result<Container, ContainerError> {
     }
 
     let image = Image::from_json(&read_entry(&mut archive, IMAGE_FILE, image_declared)?)?;
-    image.verify()?;
+    // The cheap bounds before hashing the whole manifest.
     check_files_size(&image, limits)?;
+    image.verify()?;
     let mut linked = Vec::new();
     for (id, declared) in &linked_declared {
         if image.content.as_deref() != Some(id.as_str()) {
@@ -539,11 +540,11 @@ pub fn open(path: &Path, limits: &Limits) -> Result<Container, ContainerError> {
             &format!("images/{id}.json"),
             *declared,
         )?)?;
+        check_files_size(&other, limits)?;
         other.verify()?;
         if other.id != *id {
             return Err(invalid(format!("images/{id}.json holds another image")));
         }
-        check_files_size(&other, limits)?;
         linked.push(other);
     }
 

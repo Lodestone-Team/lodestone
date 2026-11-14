@@ -38,7 +38,7 @@ pub(crate) use probe::{whole_number_field, ProbeError};
 pub use read::MAX_SETTING_ITEMS;
 pub(crate) use read::{
     bounded_list, capped_fields, capped_value, entry_list, null_as_default, setting_list,
-    setting_map,
+    setting_map, ENTRY_FIELDS, IMAGE_FIELDS,
 };
 pub use read::{
     prescan, UnknownBudget, ENTRIES_UNKNOWN, ENTRY_MAP_COST, ENTRY_UNKNOWN, IMAGE_UNKNOWN,
@@ -485,17 +485,27 @@ impl Image {
     /// excludes, withheld files, and the settings' sets. Repeats are dropped from the lists
     /// that are sets; repeated entry paths are left for [`Image::validate`] to refuse.
     pub fn normalize(&mut self) {
-        self.entries.sort_by(|a, b| a.path.cmp(&b.path));
+        // Sorting allocates scratch space for half the list even when it is sorted already,
+        // as a read or sealed image is: only sort when needed.
+        if !self.entries.is_sorted_by(|a, b| a.path <= b.path) {
+            self.entries.sort_by(|a, b| a.path.cmp(&b.path));
+        }
         for entry in &mut self.entries {
             entry.env_from.sort();
             entry.env_from.dedup();
         }
-        self.removed.sort();
+        if !self.removed.is_sorted() {
+            self.removed.sort();
+        }
         self.removed.dedup();
-        self.worlds.sort_by(|a, b| a.name.cmp(&b.name));
+        if !self.worlds.is_sorted_by(|a, b| a.name <= b.name) {
+            self.worlds.sort_by(|a, b| a.name.cmp(&b.name));
+        }
         self.excludes.sort();
         self.excludes.dedup();
-        self.withheld.sort();
+        if !self.withheld.is_sorted() {
+            self.withheld.sort();
+        }
         self.withheld.dedup();
         self.settings.normalize();
     }
@@ -550,7 +560,7 @@ impl Image {
             Some(Base::CurseforgePack { .. } | Base::Loader {}) | None => {}
         }
         self.settings.validate()?;
-        check_unknown_numbers("the image", &self.extra)?;
+        check_unknown("the image", &self.extra, IMAGE_FIELDS)?;
         if self.kind == Kind::Content && !self.worlds.is_empty() {
             return Err("a content image has no worlds".into());
         }
@@ -588,7 +598,7 @@ impl Image {
                 ));
             }
             entry.validate()?;
-            check_unknown_numbers(entry.path.as_str(), &entry.extra)?;
+            check_unknown(entry.path.as_str(), &entry.extra, ENTRY_FIELDS)?;
             if let Some(world) = &entry.world {
                 if !world_names.contains(world.as_str()) {
                     return Err(format!("{}: world {world:?} isn't in worlds", entry.path));
@@ -649,11 +659,23 @@ impl Image {
     }
 }
 
-/// Refuses numbers in unknown fields that aren't whole numbers fitting 64 bits (a float,
-/// or an integer beyond `u64` or `i64`): serde_json reads those as floats and writes them
-/// back differently (`1.0`, `1.8446744073709552e19`), so the canonical manifest, and the
-/// id, would no longer be the writer's.
-fn check_unknown_numbers(owner: &str, extra: &BTreeMap<String, Value>) -> Result<(), String> {
+/// Checks the fields kept as they were (`extra`). None may be named after a known field:
+/// serialized after the known ones, it would take that field's place in the manifest and
+/// in the id, and make a manifest that can't be read back. And every number in them must
+/// be a whole number fitting 64 bits (not a float, or an integer beyond `u64` or `i64`):
+/// serde_json reads the others as floats and writes them back differently (`1.0`,
+/// `1.8446744073709552e19`), so the canonical manifest, and the id, would no longer be the
+/// writer's.
+fn check_unknown(
+    owner: &str,
+    extra: &BTreeMap<String, Value>,
+    known: &[&str],
+) -> Result<(), String> {
+    if let Some(key) = extra.keys().find(|key| known.contains(&key.as_str())) {
+        return Err(format!(
+            "{owner}: the unknown field {key:?} is named after a known field"
+        ));
+    }
     fn whole(value: &Value) -> bool {
         match value {
             Value::Number(n) => n.is_i64() || n.is_u64(),
