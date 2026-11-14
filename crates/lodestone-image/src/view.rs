@@ -406,7 +406,7 @@ pub(crate) mod tests {
             entry("saves/world/level.dat", EnvInputs::default()),
             entry("saves/world/DIM-1/region/r.0.0.mca", EnvInputs::default()),
             // The server's own: never to players.
-            entry(".lodestone_modpack/record.json", EnvInputs::default()),
+            entry(".lodestone_modpack/update.json", EnvInputs::default()),
             entry("plugins/x.jar", EnvInputs::default()),
             entry("usercache.json", EnvInputs::default()),
         ];
@@ -449,7 +449,7 @@ pub(crate) mod tests {
         assert_eq!(
             paths(&server),
             [
-                ".lodestone_modpack/record.json",
+                ".lodestone_modpack/update.json",
                 "config/jei/jei-client.ini",
                 "config/ledger.toml",
                 "defaultconfigs/server.toml",
@@ -570,7 +570,7 @@ pub(crate) mod tests {
         let mut image = fabric_pack();
         let client_before = view(&image, Side::Client, RULES).unwrap();
         for path in [
-            ".lodestone_modpack/history.json",
+            ".lodestone_modpack/notes.json",
             ".LODESTONE_extra",
             "Plugins/y.jar",
             "bukkit.yml",
@@ -792,8 +792,8 @@ pub(crate) mod tests {
             "shaderpacks/s.zip",
             "screenshots/1.png",
             "saves/loose.txt",
-            ".lodestone_modpack/record.json",
-            ".lodestone_modpack/history.json",
+            ".lodestone_modpack/update.json",
+            ".lodestone_modpack/notes.json",
             "plugins/p.jar",
             "Plugins/q.jar",
             "bukkit.yml",

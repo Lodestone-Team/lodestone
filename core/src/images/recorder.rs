@@ -493,7 +493,7 @@ impl ImageService {
                 0
             });
             if pruned > 0 {
-                self.request_gc();
+                self.request_gc_after_pruning();
             }
             return Ok(Recorded {
                 id: image.id,

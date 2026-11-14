@@ -297,8 +297,10 @@ pub enum RestoreScope {
     Everything,
     /// The server's level (its `_nether` and `_the_end` folders too on Paper and Spigot).
     World,
-    /// The level, and the server's content (mods, configs, plugins, the server's own
-    /// files) as the content image the backup ran with has it.
+    /// The level, and the server's content (mods, configs, plugins, server software) as
+    /// the backup's own image has it, except `server.properties`, `ops.json` and
+    /// `whitelist.json`. Needs the backup's content link. Can change the server's Minecraft
+    /// and loader version to the backup's, as Everything can.
     WorldAndMods,
 }
 

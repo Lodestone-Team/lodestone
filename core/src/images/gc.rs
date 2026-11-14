@@ -3,8 +3,10 @@
 //!
 //! Collections run in the background, one at a time: [`ImageService::request_gc`] starts
 //! one, or, while one runs, has it run once more when it ends (what was deleted meanwhile
-//! may have freed more). Pruning that deleted manifests asks for one, and so does anything
-//! else that deletes images.
+//! may have freed more). Deleting backups asks for one. Pruning content images asks at most
+//! every [`PRUNE_GC_INTERVAL`] ([`ImageService::request_gc_after_pruning`]): once a server
+//! has more than 30 content images nearly every record prunes one, a pruned content image
+//! frees a few small files, and a collection reads every manifest of every server.
 //!
 //! No lock of the core's is needed around a collection. The store's writers claim what they
 //! rely on (a record that loses an object to a collection fails to save and records again),
@@ -13,7 +15,8 @@
 //! thread holding that must not call [`ImageService::collect_blocking`].
 
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use lodestone_image::store::gc::{GcOptions, GcReport};
 use lodestone_image::store::Store;
@@ -23,18 +26,42 @@ use crate::error::Error;
 
 use super::ImageService;
 
+/// The least time between two collections that pruning asks for.
+pub const PRUNE_GC_INTERVAL: Duration = Duration::from_secs(15 * 60);
+
 /// Whether a collection runs, and whether another was asked for meanwhile.
 #[derive(Default)]
 pub(crate) struct GcState {
     pub(super) running: AtomicBool,
     pub(super) pending: AtomicBool,
+    /// When pruning last asked for a collection.
+    last_for_pruning: Mutex<Option<Instant>>,
 }
 
 impl ImageService {
     /// Deletes what no image uses (see the module). Blocking; waits for a collection that
     /// is running and for callers holding collections off.
+    #[cfg(test)]
     pub fn collect_blocking(&self) -> Result<GcReport, Error> {
         collect(&self.store, &GcOptions::default())
+    }
+
+    /// [`Self::request_gc`] for pruning, at most every [`PRUNE_GC_INTERVAL`]: what a
+    /// skipped request would have freed goes at the next collection.
+    pub fn request_gc_after_pruning(&self) {
+        let now = Instant::now();
+        {
+            let mut last = self
+                .gc
+                .last_for_pruning
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            if last.is_some_and(|at| now.duration_since(at) < PRUNE_GC_INTERVAL) {
+                return;
+            }
+            *last = Some(now);
+        }
+        self.request_gc();
     }
 
     /// Starts a collection in the background, or, while one runs, has it run again when it

@@ -15,10 +15,8 @@
 //! untranslated (and left out of the image's excludes). Matching becomes case-sensitive,
 //! which can only leave out less. The tests check the rule over every pattern shape.
 
-use lodestone_image::store::excludes::excludes_error;
+use lodestone_image::store::excludes::{excludes_error, glob_matches, pattern_error};
 use lodestone_image::ServerLayout;
-
-use crate::backups::pattern::pattern_error;
 
 /// A policy's patterns as an image's excludes.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -42,7 +40,7 @@ pub fn canonical_excludes(policy: &[String], layout: &ServerLayout) -> Translate
         match translate(pattern, layout) {
             Some(patterns) if !patterns.is_empty() => {
                 for canonical in patterns {
-                    if lodestone_image::store::excludes::pattern_error(&canonical).is_some() {
+                    if pattern_error(&canonical).is_some() {
                         // Too long once `saves/<world>/` is added, say.
                         push_unique(&mut out.untranslated, pattern.clone());
                     } else {
@@ -83,8 +81,8 @@ fn translate(pattern: &str, layout: &ServerLayout) -> Option<Vec<String>> {
     // Names a canonical path has that no server disk path has in the same place: a match
     // there would leave out what the policy never did.
     let canonical_only = |glob: &str| {
-        matches_glob(glob, "saves")
-            || (split && (matches_glob(glob, BUKKIT_NETHER) || matches_glob(glob, BUKKIT_END)))
+        glob_matches(glob, "saves")
+            || (split && (glob_matches(glob, BUKKIT_NETHER) || glob_matches(glob, BUKKIT_END)))
     };
 
     if !anchored {
@@ -94,14 +92,14 @@ fn translate(pattern: &str, layout: &ServerLayout) -> Option<Vec<String>> {
             return Some(vec![format!("{glob}{suffix}")]);
         }
         // The split level's canonical folder holds the Nether and the End too.
-        if canonical_only(glob) || (split && matches_glob(glob, level)) {
+        if canonical_only(glob) || (split && glob_matches(glob, level)) {
             return None;
         }
         let mut out = vec![format!("{glob}{suffix}")];
         if split {
             // A name at any depth includes the split folders at the top.
             for (folder, dimension, bukkit) in split_folders(level) {
-                if matches_glob(glob, &folder) {
+                if glob_matches(glob, &folder) {
                     out.push(format!("saves/{level}/{dimension}{suffix}"));
                     out.push(format!("saves/{level}/{bukkit}{suffix}"));
                 }
@@ -118,7 +116,7 @@ fn translate(pattern: &str, layout: &ServerLayout) -> Option<Vec<String>> {
         let Some(next) = rest.first() else {
             return Some(vec![format!("**{suffix}")]);
         };
-        if canonical_only(next) || (split && matches_glob(next, level)) {
+        if canonical_only(next) || (split && glob_matches(next, level)) {
             return None;
         }
         return Some(vec![format!("{body}{suffix}")]);
@@ -135,9 +133,9 @@ fn translate(pattern: &str, layout: &ServerLayout) -> Option<Vec<String>> {
         || (split && (first == nether_folder(level) || first == end_folder(level)));
     // As it is, the pattern also matches canonical `saves/<world>/…` when its first part
     // matches `saves`: safe only when its second part can't be a world there.
-    let as_is_safe = !matches_glob(first, "saves")
+    let as_is_safe = !glob_matches(first, "saves")
         || rest.first().is_some_and(|next| {
-            *next != "**" && !layout.worlds().any(|world| matches_glob(next, world))
+            *next != "**" && !layout.worlds().any(|world| glob_matches(next, world))
         });
     if !is_world_name && as_is_safe {
         if rest.is_empty() {
@@ -148,7 +146,7 @@ fn translate(pattern: &str, layout: &ServerLayout) -> Option<Vec<String>> {
     }
     // The worlds `first` names.
     for world in layout.worlds() {
-        if !matches_glob(first, world) {
+        if !glob_matches(first, world) {
             continue;
         }
         if split && world == level {
@@ -166,7 +164,7 @@ fn translate(pattern: &str, layout: &ServerLayout) -> Option<Vec<String>> {
     }
     if split {
         for (folder, dimension, bukkit) in split_folders(level) {
-            if !matches_glob(first, &folder) {
+            if !glob_matches(first, &folder) {
                 continue;
             }
             match rest.first() {
@@ -179,7 +177,7 @@ fn translate(pattern: &str, layout: &ServerLayout) -> Option<Vec<String>> {
                     out.push(joined(&["saves", level, bukkit], rest));
                 }
                 Some(next) => {
-                    if matches_glob(next, dimension) {
+                    if glob_matches(next, dimension) {
                         out.push(joined(&["saves", level, dimension], &rest[1..]));
                     }
                     // Files in the split folder other than its dimension: an exact
@@ -222,31 +220,6 @@ fn is_split_name(part: &str) -> bool {
         .any(|name| part.eq_ignore_ascii_case(name))
 }
 
-/// Whether the glob `glob` (`*` is any run of characters) matches all of `name`,
-/// case-sensitively. Linear: it backtracks only to the last `*`.
-pub(crate) fn matches_glob(glob: &str, name: &str) -> bool {
-    let glob: Vec<char> = glob.chars().collect();
-    let name: Vec<char> = name.chars().collect();
-    let (mut g, mut n) = (0, 0);
-    let mut star: Option<(usize, usize)> = None;
-    while n < name.len() {
-        if g < glob.len() && glob[g] == '*' {
-            star = Some((g, n));
-            g += 1;
-        } else if g < glob.len() && glob[g] == name[n] {
-            g += 1;
-            n += 1;
-        } else if let Some((star_g, star_n)) = star {
-            g = star_g + 1;
-            n = star_n + 1;
-            star = Some((star_g, star_n + 1));
-        } else {
-            return false;
-        }
-    }
-    glob[g..].iter().all(|c| *c == '*')
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -264,17 +237,6 @@ mod tests {
 
     fn vanilla() -> ServerLayout {
         ServerLayout::new("world", ["creative".to_string()], false).unwrap()
-    }
-
-    #[test]
-    fn globs() {
-        assert!(matches_glob("*", ""));
-        assert!(matches_glob("*.log", "a.log"));
-        assert!(!matches_glob("*.log", "a.LOG"));
-        assert!(matches_glob("a*b*c", "aXbYc"));
-        assert!(!matches_glob("a*b*c", "aXbY"));
-        assert!(matches_glob("wor*", "world_nether"));
-        assert!(!matches_glob("world", "world_nether"));
     }
 
     #[test]

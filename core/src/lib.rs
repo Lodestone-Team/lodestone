@@ -1468,16 +1468,23 @@ pub async fn run_with(
     // Instance images: where merged records find their servers.
     images.set_instances(Arc::new(images::AppInstances {
         instances: shared_state.instances.clone(),
-        backups: backups.clone(),
+        root: images.root().to_path_buf(),
     }));
     images::set_global(images.clone());
     // temporary files a crash left, and the first content image of each stopped server
     {
-        let uuids: Vec<InstanceUuid> = snapshot_instances(&shared_state.instances)
-            .into_iter()
-            .map(|(uuid, _)| uuid)
-            .collect();
+        let instances = snapshot_instances(&shared_state.instances);
+        let uuids: Vec<InstanceUuid> = instances.iter().map(|(uuid, _)| uuid.clone()).collect();
         tokio::spawn(images.clone().startup_sweep(uuids));
+        let mut roots = Vec::with_capacity(instances.len());
+        for (_, instance) in &instances {
+            roots.push(instance.path().await);
+        }
+        tokio::task::spawn_blocking(move || {
+            for root in roots {
+                handlers::instance_fs::sweep_upload_leftovers(&root);
+            }
+        });
     }
 
     // Asked to stop while starting: start no server only to stop it again. The shutdown

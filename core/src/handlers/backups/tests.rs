@@ -8,6 +8,7 @@ use reqwest::{Method, StatusCode};
 use serde_json::{json, Value};
 
 use super::*;
+use crate::backups::RestoreScope;
 use crate::{
     auth::{permission::UserPermission, user::User},
     events::CausedBy,

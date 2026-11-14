@@ -47,7 +47,7 @@ use super::{
     download_one, extract_overrides, override_hashes, prepare_parent, slash_path, Pack,
     PackDownload, PARALLEL_DOWNLOADS,
 };
-use crate::error::Error;
+use crate::error::{Error, ErrorKind};
 use crate::modrinth::ModrinthApi;
 use crate::mods::{disabled_name, is_disabled_name};
 
@@ -238,6 +238,73 @@ pub struct FileChange {
     pub path: String,
     pub target: String,
     pub action: FileAction,
+    /// What was at `target` when the change was planned.
+    pub expected: Expected,
+}
+
+/// What a change expects at its target: what was there when it was planned. Staging and
+/// downloads run between planning and placement, and the Files API may change the server
+/// meanwhile, so [`check_as_planned`] looks again right before the files are placed: a
+/// file written since is never replaced or removed unseen.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Expected {
+    /// Nothing: the change adds a file there.
+    Nothing,
+    /// A regular file with this SHA-1, in lowercase hex (what an update compares).
+    Sha1(String),
+    /// A regular file with this SHA-256 (what a restore compares, from the images).
+    Sha256(String),
+    /// A regular file with this SHA-512 (another copy of a mod, as Modrinth knew it).
+    Sha512(String),
+}
+
+impl Expected {
+    /// Whether `path` is as expected. Links are not followed: a link is never a file.
+    fn holds(&self, path: &Path) -> bool {
+        let meta = std::fs::symlink_metadata(path);
+        let hash = match self {
+            Expected::Nothing => return meta.is_err(),
+            _ if !meta.is_ok_and(|m| m.is_file()) => return false,
+            Expected::Sha1(sha1) => (sha1, lodestone_minecraft::hash::sha1_of(path).ok()),
+            Expected::Sha256(sha256) => (sha256, sha256_of(path).ok()),
+            Expected::Sha512(sha512) => (sha512, lodestone_minecraft::hash::sha512_of(path).ok()),
+        };
+        hash.1
+            .is_some_and(|found| found.eq_ignore_ascii_case(hash.0))
+    }
+}
+
+/// The SHA-256 of the file at `path`, in lowercase hex.
+fn sha256_of(path: &Path) -> std::io::Result<String> {
+    use sha2::Digest;
+    let mut hasher = sha2::Sha256::new();
+    std::io::copy(&mut std::fs::File::open(path)?, &mut hasher)?;
+    Ok(hex::encode(hasher.finalize()))
+}
+
+/// Fails with a conflict unless every change's target is still as it was planned
+/// ([`Expected`]). Called with the server's content to itself
+/// (`ImageService::begin_exclusive`), right before [`begin_update`]: from there to the
+/// placement no Files API operation runs. Reads the files, so call it on a blocking thread.
+pub fn check_as_planned(root: &Path, plan: &FilePlan) -> Result<(), Error> {
+    let changed: Vec<&str> = plan
+        .changes
+        .iter()
+        .filter(|c| !c.expected.holds(&root.join(&c.target)))
+        .map(|c| c.target.as_str())
+        .collect();
+    if changed.is_empty() {
+        return Ok(());
+    }
+    let first: Vec<&str> = changed.iter().take(5).copied().collect();
+    Err(Error {
+        kind: ErrorKind::Conflict,
+        source: eyre!(
+            "{} file(s) changed since the change was planned ({}); try again",
+            changed.len(),
+            first.join(", ")
+        ),
+    })
 }
 
 /// What an update will do to the files.
@@ -360,6 +427,7 @@ pub fn plan_files(root: &Path, old: &PackRecord, new: &BTreeMap<String, PackFile
             path: path.clone(),
             target,
             action: FileAction::Remove,
+            expected: Expected::Sha1(sha1),
         });
     }
     for (path, file) in new {
@@ -378,6 +446,7 @@ pub fn plan_files(root: &Path, old: &PackRecord, new: &BTreeMap<String, PackFile
                         path.clone()
                     },
                     action: FileAction::Add,
+                    expected: Expected::Nothing,
                 });
             }
             Some((_, sha1)) if sha1 == file.sha1 => {}
@@ -398,6 +467,7 @@ pub fn plan_files(root: &Path, old: &PackRecord, new: &BTreeMap<String, PackFile
                         path: path.clone(),
                         target,
                         action: FileAction::Replace,
+                        expected: Expected::Sha1(sha1),
                     });
                 } else {
                     plan.kept.push(target);
@@ -441,6 +511,8 @@ pub struct OtherCopy {
     /// Its path on disk, with `/` separators: `mods/x.jar` or `mods/x.jar.disabled`.
     pub target: String,
     pub project_id: String,
+    /// Its SHA-512, as it was when it was looked up.
+    pub sha512: String,
 }
 
 /// The jars in the folders `plan` adds jars to that neither `old` nor `new` lists and
@@ -535,9 +607,11 @@ pub async fn other_copies(
     jars.into_iter()
         .filter_map(|(target, sha512)| {
             let project_id = versions.get(&sha512)?.project_id.clone();
-            added
-                .contains(&project_id)
-                .then_some(OtherCopy { target, project_id })
+            added.contains(&project_id).then_some(OtherCopy {
+                target,
+                project_id,
+                sha512,
+            })
         })
         .collect()
 }
@@ -579,6 +653,7 @@ pub fn remove_other_copies(
             path: crate::mods::enabled_name(&other.target),
             target: other.target,
             action: FileAction::Remove,
+            expected: Expected::Sha512(other.sha512),
         });
     }
 }
@@ -595,6 +670,17 @@ fn parent_inside(root: &Path, path: &Path) -> bool {
 /// links are resolved (a linked `mods/` could lead elsewhere), and neither file may be a
 /// link.
 fn move_file(root: &Path, from: &Path, to: &Path) -> Result<(), Error> {
+    move_checked(root, from, to, false)
+}
+
+/// [`move_file`] for a new file going into place, which never replaces what is at `to`:
+/// [`check_as_planned`] found nothing there, and this keeps it so should anything write
+/// there since.
+fn place_file(root: &Path, from: &Path, to: &Path) -> Result<(), Error> {
+    move_checked(root, from, to, true)
+}
+
+fn move_checked(root: &Path, from: &Path, to: &Path, no_replace: bool) -> Result<(), Error> {
     let is_link =
         |path: &Path| std::fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_symlink());
     if !parent_inside(root, from) || is_link(from) {
@@ -604,9 +690,28 @@ fn move_file(root: &Path, from: &Path, to: &Path) -> Result<(), Error> {
     if is_link(to) {
         return Err(super::unsafe_pack("a path leaves the server folder"));
     }
-    std::fs::rename(from, to)
-        .with_context(|| format!("Failed to move {} to {}", from.display(), to.display()))?;
-    Ok(())
+    let moved = if no_replace {
+        crate::util::fs::move_no_replace(from, to)
+    } else {
+        std::fs::rename(from, to)
+    };
+    match moved {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Err(Error {
+            kind: ErrorKind::Conflict,
+            source: eyre!(
+                "{} appeared while the files were placed; try again",
+                to.display()
+            ),
+        }),
+        Err(e) => Err(eyre!(e)
+            .wrap_err(format!(
+                "Failed to move {} to {}",
+                from.display(),
+                to.display()
+            ))
+            .into()),
+    }
 }
 
 /// The file moves done so far, to undo them.
@@ -810,7 +915,7 @@ pub fn place_files(root: &Path, plan: &FilePlan) -> Result<(), Error> {
             if !staged.is_file() {
                 return Err(eyre!("{} was not downloaded", change.path).into());
             }
-            move_file(root, &staged, &root.join(&change.target))?;
+            place_file(root, &staged, &root.join(&change.target))?;
             moves.placed.push(change.target.clone());
         }
         Ok::<_, Error>(())

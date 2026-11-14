@@ -218,7 +218,7 @@ fn record_paths_stay_in_the_server() {
         "eula.txt",
         "user_jvm_args.txt",
         "USER_J~1.TXT",
-        ".Lodestone_Modpack/history.json",
+        ".Lodestone_Modpack/notes.json",
     ] {
         assert!(record_path(bad).is_none(), "{bad}");
     }
@@ -279,11 +279,24 @@ async fn another_copy_of_an_added_mod_is_replaced() {
         [OtherCopy {
             target: "mods/sodium-2.jar".into(),
             project_id: "sodium".into(),
+            sha512: crate::modrinth::fake::sha512_hex(
+                &std::fs::read(root.join("mods/sodium-2.jar")).unwrap()
+            ),
         }]
     );
     remove_other_copies(&mut plan, &new, &others);
     assert_eq!(change(&plan, "mods/sodium-3.jar"), Some(FileAction::Add));
     assert_eq!(change(&plan, "mods/sodium-2.jar"), Some(FileAction::Remove));
+    // the copy it removes is checked by its SHA-512 before placement
+    check_as_planned(root, &plan).unwrap();
+    write(root, "mods/sodium-2.jar", b"changed since");
+    assert!(check_as_planned(root, &plan).is_err());
+    write(
+        root,
+        "mods/sodium-2.jar",
+        &FakeVersion::new("sodium", "s2", "sodium-2.jar").content,
+    );
+    check_as_planned(root, &plan).unwrap();
     // other projects and the user's own mods stay
     assert_eq!(change(&plan, "mods/lithium.jar"), None);
     assert_eq!(change(&plan, "mods/not-on-modrinth.jar"), None);
@@ -765,4 +778,64 @@ fn files_behind_a_linked_folder_are_not_moved() {
     assert_eq!(change(&plan, "mods/a.jar"), Some(FileAction::Remove));
     assert!(place_files(&root, &plan).is_err());
     assert!(outside.join("a.jar").is_file());
+}
+
+/// What an update planned is checked again right before placement: a file it replaces or
+/// removes that changed since, or a file where it adds one, refuses it; and placing a new
+/// file never replaces one that appeared after the check.
+#[test]
+fn changes_since_the_plan_refuse_the_placement() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    write(root, "mods/a.jar", b"a1");
+    write(root, "mods/gone.jar", b"gone");
+    let old = PackRecord {
+        files: BTreeMap::from([
+            ("mods/a.jar".into(), recorded(b"a1", false, Some("a"))),
+            ("mods/gone.jar".into(), recorded(b"gone", false, Some("g"))),
+        ]),
+    };
+    let new = BTreeMap::from([
+        ("mods/a.jar".to_string(), download("mods/a.jar", b"a2", "a")),
+        (
+            "mods/new.jar".to_string(),
+            download("mods/new.jar", b"new", "n"),
+        ),
+    ]);
+    let plan = plan_files(root, &old, &new);
+    assert_eq!(change(&plan, "mods/a.jar"), Some(FileAction::Replace));
+    assert_eq!(change(&plan, "mods/gone.jar"), Some(FileAction::Remove));
+    assert_eq!(change(&plan, "mods/new.jar"), Some(FileAction::Add));
+    check_as_planned(root, &plan).unwrap();
+
+    for (path, bytes) in [
+        ("mods/a.jar", &b"edited"[..]),
+        ("mods/gone.jar", b"edited"),
+        ("mods/new.jar", b"uploaded meanwhile"),
+    ] {
+        let before = std::fs::read(root.join(path)).ok();
+        write(root, path, bytes);
+        let error = check_as_planned(root, &plan).unwrap_err();
+        assert!(matches!(error.kind, ErrorKind::Conflict), "{path}");
+        assert!(error.source.to_string().contains(path), "{}", error.source);
+        match before {
+            Some(before) => write(root, path, &before),
+            None => std::fs::remove_file(root.join(path)).unwrap(),
+        }
+    }
+    check_as_planned(root, &plan).unwrap();
+
+    // a file that appears after the check is never replaced by the placement
+    write(root, &format!("{STAGING_DIR}/mods/new.jar"), b"new");
+    write(root, &format!("{STAGING_DIR}/mods/a.jar"), b"a2");
+    write(root, "mods/new.jar", b"uploaded after the check");
+    let error = place_files(root, &plan).unwrap_err();
+    assert!(matches!(error.kind, ErrorKind::Conflict));
+    assert_eq!(
+        std::fs::read(root.join("mods/new.jar")).unwrap(),
+        b"uploaded after the check"
+    );
+    // and everything it moved is back
+    assert_eq!(std::fs::read(root.join("mods/a.jar")).unwrap(), b"a1");
+    assert_eq!(std::fs::read(root.join("mods/gone.jar")).unwrap(), b"gone");
 }

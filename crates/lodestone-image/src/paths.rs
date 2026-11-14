@@ -648,7 +648,7 @@ mod tests {
             "saves/世界/level.dat",
             "saves/Мир/level.dat",
             "saves/दुनिया/level.dat",
-            ".lodestone_modpack/record.json",
+            ".lodestone_modpack/update.json",
             "a.b.c",
             "...x",
             "nulls.txt",
@@ -716,7 +716,7 @@ mod tests {
         // never-recorded file there (git's CVE-2014-9390 for `.git`).
         for (path, c) in [
             ("\u{200C}.lodestone_config", '\u{200C}'),
-            (".lodestone\u{200D}_modpack/record.json", '\u{200D}'),
+            (".lodestone\u{200D}_modpack/update.json", '\u{200D}'),
             ("\u{FEFF}session.lock", '\u{FEFF}'),
             ("lo\u{200B}gs/latest.log", '\u{200B}'),
             ("sa\u{200E}ves/w/level.dat", '\u{200E}'),
@@ -882,7 +882,7 @@ mod tests {
             ("config/.lodestone-upload-0123456789abcdef.tmp", true),
             (".lodestone_modpack/staging/x", true),
             (".lodestone_modpack/snapshot/x", true),
-            (".lodestone_modpack/record.json", false),
+            (".lodestone_modpack/update.json", false),
             ("mods/a.jar", false),
             ("config/cache/x", false),
             // Whatever the letter case: on most disks these are the same files.
@@ -897,7 +897,7 @@ mod tests {
             (".LODESTONE_MODPACK/Staging/ab/cd", true),
             ("config/.LODESTONE-UPLOAD-x.tmp", true),
             (".lodeſtone_config", true),
-            (".LODESTONE_MODPACK/record.json", false),
+            (".LODESTONE_MODPACK/update.json", false),
         ];
         for (path, excluded) in cases {
             assert_eq!(always_excluded(&p(path)), excluded, "{path}");
@@ -1002,9 +1002,9 @@ mod tests {
     #[test]
     fn lodestone_paths() {
         assert!(is_lodestone_path(&p(".lodestone_config")));
-        assert!(is_lodestone_path(&p(".lodestone_modpack/record.json")));
+        assert!(is_lodestone_path(&p(".lodestone_modpack/update.json")));
         assert!(!is_lodestone_path(&p("mods/.lodestone_client_mods.json")));
-        assert!(is_lodestone_path(&p(".LODESTONE_MODPACK/record.json")));
+        assert!(is_lodestone_path(&p(".LODESTONE_MODPACK/update.json")));
         assert!(is_lodestone_path(&p(".Lodestone-anything")));
     }
 

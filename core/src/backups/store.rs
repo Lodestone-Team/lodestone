@@ -71,11 +71,6 @@ pub fn new_backup_id(now: DateTime<Utc>) -> String {
     )
 }
 
-/// Whether `hash` is a SHA-256 as the store names things: 64 lowercase hex digits.
-pub fn valid_sha256(hash: &str) -> bool {
-    hash.len() == 64 && hash.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
-}
-
 /// Whether `path` can be joined onto a folder safely: `/`-separated plain names, without
 /// `\`, `:`, control characters, `.`, `..` or empty parts.
 pub fn valid_rel_path(path: &str) -> bool {
@@ -191,8 +186,8 @@ impl Store {
     }
 
     /// The server's backups; none when it has no `backups.json`. A file that can't be read
-    /// or has a record that isn't valid is an error, never taken for no backups: the images
-    /// no record names are deleted as leftovers.
+    /// or has a record that isn't valid is an error, never taken for no backups (whose images
+    /// would all be listed again as manual backups).
     pub fn load_records(&self, uuid: &InstanceUuid) -> Result<Records, Error> {
         let path = self.records_path(uuid)?;
         let bytes = match fs::read(&path) {
@@ -213,7 +208,7 @@ impl Store {
         if let Some(bad) = records
             .backups
             .iter()
-            .find(|r| !valid_backup_id(&r.id) || !valid_sha256(&r.image))
+            .find(|r| !valid_backup_id(&r.id) || !lodestone_image::hex::is_sha256(&r.image))
         {
             return Err(err(
                 ErrorKind::Internal,
@@ -338,9 +333,6 @@ pub(crate) mod tests {
         assert_eq!(check_backup_name("   "), Ok(None));
         assert!(check_backup_name(&"x".repeat(MAX_NAME_LEN + 1)).is_err());
         assert!(check_backup_name("a\nb").is_err());
-        assert!(valid_sha256(&"ab".repeat(32)));
-        assert!(!valid_sha256(&"AB".repeat(32)));
-        assert!(!valid_sha256("ab"));
     }
 
     #[test]

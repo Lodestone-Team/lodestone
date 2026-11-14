@@ -6,7 +6,7 @@
 //! | `POST /instance/{uuid}/backups` | AccessSetting |
 //! | `PATCH /instance/{uuid}/backups/{id}` | AccessSetting; unpinning also WriteInstanceFile |
 //! | `DELETE /instance/{uuid}/backups/{id}` | WriteInstanceFile |
-//! | `POST /instance/{uuid}/backups/{id}/restore` | WriteInstanceFile, StopInstance and StartInstance when it stops and starts the server, and WriteGlobalFile or owner rights for what it changes |
+//! | `POST /instance/{uuid}/backups/{id}/restore` | WriteInstanceFile, StopInstance and StartInstance when it stops and starts the server, and WriteGlobalFile or owner rights for what it changes. Everything and `world_and_mods` can change the server's Minecraft and loader version to the backup's (with the server software they put back), which needs no AccessSetting |
 //! | `POST /instance/{uuid}/backups/{id}/restore_as_new` | CreateInstance, ReadInstanceFile, and WriteGlobalFile or owner rights for what the backup holds |
 //! | `POST /instance/{uuid}/backups/{id}/download` | ReadInstanceFile |
 //! | `GET /instance/{uuid}/backups/policy` | ReadInstanceFile |
@@ -33,7 +33,7 @@ use ts_rs::TS;
 use crate::auth::user::{User, UserAction};
 use crate::backups::restore::RestoreDiff;
 use crate::backups::service::{DiffCheck, NewServerRequest};
-use crate::backups::{BackupInfo, BackupList, BackupPolicy, RestoreRequest, RestoreScope};
+use crate::backups::{BackupInfo, BackupList, BackupPolicy, RestoreRequest};
 use crate::error::{Error, ErrorKind};
 use crate::event_broadcaster::EventBroadcaster;
 use crate::events::{new_fs_event, Event, FSOperation, FSTarget, ProgressionEventID};
@@ -260,20 +260,12 @@ async fn restore_backup(
     let instance = minecraft(&state, &uuid)?;
     state.backups.store().instance_dir(&uuid)?;
     let backup = state.backups.load(&uuid, &id).await?;
-    if request.scope != RestoreScope::Everything && backup.record.level.is_none() {
-        return Err(Error {
-            kind: ErrorKind::BadRequest,
-            source: eyre!("This backup has no world"),
-        });
-    }
-    if request.scope == RestoreScope::WorldAndMods && backup.content.is_none() {
-        return Err(Error {
-            kind: ErrorKind::BadRequest,
-            source: eyre!(
-                "This backup doesn't know the content it ran with, so its mods can't be restored"
-            ),
-        });
-    }
+    // before the server is stopped for it; the plan checks again
+    crate::backups::restore::check_scope(
+        request.scope,
+        backup.record.level.is_some(),
+        backup.content.is_some(),
+    )?;
     // what this checks holds only while the server's state stays as it is now: the
     // service refuses a server that started meanwhile (`may_stop`)
     let runs = instance.state().await == InstanceState::Running;
@@ -328,7 +320,7 @@ async fn restore_as_new(
     requester
         .require(&state, UserAction::ReadInstanceFile(uuid.clone()))
         .await?;
-    minecraft(&state, &uuid)?;
+    let instance = minecraft(&state, &uuid)?;
     state.backups.store().instance_dir(&uuid)?;
     let backup = state.backups.load(&uuid, &id).await?;
     let files = backup.files_on_disk()?;
@@ -354,14 +346,22 @@ async fn restore_as_new(
     {
         require_code_write(&state, user)?;
     }
-    let name = body
+    let name = match body
         .and_then(|Json(body)| body.name)
         .map(|name| name.trim().to_string())
         .filter(|name| !name.is_empty())
-        .unwrap_or_else(|| {
-            let base: String = backup.record.instance_name.chars().take(89).collect();
+    {
+        Some(name) => name,
+        None => {
+            // a backup listed again after its record was lost has no server name
+            let mut base = backup.record.instance_name.trim().to_string();
+            if base.is_empty() {
+                base = instance.name().await;
+            }
+            let base: String = base.chars().take(89).collect();
             format!("{} (restored)", base.trim())
-        });
+        }
+    };
     let keep_command_line =
         can_write_global_files(&state, user).is_ok() && state.code_execution_enabled();
     let task_id = state

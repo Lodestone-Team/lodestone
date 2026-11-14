@@ -56,14 +56,14 @@ pub struct BaseFile {
 }
 
 /// The file's path under the store's root.
-pub fn path(store_root: &Path, uuid: &InstanceUuid) -> PathBuf {
-    store_root.join("images").join(uuid.as_ref()).join(FILE)
+pub fn path(store_root: &Path, uuid: &InstanceUuid) -> Result<PathBuf, Error> {
+    super::instance_file(store_root, uuid, FILE)
 }
 
 /// The instance's pack, if it has one recorded. A damaged file is none, with a warning.
 /// Blocking.
 pub fn load_base(store_root: &Path, uuid: &InstanceUuid) -> Option<BaseInfo> {
-    let path = path(store_root, uuid);
+    let path = path(store_root, uuid).ok()?;
     let meta = std::fs::metadata(&path).ok()?;
     if meta.len() > MAX_BYTES {
         tracing::warn!("{} is too large; ignoring it", path.display());
@@ -81,7 +81,7 @@ pub fn load_base(store_root: &Path, uuid: &InstanceUuid) -> Option<BaseInfo> {
 
 /// Replaces the instance's pack, crash-safely. Blocking.
 pub fn save_base(store_root: &Path, uuid: &InstanceUuid, info: &BaseInfo) -> Result<(), Error> {
-    let path = path(store_root, uuid);
+    let path = path(store_root, uuid)?;
     let bytes = serde_json::to_vec(info)
         .map_err(|e| color_eyre::eyre::eyre!("Failed to write the pack's files: {e}"))?;
     super::write_small_atomic(&path, &bytes)
@@ -115,7 +115,7 @@ mod tests {
         );
         save_base(dir.path(), &uuid, &info).unwrap();
         assert_eq!(load_base(dir.path(), &uuid), Some(info));
-        std::fs::write(path(dir.path(), &uuid), b"[").unwrap();
+        std::fs::write(path(dir.path(), &uuid).unwrap(), b"[").unwrap();
         assert_eq!(load_base(dir.path(), &uuid), None);
     }
 }

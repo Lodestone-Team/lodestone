@@ -11,8 +11,8 @@
 //! 3. `modrinth_environment` and `modrinth_project`: what Modrinth said about the file's
 //!    version, keyed by the file's SHA-512, as Lodestone learned it while installing or
 //!    listing mods ([`ModrinthHints`]) and kept with the instance's content state.
-//! 4. `jar_environment`: what the jar itself says (`fabric.mod.json`), from the mods
-//!    folder's scan cache.
+//! 4. `jar_environment`: what the jar itself says (`fabric.mod.json`), scanned once per
+//!    jar contents and kept in memory ([`JarScans`]).
 //!
 //! An input that isn't known stays unknown. Asking Modrinth here would hold up a record and
 //! make image ids depend on the network's timing, so nothing here does.
@@ -151,7 +151,9 @@ impl JarScans {
 
 /// The jars of the server's mods or plugins folder among `paths` (canonical paths, which
 /// are their disk paths on a server): their SHA-512, owner mark and jar environment, by
-/// path. Hashes come from the mods folder's scan cache, so unchanged jars aren't read.
+/// path. What a jar's scan found is kept in memory by its SHA-256 ([`JarScans`]), so a jar
+/// is read once per contents while the core runs; the first record after a start reads
+/// every jar (not persisted: a cost of a few seconds for a large pack, once).
 pub async fn jar_facts(
     ctx: &InstanceContext,
     files: &[(String, String)],

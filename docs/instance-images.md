@@ -80,8 +80,7 @@ there needs a new schema: dropping it would change the id, and the image would f
 check with a misleading mismatch instead. Informational values it doesn't know (a withheld reason, an
 `env_from` input, a loader, a flavour) are kept as text. An unknown `source`, `kind`,
 `base` or `env` value makes the manifest invalid, since nothing can act on it safely. A
-newer schema is refused with its own error, and so is an older one (schema 2 is the first
-of images).
+manifest of any other schema is refused with its own error.
 Settings are the exception: fields a reader doesn't know are dropped, so local settings can
 never get into an image; a new setting needs a new schema.
 
@@ -579,7 +578,11 @@ Content-addressed, shared by every instance on one machine:
 One image per operation, not per file: a job (Update all) is one image, and changes
 within a few seconds of it are merged in. An image is written only after the operation
 succeeded. Files the game or a running server writes (`options.txt`, logs, configs a mod
-rewrites at startup) don't make content images; snapshots and backups capture them.
+rewrites at startup) don't make content images of their own; snapshots and backups capture
+them, and they join the next content image an operation records. The one image that takes
+them in before an operation is the core's record before a modpack update or restore, which
+must hold every file the change replaces ("Before a modpack update" or "Before a modpack
+restore" when nothing changed outside Lodestone).
 
 ## Retention
 
@@ -766,9 +769,11 @@ of M2 adds its own subsection.
   upload streams into temporary files first, and a long job (a copy, an unzip, a zip) is
   begun with `ImageService::begin_job`, which holds no gate (a record meanwhile may take its
   files half written; the record of its own label, after it succeeded, takes them whole). A
-  modpack update or restore begins with `ImageService::begin_exclusive`, which has the
-  content to itself, so no Files API change lands between its last check of the files and
-  their placement. A caller holding other locks (a backup) waits for the gate a bounded
+  modpack update or restore begins with `ImageService::begin_exclusive`, which waits for
+  every Files API operation (not the jobs, which hold no gate) and keeps new ones out, so
+  none lands between its last check of the files and their placement; placing a new file
+  never replaces one that appeared since (a hard link, which fails when the name is taken),
+  so a job writing meanwhile makes the change fail rather than lose the job's file. A caller holding other locks (a backup) waits for the gate a bounded
   time (`flush_within`, `record_now_within`); once a record has the gate it runs to its
   end, so it never loses the labels it took. Successes are merged until 3 s pass without one, or 30 s after the first at the
   latest; a failed operation (dropped without `succeed`) records nothing. A record snapshots
@@ -817,10 +822,16 @@ of M2 adds its own subsection.
   It reads manifest headers, not whole manifests (a data image lists every file of the
   server, and pruning follows every record), and a data image's link is part of its id, so
   it is read once per id and kept in memory.
-  "Newest" is by `created`, and within one second the current image first (going back to
-  earlier content saves an image again with its successor as parent, so parents can form
-  a circle), then by lineage (an image before the one it was recorded after): the order
-  the modpack history lists them in, so the history shows what is kept. Pruning that deleted something asks for a collection.
+  "Newest" is by `created`, and within one second by the lineage: going back from the
+  current image parent by parent lists the images newest first, since each record takes
+  the image current before it as its parent. Going back to earlier content saves an image
+  again with its new parent, so parents can form a circle; the walk stops at an image it
+  has seen, and images it doesn't reach come after, the one with more ancestors first. That
+  is the order the modpack history lists them in, so the history shows what is kept.
+  Pruning that deleted something asks for a collection, at most every 15 minutes: past 30
+  images nearly every record prunes one, which frees a few small files, while a collection
+  reads every manifest of every server; what a skipped request would have freed goes at
+  the next collection.
 - **Deleting a server** deletes `images/<uuid>/` (`ImageService::delete_instance`); its
   objects go at the next collection.
 
@@ -842,14 +853,22 @@ of M2 adds its own subsection.
     ("Copied <a> to <dest>", "Copied N files to <dest>"), unzip ("Unzipped <archive>") and zip
     ("Zipped to <archive>", when the archive lands among the content), each succeeding when its
     job ends with success and holding no gate while it runs (`begin_job`). An upload writes
-    each file under a temporary name (`.lodestone-upload-<16 hex>.tmp`, which no image
-    records) and begins its operation only to rename them into place once the whole upload
-    arrived. A request records only when one of its paths, mapped through the server's
+    each file under a temporary name (`.lodestone-upload-<random>.tmp`, which no image
+    records, deleted when the request ends or is dropped, and at startup when a crash left
+    one over an hour old) and begins its operation only to move them into place once the
+    whole upload arrived, never replacing anything at a name (a dangling link included): a
+    taken name gets the next free one (`name_1.ext`), and an upload that fails to place a
+    file removes the ones it placed. A request records only when one of its paths, mapped through the server's
     layout, is content or a folder that can hold content (the server folder itself can: an
     unzip there may write anything); when the layout can't be read, everything counts, since a
     record that finds nothing changed writes no image. Reads and downloads never record.
     Docker instances never do. While a backup is being restored into the server, every Files
-    API change is refused (409): the restore swaps whole folders.
+    API change is refused (409), and an upload that streamed while the restore began places
+    nothing: the restore swaps whole folders. A job that began before the restore isn't
+    stopped. The global Files API (`handlers/global_fs.rs`, for users with
+    `WriteGlobalFile`) can reach a server's folder too; its changes record no content image
+    and aren't refused during a restore: they show up at the next record (as "Changed
+    outside Lodestone" before a start, or in the next operation's image).
   - Settings: a `server.properties` setting ("Changed <setting>") and the resource pack
     ("Changed the resource pack"). The command line, JVM and Java settings are the core's own and
     never recorded. A Minecraft version change records at once after it succeeded ("Changed
@@ -890,10 +909,13 @@ of M2 adds its own subsection.
   (files, withheld files, bytes, new bytes, stored bytes, duration), so listing reads this one
   file and no manifest. A data image's manifest is deleted once no record names it, and only
   when a backup that named it is deleted. A list that can't be read is an error, never "no
-  backups". A data image no record names (a crash between its manifest and its record, or a
-  `backups.json` that went missing) is listed as a backup again before retention or a delete
-  picks anything: a manual backup (never deleted by retention) named by the image's label, at
-  its time, with its world as the level when it has one. The policy is `backup-policy.json`
+  backups". Before retention or a delete picks anything, the records are brought in line
+  with the images: a record whose image is gone is dropped (a crash in the middle of a
+  delete), and a data image no record names (a crash between its manifest and its record,
+  or a `backups.json` that went missing) is listed as a backup again: a manual backup (never
+  deleted by retention) named by the image's label, at its time, with its world as the level
+  when it has one, and no server name (a restore as new names the copy after the server's
+  current name). The policy is `backup-policy.json`
   beside it; deleting a server deletes the folder.
 - **What a backup takes.** A snapshot of the server folder with its disk layout (worlds as
   `saves/<world>/…`; a Paper or Spigot level's `<level>_nether/DIM-1` and `<level>_the_end/DIM1`
@@ -926,9 +948,12 @@ of M2 adds its own subsection.
 - **Order of writes.** Objects (the snapshot), the manifest (the store flushes what it names
   first), then the record, both under the instance's lock; then the data stat cache. A crash
   before the record leaves a data image no record names: the next retention or delete lists
-  it as a backup (see above). Deleting goes the other way: the record, then the image when no
-  record names it, then pruning the content images nothing links to, then a collection. Retention picks what to delete from the records read
-  under that lock.
+  it as a backup (see above). Deleting is the mirror image: the image (when no other record
+  names it), then the record, then pruning the content images nothing links to, then a
+  collection. A crash between the two leaves a record whose image is gone, which the next
+  retention or delete drops, so a deleted backup never comes back; a backup whose image
+  couldn't be deleted keeps its record. Retention picks what to delete from the records
+  read under that lock.
 - **Collections.** A job holds the store's collections off (`Store::hold_off_collection`) while
   it relies on objects nothing has claimed: a backup from its snapshot to its save, a restore
   while it reads the image (its backup may be deleted meanwhile), a download while it zips. A
@@ -936,7 +961,9 @@ of M2 adds its own subsection.
 - **Restore.** A restore makes the files a backup would take now match the image, and leaves
   everything else as it is: what images never record, what the current policy excludes and
   what the backup itself left out (its `excludes`: it has no copy to put back), links, files
-  no image can hold, and the files the backup withheld (it has no copy of them). So the
+  no image can hold, and the files the backup withheld (it has no copy of them), including
+  everything now under a folder it withheld (a link to a folder, or a folder it couldn't
+  list; a snapshot withholds such a folder under its canonical path). So the
   safety backup has everything the restore replaces or removes; a replaced file the safety
   backup couldn't read (withheld as unreadable or kept changing) refuses the restore. Scopes:
   everything; the world (the backup's level, needing one); and `world_and_mods`, the level plus
@@ -953,7 +980,7 @@ of M2 adds its own subsection.
   request was checked. Everything and `world_and_mods` are content operations: they hold the
   content gate from before the safety backup to the swap, and record "Restored backup “…”"
   after the server's settings are read again; a world restore doesn't touch content. Files
-  API changes are refused while a restore runs. The journal is
+  API changes are refused while a restore runs (a job begun before it isn't stopped). The journal is
   `images/<uuid>/restore-journal.json`.
 - **What the server is built on follows a restore of content.** `pack.json` lives with the
   images, so no restore brings it back, and the server software and modpack origin are in the
@@ -963,7 +990,8 @@ of M2 adds its own subsection.
   falls back to the files of the origin's pack version
   (`modpack::pack_info::follow_base`). Everything brings the settings back whole;
   `world_and_mods` leaves them but takes `version`, `flavour`, `jre_major_version` and
-  `modpack` from the backup's copy of them, since it put back the backup's server software
+  `modpack` from the backup's copy of them (read while collections are held off, since the
+  backup may be deleted during the restore), since it put back the backup's server software
   (`libraries/`, `versions/`, the top-level jars). Without this, a Forge server restored to an
   older build would start the newer build's libraries, which are gone, and an update after
   restoring an older pack version's mods would compare them against the newer version's
@@ -1004,15 +1032,22 @@ of M2 adds its own subsection.
   `client-overrides/` replaces for clients unsupported on clients (they get another file).
 - **Writes.** An install records "Installed <pack> <version>" once its files and
   `pack.json` are written. An update or restore holds the server stopped and its mods lock,
-  puts back an update that was interrupted, and records the content as it is (what is
-  queued, else "Changed outside Lodestone" when it differs; a server without an image gets
-  its first), so every file the change takes off the server is in an image; a restore is
-  refused when that record fails, an update goes on (it compares the files themselves).
-  Then it plans, stages every new file, begins its operation alone
-  (`ImageService::begin_exclusive`: no Files API change runs until it is recorded), checks
-  that each file a restore replaces or removes still has the contents the current image gives
-  it (refused as a conflict otherwise), writes the journal, places the files, installs the
-  server software when the Minecraft or loader version changes,
+  puts back an update that was interrupted, and records the content as it is
+  (`ImageService::record_before_change`: what is queued, else "Changed outside Lodestone"
+  when the quick check finds a change since the last record or stop, else "Before a modpack
+  update" or "Before a modpack restore" for what the server wrote while it ran or a file
+  that couldn't be read before; nothing when the content is the current image; a server
+  without an image gets its first), so every file the change takes off the server is in an
+  image; a restore is refused when that record fails, an update goes on (it compares the
+  files themselves). Then it plans, each change keeping what it found at its path (nothing
+  where it adds a file; the SHA-1 of a file an update replaces or removes, the SHA-512 of
+  another copy of a mod it removes, the SHA-256 the current image gives a file a restore
+  replaces or removes), stages every new file (downloads too), begins its operation alone
+  (`ImageService::begin_exclusive`: no Files API operation runs until it is recorded),
+  checks that every path is still as planned (refused as a conflict otherwise, so a file
+  uploaded or edited while it staged is never lost), writes the journal, places the files
+  (never replacing a file that appeared after the check), installs the server software
+  when the Minecraft or loader version changes,
   commits the journal, writes `pack.json` and the server's modpack origin, removes the
   journal, and records "Updated <pack> to <version>" or "Restored “<label>”" (the label of
   the image it went back to). A failure before the commit puts the files back and records
@@ -1046,8 +1081,7 @@ of M2 adds its own subsection.
   the Files API refuses that delete and the Mods tab allows the jars').
 - **History API.** `GET /instance/{uuid}/modpack/history` lists the content images newest
   first (from manifest headers; only the content images are loaded whole), in retention's
-  order (by `created`; within one second the current image first,
-  then an image before its parent).
+  order (by `created`; within one second by the lineage from the current image).
   An entry is `id` (the image id, which `UpdateSource::History.entry_id` names), `time`,
   `label`, `game_version`, `loader`, `loader_version`, `changes` (the files a restore puts
   back that changed from its parent, or the next older image when the parent is gone; a

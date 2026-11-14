@@ -214,6 +214,21 @@ impl RestorePlan {
     }
 }
 
+/// Refuses a scope a backup can't do: one without a level for the world scopes, one
+/// without a content link for "world and its mods". [`plan`] checks this itself; the
+/// handler asks first, before it stops the server.
+pub fn check_scope(scope: RestoreScope, has_level: bool, has_content: bool) -> Result<(), Error> {
+    if scope != RestoreScope::Everything && !has_level {
+        return Err(bad_request("This backup has no world"));
+    }
+    if scope == RestoreScope::WorldAndMods && !has_content {
+        return Err(bad_request(
+            "This backup doesn't know the content it ran with, so its mods can't be restored",
+        ));
+    }
+    Ok(())
+}
+
 /// What restoring `source` with `scope` into the server `ctx` replaces (see the module).
 ///
 /// Refused: a scope the backup can't do (no level, or no content image for "world and its
@@ -225,20 +240,14 @@ pub fn plan(
     source: &Source,
     scope: RestoreScope,
 ) -> Result<RestorePlan, Error> {
+    let level = source
+        .level
+        .filter(|level| source.image.worlds.iter().any(|w| w.name == *level));
+    check_scope(scope, level.is_some(), source.content.is_some())?;
     let level = match scope {
         RestoreScope::Everything => None,
-        RestoreScope::World | RestoreScope::WorldAndMods => Some(
-            source
-                .level
-                .filter(|level| source.image.worlds.iter().any(|w| w.name == *level))
-                .ok_or_else(|| bad_request("This backup has no world"))?,
-        ),
+        RestoreScope::World | RestoreScope::WorldAndMods => level,
     };
-    if scope == RestoreScope::WorldAndMods && source.content.is_none() {
-        return Err(bad_request(
-            "This backup doesn't know the content it ran with, so its mods can't be restored",
-        ));
-    }
     let selected = |path: &CanonicalPath| match scope {
         RestoreScope::Everything => true,
         RestoreScope::World => path.world() == level,
@@ -293,13 +302,20 @@ pub fn plan(
 
     // What it replaces: the selected files a backup now would take, except those the backup
     // couldn't carry, and the server's settings when the backup has none (without them the
-    // server can't load).
+    // server can't load). A withheld path can stand for a whole folder (a link to one, or
+    // one that couldn't be listed): what is in it now is left alone too.
     let withheld: HashSet<&str> = source
         .image
         .withheld
         .iter()
         .map(|w| w.path.as_str())
         .collect();
+    let is_withheld = |path: &str| {
+        withheld.contains(path)
+            || path
+                .match_indices('/')
+                .any(|(at, _)| withheld.contains(&path[..at]))
+    };
     let filter = |candidate: &Candidate| candidate.is_dir || candidate.path.is_some_and(selected);
     let options = SnapshotOptions {
         excludes: &excludes,
@@ -316,7 +332,7 @@ pub fn plan(
     let mut current: Vec<Current> = walked
         .to_read
         .into_iter()
-        .filter(|f| !withheld.contains(f.path.as_str()))
+        .filter(|f| !is_withheld(f.path.as_str()))
         .filter(|f| has_config || f.disk != CONFIG_FILE)
         .map(|f| Current {
             disk: f.disk,

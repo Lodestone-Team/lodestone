@@ -126,47 +126,59 @@ fn read(root: &Path, relative: &str) -> Option<String> {
     std::fs::read_to_string(root.join(relative)).ok()
 }
 
-/// Fails when anything under `dir` is in a format images replaced: the old modpack record,
-/// history and copy store (`.lodestone_modpack/objects`), the old backup store, a downgrade
-/// guard, `.lodesnap` files. And every manifest in the store is a schema-2 image.
-fn assert_no_removed_formats(dir: &Path) {
-    for entry in walkdir::WalkDir::new(dir).into_iter().flatten() {
-        let name = entry.file_name().to_string_lossy().to_string();
-        let path = entry.path().display().to_string();
+/// Fails unless the core's backup folder under `dir` is the one image store layout
+/// (`docs/instance-images.md`): the store's folders, and in each server's image folder only
+/// its manifests (every one a schema-2 image), stat caches and the core's own files beside
+/// them.
+fn assert_one_layout(dir: &Path) {
+    const CORE_FILES: [&str; 6] = [
+        "content-state.json",
+        "pack.json",
+        "backups.json",
+        "backup-policy.json",
+        "restore-journal.json",
+        "save-off.marker",
+    ];
+    let names = |dir: &Path| -> Vec<(String, bool)> {
+        std::fs::read_dir(dir)
+            .unwrap()
+            .flatten()
+            .map(|e| {
+                (
+                    e.file_name().to_string_lossy().to_string(),
+                    e.file_type().unwrap().is_dir(),
+                )
+            })
+            .collect()
+    };
+    let store = dir.join("backups");
+    for (name, _) in names(&store) {
         assert!(
-            !matches!(
-                name.as_str(),
-                "history.json" | "record.json" | "images.json"
-            ),
-            "{path} is a removed format"
+            ["objects", "lists", "chunks", "images"].contains(&name.as_str()),
+            "backups/{name} isn't part of the image store"
         );
-        // the updater's journal and staging stay in `.lodestone_modpack`; its copies don't
-        if name == "objects" {
-            assert_ne!(
-                entry.path().parent().and_then(|p| p.file_name()),
-                Some(std::ffi::OsStr::new(".lodestone_modpack")),
-                "{path} is the old modpack copy store"
-            );
-        }
-        assert!(!name.ends_with(".lodesnap"), "{path} is a removed format");
-        if entry.file_type().is_dir() && name == "servers" {
-            assert_ne!(
-                entry.path().parent(),
-                Some(dir.join("backups").as_path()),
-                "{path} is the old backup store"
-            );
-        }
     }
-    let images = dir.join("backups/images");
-    for entry in walkdir::WalkDir::new(&images).into_iter().flatten() {
-        let name = entry.file_name().to_string_lossy().to_string();
-        let is_manifest = name.len() == 69
-            && name.ends_with(".json")
-            && name[..64].bytes().all(|b| b.is_ascii_hexdigit());
-        if is_manifest {
-            let json: Value =
-                serde_json::from_slice(&std::fs::read(entry.path()).unwrap()).unwrap();
-            assert_eq!(json["schema"], 2, "{}", entry.path().display());
+    for (instance, is_dir) in names(&store.join("images")) {
+        if !is_dir {
+            assert_eq!(instance, "collection.lock");
+            continue;
+        }
+        for (name, _) in names(&store.join("images").join(&instance)) {
+            let path = store.join("images").join(&instance).join(&name);
+            let is_manifest = name.len() == 69
+                && name.ends_with(".json")
+                && lodestone_image::hex::is_sha256(&name[..64]);
+            if is_manifest {
+                let json: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+                assert_eq!(json["schema"], 2, "{}", path.display());
+            } else {
+                assert!(
+                    CORE_FILES.contains(&name.as_str())
+                        || (name.starts_with("stat-cache") && name.ends_with(".json")),
+                    "{} isn't part of the image store",
+                    path.display()
+                );
+            }
         }
     }
 }
@@ -290,7 +302,7 @@ async fn mods_backups_hand_edits_and_restoring_the_world_and_its_mods() {
         Some("Restored backup \u{201c}Base\u{201d}")
     );
     assert!(!core.pending());
-    assert_no_removed_formats(core._dir.path());
+    assert_one_layout(core._dir.path());
 }
 
 /// (b) A modpack install, update and history restore are the lineage, and the History API
@@ -301,7 +313,7 @@ async fn the_modpack_lineage_and_backups() {
     let core = lineage::Core::new().await;
     core.state.images.set_instances(Arc::new(AppInstances {
         instances: core.state.instances.clone(),
-        backups: core.state.backups.clone(),
+        root: core.state.images.root().to_path_buf(),
     }));
     let client = serve(&core.state, &core.uuid).await;
     let title = core.title.clone();
@@ -413,7 +425,7 @@ async fn the_modpack_lineage_and_backups() {
     let first = images.store().load_manifest(copy.as_ref(), &first).unwrap();
     assert_eq!(first.label.as_deref(), Some("Created Copy"));
     assert_eq!(first.base, v2_base);
-    assert_no_removed_formats(core._dir.path());
+    assert_one_layout(core._dir.path());
 }
 
 /// (c) A Paper server's split worlds back up as one canonical world and restore to Paper's
@@ -471,7 +483,7 @@ async fn a_paper_server_backs_up_to_canonical_paths_and_restores_to_its_layout()
     // nothing is put back in the vanilla layout
     assert!(!core.root.join("world/DIM-1").exists());
     assert!(!core.root.join("world/DIM1").exists());
-    assert_no_removed_formats(core._dir.path());
+    assert_one_layout(core._dir.path());
 }
 
 /// (d) Retention keeps every content image a backup links to and the newest
@@ -590,5 +602,5 @@ async fn retention_and_collections_keep_what_backups_link_to() {
     collect().await.unwrap();
     let (sha, size) = object_of(0);
     assert!(!store.has_object(&sha, size));
-    assert_no_removed_formats(core._dir.path());
+    assert_one_layout(core._dir.path());
 }

@@ -42,10 +42,10 @@ use crate::modpack::lineage::{self, ModpackHistory, RestoreTarget};
 use crate::modpack::pack_info;
 use crate::modpack::store::StoredPack;
 use crate::modpack::update::{
-    begin_update, commit_update, end_update, keep_unwritten_scripts, other_copies, pack_files,
-    place_files, plan_files, record_of, recover_interrupted, remove_other_copies, remove_work_dirs,
-    sources_of, stage_files, undo_placed_files, FileAction, FilePlan, FileSource,
-    ModpackUpdatePlan, ModpackUpdateResult, PackFile, PackRecord,
+    begin_update, check_as_planned, commit_update, end_update, keep_unwritten_scripts,
+    other_copies, pack_files, place_files, plan_files, record_of, recover_interrupted,
+    remove_other_copies, remove_work_dirs, sources_of, stage_files, undo_placed_files, FileAction,
+    FilePlan, FileSource, ModpackUpdatePlan, ModpackUpdateResult, PackFile, PackRecord,
 };
 use crate::modpack::updates::{self, AvailableUpdate};
 use crate::modpack::{
@@ -860,23 +860,17 @@ async fn apply(
         .await?;
     }
     // Staging wrote only Lodestone's own folder. From here to the record the change has the
-    // server's content to itself: no Files API change lands between the check that the
-    // files it replaces are as planned and their placement. Dropped on failure, which
-    // records nothing.
+    // server's content to itself: no Files API operation runs between the check that every
+    // file it changes is as planned (nothing new where it adds one) and their placement.
+    // Dropped on failure, which records nothing.
     let op = images.begin_exclusive(&uuid, prepared.change.label()).await;
     progress("Replacing the server's files".to_string());
     {
         // the journal lets the next start put the files back if the core stops before
         // the change is committed (LS-19)
         let (root, plan) = (root.clone(), plan.clone());
-        let replaced = match &prepared.change {
-            Change::Restore(target) => Some(target.replaced.clone()),
-            Change::Update(_) => None,
-        };
         spawn_blocking(move || {
-            if let Some(replaced) = &replaced {
-                lineage::check_unchanged(&root, replaced)?;
-            }
+            check_as_planned(&root, &plan)?;
             begin_update(&root, &plan)?;
             let placed = place_files(&root, &plan);
             if placed.is_err() {
@@ -973,7 +967,7 @@ pub(crate) async fn update_modpack(
     // the content as it is now, so the change is planned from it and what it takes off the
     // server is in an image
     if let Some(ctx) = crate::images::context_of(&state, &uuid).await {
-        if let Err(e) = lineage::before_change(state.images(), ctx).await {
+        if let Err(e) = lineage::before_change(state.images(), ctx, restoring.is_some()).await {
             if restoring.is_some() {
                 return Err(Error {
                     kind: e.kind,
@@ -1078,7 +1072,7 @@ pub(super) async fn check_modpack(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::modpack::update::{FileChange, ImageFile};
+    use crate::modpack::update::{Expected, FileChange, ImageFile};
     use crate::modpack::PackDownload;
     use crate::modrinth::fake::{sha1_hex, sha512_hex, FakeModrinth, FakeVersion};
 
@@ -1100,6 +1094,7 @@ mod tests {
                     path: path.to_string(),
                     target: path.to_string(),
                     action: FileAction::Add,
+                    expected: Expected::Nothing,
                 })
                 .collect(),
             ..Default::default()
@@ -1126,6 +1121,7 @@ mod tests {
                 path: path.to_string(),
                 target: path.to_string(),
                 action: FileAction::Remove,
+                expected: Expected::Nothing,
             })
             .collect(),
             ..Default::default()
@@ -1218,5 +1214,79 @@ mod tests {
         assert!(require_known_restored_files(&api, &plan, &genuine, None)
             .await
             .is_err());
+    }
+
+    /// A file that appears where a restore adds one, or a pack file edited where an update
+    /// replaces it, while the change stages its files (a Files API upload, say) refuses the
+    /// placement: the user's file is never overwritten, and nothing is recorded.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_change_never_overwrites_a_file_written_while_it_stages() {
+        use crate::modpack::lineage::tests::{owner, Core};
+        let core = Core::new().await;
+        let installed = core.current().await;
+
+        // an update: config/pack.toml is replaced, as the pack wrote it
+        let update = UpdateSource::Modrinth {
+            version_id: "v2".into(),
+        };
+        let prepared = prepare(&core.state, &owner(), &core.uuid, &update)
+            .await
+            .unwrap();
+        assert!(prepared
+            .summary
+            .replaced
+            .contains(&"config/pack.toml".to_string()));
+        std::fs::write(core.root.join("config/pack.toml"), b"EDITED WHILE STAGING").unwrap();
+        let error = apply(&core.state, &prepared, &|_| {}).await.unwrap_err();
+        remove_work_dirs(&core.root).await;
+        assert!(
+            matches!(error.kind, ErrorKind::Conflict),
+            "{}",
+            error.source
+        );
+        assert_eq!(
+            std::fs::read(core.root.join("config/pack.toml")).unwrap(),
+            b"EDITED WHILE STAGING"
+        );
+        assert!(std::fs::read(core.root.join("mods/new.jar")).is_err());
+        assert_eq!(core.current().await, installed);
+
+        // a restore: mods/dropped.jar, gone since the update, is added back
+        core.change(update).await.unwrap();
+        let updated = core.current().await;
+        let restore = UpdateSource::History {
+            entry_id: installed.clone(),
+        };
+        let ctx = crate::images::context_of(&core.state, &core.uuid)
+            .await
+            .unwrap();
+        lineage::before_change(core.state.images(), ctx, true)
+            .await
+            .unwrap();
+        let prepared = prepare(&core.state, &owner(), &core.uuid, &restore)
+            .await
+            .unwrap();
+        assert!(prepared
+            .summary
+            .added
+            .contains(&"mods/dropped.jar".to_string()));
+        std::fs::write(core.root.join("mods/dropped.jar"), b"USER UPLOAD").unwrap();
+        let error = apply(&core.state, &prepared, &|_| {}).await.unwrap_err();
+        remove_work_dirs(&core.root).await;
+        assert!(
+            matches!(error.kind, ErrorKind::Conflict),
+            "{}",
+            error.source
+        );
+        assert!(error.source.to_string().contains("mods/dropped.jar"));
+        assert_eq!(
+            std::fs::read(core.root.join("mods/dropped.jar")).unwrap(),
+            b"USER UPLOAD"
+        );
+        assert_eq!(
+            std::fs::read(core.root.join("mods/new.jar")).unwrap(),
+            b"new"
+        );
+        assert_eq!(core.current().await, updated);
     }
 }

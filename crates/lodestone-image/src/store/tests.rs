@@ -719,7 +719,7 @@ fn manifests_round_trip_and_are_checked() {
     assert!(listing
         .unreadable
         .iter()
-        .any(|(id, why)| id == &newer && why.contains("newer")));
+        .any(|(id, why)| id == &newer && why.contains("schema 3")));
 
     // Headers: what listing needs, without the entries; the same refusals of a newer
     // schema, another id's manifest and garbage.

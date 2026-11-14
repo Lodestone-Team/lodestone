@@ -465,6 +465,19 @@ fn as_found(layout: &DiskLayout, disk: &str) -> String {
     }
 }
 
+/// How a withheld folder is named: canonical where the layout gives the folder one (a
+/// server's `world/datapacks` is `saves/world/datapacks`), else as found. A restore leaves
+/// what is under a withheld folder alone, which it can only do when the names match.
+fn folder_as_found(layout: &DiskLayout, disk: &str) -> String {
+    match layout.from_disk(&format!("{disk}/x")) {
+        Ok(Some(probe)) => match probe.as_str().strip_suffix("/x") {
+            Some(folder) => folder.to_string(),
+            None => as_found(layout, disk),
+        },
+        _ => as_found(layout, disk),
+    }
+}
+
 /// Where a walk puts what it withholds.
 struct Withholding<'w> {
     withheld: &'w mut Vec<Withheld>,
@@ -524,7 +537,8 @@ fn walk(
                         Folder::BadName => wants(&disk, None, true),
                     };
                     if wanted {
-                        withholding.withhold(as_found(layout, &disk), WithheldReason::Unreadable);
+                        withholding
+                            .withhold(folder_as_found(layout, &disk), WithheldReason::Unreadable);
                     }
                 }
                 continue;

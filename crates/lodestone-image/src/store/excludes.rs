@@ -126,6 +126,13 @@ pub fn pattern_error(pattern: &str) -> Option<String> {
     None
 }
 
+/// Whether the glob `glob` (`*` is any run of characters) matches all of `name`,
+/// case-sensitively: one part of an exclude pattern against one name, as [`Excludes`]
+/// matches it. Linear in the name and the glob.
+pub fn glob_matches(glob: &str, name: &str) -> bool {
+    Glob::new(glob).matches(name)
+}
+
 /// One position in the compiled patterns: before a pattern part, or at a pattern's end.
 #[derive(Debug, Clone, PartialEq)]
 enum Position {
@@ -506,6 +513,22 @@ impl Glob {
             }
         }
         true
+    }
+}
+
+#[cfg(test)]
+mod glob_tests {
+    use super::glob_matches;
+
+    #[test]
+    fn globs_match_whole_names() {
+        assert!(glob_matches("*", ""));
+        assert!(glob_matches("*.log", "a.log"));
+        assert!(!glob_matches("*.log", "a.LOG"));
+        assert!(glob_matches("a*b*c", "aXbYc"));
+        assert!(!glob_matches("a*b*c", "aXbY"));
+        assert!(glob_matches("wor*", "world_nether"));
+        assert!(!glob_matches("world", "world_nether"));
     }
 }
 

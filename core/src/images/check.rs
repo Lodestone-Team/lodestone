@@ -8,9 +8,11 @@
 //! fails the start: the caller logs what it returns.
 //!
 //! A running server writes files itself (configs mods rewrite at startup, ops and the
-//! whitelist changed by commands). Those never make an image: when the server stops,
-//! [`ImageService::server_stopped`] takes the baseline again without recording, so they
-//! join the next image an operation records. A core that died while its server ran does the
+//! whitelist changed by commands). Those never make an image of their own: when the server
+//! stops, [`ImageService::server_stopped`] takes the baseline again without recording, so
+//! they join the next image an operation records. The one exception is the record a modpack
+//! update or restore takes first ([`ImageService::record_before_change`]), which must hold
+//! every file the change replaces. A core that died while its server ran does the
 //! same at its next start ([`ImageService::after_restart`]). A server that has no content
 //! image yet gets its first when it stops, or at startup if it is stopped.
 
@@ -119,6 +121,60 @@ impl ImageService {
         }
         info!("The content of {} changed outside Lodestone", ctx.uuid);
         self.record_held(&slot, ctx, Some(OUTSIDE_LABEL.to_string()), 0)
+            .await
+            .map(Some)
+    }
+
+    /// Before a modpack update or restore changes the content of the stopped server `ctx`:
+    /// records it as it is, so the current image is what is on disk and every file the
+    /// change replaces or removes is in an image. This is the one record that takes in what
+    /// the server wrote while it ran (which otherwise only joins the next operation's image):
+    /// a restore must be able to give those files back. The image is labelled by what is
+    /// queued; else "Changed outside Lodestone" when the quick check finds content changed
+    /// since the last record or stop; else `label`, which names the change about to be
+    /// made (the difference is then what the server wrote while it ran, or a file that
+    /// couldn't be read at the last record); a server without an image gets its first.
+    /// Nothing new is recorded when the content is the current image.
+    pub async fn record_before_change(
+        self: &Arc<Self>,
+        ctx: InstanceContext,
+        label: &str,
+    ) -> Result<Option<Recorded>, Error> {
+        if !Self::accepts(&ctx.uuid) {
+            return Ok(None);
+        }
+        let slot = self.slot(&ctx.uuid);
+        let _gate = slot.gate.clone().write_owned().await;
+        let _lock = slot.lock.clone().lock_owned().await;
+        let queued = !slot
+            .pending
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .is_empty();
+        if queued {
+            return self.record_held(&slot, ctx, None, 0).await.map(Some);
+        }
+        let state = self.load_state(&ctx.uuid).await?;
+        let label = if state.current.is_none() {
+            INITIAL_LABEL
+        } else if state.has_baseline() {
+            let store = self.store();
+            let check = ctx.clone();
+            let baseline = state.baseline.clone();
+            let outside = blocking(move || {
+                let (layout, excludes) = content_scope(&check)?;
+                quick_changed(&store, &check.root, &layout, &excludes, &baseline)
+            })
+            .await?;
+            if outside {
+                OUTSIDE_LABEL
+            } else {
+                label
+            }
+        } else {
+            label
+        };
+        self.record_held(&slot, ctx, Some(label.to_string()), 0)
             .await
             .map(Some)
     }

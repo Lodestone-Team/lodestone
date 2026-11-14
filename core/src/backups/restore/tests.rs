@@ -651,6 +651,79 @@ fn files_the_backup_couldnt_carry_are_kept() {
     assert_eq!(read(root, "world/level.dat").unwrap(), "level v1");
 }
 
+/// A folder the backup couldn't carry (a link to a folder, or one it couldn't list) is
+/// withheld as one path: what is in that folder now is left alone, since the backup has no
+/// copy of it, even once it is a real folder.
+#[cfg(unix)]
+#[test]
+fn a_folder_the_backup_couldnt_carry_keeps_what_is_in_it_now() {
+    use std::os::unix::fs::PermissionsExt;
+
+    // a link to a folder when the backup was taken
+    let env = env();
+    let root = &env.root;
+    base_server(root);
+    let elsewhere = env._dir.path().join("elsewhere");
+    fs::create_dir_all(&elsewhere).unwrap();
+    assert!(link_dir(&elsewhere, &root.join("world/datapacks")));
+    let (image, level) = env.backup(Flavour::Vanilla, &[]);
+    assert!(image
+        .withheld
+        .iter()
+        .any(|w| w.path == "saves/world/datapacks"));
+    fs::remove_file(root.join("world/datapacks")).unwrap();
+    write(root, "world/datapacks/mine.zip", b"my datapack");
+    write(root, "world/level.dat", b"level v2");
+    let ctx = env.ctx(Flavour::Vanilla, &[]);
+    let source = everything(&image, level.as_deref());
+    for scope in [RestoreScope::World, RestoreScope::Everything] {
+        env.restore(&source, scope, &ctx, &Pin::default());
+        assert_eq!(
+            read(root, "world/datapacks/mine.zip").as_deref(),
+            Some("my datapack")
+        );
+        assert_eq!(read(root, "world/level.dat").unwrap(), "level v1");
+        write(root, "world/level.dat", b"level v2");
+    }
+
+    // a folder it couldn't list
+    let env = self::env();
+    let root = &env.root;
+    base_server(root);
+    write(root, "world/datapacks/old.zip", b"old");
+    let datapacks = root.join("world/datapacks");
+    fs::set_permissions(&datapacks, fs::Permissions::from_mode(0o000)).unwrap();
+    if fs::read_dir(&datapacks).is_ok() {
+        // running as root, which lists every folder
+        fs::set_permissions(&datapacks, fs::Permissions::from_mode(0o755)).unwrap();
+        return;
+    }
+    let (image, level) = env.backup(Flavour::Vanilla, &[]);
+    fs::set_permissions(&datapacks, fs::Permissions::from_mode(0o755)).unwrap();
+    assert!(
+        image
+            .withheld
+            .iter()
+            .any(|w| w.path == "saves/world/datapacks"),
+        "{:?}",
+        image.withheld
+    );
+    write(root, "world/datapacks/mine.zip", b"my datapack");
+    let ctx = env.ctx(Flavour::Vanilla, &[]);
+    let source = everything(&image, level.as_deref());
+    let plan_ = env.plan(&source, RestoreScope::World, &ctx);
+    assert!(!plan_.replaces("saves/world/datapacks/mine.zip"));
+    env.restore(&source, RestoreScope::World, &ctx, &Pin::default());
+    assert_eq!(
+        read(root, "world/datapacks/old.zip").as_deref(),
+        Some("old")
+    );
+    assert_eq!(
+        read(root, "world/datapacks/mine.zip").as_deref(),
+        Some("my datapack")
+    );
+}
+
 /// A file in the way of what the restore places, that a backup wouldn't take (so the
 /// safety backup has no copy), refuses the restore.
 #[test]

@@ -5,10 +5,13 @@
 //! [`ImageService`], plus its record in `backups.json` (see [`super::store`]). A backup is
 //! written in this order: the image's objects (the snapshot), its manifest (the store makes
 //! the objects durable first), then the record, both under the instance's image lock. A
-//! crash before the record leaves a manifest no record names, which the next retention
-//! deletes; nothing names a manifest that isn't there. Deleting goes the other way: the
-//! record first, then the manifest once no record names it, then pruning the content images
-//! nothing links to any more, then a collection.
+//! crash before the record leaves a manifest no record names, which is listed as a manual
+//! backup again before a retention or a delete picks anything ([`reconcile_records`]): an
+//! image holds a whole copy of the server and is never thrown away for lack of a record.
+//! Deleting is the mirror image: the manifest first (once no other record names it), then
+//! the record, then pruning the content images nothing links to any more, then a
+//! collection. A crash between leaves a record whose image is gone, which the same pass
+//! drops, so a deleted backup never comes back.
 //!
 //! Locks, outermost first:
 //! - the server's job mutex: one backup or restore per server at a time (`try_lock`, so a
@@ -551,28 +554,45 @@ fn stored_size(store: &ImageStore, sha256: &str, size: u64) -> u64 {
     }
 }
 
-/// Adds a record for each of the instance's data and full images no record names, so it is a
-/// backup again: what a crash between a backup's manifest and its record leaves, or every
-/// backup when `backups.json` went missing. An image holds a whole copy of the server, so it
-/// is never deleted just because the list doesn't name it. The record is a manual backup
-/// (retention never deletes those) named by the image's label, at the image's time, with
-/// its world as the level when it has exactly one. Returns whether it added any; the
-/// caller saves the records. A manifest that can't be read is left as it is. Blocking; the
-/// caller holds the instance's lock.
-fn adopt_unnamed_images(store: &ImageStore, uuid: &InstanceUuid, records: &mut Records) -> bool {
+/// Brings the records in line with the images, both ways. A record whose image is gone is
+/// dropped: what a crash in the middle of a delete leaves (the manifest goes first). A data
+/// or full image no record names gets a record, so it is a backup again: what a crash
+/// between a backup's manifest and its record leaves, or every backup when `backups.json`
+/// went missing. An image holds a whole copy of the server, so it is never deleted just
+/// because the list doesn't name it. The record is a manual backup (retention never deletes
+/// those) named by the image's label, at the image's time, with no server name (whoever
+/// needs one takes the server's current name), with its world as the level when it has
+/// exactly one. Returns whether it
+/// changed anything; the caller saves the records. A manifest that can't be read is left as
+/// it is, and nothing changes when the images can't be listed. Blocking; the caller holds
+/// the instance's lock.
+fn reconcile_records(store: &ImageStore, uuid: &InstanceUuid, records: &mut Records) -> bool {
     let Ok(ids) = store.manifest_ids(uuid.as_ref()) else {
         return false;
     };
-    let mut adopted = false;
-    for id in ids {
-        if records.names_image(&id) {
+    let present: HashSet<&str> = ids.iter().map(String::as_str).collect();
+    let before = records.backups.len();
+    records.backups.retain(|record| {
+        let there = present.contains(record.image.as_str());
+        if !there {
+            info!(
+                "Dropped the backup {} of {uuid}, whose image is gone",
+                record.id
+            );
+        }
+        there
+    });
+    let mut changed = records.backups.len() != before;
+    for id in &ids {
+        let id = id.as_str();
+        if records.names_image(id) {
             continue;
         }
-        match store.load_header(uuid.as_ref(), &id) {
+        match store.load_header(uuid.as_ref(), id) {
             Ok(header) if header.kind != Kind::Content => {}
             _ => continue,
         }
-        let image = match store.load_manifest(uuid.as_ref(), &id) {
+        let image = match store.load_manifest(uuid.as_ref(), id) {
             Ok(image) => image,
             Err(e) => {
                 warn!("The image {id} of {uuid} names no backup and can't be read: {e}");
@@ -616,9 +636,9 @@ fn adopt_unnamed_images(store: &ImageStore, uuid: &InstanceUuid, records: &mut R
             duration_ms: 0,
         });
         info!("Listed the image {id} of {uuid}, which no backup named, as a backup");
-        adopted = true;
+        changed = true;
     }
-    adopted
+    changed
 }
 
 /// The objects a server's backups use, by the images they were worked out from, for the
@@ -1073,14 +1093,16 @@ impl BackupService {
 
     /// Deletes the backups of the server `select` picks from its records (read under the
     /// instance's image lock, so a backup pinned meanwhile is never picked from an older
-    /// list, and with any image a crash left without a record listed first): their records,
-    /// then each of their images no record names any more, then prunes the content images
-    /// nothing links to and asks for a collection. Returns the ids it deleted.
+    /// list, and reconciled with the images first, [`reconcile_records`]): each of their
+    /// images no other record names, then their records, then prunes the content images
+    /// nothing links to and asks for a collection. A backup whose image couldn't be deleted
+    /// keeps its record and is listed as before. Returns the ids it deleted, and the first
+    /// failure.
     async fn delete_backups(
         &self,
         uuid: &InstanceUuid,
         select: impl FnOnce(&Records) -> HashSet<String> + Send + 'static,
-    ) -> Result<Vec<String>, Error> {
+    ) -> Result<(Vec<String>, Option<Error>), Error> {
         let deleted = {
             let _lock = self.images.instance_lock(uuid).await;
             let store = self.store.clone();
@@ -1088,25 +1110,33 @@ impl BackupService {
             let uuid = uuid.clone();
             blocking(move || {
                 let mut records = store.load_records(&uuid)?;
-                // Images a crash left without a record are backups too, before anything is
-                // chosen: a missing list must never make every backup look like a leftover.
-                let adopted = adopt_unnamed_images(&images, &uuid, &mut records);
+                // Before anything is chosen: a missing list must never make every backup
+                // look like a leftover.
+                let reconciled = reconcile_records(&images, &uuid, &mut records);
                 let ids = select(&records);
-                let (gone, kept): (Vec<BackupRecord>, Vec<BackupRecord>) =
-                    records.backups.drain(..).partition(|b| ids.contains(&b.id));
-                records.backups = kept;
-                if adopted || !gone.is_empty() {
+                let mut deleted = HashSet::new();
+                let mut failure = None;
+                for record in records.backups.iter().filter(|b| ids.contains(&b.id)) {
+                    let shared = records
+                        .backups
+                        .iter()
+                        .any(|b| b.image == record.image && !ids.contains(&b.id));
+                    if !shared {
+                        if let Err(e) = images.delete_manifest(uuid.as_ref(), &record.image) {
+                            warn!("Failed to delete the image {} of {uuid}: {e}", record.image);
+                            failure.get_or_insert_with(|| {
+                                Error::from(eyre!("Failed to delete the backup {}: {e}", record.id))
+                            });
+                            continue;
+                        }
+                    }
+                    deleted.insert(record.id.clone());
+                }
+                records.backups.retain(|b| !deleted.contains(&b.id));
+                if reconciled || !deleted.is_empty() {
                     store.save_records(&uuid, &records)?;
                 }
-                for image in gone.iter().map(|b| &b.image) {
-                    if records.names_image(image) {
-                        continue;
-                    }
-                    if let Err(e) = images.delete_manifest(uuid.as_ref(), image) {
-                        warn!("Failed to delete the image {image} of {uuid}: {e}");
-                    }
-                }
-                Ok(gone.into_iter().map(|b| b.id).collect::<Vec<_>>())
+                Ok((deleted.into_iter().collect::<Vec<_>>(), failure))
             })
             .await?
         };
@@ -1125,9 +1155,12 @@ impl BackupService {
             return Err(not_found());
         }
         let id = id.to_string();
-        let deleted = self
+        let (deleted, failure) = self
             .delete_backups(uuid, move |_| HashSet::from([id]))
             .await?;
+        if let Some(failure) = failure {
+            return Err(failure);
+        }
         if deleted.is_empty() {
             return Err(not_found());
         }
@@ -1176,10 +1209,11 @@ impl BackupService {
                     .into_iter()
                     .collect()
             };
-            for id in self.delete_backups(uuid, doomed).await? {
+            let (deleted, failure) = self.delete_backups(uuid, doomed).await?;
+            for id in deleted {
                 info!("Deleted old backup {id} of {uuid}");
             }
-            Ok::<_, Error>(())
+            failure.map_or(Ok(()), Err)
         }
         .await;
         if let Err(e) = result {
@@ -1982,7 +2016,7 @@ impl BackupService {
                 job,
             )
             .await;
-        let (safety_id, operation) = match swapped {
+        let (safety_id, operation, software) = match swapped {
             Ok(swapped) => swapped,
             Err(failure) => {
                 let start_again = start_again_after(
@@ -2011,8 +2045,15 @@ impl BackupService {
                 });
             }
         };
-        if request.scope == RestoreScope::WorldAndMods {
-            if let Err(e) = self.adopt_backup_software(instance, &backup).await {
+        // A "world and its mods" restore leaves the server's settings file: what it says
+        // about the software and content (the Minecraft version, the server software and its
+        // loader version, the Java it runs on, the modpack origin) comes from the backup's
+        // copy, since the restore put back the backup's server software and mods. Without it
+        // a Forge server restored from an older build would start the newer build's
+        // libraries, which are gone. Before the settings are read again.
+        if let Some(settings) = software {
+            let root = instance.path().await;
+            if let Err(e) = blocking(move || restore::adopt_software(&root, &settings)).await {
                 warn!(
                     "Failed to take the server software of {uuid} from the backup's settings: {}",
                     e.source
@@ -2050,28 +2091,6 @@ impl BackupService {
         Ok((message, safety_id))
     }
 
-    /// After a "world and its mods" restore, which leaves the server's settings file: takes
-    /// what that file says about the software and content from the backup's copy of it (the
-    /// Minecraft version, the server software and its loader version, the Java it runs on,
-    /// the modpack origin), since the restore put back the backup's server software and
-    /// mods. Without it a Forge server restored from an older build would start the newer
-    /// build's libraries, which are gone. Called before the settings are read again.
-    async fn adopt_backup_software(
-        &self,
-        instance: &MinecraftInstance,
-        backup: &Backup,
-    ) -> Result<(), Error> {
-        let root = instance.path().await;
-        let (store, backup) = (self.image_store(), backup.clone());
-        blocking(move || {
-            let Some(settings) = backup_settings(&store, &backup)? else {
-                return Ok(());
-            };
-            restore::adopt_software(&root, &settings)
-        })
-        .await
-    }
-
     /// After a restore that put back a backup's content: `pack.json` (with the images, so no
     /// restore brings it back) follows the base of the backup's content image
     /// ([`crate::modpack::pack_info::follow_base`]), so the next modpack update compares
@@ -2086,8 +2105,9 @@ impl BackupService {
     }
 
     /// [`Self::restore_locked`] from the stopped server to the swap. Returns the safety
-    /// backup's id, and the content operation the restore holds when it changed content (to
-    /// succeed once the server's settings are read again).
+    /// backup's id, the content operation the restore holds when it changed content (to
+    /// succeed once the server's settings are read again), and for a world and mods restore
+    /// the backup's settings, whose server software the server takes on.
     #[allow(clippy::too_many_arguments)]
     async fn swap_in(
         self: &Arc<Self>,
@@ -2101,7 +2121,8 @@ impl BackupService {
         check: Option<DiffCheck>,
         was_running: bool,
         job: &Job,
-    ) -> Result<(Option<String>, Option<Operation>), RestoreFailure> {
+    ) -> Result<(Option<String>, Option<Operation>, Option<serde_json::Value>), RestoreFailure>
+    {
         let uuid = instance.uuid().await;
         let root = instance.path().await;
         if was_running {
@@ -2125,6 +2146,22 @@ impl BackupService {
         let plan = self
             .plan(instance, backup, request.scope, policy_exclude)
             .await?;
+        // read while the hold keeps the backup's objects: it may be deleted meanwhile
+        let software = if request.scope == RestoreScope::WorldAndMods {
+            let (store, backup) = (self.image_store(), backup.clone());
+            match blocking(move || backup_settings(&store, &backup)).await {
+                Ok(settings) => settings,
+                Err(e) => {
+                    warn!(
+                        "Failed to read the server software in the backup of {uuid}: {}",
+                        e.source
+                    );
+                    None
+                }
+            }
+        } else {
+            None
+        };
         let needed = plan.total_bytes();
         {
             let root = root.clone();
@@ -2232,7 +2269,7 @@ impl BackupService {
         let journal = self.store.journal_path(&uuid)?;
         let joined = tokio::task::spawn_blocking(move || staged.swap(&journal)).await;
         match swap_outcome(joined) {
-            Ok(()) => Ok((safety_id, operation)),
+            Ok(()) => Ok((safety_id, operation, software)),
             Err(SwapOutcome::RolledBack(e)) => Err(RestoreFailure::Unchanged(e)),
             Err(SwapOutcome::Broken(e)) => {
                 error!("The restore of {uuid} could not be undone: {}", e.source);

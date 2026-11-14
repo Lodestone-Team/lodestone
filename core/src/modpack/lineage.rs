@@ -29,10 +29,11 @@ use serde::{Deserialize, Serialize};
 use tracing::warn;
 use ts_rs::TS;
 
-use super::update::{record_of, FileAction, FileChange, FilePlan, FileSource, ImageFile, PackFile};
+use super::update::{
+    record_of, Expected, FileAction, FileChange, FilePlan, FileSource, ImageFile, PackFile,
+};
 use super::{InstancePathPolicy, ModpackOrigin, PackDownload};
 use crate::error::{Error, ErrorKind};
-use crate::images::recorder::{INITIAL_LABEL, OUTSIDE_LABEL};
 use crate::images::scope::is_server_settings_file;
 use crate::images::{ImageService, InstanceContext};
 use crate::implementations::minecraft::{
@@ -63,6 +64,13 @@ pub fn install_label(origin: &ModpackOrigin) -> String {
 pub fn update_label(origin: &ModpackOrigin) -> String {
     format!("Updated {}", pack_and_version(origin, " to "))
 }
+
+/// The label of the content image recorded right before a modpack update, when what
+/// changed since the last image wasn't changed outside Lodestone (the server wrote it while
+/// it ran, say).
+pub const BEFORE_UPDATE_LABEL: &str = "Before a modpack update";
+/// [`BEFORE_UPDATE_LABEL`] for a restore.
+pub const BEFORE_RESTORE_LABEL: &str = "Before a modpack restore";
 
 /// The label of the content image a restore records, from the label of the image it went
 /// back to.
@@ -159,20 +167,23 @@ pub async fn new_server_context(
 }
 
 /// Before an update or restore of the server `ctx` changes its files: records its content
-/// as it is now (what the Mods tab or the Files API changed in the last seconds, and what
-/// changed outside Lodestone), so the current image is the content on disk and every file
-/// the change takes off the server is in an image. A server with no image yet gets its
-/// first. A restore must not go on when this fails ([`plan_restore`] trusts the current
-/// image to be what is on disk); an update compares the files themselves and may.
-pub async fn before_change(images: &Arc<ImageService>, ctx: InstanceContext) -> Result<(), Error> {
-    if !ImageService::accepts(&ctx.uuid) {
-        return Ok(());
-    }
-    let label = match images.current_content(&ctx.uuid).await {
-        Some(_) => OUTSIDE_LABEL,
-        None => INITIAL_LABEL,
+/// as it is now (what the Mods tab or the Files API changed in the last seconds, what
+/// changed outside Lodestone, and what the server wrote while it ran; see
+/// [`ImageService::record_before_change`]), so the current image is the content on disk and
+/// every file the change takes off the server is in an image. A restore must not go on when
+/// this fails ([`plan_restore`] trusts the current image to be what is on disk); an update
+/// compares the files themselves and may.
+pub async fn before_change(
+    images: &Arc<ImageService>,
+    ctx: InstanceContext,
+    restore: bool,
+) -> Result<(), Error> {
+    let label = if restore {
+        BEFORE_RESTORE_LABEL
+    } else {
+        BEFORE_UPDATE_LABEL
     };
-    images.record_now(ctx, label.to_string()).await.map(|_| ())
+    images.record_before_change(ctx, label).await.map(|_| ())
 }
 
 // ---- which files a restore changes ----
@@ -525,10 +536,6 @@ pub struct RestoreTarget {
     pub label: Option<String>,
     pub base: Option<Base>,
     pub game: Game,
-    /// The SHA-256 each file the restore replaces or removes had in the current image, by
-    /// disk path: checked again right before the files are placed ([`check_unchanged`]),
-    /// so a file changed since (by the Files API, or by hand) is never thrown away.
-    pub replaced: BTreeMap<String, String>,
 }
 
 /// A restore, worked out before anything changes.
@@ -561,11 +568,6 @@ fn not_in_history() -> Error {
     }
 }
 
-/// Whether `id` can be an image id (64 lowercase hex), before it is used in a path.
-pub fn is_image_id(id: &str) -> bool {
-    id.len() == 64 && id.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
-}
-
 /// Plans restoring the content image `target` on the server in `root` whose current content
 /// image is `current`: every content file a restore puts back ([`restorable`]) becomes as
 /// the target has it. A file the target has that the current image doesn't, or with other
@@ -584,7 +586,7 @@ pub fn plan_restore(
     target: &str,
     allow_scripts: bool,
 ) -> Result<RestorePlan, Error> {
-    if !is_image_id(target) || !ImageService::accepts(uuid) {
+    if !lodestone_image::hex::is_sha256(target) || !ImageService::accepts(uuid) {
         return Err(not_in_history());
     }
     let target_image = store
@@ -612,7 +614,6 @@ pub fn plan_restore(
             label: target_image.label.clone(),
             base: target_image.base.clone(),
             game: target_image.game.clone(),
-            replaced: BTreeMap::new(),
         },
         plan: FilePlan::default(),
         sources: BTreeMap::new(),
@@ -633,17 +634,21 @@ pub fn plan_restore(
         Ok(_) => There::Other,
         Err(_) => There::Nothing,
     };
-    let change = |path: &str, action| FileChange {
+    // A file it replaces or removes must still be as the current image has it when it is
+    // placed, and nothing may have appeared where it adds one (`check_as_planned`).
+    let change = |path: &str, action, expected| FileChange {
         path: path.to_string(),
         target: path.to_string(),
         action,
+        expected,
     };
     for (disk, entry) in &have {
         if !wanted.contains_key(disk) && matches!(there(disk), There::File) {
-            plan.plan.changes.push(change(disk, FileAction::Remove));
-            plan.target
-                .replaced
-                .insert(disk.clone(), entry.sha256.clone());
+            plan.plan.changes.push(change(
+                disk,
+                FileAction::Remove,
+                Expected::Sha256(entry.sha256.clone()),
+            ));
         }
     }
     for (disk, entry) in &wanted {
@@ -651,18 +656,16 @@ pub fn plan_restore(
         if current.is_some_and(|c| c.sha256 == entry.sha256) {
             continue;
         }
-        let action = match (there(disk), current) {
-            (There::File, Some(current)) => {
-                plan.target
-                    .replaced
-                    .insert(disk.clone(), current.sha256.clone());
-                FileAction::Replace
-            }
+        let (action, expected) = match (there(disk), current) {
+            (There::File, Some(current)) => (
+                FileAction::Replace,
+                Expected::Sha256(current.sha256.clone()),
+            ),
             (There::File, None) => {
                 plan.unrecorded.push(disk.clone());
                 continue;
             }
-            (There::Nothing, _) => FileAction::Add,
+            (There::Nothing, _) => (FileAction::Add, Expected::Nothing),
             (There::Other, _) => {
                 plan.blocked.push(disk.clone());
                 continue;
@@ -681,49 +684,9 @@ pub fn plan_restore(
             continue;
         };
         plan.sources.insert(disk.clone(), source);
-        plan.plan.changes.push(change(disk, action));
+        plan.plan.changes.push(change(disk, action, expected));
     }
     Ok(plan)
-}
-
-/// Fails unless each file in `replaced` (disk path to SHA-256, [`RestoreTarget::replaced`])
-/// is still a file with those contents: what a restore checks right before it moves them
-/// aside, so a change made since it was planned is never lost. Blocking.
-pub fn check_unchanged(root: &Path, replaced: &BTreeMap<String, String>) -> Result<(), Error> {
-    use sha2::Digest;
-    let changed: Vec<&str> = replaced
-        .iter()
-        .filter(|(disk, sha256)| {
-            let same = (|| -> std::io::Result<bool> {
-                let path = root.join(disk.as_str());
-                if !std::fs::symlink_metadata(&path)?.is_file() {
-                    return Ok(false);
-                }
-                let mut hasher = sha2::Sha256::new();
-                std::io::copy(&mut std::fs::File::open(&path)?, &mut hasher)?;
-                let hex: String = hasher
-                    .finalize()
-                    .iter()
-                    .map(|b| format!("{b:02x}"))
-                    .collect();
-                Ok(hex == **sha256)
-            })();
-            !same.unwrap_or(false)
-        })
-        .map(|(disk, _)| disk.as_str())
-        .collect();
-    if changed.is_empty() {
-        return Ok(());
-    }
-    let first: Vec<&str> = changed.iter().take(5).copied().collect();
-    Err(Error {
-        kind: ErrorKind::Conflict,
-        source: eyre!(
-            "{} file(s) the restore would replace changed since it was planned ({}); try again",
-            changed.len(),
-            first.join(", ")
-        ),
-    })
 }
 
 /// The server software an image's game ran, for a restore that installs it again. `None`

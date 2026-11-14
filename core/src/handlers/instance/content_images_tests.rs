@@ -131,7 +131,7 @@ pub(crate) async fn core(kind: Kind) -> Core {
     ));
     state.images.set_instances(Arc::new(AppInstances {
         instances: state.instances.clone(),
-        backups: state.backups.clone(),
+        root: state.images.root().to_path_buf(),
     }));
     let instances = dir.path().join("instances");
     let root = instances.join("server");
@@ -580,7 +580,7 @@ async fn failed_and_refused_actions_record_nothing() {
     // Lodestone's own files stay protected through the Files API, and record nothing
     for path in [
         ".lodestone_config",
-        ".lodestone_modpack/record.json",
+        ".lodestone_modpack/update.json",
         "mods/.lodestone_client_mods.json",
         "mods/new.jar",
     ] {

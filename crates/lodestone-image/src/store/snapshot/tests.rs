@@ -312,6 +312,34 @@ fn links_bad_names_and_unreadable_files_are_withheld() {
     assert_eq!(paths(&snapshot), want);
 }
 
+/// A folder that can't be listed is withheld under its canonical path, as a file in it
+/// would be: on a server, `world/datapacks` is `saves/world/datapacks`.
+#[cfg(unix)]
+#[test]
+fn an_unlistable_folder_is_withheld_by_its_canonical_path() {
+    use std::os::unix::fs::PermissionsExt;
+    let (dir, store) = store(Encoding::Raw);
+    let root = dir.path().join("server");
+    write(&root, "world/level.dat", b"level");
+    write(&root, "world/datapacks/a.zip", b"a");
+    let locked = root.join("world/datapacks");
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+    if fs::read_dir(&locked).is_ok() {
+        // running as root, which lists every folder
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+        return;
+    }
+    let layout = DiskLayout::Server(ServerLayout::new("world", [], false).unwrap());
+    let snapshot = snapshot(&store, &root, &layout, &SnapshotOptions::default());
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+    let snapshot = snapshot.unwrap();
+    assert_eq!(
+        withheld(&snapshot),
+        [("saves/world/datapacks", "unreadable")]
+    );
+    assert_eq!(paths(&snapshot), ["saves/world/level.dat"]);
+}
+
 #[test]
 fn the_stat_cache_skips_unchanged_files() {
     for encoding in encodings() {

@@ -198,11 +198,15 @@ impl ImageService {
 }
 
 /// The content images among `images`, newest first: by when they were recorded, and those
-/// recorded in the same second by their lineage, since a restore and the record before it
-/// are often a second apart at most. Within one second the instance's `current` image comes
-/// first (it is always the last recorded), then an image before the one it was recorded
-/// after. Retention keeps the first [`KEEP_CONTENT`] of these, so the history shows what it
-/// keeps.
+/// recorded in the same second (a restore and the record before it are often a second
+/// apart at most) by the lineage. Every record takes the image current before it as its
+/// parent, so going back from the instance's `current` image, parent by parent, lists the
+/// images newest first. Returning to earlier content saves an image again under the id it
+/// had, with the image it came from as its new parent, so parents can go round in a circle:
+/// the walk stops at an image it has seen. Images the walk doesn't reach (the parent they
+/// were recorded after was saved again since) come after those it does, the one with more
+/// ancestors first. Retention keeps the first [`KEEP_CONTENT`] of these, so the history
+/// shows what it keeps.
 pub(crate) fn newest_content_first<'a>(
     images: &'a [ManifestHeader],
     current: Option<&str>,
@@ -210,29 +214,41 @@ pub(crate) fn newest_content_first<'a>(
     let content: Vec<&ManifestHeader> = images.iter().filter(|i| i.kind == Kind::Content).collect();
     let by_id: HashMap<&str, &ManifestHeader> =
         content.iter().map(|i| (i.id.as_str(), *i)).collect();
-    // How many ancestors each has in the listing. A walk stops at an id it has seen:
-    // returning to earlier content records an image under an id it had before, with the
-    // image it came from as its parent, so parents can go round in a circle. That is why
-    // the current image is put first rather than left to its depth.
+    let parent_of = |image: &ManifestHeader| image.parent.as_deref().and_then(|p| by_id.get(p));
+    // How far back from the current image each is.
+    let mut back: HashMap<&str, usize> = HashMap::new();
+    let mut at = current.and_then(|id| by_id.get(id)).copied();
+    while let Some(image) = at {
+        if back.contains_key(image.id.as_str()) {
+            break;
+        }
+        back.insert(image.id.as_str(), back.len());
+        at = parent_of(image).copied();
+    }
+    // How many ancestors one the walk doesn't reach has.
     let depth = |image: &ManifestHeader| {
         let mut seen = HashSet::new();
         let mut at = image;
         while seen.insert(at.id.as_str()) {
-            match at.parent.as_deref().and_then(|p| by_id.get(p)) {
+            match parent_of(at) {
                 Some(parent) => at = parent,
                 None => break,
             }
         }
         seen.len()
     };
-    let mut ordered: Vec<(&ManifestHeader, bool, usize)> = content
+    let mut ordered: Vec<(&ManifestHeader, usize, usize)> = content
         .into_iter()
-        .map(|i| (i, Some(i.id.as_str()) == current, depth(i)))
+        .map(|i| {
+            let back = back.get(i.id.as_str()).copied().unwrap_or(usize::MAX);
+            let depth = if back == usize::MAX { depth(i) } else { 0 };
+            (i, back, depth)
+        })
         .collect();
-    ordered.sort_by(|(a, a_current, da), (b, b_current, db)| {
+    ordered.sort_by(|(a, a_back, da), (b, b_back, db)| {
         b.created
             .cmp(&a.created)
-            .then(b_current.cmp(a_current))
+            .then(a_back.cmp(b_back))
             .then(db.cmp(da))
             .then(a.id.cmp(&b.id))
     });

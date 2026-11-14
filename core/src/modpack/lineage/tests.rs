@@ -21,7 +21,8 @@ use crate::images::layout::server_layout;
 use crate::implementations::minecraft::MinecraftInstance;
 use crate::modpack::tests::{file_entry, index, pack, Entry as ZipEntry, TestPack};
 use crate::modpack::update::{
-    begin_update, commit_update, place_files, recover_interrupted, stage_files, JOURNAL_FILE,
+    begin_update, check_as_planned, commit_update, place_files, recover_interrupted, stage_files,
+    Expected, JOURNAL_FILE,
 };
 use crate::modpack::{install_pack_contents, read_pack};
 use crate::modrinth::fake::{sha1_hex, sha512_hex, FakeModrinth, FakeVersion};
@@ -262,14 +263,27 @@ fn a_restore_puts_back_mods_and_configs_only() {
     assert_eq!(plan.unrecorded, ["mods/gone.jar"]);
     // each file it replaces must still be as the current image has it when it is placed
     assert_eq!(
-        plan.target.replaced.keys().collect::<Vec<_>>(),
-        ["mods/a.jar"]
+        plan.plan.changes[0].expected,
+        Expected::Sha256(lodestone_image::hex::sha256_hex(b"a2"))
     );
-    check_unchanged(&p.root, &plan.target.replaced).unwrap();
+    check_as_planned(&p.root, &plan.plan).unwrap();
     write(&p.root, "mods/a.jar", b"edited meanwhile");
-    let error = check_unchanged(&p.root, &plan.target.replaced).unwrap_err();
+    let error = check_as_planned(&p.root, &plan.plan).unwrap_err();
     assert!(matches!(error.kind, ErrorKind::Conflict));
     write(&p.root, "mods/a.jar", b"a2");
+    // and nothing may have appeared where it adds a file
+    std::fs::remove_file(p.root.join("mods/gone.jar")).unwrap();
+    let plan = p.plan(&current.id, &old.id, false).unwrap();
+    let added = plan
+        .plan
+        .changes
+        .iter()
+        .find(|c| c.target == "mods/gone.jar")
+        .unwrap();
+    assert_eq!(added.expected, Expected::Nothing);
+    check_as_planned(&p.root, &plan.plan).unwrap();
+    write(&p.root, "mods/gone.jar", b"uploaded meanwhile");
+    assert!(check_as_planned(&p.root, &plan.plan).is_err());
 
     // a folder where a file goes is never moved
     std::fs::remove_file(p.root.join("mods/gone.jar")).unwrap();
@@ -1154,12 +1168,13 @@ async fn a_restore_never_replaces_a_file_no_image_has() {
     // readable again, the edit is recorded first and the restore goes ahead
     core.restore(&first).await.unwrap();
     assert_eq!(std::fs::read(&probe).unwrap(), b"A");
+    // the image before the restore's: the file, now readable, wasn't changed since the
+    // record that withheld it, so it isn't called a change outside Lodestone
     let history = core.history().await;
-    let edited = history
-        .entries
-        .iter()
-        .find(|e| e.label == "Changed outside Lodestone")
-        .expect("the edit was recorded before the restore");
+    assert!(history.entries[0].label.starts_with("Restored"));
+    let edited = &history.entries[1];
+    assert_eq!(edited.label, BEFORE_RESTORE_LABEL);
+    assert_eq!(history.entries[2].label, "Changed outside Lodestone");
     let edit = core.image(&edited.id);
     let entry = entry(&edit, "config/probe.toml");
     assert!(core
@@ -1250,4 +1265,60 @@ async fn a_new_server_records_its_first_image() {
     let jar = entry(&disabled, "mods/new.jar.disabled");
     assert_eq!(jar.env, Env::new(EnvValue::Unsupported, EnvValue::Required));
     assert!(jar.source != Source::Object {}, "{:?}", jar.source);
+}
+
+/// What the server wrote while it ran isn't called a change outside Lodestone: the record
+/// before an update takes it in under its own label, and an update of a server that didn't
+/// change records nothing before it.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_record_before_an_update_names_what_the_server_wrote() {
+    let core = Core::new().await;
+    let title = core.title.clone();
+    let images = core.state.images().clone();
+    images.server_started(&core.uuid).await;
+    // a mod rewriting its config at startup
+    write(&core.root, "config/pack.toml", b"rewritten by a mod");
+    let ctx = crate::images::context_of(&core.state, &core.uuid)
+        .await
+        .unwrap();
+    images.server_stopped(ctx).await.unwrap();
+    // stopping recorded nothing
+    assert_eq!(core.history().await.entries.len(), 1);
+    core.change(UpdateSource::Modrinth {
+        version_id: "v2".into(),
+    })
+    .await
+    .unwrap();
+    let labels: Vec<String> = core
+        .history()
+        .await
+        .entries
+        .iter()
+        .map(|e| e.label.clone())
+        .collect();
+    assert_eq!(
+        labels,
+        [
+            format!("Updated {title} to v2-number"),
+            BEFORE_UPDATE_LABEL.to_string(),
+            format!("Installed {title} v1-number"),
+        ]
+    );
+    // nothing changed since: the next change records nothing before it
+    let installed = core.history().await.entries[2].id.clone();
+    core.restore(&installed).await.unwrap();
+    assert_eq!(read(&core.root, "mods/a-1.jar").unwrap(), b"a1");
+    let before: Vec<String> = core
+        .history()
+        .await
+        .entries
+        .iter()
+        .map(|e| e.label.clone())
+        .filter(|l| {
+            l == BEFORE_UPDATE_LABEL
+                || l == BEFORE_RESTORE_LABEL
+                || l == crate::images::recorder::OUTSIDE_LABEL
+        })
+        .collect();
+    assert_eq!(before.len(), 1, "{before:?}");
 }

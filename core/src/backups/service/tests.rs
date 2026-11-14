@@ -297,6 +297,62 @@ async fn an_image_without_a_record_is_listed_as_a_backup() {
     assert!(has(&named.id) && has(&orphan.id));
 }
 
+/// Deleting a backup deletes its image before its record: a crash between them leaves a
+/// record whose image is gone, which the next delete or retention drops, and never an image
+/// without a record, which would come back as a manual backup that retention never takes.
+#[tokio::test]
+async fn a_deleted_backup_never_comes_back() {
+    let dir = tempfile::tempdir().unwrap();
+    let service = service(dir.path());
+    let root = dir.path().join("server");
+    let kept = backed_up(&service, &root, b"level 1");
+    let doomed = backed_up(&service, &root, b"level 2");
+    service
+        .store
+        .save_records(
+            &uuid(),
+            &Records {
+                backups: vec![
+                    record("b1", &kept.id, BackupKind::Manual, 1),
+                    record("s1", &doomed.id, BackupKind::Scheduled, 2),
+                ],
+                scheduled_since_full: 0,
+            },
+        )
+        .unwrap();
+    let images = service.image_store();
+    // a crash after the manifest was deleted, before the record was
+    assert!(images.delete_manifest(uuid().as_ref(), &doomed.id).unwrap());
+    service.apply_retention(&uuid(), None).await;
+    let ids: Vec<String> = service
+        .store
+        .load_records(&uuid())
+        .unwrap()
+        .backups
+        .into_iter()
+        .map(|b| b.id)
+        .collect();
+    assert_eq!(ids, ["b1"]);
+    assert!(images
+        .manifest_path(uuid().as_ref(), &kept.id)
+        .unwrap()
+        .is_file());
+
+    // a delete takes the image away before the record
+    service.delete(&uuid(), "b1").await.unwrap();
+    assert!(!images
+        .manifest_path(uuid().as_ref(), &kept.id)
+        .unwrap()
+        .is_file());
+    service.apply_retention(&uuid(), None).await;
+    assert!(service
+        .store
+        .load_records(&uuid())
+        .unwrap()
+        .backups
+        .is_empty());
+}
+
 /// A backup list that can't be read is an error, and then nothing is deleted: the images
 /// it names would otherwise look like leftovers.
 #[tokio::test]

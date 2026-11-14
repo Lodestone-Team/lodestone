@@ -6,8 +6,8 @@
 //! verifies; informational values it doesn't know (a withheld reason, an `env_from` input,
 //! a loader) are kept as text. Values that change what a file is or where it comes from (an
 //! unknown `source`, `kind`, `base` or `env` value) can't be guessed and make the manifest
-//! invalid, and a newer schema is refused with [`ManifestError::NewerSchema`], so nothing
-//! acts on a manifest it only half understands.
+//! invalid, and another schema is refused with [`ManifestError::UnsupportedSchema`], so
+//! nothing acts on a manifest it only half understands.
 //!
 //! Only the image and its entries have room for unknown fields. Anywhere else (the game,
 //! the producer, the base, a source, an env, a world, a withheld file) an unknown field
@@ -79,10 +79,8 @@ pub const MODRINTH_CDN: &str = "https://cdn.modrinth.com/";
 pub enum ManifestError {
     #[error("the manifest isn't readable JSON: {0}")]
     Json(String),
-    #[error("the manifest has schema {found}, newer than schema {SCHEMA} that this version reads")]
-    NewerSchema { found: u64 },
-    #[error("the manifest has schema {found}, older than schema {SCHEMA}, the first of images")]
-    OlderSchema { found: u64 },
+    #[error("the manifest has schema {found}; this version reads schema {SCHEMA}")]
+    UnsupportedSchema { found: u64 },
     #[error("the manifest is invalid: {0}")]
     Invalid(String),
 }
@@ -531,11 +529,8 @@ impl Image {
                 return Err(ManifestError::Invalid("schema isn't a number".into()))
             }
         };
-        if schema > u64::from(SCHEMA) {
-            return Err(ManifestError::NewerSchema { found: schema });
-        }
-        if schema < u64::from(SCHEMA) {
-            return Err(ManifestError::OlderSchema { found: schema });
+        if schema != u64::from(SCHEMA) {
+            return Err(ManifestError::UnsupportedSchema { found: schema });
         }
         let mut image: Image =
             serde_json::from_slice(bytes).map_err(|e| ManifestError::Invalid(e.to_string()))?;
@@ -1040,11 +1035,11 @@ pub(crate) mod tests {
     fn schema_is_checked_first() {
         assert_eq!(
             Image::from_json(br#"{"schema": 3, "anything": "goes"}"#),
-            Err(ManifestError::NewerSchema { found: 3 })
+            Err(ManifestError::UnsupportedSchema { found: 3 })
         );
         assert_eq!(
             Image::from_json(br#"{"schema": 1, "files": []}"#),
-            Err(ManifestError::OlderSchema { found: 1 })
+            Err(ManifestError::UnsupportedSchema { found: 1 })
         );
         assert!(matches!(
             Image::from_json(br#"{"kind": "content"}"#),

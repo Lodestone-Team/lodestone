@@ -547,7 +547,7 @@ async fn the_pointer_survives_a_crash_and_damage() {
     assert_eq!(s.manifests().len(), 2);
 
     // A damaged state is no state: recording starts a new pointer.
-    std::fs::write(state::path(s.images.root(), &uuid()), b"{garbage").unwrap();
+    std::fs::write(state::path(s.images.root(), &uuid()).unwrap(), b"{garbage").unwrap();
     let after = s
         .images
         .record_now(ctx.clone(), "four".into())
@@ -696,6 +696,23 @@ fn newest_content_first_orders_one_second_by_lineage_and_current() {
     let images = vec![a_again.clone(), b.clone()];
     assert_eq!(ids(&images, Some(&a.id)), [a.id.clone(), b.id.clone()]);
     assert_eq!(ids(&images, Some(&b.id)), [b.id.clone(), a.id.clone()]);
+    // A restore within one second: set `a`, then `b`, two records after it, then back to
+    // `a`, saved again after the second record (a circle of four), then one more change.
+    let r1 = with_parent(5, Some(&b));
+    let r2 = with_parent(6, Some(&r1));
+    let mut a_back = a.clone();
+    a_back.parent = Some(r2.id.clone());
+    let after = with_parent(7, Some(&a_back));
+    let circle = vec![r1.clone(), a_back.clone(), b.clone(), r2.clone()];
+    let newest_first = [a.id.clone(), r2.id.clone(), r1.id.clone(), b.id.clone()];
+    for _ in 0..8 {
+        assert_eq!(ids(&circle, Some(&a.id)), newest_first);
+    }
+    let mut all = circle.clone();
+    all.push(after.clone());
+    let mut expected = vec![after.id.clone()];
+    expected.extend(newest_first.iter().cloned());
+    assert_eq!(ids(&all, Some(&after.id)), expected);
     // An older second stays older, whatever is current.
     let images = vec![older.clone(), b.clone()];
     assert_eq!(

@@ -933,6 +933,44 @@ pub mod fs {
         })
     }
 
+    /// Moves the file `from` to `to`, never replacing what is at `to`: fails with
+    /// `AlreadyExists` when something has that name (a link isn't followed). `std::fs::rename`
+    /// replaces a file silently, so the move is a hard link and then removing `from`; a crash
+    /// between them leaves the file under both names, never under neither. On a disk without
+    /// hard links (FAT, some network shares) it falls back to a rename once `to` is checked
+    /// to be free, which leaves a short race with another writer of the same name. Blocking.
+    pub fn move_no_replace(from: &Path, to: &Path) -> std::io::Result<()> {
+        match std::fs::hard_link(from, to) {
+            Ok(()) => {
+                if let Err(e) = std::fs::remove_file(from) {
+                    tracing::warn!("Could not remove {}: {e}", from.display());
+                }
+                Ok(())
+            }
+            Err(e) if links_unsupported(&e) => {
+                if std::fs::symlink_metadata(to).is_ok() {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::AlreadyExists,
+                        format!("{} already exists", to.display()),
+                    ));
+                }
+                std::fs::rename(from, to)
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Whether a hard link failed because the disk can't make one, rather than because of
+    /// the files: unsupported, across disks, refused by the file system (Linux on FAT says
+    /// EPERM), or Windows' ERROR_INVALID_FUNCTION (FAT, some shares).
+    fn links_unsupported(e: &std::io::Error) -> bool {
+        use std::io::ErrorKind;
+        matches!(
+            e.kind(),
+            ErrorKind::Unsupported | ErrorKind::CrossesDevices | ErrorKind::PermissionDenied
+        ) || (cfg!(windows) && e.raw_os_error() == Some(1))
+    }
+
     /// Creates a new, empty file, never replacing one that is already there: "New file" with
     /// the name of an existing file used to empty it. Fails with a `Conflict` error when
     /// something already has that name (a file, a folder or a symbolic link, which isn't

@@ -48,7 +48,6 @@ use lodestone_image::store::{valid_instance_id, Encoding, Store};
 use tokio::sync::{Mutex, OwnedMutexGuard, RwLock};
 use tracing::{info, warn};
 
-use crate::backups::BackupService;
 use crate::error::Error;
 use crate::prelude::GameInstance;
 use crate::types::InstanceUuid;
@@ -87,10 +86,10 @@ pub trait InstanceSource: Send + Sync {
     async fn context(&self, uuid: &InstanceUuid) -> Option<InstanceContext>;
 }
 
-/// The core's servers, with their backup policies' excludes.
+/// The core's servers, with their backup policies' excludes (from the store at `root`).
 pub struct AppInstances {
     pub instances: Arc<DashMap<InstanceUuid, GameInstance>>,
-    pub backups: Arc<BackupService>,
+    pub root: PathBuf,
 }
 
 #[async_trait]
@@ -98,14 +97,7 @@ impl InstanceSource for AppInstances {
     async fn context(&self, uuid: &InstanceUuid) -> Option<InstanceContext> {
         let instance = self.instances.get(uuid).map(|i| i.value().clone())?;
         let GameInstance::MinecraftInstance(instance) = instance;
-        let exclude = match self.backups.policy(uuid).await {
-            Ok(policy) => policy.exclude,
-            Err(e) => {
-                warn!("Failed to read the backup policy of {uuid}: {}", e.source);
-                Vec::new()
-            }
-        };
-        Some(InstanceContext::of(&instance, exclude).await)
+        Some(context_with_policy(&self.root, &instance).await)
     }
 }
 
@@ -113,14 +105,37 @@ impl InstanceSource for AppInstances {
 pub async fn context_of(state: &crate::AppState, uuid: &InstanceUuid) -> Option<InstanceContext> {
     AppInstances {
         instances: state.instances.clone(),
-        backups: state.backups.clone(),
+        root: state.images().root().to_path_buf(),
     }
     .context(uuid)
     .await
 }
 
+/// The context of `instance` as images see it now, with its backup policy's excludes, read
+/// from the store at `store_root` (none when the policy can't be read, which is logged).
+/// The one place the policy's excludes reach images from.
+pub async fn context_with_policy(
+    store_root: &Path,
+    instance: &crate::implementations::minecraft::MinecraftInstance,
+) -> InstanceContext {
+    use crate::traits::t_configurable::TConfigurable;
+    let store = crate::backups::store::Store::new(store_root.to_path_buf());
+    let uuid = instance.uuid().await;
+    let exclude = match blocking(move || store.load_policy(&uuid)).await {
+        Ok(policy) => policy.exclude,
+        Err(e) => {
+            warn!(
+                "Failed to read the backup policy of {}: {}",
+                instance.uuid().await,
+                e.source
+            );
+            Vec::new()
+        }
+    };
+    InstanceContext::of(instance, exclude).await
+}
+
 /// What the recorder keeps per instance.
-#[derive(Default)]
 pub(crate) struct Slot {
     /// Operations hold it shared while they change files; a record holds it alone, so it
     /// never reads a half-written file and an operation that starts meanwhile waits.
@@ -129,6 +144,30 @@ pub(crate) struct Slot {
     /// Around saving manifests, moving the pointer and pruning.
     pub(crate) lock: Arc<Mutex<()>>,
     pub(crate) pending: StdMutex<recorder::Pending>,
+    /// How many stops' content work hasn't finished ([`ImageService::begin_stop`]).
+    stops: tokio::sync::watch::Sender<usize>,
+}
+
+impl Default for Slot {
+    fn default() -> Slot {
+        Slot {
+            gate: Default::default(),
+            lock: Default::default(),
+            pending: Default::default(),
+            stops: tokio::sync::watch::Sender::new(0),
+        }
+    }
+}
+
+/// A stop's content work in progress ([`ImageService::server_stopped`]), until dropped.
+pub struct PendingStop(Arc<Slot>);
+
+impl Drop for PendingStop {
+    fn drop(&mut self) {
+        self.0
+            .stops
+            .send_modify(|count| *count = count.saturating_sub(1));
+    }
 }
 
 /// Images in the core: see the module.
@@ -237,6 +276,26 @@ impl ImageService {
             .clone()
     }
 
+    /// Counts a stop's content work as pending, at once (synchronously, so a start that
+    /// follows the stop sees it), until the returned value drops. A start waits for it
+    /// ([`Self::wait_for_stops`]): otherwise the check before the start could compare the
+    /// files the server wrote while it ran with the baseline taken before it ran, and
+    /// record them as "Changed outside Lodestone".
+    pub fn begin_stop(&self, uuid: &InstanceUuid) -> PendingStop {
+        let slot = self.slot(uuid);
+        slot.stops.send_modify(|count| *count += 1);
+        PendingStop(slot)
+    }
+
+    /// Waits until no stop's content work is pending for the instance, at most `max`.
+    /// Whether none is.
+    pub async fn wait_for_stops(&self, uuid: &InstanceUuid, max: std::time::Duration) -> bool {
+        let mut stops = self.slot(uuid).stops.subscribe();
+        tokio::time::timeout(max, stops.wait_for(|count| *count == 0))
+            .await
+            .is_ok_and(|seen| seen.is_ok())
+    }
+
     /// The instance's lock: held around saving its manifests, moving its pointer and
     /// pruning. A writer that saves a manifest and then something naming it holds it
     /// across both.
@@ -337,6 +396,23 @@ fn remove_tree(dir: &Path) -> std::io::Result<()> {
         Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
         _ => Ok(()),
     }
+}
+
+/// The path of the core's file `file` in the image folder of `uuid` under the store's root.
+/// Checks the id as the store does (`Store::instance_dir`), so no id from a request can lead
+/// out of the store.
+pub(crate) fn instance_file(
+    store_root: &Path,
+    uuid: &InstanceUuid,
+    file: &str,
+) -> Result<PathBuf, Error> {
+    if !lodestone_image::store::valid_instance_id(uuid.as_ref()) {
+        return Err(Error {
+            kind: crate::error::ErrorKind::BadRequest,
+            source: color_eyre::eyre::eyre!("Invalid server id"),
+        });
+    }
+    Ok(store_root.join("images").join(uuid.as_ref()).join(file))
 }
 
 /// Replaces the small file at `path` (in an instance's image folder) crash-safely: written

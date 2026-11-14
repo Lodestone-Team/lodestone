@@ -224,7 +224,7 @@ mod tests {
             "mods/.lodestone_client_mods.json",
             "mods/.LODESTONE_client_mods.json",
             ".lodestone_minecraft_config.json",
-            ".lodestone_modpack/record.json",
+            ".lodestone_modpack/update.json",
             "world-backup.zip",
             "server.jar.bak",
         ] {

@@ -21,8 +21,10 @@
 
 /// At most this many patterns in a policy.
 pub const MAX_PATTERNS: usize = 100;
-/// At most this many characters per pattern.
-pub const MAX_PATTERN_LEN: usize = 256;
+
+/// Why a pattern isn't accepted, as a sentence for the user: the image store's own rule
+/// for excludes, so a policy that validates always translates to valid excludes.
+pub use lodestone_image::store::excludes::pattern_error;
 
 /// The patterns a new policy starts with: web map tiles, which are large, change all the
 /// time and can be rendered again.
@@ -49,33 +51,6 @@ fn for_each_prefix(path: &str, is_dir: bool, mut f: impl FnMut(&str, bool) -> bo
         }
     }
     f(path, is_dir)
-}
-
-/// Why a pattern isn't accepted, as a sentence for the user. `None` when it is fine.
-pub fn pattern_error(pattern: &str) -> Option<String> {
-    if pattern.trim().is_empty() {
-        return Some("Exclude patterns can't be empty".to_string());
-    }
-    if pattern.chars().count() > MAX_PATTERN_LEN {
-        return Some(format!(
-            "Exclude patterns can be at most {MAX_PATTERN_LEN} characters long"
-        ));
-    }
-    if pattern.chars().any(|c| c.is_control() || c == '\\') {
-        return Some(format!(
-            "The exclude pattern {pattern:?} has a backslash or a control character; use / between folders"
-        ));
-    }
-    if pattern.starts_with('!') {
-        return Some(format!(
-            "The exclude pattern {pattern:?} starts with !, which isn't supported"
-        ));
-    }
-    let body = pattern.trim_start_matches('/').trim_end_matches('/');
-    if body.is_empty() || body.split('/').any(|part| part.is_empty()) {
-        return Some(format!("The exclude pattern {pattern:?} has an empty part"));
-    }
-    None
 }
 
 /// One part of a pattern.
@@ -350,8 +325,9 @@ mod tests {
         assert!(pattern_error("!keep").is_some());
         assert!(pattern_error("a//b").is_some());
         assert!(pattern_error("/").is_some());
-        assert!(pattern_error(&"x".repeat(MAX_PATTERN_LEN + 1)).is_some());
-        assert!(pattern_error(&"x".repeat(MAX_PATTERN_LEN)).is_none());
+        let longest = lodestone_image::manifest::MAX_EXCLUDE_LEN;
+        assert!(pattern_error(&"x".repeat(longest + 1)).is_some());
+        assert!(pattern_error(&"x".repeat(longest)).is_none());
         assert!(pattern_error("a/**/b/").is_none());
     }
 

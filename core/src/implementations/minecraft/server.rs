@@ -893,83 +893,13 @@ impl MinecraftInstance {
 /// [`MinecraftInstance::content_after_state_change`]) before checking its content anyway.
 const STOP_RECORD_WAIT: Duration = crate::images::check::GATE_WAIT;
 
-/// The stops whose content work ([`ImageService::server_stopped`]) hasn't finished, per
-/// instance. A start waits for them: otherwise the check before it could compare the files
-/// the server wrote while it ran with the baseline taken before, and record them as
-/// "Changed outside Lodestone".
-mod pending_stops {
-    use std::collections::HashMap;
-    use std::sync::{Arc, Mutex, OnceLock};
-    use std::time::Duration;
-
-    use tokio::sync::watch;
-
-    use crate::types::InstanceUuid;
-
-    type Counts = Mutex<HashMap<InstanceUuid, Arc<watch::Sender<usize>>>>;
-
-    fn counter(uuid: &InstanceUuid) -> Arc<watch::Sender<usize>> {
-        static COUNTS: OnceLock<Counts> = OnceLock::new();
-        COUNTS
-            .get_or_init(Default::default)
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .entry(uuid.clone())
-            .or_insert_with(|| Arc::new(watch::channel(0).0))
-            .clone()
-    }
-
-    /// A stop's content work in progress, until dropped.
-    pub struct Pending(Arc<watch::Sender<usize>>);
-
-    impl Drop for Pending {
-        fn drop(&mut self) {
-            self.0.send_modify(|count| *count = count.saturating_sub(1));
-        }
-    }
-
-    /// Counts a stop's content work as pending at once (synchronously, so a start that
-    /// follows the stop sees it).
-    pub fn begin(uuid: &InstanceUuid) -> Pending {
-        let counter = counter(uuid);
-        counter.send_modify(|count| *count += 1);
-        Pending(counter)
-    }
-
-    /// Waits until no stop's content work is pending, at most `max`. Whether none is.
-    pub async fn wait(uuid: &InstanceUuid, max: Duration) -> bool {
-        let mut rx = counter(uuid).subscribe();
-        let done = tokio::time::timeout(max, rx.wait_for(|count| *count == 0))
-            .await
-            .is_ok_and(|seen| seen.is_ok());
-        done
-    }
-}
-
 /// Content images around starts and stops (`docs/instance-images.md`, "When images are
 /// recorded"; `crate::images::check`). None of this ever fails or holds up the state
 /// machine: errors are logged.
 impl MinecraftInstance {
-    /// The server as images see it now, with its backup policy's excludes (read-only,
-    /// from the store `images` shares with the backups; none when it can't be read).
+    /// The server as images see it now, with its backup policy's excludes.
     async fn image_context(&self, images: &ImageService) -> InstanceContext {
-        let store = crate::backups::store::Store::new(images.root().to_path_buf());
-        let uuid = self.uuid.clone();
-        let exclude = match tokio::task::spawn_blocking(move || store.load_policy(&uuid)).await {
-            Ok(Ok(policy)) => policy.exclude,
-            Ok(Err(e)) => {
-                warn!(
-                    "Failed to read the backup policy of {}: {}",
-                    self.uuid, e.source
-                );
-                Vec::new()
-            }
-            Err(e) => {
-                warn!("Failed to read the backup policy of {}: {e}", self.uuid);
-                Vec::new()
-            }
-        };
-        InstanceContext::of(self, exclude).await
+        crate::images::context_with_policy(images.root(), self).await
     }
 
     /// Before a start, with starts held off: waits a while for the record of the last
@@ -984,7 +914,7 @@ impl MinecraftInstance {
         if !ImageService::accepts(&self.uuid) {
             return;
         }
-        if !pending_stops::wait(&self.uuid, STOP_RECORD_WAIT).await {
+        if !images.wait_for_stops(&self.uuid, STOP_RECORD_WAIT).await {
             warn!(
                 "The content of {} is still being recorded after its last stop; checking it anyway",
                 self.uuid
@@ -1055,7 +985,7 @@ impl MinecraftInstance {
         let Ok(runtime) = tokio::runtime::Handle::try_current() else {
             return;
         };
-        let pending = pending_stops::begin(&self.uuid);
+        let pending = images.begin_stop(&self.uuid);
         let this = self.clone();
         runtime.spawn(async move {
             let _pending = pending;

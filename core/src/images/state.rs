@@ -65,14 +65,16 @@ impl ContentState {
 }
 
 /// The state file's path under the store's root.
-pub fn path(store_root: &Path, uuid: &InstanceUuid) -> PathBuf {
-    store_root.join("images").join(uuid.as_ref()).join(FILE)
+pub fn path(store_root: &Path, uuid: &InstanceUuid) -> Result<PathBuf, Error> {
+    super::instance_file(store_root, uuid, FILE)
 }
 
 /// The instance's state; the default (no pointer, no baseline) when it is missing or
 /// can't be read. Blocking.
 pub fn load(store_root: &Path, uuid: &InstanceUuid) -> ContentState {
-    let path = path(store_root, uuid);
+    let Ok(path) = path(store_root, uuid) else {
+        return ContentState::default();
+    };
     let Ok(meta) = std::fs::metadata(&path) else {
         return ContentState::default();
     };
@@ -85,7 +87,14 @@ pub fn load(store_root: &Path, uuid: &InstanceUuid) -> ContentState {
     }
     match std::fs::read(&path) {
         Ok(bytes) => match serde_json::from_slice::<ContentState>(&bytes) {
-            Ok(state) if state.current.as_deref().is_none_or(is_image_id) => state,
+            Ok(state)
+                if state
+                    .current
+                    .as_deref()
+                    .is_none_or(lodestone_image::hex::is_sha256) =>
+            {
+                state
+            }
             Ok(_) => {
                 tracing::warn!("{} names no image; ignoring it", path.display());
                 ContentState::default()
@@ -101,14 +110,10 @@ pub fn load(store_root: &Path, uuid: &InstanceUuid) -> ContentState {
 
 /// Replaces the instance's state, crash-safely (temp file, flushed, renamed). Blocking.
 pub fn save(store_root: &Path, uuid: &InstanceUuid, state: &ContentState) -> Result<(), Error> {
-    let path = path(store_root, uuid);
+    let path = path(store_root, uuid)?;
     let bytes = serde_json::to_vec(state)
         .map_err(|e| color_eyre::eyre::eyre!("Failed to write the content state: {e}"))?;
     super::write_small_atomic(&path, &bytes)
-}
-
-fn is_image_id(id: &str) -> bool {
-    id.len() == 64 && id.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
 }
 
 #[cfg(test)]
@@ -131,12 +136,12 @@ mod tests {
         assert_eq!(load(dir.path(), &uuid), state);
         assert!(state.has_baseline());
 
-        std::fs::write(path(dir.path(), &uuid), b"{oops").unwrap();
+        std::fs::write(path(dir.path(), &uuid).unwrap(), b"{oops").unwrap();
         assert_eq!(load(dir.path(), &uuid), ContentState::default());
-        std::fs::write(path(dir.path(), &uuid), br#"{"current":"../x"}"#).unwrap();
+        std::fs::write(path(dir.path(), &uuid).unwrap(), br#"{"current":"../x"}"#).unwrap();
         assert_eq!(load(dir.path(), &uuid), ContentState::default());
         // Fields a newer core adds are ignored, and missing ones default.
-        std::fs::write(path(dir.path(), &uuid), br#"{"later":1}"#).unwrap();
+        std::fs::write(path(dir.path(), &uuid).unwrap(), br#"{"later":1}"#).unwrap();
         assert_eq!(load(dir.path(), &uuid), ContentState::default());
         // A baseline taken under other scope rules isn't trusted.
         let old = ContentState {

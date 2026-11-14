@@ -11,7 +11,7 @@ use axum_auth::AuthBearer;
 use color_eyre::eyre::{eyre, Context};
 use serde::Deserialize;
 use tokio::io::AsyncWriteExt;
-use tracing::error;
+use tracing::{error, info};
 use ts_rs::TS;
 use walkdir::WalkDir;
 
@@ -32,7 +32,7 @@ use crate::{
 
 use super::{
     global_fs::{
-        create_upload_file, file_entries, finish_upload, multipart_error, register_download,
+        file_entries, finish_upload, multipart_error, register_download,
         register_zipped_folder_download, upload_file_name, zip_folder_for_download, DownloadScope,
         FileEntry, MAX_READ_BYTES, MAX_WRITE_BODY_BYTES,
     },
@@ -1541,7 +1541,9 @@ async fn upload_instance_file(
     // no content image or listing takes), and only renamed into place once the whole
     // upload arrived. The content operation is held just for the renames: an upload that
     // streams slowly never holds up the server's records, or the changes waiting for them.
-    let mut staged: Vec<(PathBuf, PathBuf)> = Vec::new();
+    // Each temporary file is deleted when its `TempPath` drops: also when this request is
+    // dropped half way (the client went away, the core is stopping).
+    let mut staged: Vec<(tempfile::TempPath, PathBuf)> = Vec::new();
     let result: Result<(), Error> = async {
         while let Some(mut field) = multipart.next_field().await.map_err(multipart_error)? {
             let name = upload_file_name(&field)?;
@@ -1553,11 +1555,27 @@ async fn upload_instance_file(
             if is_instance_code_path(&root, &wanted, false) {
                 require_code_write(&state, &requester)?;
             }
-            let temp = path_to_dir.join(format!(
-                "{UPLOAD_TEMP_PREFIX}{}.tmp",
-                crate::util::random_suffix()
-            ));
-            let mut file = create_upload_file(&temp).await?;
+            let temp = {
+                let dir = path_to_dir.clone();
+                tokio::task::spawn_blocking(move || {
+                    tempfile::Builder::new()
+                        .prefix(UPLOAD_TEMP_PREFIX)
+                        .suffix(".tmp")
+                        .tempfile_in(&dir)
+                        .map(|file| file.into_temp_path())
+                })
+                .await
+                .map_err(|e| eyre!("The upload task failed: {e}"))?
+                .context(format!(
+                    "Failed to create a file in {}",
+                    path_to_dir.display()
+                ))?
+            };
+            let mut file = tokio::fs::OpenOptions::new()
+                .write(true)
+                .open(&temp)
+                .await
+                .context(format!("Failed to write {name}"))?;
             staged.push((temp, wanted));
 
             let mut elapsed_bytes = 0_u64;
@@ -1604,24 +1622,31 @@ async fn upload_instance_file(
                 .map(|(_, wanted)| (wanted.as_path(), false))
                 .collect();
             op = content_op(&state, &uuid, &root, &wanted, String::new()).await;
-            let mut placed = Ok(());
-            for (temp, wanted) in &staged {
-                match place_upload(temp, wanted).await {
-                    Ok(path) => created_files.push(path),
-                    Err(e) => {
-                        placed = Err(e);
-                        break;
+            // a restore that began while the upload streamed swaps folders: place nothing
+            let mut placed = refuse_during_restore(&state, &uuid);
+            if placed.is_ok() {
+                for (temp, wanted) in &staged {
+                    match place_upload(temp, wanted).await {
+                        Ok(path) => created_files.push(path),
+                        Err(e) => {
+                            placed = Err(e);
+                            break;
+                        }
                     }
+                }
+            }
+            if placed.is_err() {
+                // an upload is placed whole or not at all
+                for path in created_files.drain(..) {
+                    tokio::fs::remove_file(&path).await.ok();
                 }
             }
             placed
         }
         Err(e) => Err(e),
     };
-    // whatever wasn't renamed into place (all of it when the upload failed)
-    for (temp, _) in &staged {
-        tokio::fs::remove_file(temp).await.ok();
-    }
+    // whatever wasn't moved into place (all of it when the upload failed)
+    drop(staged);
     if result.is_ok() {
         for path in &created_files {
             state.event_broadcaster.send(new_fs_event(
@@ -1666,28 +1691,72 @@ async fn upload_instance_file(
 /// without `WriteGlobalFile` can't touch it.
 const UPLOAD_TEMP_PREFIX: &str = ".lodestone-upload-";
 
+/// Deletes the temporary files of uploads into the server folder `root` that a crash or a
+/// kill left, older than an hour (an upload running now is younger). Users without
+/// `WriteGlobalFile` can't delete `.lodestone` files, and images never record them, so no
+/// one would notice them otherwise. Links aren't followed. Blocking; at startup.
+pub fn sweep_upload_leftovers(root: &FsPath) {
+    let max_age = lodestone_image::store::TEMP_MAX_AGE;
+    let now = std::time::SystemTime::now();
+    let mut deleted = 0;
+    for entry in walkdir::WalkDir::new(root)
+        .follow_links(false)
+        .min_depth(1)
+        .into_iter()
+        .flatten()
+    {
+        let is_leftover = entry.file_type().is_file()
+            && entry
+                .file_name()
+                .to_str()
+                .is_some_and(|name| name.starts_with(UPLOAD_TEMP_PREFIX) && name.ends_with(".tmp"));
+        let old = || {
+            entry
+                .metadata()
+                .ok()
+                .and_then(|meta| meta.modified().ok())
+                .is_some_and(|modified| now.duration_since(modified).unwrap_or_default() > max_age)
+        };
+        if is_leftover && old() && std::fs::remove_file(entry.path()).is_ok() {
+            deleted += 1;
+        }
+    }
+    if deleted > 0 {
+        info!(
+            "Deleted {deleted} unfinished upload(s) left in {}",
+            root.display()
+        );
+    }
+}
+
+/// How many taken names [`place_upload`] tries before it gives up.
+const MAX_UPLOAD_NAME_TRIES: usize = 1000;
+
 /// Moves an uploaded file from its temporary name to `wanted`, or a free name next to it
-/// when that is taken (`name_1.ext`), never replacing a file. Returns where it went.
+/// when that is taken (`name_1.ext`), never replacing anything. A name is taken by anything
+/// there, a dangling link too (`Path::exists` follows links, and would hand the same name
+/// back forever). Returns where it went.
 async fn place_upload(temp: &FsPath, wanted: &FsPath) -> Result<PathBuf, Error> {
     let (temp, wanted) = (temp.to_path_buf(), wanted.to_path_buf());
     tokio::task::spawn_blocking(move || {
-        loop {
-            let target = resolve_path_conflict(wanted.clone(), None);
-            // a link fails where the name was taken meanwhile, where a rename would replace
-            match std::fs::hard_link(&temp, &target) {
-                Ok(()) => {
-                    std::fs::remove_file(&temp).ok();
-                    return Ok(target);
-                }
+        let taken = |path: &FsPath| path.symlink_metadata().is_ok();
+        for _ in 0..MAX_UPLOAD_NAME_TRIES {
+            let target = resolve_path_conflict(wanted.clone(), Some(&taken));
+            match crate::util::fs::move_no_replace(&temp, &target) {
+                Ok(()) => return Ok(target),
+                // the name was taken since it was picked: pick again
                 Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
-                // a disk without links
-                Err(_) => {
-                    std::fs::rename(&temp, &target)
-                        .context(format!("Failed to move the upload to {}", target.display()))?;
-                    return Ok(target);
+                Err(e) => {
+                    return Err(eyre!(e)
+                        .wrap_err(format!("Failed to move the upload to {}", target.display()))
+                        .into())
                 }
             }
         }
+        Err(Error {
+            kind: ErrorKind::Conflict,
+            source: eyre!("Could not find a free name for {}", wanted.display()),
+        })
     })
     .await
     .map_err(|e| eyre!("The upload task failed: {e}"))?
@@ -2054,6 +2123,70 @@ pub fn get_instance_fs_routes(state: AppState) -> Router {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// An upload never replaces anything at its name, a dangling link included (which
+    /// `Path::exists` takes for a free name): it goes to the next free name instead.
+    #[tokio::test]
+    async fn an_upload_takes_a_free_name_past_any_link() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let temp = |content: &[u8]| {
+            let path = root.join(format!(
+                "{UPLOAD_TEMP_PREFIX}{}.tmp",
+                crate::util::random_suffix()
+            ));
+            std::fs::write(&path, content).unwrap();
+            path
+        };
+        std::fs::write(root.join("notes.txt"), b"mine").unwrap();
+        let placed = place_upload(&temp(b"one"), &root.join("notes.txt"))
+            .await
+            .unwrap();
+        assert_eq!(placed, root.join("notes_1.txt"));
+        assert_eq!(std::fs::read(root.join("notes.txt")).unwrap(), b"mine");
+        assert_eq!(std::fs::read(&placed).unwrap(), b"one");
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(root.join("missing/disk"), root.join("link.txt")).unwrap();
+            let placed = tokio::time::timeout(
+                std::time::Duration::from_secs(10),
+                place_upload(&temp(b"two"), &root.join("link.txt")),
+            )
+            .await
+            .expect("placing an upload onto a dangling link finishes")
+            .unwrap();
+            assert_eq!(placed, root.join("link_1.txt"));
+            assert!(std::fs::symlink_metadata(root.join("link.txt"))
+                .unwrap()
+                .file_type()
+                .is_symlink());
+            assert_eq!(std::fs::read(&placed).unwrap(), b"two");
+        }
+        // a leftover of an upload a crash cut short goes at startup, once it is old
+        let leftover = temp(b"half an upload");
+        sweep_upload_leftovers(root);
+        assert!(leftover.exists(), "too young to be a leftover");
+        let file = std::fs::File::options()
+            .write(true)
+            .open(&leftover)
+            .unwrap();
+        file.set_modified(std::time::SystemTime::now() - std::time::Duration::from_secs(7200))
+            .unwrap();
+        drop(file);
+        sweep_upload_leftovers(root);
+        assert!(!leftover.exists());
+        // no temporary file stays behind
+        let leftovers = std::fs::read_dir(root)
+            .unwrap()
+            .flatten()
+            .filter(|e| {
+                e.file_name()
+                    .to_string_lossy()
+                    .starts_with(UPLOAD_TEMP_PREFIX)
+            })
+            .count();
+        assert_eq!(leftovers, 0);
+    }
 
     #[test]
     fn the_content_scope_follows_the_layout() {
@@ -2712,11 +2845,11 @@ mod tests {
     fn lodestones_own_files_are_protected() {
         let root = FsPath::new("/home/me/.lodestone/instances/a");
         for path in [
-            ".lodestone_modpack/history.json",
-            ".lodestone_modpack/record.json",
+            ".lodestone_modpack/notes.json",
+            ".lodestone_modpack/update.json",
             ".lodestone_modpack/objects/ab/abcdef",
-            ".Lodestone_Modpack./history.json",
-            "LODEST~1/history.json",
+            ".Lodestone_Modpack./notes.json",
+            "LODEST~1/notes.json",
             ".lodestone_config",
             ".lodestone_whatever/notes.txt",
         ] {
@@ -2753,7 +2886,7 @@ mod tests {
         // a container's paths are relative
         assert!(is_instance_protected(
             FsPath::new(""),
-            FsPath::new(".lodestone_modpack/history.json"),
+            FsPath::new(".lodestone_modpack/notes.json"),
             false
         ));
         assert!(!is_instance_protected(
@@ -2767,8 +2900,8 @@ mod tests {
     fn archives_cant_write_into_lodestones_folders() {
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path().to_path_buf();
-        std::fs::write(root.join("history.json"), "").unwrap();
-        let file_type = std::fs::symlink_metadata(root.join("history.json"))
+        std::fs::write(root.join("notes.json"), "").unwrap();
+        let file_type = std::fs::symlink_metadata(root.join("notes.json"))
             .unwrap()
             .file_type();
         let restricted = |destination: PathBuf| {
@@ -2781,10 +2914,10 @@ mod tests {
             )
         };
         let into_root = restricted(root.clone());
-        assert!(into_root(FsPath::new(".lodestone_modpack/history.json"), &file_type).is_err());
-        assert!(into_root(FsPath::new("config/history.json"), &file_type).is_ok());
+        assert!(into_root(FsPath::new(".lodestone_modpack/notes.json"), &file_type).is_err());
+        assert!(into_root(FsPath::new("config/notes.json"), &file_type).is_ok());
         let into_modpack = restricted(root.join(".lodestone_modpack"));
-        assert!(into_modpack(FsPath::new("history.json"), &file_type).is_err());
+        assert!(into_modpack(FsPath::new("notes.json"), &file_type).is_err());
     }
 
     #[test]

@@ -10,7 +10,7 @@
 //! refers to an earlier image, so deleting one image never breaks another.
 //!
 //! - [`manifest`]: the image and its parts, and reading a manifest safely
-//!   ([`Image::from_json`]): unknown fields are kept, newer schemas are refused.
+//!   ([`Image::from_json`]): unknown fields are kept, other schemas are refused.
 //! - [`identity`]: an image's id is the SHA-256 of its canonical form, so the same files,
 //!   sources, base, game and settings give the same id wherever they were recorded
 //!   ([`Image::seal`], [`Image::verify`]).
