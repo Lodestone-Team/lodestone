@@ -326,6 +326,10 @@ pub fn rename_with(
         Ok::<_, WorldError>(())
     })();
     let Err(err) = finished else {
+        // The data packs installed from Modrinth are remembered by world folder. The
+        // world is renamed either way; if the record can't follow, its packs only stop
+        // updating in place.
+        let _ = crate::datapacks::world_renamed(dirs, folder, &new_folder);
         return Ok(new_folder);
     };
     // Put everything back as it was, so the backups stay with their world.
@@ -381,7 +385,11 @@ pub fn delete_with(
     remove: impl FnOnce(&Path) -> Result<(), String>,
 ) -> Result<(), WorldError> {
     let dir = world_dir(dirs, folder)?;
-    remove(&dir).map_err(|reason| WorldError::Trash { path: dir, reason })
+    remove(&dir).map_err(|reason| WorldError::Trash { path: dir, reason })?;
+    // Its data packs' Modrinth records go too, so a new world in a folder of the same
+    // name doesn't inherit them. The world is gone either way.
+    let _ = crate::datapacks::world_deleted(dirs, folder);
+    Ok(())
 }
 
 /// The files and folders under `dir`, relative with `/`, without links. `session.lock`

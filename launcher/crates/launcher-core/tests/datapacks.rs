@@ -1,14 +1,21 @@
 //! A world's data packs: listing them with their state from `level.dat`, adding zips and
-//! folders, turning them on and off, and deleting them.
+//! folders, turning them on and off, deleting them, and installing them from Modrinth
+//! (against a loopback mock).
+
+mod modrinth;
 
 use std::{fs, io::Write as _, path::Path};
 
+use futures::executor::block_on;
 use launcher_core::{
-    content::InstanceDirs,
-    datapacks::{self, PackState},
+    content::{InstanceDirs, Modrinth},
+    datapacks::{self, Installed, PackState},
+    game::download::{CancelToken, Downloader, Progress, recording_sleep},
+    http,
     worlds::{self, WorldError},
 };
 use lodestone_minecraft::level::{self, DataPackLists};
+use modrinth::{FakeVersion, ModrinthMock};
 
 const LEVEL_DAT: &[u8] =
     include_bytes!("../../../../crates/lodestone-minecraft/testdata/level/1.21.11.dat");
@@ -197,4 +204,243 @@ fn old_worlds_have_no_lists() {
     ));
     let after = fs::read(worlds::saves_dir(&dirs).join("Old/level.dat")).unwrap();
     assert_eq!(before, after, "level.dat is left alone");
+}
+
+// ---- Modrinth installs (LS-24) ----
+
+fn zip_bytes(temp: &Path, marker: &str) -> Vec<u8> {
+    let path = temp.join(format!("{marker}.zip"));
+    write_zip(
+        &path,
+        &[
+            ("pack.mcmeta", MCMETA),
+            ("data/a/b.json", marker.as_bytes()),
+        ],
+    );
+    fs::read(path).unwrap()
+}
+
+/// Project "DPK" with versions 1 and 2, and "OTHER" whose only file is named like
+/// DPK 1's.
+fn data_pack_mock(temp: &Path) -> ModrinthMock {
+    let mock = ModrinthMock::start();
+    let version = |id: &str, project: &str, number: &str, file: &str, date: &str| {
+        FakeVersion::new(id, project, number, &["datapack"], &["1.21.11"], date)
+            .file(file, &zip_bytes(temp, id))
+    };
+    mock.project("DPK", "dpk", "datapack")
+        .project("OTHER", "other", "datapack")
+        .version(version(
+            "d1",
+            "DPK",
+            "1",
+            "dpk-1.zip",
+            "2024-01-01T00:00:00Z",
+        ))
+        .version(version(
+            "d2",
+            "DPK",
+            "2",
+            "dpk-2.zip",
+            "2024-02-01T00:00:00Z",
+        ))
+        .version(version(
+            "o1",
+            "OTHER",
+            "1",
+            "dpk-1.zip",
+            "2024-01-01T00:00:00Z",
+        ));
+    mock
+}
+
+fn install(
+    api: &Modrinth,
+    dirs: &InstanceDirs,
+    world: &str,
+    id: &str,
+) -> Result<Installed, WorldError> {
+    let downloader = Downloader::new(http::download_client().unwrap(), recording_sleep().0);
+    let version = block_on(api.version(id)).unwrap();
+    block_on(datapacks::install_with(
+        api,
+        &downloader,
+        dirs,
+        world,
+        &version,
+        &Progress::default(),
+        &CancelToken::new(),
+        |path| fs::remove_file(path).map_err(|e| e.to_string()),
+    ))
+}
+
+fn pack_names(dirs: &InstanceDirs, world: &str) -> Vec<(String, Option<String>)> {
+    datapacks::list(dirs, world)
+        .unwrap()
+        .packs
+        .into_iter()
+        .map(|p| (p.name, p.modrinth_project))
+        .collect()
+}
+
+fn named(name: &str, project: Option<&str>) -> (String, Option<String>) {
+    (name.to_string(), project.map(String::from))
+}
+
+#[test]
+fn modrinth_packs_follow_their_world_when_it_is_renamed() {
+    let (temp, dirs) = instance();
+    let mock = data_pack_mock(temp.path());
+    let api = mock.client();
+    make_world(&dirs, "New World", LEVEL_DAT);
+    install(&api, &dirs, "New World", "d1").unwrap();
+    datapacks::set_enabled(&dirs, "New World", "dpk-1.zip", false).unwrap();
+
+    let folder = worlds::rename(&dirs, "New World", "Survival").unwrap();
+    assert_eq!(folder, "Survival");
+    assert_eq!(
+        pack_names(&dirs, &folder),
+        [named("dpk-1.zip", Some("DPK"))]
+    );
+    // the newer version replaces the old file and keeps it off
+    let installed = install(&api, &dirs, &folder, "d2").unwrap();
+    assert_eq!(installed.replaced.as_deref(), Some("dpk-1.zip"));
+    assert_eq!(
+        pack_names(&dirs, &folder),
+        [named("dpk-2.zip", Some("DPK"))]
+    );
+    assert!(
+        lists(&dirs, &folder)
+            .disabled
+            .contains(&"file/dpk-2.zip".to_string())
+    );
+}
+
+#[test]
+fn a_deleted_world_takes_its_modrinth_records_along() {
+    let (temp, dirs) = instance();
+    let mock = data_pack_mock(temp.path());
+    let api = mock.client();
+    make_world(&dirs, "World", LEVEL_DAT);
+    install(&api, &dirs, "World", "d1").unwrap();
+    worlds::delete_with(&dirs, "World", |path| {
+        fs::remove_dir_all(path).map_err(|e| e.to_string())
+    })
+    .unwrap();
+    // a new world in the same folder, with the user's own pack of the same name
+    make_world(&dirs, "World", LEVEL_DAT);
+    let own = temp.path().join("dpk-1.zip");
+    write_zip(&own, &[("pack.mcmeta", MCMETA), ("data/mine.json", b"{}")]);
+    fs::create_dir_all(datapacks::dir(&dirs, "World").unwrap()).unwrap();
+    fs::copy(
+        &own,
+        datapacks::dir(&dirs, "World").unwrap().join("dpk-1.zip"),
+    )
+    .unwrap();
+    assert_eq!(pack_names(&dirs, "World"), [named("dpk-1.zip", None)]);
+    let installed = install(&api, &dirs, "World", "d2").unwrap();
+    assert_eq!(installed.replaced, None);
+    assert_eq!(
+        fs::read(datapacks::dir(&dirs, "World").unwrap().join("dpk-1.zip")).unwrap(),
+        fs::read(&own).unwrap(),
+        "the user's pack is left alone"
+    );
+}
+
+#[test]
+fn stale_records_never_take_a_users_file() {
+    let (temp, dirs) = instance();
+    let mock = data_pack_mock(temp.path());
+    let api = mock.client();
+    make_world(&dirs, "World", LEVEL_DAT);
+    let folder = datapacks::dir(&dirs, "World").unwrap();
+    let own = temp.path().join("own.zip");
+    write_zip(&own, &[("pack.mcmeta", MCMETA), ("data/mine.json", b"{}")]);
+
+    // Adding a file under a name a gone Modrinth install had drops its record.
+    install(&api, &dirs, "World", "d1").unwrap();
+    fs::remove_file(folder.join("dpk-1.zip")).unwrap();
+    let added = temp.path().join("add").join("dpk-1.zip");
+    fs::create_dir_all(added.parent().unwrap()).unwrap();
+    fs::copy(&own, &added).unwrap();
+    datapacks::add(&dirs, "World", &added).unwrap();
+    assert_eq!(pack_names(&dirs, "World"), [named("dpk-1.zip", None)]);
+    assert_eq!(install(&api, &dirs, "World", "d2").unwrap().replaced, None);
+    assert_eq!(
+        fs::read(folder.join("dpk-1.zip")).unwrap(),
+        fs::read(&own).unwrap()
+    );
+    fs::remove_file(folder.join("dpk-2.zip")).unwrap();
+    fs::remove_file(folder.join("dpk-1.zip")).unwrap();
+
+    // A file swapped in outside the app under the installed name isn't the installed
+    // version: a newer version goes beside it, and a version with that same name is
+    // refused rather than overwriting it.
+    install(&api, &dirs, "World", "d1").unwrap();
+    fs::copy(&own, folder.join("dpk-1.zip")).unwrap();
+    assert_eq!(install(&api, &dirs, "World", "d2").unwrap().replaced, None);
+    assert_eq!(
+        fs::read(folder.join("dpk-1.zip")).unwrap(),
+        fs::read(&own).unwrap()
+    );
+    fs::remove_file(folder.join("dpk-2.zip")).unwrap();
+    assert!(matches!(
+        install(&api, &dirs, "World", "o1"),
+        Err(WorldError::Conflict(_))
+    ));
+    assert_eq!(
+        fs::read(folder.join("dpk-1.zip")).unwrap(),
+        fs::read(&own).unwrap()
+    );
+}
+
+#[test]
+fn records_without_a_hash_are_checked_with_modrinth() {
+    let (temp, dirs) = instance();
+    let mock = data_pack_mock(temp.path());
+    let api = mock.client();
+    make_world(&dirs, "World", LEVEL_DAT);
+    let folder = datapacks::dir(&dirs, "World").unwrap();
+    fs::create_dir_all(&folder).unwrap();
+    let record = |file: &str| {
+        let json = serde_json::json!({ "worlds": { "World": {
+            file: { "project_id": "DPK", "version_id": "d1" },
+        }}});
+        fs::write(dirs.instance.join("datapacks.json"), json.to_string()).unwrap();
+    };
+
+    // the user's file under an old record: Modrinth doesn't know it, so it stays
+    let own = temp.path().join("own.zip");
+    write_zip(&own, &[("pack.mcmeta", MCMETA), ("data/mine.json", b"{}")]);
+    fs::copy(&own, folder.join("dpk-1.zip")).unwrap();
+    record("dpk-1.zip");
+    assert_eq!(install(&api, &dirs, "World", "d2").unwrap().replaced, None);
+    assert_eq!(
+        fs::read(folder.join("dpk-1.zip")).unwrap(),
+        fs::read(&own).unwrap()
+    );
+    fs::remove_file(folder.join("dpk-2.zip")).unwrap();
+
+    // DPK 1 itself under an old record: replaced as before
+    let d1 = mock
+        .state()
+        .versions
+        .iter()
+        .find(|v| v.id == "d1")
+        .unwrap()
+        .bytes
+        .clone();
+    fs::write(folder.join("dpk-1.zip"), d1).unwrap();
+    record("dpk-1.zip");
+    assert_eq!(
+        install(&api, &dirs, "World", "d2")
+            .unwrap()
+            .replaced
+            .as_deref(),
+        Some("dpk-1.zip")
+    );
+    assert_eq!(
+        pack_names(&dirs, "World"),
+        [named("dpk-2.zip", Some("DPK"))]
+    );
 }
