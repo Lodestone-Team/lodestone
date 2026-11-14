@@ -848,7 +848,8 @@ async fn new_instance_file(
         require_code_write(&state, &requester)?;
     }
 
-    crate::util::fs::create(&path).await?;
+    // never replaces an existing file, see `create_new`
+    crate::util::fs::create_new(&path).await?;
 
     let caused_by = requester.caused_by();
     state.event_broadcaster.send(new_fs_event(
