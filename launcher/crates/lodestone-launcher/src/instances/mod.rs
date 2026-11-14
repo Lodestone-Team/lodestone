@@ -90,6 +90,12 @@ pub struct GameLog {
     pub revision: u64,
     /// Rows pushed since the start, never reset: where a reader of new rows is.
     pushed: u64,
+    /// Events pushed to `recent` since the start, never reset.
+    recent_pushed: u64,
+    /// Where the game's current run started ([`Self::start_run`]): the number of its
+    /// first event in `recent_pushed`, and of its first row in `pushed`. The log
+    /// lasts the whole session, and a crash is worked out from its own run only.
+    run_start: (u64, u64),
 }
 
 impl GameLog {
@@ -107,11 +113,14 @@ impl GameLog {
     /// and crash reports).
     pub fn from_rows(rows: impl IntoIterator<Item = LogRow>) -> Self {
         let rows: VecDeque<LogRow> = rows.into_iter().collect();
+        let pushed = rows.len() as u64;
         Self {
-            pushed: rows.len() as u64,
+            pushed,
             revision: 1,
             rows,
             recent: VecDeque::new(),
+            recent_pushed: 0,
+            run_start: (0, pushed),
         }
     }
 
@@ -146,16 +155,33 @@ impl GameLog {
             self.rows.pop_front();
         }
         self.recent.push_back(line);
+        self.recent_pushed += 1;
         while self.recent.len() > 500 {
             self.recent.pop_front();
         }
         self.revision += 1;
     }
 
+    /// Marks where a new run of the game starts: the crash summary, its suspects and
+    /// the line under "Launching Minecraft" only read what comes after, not what an
+    /// earlier run of the session left in the log.
+    pub fn start_run(&mut self) {
+        self.run_start = (self.recent_pushed, self.pushed);
+    }
+
+    /// The current run's events still in `recent`.
+    fn run_events(&self) -> impl DoubleEndedIterator<Item = &LogLine> {
+        let first = self.recent_pushed - self.recent.len() as u64;
+        self.recent
+            .iter()
+            .skip(self.run_start.0.saturating_sub(first) as usize)
+    }
+
     /// The game's last line worth showing under "Launching Minecraft": its first
     /// line, without the launcher's own notes, warnings about the JVM or blank lines.
+    /// Only this run's: until the game says something, there is none.
     pub fn latest_game_line(&self) -> Option<SharedString> {
-        self.recent.iter().rev().take(40).find_map(|line| {
+        self.run_events().rev().take(40).find_map(|line| {
             if line.stream == Stream::Launcher || !matches!(line.level, Level::Info) {
                 return None;
             }
@@ -191,21 +217,38 @@ impl GameLog {
     pub fn to_text(&self, filter: impl Fn(&LogRow) -> bool) -> String {
         let mut text = String::new();
         for row in self.rows.iter().filter(|row| filter(row)) {
-            if let Some(time) = &row.time {
-                text.push_str(&format!("[{time}] "));
-            }
-            if let Some(source) = &row.source {
-                text.push_str(&format!("[{source}/{}] ", row.level));
-            }
-            text.push_str(&row.text);
-            text.push('\n');
+            push_row_text(&mut text, row);
         }
         text
     }
 
-    pub fn recent(&self) -> Vec<LogLine> {
-        self.recent.iter().cloned().collect()
+    /// The current run's last events, for the crash summary.
+    pub fn run_recent(&self) -> Vec<LogLine> {
+        self.run_events().cloned().collect()
     }
+
+    /// The current run's rows as text, for the crash dialog's "Copy log".
+    pub fn run_text(&self, filter: impl Fn(&LogRow) -> bool) -> String {
+        let first = self.pushed - self.rows.len() as u64;
+        let skip = self.run_start.1.saturating_sub(first) as usize;
+        let mut text = String::new();
+        for row in self.rows.iter().skip(skip).filter(|row| filter(row)) {
+            push_row_text(&mut text, row);
+        }
+        text
+    }
+}
+
+/// A row as a line of text: "[time] [source/LEVEL] text".
+fn push_row_text(text: &mut String, row: &LogRow) {
+    if let Some(time) = &row.time {
+        text.push_str(&format!("[{time}] "));
+    }
+    if let Some(source) = &row.source {
+        text.push_str(&format!("[{source}/{}] ", row.level));
+    }
+    text.push_str(&row.text);
+    text.push('\n');
 }
 
 /// What an instance is doing.
@@ -1565,6 +1608,7 @@ impl Instances {
         let run = self.runs.entry(id.to_string()).or_default();
         run.reached_menu = false;
         run.mods_refused = false;
+        run.log.start_run();
         run.log.note(
             Level::Info,
             tr!(
@@ -2060,8 +2104,8 @@ impl Instances {
                 // Finding the mods involved opens their jars, so the report is read and
                 // the crash worked out off the window's thread. It takes well under a
                 // second: the game has just read the same files.
-                let recent = run.log.recent();
-                let log_text = run.log.to_text(|_| true);
+                let recent = run.log.run_recent();
+                let log_text = run.log.run_text(|_| true);
                 let instance_id = id.to_string();
                 let work = cx.background_spawn(async move {
                     let report_text = report
@@ -2522,5 +2566,49 @@ mod tests {
             log.to_text(|_| true),
             "[main/INFO] two\nlines\njava.lang.Error\n    at x\n"
         );
+    }
+
+    /// A crash is worked out from its own run: an earlier run's exception, causes and
+    /// last line, still in the session's log, are left out (LS-59).
+    #[test]
+    fn a_run_reads_only_its_own_lines() {
+        let mut log = GameLog::default();
+        log.start_run();
+        log.push(LogLine::plain(Stream::Stdout, "Stopping!"));
+        log.push(LogLine::plain(
+            Stream::Stderr,
+            "Exception in thread \"main\" java.lang.OutOfMemoryError: Java heap space",
+        ));
+        log.note(Level::Error, "Exited with code 1");
+        assert!(log.latest_game_line().is_some());
+
+        log.start_run();
+        log.note(Level::Info, "Preparing 1.21.1");
+        assert_eq!(log.latest_game_line(), None, "not the last run's line");
+        log.push(LogLine::plain(
+            Stream::Stderr,
+            "# A fatal error has been detected by the Java Runtime Environment:",
+        ));
+        log.note(Level::Error, "Exited with code 134");
+        let recent = log.run_recent();
+        assert_eq!(recent.len(), 3);
+        let summary = crash::summarize(None, &recent);
+        assert_eq!(summary.exception, None, "{summary:?}");
+        assert!(
+            !summary.causes.contains(&crash::Cause::OutOfMemory),
+            "{summary:?}"
+        );
+        let text = log.run_text(|_| true);
+        assert!(text.contains("Preparing 1.21.1"), "{text}");
+        assert!(!text.contains("OutOfMemoryError"), "{text}");
+        assert!(log.to_text(|_| true).contains("OutOfMemoryError"), "the console keeps it");
+
+        // A run longer than what is kept still reads its last events.
+        log.start_run();
+        for n in 0..600 {
+            log.push(LogLine::plain(Stream::Stdout, &format!("line {n}")));
+        }
+        assert_eq!(log.run_recent().len(), 500);
+        assert_eq!(log.latest_game_line().as_deref(), Some("line 599"));
     }
 }
