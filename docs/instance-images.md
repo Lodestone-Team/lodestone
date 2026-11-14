@@ -793,9 +793,12 @@ of M2 adds its own subsection.
 - **Retention.** Under the instance's lock: keep every data and full image (backups: the
   backup rules delete them, never pruning) and the `content` each links to, every image a
   registered `ImageRefs` source names (a modpack restore in progress keeps the image it goes
-  back to), the current pointer, and the newest 30 content images by `created`; delete the other readable content manifests, keep
-  unreadable ones, and delete nothing if a source fails. Pruning that deleted something
-  asks for a collection.
+  back to), the current pointer, and the newest 30 content images; delete the other
+  readable content manifests, keep unreadable ones, and delete nothing if a source fails.
+  "Newest" is by `created`, and within one second the current image first (going back to
+  earlier content saves an image again with its successor as parent, so parents can form
+  a circle), then by lineage (an image before the one it was recorded after): the order
+  the modpack history lists them in, so the history shows what is kept. Pruning that deleted something asks for a collection.
 - **Deleting a server** deletes `images/<uuid>/` (`ImageService::delete_instance`); its
   objects go at the next collection.
 
@@ -914,8 +917,20 @@ of M2 adds its own subsection.
   (`OpKind::Restore`): they hold the content gate from before the safety backup to the swap,
   and record "Restored backup “…”" after the server's settings are read again; a world restore
   doesn't touch content. The journal is `images/<uuid>/restore-journal.json`.
+- **What the server is built on follows a restore of content.** `pack.json` lives with the
+  images, so no restore brings it back, and the modpack origin is in the server's settings.
+  After everything or `world_and_mods`, before the restore's content image is recorded,
+  `pack.json` gets the base of the backup's content image when it differs from the current
+  one, without the pack's file list (images don't keep it), so the next update falls back
+  to the files of the origin's pack version. Everything brings the origin back with the
+  settings; `world_and_mods` leaves the settings, so the origin is read from the backup's
+  copy of them. Without this, an update after restoring an older pack version's mods would
+  compare them against the newer version's files, and the restore's image would name the
+  newer pack as its base.
 - **Restore as new and download** lay the image out with the backup's own flavour (its flavour
-  setting); a restore as new records the new server's first content image ("Created <name>").
+  setting); a restore as new writes the new server's `pack.json` the same way (the base of
+  the backup's content image, no files) and records its first content image ("Created
+  <name>").
 - **Usage.** The list's stored bytes count each object the server's backup images name once, at
   its size in the store (the zstd object, or a large file's list and chunks).
 - **API.** The routes and shapes stay; `RestoreScope` gains `world_and_mods`; `skipped_count` is
@@ -981,7 +996,8 @@ of M2 adds its own subsection.
   no files. A target without a base keeps the origin. A user without `WriteGlobalFile` can
   restore a protected jar only when Modrinth knows the SHA-512 of the store's bytes.
 - **History API.** `GET /instance/{uuid}/modpack/history` lists the content images newest
-  first (by `created`; images of the same second by lineage, an image before its parent).
+  first, in retention's order (by `created`; within one second the current image first,
+  then an image before its parent).
   An entry is `id` (the image id, which `UpdateSource::History.entry_id` names), `time`,
   `label`, `game_version`, `loader`, `loader_version`, `changes` (the files a restore puts
   back that changed from its parent, or the next older image when the parent is gone; a

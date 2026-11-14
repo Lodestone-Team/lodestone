@@ -96,7 +96,7 @@ pub enum BackupKind {
     BeforeRestore,
 }
 
-/// A server's schedule, retention and exclusions, in `backups/servers/<uuid>/policy.json`.
+/// A server's schedule, retention and exclusions, in `backups/images/<uuid>/backup-policy.json`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(default)]
 #[ts(export)]

@@ -414,36 +414,6 @@ fn loader_of(game: &Game) -> String {
     game.loader.as_str().to_string()
 }
 
-/// The content images among `images`, newest first: by when they were recorded, and those
-/// recorded in the same second by their lineage (an image comes before the one it was
-/// recorded after), since a restore and the record before it are often a second apart at
-/// most.
-fn newest_first(images: &[Image]) -> Vec<&Image> {
-    let content: Vec<&Image> = images.iter().filter(|i| i.kind == Kind::Content).collect();
-    let by_id: HashMap<&str, &Image> = content.iter().map(|i| (i.id.as_str(), *i)).collect();
-    // How many ancestors each has in the listing; a walk stops at an id it has seen, since
-    // returning to earlier content gives an image an id it had before.
-    let depth = |image: &Image| {
-        let mut seen = HashSet::new();
-        let mut at = image;
-        while seen.insert(at.id.as_str()) {
-            match at.parent.as_deref().and_then(|p| by_id.get(p)) {
-                Some(parent) => at = parent,
-                None => break,
-            }
-        }
-        seen.len()
-    };
-    let mut ordered: Vec<(&Image, usize)> = content.into_iter().map(|i| (i, depth(i))).collect();
-    ordered.sort_by(|(a, da), (b, db)| {
-        b.created
-            .cmp(&a.created)
-            .then(db.cmp(da))
-            .then(a.id.cmp(&b.id))
-    });
-    ordered.into_iter().map(|(image, _)| image).collect()
-}
-
 /// The server's modpack history (see the module): its content images, newest first. A
 /// manifest that can't be read is left out, with a warning. Reads the image store, so call
 /// it on a blocking thread.
@@ -470,8 +440,9 @@ pub fn history(
     for (id, why) in &listing.unreadable {
         warn!("Leaving the image {id} of {uuid} out of its history: {why}");
     }
-    let images = newest_first(&listing.images);
     let current_id = crate::images::state::load(store.root(), uuid).current;
+    let images =
+        crate::images::retention::newest_content_first(&listing.images, current_id.as_deref());
     let current = current_id
         .as_deref()
         .and_then(|id| images.iter().position(|image| image.id == id));
@@ -790,4 +761,4 @@ impl ImageRefs for RestoreRefs {
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

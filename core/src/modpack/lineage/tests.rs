@@ -27,13 +27,13 @@ use crate::modpack::{install_pack_contents, read_pack};
 use crate::modrinth::fake::{sha1_hex, sha512_hex, FakeModrinth, FakeVersion};
 use crate::prelude::GameInstance;
 
-fn write(root: &Path, relative: &str, bytes: &[u8]) {
+pub(crate) fn write(root: &Path, relative: &str, bytes: &[u8]) {
     let path = root.join(relative);
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
     std::fs::write(path, bytes).unwrap();
 }
 
-fn read(root: &Path, relative: &str) -> Option<Vec<u8>> {
+pub(crate) fn read(root: &Path, relative: &str) -> Option<Vec<u8>> {
     std::fs::read(root.join(relative)).ok()
 }
 
@@ -668,16 +668,16 @@ fn test_pack(version: u8, fake: &FakeModrinth) -> TestPack {
 
 /// A core with a fake Modrinth and one stopped Fabric server made from version 1 of the
 /// test pack, as `create_modpack` makes it: its files, `pack.json` and first image.
-struct Core {
-    _dir: tempfile::TempDir,
-    state: crate::AppState,
-    uuid: InstanceUuid,
-    root: PathBuf,
+pub(crate) struct Core {
+    pub(crate) _dir: tempfile::TempDir,
+    pub(crate) state: crate::AppState,
+    pub(crate) uuid: InstanceUuid,
+    pub(crate) root: PathBuf,
     packs: Vec<TestPack>,
-    title: String,
+    pub(crate) title: String,
 }
 
-fn owner() -> AuthedUser {
+pub(crate) fn owner() -> AuthedUser {
     AuthedUser(User::new(
         "owner".to_string(),
         "pw",
@@ -688,7 +688,7 @@ fn owner() -> AuthedUser {
 }
 
 impl Core {
-    async fn new() -> Core {
+    pub(crate) async fn new() -> Core {
         static LODESTONE: OnceLock<tempfile::TempDir> = OnceLock::new();
         let lodestone = LODESTONE.get_or_init(|| tempfile::tempdir().unwrap());
         crate::prelude::try_init_paths(lodestone.path().to_owned()).unwrap();
@@ -781,7 +781,7 @@ impl Core {
         }
     }
 
-    async fn change(&self, source: UpdateSource) -> Result<(), Error> {
+    pub(crate) async fn change(&self, source: UpdateSource) -> Result<(), Error> {
         update_modpack(
             State(self.state.clone()),
             AxumPath(self.uuid.clone()),
@@ -792,14 +792,14 @@ impl Core {
         .map(|_| ())
     }
 
-    async fn restore(&self, id: &str) -> Result<(), Error> {
+    pub(crate) async fn restore(&self, id: &str) -> Result<(), Error> {
         self.change(UpdateSource::History {
             entry_id: id.to_string(),
         })
         .await
     }
 
-    async fn history(&self) -> ModpackHistory {
+    pub(crate) async fn history(&self) -> ModpackHistory {
         modpack_history(
             State(self.state.clone()),
             AxumPath(self.uuid.clone()),
@@ -810,7 +810,7 @@ impl Core {
         .0
     }
 
-    fn image(&self, id: &str) -> Image {
+    pub(crate) fn image(&self, id: &str) -> Image {
         self.state
             .images()
             .store()
@@ -818,7 +818,7 @@ impl Core {
             .unwrap()
     }
 
-    async fn current(&self) -> String {
+    pub(crate) async fn current(&self) -> String {
         self.state
             .images()
             .current_content(&self.uuid)
@@ -826,11 +826,11 @@ impl Core {
             .expect("a current image")
     }
 
-    fn pack_json(&self) -> crate::images::base::BaseInfo {
+    pub(crate) fn pack_json(&self) -> crate::images::base::BaseInfo {
         crate::images::base::load_base(self.state.images().root(), &self.uuid).unwrap()
     }
 
-    async fn origin(&self) -> ModpackOrigin {
+    pub(crate) async fn origin(&self) -> ModpackOrigin {
         let instance = self
             .state
             .instances
@@ -843,7 +843,7 @@ impl Core {
     }
 
     /// A Mods-tab-like change: an operation that writes a file and succeeds.
-    async fn content_change(&self, path: &str, bytes: &[u8], label: &str) -> String {
+    pub(crate) async fn content_change(&self, path: &str, bytes: &[u8], label: &str) -> String {
         let images = self.state.images();
         let op = images.begin(&self.uuid, OpKind::Mods, label).await;
         write(&self.root, path, bytes);

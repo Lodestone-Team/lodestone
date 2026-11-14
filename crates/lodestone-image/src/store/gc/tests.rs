@@ -89,7 +89,7 @@ fn unused_objects_and_chunks_go_and_used_ones_stay() {
 }
 
 #[test]
-fn an_unreadable_or_newer_manifest_stops_everything() {
+fn an_unreadable_manifest_or_another_schema_stops_everything() {
     let (_dir, store) = store(Encoding::Raw);
     let image = stored_image(&store, &[("mods/a.jar", b"a")]);
     store.save_manifest("one", &image).unwrap();
@@ -120,7 +120,7 @@ fn an_unreadable_or_newer_manifest_stops_everything() {
         let error = store.gc(&now_options()).unwrap_err();
         assert!(matches!(error, GcError::Refused { .. }), "{what}: {error}");
         if what == "newer" {
-            assert!(error.to_string().contains("newer"));
+            assert!(error.to_string().contains("has schema 3"), "{error}");
         }
         assert!(
             store.has_object(&sha256_hex(b"garbage nobody uses"), 19),

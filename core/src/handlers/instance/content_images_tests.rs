@@ -32,7 +32,7 @@ fn init_paths() {
     crate::prelude::try_init_paths(dir.path().to_owned()).unwrap();
 }
 
-fn write(root: &FsPath, relative: &str, bytes: &[u8]) {
+pub(crate) fn write(root: &FsPath, relative: &str, bytes: &[u8]) {
     let path = root.join(relative);
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
     std::fs::write(path, bytes).unwrap();
@@ -40,24 +40,24 @@ fn write(root: &FsPath, relative: &str, bytes: &[u8]) {
 
 /// Which server a test runs.
 #[derive(Clone, Copy, PartialEq)]
-enum Kind {
+pub(crate) enum Kind {
     Fabric,
     Paper,
 }
 
-struct Core {
-    _dir: tempfile::TempDir,
-    state: AppState,
-    modrinth: Arc<FakeModrinth>,
-    root: PathBuf,
-    base: String,
-    client: reqwest::Client,
-    owner: String,
-    uuid: InstanceUuid,
+pub(crate) struct Core {
+    pub(crate) _dir: tempfile::TempDir,
+    pub(crate) state: AppState,
+    pub(crate) modrinth: Arc<FakeModrinth>,
+    pub(crate) root: PathBuf,
+    pub(crate) base: String,
+    pub(crate) client: reqwest::Client,
+    pub(crate) owner: String,
+    pub(crate) uuid: InstanceUuid,
 }
 
 /// Puts a server's files into `root` and returns its uuid.
-fn server_files(root: &FsPath, kind: Kind) -> InstanceUuid {
+pub(crate) fn server_files(root: &FsPath, kind: Kind) -> InstanceUuid {
     let uuid = InstanceUuid::default();
     std::fs::create_dir_all(root).unwrap();
     write(
@@ -112,7 +112,7 @@ fn server_files(root: &FsPath, kind: Kind) -> InstanceUuid {
     uuid
 }
 
-async fn core(kind: Kind) -> Core {
+pub(crate) async fn core(kind: Kind) -> Core {
     init_paths();
     let dir = tempfile::tempdir().unwrap();
     let mut state = test_app_state(
@@ -215,7 +215,7 @@ fn multipart(files: &[(&str, &[u8])]) -> (String, Vec<u8>) {
 }
 
 impl Core {
-    async fn call(
+    pub(crate) async fn call(
         &self,
         method: Method,
         path: &str,
@@ -238,7 +238,12 @@ impl Core {
         )
     }
 
-    async fn upload(&self, path: &str, token: &str, files: &[(&str, &[u8])]) -> StatusCode {
+    pub(crate) async fn upload(
+        &self,
+        path: &str,
+        token: &str,
+        files: &[(&str, &[u8])],
+    ) -> StatusCode {
         let (content_type, body) = multipart(files);
         self.client
             .request(Method::PUT, format!("{}{path}", self.base))
@@ -251,7 +256,7 @@ impl Core {
             .status()
     }
 
-    async fn upload_mods(&self, token: &str, files: &[(&str, &[u8])]) -> StatusCode {
+    pub(crate) async fn upload_mods(&self, token: &str, files: &[(&str, &[u8])]) -> StatusCode {
         let (content_type, body) = multipart(files);
         self.client
             .request(
@@ -267,11 +272,11 @@ impl Core {
             .status()
     }
 
-    fn fs(&self, path: &str, action: &str) -> String {
+    pub(crate) fn fs(&self, path: &str, action: &str) -> String {
         format!("/instance/{}/fs/{}/{action}", self.uuid, b64(path))
     }
 
-    async fn write_file(&self, path: &str, token: &str, content: &str) -> StatusCode {
+    pub(crate) async fn write_file(&self, path: &str, token: &str, content: &str) -> StatusCode {
         self.client
             .request(
                 Method::PUT,
@@ -285,7 +290,7 @@ impl Core {
             .status()
     }
 
-    async fn member(&self, name: &str) -> String {
+    pub(crate) async fn member(&self, name: &str) -> String {
         let mut permissions = UserPermission::new();
         permissions.can_view_instance.insert(self.uuid.clone());
         permissions.can_read_instance_file.insert(self.uuid.clone());
@@ -299,7 +304,7 @@ impl Core {
             .to_string()
     }
 
-    fn instance(&self) -> MinecraftInstance {
+    pub(crate) fn instance(&self) -> MinecraftInstance {
         let instance = self
             .state
             .instances
@@ -312,7 +317,7 @@ impl Core {
     }
 
     /// Whether an operation's label waits to be recorded.
-    fn pending(&self) -> bool {
+    pub(crate) fn pending(&self) -> bool {
         !self
             .state
             .images
@@ -324,7 +329,7 @@ impl Core {
     }
 
     /// Records what is queued now, as the merge window's end would.
-    async fn flush(&self) -> Option<Recorded> {
+    pub(crate) async fn flush(&self) -> Option<Recorded> {
         let ctx = crate::images::context_of(&self.state, &self.uuid)
             .await
             .unwrap();
@@ -332,7 +337,7 @@ impl Core {
     }
 
     /// Records the server's first image, as the startup sweep does.
-    async fn record_initial(&self) -> Recorded {
+    pub(crate) async fn record_initial(&self) -> Recorded {
         let ctx = crate::images::context_of(&self.state, &self.uuid)
             .await
             .unwrap();
@@ -344,7 +349,7 @@ impl Core {
             .unwrap()
     }
 
-    fn manifests(&self) -> Vec<Image> {
+    pub(crate) fn manifests(&self) -> Vec<Image> {
         self.state
             .images
             .store()
@@ -353,7 +358,7 @@ impl Core {
             .images
     }
 
-    async fn current(&self) -> Image {
+    pub(crate) async fn current(&self) -> Image {
         let id = self.state.images.current_content(&self.uuid).await.unwrap();
         self.state
             .images
@@ -364,14 +369,14 @@ impl Core {
 
     /// Records what is queued and returns the new image's label; fails when nothing new
     /// was recorded.
-    async fn recorded_label(&self) -> String {
+    pub(crate) async fn recorded_label(&self) -> String {
         let recorded = self.flush().await.expect("an operation was queued");
         assert!(recorded.changed, "the content changed");
         self.current().await.label.unwrap_or_default()
     }
 }
 
-fn paths(image: &Image) -> Vec<&str> {
+pub(crate) fn paths(image: &Image) -> Vec<&str> {
     image.entries.iter().map(|e| e.path.as_str()).collect()
 }
 

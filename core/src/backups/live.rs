@@ -447,7 +447,7 @@ mod tests {
     #[tokio::test]
     async fn save_line_means_quiesced() {
         let dir = tempfile::tempdir().unwrap();
-        let marker = dir.path().join("servers/x/save-off.marker");
+        let marker = dir.path().join("images/x/save-off.marker");
         let server = FakeServer::new();
         let lines = vec![
             system("[12:34:56] [Server thread/INFO]: Automatic saving is now disabled"),

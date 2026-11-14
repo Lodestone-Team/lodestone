@@ -516,6 +516,34 @@ fn not_in_safety_backup<'a>(plan: &RestorePlan, safety: &'a Image) -> Vec<&'a st
         .collect()
 }
 
+/// The modpack origin in the backup's copy of the server's settings: `None` when they name
+/// none (or the backup has no settings file). Blocking.
+fn backup_origin(
+    store: &ImageStore,
+    backup: &Backup,
+) -> Result<Option<crate::modpack::ModpackOrigin>, Error> {
+    /// A settings file is a few KiB; anything this large is damaged.
+    const MAX_CONFIG_BYTES: u64 = 4 << 20;
+    let files = backup.files_on_disk()?;
+    let Some(config) = files.iter().find(|f| f.disk == restore::CONFIG_FILE) else {
+        return Ok(None);
+    };
+    if config.entry.size > MAX_CONFIG_BYTES {
+        return Err(eyre!("its settings file is too large").into());
+    }
+    let bytes = store
+        .read_object_bytes(&config.entry.sha256, config.entry.size)
+        .map_err(|e| eyre!("Failed to read its settings: {e}"))?;
+    let settings: serde_json::Value =
+        serde_json::from_slice(&bytes).context("Its settings file is damaged")?;
+    match settings.get("modpack") {
+        None => Ok(None),
+        Some(origin) => {
+            Ok(serde_json::from_value(origin.clone()).context("Its modpack origin is damaged")?)
+        }
+    }
+}
+
 /// The stored size of an object (its whole file, or its chunk list and chunks): what a
 /// backup's files take on disk. 0 when it isn't there.
 fn stored_size(store: &ImageStore, sha256: &str, size: u64) -> u64 {
@@ -1949,6 +1977,8 @@ impl BackupService {
             ));
         }
         if let Some(operation) = operation {
+            self.follow_restored_pack(instance, &backup, request.scope)
+                .await;
             // the content as restored, before the server can start and change it
             let ctx = InstanceContext::of(instance, policy_exclude).await;
             if let Err(e) = operation.succeed_and_record(ctx).await {
@@ -1967,6 +1997,69 @@ impl BackupService {
             }
         }
         Ok((message, safety_id))
+    }
+
+    /// After a restore that put back a backup's content: makes what the server says it is
+    /// built on follow that content, so the next modpack update compares against the pack
+    /// those files came from, and the restore's content image gets the right base.
+    ///
+    /// - `pack.json` (with the images, so no restore brings it back) gets the base of the
+    ///   backup's content image when that differs from the current one. The pack's file
+    ///   list isn't kept with images, so it comes without files, and the next update falls
+    ///   back to the files of the origin's pack version, as for a server without one.
+    /// - The modpack origin is in the server's settings, which "everything" restores with
+    ///   the rest; "the world and its mods" leaves the settings, so the origin is taken
+    ///   from the backup's copy of them.
+    ///
+    /// Failures are logged: they cost an update the user's files it could have told from
+    /// the pack's, never a file.
+    async fn follow_restored_pack(
+        &self,
+        instance: &MinecraftInstance,
+        backup: &Backup,
+        scope: RestoreScope,
+    ) {
+        let uuid = instance.uuid().await;
+        let Some(content) = &backup.content else {
+            return;
+        };
+        let current = {
+            let (images, id) = (self.images.clone(), uuid.clone());
+            blocking(move || Ok(crate::modpack::pack_info::load(&images, &id)))
+                .await
+                .ok()
+                .flatten()
+        };
+        if current.as_ref().and_then(|info| info.base.as_ref()) != content.base.as_ref() {
+            let info = crate::images::base::BaseInfo {
+                base: content.base.clone(),
+                files: Default::default(),
+            };
+            crate::modpack::pack_info::save(&self.images, &uuid, info).await;
+        }
+        if scope != RestoreScope::WorldAndMods {
+            return;
+        }
+        let origin = {
+            let (store, backup) = (self.image_store(), backup.clone());
+            blocking(move || backup_origin(&store, &backup)).await
+        };
+        match origin {
+            Ok(origin) => {
+                if instance.modpack_origin().await != origin {
+                    if let Err(e) = instance.set_modpack_origin(origin).await {
+                        warn!(
+                            "Failed to set the modpack origin of {uuid} after the restore: {}",
+                            e.source
+                        );
+                    }
+                }
+            }
+            Err(e) => warn!(
+                "Could not read the modpack origin of the backup of {uuid}: {}",
+                e.source
+            ),
+        }
     }
 
     /// [`Self::restore_locked`] from the stopped server to the swap. Returns the safety
@@ -2150,6 +2243,7 @@ impl BackupService {
     ) -> Result<String, Error> {
         crate::implementations::minecraft::validate_new_instance_name(&request.name)?;
         let files = backup.files_on_disk()?;
+        let base = backup.content.as_ref().and_then(|c| c.base.clone());
         let new_uuid = InstanceUuid::default();
         let job = Job::new(
             state.event_broadcaster.clone(),
@@ -2211,6 +2305,15 @@ impl BackupService {
                         .unwrap_or_default();
                     let ctx = InstanceContext::of(&instance, policy_exclude).await;
                     state.instances.insert(new_uuid.clone(), instance.into());
+                    // the pack its content is built on (without the pack's file list, which
+                    // images don't keep), so its images and updates know it
+                    if let Some(base) = &base {
+                        let info = crate::images::base::BaseInfo {
+                            base: Some(base.clone()),
+                            files: Default::default(),
+                        };
+                        crate::modpack::pack_info::save(&this.images, &new_uuid, info).await;
+                    }
                     // its first content image, as a new server gets
                     if let Err(e) = this
                         .images

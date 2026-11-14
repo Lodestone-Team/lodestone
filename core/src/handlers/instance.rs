@@ -488,4 +488,4 @@ mod tests {
 }
 
 #[cfg(test)]
-mod content_images_tests;
+pub(crate) mod content_images_tests;

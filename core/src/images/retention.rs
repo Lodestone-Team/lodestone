@@ -10,19 +10,21 @@
 //! - the content image each of those links to (`content`);
 //! - every image a registered source names;
 //! - the instance's current content image;
-//! - the newest [`KEEP_CONTENT`] content images, by `created`.
+//! - the newest [`KEEP_CONTENT`] content images ([`newest_content_first`], the order the
+//!   modpack history lists them in).
 //!
 //! Every other content image that can be read is deleted (manifests only: objects go when
-//! the collector finds nothing uses them). A manifest that can't be read is kept: it may be
-//! a newer core's. If any source fails to say what it names, nothing is deleted.
+//! the collector finds nothing uses them). A manifest that can't be read is kept, since
+//! what it links to can't be known. If any source fails to say what it names, nothing is
+//! deleted.
 //!
 //! Prune runs under the instance's lock, so a writer that saves a manifest and then
 //! something naming it (both under that lock) is never caught in between.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use async_trait::async_trait;
-use lodestone_image::Kind;
+use lodestone_image::{Image, Kind};
 use tracing::warn;
 
 use crate::error::Error;
@@ -74,20 +76,16 @@ impl ImageService {
             let listing = store
                 .list_manifests(id.as_ref())
                 .map_err(|e| color_eyre::eyre::eyre!("Failed to list the images: {e}"))?;
-            if let Some(current) = super::state::load(&root, &id).current {
-                keep.insert(current);
-            }
+            let current = super::state::load(&root, &id).current;
+            keep.extend(current.clone());
             // Backups, and the content they ran with.
             for image in listing.images.iter().filter(|i| i.kind != Kind::Content) {
                 keep.insert(image.id.clone());
                 keep.extend(image.content.clone());
             }
-            // Newest first already (by created, then id).
             keep.extend(
-                listing
-                    .images
-                    .iter()
-                    .filter(|image| image.kind == Kind::Content)
+                newest_content_first(&listing.images, current.as_deref())
+                    .into_iter()
                     .take(KEEP_CONTENT)
                     .map(|image| image.id.clone()),
             );
@@ -106,4 +104,45 @@ impl ImageService {
         })
         .await
     }
+}
+
+/// The content images among `images`, newest first: by when they were recorded, and those
+/// recorded in the same second by their lineage, since a restore and the record before it
+/// are often a second apart at most. Within one second the instance's `current` image comes
+/// first (it is always the last recorded), then an image before the one it was recorded
+/// after. Retention keeps the first [`KEEP_CONTENT`] of these, so the history shows what it
+/// keeps.
+pub(crate) fn newest_content_first<'a>(
+    images: &'a [Image],
+    current: Option<&str>,
+) -> Vec<&'a Image> {
+    let content: Vec<&Image> = images.iter().filter(|i| i.kind == Kind::Content).collect();
+    let by_id: HashMap<&str, &Image> = content.iter().map(|i| (i.id.as_str(), *i)).collect();
+    // How many ancestors each has in the listing. A walk stops at an id it has seen:
+    // returning to earlier content records an image under an id it had before, with the
+    // image it came from as its parent, so parents can go round in a circle. That is why
+    // the current image is put first rather than left to its depth.
+    let depth = |image: &Image| {
+        let mut seen = HashSet::new();
+        let mut at = image;
+        while seen.insert(at.id.as_str()) {
+            match at.parent.as_deref().and_then(|p| by_id.get(p)) {
+                Some(parent) => at = parent,
+                None => break,
+            }
+        }
+        seen.len()
+    };
+    let mut ordered: Vec<(&Image, bool, usize)> = content
+        .into_iter()
+        .map(|i| (i, Some(i.id.as_str()) == current, depth(i)))
+        .collect();
+    ordered.sort_by(|(a, a_current, da), (b, b_current, db)| {
+        b.created
+            .cmp(&a.created)
+            .then(b_current.cmp(a_current))
+            .then(db.cmp(da))
+            .then(a.id.cmp(&b.id))
+    });
+    ordered.into_iter().map(|(image, _, _)| image).collect()
 }

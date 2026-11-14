@@ -680,6 +680,46 @@ async fn prune_keeps_backups_and_what_is_named_linked_current_and_newest() {
     assert!(s.manifests().iter().any(|i| i.id == extra.id));
 }
 
+/// Images recorded in the same second are ordered by lineage, and the current image comes
+/// first even when going back to earlier content made the parents go round in a circle.
+#[test]
+fn newest_content_first_orders_one_second_by_lineage_and_current() {
+    let with_parent = |n: i64, parent: Option<&Image>| {
+        let mut image = content_image(n);
+        image.created = 10;
+        image.parent = parent.map(|p| p.id.clone());
+        image
+    };
+    let a = with_parent(1, None);
+    let b = with_parent(2, Some(&a));
+    let c = with_parent(3, Some(&b));
+    let mut older = content_image(4);
+    older.created = 9;
+    let ids = |images: &[Image], current: Option<&str>| -> Vec<String> {
+        retention::newest_content_first(images, current)
+            .into_iter()
+            .map(|i| i.id.clone())
+            .collect()
+    };
+    let images = vec![older.clone(), a.clone(), c.clone(), b.clone()];
+    assert_eq!(
+        ids(&images, None),
+        [c.id.clone(), b.id.clone(), a.id.clone(), older.id.clone()]
+    );
+    // Going back to `a` saved it again with `b` as its parent: a circle.
+    let mut a_again = a.clone();
+    a_again.parent = Some(b.id.clone());
+    let images = vec![a_again.clone(), b.clone()];
+    assert_eq!(ids(&images, Some(&a.id)), [a.id.clone(), b.id.clone()]);
+    assert_eq!(ids(&images, Some(&b.id)), [b.id.clone(), a.id.clone()]);
+    // An older second stays older, whatever is current.
+    let images = vec![older.clone(), b.clone()];
+    assert_eq!(
+        ids(&images, Some(&older.id)),
+        [b.id.clone(), older.id.clone()]
+    );
+}
+
 /// Sets an object's modification time two hours back, for a collection's grace.
 fn age(path: &Path) {
     let readonly = std::fs::metadata(path).unwrap().permissions().readonly();

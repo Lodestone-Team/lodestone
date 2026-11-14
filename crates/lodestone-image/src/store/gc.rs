@@ -7,9 +7,8 @@
 //!
 //! It never guesses:
 //!
-//! - If any manifest can't be read or parsed, or has a schema other than this version's
-//!   (a newer Lodestone wrote it), nothing is deleted: its objects can't be told apart
-//!   from garbage.
+//! - If any manifest can't be read or parsed, or has another schema than this version's,
+//!   nothing is deleted: its objects can't be told apart from garbage.
 //! - If a live chunk list can't be read, no chunk is deleted (its chunks are unknown);
 //!   unused objects still are.
 //! - Whether a live object has a chunk list is decided from the store, never from the
@@ -532,14 +531,10 @@ fn mark_one(path: &Path, live: &mut HashMap<String, Vec<u64>>) -> Result<(), GcE
     })?;
     match whole_number_field(&bytes, "schema") {
         Ok(Some(schema)) if schema == u64::from(SCHEMA) => {}
-        Ok(Some(schema)) if schema > u64::from(SCHEMA) => {
-            return Err(refuse(format!(
-                "was made by a newer Lodestone (schema {schema})"
-            )))
-        }
+        Ok(Some(schema)) => return Err(refuse(format!("has schema {schema}, not {SCHEMA}"))),
         Err(ProbeError::Json(e)) => return Err(refuse(format!("can't be parsed ({e})"))),
         Err(ProbeError::Shape(e)) => return Err(refuse(format!("can't be parsed (it {e})"))),
-        _ => return Err(refuse("has no schema this version reads".into())),
+        Ok(None) | Err(_) => return Err(refuse("has no schema".into())),
     }
     let manifest: MarkManifest =
         serde_json::from_slice(&bytes).map_err(|e| refuse(format!("can't be parsed ({e})")))?;
