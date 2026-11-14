@@ -1,6 +1,6 @@
 //! How the Content tab looks: the kinds and the search over the list, the installed
-//! lists (filtered by the search), Modrinth's projects below them (searched, or browsed
-//! with nothing typed) with their filters,
+//! lists (filtered by the search, a page at a time), Modrinth's projects below them
+//! (searched, or browsed with nothing typed) with their filters,
 //! the Shaders section's shader mod card, and a project's page.
 
 use crate::skin::Skinned;
@@ -353,6 +353,11 @@ pub(super) enum Entry {
     },
     /// Previous and next page of the CurseForge results.
     CfPager,
+    /// Previous and next page of what is installed: `page` (from 0) of `pages`.
+    InstalledPager {
+        page: usize,
+        pages: usize,
+    },
     /// Below what's installed: buttons to the platforms' views.
     FindMore,
 }
@@ -364,6 +369,121 @@ pub(super) enum Heading {
     /// Resource packs in use, the top one winning.
     Enabled(usize),
     Available(usize),
+}
+
+/// Page `page` (from 0) of the Installed list's `plan`, `PAGE_SIZE` rows to a page as
+/// the platforms' results are: the rows on it, each box under its heading, then the
+/// pager. A page past the last shows the last. Headings keep the count of their whole
+/// box, and the rows on the page that start or end a box's part close it (a box that
+/// starts with the Shaders list's "Off" row keeps it on every page, the choice of no
+/// pack). The other entries stay: the cards and notes above the list, and "Looking for
+/// something new?", which ends the list, on the last page. A list that fits one page
+/// has no pager.
+pub(super) fn page_of_plan(plan: Vec<Entry>, page: usize) -> Vec<Entry> {
+    let size = PAGE_SIZE as usize;
+    let is_row = |entry: &Entry| matches!(entry, Entry::Row { .. });
+    let rows = plan.iter().filter(|entry| is_row(entry)).count();
+    if rows <= size {
+        return plan;
+    }
+    let pages = rows.div_ceil(size);
+    let page = page.min(pages - 1);
+    let shown = page * size..(page + 1) * size;
+    // The rows of the box starting at `at`, which follow one another.
+    let run = |at: usize| plan[at..].iter().take_while(|entry| is_row(entry)).count();
+    let mut out = Vec::with_capacity(size + 8);
+    let mut pager_at = None;
+    // How many rows came before the entry looked at.
+    let mut seen = 0;
+    let mut at = 0;
+    while at < plan.len() {
+        match &plan[at] {
+            Entry::Heading(_) => {
+                let len = run(at + 1);
+                if seen < shown.end && shown.start < seen + len {
+                    out.push(plan[at].clone());
+                }
+            }
+            Entry::Row { .. } => {
+                let len = run(at);
+                let edge = |entry: &Entry| match entry {
+                    Entry::Row { first, last, .. } => (*first, *last),
+                    _ => (false, false),
+                };
+                let (box_first, _) = edge(&plan[at]);
+                let (_, box_last) = edge(&plan[at + len - 1]);
+                let kept = seen.max(shown.start)..(seen + len).min(shown.end);
+                for n in kept.clone() {
+                    let mut entry = plan[at + n - seen].clone();
+                    if let Entry::Row { first, last, .. } = &mut entry {
+                        *first = n == kept.start && box_first;
+                        *last = n + 1 == kept.end && box_last;
+                    }
+                    out.push(entry);
+                }
+                if !kept.is_empty() {
+                    pager_at = Some(out.len());
+                }
+                seen += len;
+                at += len;
+                continue;
+            }
+            Entry::FindMore if page + 1 < pages => {}
+            entry => out.push(entry.clone()),
+        }
+        at += 1;
+    }
+    out.insert(
+        pager_at.unwrap_or(out.len()),
+        Entry::InstalledPager { page, pages },
+    );
+    out
+}
+
+/// "Previous", "Page 2 of 5" and "Next" under a list shown a page at a time (the
+/// platforms' results, and what is installed): `page` (from 0) of `pages`, and the
+/// buttons' ids. `go` shows another page.
+pub(super) fn pager(
+    kind: ContentKind,
+    (previous_id, next_id): (&'static str, &'static str),
+    page: usize,
+    pages: usize,
+    go: impl Fn(&mut ContentView, usize, &mut Context<ContentView>) + Clone + 'static,
+    cx: &mut Context<ContentView>,
+) -> AnyElement {
+    let pages = pages.max(1);
+    let back = go.clone();
+    div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .justify_center()
+        .gap_3()
+        .child(
+            Button::new((previous_id, kind as usize), t(CommonMsg::Previous))
+                .variant(ButtonVariant::Secondary)
+                .size(ButtonSize::Slim)
+                .disabled(page == 0)
+                .on_click(
+                    cx.listener(move |this, _, _, cx| back(this, page.saturating_sub(1), cx)),
+                ),
+        )
+        .child(
+            small(tr!(
+                M::PageOf,
+                page = format::number(page as u64 + 1),
+                pages = format::number(pages as u64)
+            ))
+            .text_color(crate::theme::ink::muted()),
+        )
+        .child(
+            Button::new((next_id, kind as usize), t(CommonMsg::Next))
+                .variant(ButtonVariant::Secondary)
+                .size(ButtonSize::Slim)
+                .disabled(page + 1 >= pages)
+                .on_click(cx.listener(move |this, _, _, cx| go(this, page + 1, cx))),
+        )
+        .into_any_element()
 }
 
 /// Whether an installed file matches what was typed: its name, file name or
@@ -1374,10 +1494,16 @@ impl ContentView {
             .into_any_element()
     }
 
-    /// What the Installed view lists, top to bottom: the cards and toolbar above the
-    /// list, then one entry per row. Cheap to build every frame; the rows' elements
-    /// are only made for the entries on screen (see [`Self::render_entry`]).
-    fn installed_plan(&self, kind: ContentKind, cx: &gpui::App) -> Vec<Entry> {
+    /// What the list shows, top to bottom: the cards and toolbar above the list, then
+    /// one entry per row, what is installed a page at a time (see [`page_of_plan`]).
+    /// Cheap to build every frame; the rows' elements are only made for the entries
+    /// on screen (see [`Self::render_entry`]).
+    pub(super) fn installed_plan(&self, kind: ContentKind, cx: &gpui::App) -> Vec<Entry> {
+        page_of_plan(self.whole_plan(kind, cx), self.section(kind).installed_page)
+    }
+
+    /// The list's entries with everything installed (that matches the search).
+    fn whole_plan(&self, kind: ContentKind, cx: &gpui::App) -> Vec<Entry> {
         let query = self.query(kind, cx);
         let searching = !query.is_empty();
         let mut plan = Vec::new();
@@ -1788,6 +1914,41 @@ impl ContentView {
         }
     }
 
+    /// Brings the list of `kind` up to date for this frame: the page of what is
+    /// installed, brought back onto the list when it got shorter (a file removed, or
+    /// a search), and the entries; a moved pack waiting to be shown is scrolled to.
+    pub(super) fn update_installed_list(&mut self, kind: ContentKind, cx: &gpui::App) {
+        let plan = self.installed_plan(kind, cx);
+        if self.list_view(kind, cx) == ListView::Installed
+            && self.section(kind).listing.ready().is_some()
+        {
+            self.section_mut(kind).installed_page = plan
+                .iter()
+                .find_map(|entry| match entry {
+                    Entry::InstalledPager { page, .. } => Some(*page),
+                    _ => None,
+                })
+                .unwrap_or(0);
+        }
+        self.sync_installed_list(kind, plan);
+        let section = self.section_mut(kind);
+        if let Some(file) = &section.reveal
+            && let Some(ix) = section
+                .plan
+                .iter()
+                .position(|entry| matches!(entry, Entry::Row { file: f, .. } if f == file))
+        {
+            // From its top: the rows just put in aren't measured yet, so revealing it
+            // from where the list is would stop short. The list keeps its end at the
+            // bottom when the row is near it.
+            section.rows.scroll_to(gpui::ListOffset {
+                item_ix: ix,
+                offset_in_item: px(0.),
+            });
+            section.reveal = None;
+        }
+    }
+
     /// Brings the list of `kind` up to date with `plan`: entries that changed are
     /// measured again, and the scroll position stays where it is.
     fn sync_installed_list(&mut self, kind: ContentKind, plan: Vec<Entry>) {
@@ -1932,6 +2093,14 @@ impl ContentView {
                 in_box(row, *first, *last)
             }
             Entry::CfPager => self.render_cf_pager(kind, cx),
+            Entry::InstalledPager { page, pages } => pager(
+                kind,
+                ("installed-previous-page", "installed-next-page"),
+                *page,
+                *pages,
+                move |this, page, cx| this.set_installed_page(kind, page, cx),
+                cx,
+            ),
             Entry::FindMore => self.render_find_more(kind, cx),
             Entry::ShadersOff => {
                 let loader = self.shaders.loader;
@@ -2363,43 +2532,15 @@ impl ContentView {
     /// Previous and next page of the Modrinth results.
     fn render_pager(&mut self, kind: ContentKind, cx: &mut Context<Self>) -> AnyElement {
         let browse = &self.section(kind).browse;
-        let offset = browse.offset;
         let total = browse.results.ready().map_or(0, |r| r.total_hits);
-        let pages = total.div_ceil(PAGE_SIZE).max(1);
-        let page = offset / PAGE_SIZE + 1;
-        div()
-            .flex()
-            .flex_row()
-            .items_center()
-            .justify_center()
-            .gap_3()
-            .child(
-                Button::new(("previous-page", kind as usize), t(CommonMsg::Previous))
-                    .variant(ButtonVariant::Secondary)
-                    .size(ButtonSize::Slim)
-                    .disabled(offset == 0)
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.set_page(kind, offset.saturating_sub(PAGE_SIZE), cx)
-                    })),
-            )
-            .child(
-                small(tr!(
-                    M::PageOf,
-                    page = format::number(page as u64),
-                    pages = format::number(pages as u64)
-                ))
-                .text_color(crate::theme::ink::muted()),
-            )
-            .child(
-                Button::new(("next-page", kind as usize), t(CommonMsg::Next))
-                    .variant(ButtonVariant::Secondary)
-                    .size(ButtonSize::Slim)
-                    .disabled(page >= pages)
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.set_page(kind, offset + PAGE_SIZE, cx)
-                    })),
-            )
-            .into_any_element()
+        pager(
+            kind,
+            ("previous-page", "next-page"),
+            (browse.offset / PAGE_SIZE) as usize,
+            total.div_ceil(PAGE_SIZE) as usize,
+            move |this, page, cx| this.set_page(kind, page as u32 * PAGE_SIZE, cx),
+            cx,
+        )
     }
 
     /// A Modrinth result as a row of the list: opens its page, or installs it.
@@ -3270,8 +3411,7 @@ impl Render for ContentView {
             (page, panel_width) => {
                 // Only the rows on screen are made: a long list scrolls as fast as a
                 // short one.
-                let plan = self.installed_plan(kind, cx);
-                self.sync_installed_list(kind, plan);
+                self.update_installed_list(kind, cx);
                 let entity = cx.entity();
                 let state = self.section(kind).rows.clone();
                 // Far enough down that the top is out of sight: a way back up.
@@ -3392,5 +3532,166 @@ impl Render for ContentView {
                     })
                     .child(body),
             )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `count` rows of one box, from listing index `from`, as `installed_plan` makes
+    /// them; `opened` when an entry above opens the box (the Shaders list's "Off").
+    fn rows(from: usize, count: usize, opened: bool, reorder: bool) -> Vec<Entry> {
+        (0..count)
+            .map(|position| Entry::Row {
+                index: from + position,
+                file: format!("file-{}", from + position),
+                first: position == 0 && !opened,
+                last: position + 1 == count,
+                reorder: reorder.then_some((position > 0, position + 1 < count)),
+            })
+            .collect()
+    }
+
+    /// The listing indexes of the rows in `plan`, with their box edges.
+    fn shown(plan: &[Entry]) -> Vec<(usize, bool, bool)> {
+        plan.iter()
+            .filter_map(|entry| match entry {
+                Entry::Row {
+                    index, first, last, ..
+                } => Some((*index, *first, *last)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Everything but the rows, in order.
+    fn around(plan: &[Entry]) -> Vec<Entry> {
+        plan.iter()
+            .filter(|entry| !matches!(entry, Entry::Row { .. }))
+            .cloned()
+            .collect()
+    }
+
+    #[test]
+    fn a_list_that_fits_one_page_has_no_pager() {
+        let mut plan = rows(0, PAGE_SIZE as usize, false, false);
+        plan.push(Entry::FindMore);
+        assert_eq!(page_of_plan(plan.clone(), 0), plan);
+        // nor on a page past it, as after files were removed
+        assert_eq!(page_of_plan(plan.clone(), 3), plan);
+
+        let mut plan = rows(0, PAGE_SIZE as usize + 1, false, false);
+        plan.push(Entry::FindMore);
+        assert_eq!(
+            around(&page_of_plan(plan, 0)),
+            [Entry::InstalledPager { page: 0, pages: 2 }]
+        );
+    }
+
+    #[test]
+    fn each_page_has_its_rows_under_their_headings_with_whole_counts() {
+        // resource packs: 23 in use and 9 not
+        let note = Entry::Note("offline".into(), false);
+        let mut plan = vec![note.clone(), Entry::Heading(Heading::Enabled(23))];
+        plan.extend(rows(0, 23, false, true));
+        plan.push(Entry::Heading(Heading::Available(9)));
+        plan.extend(rows(23, 9, false, false));
+        plan.push(Entry::FindMore);
+
+        let first = page_of_plan(plan.clone(), 0);
+        assert_eq!(
+            around(&first),
+            [
+                note.clone(),
+                Entry::Heading(Heading::Enabled(23)),
+                Entry::InstalledPager { page: 0, pages: 2 },
+            ],
+            "the packs not in use and the way to the platforms are on the next page"
+        );
+        let edges = shown(&first);
+        assert_eq!(edges.len(), 20);
+        assert_eq!(edges[0], (0, true, false));
+        assert_eq!(
+            edges[19],
+            (19, false, true),
+            "the page's part of the box is closed"
+        );
+
+        let second = page_of_plan(plan, 1);
+        assert_eq!(
+            around(&second),
+            [
+                note,
+                Entry::Heading(Heading::Enabled(23)),
+                Entry::Heading(Heading::Available(9)),
+                Entry::InstalledPager { page: 1, pages: 2 },
+                Entry::FindMore,
+            ]
+        );
+        let edges = shown(&second);
+        assert_eq!(edges.len(), 12);
+        assert_eq!(
+            edges[..3],
+            [(20, true, false), (21, false, false), (22, false, true)]
+        );
+        assert_eq!(edges[3], (23, true, false));
+        assert_eq!(edges[11], (31, false, true));
+        // the headings sit right above their rows, and the pager below the last row
+        assert_eq!(second[1], Entry::Heading(Heading::Enabled(23)));
+        assert!(matches!(second[2], Entry::Row { index: 20, .. }));
+        assert_eq!(second[5], Entry::Heading(Heading::Available(9)));
+        assert_eq!(
+            second[second.len() - 2],
+            Entry::InstalledPager { page: 1, pages: 2 }
+        );
+        // a pack at the top of a page can still move up, onto the page before
+        assert!(matches!(
+            second[2],
+            Entry::Row {
+                reorder: Some((true, true)),
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn a_search_keeps_its_count_on_every_page() {
+        let mut plan = vec![Entry::Heading(Heading::Installed(41))];
+        plan.extend(rows(0, 41, false, false));
+        plan.push(Entry::FindMore);
+        for page in 0..3 {
+            let paged = page_of_plan(plan.clone(), page);
+            assert_eq!(paged[0], Entry::Heading(Heading::Installed(41)));
+            assert!(paged.contains(&Entry::InstalledPager { page, pages: 3 }));
+        }
+        assert_eq!(shown(&page_of_plan(plan, 2)), [(40, true, true)]);
+    }
+
+    #[test]
+    fn a_page_past_the_end_shows_the_last() {
+        let plan = rows(0, 45, false, false);
+        let paged = page_of_plan(plan, 99);
+        assert!(paged.contains(&Entry::InstalledPager { page: 2, pages: 3 }));
+        assert_eq!(
+            shown(&paged).iter().map(|row| row.0).collect::<Vec<_>>(),
+            (40..45).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn the_shaders_off_row_starts_every_page() {
+        let mut plan = vec![Entry::ShaderMod, Entry::ShadersOff];
+        plan.extend(rows(0, 25, true, false));
+        let second = page_of_plan(plan, 1);
+        assert_eq!(second[..2], [Entry::ShaderMod, Entry::ShadersOff]);
+        let edges = shown(&second);
+        assert_eq!(edges.len(), 5);
+        assert_eq!(
+            edges[0],
+            (20, false, false),
+            "the Off row stays the box's first"
+        );
+        assert_eq!(edges[4], (24, false, true));
     }
 }

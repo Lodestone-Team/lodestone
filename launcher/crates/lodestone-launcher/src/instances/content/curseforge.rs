@@ -802,44 +802,16 @@ impl ContentView {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let cf = &self.section(kind).cf;
-        let offset = cf.offset;
         let total = cf.results.ready().map_or(0, |r| r.total);
         let page_size = PAGE_SIZE as usize;
-        let pages = total.div_ceil(page_size).max(1);
-        let page = offset / page_size + 1;
-        div()
-            .flex()
-            .flex_row()
-            .items_center()
-            .justify_center()
-            .gap_3()
-            .child(
-                Button::new(("cf-previous-page", kind as usize), t(CommonMsg::Previous))
-                    .variant(ButtonVariant::Secondary)
-                    .size(ButtonSize::Slim)
-                    .disabled(offset == 0)
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.cf_set_page(kind, offset.saturating_sub(page_size), cx)
-                    })),
-            )
-            .child(
-                small(tr!(
-                    M::PageOf,
-                    page = format::number(page as u64),
-                    pages = format::number(pages as u64)
-                ))
-                .text_color(crate::theme::ink::muted()),
-            )
-            .child(
-                Button::new(("cf-next-page", kind as usize), t(CommonMsg::Next))
-                    .variant(ButtonVariant::Secondary)
-                    .size(ButtonSize::Slim)
-                    .disabled(page >= pages)
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.cf_set_page(kind, offset + page_size, cx)
-                    })),
-            )
-            .into_any_element()
+        super::view::pager(
+            kind,
+            ("cf-previous-page", "cf-next-page"),
+            cf.offset / page_size,
+            total.div_ceil(page_size),
+            move |this, page, cx| this.cf_set_page(kind, page * page_size, cx),
+            cx,
+        )
     }
 
     /// A CurseForge result as a row of the list: opens its page, or installs it.
