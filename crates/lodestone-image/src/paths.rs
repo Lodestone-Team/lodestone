@@ -43,6 +43,11 @@ pub enum PathError {
     DotComponent,
     #[error("the path has a character that can't be in a file name: {0:?}")]
     BadCharacter(char),
+    /// A character some disks ignore when they compare names (HFS+ ignores zero-width
+    /// joiners, direction marks and the byte order mark), or that only changes how a name
+    /// is shown: such a name could be another file's there, or look like one.
+    #[error("the path has an invisible character, which some disks ignore in names: {0:?}")]
+    IgnorableCharacter(char),
     #[error("the path has Windows' reserved name {0:?}")]
     ReservedName(String),
     #[error("a part of the path ends with a space or a dot, which Windows drops")]
@@ -80,6 +85,9 @@ impl CanonicalPath {
     /// - free of NUL and other control characters, `\`, `:` and the other characters
     ///   Windows refuses in names (`<`, `>`, `"`, `|`, `?`, `*`), which also rules out drive
     ///   letters and absolute Windows paths;
+    /// - free of Unicode's default-ignorable characters ([`is_default_ignorable`]): HFS+
+    ///   ignores some of them in names, so `\u{200C}.lodestone_config` would be
+    ///   `.lodestone_config` there, and direction overrides make a name show as another;
     /// - free of Windows' reserved device names (`CON`, `PRN`, `AUX`, `NUL`, `COM0`–`COM9`,
     ///   `LPT0`–`LPT9`, `CONIN$`, `CONOUT$`, also with an extension, in any case) and of
     ///   parts ending with a space or a dot, which Windows silently drops;
@@ -209,6 +217,9 @@ pub fn validate_component(part: &str) -> Result<(), PathError> {
     }) {
         return Err(PathError::BadCharacter(c));
     }
+    if let Some(c) = part.chars().find(|&c| is_default_ignorable(c)) {
+        return Err(PathError::IgnorableCharacter(c));
+    }
     if part.ends_with(' ') || part.ends_with('.') {
         return Err(PathError::TrailingDotOrSpace);
     }
@@ -222,6 +233,36 @@ pub fn validate_component(part: &str) -> Result<(), PathError> {
         return Err(PathError::NotNfc(c));
     }
     Ok(())
+}
+
+/// Whether `c` is one of Unicode's default-ignorable code points (and the other format
+/// characters names never need): invisible, and ignored by some disks when they compare
+/// names. HFS+ (Mac OS Extended, still common on external drives) ignores U+200C–U+200F,
+/// U+202A–U+202E, U+206A–U+206F and U+FEFF, which is how git's CVE-2014-9390 reached
+/// `.git`; the bidirectional overrides also make a name display as another (`evil\u{202E}gpj.exe`).
+/// Refusing them keeps every rule that looks at names (protected files, never-recorded
+/// files, case clashes) looking at the name the disk sees.
+pub fn is_default_ignorable(c: char) -> bool {
+    matches!(
+        u32::from(c),
+        0x00AD
+            | 0x034F
+            | 0x061C
+            | 0x115F..=0x1160
+            | 0x17B4..=0x17B5
+            | 0x180B..=0x180F
+            | 0x200B..=0x200F
+            | 0x202A..=0x202E
+            | 0x2060..=0x206F
+            | 0x3164
+            | 0xFE00..=0xFE0F
+            | 0xFEFF
+            | 0xFFA0
+            | 0xFFF0..=0xFFF8
+            | 0x1BCA0..=0x1BCA3
+            | 0x1D173..=0x1D17A
+            | 0xE0000..=0xE0FFF
+    )
 }
 
 /// Whether Windows takes `part` for a device: its name before the first `.` (without
@@ -543,27 +584,41 @@ fn fold(part: &str) -> String {
 pub fn case_collisions<'a>(
     paths: impl IntoIterator<Item = &'a CanonicalPath>,
 ) -> Vec<(CanonicalPath, CanonicalPath)> {
-    // Folded prefix (as folded parts joined with '/') → (exact prefix, the path it came from).
-    let mut seen: HashMap<String, (String, &'a CanonicalPath)> = HashMap::new();
+    let paths: Vec<&CanonicalPath> = paths.into_iter().collect();
+    case_collisions_of(paths.iter().map(|p| p.as_str()))
+        .into_iter()
+        .map(|(a, b)| (paths[a].clone(), paths[b].clone()))
+        .collect()
+}
+
+/// [`case_collisions`] over `/`-separated paths that needn't be canonical (a client's disk
+/// paths, under `minecraft/`, can be longer than a canonical path may be), by index.
+///
+/// The folders seen so far form a tree, each node keyed by its parent and its folded name,
+/// so memory and time are linear in the paths' total length however deep they are (a
+/// table of every folded prefix would hold each deep path's prefixes whole, quadratic in
+/// its depth).
+pub(crate) fn case_collisions_of<'p>(
+    paths: impl IntoIterator<Item = &'p str>,
+) -> Vec<(usize, usize)> {
+    // (parent node, folded name) → (exact name, its node, the first path through it).
+    let mut nodes: HashMap<(usize, String), (&'p str, usize, usize)> = HashMap::new();
+    let mut next_node = 1; // 0 is the root.
     let mut clashes = Vec::new();
-    for path in paths {
-        let mut folded = String::new();
-        let mut exact = String::new();
-        for (i, part) in path.components().enumerate() {
-            if i > 0 {
-                folded.push('/');
-                exact.push('/');
-            }
-            folded.push_str(&fold(part));
-            exact.push_str(part);
-            match seen.get(&folded) {
-                Some((first_exact, first_path)) if *first_exact != exact => {
-                    clashes.push(((*first_path).clone(), path.clone()));
+    for (index, path) in paths.into_iter().enumerate() {
+        let mut parent = 0;
+        for part in path.split('/') {
+            let key = (parent, fold(part));
+            match nodes.get(&key) {
+                Some(&(exact, _, first)) if exact != part => {
+                    clashes.push((first, index));
                     break;
                 }
-                Some(_) => {}
+                Some(&(_, node, _)) => parent = node,
                 None => {
-                    seen.insert(folded.clone(), (exact.clone(), path));
+                    nodes.insert(key, (part, next_node, index));
+                    parent = next_node;
+                    next_node += 1;
                 }
             }
         }
@@ -649,6 +704,63 @@ mod tests {
             Err(PathError::TooLong)
         );
         assert!(CanonicalPath::new(vec!["a"; 2048].join("/")).is_ok());
+    }
+
+    #[test]
+    fn refuses_invisible_characters_disks_ignore() {
+        // HFS+ ignores these when it compares names, so each would be the protected or
+        // never-recorded file there (git's CVE-2014-9390 for `.git`).
+        for (path, c) in [
+            ("\u{200C}.lodestone_config", '\u{200C}'),
+            (".lodestone\u{200D}_modpack/record.json", '\u{200D}'),
+            ("\u{FEFF}session.lock", '\u{FEFF}'),
+            ("lo\u{200B}gs/latest.log", '\u{200B}'),
+            ("sa\u{200E}ves/w/level.dat", '\u{200E}'),
+            // A direction override makes `evilgpj.exe` show as `evilexe.jpg`.
+            ("mods/evil\u{202E}gpj.exe", '\u{202E}'),
+            ("mods/a\u{2060}b.jar", '\u{2060}'),
+            ("mods/soft\u{AD}hyphen.jar", '\u{AD}'),
+            ("mods/tag\u{E0041}.jar", '\u{E0041}'),
+            ("mods/x\u{FE0F}.jar", '\u{FE0F}'),
+        ] {
+            assert_eq!(
+                CanonicalPath::new(path),
+                Err(PathError::IgnorableCharacter(c)),
+                "{path:?}"
+            );
+        }
+        // Visible characters around them are fine.
+        CanonicalPath::new("mods/日本語-mod.jar").unwrap();
+        CanonicalPath::new("saves/Ünïcödé/level.dat").unwrap();
+    }
+
+    #[test]
+    fn case_collisions_stay_linear_for_deep_paths() {
+        // Distinct deep paths: a table of every folded prefix would hold each one's
+        // prefixes whole (about 4 MiB per path); the tree holds each part once.
+        let deep: Vec<CanonicalPath> = (0..200)
+            .map(|i| p(&format!("c{i}/{}f", "a/".repeat(2000))))
+            .collect();
+        let started = std::time::Instant::now();
+        assert!(case_collisions(&deep).is_empty());
+        let mut clash = deep.clone();
+        clash.push(p(&format!("c7/{}F", "a/".repeat(2000))));
+        assert_eq!(
+            case_collisions(&clash),
+            [(deep[7].clone(), clash[200].clone())]
+        );
+        assert!(started.elapsed() < std::time::Duration::from_secs(20));
+        // Indexes over plain text too, longer than a canonical path may be.
+        let long = format!("minecraft/{}", "b/".repeat(2100));
+        let paths = [
+            format!("{long}X"),
+            format!("{long}x"),
+            "minecraft/y".to_string(),
+        ];
+        assert_eq!(
+            case_collisions_of(paths.iter().map(String::as_str)),
+            [(0, 1)]
+        );
     }
 
     #[test]

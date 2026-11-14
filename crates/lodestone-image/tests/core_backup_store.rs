@@ -31,6 +31,26 @@ use serde_json::{json, Value};
 const CORE_ZSTD_LEVEL: i32 = 3;
 const CORE_PIECE: usize = 1 << 20;
 
+/// Sets every object's and chunk's time two hours back, as if written long ago, so a
+/// collection (whose grace is at least twenty minutes) may take what is unused.
+fn age_store(root: &Path) {
+    let then = std::time::SystemTime::now() - Duration::from_secs(7200);
+    for area in ["objects", "chunks"] {
+        for entry in walkdir::WalkDir::new(root.join(area)).into_iter().flatten() {
+            if entry.file_type().is_file() {
+                #[cfg(windows)]
+                let file = {
+                    use std::os::windows::fs::OpenOptionsExt;
+                    fs::File::options().access_mode(0x100).open(entry.path())
+                };
+                #[cfg(not(windows))]
+                let file = fs::File::open(entry.path());
+                file.unwrap().set_modified(then).unwrap();
+            }
+        }
+    }
+}
+
 /// One file of the server the backup was taken of.
 struct ServerFile {
     path: &'static str,
@@ -335,12 +355,8 @@ fn a_restored_core_backup_snapshots_to_the_same_entries_without_new_objects() {
     );
     assert_eq!(tree(&root.join("objects")), objects_before);
     store.save_manifest("survival", &converted.image).unwrap();
-    let report = store
-        .gc(&GcOptions {
-            grace: Duration::ZERO,
-            ..GcOptions::default()
-        })
-        .unwrap();
+    age_store(&root);
+    let report = store.gc(&GcOptions::default()).unwrap();
     assert!(report.chunks_removed > 0);
     assert_eq!(report.objects_removed, 0);
     assert!(!root.join("chunks").exists() || tree(&root.join("chunks")).is_empty());
@@ -489,8 +505,8 @@ fn gc_keeps_what_converted_images_and_schema_1_manifests_use() {
     store.save_manifest("survival", &converted.image).unwrap();
 
     let old = core_backup::Manifest::from_json(&old_manifest).unwrap();
+    age_store(&root);
     let options = GcOptions {
-        grace: Duration::ZERO,
         also_live: old.objects().map(str::to_string).collect::<HashSet<_>>(),
         ..GcOptions::default()
     };

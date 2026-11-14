@@ -37,10 +37,10 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use super::{clean_text, finish, json_object, Known, LegacyError, Note, UNHASHED};
+use super::{clean_text, finish, object_probe, Known, LegacyError, Note, DISABLED, UNHASHED};
 use crate::hex::{is_sha1, is_sha512};
 use crate::manifest::{App, Base, Entry, Game, Image, Kind, Loader, Producer, Source};
-use crate::manifest::{Withheld, WithheldReason, MODRINTH_CDN};
+use crate::manifest::{WithheldReason, MODRINTH_CDN};
 use crate::paths::{always_excluded, placement, CanonicalPath};
 use crate::settings::{ServerFlavour, ServerSettings, Settings};
 use crate::Side;
@@ -70,7 +70,7 @@ pub struct PackRecord {
 
 impl PackRecord {
     pub fn from_json(bytes: &[u8]) -> Result<PackRecord, LegacyError> {
-        json_object(bytes)?;
+        object_probe(bytes)?;
         serde_json::from_slice(bytes).map_err(|e| LegacyError::Invalid(e.to_string()))
     }
 
@@ -232,7 +232,7 @@ pub struct History {
 
 impl History {
     pub fn from_json(bytes: &[u8]) -> Result<History, LegacyError> {
-        json_object(bytes)?;
+        object_probe(bytes)?;
         serde_json::from_slice(bytes).map_err(|e| LegacyError::Invalid(e.to_string()))
     }
 
@@ -243,18 +243,27 @@ impl History {
 }
 
 /// What a set of pack files has that its image doesn't.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FilesRest {
     /// Files the image withholds (no SHA-256 known, or a path an image can't hold).
     pub unresolved: BTreeMap<String, RecordedFile>,
     /// Files whose record the image's entry doesn't give back exactly (an override of a
     /// pack that isn't the base, a SHA-1 in capitals), as they were.
     pub corrections: BTreeMap<String, RecordedFile>,
+    /// Files the record keys by their enabled name whose entry has the disabled one
+    /// (`mods/x.jar` for `mods/x.jar.disabled`), as the caller found them on disk.
+    #[serde(default)]
+    pub disabled: std::collections::BTreeSet<String>,
 }
 
-/// What a history entry has that its image doesn't.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// What a history entry has that its image doesn't. Kept beside the images (serde), never
+/// in them.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EntryRest {
+    /// The id of this entry's image. Entries with the same files share one image (a restore
+    /// recreates an earlier entry's files), so a store keyed by id holds one manifest for
+    /// them; this says which image each entry had, to write the history back from a store.
+    pub image: String,
     pub id: u32,
     /// Unix milliseconds; the image keeps seconds.
     pub time: i64,
@@ -268,12 +277,16 @@ pub struct EntryRest {
     pub files: FilesRest,
 }
 
-/// What the record and history have that their images don't.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// What the record and history have that their images don't. Kept beside the images
+/// (serde), never in them.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Rest {
     pub entries: Vec<EntryRest>,
     /// The history's index of how to get files back: the old store's business.
     pub files: BTreeMap<String, FileRef>,
+    /// The record's image id, when there is one.
+    #[serde(default)]
+    pub record_image: Option<String>,
     /// The record's files the image doesn't give back, when there is a record image.
     pub record: Option<FilesRest>,
     /// The record, whole, when there is no history to take the game from (a server from
@@ -284,11 +297,15 @@ pub struct Rest {
 /// A converted record and history.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Lineage {
-    /// One content image per history entry, oldest first, each the next one's parent.
+    /// One content image per history entry, oldest first. Each one's parent is the image
+    /// of the nearest earlier entry with other files: an entry whose files equal the one
+    /// before it (an update that changed no file) has that entry's image, and an image is
+    /// never its own parent. A restore to an earlier entry has that entry's id again, so
+    /// following parents can come back to an id: walkers stop at one they have seen.
     pub images: Vec<Image>,
     /// The record's image: the pack files the server has now, on the newest entry's base
-    /// and game, its parent the newest entry's image (with the same id when nothing changed
-    /// since).
+    /// and game; the same image as the newest entry's when nothing changed since, else
+    /// with that image as its parent.
     pub record: Option<Image>,
     pub rest: Rest,
     pub notes: Vec<Note>,
@@ -333,7 +350,6 @@ pub fn to_images(
             version: String::new(),
         };
         image.label = Some(clean_text(&label(entry)));
-        image.parent = images.last().map(|parent| parent.id.clone());
         image.base = pack_base(&entry.origin, known);
         if image.base.is_none()
             && !notes.iter().any(
@@ -351,11 +367,18 @@ pub fn to_images(
             }),
             client: None,
         };
-        let files = add_files(&mut image, &entry.files, &history.files, known, &mut notes);
-        let image = finish(image)
+        let files = add_files(
+            &mut image,
+            &entry.files,
+            &history.files,
+            known,
+            &|_| false,
+            &mut notes,
+        );
+        let image = with_parent(finish(image), &images)
             .map_err(|e| LegacyError::Invalid(format!("history entry {}: {e}", entry.id)))?;
-        images.push(image);
         entries.push(EntryRest {
+            image: image.id.clone(),
             id: entry.id,
             time: entry.time,
             kind: entry.kind.clone(),
@@ -366,9 +389,11 @@ pub fn to_images(
             changelog: entry.changelog.clone(),
             files,
         });
+        images.push(image);
     }
 
     let mut record_image = None;
+    let mut record_id = None;
     let mut record_rest = None;
     let mut record_without_history = None;
     match (record, images.last()) {
@@ -376,13 +401,24 @@ pub fn to_images(
             let mut image = Image::new(Kind::Content, newest.game.clone());
             image.base = newest.base.clone();
             image.settings = newest.settings.clone();
-            image.parent = Some(newest.id.clone());
             image.created = newest.created;
             image.producer = newest.producer.clone();
             image.label = Some("The pack's files now".to_string());
-            let files = add_files(&mut image, &record.files, &history.files, known, &mut notes);
-            record_image =
-                Some(finish(image).map_err(|e| LegacyError::Invalid(format!("the record: {e}")))?);
+            // Only the record is the server's disk now: a disabled file there has its
+            // disabled name. History entries keep the names they recorded.
+            let disabled = |path: &str| known.disabled(path);
+            let files = add_files(
+                &mut image,
+                &record.files,
+                &history.files,
+                known,
+                &disabled,
+                &mut notes,
+            );
+            let image = with_parent(finish(image), &images)
+                .map_err(|e| LegacyError::Invalid(format!("the record: {e}")))?;
+            record_id = Some(image.id.clone());
+            record_image = Some(image);
             record_rest = Some(files);
         }
         (Some(record), None) => record_without_history = Some(record.clone()),
@@ -395,6 +431,7 @@ pub fn to_images(
         rest: Rest {
             entries,
             files: history.files.clone(),
+            record_image: record_id,
             record: record_rest,
             record_without_history,
         },
@@ -482,6 +519,19 @@ fn pack_base(origin: &ModpackOrigin, known: &dyn Known) -> Option<Base> {
     })
 }
 
+/// `image` (sealed) with its parent: the nearest of `earlier` (oldest first) with another
+/// id, so an image recorded with nothing changed never names itself.
+fn with_parent(image: Result<Image, LegacyError>, earlier: &[Image]) -> Result<Image, LegacyError> {
+    let mut image = image?;
+    image.parent = earlier
+        .iter()
+        .rev()
+        .map(|parent| &parent.id)
+        .find(|id| **id != image.id)
+        .cloned();
+    Ok(image)
+}
+
 /// The project and version of a `https://cdn.modrinth.com/data/<project>/versions/<version>/…`
 /// URL.
 pub(crate) fn modrinth_cdn_ids(url: &str) -> Option<(&str, &str)> {
@@ -504,27 +554,31 @@ fn add_files(
     files: &BTreeMap<String, RecordedFile>,
     index: &BTreeMap<String, FileRef>,
     known: &dyn Known,
+    disabled: &dyn Fn(&str) -> bool,
     notes: &mut Vec<Note>,
 ) -> FilesRest {
     let has_base = image.base.is_some();
     let mut rest = FilesRest::default();
     for (path, recorded) in files {
-        match entry_of(path, recorded, index, has_base, known) {
+        let on_disk = disabled(path).then(|| format!("{path}{DISABLED}"));
+        match entry_of(
+            on_disk.as_deref().unwrap_or(path),
+            recorded,
+            index,
+            has_base,
+            known,
+        ) {
             Ok(entry) => {
+                if on_disk.is_some() {
+                    rest.disabled.insert(path.clone());
+                }
                 if recorded_of(&entry) != *recorded {
                     rest.corrections.insert(path.clone(), recorded.clone());
                 }
                 image.entries.push(entry);
             }
             Err(reason) => {
-                notes.push(Note::NotListed {
-                    path: path.clone(),
-                    reason: reason.clone(),
-                });
-                image.withheld.push(Withheld {
-                    path: path.clone(),
-                    reason,
-                });
+                super::withhold(image, notes, path, reason);
                 rest.unresolved.insert(path.clone(), recorded.clone());
             }
         }
@@ -600,6 +654,10 @@ fn files_of(image: &Image, rest: &FilesRest) -> BTreeMap<String, RecordedFile> {
         .iter()
         .map(|entry| {
             let path = entry.path.to_string();
+            let path = match path.strip_suffix(DISABLED) {
+                Some(enabled) if rest.disabled.contains(enabled) => enabled.to_string(),
+                _ => path,
+            };
             let recorded = rest
                 .corrections
                 .get(&path)

@@ -11,7 +11,9 @@
 //! and never panics: at most [`MAX_ZIP_ENTRIES`] entries and [`MAX_ZIP_BYTES`] unpacked,
 //! every name checked as a canonical path, links never followed, and each entry's bytes
 //! checked against the size its header gives. An entry that fails a check is withheld with
-//! the reason, by its name in the zip; a zip that can't be read at all is an error.
+//! the reason, by its name in the zip; a zip that can't be read at all, or that other tools
+//! would read differently (a name twice, local headers that disagree with the directory),
+//! is an error.
 //!
 //! There is no way back: a zip can't be rewritten byte for byte, and images replace these
 //! backups. Zip times are local times without a zone, so entries have no `modified`.
@@ -24,7 +26,7 @@ use std::io::{Read, Seek};
 use sha2::{Digest, Sha256};
 
 use super::{finish, LegacyError, Note};
-use crate::manifest::{Entry, Game, Image, Kind, Source, Withheld, WithheldReason, World};
+use crate::manifest::{Entry, Game, Image, Kind, Source, WithheldReason, World};
 use crate::paths::{always_excluded, validate_component, CanonicalPath};
 
 /// A world zip may have at most this many entries, and this many bytes unpacked (the
@@ -49,6 +51,12 @@ pub fn read<R: Read + Seek>(reader: R, folder: &str, game: Game) -> Result<Conve
     if archive.len() > MAX_ZIP_ENTRIES {
         return Err(LegacyError::Invalid("it has too many entries".into()));
     }
+    // A name given twice (zip readers keep one copy, not all the same one), or local
+    // headers that say something other than the directory, is refused, as image exports
+    // refuse it.
+    archive
+        .validate_header_consistency()
+        .map_err(|e| LegacyError::Invalid(format!("its zip structure is inconsistent ({e})")))?;
     let prefix = format!("{folder}/");
     let mut image = Image::new(Kind::Data, game);
     let mut notes = Vec::new();
@@ -179,11 +187,7 @@ fn read_entry<R: Read + Seek>(
 }
 
 fn withhold(image: &mut Image, notes: &mut Vec<Note>, path: String, reason: WithheldReason) {
-    notes.push(Note::NotListed {
-        path: path.clone(),
-        reason: reason.clone(),
-    });
-    image.withheld.push(Withheld { path, reason });
+    super::withhold(image, notes, &path, reason);
 }
 
 #[cfg(test)]
@@ -289,7 +293,7 @@ mod tests {
     }
 
     #[test]
-    fn a_name_twice_is_listed_once() {
+    fn a_name_twice_is_refused() {
         // The zip writer refuses duplicate names, so rename one in the bytes.
         let mut bytes = zip_of(&[Item::File("W/a.dat", b"1"), Item::File("W/b.dat", b"2")]);
         let mut at = 0;
@@ -297,11 +301,10 @@ mod tests {
             bytes[at + i + 2] = b'a';
             at += i + 7;
         }
-        // The zip crate may already keep one of the two; either way the image lists the
-        // name once, and the other is withheld if it got this far.
-        let converted = read(Cursor::new(bytes), "W", game()).unwrap();
-        assert_eq!(converted.image.entries.len(), 1);
-        assert!(converted.image.withheld.iter().all(|w| w.path == "W/a.dat"));
+        // Zip readers keep one copy of a name given twice, not always the same one: such
+        // a zip reads differently in other tools, so it is refused outright.
+        let error = read(Cursor::new(bytes), "W", game()).unwrap_err();
+        assert!(error.to_string().contains("inconsistent"), "{error}");
     }
 
     /// Damaged zips never panic: each byte flip gives an image or an error.

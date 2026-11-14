@@ -873,3 +873,38 @@ fn stat_caches_persist_per_instance() {
     // It isn't a manifest.
     assert!(store.list_manifests("a").unwrap().unreadable.is_empty());
 }
+
+/// How fast a large new file goes into the store, flushes and all: run by hand
+/// (`cargo test --release -p lodestone_image store_throughput -- --ignored --nocapture`)
+/// to see that durability stays batched (one full flush per manifest, not per chunk).
+#[test]
+#[ignore]
+fn store_throughput() {
+    for encoding in encodings() {
+        let (dir, store) = store(encoding);
+        let mut rng = TestRng::new(7);
+        let bytes: Vec<u8> = (0..256 << 20).map(|_| rng.next_u64() as u8).collect();
+        let source = dir.path().join("big.bin");
+        fs::write(&source, &bytes).unwrap();
+        let started = std::time::Instant::now();
+        let stored = store.put_file(&source, NEVER).unwrap();
+        store.sync().unwrap();
+        let elapsed = started.elapsed();
+        let mb = stored.size as f64 / (1 << 20) as f64;
+        println!(
+            "{encoding:?}: {mb:.0} MiB, {} chunks' worth, in {elapsed:.2?}: {:.0} MiB/s",
+            stored.size / (64 << 10),
+            mb / elapsed.as_secs_f64()
+        );
+    }
+}
+
+#[test]
+fn the_downgrade_guard_is_written_before_anything_else() {
+    let (_dir, store) = store(Encoding::Raw);
+    assert!(!store.root().exists());
+    store.put_bytes(b"first object").unwrap();
+    for (path, contents) in guard::guard_files(store.root()) {
+        assert_eq!(fs::read_to_string(path).unwrap(), contents);
+    }
+}

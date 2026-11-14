@@ -25,6 +25,14 @@
 //!   and claims them all again when it saves the manifest (`Store::save_manifest`, which
 //!   fails if one is gone), so what it relies on is always new or the save says so.
 //!   Temporary files are kept for the same hour.
+//! - No lock is needed between a collection and writers. A file found old is renamed away
+//!   first (to a temporary name in its folder), its time is read again from the renamed
+//!   file, and it is deleted only if it is still old; one touched meanwhile is put back. A
+//!   claim touches an old file and then checks that it is still there, so either the
+//!   touch lands before the rename (and the collection sees it and puts the file back) or
+//!   the claim finds the file gone and fails, and the manifest isn't saved. A grace shorter
+//!   than twice the touch interval would let a collection take a file a claim found new
+//!   enough not to touch, so [`GcOptions::grace`] is never taken below [`MIN_GRACE`].
 //! - Objects that only older formats use (the core's schema 1 backups, the Launcher's
 //!   snapshots) are kept when the caller passes them in [`GcOptions::also_live`]; the
 //!   caller reads those manifests and refuses as above when it can't.
@@ -43,17 +51,41 @@ use crate::manifest::SCHEMA;
 
 use super::chunklist::{ChunkList, CHUNKED_ABOVE, MAX_LIST_BYTES};
 use super::encoding::{decoded_len, read_limited, read_prefix};
-use super::{fsx, manifest_id, Area, Store, TEMP_MAX_AGE};
+use super::{fsx, manifest_id, read_capped, Area, Store, MAX_MANIFEST_BYTES, TEMP_MAX_AGE};
+use super::{StoreError, TOUCH_AFTER};
 
 /// How long new objects, chunks and temporary files are kept even when nothing uses them.
 pub const GRACE: Duration = Duration::from_secs(3600);
+/// The shortest grace a collection uses, whatever [`GcOptions::grace`] says: twice the
+/// time after which a claim touches what it finds (see the module).
+pub const MIN_GRACE: Duration = Duration::from_secs(2 * TOUCH_AFTER.as_secs());
+
+#[cfg(test)]
+thread_local! {
+    static SHORT_GRACE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Lets collections on this thread use a grace below [`MIN_GRACE`], for tests about what
+/// is used rather than what is new.
+#[cfg(test)]
+pub(crate) fn allow_short_grace() {
+    SHORT_GRACE.with(|short| short.set(true));
+}
+
+fn min_grace() -> Duration {
+    #[cfg(test)]
+    if SHORT_GRACE.with(std::cell::Cell::get) {
+        return Duration::ZERO;
+    }
+    MIN_GRACE
+}
 /// The most bytes read from an object that isn't known to be a chunk list, to tell
 /// whether it is one.
 const MAX_UNKNOWN_LIST: u64 = 64 << 20;
 
 #[derive(Debug, Clone)]
 pub struct GcOptions {
-    /// Unused objects and chunks newer than this are kept.
+    /// Unused objects and chunks newer than this are kept; never less than [`MIN_GRACE`].
     pub grace: Duration,
     /// Temporary files older than this are deleted.
     pub temp_max_age: Duration,
@@ -107,8 +139,9 @@ pub enum GcError {
 #[derive(Deserialize)]
 struct MarkManifest {
     schema: Value,
+    /// `null` is no entries, as in any manifest.
     #[serde(default)]
-    entries: Vec<MarkObject>,
+    entries: Option<Vec<MarkObject>>,
     #[serde(default)]
     settings: Option<MarkSettings>,
 }
@@ -136,6 +169,10 @@ struct MarkClient {
 impl Store {
     /// Deletes the objects and chunks no manifest uses (see the module documentation).
     pub fn gc(&self, options: &GcOptions) -> Result<GcReport, GcError> {
+        let options = &GcOptions {
+            grace: options.grace.max(min_grace()),
+            ..options.clone()
+        };
         let mut report = GcReport::default();
         // (sha256, size) of every object a manifest names.
         let mut live: Vec<(String, u64)> = Vec::new();
@@ -184,6 +221,7 @@ impl Store {
             }
             Verdict::KeptNew
         })?;
+        self.forget_claims_if_collected(&report);
         if let Some(why) = chunks_blocked {
             report.chunks_skipped = Some(why);
             return Ok(report);
@@ -197,7 +235,19 @@ impl Store {
                 Verdict::Delete
             }
         })?;
+        self.forget_claims_if_collected(&report);
         Ok(report)
+    }
+
+    /// A claim this store remembers vouches for an object only while no collection could
+    /// have taken it ([`MIN_GRACE`]); one that did delete files here, with a test's shorter
+    /// grace, say, makes this store claim again.
+    fn forget_claims_if_collected(&self, report: &GcReport) {
+        if report.objects_removed + report.chunks_removed > 0 {
+            if let Ok(mut claimed) = self.claimed.lock() {
+                claimed.clear();
+            }
+        }
     }
 
     /// Reads every manifest under `images/` for the objects it names.
@@ -305,12 +355,17 @@ impl Store {
         if len > MAX_UNKNOWN_LIST {
             return Ok(());
         }
+        // Its first bytes first, as for live objects: a new whole file isn't read through
+        // just to find it isn't a list.
+        let Ok(head) = read_prefix(self.encoding, &path, ChunkList::MAGIC_LEN) else {
+            return Err(format!("the new object {sha256} can't be read"));
+        };
+        if !ChunkList::looks_like(&head) {
+            return Ok(());
+        }
         let Ok(bytes) = read_limited(self.encoding, &path, len) else {
             return Err(format!("the new object {sha256} can't be read"));
         };
-        if !ChunkList::looks_like(&bytes) {
-            return Ok(());
-        }
         // A small file that starts like a list but isn't one is kept anyway (it is new);
         // its "chunks" can't be told, so none are deleted this time.
         let list = ChunkList::parse(&bytes).map_err(|why| {
@@ -360,14 +415,16 @@ impl Store {
                     }
                     Verdict::Delete => {}
                 }
-                match remove(&file.path()) {
-                    Ok(()) => {
+                match collect(&file.path(), options.grace) {
+                    Ok(Some(len)) => {
                         match area {
                             Area::Objects => report.objects_removed += 1,
                             Area::Chunks => report.chunks_removed += 1,
                         }
-                        report.bytes_removed += meta.len();
+                        report.bytes_removed += len;
                     }
+                    // Claimed while it was being collected: put back.
+                    Ok(None) => report.kept_new += 1,
                     // Someone else deleted it, or it is in use: it stays for next time.
                     Err(_) => continue,
                 }
@@ -393,8 +450,35 @@ enum Verdict {
     Delete,
 }
 
-fn remove(path: &Path) -> io::Result<()> {
-    fsx::remove_file_forced(path)
+/// Deletes the unused, old file at `path`, unless something claims it meanwhile (see the
+/// module): renames it away, reads its time again from the renamed file, and puts it back
+/// if it was touched since it was found old. Returns the bytes freed, or `None` when it was
+/// put back.
+fn collect(path: &Path, grace: Duration) -> io::Result<Option<u64>> {
+    let dir = path
+        .parent()
+        .ok_or_else(|| io::Error::other("a store file without a folder"))?;
+    let aside = fsx::temp_path(dir);
+    fsx::rename_with_retry(path, &aside)?;
+    let meta = match fs::symlink_metadata(&aside) {
+        Ok(meta) => meta,
+        Err(e) => {
+            let _ = fs::rename(&aside, path);
+            return Err(e);
+        }
+    };
+    let touched = fsx::age(&meta, SystemTime::now()).is_none_or(|age| age < grace);
+    if touched {
+        // On unix this replaces a copy written meanwhile (the same bytes, by its name);
+        // where a rename can't replace, that copy is as good and ours goes.
+        if fsx::rename_with_retry(&aside, path).is_err() {
+            let _ = fsx::remove_file_forced(&aside);
+        }
+        return Ok(None);
+    }
+    // Should this fail, the file is a temporary one now, swept within the hour.
+    let _ = fsx::remove_file_forced(&aside);
+    Ok(Some(meta.len()))
 }
 
 /// Marks the objects of the manifest at `path`, or refuses.
@@ -403,7 +487,10 @@ fn mark_one(path: &Path, live: &mut Vec<(String, u64)>) -> Result<(), GcError> {
         path: path.display().to_string(),
         why,
     };
-    let bytes = fs::read(path).map_err(|e| refuse(format!("can't be read ({e})")))?;
+    let bytes = read_capped(path, MAX_MANIFEST_BYTES).map_err(|e| match e {
+        StoreError::Manifest(_) => refuse(format!("is larger than {MAX_MANIFEST_BYTES} bytes")),
+        other => refuse(format!("can't be read ({other})")),
+    })?;
     let manifest: MarkManifest =
         serde_json::from_slice(&bytes).map_err(|e| refuse(format!("can't be parsed ({e})")))?;
     match manifest.schema.as_u64() {
@@ -418,6 +505,7 @@ fn mark_one(path: &Path, live: &mut Vec<(String, u64)>) -> Result<(), GcError> {
     let client = manifest.settings.and_then(|s| s.client).unwrap_or_default();
     for object in manifest
         .entries
+        .unwrap_or_default()
         .into_iter()
         .chain(client.icon)
         .chain(client.background)

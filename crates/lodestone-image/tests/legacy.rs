@@ -332,6 +332,139 @@ fn history_becomes_a_lineage_and_back_byte_for_byte() {
         core_modpack::from_images(&lineage.images, lineage.record.as_ref(), &lineage.rest).unwrap();
     assert_eq!(record_back.unwrap().to_json(), record);
     assert_eq!(history_back.to_json(), history);
+
+    // No image is its own parent: the record, with the same files as the newest entry,
+    // has the image before that as its parent.
+    let record_image = lineage.record.as_ref().unwrap();
+    for image in lineage.images.iter().chain([record_image]) {
+        assert_ne!(image.parent.as_deref(), Some(image.id.as_str()));
+        image.validate().unwrap();
+    }
+    assert_eq!(
+        record_image.parent.as_deref(),
+        Some(lineage.images[1].id.as_str())
+    );
+
+    // A store keeps one manifest per id (entries 1 and 3 share one, and the record too),
+    // and the rest says which image each entry had: the files come back from that alone.
+    let mut by_id = std::collections::HashMap::new();
+    for image in lineage.images.iter().chain([record_image]) {
+        by_id.insert(image.id.clone(), image.clone());
+    }
+    assert_eq!(by_id.len(), 2);
+    let images: Vec<_> = lineage
+        .rest
+        .entries
+        .iter()
+        .map(|entry| by_id[&entry.image].clone())
+        .collect();
+    let record_from_store = &by_id[lineage.rest.record_image.as_ref().unwrap()];
+    // The rest can be kept beside the images.
+    let rest: core_modpack::Rest =
+        serde_json::from_slice(&serde_json::to_vec(&lineage.rest).unwrap()).unwrap();
+    let (record_back, history_back) =
+        core_modpack::from_images(&images, Some(record_from_store), &rest).unwrap();
+    assert_eq!(record_back.unwrap().to_json(), record);
+    assert_eq!(history_back.to_json(), history);
+}
+
+#[test]
+fn a_disabled_file_is_listed_as_it_is_on_disk() {
+    let record = fixture("record.json");
+    let history = fixture("history.json");
+    let mut known = known(&PACK_CONTENTS);
+    known.add_pack("pack", "v1", &"1".repeat(128));
+    let plain = core_modpack::read(Some(&record), Some(&history), &known).unwrap();
+    let a_record_path = plain.record.as_ref().unwrap().entries[0].path.to_string();
+    known.add_disabled(&a_record_path);
+    let lineage = core_modpack::read(Some(&record), Some(&history), &known).unwrap();
+    let record_image = lineage.record.as_ref().unwrap();
+    let disabled = format!("{a_record_path}.disabled");
+    assert!(record_image
+        .entries
+        .iter()
+        .any(|e| e.path.as_str() == disabled));
+    // History entries keep the names they recorded.
+    for image in &lineage.images {
+        assert!(image
+            .entries
+            .iter()
+            .all(|e| !e.path.as_str().ends_with(".disabled")));
+    }
+    let (record_back, history_back) =
+        core_modpack::from_images(&lineage.images, Some(record_image), &lineage.rest).unwrap();
+    assert_eq!(record_back.unwrap().to_json(), record);
+    assert_eq!(history_back.to_json(), history);
+
+    // The Launcher's content.json the same way.
+    let modpack = fixture("modpack.json");
+    let content = fixture("content.json");
+    let mut known = known_launcher();
+    known.add_disabled("mods/sodium.jar");
+    let converted =
+        launcher_modpack::read(Some(&modpack), Some(&content), launcher_game(), &known).unwrap();
+    let paths = paths(&converted.image);
+    assert!(paths.contains(&"mods/sodium.jar.disabled"), "{paths:?}");
+    assert!(!paths.contains(&"mods/sodium.jar"));
+    // The rest can be kept beside the image.
+    let rest: launcher_modpack::Rest =
+        serde_json::from_slice(&serde_json::to_vec(&converted.rest).unwrap()).unwrap();
+    assert_eq!(rest, converted.rest);
+    let (modpack_back, content_back) =
+        launcher_modpack::from_image(&converted.image, &converted.rest).unwrap();
+    assert_eq!(modpack_back.unwrap().to_json(), modpack);
+    assert_eq!(content_back.unwrap().to_json(), content);
+}
+
+/// Every image a fixture converts to loses nothing between its two views and what stays
+/// local.
+#[test]
+fn every_converted_image_is_lossless() {
+    let mut images = Vec::new();
+    for name in ["backup-fabric.json", "backup-paper.json"] {
+        images.push(core_backup::read(&fixture(name)).unwrap().image);
+    }
+    for name in [
+        "snapshot.json",
+        "snapshot-worlds.json",
+        "snapshot-modeless.json",
+    ] {
+        images.push(lodesnap::read(&fixture(name)).unwrap().image);
+    }
+    let mut known_pack = known(&PACK_CONTENTS);
+    known_pack.add_pack("pack", "v1", &"1".repeat(128));
+    known_pack.add_pack("pack", "v2", &"2".repeat(128));
+    let lineage = core_modpack::read(
+        Some(&fixture("record.json")),
+        Some(&fixture("history.json")),
+        &known_pack,
+    )
+    .unwrap();
+    images.extend(lineage.images);
+    images.extend(lineage.record);
+    images.push(
+        launcher_modpack::read(
+            Some(&fixture("modpack.json")),
+            Some(&fixture("content.json")),
+            launcher_game(),
+            &known_launcher(),
+        )
+        .unwrap()
+        .image,
+    );
+    images.push(
+        world_zip::read(
+            Cursor::new(fixture("world-backup.zip")),
+            "World",
+            launcher_game(),
+        )
+        .unwrap()
+        .image,
+    );
+    for image in &images {
+        lodestone_image::view::check_lossless(image)
+            .unwrap_or_else(|e| panic!("{:?}: {e}", image.label));
+    }
 }
 
 #[test]
@@ -381,6 +514,12 @@ const LAUNCHER_CONTENTS: [&[u8]; 6] = [
     b"from the pack",
     b"old sodium",
 ];
+
+fn known_launcher() -> KnownFiles {
+    let mut known = known(&LAUNCHER_CONTENTS);
+    known.add_pack("1KVo5zza", "Xk3Lp9qA", &"a".repeat(128));
+    known
+}
 
 fn launcher_game() -> Game {
     Game {

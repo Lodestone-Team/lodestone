@@ -10,10 +10,10 @@
 //! acts on a manifest it only half understands.
 //!
 //! Only the image and its entries have room for unknown fields. Anywhere else (the game,
-//! the base, a source, an env, a world, a withheld file) an unknown field makes the
-//! manifest invalid with an error that names it, rather than being dropped: a dropped field
-//! would change the id, and the image would then fail its check with a misleading
-//! "contents hash to …" instead. So a new field there needs a new schema. (Settings drop
+//! the producer, the base, a source, an env, a world, a withheld file) an unknown field
+//! makes the manifest invalid with an error that names it, rather than being dropped: a
+//! dropped field would change the id, and the image would then fail its check with a
+//! misleading "contents hash to …" instead. So a new field there needs a new schema. (Settings drop
 //! unknown fields instead, so local settings can never get into an image.) Numbers in
 //! unknown fields must be whole numbers that fit 64 bits: this version can't write any
 //! other number back exactly as it was, so its id wouldn't verify.
@@ -33,10 +33,13 @@ use crate::Side;
 mod read;
 
 pub use read::MAX_SETTING_ITEMS;
-pub(crate) use read::{null_as_default, setting_list, setting_map};
+pub(crate) use read::{
+    bounded_list, capped_fields, capped_value, entry_list, null_as_default, setting_list,
+    setting_map,
+};
 pub use read::{
-    prescan, UnknownBudget, ENTRY_UNKNOWN, IMAGE_UNKNOWN, MAX_JSON_DEPTH, MAX_JSON_VALUES,
-    MAX_UNKNOWN_DEPTH,
+    prescan, UnknownBudget, ENTRIES_UNKNOWN, ENTRY_MAP_COST, ENTRY_UNKNOWN, IMAGE_UNKNOWN,
+    MAX_JSON_DEPTH, MAX_JSON_VALUES, MAX_UNKNOWN_DEPTH,
 };
 
 /// The manifest schema this version writes and reads.
@@ -91,17 +94,30 @@ open_enum! {
     }
 }
 
-/// Who recorded an image. Informational: not part of the id.
+/// Who recorded an image. Informational: not part of the id. An unknown field in it makes
+/// the manifest invalid, like anywhere else outside the image and its entries, and `null`
+/// reads as the default.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Producer {
+    #[serde(default = "no_app", deserialize_with = "null_app")]
     pub app: App,
+    #[serde(default, deserialize_with = "null_as_default")]
     pub version: String,
+}
+
+fn no_app() -> App {
+    App::Other(String::new())
+}
+
+fn null_app<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<App, D::Error> {
+    Ok(Option::<App>::deserialize(deserializer)?.unwrap_or_else(no_app))
 }
 
 impl Default for Producer {
     fn default() -> Self {
         Producer {
-            app: App::Other(String::new()),
+            app: no_app(),
             version: String::new(),
         }
     }
@@ -489,6 +505,11 @@ impl Image {
         hash_field("parent", self.parent.as_deref())?;
         hash_field("content", self.content.as_deref())?;
         hash_field("projected_from", self.projected_from.as_deref())?;
+        if !self.id.is_empty() && self.parent.as_deref() == Some(self.id.as_str()) {
+            // Images with the same contents share an id, so an image recorded with nothing
+            // changed would name itself: its parent is the one before that.
+            return Err("parent is the image itself".into());
+        }
         if self.projected_from.is_some() && self.side.is_none() {
             return Err("projected_from without side".into());
         }
@@ -566,17 +587,23 @@ impl Image {
                 return Err(format!("{} is listed twice", entry.path));
             }
         }
-        // A path can't be both a file and a folder of another file.
-        for entry in &self.entries {
-            let text = entry.path.as_str();
-            for (i, byte) in text.bytes().enumerate() {
-                if byte == b'/' {
-                    if let Ok(folder) = CanonicalPath::new(&text[..i]) {
-                        if paths.contains(&folder) {
-                            return Err(format!("{folder} is both a file and a folder"));
-                        }
-                    }
-                }
+        // A path can't be both a file and a folder of another file. In byte order, the
+        // paths inside a folder `f` come right after `f/`, so one binary search per entry
+        // finds them: O(n log n) however deep the paths are (checking every prefix of every
+        // path is quadratic in their depth, minutes for a manifest of deep paths).
+        let mut sorted: Vec<&str> = self.entries.iter().map(|e| e.path.as_str()).collect();
+        sorted.sort_unstable();
+        let mut folder = String::new();
+        for path in &sorted {
+            folder.clear();
+            folder.push_str(path);
+            folder.push('/');
+            let next = sorted.partition_point(|other| *other < folder.as_str());
+            if sorted
+                .get(next)
+                .is_some_and(|other| other.starts_with(&folder))
+            {
+                return Err(format!("{path} is both a file and a folder"));
             }
         }
         for removed in &self.removed {
@@ -1008,6 +1035,61 @@ pub(crate) mod tests {
             .validate()
             .unwrap_err()
             .contains("both removed and an entry"));
+    }
+
+    #[test]
+    fn deep_paths_validate_in_linear_time() {
+        // Entries at the deepest a path can be: checking every prefix of every path was
+        // quadratic in the depth (about a minute for this many in a release build).
+        let mut image = Image::new(Kind::Content, fabric());
+        for i in 0..300 {
+            image
+                .entries
+                .push(object(&format!("config/{}f{i}", "a/".repeat(2040))));
+        }
+        image.normalize();
+        let json = image.to_json_pretty();
+        let started = std::time::Instant::now();
+        Image::from_json(&json).unwrap();
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(20),
+            "{:?}",
+            started.elapsed()
+        );
+        // And a deep file that is also a folder is still found.
+        image.entries.push(object("config/a/a"));
+        image.normalize();
+        assert!(image
+            .validate()
+            .unwrap_err()
+            .contains("config/a/a is both a file and a folder"));
+    }
+
+    #[test]
+    fn an_image_isnt_its_own_parent() {
+        let mut image = sample();
+        image.seal();
+        image.parent = Some(image.id.clone());
+        assert!(image.validate().unwrap_err().contains("parent"));
+        image.parent = Some("a".repeat(64));
+        image.validate().unwrap();
+    }
+
+    #[test]
+    fn producer_fields_are_checked_and_null_is_the_default() {
+        let error = invalid_after(|v| v["producer"]["build"] = 7.into());
+        assert!(error.contains("build"), "{error}");
+        let mut value = serde_json::to_value(sample()).unwrap();
+        value["producer"] = serde_json::json!({"app": null, "version": null});
+        let image = Image::from_json(&serde_json::to_vec(&value).unwrap()).unwrap();
+        assert_eq!(image.producer, Producer::default());
+        value["producer"] = serde_json::json!({});
+        assert_eq!(
+            Image::from_json(&serde_json::to_vec(&value).unwrap())
+                .unwrap()
+                .producer,
+            Producer::default()
+        );
     }
 
     #[test]

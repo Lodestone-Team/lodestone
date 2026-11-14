@@ -57,6 +57,17 @@ pub const ENTRY_UNKNOWN: UnknownBudget = UnknownBudget {
     values: 16,
     bytes: 1024,
 };
+/// For the unknown fields of all of an image's entries together. Each entry's own budget
+/// alone would let a million entries keep 16 values each, many times the memory of the
+/// manifest's text; this keeps unknown fields under about 100 MiB however many entries
+/// carry them.
+pub const ENTRIES_UNKNOWN: UnknownBudget = UnknownBudget {
+    values: 1 << 20,
+    bytes: 16 << 20,
+};
+/// What an entry's first unknown field costs from [`ENTRIES_UNKNOWN`] on top of its values:
+/// the map that holds an entry's unknown fields is allocated for the first one.
+pub const ENTRY_MAP_COST: usize = 16;
 
 impl UnknownBudget {
     fn spend<E: de::Error>(&mut self, values: usize, bytes: usize) -> Result<(), E> {
@@ -209,6 +220,16 @@ impl<'de> Visitor<'de> for Capped<'_> {
     }
 }
 
+/// Reads any JSON value within `budget` and [`MAX_UNKNOWN_DEPTH`], as unknown fields are
+/// read: for JSON that is kept as it was (an old instance's settings, a delta's unknown
+/// fields) and comes from elsewhere.
+pub(crate) fn capped_value<'de, D: Deserializer<'de>>(
+    deserializer: D,
+    budget: &mut UnknownBudget,
+) -> Result<Value, D::Error> {
+    Capped { budget, depth: 0 }.deserialize(deserializer)
+}
+
 /// Reads a list of at most `max` items (`null` is the empty list), failing as soon as the
 /// list passes the bound.
 pub(super) struct Bounded<T> {
@@ -268,6 +289,118 @@ impl<'de, T: Deserialize<'de>> Visitor<'de> for Bounded<T> {
         }
         Ok(items)
     }
+}
+
+/// Reads a list of at most `max` entries (`null` is none), charging all their unknown
+/// fields to one budget ([`ENTRIES_UNKNOWN`]) as well as each entry's own.
+pub(crate) struct EntriesSeed<'b> {
+    pub(crate) max: usize,
+    pub(crate) total: &'b mut UnknownBudget,
+}
+
+impl<'de> DeserializeSeed<'de> for EntriesSeed<'_> {
+    type Value = Vec<Entry>;
+
+    fn deserialize<D: Deserializer<'de>>(self, deserializer: D) -> Result<Vec<Entry>, D::Error> {
+        deserializer.deserialize_option(self)
+    }
+}
+
+impl<'de> Visitor<'de> for EntriesSeed<'_> {
+    type Value = Vec<Entry>;
+
+    fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "a list of at most {} entries", self.max)
+    }
+
+    fn visit_none<E: de::Error>(self) -> Result<Vec<Entry>, E> {
+        Ok(Vec::new())
+    }
+
+    fn visit_unit<E: de::Error>(self) -> Result<Vec<Entry>, E> {
+        Ok(Vec::new())
+    }
+
+    fn visit_some<D: Deserializer<'de>>(self, deserializer: D) -> Result<Vec<Entry>, D::Error> {
+        deserializer.deserialize_seq(self)
+    }
+
+    fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Vec<Entry>, A::Error> {
+        let mut items = Vec::with_capacity(seq.size_hint().unwrap_or(0).min(1024));
+        while let Some(item) = seq.next_element_seed(EntrySeed {
+            total: &mut *self.total,
+        })? {
+            if items.len() == self.max {
+                return Err(de::Error::custom(format!("more than {} entries", self.max)));
+            }
+            items.push(item);
+        }
+        Ok(items)
+    }
+}
+
+/// One entry, charging its unknown fields to `total` too.
+struct EntrySeed<'b> {
+    total: &'b mut UnknownBudget,
+}
+
+impl<'de> DeserializeSeed<'de> for EntrySeed<'_> {
+    type Value = Entry;
+
+    fn deserialize<D: Deserializer<'de>>(self, deserializer: D) -> Result<Entry, D::Error> {
+        deserializer.deserialize_map(EntryVisitor {
+            total: Some(self.total),
+        })
+    }
+}
+
+/// `deserialize_with` for a list of entries outside an image (a delta's): at most
+/// [`MAX_ENTRIES`], `null` for none, unknown fields within [`ENTRIES_UNKNOWN`] together.
+pub(crate) fn entry_list<'de, D: Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Vec<Entry>, D::Error> {
+    let mut total = ENTRIES_UNKNOWN;
+    EntriesSeed {
+        max: MAX_ENTRIES,
+        total: &mut total,
+    }
+    .deserialize(deserializer)
+}
+
+/// `deserialize_with` for a list of at most `MAX` items, `null` for none.
+pub(crate) fn bounded_list<'de, D, T, const MAX: usize>(deserializer: D) -> Result<Vec<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Bounded::new(MAX, "items").deserialize(deserializer)
+}
+
+/// `deserialize_with` for fields kept as they were (a delta's unknown fields): within
+/// [`IMAGE_UNKNOWN`] together, a key given twice refused.
+pub(crate) fn capped_fields<'de, D: Deserializer<'de>>(
+    deserializer: D,
+) -> Result<BTreeMap<String, Value>, D::Error> {
+    struct FieldsVisitor;
+
+    impl<'de> Visitor<'de> for FieldsVisitor {
+        type Value = BTreeMap<String, Value>;
+
+        fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            f.write_str("a map of fields")
+        }
+
+        fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
+            let mut budget = IMAGE_UNKNOWN;
+            let mut out = BTreeMap::new();
+            while let Some(key) = map.next_key::<String>()? {
+                keep_unknown(&mut map, &mut out, &mut budget, key)?;
+            }
+            Ok(out)
+        }
+    }
+
+    deserializer.deserialize_map(FieldsVisitor)
 }
 
 /// A setting's list or map (ops, whitelist, resource packs, properties) has at most this
@@ -486,6 +619,7 @@ impl<'de> Visitor<'de> for ImageVisitor {
     fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Image, A::Error> {
         let mut seen = Seen::default();
         let mut budget = IMAGE_UNKNOWN;
+        let mut entries_budget = ENTRIES_UNKNOWN;
         let mut extra = BTreeMap::new();
         let (mut schema, mut id, mut kind, mut parent, mut created) =
             (None, None, None, None, None);
@@ -508,7 +642,10 @@ impl<'de> Visitor<'de> for ImageVisitor {
                 ImageField::Game => game = map.next_value()?,
                 ImageField::Settings => settings = map.next_value()?,
                 ImageField::Entries => {
-                    entries = Some(map.next_value_seed(Bounded::new(MAX_ENTRIES, "entries"))?)
+                    entries = Some(map.next_value_seed(EntriesSeed {
+                        max: MAX_ENTRIES,
+                        total: &mut entries_budget,
+                    })?)
                 }
                 ImageField::Removed => {
                     removed = Some(map.next_value_seed(Bounded::new(MAX_ENTRIES, "removed paths"))?)
@@ -555,15 +692,20 @@ impl<'de> Visitor<'de> for ImageVisitor {
     }
 }
 
+/// One entry on its own, within [`ENTRY_UNKNOWN`]. Lists of entries go through
+/// `EntriesSeed`, which also bounds them together.
 impl<'de> Deserialize<'de> for Entry {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Entry, D::Error> {
-        deserializer.deserialize_map(EntryVisitor)
+        deserializer.deserialize_map(EntryVisitor { total: None })
     }
 }
 
-struct EntryVisitor;
+struct EntryVisitor<'b> {
+    /// The budget all the list's entries share, if any.
+    total: Option<&'b mut UnknownBudget>,
+}
 
-impl<'de> Visitor<'de> for EntryVisitor {
+impl<'de> Visitor<'de> for EntryVisitor<'_> {
     type Value = Entry;
 
     fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -571,6 +713,7 @@ impl<'de> Visitor<'de> for EntryVisitor {
     }
 
     fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Entry, A::Error> {
+        let mut total = self.total;
         let mut seen = Seen::default();
         let mut budget = ENTRY_UNKNOWN;
         let mut extra = BTreeMap::new();
@@ -594,7 +737,18 @@ impl<'de> Visitor<'de> for EntryVisitor {
                         Some(map.next_value_seed(Bounded::new(MAX_ENV_FROM, "env_from inputs"))?)
                 }
                 EntryField::World => world = map.next_value()?,
-                EntryField::Other(name) => keep_unknown(&mut map, &mut extra, &mut budget, name)?,
+                EntryField::Other(name) => {
+                    let before = budget;
+                    let first = extra.is_empty();
+                    keep_unknown(&mut map, &mut extra, &mut budget, name)?;
+                    if let Some(total) = total.as_deref_mut() {
+                        let map_cost = if first { ENTRY_MAP_COST } else { 0 };
+                        total.spend::<A::Error>(
+                            before.values - budget.values + map_cost,
+                            before.bytes - budget.bytes,
+                        )?;
+                    }
+                }
             }
         }
         Ok(Entry {
@@ -696,6 +850,33 @@ mod tests {
         assert_eq!(image.entries[0].extra["origin"]["kind"], "x");
         let payload = format!(r#","blob":[{}0]"#, "0,".repeat(ENTRY_UNKNOWN.values));
         assert!(read(&entry(&payload)).is_err());
+    }
+
+    #[test]
+    fn entries_share_one_budget_for_unknown_fields() {
+        // Each entry within its own budget, but together far past what a manifest of this
+        // size should cost: refused, before the rest is read.
+        let entry = |i: usize, extra: &str| {
+            format!(
+                r#"{{"path":"m/{i}","size":0,"sha256":"{}","source":{{"object":{{}}}}{extra}}}"#,
+                "a".repeat(64)
+            )
+        };
+        let payload = format!(r#","z":[{}0]"#, "0,".repeat(ENTRY_UNKNOWN.values - 2));
+        let many: Vec<String> = (0..70_000).map(|i| entry(i, &payload)).collect();
+        let error = read(&format!(r#","entries":[{}]"#, many.join(",")))
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("larger than it keeps"), "{error}");
+        // What is kept stays a small multiple of the manifest's size: the values kept per
+        // byte of input are bounded by the shared budget, whatever the entry count.
+        let per_byte = (ENTRIES_UNKNOWN.values as f64) / (70_000.0 * payload.len() as f64);
+        assert!(per_byte < 1.0, "{per_byte}");
+        // A new field on many entries, within the budget, is kept.
+        let some: Vec<String> = (0..20_000).map(|i| entry(i, r#","origin":"x""#)).collect();
+        let image = read(&format!(r#","entries":[{}]"#, some.join(","))).unwrap();
+        assert_eq!(image.entries.len(), 20_000);
+        assert!(image.entries.iter().all(|e| e.extra["origin"] == "x"));
     }
 
     #[test]

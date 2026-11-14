@@ -17,6 +17,26 @@ use lodestone_image::store::materialize::{
 use lodestone_image::store::{Encoding, Store, StoreError, NEVER};
 use lodestone_image::DiskLayout;
 
+/// Sets every object's and chunk's time two hours back, as if written long ago, so a
+/// collection (whose grace is at least twenty minutes) may take what is unused.
+fn age_store(root: &Path) {
+    let then = std::time::SystemTime::now() - std::time::Duration::from_secs(7200);
+    for area in ["objects", "chunks"] {
+        for entry in walkdir::WalkDir::new(root.join(area)).into_iter().flatten() {
+            if entry.file_type().is_file() {
+                #[cfg(windows)]
+                let file = {
+                    use std::os::windows::fs::OpenOptionsExt;
+                    fs::File::options().access_mode(0x100).open(entry.path())
+                };
+                #[cfg(not(windows))]
+                let file = fs::File::open(entry.path());
+                file.unwrap().set_modified(then).unwrap();
+            }
+        }
+    }
+}
+
 fn fixture(name: &str) -> Vec<u8> {
     let path = format!(
         "{}/tests/fixtures/legacy/{name}",
@@ -134,12 +154,8 @@ fn a_lodesnap_imports_into_a_raw_store_and_materializes_its_game_folder() {
 
     // Saved as an image, GC keeps every object it uses, settings objects included.
     store.save_manifest("survival", image).unwrap();
-    let report = store
-        .gc(&GcOptions {
-            grace: std::time::Duration::ZERO,
-            ..GcOptions::default()
-        })
-        .unwrap();
+    age_store(store.root());
+    let report = store.gc(&GcOptions::default()).unwrap();
     let used: BTreeSet<&str> = image
         .entries
         .iter()

@@ -164,6 +164,50 @@ fn excludes_leave_files_out_quietly() {
     assert!(snapshot.withheld.is_empty());
 }
 
+#[test]
+fn excludes_never_skip_a_folder_whose_files_map_elsewhere() {
+    let (dir, store) = store(Encoding::Raw);
+    // A Paper server: `world_nether/x` is `saves/world/.bukkit_nether/x`, but its
+    // `DIM-1/…` is the world's own Nether. Leaving out dotfiles mustn't lose the Nether.
+    let root = dir.path().join("server");
+    write(&root, "world/level.dat", b"level");
+    write(&root, "world/region/r.0.0.mca", b"overworld");
+    write(&root, "world_nether/level.dat", b"nether level");
+    write(&root, "world_nether/DIM-1/region/r.0.0.mca", b"nether");
+    write(&root, "world_the_end/DIM1/region/r.0.0.mca", b"end");
+    let layout = DiskLayout::Server(ServerLayout::new("world", [], true).unwrap());
+    for pattern in [".*", "saves/world/.bukkit_nether/"] {
+        let excludes = vec![pattern.to_string()];
+        let options = SnapshotOptions {
+            excludes: &excludes,
+            ..SnapshotOptions::default()
+        };
+        let snapshot = snapshot(&store, &root, &layout, &options).unwrap();
+        // Only the split folder's own `level.dat` (`.bukkit_nether/level.dat`) is left out.
+        let want = vec![
+            "saves/world/DIM-1/region/r.0.0.mca",
+            "saves/world/DIM1/region/r.0.0.mca",
+            "saves/world/level.dat",
+            "saves/world/region/r.0.0.mca",
+        ];
+        assert_eq!(paths(&snapshot), want, "{pattern}");
+        assert!(snapshot.withheld.is_empty(), "{pattern}");
+    }
+
+    // A client: the game folder is the image's root, never a folder named `x`.
+    let root = dir.path().join("client");
+    write(&root, "minecraft/mods/a.jar", b"a");
+    write(&root, "minecraft/options.txt", b"o");
+    write(&root, "minecraft/x/junk", b"j");
+    let excludes = vec!["x/".to_string()];
+    let options = SnapshotOptions {
+        excludes: &excludes,
+        ..SnapshotOptions::default()
+    };
+    let snapshot = snapshot(&store, &root, &DiskLayout::Client, &options).unwrap();
+    assert_eq!(paths(&snapshot), vec!["mods/a.jar", "options.txt"]);
+}
+
 #[cfg(unix)]
 #[test]
 fn links_bad_names_and_unreadable_files_are_withheld() {
@@ -516,9 +560,12 @@ fn cached_files_keep_their_objects_through_a_collection() {
         // save refuses.
         store.delete_manifest("inst", &next.id).unwrap();
         store
-            .gc(&GcOptions {
-                grace: Duration::ZERO,
-                ..GcOptions::default()
+            .gc(&{
+                crate::store::gc::allow_short_grace();
+                GcOptions {
+                    grace: Duration::ZERO,
+                    ..GcOptions::default()
+                }
             })
             .unwrap();
         assert!(matches!(

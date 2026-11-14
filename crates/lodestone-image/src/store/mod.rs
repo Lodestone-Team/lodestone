@@ -13,10 +13,12 @@
 //! ```
 //!
 //! Objects are named by the SHA-256 of the file they stand for; how their bytes sit on
-//! disk is the store's [`Encoding`]. Every write goes to a temporary file that is flushed,
-//! made read-only and renamed into place, and a manifest is written only after the objects
-//! it uses (whose folders are flushed first), so a crash never leaves a manifest pointing
-//! at missing bytes or a name holding part of a file. Every read checks the SHA-256 (and
+//! disk is the store's [`Encoding`]. Every write goes to a temporary file that is written
+//! out to the drive, made read-only and renamed into place, and a manifest is written only
+//! after [`Store::sync`] made those writes durable (their folders flushed, and on Apple
+//! platforms one flush of the drive's cache for the whole batch, see `fsx::write_out`), so
+//! a crash never leaves a manifest pointing at missing bytes or a name holding part of a
+//! file. Every read checks the SHA-256 (and
 //! size) of what comes out, so damage on disk is an error, never wrong bytes.
 //!
 //! A manifest from elsewhere can name an object with any size, so the store never trusts
@@ -31,6 +33,8 @@
 //! - [`snapshot`]: walking a folder into an image's entries.
 //! - [`materialize`]: placing an image's files into a staging folder.
 //! - [`gc`]: deleting what no manifest uses.
+//! - [`guard`]: keeping released Lodestones that share the folder from collecting what
+//!   images use.
 //! - [`excludes`]: an image's exclude patterns.
 //!
 //! Unlike the rest of the crate, this module reads and writes files. Everything here
@@ -42,16 +46,18 @@ pub mod encoding;
 pub mod excludes;
 pub(crate) mod fsx;
 pub mod gc;
+pub mod guard;
 pub mod materialize;
 pub mod snapshot;
 pub mod statcache;
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 use std::fs::{self, File};
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 
 use sha2::{Digest, Sha256};
 
@@ -78,7 +84,13 @@ pub const MAX_INSTANCE_ID: usize = 100;
 
 /// An object reused by a write is touched when it is older than this, so a garbage
 /// collection keeps it for the rest of its hour of grace ([`gc`]).
-const TOUCH_AFTER: Duration = Duration::from_secs(600);
+pub(crate) const TOUCH_AFTER: Duration = Duration::from_secs(600);
+/// A claim this store made this recently needn't be made again when the manifest is saved:
+/// what it claimed was touched (or new) then, so a collection, whose grace is at least
+/// twice [`TOUCH_AFTER`], keeps it for longer than this and the save after.
+const CLAIM_STILL_GOOD: Duration = Duration::from_secs(300);
+/// Recent claims remembered at most; past this, saving claims everything again.
+const MAX_REMEMBERED_CLAIMS: usize = 2_000_000;
 const STAT_CACHE_FILE: &str = "stat-cache.json";
 
 /// Asked between pieces of work; true stops it with [`StoreError::Cancelled`].
@@ -208,13 +220,23 @@ pub struct ManifestListing {
 
 /// A store at a folder, with one encoding. Cheap to make; nothing is read or created until
 /// used. Shared between threads freely: writes of the same object at once are safe.
+///
+/// Before its first write, a store makes sure its folder has the downgrade guard
+/// ([`guard`]), so a released Lodestone that shares the folder never collects what images
+/// use.
 #[derive(Debug)]
 pub struct Store {
     root: PathBuf,
     encoding: Encoding,
     /// Folders this value wrote objects into since the last manifest, flushed (on unix)
-    /// before the next manifest is written.
+    /// before the next manifest is written, with one full flush of the drive's cache on
+    /// Apple platforms ([`Store::sync`]).
     unsynced: Mutex<BTreeSet<(Area, String)>>,
+    /// Objects this value claimed lately, by hash and size, and when: saving a manifest
+    /// right after a snapshot doesn't claim them all again.
+    claimed: Mutex<HashMap<(String, u64), Instant>>,
+    /// Whether the downgrade guard is known to be in place.
+    guarded: AtomicBool,
 }
 
 /// Whether `id` can name an instance's folder: 1 to 100 ASCII letters, digits, `-` and
@@ -238,7 +260,20 @@ impl Store {
             root: root.into(),
             encoding,
             unsynced: Mutex::new(BTreeSet::new()),
+            claimed: Mutex::new(HashMap::new()),
+            guarded: AtomicBool::new(false),
         }
+    }
+
+    /// Makes sure the downgrade guard ([`guard`]) is in the store's folder before anything
+    /// else is written there. Once per value.
+    fn ensure_guard(&self) -> Result<(), StoreError> {
+        if self.guarded.load(Ordering::Acquire) {
+            return Ok(());
+        }
+        guard::ensure(&self.root).map_err(io_err("Failed to write the store's downgrade guard"))?;
+        self.guarded.store(true, Ordering::Release);
+        Ok(())
     }
 
     pub fn root(&self) -> &Path {
@@ -318,30 +353,50 @@ impl Store {
     }
 
     fn complete(&self, sha256: &str, size: u64, touch: Option<SystemTime>) -> bool {
-        let touch = |path: &Path| {
-            if let Some(now) = touch {
-                touch_if_old(path, now);
+        let claiming = touch.is_some();
+        // A touch that finds the file gone (a collection took it meanwhile) fails the claim.
+        let touch = |path: &Path| touch.is_none_or(|now| touch_if_old(path, now));
+        let complete = match self.presence(sha256, size) {
+            None => false,
+            Some(Presence::Whole(path)) => touch(&path),
+            Some(Presence::Chunked(path, list)) => {
+                list.chunks.iter().all(|chunk| {
+                    self.chunk_path(&chunk.sha256).is_ok_and(|chunk_path| {
+                        decoded_len(self.encoding, &chunk_path) == Some(u64::from(chunk.size))
+                            && touch(&chunk_path)
+                    })
+                }) && touch(&path)
             }
         };
-        match self.presence(sha256, size) {
-            None => false,
-            Some(Presence::Whole(path)) => {
-                touch(&path);
-                true
+        if complete && claiming {
+            self.remember_claim(sha256, size);
+        }
+        complete
+    }
+
+    fn remember_claim(&self, sha256: &str, size: u64) {
+        if let Ok(mut claimed) = self.claimed.lock() {
+            if claimed.len() < MAX_REMEMBERED_CLAIMS {
+                claimed.insert((sha256.to_string(), size), Instant::now());
             }
-            Some(Presence::Chunked(path, list)) => {
-                for chunk in &list.chunks {
-                    let Ok(chunk_path) = self.chunk_path(&chunk.sha256) else {
-                        return false;
-                    };
-                    if decoded_len(self.encoding, &chunk_path) != Some(u64::from(chunk.size)) {
-                        return false;
-                    }
-                    touch(&chunk_path);
-                }
-                touch(&path);
-                true
-            }
+        }
+    }
+
+    /// [`Store::claim_object`], unless this store claimed the object within
+    /// [`CLAIM_STILL_GOOD`] (a snapshot that took it from its stat cache, say).
+    fn claim_for_save(&self, sha256: &str, size: u64) -> bool {
+        let recent = self.claimed.lock().ok().is_some_and(|claimed| {
+            claimed
+                .get(&(sha256.to_string(), size))
+                .is_some_and(|when| when.elapsed() < CLAIM_STILL_GOOD)
+        });
+        recent || self.claim_object(sha256, size)
+    }
+
+    /// Forgets claims too old to trust, so the map stays small between snapshots.
+    fn forget_old_claims(&self) {
+        if let Ok(mut claimed) = self.claimed.lock() {
+            claimed.retain(|_, when| when.elapsed() < CLAIM_STILL_GOOD);
         }
     }
 
@@ -616,6 +671,7 @@ impl Store {
         sha256: &str,
         size: u64,
     ) -> Result<Option<u64>, StoreError> {
+        self.ensure_guard()?;
         let dir = self.area_dir(Area::Objects);
         fs::create_dir_all(&dir).map_err(io_err("Failed to create the store"))?;
         let temp = fsx::temp_path(&dir);
@@ -643,7 +699,7 @@ impl Store {
                 total += n as u64;
                 hasher.update(&buffer[..n]);
             }
-            file.sync_all()?;
+            fsx::write_out(&file)?;
             Ok(total == size && hex_digest(hasher) == sha256)
         })();
         match checked {
@@ -656,11 +712,7 @@ impl Store {
     /// so, touches it when old, so a garbage collection keeps it for the manifest about to
     /// use it.
     fn reuse(&self, path: &Path, len: u64) -> bool {
-        if decoded_len(self.encoding, path) != Some(len) {
-            return false;
-        }
-        touch_if_old(path, SystemTime::now());
-        true
+        decoded_len(self.encoding, path) == Some(len) && touch_if_old(path, SystemTime::now())
     }
 
     /// Writes `bytes` (encoded) as `name` in `area`, unless it is there. Returns the bytes
@@ -670,6 +722,7 @@ impl Store {
         if self.reuse(&path, bytes.len() as u64) {
             return Ok(0);
         }
+        self.ensure_guard()?;
         let dir = self.area_dir(area);
         fs::create_dir_all(&dir).map_err(io_err("Failed to create the store"))?;
         let (file, temp) =
@@ -677,8 +730,8 @@ impl Store {
         let guard = fsx::TempGuard::new(temp);
         let file = encode_into(self.encoding, file, bytes)
             .map_err(io_err("Failed to write to the store"))?;
-        file.sync_all()
-            .map_err(io_err("Failed to flush the store"))?;
+        // Durable once `Store::sync` ends the batch, before any manifest names it.
+        fsx::write_out(&file).map_err(io_err("Failed to flush the store"))?;
         drop(file);
         self.install(guard, area, name, bytes.len() as u64)
     }
@@ -719,22 +772,35 @@ impl Store {
         Ok(fs::metadata(&path).map(|m| m.len()).unwrap_or(0))
     }
 
-    /// Flushes the folders objects were renamed into since the last call (unix), so a
-    /// manifest written next never points at objects a power cut could lose.
+    /// Makes what this store wrote since the last call durable, so a manifest written next
+    /// never points at objects a power cut could lose: flushes the folders objects were
+    /// renamed into (unix), and on Apple platforms then asks the drive to write out its
+    /// cache once, which makes the whole batch of files durable (`fsx::write_out`).
+    /// [`Store::save_manifest`] calls it first.
     pub fn sync(&self) -> Result<(), StoreError> {
         let dirs = match self.unsynced.lock() {
             Ok(mut unsynced) => std::mem::take(&mut *unsynced),
             Err(_) => BTreeSet::new(),
         };
-        for (area, prefix) in &dirs {
-            let dir = self.area_dir(*area).join(prefix);
-            if let Err(e) = fsx::sync_dir(&dir) {
-                // Keep them for the next try.
-                if let Ok(mut unsynced) = self.unsynced.lock() {
-                    unsynced.extend(dirs.iter().cloned());
-                }
-                return Err(io_err("Failed to flush the store")(e));
+        if dirs.is_empty() {
+            return Ok(());
+        }
+        let areas: BTreeSet<Area> = dirs.iter().map(|(area, _)| *area).collect();
+        let folders = dirs
+            .iter()
+            .map(|(area, prefix)| self.area_dir(*area).join(prefix))
+            // A prefix folder may be new: its entry in the area's folder too.
+            .chain(areas.iter().map(|area| self.area_dir(*area)));
+        let flushed = folders
+            .map(|dir| fsx::write_out_dir(&dir))
+            .collect::<io::Result<Vec<()>>>()
+            .and_then(|_| fsx::full_flush(&self.root));
+        if let Err(e) = flushed {
+            // Keep them for the next try.
+            if let Ok(mut unsynced) = self.unsynced.lock() {
+                unsynced.extend(dirs.iter().cloned());
             }
+            return Err(io_err("Failed to flush the store")(e));
         }
         Ok(())
     }
@@ -904,8 +970,10 @@ impl Store {
             .map_err(|e| StoreError::Manifest(ManifestError::Invalid(e)))?;
         image.verify()?;
         let path = self.manifest_path(instance, &image.id)?;
+        self.ensure_guard()?;
         for entry in &image.entries {
-            if !self.claim_object(&entry.sha256, entry.size) && entry.source == (Source::Object {})
+            if !self.claim_for_save(&entry.sha256, entry.size)
+                && entry.source == (Source::Object {})
             {
                 return Err(StoreError::Missing(entry.sha256.clone()));
             }
@@ -916,10 +984,11 @@ impl Store {
             .iter()
             .flat_map(|c| c.icon.iter().chain(c.background.iter()));
         for stored in stored_files {
-            if !self.claim_object(&stored.sha256, stored.size) {
+            if !self.claim_for_save(&stored.sha256, stored.size) {
                 return Err(StoreError::Missing(stored.sha256.clone()));
             }
         }
+        self.forget_old_claims();
         self.sync()?;
         let dir = self.instance_dir(instance)?;
         let created = !dir.exists();
@@ -1060,15 +1129,20 @@ impl Store {
 }
 
 /// Touches the file at `path` when it was modified more than [`TOUCH_AFTER`] before `now`,
-/// so a garbage collection running now keeps it for its hour of grace.
-fn touch_if_old(path: &Path, now: SystemTime) {
-    let old = fs::metadata(path)
-        .ok()
-        .and_then(|meta| fsx::age(&meta, now))
-        .is_some_and(|age| age >= TOUCH_AFTER);
-    if old {
-        fsx::touch(path);
+/// so a garbage collection running now keeps it for its hour of grace. Returns whether the
+/// file is still there afterwards: a collection renames a file away before it decides to
+/// delete it and puts back one touched meanwhile ([`gc`]), so a file that is gone after
+/// the touch may have been collected, and whatever was about to name it mustn't.
+pub(crate) fn touch_if_old(path: &Path, now: SystemTime) -> bool {
+    let Ok(meta) = fs::metadata(path) else {
+        return false;
+    };
+    if !fsx::age(&meta, now).is_some_and(|age| age >= TOUCH_AFTER) {
+        // New enough that no collection takes it (its grace is twice this at least).
+        return true;
     }
+    fsx::touch(path);
+    fs::symlink_metadata(path).is_ok()
 }
 
 /// The id in a manifest's file name `<id>.json`.
@@ -1173,16 +1247,20 @@ impl ObjectWriter<'_> {
         match &mut self.state {
             WriterState::Whole(buffer) => buffer.extend_from_slice(bytes),
             WriterState::Chunked { chunker, chunks } => {
-                chunker.push(bytes, &mut |chunk: &[u8]| -> Result<(), StoreError> {
-                    let sha256 = sha256_hex(chunk);
-                    *added += store.write_area(Area::Chunks, &sha256, chunk)?;
-                    chunks.push(ChunkRef {
-                        sha256,
-                        // Chunks are at most 256 KiB.
-                        size: u32::try_from(chunk.len()).unwrap_or(u32::MAX),
-                    });
-                    Ok(())
-                })?;
+                // In pieces, so the chunker's buffer stays small however much is given at
+                // once (`put_bytes` gives a whole file).
+                for piece in bytes.chunks(IO_CHUNK) {
+                    chunker.push(piece, &mut |chunk: &[u8]| -> Result<(), StoreError> {
+                        let sha256 = sha256_hex(chunk);
+                        *added += store.write_area(Area::Chunks, &sha256, chunk)?;
+                        chunks.push(ChunkRef {
+                            sha256,
+                            // Chunks are at most 256 KiB.
+                            size: u32::try_from(chunk.len()).unwrap_or(u32::MAX),
+                        });
+                        Ok(())
+                    })?;
+                }
             }
         }
         Ok(())

@@ -16,8 +16,10 @@
 //!   so the caller supplies it by SHA-1 ([`Known::file`]); a file no one could hash is
 //!   withheld (`unreadable`).
 //! - `content.json` keys files by their enabled name (`mods/x.jar` for
-//!   `mods/x.jar.disabled`), so entries have that path; the Launcher renames disabled files
-//!   when it records content images from its disk.
+//!   `mods/x.jar.disabled`). The caller says which files are disabled on disk
+//!   ([`Known::disabled`]), and their entries have the disabled name, as the disk does;
+//!   writing back keys them by the enabled name again. A file the caller doesn't say is
+//!   disabled is listed enabled.
 //!
 //! The image doesn't have the game: neither file does, so the caller passes the instance's.
 //! What the files have beyond the image (titles, slugs, icons, dates, what was looked up,
@@ -31,7 +33,7 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-use super::{json_object, version_field, Known, LegacyError, Note, UNHASHED};
+use super::{version_probe, Known, LegacyError, Note, DISABLED, UNHASHED};
 use crate::env::{resolve, EnvInputs, SideValues};
 use crate::hex::{is_sha1, is_sha512};
 use crate::manifest::{App, Base, Entry, Game, Image, Kind, Producer, Source};
@@ -184,7 +186,7 @@ pub struct Provenance {
 
 /// One of the Launcher's versioned documents (`launcher-core/src/storage.rs`): a JSON
 /// object with a `"version"` next to the document's fields, none meaning version 0.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Document<T> {
     /// The file's version, `None` when it had none.
     pub version: Option<u64>,
@@ -195,17 +197,16 @@ impl<T: Serialize + DeserializeOwned> Document<T> {
     /// Reads a document; a newer version is refused, as the Launcher refuses it. Neither
     /// file has had a migration, so version 0 reads like version 1.
     pub fn from_json(bytes: &[u8]) -> Result<Document<T>, LegacyError> {
-        let mut map = json_object(bytes)?;
-        let version = version_field(&map, "version")?;
+        let version = version_probe(bytes, "version")?;
         if let Some(found) = version.filter(|v| *v > VERSION) {
             return Err(LegacyError::Newer {
                 found,
                 supported: VERSION,
             });
         }
-        map.shift_remove("version");
-        let document = serde_json::from_value(Value::Object(map))
-            .map_err(|e| LegacyError::Invalid(e.to_string()))?;
+        // The document's types have no `version` field and skip fields they don't know.
+        let document =
+            serde_json::from_slice(bytes).map_err(|e| LegacyError::Invalid(e.to_string()))?;
         Ok(Document { version, document })
     }
 
@@ -231,7 +232,8 @@ pub type Records = (
 );
 
 /// The two files, as they were: the image overrides what it carries when writing back.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Kept beside the image (serde), never in it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Rest {
     pub modpack: Option<Document<ModpackRecord>>,
     pub content: Option<Document<Provenance>>,
@@ -311,7 +313,15 @@ pub fn to_image(rest: Rest, game: Game, known: &dyn Known) -> Result<Converted, 
     for path in paths {
         let pack = pack_files.get(path);
         let cached = content.get(path);
-        match entry_of(path, pack, cached, pack_is_base, known) {
+        // A file disabled on disk is listed by its disabled name, as it is there.
+        let on_disk = known.disabled(path).then(|| format!("{path}{DISABLED}"));
+        match entry_of(
+            on_disk.as_deref().unwrap_or(path),
+            pack,
+            cached,
+            pack_is_base,
+            known,
+        ) {
             Ok(entry) => image.entries.push(entry),
             Err(reason) => {
                 notes.push(Note::NotListed {
@@ -417,10 +427,14 @@ fn entry_of(
 /// `content.json`; the pack's own list stays as the pack wrote it. Titles, slugs, dates and
 /// lookups come from the rest.
 pub fn from_image(image: &Image, rest: &Rest) -> Result<Records, LegacyError> {
+    // By the name the files key it with, or disabled on disk (see `Known::disabled`).
     let entry = |path: &str| {
-        CanonicalPath::new(path)
-            .ok()
-            .and_then(|path| image.entry(&path))
+        let find = |path: &str| {
+            CanonicalPath::new(path)
+                .ok()
+                .and_then(|path| image.entry(&path))
+        };
+        find(path).or_else(|| find(&format!("{path}{DISABLED}")))
     };
     let withheld = |path: &str| image.withheld.iter().any(|w| w.path == path);
 

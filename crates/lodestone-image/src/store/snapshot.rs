@@ -46,13 +46,18 @@ pub struct SnapshotOptions<'a> {
     pub excludes: &'a [String],
     /// The last snapshot's stat cache; `None` hashes every file (a full scan).
     pub cache: Option<&'a StatCache>,
-    /// Threads hashing files; 0 is one per processor.
+    /// Threads hashing and storing files; 0 is the default, half the processors and at
+    /// most [`DEFAULT_MAX_THREADS`]. A snapshot of a running server should ask for few
+    /// (one or two), so the game keeps its processors.
     pub threads: usize,
     /// How many times a file that changes while being read is read; then it is withheld
     /// as `kept_changing`.
     pub tries: usize,
     pub cancel: Cancel<'a>,
 }
+
+/// The most threads a snapshot uses when [`SnapshotOptions::threads`] is 0.
+pub const DEFAULT_MAX_THREADS: usize = 4;
 
 impl Default for SnapshotOptions<'_> {
     fn default() -> Self {
@@ -214,7 +219,9 @@ pub fn run(
 ) -> Result<Snapshot, SnapshotError> {
     let total = plan.bytes_to_read();
     let threads = match options.threads {
-        0 => std::thread::available_parallelism().map_or(4, |n| n.get()),
+        0 => std::thread::available_parallelism()
+            .map_or(2, |n| n.get() / 2)
+            .clamp(1, DEFAULT_MAX_THREADS),
         n => n,
     }
     .clamp(1, plan.to_read.len().max(1));
@@ -484,14 +491,37 @@ enum Folder {
     BadName,
 }
 
-/// Whether anything in the folder at `disk` can be recorded, asked of the layout with a
-/// file inside it (its mapping doesn't depend on the file's name).
+/// Whether anything in the folder at `disk` can be recorded, asked of the layout with
+/// files inside it.
+///
+/// A folder is skipped as excluded only when its files' canonical paths all lie in one
+/// canonical folder, which then matches the excludes. Most folders map that way, but not
+/// all: a client's game folder is the image's root (no folder to match), and a Paper
+/// level's `world_nether/` holds both `DIM-1/…` (the world's Nether, `saves/world/DIM-1/…`)
+/// and its other files (`saves/world/.bukkit_nether/…`). So the probe asks for a plain
+/// file and for files under `DIM-1/` and `DIM1/`, and descends unless all three land in
+/// the same folder; each file is then checked against the excludes on its own.
 fn recorded_folder(layout: &DiskLayout, disk: &str, excludes: &Excludes) -> Folder {
     match layout.from_disk(&format!("{disk}/x")) {
         Ok(None) => Folder::Skip,
         Ok(Some(probe)) => {
-            let folder = probe.as_str().strip_suffix("/x").unwrap_or(probe.as_str());
-            if excludes.excludes(folder, true) {
+            if excludes.is_empty() {
+                return Folder::Descend;
+            }
+            let Some(folder) = probe.as_str().strip_suffix("/x") else {
+                // The game folder itself: the image's root.
+                return Folder::Descend;
+            };
+            let same_folder = |inside: &str| {
+                layout
+                    .from_disk(&format!("{disk}/{inside}/x"))
+                    .ok()
+                    .flatten()
+                    .is_some_and(|p| {
+                        p.as_str().strip_suffix(&format!("/{inside}/x")) == Some(folder)
+                    })
+            };
+            if same_folder("DIM-1") && same_folder("DIM1") && excludes.excludes(folder, true) {
                 Folder::Skip
             } else {
                 Folder::Descend

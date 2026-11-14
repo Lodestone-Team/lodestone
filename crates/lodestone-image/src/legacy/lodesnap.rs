@@ -31,12 +31,13 @@ use std::io::{Read, Seek};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-use super::{clean_text, finish, json_object, version_field, LegacyError, Note};
+use super::{clean_text, finish, version_probe, LegacyError, Note};
 use crate::hex::is_sha256;
 use crate::layout::{DiskLayout, CLIENT_GAME_FOLDER};
+use crate::manifest::WithheldReason;
+use crate::manifest::{bounded_list, capped_value, UnknownBudget};
 use crate::manifest::{App, Entry, Game, Image, Kind, Loader, Producer, Source, World};
-use crate::manifest::{Withheld, WithheldReason};
-use crate::settings::{ClientSettings, Settings, StoredFile};
+use crate::settings::{ClientSettings, Settings, StoredFile, MAX_STORED_FILE};
 
 /// The manifest schema this reads.
 pub const SCHEMA: u32 = 1;
@@ -44,6 +45,15 @@ pub const SCHEMA: u32 = 1;
 pub const MAX_ENTRIES: usize = 200_000;
 pub const MAX_TOTAL_BYTES: u64 = 64 * 1024 * 1024 * 1024;
 pub const MAX_MANIFEST_BYTES: u64 = 64 * 1024 * 1024;
+
+/// How much of a snapshot's `instance.json` is read: a real one is a few hundred bytes, and
+/// one from elsewhere mustn't make reading it cost far more than its size.
+pub const INSTANCE_BUDGET: UnknownBudget = UnknownBudget {
+    values: 4096,
+    bytes: 64 << 10,
+};
+/// A selection names at most this many worlds.
+pub const MAX_SELECTED_WORLDS: usize = 10_000;
 
 /// The instance fields an image carries; the rest of `instance.json` is local.
 const GAME_VERSION: &str = "game_version";
@@ -90,10 +100,33 @@ impl Category {
 /// What a snapshot takes.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Selection {
+    #[serde(deserialize_with = "categories_set")]
     pub categories: BTreeSet<Category>,
     /// The worlds, by folder name; empty means every world.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "worlds_set")]
     pub worlds: BTreeSet<String>,
+}
+
+fn categories_set<'de, D: serde::Deserializer<'de>>(d: D) -> Result<BTreeSet<Category>, D::Error> {
+    Ok(bounded_list::<D, Category, 64>(d)?.into_iter().collect())
+}
+
+fn worlds_set<'de, D: serde::Deserializer<'de>>(d: D) -> Result<BTreeSet<String>, D::Error> {
+    Ok(bounded_list::<D, String, MAX_SELECTED_WORLDS>(d)?
+        .into_iter()
+        .collect())
+}
+
+fn instance_map<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Map<String, Value>, D::Error> {
+    let mut budget = INSTANCE_BUDGET;
+    match capped_value(d, &mut budget)? {
+        Value::Object(map) => Ok(map),
+        _ => Err(serde::de::Error::custom("the instance isn't a JSON object")),
+    }
+}
+
+fn files_list<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<FileEntry>, D::Error> {
+    bounded_list::<D, FileEntry, MAX_ENTRIES>(d)
 }
 
 /// One file of a snapshot.
@@ -126,9 +159,12 @@ pub struct Snapshot {
     /// Seconds since the epoch.
     pub created: u64,
     pub launcher_version: String,
-    /// `instance.json` when the snapshot was taken.
+    /// `instance.json` when the snapshot was taken, read within [`INSTANCE_BUDGET`].
+    #[serde(deserialize_with = "instance_map")]
     pub instance: Map<String, Value>,
     pub selection: Selection,
+    /// At most [`MAX_ENTRIES`], as the Launcher's import allows.
+    #[serde(deserialize_with = "files_list")]
     pub files: Vec<FileEntry>,
     pub total_bytes: u64,
     pub new_bytes: u64,
@@ -139,10 +175,11 @@ pub struct Snapshot {
 impl Snapshot {
     /// Reads and checks a manifest the way the Launcher does (`parse_manifest`): a newer
     /// schema is refused, and every path must be safe, listed once, hashed and in the
-    /// category its place gives.
+    /// category its place gives. A manifest can come from someone else's `.lodesnap`, so
+    /// its shape is checked first and its lists and `instance` are read within bounds:
+    /// fields it doesn't know are skipped without being kept.
     pub fn from_json(bytes: &[u8]) -> Result<Snapshot, LegacyError> {
-        let map = json_object(bytes)?;
-        let schema = version_field(&map, "schema")?
+        let schema = version_probe(bytes, "schema")?
             .ok_or_else(|| LegacyError::Invalid("no schema".into()))?;
         if schema > u64::from(SCHEMA) {
             return Err(LegacyError::Newer {
@@ -280,8 +317,14 @@ pub fn read_lodesnap<R: Read + Seek>(reader: R) -> Result<Snapshot, LegacyError>
     if archive.len() > MAX_ENTRIES {
         return Err(invalid("it has too many files"));
     }
+    // A name given twice, or local headers that say something other than the directory,
+    // is a zip other tools read differently: refused, as image exports refuse it.
+    archive
+        .validate_header_consistency()
+        .map_err(|e| LegacyError::Invalid(format!("its zip structure is inconsistent ({e})")))?;
     let mut total = 0u64;
     let mut objects: HashSet<String> = HashSet::new();
+    let mut seen: HashSet<String> = HashSet::new();
     for i in 0..archive.len() {
         let entry = archive
             .by_index_raw(i)
@@ -290,6 +333,9 @@ pub fn read_lodesnap<R: Read + Seek>(reader: R) -> Result<Snapshot, LegacyError>
             .name()
             .map_err(|e| LegacyError::Invalid(format!("its entries: {e}")))?
             .into_owned();
+        if !seen.insert(name.clone()) {
+            return Err(LegacyError::Invalid(format!("{name} is in it twice")));
+        }
         total = total.saturating_add(entry.size());
         if entry.is_dir() {
             if name == "objects/" {
@@ -328,8 +374,9 @@ pub fn read_lodesnap<R: Read + Seek>(reader: R) -> Result<Snapshot, LegacyError>
     Ok(snapshot)
 }
 
-/// What a schema-1 snapshot has that its image doesn't.
-#[derive(Debug, Clone, PartialEq)]
+/// What a schema-1 snapshot has that its image doesn't. Kept beside the image (it is
+/// serde, so it can be stored), never in it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Rest {
     pub id: String,
     pub instance_id: String,
@@ -353,6 +400,25 @@ pub struct Rest {
     /// entries have 0o644, what the Launcher's restore always gave them; writing back
     /// gives them 0 again.
     pub zero_modes: BTreeSet<String>,
+    /// Modes with bits beyond the permission bits (setuid, setgid, sticky, file type) as
+    /// they were, by path: an image keeps only the permission bits.
+    #[serde(default)]
+    pub wide_modes: BTreeMap<String, u32>,
+}
+
+impl Rest {
+    /// The objects the rest names that the image doesn't: files beside the game folder
+    /// and game-folder files the image withholds. A store's collection must keep them
+    /// ([`crate::store::gc::GcOptions::also_live`]) for as long as this rest may be
+    /// written back, and a restore that should put back everything the snapshot had
+    /// places them itself, at their instance paths, with [`crate::store::Store::read_object`]:
+    /// materializing places only the image's entries.
+    pub fn objects(&self) -> impl Iterator<Item = &str> {
+        self.instance_files
+            .iter()
+            .chain(self.unmapped.iter().map(|(file, _)| file))
+            .map(|file| file.sha256.as_str())
+    }
 }
 
 /// A converted snapshot.
@@ -418,6 +484,7 @@ pub fn to_image(snapshot: &Snapshot) -> Result<Converted, LegacyError> {
     let mut unmapped = Vec::new();
     let mut wide_times = BTreeMap::new();
     let mut zero_modes = BTreeSet::new();
+    let mut wide_modes = BTreeMap::new();
     let game_prefix = format!("{CLIENT_GAME_FOLDER}/");
     for file in &snapshot.files {
         if !file.path.starts_with(&game_prefix) {
@@ -432,7 +499,11 @@ pub fn to_image(snapshot: &Snapshot) -> Result<Converted, LegacyError> {
                     zero_modes.insert(file.path.clone());
                     0o644
                 } else {
-                    // Images keep only the permission bits (the Launcher never wrote more).
+                    // Images keep only the permission bits (the Launcher's own writer never
+                    // wrote more; a file from elsewhere might, and gets them back).
+                    if file.mode & !0o777 != 0 {
+                        wide_modes.insert(file.path.clone(), file.mode);
+                    }
                     match file.mode & 0o777 {
                         0 => 0o644,
                         bits => bits,
@@ -453,14 +524,7 @@ pub fn to_image(snapshot: &Snapshot) -> Result<Converted, LegacyError> {
             Ok(None) => WithheldReason::Excluded,
             Err(_) => WithheldReason::BadName,
         };
-        notes.push(Note::NotListed {
-            path: file.path.clone(),
-            reason: reason.clone(),
-        });
-        image.withheld.push(Withheld {
-            path: file.path.clone(),
-            reason: reason.clone(),
-        });
+        super::withhold(&mut image, &mut notes, &file.path, reason.clone());
         unmapped.push((file.clone(), reason));
     }
 
@@ -485,14 +549,19 @@ pub fn to_image(snapshot: &Snapshot) -> Result<Converted, LegacyError> {
         })
         .collect();
 
-    let stored = |name: &str| {
-        instance_files
+    let mut stored = |name: &str| {
+        let file = instance_files
             .iter()
-            .find(|f: &&FileEntry| f.path == name)
-            .map(|f| StoredFile {
-                sha256: f.sha256.clone(),
-                size: f.size,
-            })
+            .find(|f: &&FileEntry| f.path == name)?;
+        if file.size > MAX_STORED_FILE {
+            // An image's settings can't name a file that large: left out, not fatal.
+            notes.push(Note::SettingFileTooLarge(name.to_string()));
+            return None;
+        }
+        Some(StoredFile {
+            sha256: file.sha256.clone(),
+            size: file.size,
+        })
     };
     let client = ClientSettings {
         recommended_memory_mb: instance
@@ -509,6 +578,11 @@ pub fn to_image(snapshot: &Snapshot) -> Result<Converted, LegacyError> {
             server: None,
             client: Some(client),
         };
+    }
+    // A selection of content only whose files include worlds (a manifest from elsewhere)
+    // is a full image: a content image has no worlds.
+    if image.kind == Kind::Content && !image.worlds.is_empty() {
+        image.kind = Kind::Full;
     }
 
     let local: Vec<String> = instance
@@ -541,6 +615,7 @@ pub fn to_image(snapshot: &Snapshot) -> Result<Converted, LegacyError> {
         unmapped,
         wide_times,
         zero_modes,
+        wide_modes,
     };
     Ok(Converted {
         image: finish(image)?,
@@ -566,10 +641,14 @@ pub fn from_image(image: &Image, rest: &Rest) -> Result<Snapshot, LegacyError> {
                 .modified
                 .and_then(|nanos| u64::try_from(nanos / 1_000_000_000).ok()),
         };
-        let mode = if rest.zero_modes.contains(&path) && entry.mode == 0o644 {
-            0
-        } else {
-            entry.mode
+        let as_converted = |mode: u32| match mode & 0o777 {
+            0 => 0o644,
+            bits => bits,
+        };
+        let mode = match rest.wide_modes.get(&path) {
+            Some(&wide) if entry.mode == as_converted(wide) => wide,
+            _ if rest.zero_modes.contains(&path) && entry.mode == 0o644 => 0,
+            _ => entry.mode,
         };
         files.push(FileEntry {
             path,
@@ -839,5 +918,97 @@ mod tests {
             read_lodesnap(Cursor::new(newer)),
             Err(LegacyError::Newer { found: 9, .. })
         ));
+    }
+
+    #[test]
+    fn a_lodesnap_with_a_name_twice_is_refused() {
+        let s = snapshot(plain(), vec![file("minecraft/mods/a.jar", 1)]);
+        let manifest = s.to_json();
+        let object = format!("objects/{:064x}", 1);
+        // Zip writers refuse a name twice: write a twin and give it the same name.
+        let mut bytes = lodesnap(&[
+            ("manifest.json", &manifest),
+            ("manifest.jsoX", br#"{"schema": 1}"#),
+            (&object, b"x"),
+        ]);
+        let mut at = 0;
+        while let Some(i) = bytes[at..].windows(13).position(|w| w == b"manifest.jsoX") {
+            bytes[at + i + 12] = b'n';
+            at += i + 13;
+        }
+        let error = read_lodesnap(Cursor::new(bytes)).unwrap_err().to_string();
+        assert!(
+            error.contains("inconsistent") || error.contains("twice"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn a_huge_instance_from_elsewhere_is_refused_without_buffering() {
+        // The shape of a `.lodesnap` built to exhaust memory: an unknown field in the
+        // instance holding a long array, which deflates a thousand to one.
+        let s = snapshot(plain(), vec![file("minecraft/mods/a.jar", 1)]);
+        let mut value = serde_json::to_value(&s).unwrap();
+        value["instance"]["zz"] = Value::from(vec![0; INSTANCE_BUDGET.values]);
+        let error = Snapshot::from_json(value.to_string().as_bytes()).unwrap_err();
+        assert!(
+            error.to_string().contains("larger than it keeps"),
+            "{error}"
+        );
+        // Unknown fields elsewhere are skipped, not kept.
+        let mut value = serde_json::to_value(&s).unwrap();
+        value["zz"] = Value::from(vec![0; 100_000]);
+        value["files"][0]["zz"] = Value::from(vec![0; 1000]);
+        assert_eq!(
+            Snapshot::from_json(value.to_string().as_bytes()).unwrap(),
+            s
+        );
+        // And a list past the Launcher's bound is refused while read.
+        let mut value = serde_json::to_value(&s).unwrap();
+        value["selection"]["worlds"] = Value::from(vec!["w"; MAX_SELECTED_WORLDS + 1]);
+        assert!(Snapshot::from_json(value.to_string().as_bytes()).is_err());
+    }
+
+    #[test]
+    fn manifests_from_elsewhere_convert_and_come_back() {
+        // Content-only selection with world files: a full image.
+        let mut s = snapshot(
+            plain(),
+            vec![
+                file("minecraft/mods/a.jar", 1),
+                file("minecraft/saves/w/level.dat", 2),
+            ],
+        );
+        s.selection.categories = [Category::Mods].into();
+        let converted = round_trip(&s);
+        assert_eq!(converted.image.kind, Kind::Full);
+        // Modes beyond the permission bits are kept in the rest and written back.
+        let mut s = snapshot(
+            plain(),
+            vec![
+                file("minecraft/mods/a.jar", 1),
+                file("minecraft/mods/b.jar", 2),
+            ],
+        );
+        s.files[0].mode = 0o4755;
+        s.files[1].mode = 0o1000;
+        let converted = round_trip(&s);
+        assert_eq!(converted.image.entries[0].mode, 0o755);
+        assert_eq!(converted.image.entries[1].mode, 0o644);
+        // An icon too large for the settings is left out of them, with a note.
+        let mut icon = file("icon.png", 3);
+        icon.size = crate::settings::MAX_STORED_FILE + 1;
+        let s = snapshot(plain(), vec![icon]);
+        let converted = round_trip(&s);
+        assert_eq!(converted.image.settings.client, None);
+        assert!(converted
+            .notes
+            .iter()
+            .any(|n| matches!(n, Note::SettingFileTooLarge(name) if name == "icon.png")));
+        assert_eq!(converted.rest.objects().count(), 1);
+        // The rest can be stored beside the image.
+        let json = serde_json::to_vec(&converted.rest).unwrap();
+        let rest: Rest = serde_json::from_slice(&json).unwrap();
+        assert_eq!(from_image(&converted.image, &rest).unwrap(), s);
     }
 }

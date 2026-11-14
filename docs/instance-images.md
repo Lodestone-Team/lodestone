@@ -67,10 +67,10 @@ Reading is forward compatible within a schema. Fields a reader doesn't know are 
 the image and on each entry) and written back as they were, so the id still verifies.
 Numbers in such fields must be integers that fit 64 bits (signed or unsigned); any other
 number makes the manifest invalid, since a reader couldn't write it back as it was.
-Anywhere else (`game`, `base`, a `source`, an `env`, a world, a withheld file) an unknown
-field makes the manifest invalid with an error naming it, so a new field there needs a new
-schema: dropping it would change the id, and the image would fail its check with a
-misleading mismatch instead. Informational values it doesn't know (a withheld reason, an
+Anywhere else (`game`, `producer`, `base`, a `source`, an `env`, a world, a withheld
+file) an unknown field makes the manifest invalid with an error naming it, so a new field
+there needs a new schema: dropping it would change the id, and the image would fail its
+check with a misleading mismatch instead. Informational values it doesn't know (a withheld reason, an
 `env_from` input, a loader, a flavour) are kept as text. An unknown `source`, `kind`,
 `base` or `env` value makes the manifest invalid, since nothing can act on it safely. A
 newer schema is refused with its own error, and an older one goes to the v1 readers.
@@ -78,8 +78,10 @@ Settings are the exception: fields a reader doesn't know are dropped, so local s
 never get into an image; a new setting needs a new schema.
 
 Unknown fields are kept within a budget, not without limit: per image at most 4,096 JSON
-values and 64 KiB of keys and strings, per entry 16 values and 1 KiB, nested at most 16
-deep. That is room for new fields, not for a payload; a manifest past it is invalid.
+values and 64 KiB of keys and strings, per entry 16 values and 1 KiB, and all of an
+image's entries together 1,048,576 values and 16 MiB (an entry's first unknown field
+counts 16 values more, for the map that holds it), nested at most 16 deep. That is room
+for new fields, not for a payload; a manifest past it is invalid.
 Reading never costs much more memory than a real image of the manifest's size: before
 parsing, a manifest with more than 32,000,000 JSON values (objects, arrays and the commas
 between items; a real entry has about 20) or nesting deeper than 32 is refused, and every
@@ -94,9 +96,16 @@ A `content` image has no worlds (and so no world files); `data` and `full` image
 `parent`, `created`, `producer`, `label`, `projected_from` and entries' `modified` are
 informational. `entries[].modified` is optional, `mode` defaults to 420 and `env` to
 unknown on both sides. `null` is the same as a missing field everywhere: a field with a
-default (`settings`, `entries`, `mode`, `env`, a setting's list…) reads `null` as that
-default. Only the required fields (`schema`, `kind`, `game`; an entry's `path`, `size`,
-`sha256` and `source`) can't be `null`.
+default (`settings`, `entries`, `mode`, `env`, `producer` and its `app` and `version`, a
+setting's list…) reads `null` as that default. Only the required fields can't be `null`:
+`schema`, `kind`, `game`; an entry's `path`, `size`, `sha256` and `source`; and in
+settings an op's or whitelisted player's `uuid` and `name` and an op's `level`.
+`producer` is informational but takes no unknown fields, like `game`.
+
+`parent` is never the image itself: images with the same contents have the same id, so an
+image recorded with nothing changed takes the parent of the one it equals. Following
+parents can still come back to an id (a restore to an earlier state has that state's id
+again), so walkers stop at an id they have seen.
 
 ### Base
 
@@ -223,7 +232,12 @@ singletons and composition exclusions) are refused, the rest is trusted to be NF
 gaps, trusted rather than checked: Arabic hamza and madda marks after an alef
 (U+0653–U+0655), Indic nuktas and two-part vowel signs (Devanagari U+0928 + U+093C, which
 NFC writes U+0929; Bengali, Oriya, Tamil, Malayalam, Sinhala) and other scripts'
-compositions. No part may have the shape of a Windows short (8.3) name (at most 8 bytes
+compositions. No part may have Unicode's default-ignorable characters (U+00AD, U+034F,
+U+061C, U+115F–U+1160, U+17B4–U+17B5, U+180B–U+180F, U+200B–U+200F, U+202A–U+202E,
+U+2060–U+206F, U+3164, U+FE00–U+FE0F, U+FEFF, U+FFA0, U+FFF0–U+FFF8, U+1BCA0–U+1BCA3,
+U+1D173–U+1D17A, U+E0000–U+E0FFF): HFS+ ignores some of them when it compares names, so
+`\u200C.lodestone_config` would be `.lodestone_config` there (git's CVE-2014-9390), and
+the direction overrides make a name display as another. No part may have the shape of a Windows short (8.3) name (at most 8 bytes
 ending in `~` and digits, with at most one extension of at most 3 bytes: `LODEST~1`,
 `SESSIO~1.LOC`): NTFS opens a long-named file through its short alias, so `LODEST~1` can be
 `.lodestone_config`. The first part can't differ only in letter case from `saves` (it
@@ -287,8 +301,9 @@ view(image, side, rules) = entries with env[side] ≠ unsupported that the side 
   modpack record and history are its bookkeeping, and images from a server can't write
   Lodestone's files) or a server's own state that a client never uses: `plugins/`,
   `bukkit.yml`, `spigot.yml`, `commands.yml`, `help.yml`, `permissions.yml`, `paper.yml`,
-  `usercache.json`, `usernamecache.json`, Forge's and NeoForge's `run.sh`, `run.bat` and
-  `user_jvm_args.txt` (top-level, any letter case). Unlike server-only files these may be
+  `purpur.yml`, `pufferfish.yml`, Paper's `.console_history` (commands the admin typed)
+  and `version_history.json`, `usercache.json`, `usernamecache.json`, Forge's and
+  NeoForge's `run.sh`, `run.bat` and `user_jvm_args.txt` (top-level, any letter case). Unlike server-only files these may be
   on a client (a client writes its own `usercache.json`) and stay in a Launcher's images;
   they only never go from a server to players, so a change to them leaves the client
   view's id as it was.
@@ -336,7 +351,9 @@ each other field that differs, whole, with its new value. Applying refuses a del
 another image, paths that aren't where it says, a result whose id isn't `to`, and a result
 that isn't a valid image (a delta's entries are checked like any manifest's). `from` and
 `to` are empty only between unsealed images; a sealed image refuses a delta that leaves
-either out.
+either out. A delta from elsewhere (a server's answer) is read like a manifest: its shape is
+checked first, its lists have the manifest's bounds (and at most 64 `changes`), and its
+entries' and `extra` change's unknown fields the same budgets.
 
 ## Store
 
@@ -377,8 +394,13 @@ Content-addressed, shared by every instance on one machine:
   judges an object by the size it is asked about: an object that is no file of that size
   is the asker's error when its own bytes check out (a whole file hashing to its name, or
   a list whose chunks do) and damaged only when they don't.
-- Writes: temp file, fsync, read-only, rename; manifests last (after the folders of the
-  objects written since the last manifest are flushed). Saving a manifest checks that every
+- Writes: temp file, written out to the drive, read-only, rename; manifests last, after
+  the store makes everything written since the last manifest durable (the objects'
+  folders flushed, and on Apple platforms one flush of the drive's cache). On Linux and
+  Windows each object is flushed on its own (`fsync`, `FlushFileBuffers`); on Apple
+  platforms an object gets a plain `fsync(2)` and the batch one `F_FULLFSYNC` before the
+  manifest, as git's batch mode does: `F_FULLFSYNC` per 64 KiB chunk made a first snapshot
+  about ten times slower (9 MB/s, against 80 MB/s batched). Saving a manifest checks that every
   object its `object` entries and stored files name is present (and touches it like a write
   that finds it, below), and fails if one isn't: an image never names what the store lost.
   Reads verify the SHA-256. Like the core's backups, presence is checked cheaply (a raw
@@ -415,7 +437,13 @@ Content-addressed, shared by every instance on one machine:
   already there, a snapshot that takes a file from its stat cache, and saving a manifest
   touch it (and a list's chunks) when it is older than 10 minutes, so a snapshot running
   at the same time never loses what it is about to name, and a save after a snapshot longer
-  than the hour of grace fails rather than name what was collected. Objects only older
+  than the hour of grace fails rather than name what was collected. No lock is needed
+  between GC and writers: GC renames a file it found old to a temporary name, reads its
+  time again and deletes it only if it is still old, putting back one touched meanwhile;
+  a claim touches, then checks the file is still there, and fails (so the manifest isn't
+  saved) when GC took it. The grace is never under 20 minutes, twice the touch interval,
+  or GC could take a file a claim found new enough not to touch. A save doesn't claim
+  again what the same store claimed in the last 5 minutes. Objects only older
   formats use are passed in by the caller, which refuses the same way when it can't read
   those manifests.
 - Snapshots walk the folder with the side's disk layout. Files never recorded, outside a
@@ -435,7 +463,11 @@ Content-addressed, shared by every instance on one machine:
   Lodestone must be able to change what a restore put back).
 - Materializing places files in a staging folder, never over an existing file, checking
   every byte, and refuses names that differ only in letter case when the staging disk
-  ignores case.
+  ignores case (comparing the disk paths themselves). The staging folder must be on the
+  volume of the folder it replaces: the swap is a rename, and the case check looks at the
+  staging folder's disk.
+- Snapshots hash and store on a few threads (half the processors, at most 4, unless the
+  caller says); a backup of a running server asks for one or two.
 
 ## When images are recorded
 
@@ -567,10 +599,36 @@ names anything by it.
   The image store at the core's backup folder, zstd encoded, reads the core's objects in
   place, and an image store at the Launcher's snapshot folder, raw, the Launcher's. The
   caller passes the objects of the old manifests that remain to the image store's GC as
-  also live (`core_backup::Manifest::objects`).
-- A converted core backup restores through the store as it is: `core_backup::disk_layout`
-  is the server layout its paths went through, so materializing with it puts every file
-  back at its backup path. The old backup is also the first image snapshot's stat cache
+  also live (`core_backup::Manifest::objects`), and, for an old manifest replaced by an
+  image and its rest, the objects only the rest names (`core_backup::Rest::objects`,
+  `lodesnap::Rest::objects`: files the image withholds, files beside a Launcher game
+  folder).
+- **Downgrades never lose images.** Released cores (Lodestone Host 0.6.0-beta.2 on) and
+  Launchers (0.1.0-beta.1 on) collect their shared `objects/` against their own manifests
+  only, so after going back to one, its first cleanup would delete every object only
+  images name (whole files and chunk lists). Before a store writes anything to its folder
+  it puts a guard where each old collector looks: `servers/.images/images.json`, a manifest
+  of schema 2, which makes the core's collector refuse ("made by a newer Lodestone"), and
+  `instances/.images/images.json`, which isn't a snapshot manifest, so the Launcher's keeps
+  everything. `.images` is no valid server id, and neither file parses as a backup or a
+  snapshot, so nothing else in the old programs sees them. The guard stays for as long as
+  images use the folder; while a released version runs it frees no space there, and loses
+  nothing. This was chosen over a separate image root (every old object an image reuses
+  would have to be copied or linked across, and an image naming an old-root object would
+  break when the old collector deleted it) and over a schema-1 list of everything images
+  use (rewritten with every image, and losing objects whenever it fell behind). M2's and
+  M5's own collection of old manifests skips the `.images` folders. Tested against the
+  released collectors' code (`tests/downgrade_guard.rs`).
+- A converted core backup restores through the store: `core_backup::disk_layout` is the
+  server layout its paths went through, so materializing with it puts every entry back at
+  its backup path. Files the image withholds (a name no canonical path has, a vanilla
+  `DIM-1` left in a Paper level, a world named only by letter case, a file named like a
+  world) aren't entries: their objects are in the store and the rest lists them
+  (`core_backup::Rest::unmapped_files`), and a restore that puts back everything the
+  backup had places them itself at their disk paths (reading each through the store, which
+  checks every byte), or uses the old restorer for backups that have them. The same holds
+  for a snapshot's files beside the game folder and withheld game-folder files
+  (`lodesnap::Rest`). The old backup is also the first image snapshot's stat cache
   (`core_backup::stat_cache`, its files by server path, trusted up to its scan time), so
   that snapshot reads only what changed.
 - A large file the core stored whole stays whole. When a full scan reads it again
@@ -578,9 +636,16 @@ names anything by it.
   file's hash before reading it), finds the whole object already there and keeps it as the
   object; the chunks it wrote are unused, and GC frees them. Only files that change move
   to chunks.
+  Writing chunks is cheap once flushes are batched (above), so a full scan of a large
+  unchanged file costs one more write of its chunks, freed again by GC; hashing such files
+  first would read every new large file twice to save that.
 - Round-trip tests: every old format converts to an image and back without changing a byte.
   World backup zips are the exception: they are only read (a zip can't be rewritten byte for
-  byte, and images replace them).
+  byte, and images replace them). Byte for byte holds for the fields each format had at
+  commit f5ce27ad, which the readers mirror: the Launcher adds defaulted fields to its
+  documents without a new version, and the core's files have none, so a field added later
+  is dropped by a conversion and its write-back (keeping unknown fields would mean
+  buffering them, which is what made reading costly).
 
 ### v1 readers
 
@@ -597,7 +662,15 @@ sealed), the *rest*, and notes:
   Writing back takes the image's values for what it carries and the rest for the others;
   for an unchanged image the result is the original file, byte for byte (core backups,
   snapshot manifests, `record.json`, `history.json`, `modpack.json`, `content.json`, as
-  each program's own writer formats them).
+  each program's own writer formats them). The rest types are serde, so a store can keep a
+  rest beside its image once the old file is gone.
+- **Old files from elsewhere** (a `.lodesnap` someone sent) are read as manifests are: the
+  shape is checked before parsing, only the version field is probed, lists are bounded
+  while read, an instance's settings are read within a budget (4,096 values, 64 KiB) and
+  other unknown fields are skipped without being kept, and a zip with a name twice or
+  local headers that disagree with its directory is refused. A path longer than an image's
+  withheld list may show (4096 bytes) stays in the rest with a note instead of failing the
+  conversion.
 - **Notes** say what didn't go into the image: withheld files, local settings dropped, a
   pack that couldn't be the base, a level that isn't a world folder, unrecorded excludes.
 - **Hashes the old formats lack.** The modpack records list files by SHA-1 only, and an
@@ -616,17 +689,23 @@ Per format:
   (`worlds/survival`) is no world, and its files keep their server paths.
 - **Snapshots and `.lodesnap` (schema 1)** become images through the client layout; the
   kind follows the selection (content categories only: content; worlds, screenshots and
-  other files only: data; both: full). A file without a mode (0, from before the Launcher
+  other files only: data; both: full), and a content selection whose files include worlds
+  (one from elsewhere) is full. A file without a mode (0, from before the Launcher
   kept modes) gets 0o644, what the Launcher's restore gave it, and the rest remembers it so
   writing back says 0 again. `instance.json` gives the game and the recommended
-  memory, and `icon.png` and `background.jpg` the client settings' icon and background;
-  modes keep only their permission bits (0o777; the Launcher never wrote more);
+  memory, and `icon.png` and `background.jpg` the client settings' icon and background (one
+  over 256 MiB is left out of the settings, with a note); modes keep only their permission
+  bits (0o777; the Launcher's writer never wrote more, and the rest keeps any other bits a
+  file from elsewhere had);
   every other instance field is local, reported and kept in the rest, never in the image.
   Files beside the game folder (`content.json`, `modpack.json`, shared options) are kept in
   the rest. `.lodesnap` files are read with the Launcher's limits.
 - **The core's `record.json` and `history.json`** become one content image per history
   entry, chained by `parent`, plus one for the record (on the newest entry's base and game;
-  the same id when nothing changed since). They list the files the pack wrote, which is all
+  the same id when nothing changed since). An entry's parent is the nearest earlier entry
+  with another id, never itself. Entries with the same files share one id (a restore to
+  entry 1 is entry 1's image again), so a store keeps one manifest for them; the rest says
+  which image each entry had, so the history can be written back from a store. They list the files the pack wrote, which is all
   the record knew, with explicit sources: a CDN download `modrinth` (project and version from
   its URL), an override `base` when the pack is the base, anything else `object`. The server's
   own files join the lineage with the first content image the core records. Neither file has
@@ -639,8 +718,11 @@ Per format:
   the pack (`modrinth_pack`, `curseforge_pack`, or `loader` for an instance not made from a
   pack); a file `content.json` knows on Modrinth's CDN is `modrinth` with its env from the
   project's `client_side`/`server_side`, on CurseForge `curseforge`, an unchanged pack file
-  `base`, anything else `object`. `content.json` keys files by their enabled name, so a
-  disabled mod's entry has that path. The game is the caller's (neither file has it).
+  `base`, anything else `object`. `content.json` (like the core's `record.json`) keys files
+  by their enabled name; the caller says which are disabled on disk (`Known::disabled`),
+  and their entries have the disabled name, as on disk, so placing the image doesn't
+  enable them. Old history entries keep the names they recorded. The game is the caller's
+  (neither file has it).
 - **World backup zips** become data images of `saves/<world>/…`, each entry hashed straight
   from the zip, with the Launcher's limits; entries that fail a check are withheld. Zip
   times are local without a zone, so entries have no `modified`.

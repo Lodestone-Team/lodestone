@@ -367,6 +367,42 @@ fn names_differing_in_case_are_refused_where_the_disk_ignores_case() {
         .all(|e| !e.file_name().to_string_lossy().contains("case-probe")));
 }
 
+#[test]
+fn deep_names_differing_in_case_are_found_too() {
+    // On a client's disk these paths are longer than a canonical path may be: they are
+    // still checked (they used to be left out of the check).
+    let (dir, store) = store(Encoding::Raw);
+    let folder = "f".repeat(250);
+    let deep = format!(
+        "mods/{}/{}",
+        vec![folder.as_str(); 16].join("/"),
+        "g".repeat(70)
+    );
+    assert!(deep.len() + 2 <= 4096 && deep.len() + 2 + "minecraft/".len() > 4096);
+    let upper = format!("{deep}/A");
+    let lower = format!("{deep}/a");
+    let image = stored_image(
+        &store,
+        &[(upper.as_str(), b"upper"), (lower.as_str(), b"lower")],
+    );
+    let staging = dir.path().join("staging");
+    fs::create_dir(&staging).unwrap();
+    if ignores_case(&staging).unwrap() {
+        let result = materialize(
+            &store,
+            &image,
+            &DiskLayout::Client,
+            &staging,
+            &MaterializeOptions::default(),
+        );
+        assert!(
+            matches!(&result, Err(MaterializeError::CaseClash(a, b)) if a.as_str() == upper && b.as_str() == lower),
+            "{result:?}"
+        );
+        assert!(files_under(&staging).is_empty());
+    }
+}
+
 #[cfg(unix)]
 #[test]
 fn modes_are_applied() {

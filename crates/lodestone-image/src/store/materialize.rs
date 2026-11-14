@@ -11,6 +11,12 @@
 //! untouched. Every file is created new (never opened if it exists), so two entries can't
 //! write one file, and a case-insensitive disk is detected first and refuses entries whose
 //! names differ only in letter case rather than merging them.
+//!
+//! The staging folder must be on the same volume as the folder it will replace (beside
+//! it, say): the swap is a rename, which only works within a volume, and the case check
+//! looks at the staging folder's disk, which is then the instance's. A staging folder on a
+//! case-sensitive volume would let names through that clash once swapped into a
+//! case-insensitive one.
 
 use std::collections::BTreeSet;
 use std::fs::{self, File};
@@ -21,7 +27,7 @@ use sha2::{Digest, Sha256};
 
 use crate::layout::{join_disk, DiskLayout};
 use crate::manifest::{Entry, Image};
-use crate::paths::{case_collisions, CanonicalPath, PathError};
+use crate::paths::{case_collisions_of, CanonicalPath, PathError};
 
 use super::encoding::buffer_len;
 use super::{fsx, Cancel, Encoding, ObjectForm, Store, StoreError, NEVER};
@@ -135,8 +141,8 @@ pub fn missing_objects<'i>(
         .collect()
 }
 
-/// Places the selected entries of `image` into `staging` (an existing folder, best empty)
-/// as `layout` lays them out.
+/// Places the selected entries of `image` into `staging` (an existing folder, best empty,
+/// on the volume of the folder it will replace: see the module) as `layout` lays them out.
 pub fn materialize(
     store: &Store,
     image: &Image,
@@ -174,13 +180,16 @@ pub fn materialize(
         return Err(MaterializeError::Missing(missing));
     }
     if ignores_case(staging)? {
-        // Disk paths are canonical paths too (a client's under `minecraft/`).
-        let disk_paths: Vec<CanonicalPath> = placed
-            .iter()
-            .filter_map(|(_, disk)| CanonicalPath::new(disk.clone()).ok())
-            .collect();
-        if let Some((a, b)) = case_collisions(&disk_paths).into_iter().next() {
-            return Err(MaterializeError::CaseClash(a, b));
+        // On the disk paths themselves (a client's are under `minecraft/`, and can be
+        // longer than a canonical path), every one of them; reported by the entries.
+        let clash = case_collisions_of(placed.iter().map(|(_, disk)| disk.as_str()))
+            .into_iter()
+            .next();
+        if let Some((a, b)) = clash {
+            return Err(MaterializeError::CaseClash(
+                placed[a].0.path.clone(),
+                placed[b].0.path.clone(),
+            ));
         }
     }
 

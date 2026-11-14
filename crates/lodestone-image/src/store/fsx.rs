@@ -2,8 +2,9 @@
 //! disk, read-only files, renames Windows can briefly refuse, and copies that clone on APFS.
 //!
 //! Every write in the store goes the same way: a temporary file next to its final place,
-//! flushed, made read-only (objects), then renamed over the final name, so a crash or a
-//! power cut leaves either nothing or the whole file, never part of one. Temporary files a
+//! written out ([`write_out`]), made read-only (objects), then renamed over the final name,
+//! so a crash or a power cut leaves either nothing or the whole file, never part of one;
+//! the store makes a batch of such files durable before a manifest names them. Temporary files a
 //! crash leaves behind end in [`TEMP_SUFFIX`] and are swept once they are an hour old.
 
 use std::collections::hash_map::RandomState;
@@ -155,6 +156,85 @@ pub(crate) fn sync_dir(dir: &Path) -> io::Result<()> {
     #[cfg(not(unix))]
     let _ = dir;
     Ok(())
+}
+
+/// Hands what was written to a content-addressed file to the drive, before it is renamed
+/// into place.
+///
+/// On Apple platforms that is plain `fsync(2)`, which doesn't flush the drive's own cache:
+/// std's `sync_all` there is `F_FULLFSYNC`, a whole-device cache flush of about 6 ms that
+/// doesn't overlap between threads, and chunking makes one flush per 64 KiB of a large
+/// file (minutes for a world's first snapshot). The store issues one full flush
+/// ([`full_flush`]) after the batch instead, before any manifest names the files, as git's
+/// `core.fsyncMethod=batch` does. Elsewhere `fsync` (Linux) and `FlushFileBuffers`
+/// (Windows) already are what the store needs, and run here, one per file.
+pub(crate) fn write_out(file: &File) -> io::Result<()> {
+    #[cfg(target_vendor = "apple")]
+    {
+        apple::fsync(file)
+    }
+    #[cfg(not(target_vendor = "apple"))]
+    {
+        file.sync_all()
+    }
+}
+
+/// Flushes a folder's entries as part of a batch that [`full_flush`] ends: on Apple
+/// platforms a plain `fsync(2)`, elsewhere [`sync_dir`].
+pub(crate) fn write_out_dir(dir: &Path) -> io::Result<()> {
+    #[cfg(target_vendor = "apple")]
+    {
+        apple::fsync(&File::open(dir)?)
+    }
+    #[cfg(not(target_vendor = "apple"))]
+    {
+        sync_dir(dir)
+    }
+}
+
+/// Ends a batch of [`write_out`]s: on Apple platforms one `F_FULLFSYNC` (std's `sync_all`)
+/// through the folder `dir`, which asks the drive to write out its cache, the files of
+/// the batch included. Elsewhere each file was already flushed, and this does nothing.
+pub(crate) fn full_flush(dir: &Path) -> io::Result<()> {
+    #[cfg(target_vendor = "apple")]
+    {
+        File::open(dir)?.sync_all()
+    }
+    #[cfg(not(target_vendor = "apple"))]
+    {
+        let _ = dir;
+        Ok(())
+    }
+}
+
+#[cfg(target_vendor = "apple")]
+mod apple {
+    use std::ffi::c_int;
+    use std::fs::File;
+    use std::io;
+    use std::os::fd::AsRawFd;
+
+    // libSystem's fsync(2), which std links anyway; std only exposes F_FULLFSYNC.
+    unsafe extern "C" {
+        #[link_name = "fsync"]
+        fn c_fsync(fd: c_int) -> c_int;
+    }
+
+    /// Plain `fsync(2)`: the file's data and attributes to the drive, without flushing the
+    /// drive's cache.
+    pub(super) fn fsync(file: &File) -> io::Result<()> {
+        loop {
+            // SAFETY: the descriptor belongs to `file`, which stays open for the call;
+            // fsync reads nothing from memory.
+            if unsafe { c_fsync(file.as_raw_fd()) } == 0 {
+                return Ok(());
+            }
+            let error = io::Error::last_os_error();
+            if error.kind() != io::ErrorKind::Interrupted {
+                return Err(error);
+            }
+        }
+    }
 }
 
 /// Sets `path`'s modification time to now, best effort. The store does this to an object

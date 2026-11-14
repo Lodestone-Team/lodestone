@@ -40,10 +40,9 @@ pub mod world_zip;
 
 use std::collections::HashMap;
 
-use serde_json::Value;
-
 use crate::hex::{is_sha1, is_sha256, is_sha512};
-use crate::manifest::{Image, WithheldReason, MAX_TEXT_LEN};
+use crate::manifest::{prescan, Image, Withheld, WithheldReason, MAX_TEXT_LEN};
+use crate::paths::MAX_PATH_BYTES;
 
 /// Why an old file can't be read or written.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -74,13 +73,28 @@ pub trait Known {
 
     /// The SHA-512 of the `.mrpack` of `version` of the Modrinth project `project`.
     fn pack_sha512(&self, project: &str, version: &str) -> Option<String>;
+
+    /// Whether the file the old record keys as `path` (its enabled name) is disabled on
+    /// disk now, as `<path>.disabled`. The records key disabled files by their enabled
+    /// name; with this, the converted image lists such a file as it is on disk, so placing
+    /// the image doesn't enable it and the next image recorded from disk doesn't show a
+    /// remove and an add. Only images of the files as they are now ask (the Launcher's
+    /// `content.json`, the core's `record.json`), not old history entries. None by default.
+    fn disabled(&self, path: &str) -> bool {
+        let _ = path;
+        false
+    }
 }
+
+/// What disabling a file appends to its name, the Launcher's and the core's way.
+pub const DISABLED: &str = ".disabled";
 
 /// [`Known`] from what the caller collected.
 #[derive(Debug, Clone, Default)]
 pub struct KnownFiles {
     files: HashMap<String, KnownFile>,
     packs: HashMap<(String, String), String>,
+    disabled: std::collections::HashSet<String>,
 }
 
 impl KnownFiles {
@@ -103,6 +117,11 @@ impl KnownFiles {
         }
     }
 
+    /// Records that the file the records key as `path` is disabled on disk.
+    pub fn add_disabled(&mut self, path: &str) {
+        self.disabled.insert(path.to_string());
+    }
+
     /// Records the `.mrpack` hash of a Modrinth pack version.
     pub fn add_pack(&mut self, project: &str, version: &str, sha512: &str) {
         if is_sha512(sha512) {
@@ -123,6 +142,10 @@ impl Known for KnownFiles {
         self.packs
             .get(&(project.to_string(), version.to_string()))
             .cloned()
+    }
+
+    fn disabled(&self, path: &str) -> bool {
+        self.disabled.contains(path)
     }
 }
 
@@ -162,36 +185,170 @@ pub enum Note {
     /// or the SHA-512 of its `.mrpack` isn't known. Its files are listed with their own
     /// sources instead.
     PackNotReferenced { name: String },
+    /// A file that would be a client setting (the icon, the background) is larger than an
+    /// image's settings may name ([`crate::settings::MAX_STORED_FILE`]): the setting is left
+    /// out, and the file stays in the rest.
+    SettingFileTooLarge(String),
+    /// A path the old format had is longer than an image's withheld list may show
+    /// ([`crate::paths::MAX_PATH_BYTES`]): it is only in the rest and this note.
+    PathTooLong(String),
 }
 
 /// The withheld reason for a file whose bytes no one could hash (see [`Known`]): it
 /// couldn't be read.
 const UNHASHED: WithheldReason = WithheldReason::Unreadable;
 
-/// Reads `bytes` as a JSON object and returns it, refusing anything else (serde would read
-/// a struct from an array too).
-fn json_object(bytes: &[u8]) -> Result<serde_json::Map<String, Value>, LegacyError> {
-    match serde_json::from_slice::<Value>(bytes) {
-        Ok(Value::Object(map)) => Ok(map),
-        Ok(_) => Err(LegacyError::Invalid("it isn't a JSON object".into())),
-        Err(e) => Err(LegacyError::Json(e.to_string())),
+/// Checks that `bytes` is a JSON object of a sane shape ([`prescan`]: an old file from
+/// elsewhere, a `.lodesnap`'s manifest, compresses a thousand to one) and returns its
+/// whole-number field `key` (a schema or document version), `None` when it is missing.
+/// Nothing but that field is kept: the rest is skipped without building JSON values, so
+/// a hostile file can't make this cost much more memory than its size. Anything other
+/// than an object is refused (serde would read a struct from an array too).
+fn version_probe(bytes: &[u8], key: &str) -> Result<Option<u64>, LegacyError> {
+    use serde::de::{DeserializeSeed, Deserializer, IgnoredAny, MapAccess, SeqAccess, Visitor};
+    use std::fmt;
+
+    /// What the probed field held.
+    enum Version {
+        Whole(u64),
+        NotWhole,
+        NotNumber,
+    }
+
+    struct VersionVisitor;
+
+    impl<'de> Visitor<'de> for VersionVisitor {
+        type Value = Version;
+
+        fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            f.write_str("a version")
+        }
+
+        fn visit_u64<E: serde::de::Error>(self, v: u64) -> Result<Version, E> {
+            Ok(Version::Whole(v))
+        }
+
+        fn visit_i64<E: serde::de::Error>(self, v: i64) -> Result<Version, E> {
+            Ok(u64::try_from(v).map_or(Version::NotWhole, Version::Whole))
+        }
+
+        fn visit_f64<E: serde::de::Error>(self, _: f64) -> Result<Version, E> {
+            Ok(Version::NotWhole)
+        }
+
+        fn visit_bool<E: serde::de::Error>(self, _: bool) -> Result<Version, E> {
+            Ok(Version::NotNumber)
+        }
+
+        fn visit_str<E: serde::de::Error>(self, _: &str) -> Result<Version, E> {
+            Ok(Version::NotNumber)
+        }
+
+        fn visit_unit<E: serde::de::Error>(self) -> Result<Version, E> {
+            Ok(Version::NotNumber)
+        }
+
+        fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Version, A::Error> {
+            while seq.next_element::<IgnoredAny>()?.is_some() {}
+            Ok(Version::NotNumber)
+        }
+
+        fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Version, A::Error> {
+            while map.next_entry::<IgnoredAny, IgnoredAny>()?.is_some() {}
+            Ok(Version::NotNumber)
+        }
+    }
+
+    impl<'de> serde::Deserialize<'de> for Version {
+        fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Version, D::Error> {
+            d.deserialize_any(VersionVisitor)
+        }
+    }
+
+    /// The whole document: `None` when it isn't an object, else the field (if any).
+    struct Probe<'k> {
+        key: &'k str,
+    }
+
+    impl<'de> DeserializeSeed<'de> for Probe<'_> {
+        type Value = Option<Option<Version>>;
+
+        fn deserialize<D: Deserializer<'de>>(self, d: D) -> Result<Self::Value, D::Error> {
+            d.deserialize_any(self)
+        }
+    }
+
+    impl<'de> Visitor<'de> for Probe<'_> {
+        type Value = Option<Option<Version>>;
+
+        fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            f.write_str("a JSON object")
+        }
+
+        fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
+            let mut found = None;
+            while let Some(name) = map.next_key::<String>()? {
+                if name == self.key && found.is_none() {
+                    found = Some(map.next_value::<Version>()?);
+                } else {
+                    map.next_value::<IgnoredAny>()?;
+                }
+            }
+            Ok(Some(found))
+        }
+
+        fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
+            while seq.next_element::<IgnoredAny>()?.is_some() {}
+            Ok(None)
+        }
+
+        fn visit_bool<E: serde::de::Error>(self, _: bool) -> Result<Self::Value, E> {
+            Ok(None)
+        }
+
+        fn visit_i64<E: serde::de::Error>(self, _: i64) -> Result<Self::Value, E> {
+            Ok(None)
+        }
+
+        fn visit_u64<E: serde::de::Error>(self, _: u64) -> Result<Self::Value, E> {
+            Ok(None)
+        }
+
+        fn visit_f64<E: serde::de::Error>(self, _: f64) -> Result<Self::Value, E> {
+            Ok(None)
+        }
+
+        fn visit_str<E: serde::de::Error>(self, _: &str) -> Result<Self::Value, E> {
+            Ok(None)
+        }
+
+        fn visit_unit<E: serde::de::Error>(self) -> Result<Self::Value, E> {
+            Ok(None)
+        }
+    }
+
+    prescan(bytes).map_err(|e| LegacyError::Invalid(format!("it {e}")))?;
+    let mut deserializer = serde_json::Deserializer::from_slice(bytes);
+    let probed = Probe { key }
+        .deserialize(&mut deserializer)
+        .and_then(|probed| deserializer.end().map(|()| probed))
+        .map_err(|e| LegacyError::Json(e.to_string()))?;
+    match probed {
+        None => Err(LegacyError::Invalid("it isn't a JSON object".into())),
+        Some(None) => Ok(None),
+        Some(Some(Version::Whole(v))) => Ok(Some(v)),
+        Some(Some(Version::NotWhole)) => Err(LegacyError::Invalid(format!(
+            "{key:?} isn't a whole number"
+        ))),
+        Some(Some(Version::NotNumber)) => {
+            Err(LegacyError::Invalid(format!("{key:?} isn't a number")))
+        }
     }
 }
 
-/// The whole-number field `key` of a JSON object (a schema or document version), `None`
-/// when it is missing.
-fn version_field(
-    map: &serde_json::Map<String, Value>,
-    key: &str,
-) -> Result<Option<u64>, LegacyError> {
-    match map.get(key) {
-        None => Ok(None),
-        Some(Value::Number(n)) => n
-            .as_u64()
-            .map(Some)
-            .ok_or_else(|| LegacyError::Invalid(format!("{key:?} isn't a whole number"))),
-        Some(_) => Err(LegacyError::Invalid(format!("{key:?} isn't a number"))),
-    }
+/// Checks that `bytes` is a JSON object of a sane shape, for files without a version.
+fn object_probe(bytes: &[u8]) -> Result<(), LegacyError> {
+    version_probe(bytes, "").map(|_| ())
 }
 
 /// Free text from an old file as an image's informational text: control characters become
@@ -212,6 +369,24 @@ fn lower_hex(bytes: &[u8]) -> String {
         out.push(char::from(DIGITS[usize::from(byte & 0xf)]));
     }
     out
+}
+
+/// Lists a file the image can't hold in its `withheld` list, with a note. A path longer
+/// than the list may show ([`MAX_PATH_BYTES`]) is only noted, so one such file doesn't make
+/// the whole old file unreadable; the caller keeps it in its rest either way.
+fn withhold(image: &mut Image, notes: &mut Vec<Note>, path: &str, reason: WithheldReason) {
+    notes.push(Note::NotListed {
+        path: path.to_string(),
+        reason: reason.clone(),
+    });
+    if path.len() <= MAX_PATH_BYTES {
+        image.withheld.push(Withheld {
+            path: path.to_string(),
+            reason,
+        });
+    } else {
+        notes.push(Note::PathTooLong(path.to_string()));
+    }
 }
 
 /// Seals `image` and checks it, so a conversion never hands out an invalid image.
@@ -288,12 +463,23 @@ mod tests {
 
     #[test]
     fn only_objects_are_read() {
-        assert!(matches!(json_object(b"[1]"), Err(LegacyError::Invalid(_))));
-        assert!(matches!(json_object(b"{"), Err(LegacyError::Json(_))));
-        let map = json_object(br#"{"schema": 1, "bad": -1, "text": "1"}"#).unwrap();
-        assert_eq!(version_field(&map, "schema"), Ok(Some(1)));
-        assert_eq!(version_field(&map, "missing"), Ok(None));
-        assert!(version_field(&map, "bad").is_err());
-        assert!(version_field(&map, "text").is_err());
+        assert!(matches!(object_probe(b"[1]"), Err(LegacyError::Invalid(_))));
+        assert!(matches!(object_probe(b"7"), Err(LegacyError::Invalid(_))));
+        assert!(matches!(object_probe(b"{"), Err(LegacyError::Json(_))));
+        assert!(matches!(object_probe(b"nope"), Err(LegacyError::Json(_))));
+        assert!(matches!(object_probe(b"{} {}"), Err(LegacyError::Json(_))));
+        let doc = br#"{"schema": 1, "bad": -1, "text": "1", "float": 1.5, "deep": {"schema": 9}}"#;
+        assert_eq!(version_probe(doc, "schema"), Ok(Some(1)));
+        assert_eq!(version_probe(doc, "missing"), Ok(None));
+        assert!(version_probe(doc, "bad").is_err());
+        assert!(version_probe(doc, "text").is_err());
+        assert!(version_probe(doc, "float").is_err());
+        assert!(version_probe(doc, "deep").is_err());
+        // A shape no real file has is refused before parsing.
+        let deep = format!("{{\"x\":{}0{}}}", "[".repeat(40), "]".repeat(40));
+        assert!(matches!(
+            object_probe(deep.as_bytes()),
+            Err(LegacyError::Invalid(_))
+        ));
     }
 }

@@ -25,11 +25,12 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
-use super::{finish, json_object, version_field, LegacyError, Note};
+use super::{finish, version_probe, LegacyError, Note};
 use crate::hex::is_sha256;
 use crate::layout::{DiskLayout, ServerLayout};
 use crate::manifest::{App, Game, Image, Kind, Loader, Producer, Source, Withheld, WithheldReason};
 use crate::manifest::{Entry, World};
+use crate::paths::{same_name, MAX_PATH_BYTES};
 use crate::settings::{ServerFlavour, ServerSettings, Settings};
 use crate::store::StatCache;
 
@@ -120,8 +121,7 @@ impl Manifest {
     /// hashes are checked (`core/src/backups/store.rs`, `validate_manifest`, without the
     /// checks against the file's name and folder, which only its store knows).
     pub fn from_json(bytes: &[u8]) -> Result<Manifest, LegacyError> {
-        let map = json_object(bytes)?;
-        let schema = version_field(&map, "schema")?
+        let schema = version_probe(bytes, "schema")?
             .ok_or_else(|| LegacyError::Invalid("no schema".into()))?;
         if schema > u64::from(SCHEMA) {
             return Err(LegacyError::Newer {
@@ -194,8 +194,9 @@ fn valid_rel_path(path: &str) -> bool {
 }
 
 /// What a schema-1 manifest has that its image doesn't: the backup's bookkeeping, and the
-/// files the image couldn't list.
-#[derive(Debug, Clone, PartialEq)]
+/// files the image couldn't list. Kept beside the image (it is serde, so the backup store
+/// can keep it), never in it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Rest {
     pub id: String,
     pub instance_uuid: String,
@@ -220,6 +221,35 @@ pub struct Rest {
     pub unmapped: Vec<(FileEntry, WithheldReason)>,
     /// Modification times too far from 1970 for an image's 64 bits, by disk path.
     pub wide_times: BTreeMap<String, i128>,
+    /// Skipped files whose path is longer than an image's withheld list may show.
+    #[serde(default)]
+    pub long_skipped: Vec<SkippedFile>,
+}
+
+impl Rest {
+    /// The files the image withholds that the backup has, by server path: their objects
+    /// are in the store, but materializing places only the image's entries, so a restore
+    /// that should put back everything the backup had (as the core's restore always did)
+    /// places these itself, at their disk paths, reading each with
+    /// [`crate::store::Store::read_object`], which checks every byte. Each is
+    /// `(disk path, sha256, size, executable)`.
+    pub fn unmapped_files(&self) -> impl Iterator<Item = (&str, &str, u64, bool)> {
+        self.unmapped.iter().map(|(file, _)| {
+            (
+                file.path.as_str(),
+                file.sha256.as_str(),
+                file.size,
+                file.executable,
+            )
+        })
+    }
+
+    /// The objects the rest names that the image doesn't: a store's collection must keep
+    /// them ([`crate::store::gc::GcOptions::also_live`]) for as long as this rest is kept
+    /// instead of the schema-1 manifest.
+    pub fn objects(&self) -> impl Iterator<Item = &str> {
+        self.unmapped.iter().map(|(file, _)| file.sha256.as_str())
+    }
 }
 
 /// A converted backup.
@@ -291,17 +321,18 @@ pub fn to_image(manifest: &Manifest) -> Result<Converted, LegacyError> {
             Ok(None) => WithheldReason::Excluded,
             Err(_) => WithheldReason::BadName,
         };
-        notes.push(Note::NotListed {
-            path: file.path.clone(),
-            reason: reason.clone(),
-        });
-        image.withheld.push(Withheld {
-            path: file.path.clone(),
-            reason: reason.clone(),
-        });
+        super::withhold(&mut image, &mut notes, &file.path, reason.clone());
         unmapped.push((file.clone(), reason));
     }
+    let mut long_skipped = Vec::new();
     for skipped in &manifest.skipped {
+        if skipped.path.len() > MAX_PATH_BYTES {
+            // The core recorded the path it failed to read whatever its length; an image
+            // can't show one this long, so the rest keeps it.
+            notes.push(Note::PathTooLong(skipped.path.clone()));
+            long_skipped.push(skipped.clone());
+            continue;
+        }
         image.withheld.push(Withheld {
             path: skipped.path.clone(),
             reason: skip_reason(skipped.reason),
@@ -355,6 +386,7 @@ pub fn to_image(manifest: &Manifest) -> Result<Converted, LegacyError> {
             .collect(),
         unmapped,
         wide_times,
+        long_skipped,
     };
     Ok(Converted {
         image: finish(image)?,
@@ -364,9 +396,13 @@ pub fn to_image(manifest: &Manifest) -> Result<Converted, LegacyError> {
 }
 
 /// The server disk layout [`to_image`] mapped the backup's paths through. Materializing a
-/// converted backup with it (`store::materialize`) puts every file back at the path the
+/// converted backup with it (`store::materialize`) puts every entry back at the path the
 /// backup had, even when its level wasn't a world folder an image can name (the layout's
-/// level is then a name no file has, so those files keep their server paths).
+/// level is then a name no file has, so those files keep their server paths). Files the
+/// image withholds (a name no canonical path has, a vanilla `DIM-1` inside a Paper level,
+/// a world named only by letter case) aren't entries: their objects are in the store, and
+/// a restore that puts back everything the backup had places them too
+/// ([`Rest::unmapped_files`]).
 pub fn disk_layout(image: &Image, rest: &Rest) -> Result<DiskLayout, LegacyError> {
     let split = image
         .settings
@@ -466,6 +502,7 @@ pub fn from_image(image: &Image, rest: &Rest) -> Result<Manifest, LegacyError> {
             carried_over: rest.carried_over.contains(&withheld.path),
         });
     }
+    skipped.extend(rest.long_skipped.iter().cloned());
     skipped.sort_by(|a, b| a.path.cmp(&b.path));
 
     let quiesced = image
@@ -563,24 +600,31 @@ fn server_layout(
         .filter_map(|f| f.path.strip_suffix("/level.dat"))
         .filter(|folder| !folder.contains('/') && *folder != level)
         .collect();
-    // Each candidate on its own, so one folder that can't be a world (`mods/level.dat`)
-    // doesn't keep the others from being worlds.
-    let others: Vec<String> = candidates
-        .into_iter()
-        .filter(|world| ServerLayout::new(level.clone(), [world.to_string()], split).is_ok())
-        .map(str::to_string)
-        .collect();
+    // One at a time, each only if the layout still holds with it: one folder that can't be
+    // a world (`mods/level.dat`), or one whose name differs only in letter case from a
+    // world already taken (`survival` beside `Survival`, possible on Linux), doesn't keep
+    // the others from being worlds or fail the whole conversion; its files become layout
+    // conflicts, withheld as `bad_name`.
+    let mut others: Vec<String> = Vec::new();
+    for world in candidates {
+        let mut with = others.clone();
+        with.push(world.to_string());
+        if ServerLayout::new(level.clone(), with.iter().cloned(), split).is_ok() {
+            others = with;
+        }
+    }
     let layout = ServerLayout::new(level, others, split)
         .map_err(|e| LegacyError::Invalid(format!("its worlds: {e}")))?;
     Ok((layout, level_is_world))
 }
 
-/// A level name that no top-level file or folder has, nor its split folders.
+/// A level name that no top-level file or folder has, nor its split folders, compared
+/// ignoring letter case as the layout compares world names (a backup's `World/` is in a
+/// level named `world` on most disks).
 fn unused_level(tops: &BTreeSet<&str>) -> String {
+    let taken = |name: &str| tops.iter().any(|top| same_name(top, name));
     let free = |name: &str| {
-        !tops.contains(name)
-            && !tops.contains(format!("{name}_nether").as_str())
-            && !tops.contains(format!("{name}_the_end").as_str())
+        !taken(name) && !taken(&format!("{name}_nether")) && !taken(&format!("{name}_the_end"))
     };
     if free("world") {
         return "world".to_string();
@@ -892,6 +936,99 @@ mod tests {
     }
 
     /// Random server folders of every flavour convert and come back unchanged.
+    #[test]
+    fn a_world_folder_in_another_case_is_never_the_stand_in_level() {
+        // No level_name: the stand-in level mustn't be `world` when `World/` is there (on
+        // most disks they are one folder), or every file in it would be withheld.
+        let m = manifest(
+            "vanilla",
+            None,
+            vec![
+                file("World/level.dat", 1),
+                file("World/region/r.0.0.mca", 2),
+                file("World_nether/x", 3),
+                file("mods/x.jar", 4),
+            ],
+        );
+        let converted = round_trip(&m);
+        assert!(
+            converted.image.withheld.is_empty(),
+            "{:?}",
+            converted.image.withheld
+        );
+        assert_eq!(converted.image.worlds.len(), 1);
+        assert_eq!(converted.image.worlds[0].name, "World");
+        assert!(!same_name(&converted.rest.layout_level, "world"));
+        assert!(!same_name(&converted.rest.layout_level, "world_nether"));
+    }
+
+    #[test]
+    fn worlds_differing_only_in_case_withhold_the_later_one() {
+        // Possible on Linux; the conversion goes on, the clash is withheld.
+        let m = manifest(
+            "vanilla",
+            Some("world"),
+            vec![
+                file("world/level.dat", 1),
+                file("Survival/level.dat", 2),
+                file("survival/level.dat", 3),
+                file("survival/region/r.0.0.mca", 4),
+            ],
+        );
+        let converted = round_trip(&m);
+        let worlds: Vec<&str> = converted
+            .image
+            .worlds
+            .iter()
+            .map(|w| w.name.as_str())
+            .collect();
+        assert_eq!(worlds, ["Survival", "world"]);
+        let withheld: Vec<&str> = converted
+            .image
+            .withheld
+            .iter()
+            .map(|w| w.path.as_str())
+            .collect();
+        assert_eq!(
+            withheld,
+            ["survival/level.dat", "survival/region/r.0.0.mca"]
+        );
+        assert_eq!(converted.rest.unmapped_files().count(), 2);
+        assert_eq!(converted.rest.objects().count(), 2);
+    }
+
+    #[test]
+    fn an_over_long_skipped_path_stays_in_the_rest() {
+        let mut m = manifest("vanilla", Some("world"), vec![file("world/level.dat", 1)]);
+        m.skipped = vec![SkippedFile {
+            path: "a/".repeat(2100) + "b",
+            reason: SkipReason::Unreadable,
+            carried_over: false,
+        }];
+        let converted = round_trip(&m);
+        assert!(converted.image.withheld.is_empty());
+        assert_eq!(converted.rest.long_skipped.len(), 1);
+        assert!(converted
+            .notes
+            .iter()
+            .any(|n| matches!(n, Note::PathTooLong(_))));
+    }
+
+    #[test]
+    fn the_rest_can_be_stored_beside_the_image() {
+        let mut m = manifest(
+            "paper",
+            Some("world"),
+            vec![file("world/level.dat", 1), file("world/DIM-1/x", 2)],
+        );
+        m.files[0].modified_ns = i128::MAX;
+        let converted = round_trip(&m);
+        let json = serde_json::to_vec(&converted.rest).unwrap();
+        let rest: Rest = serde_json::from_slice(&json).unwrap();
+        assert_eq!(rest, converted.rest);
+        assert_eq!(from_image(&converted.image, &rest).unwrap(), m);
+    }
+
     #[test]
     fn random_backups_round_trip() {
         let mut rng = TestRng::new(0x01de_570e);

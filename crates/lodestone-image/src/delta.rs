@@ -13,13 +13,16 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::manifest::{Base, Entry, Game, Image, Kind, Producer, Withheld, World};
+use crate::manifest::{
+    bounded_list, capped_fields, entry_list, prescan, Base, Entry, Game, Image, Kind, Producer,
+    Withheld, World, MAX_ENTRIES, MAX_EXCLUDES, MAX_WORLDS,
+};
 use crate::paths::CanonicalPath;
 use crate::settings::Settings;
 use crate::Side;
 
 /// One field outside the entries that differs, with its value in the `to` image. Written
-/// as `{"<field>": <value>}`.
+/// as `{"<field>": <value>}`. Its lists are bounded while read, as an image's are.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FieldChange {
@@ -31,19 +34,50 @@ pub enum FieldChange {
     Base(Option<Base>),
     Game(Game),
     Settings(Settings),
+    #[serde(deserialize_with = "paths_list")]
     Removed(Vec<CanonicalPath>),
+    #[serde(deserialize_with = "worlds_list")]
     Worlds(Vec<World>),
     Content(Option<String>),
+    #[serde(deserialize_with = "excludes_list")]
     Excludes(Vec<String>),
+    #[serde(deserialize_with = "withheld_list")]
     Withheld(Vec<Withheld>),
     Rules(u32),
     Side(Option<Side>),
     ProjectedFrom(Option<String>),
-    /// The fields this version doesn't know, all of them.
+    /// The fields this version doesn't know, all of them, within the image's budget for
+    /// them ([`crate::manifest::IMAGE_UNKNOWN`]).
+    #[serde(deserialize_with = "capped_fields")]
     Extra(BTreeMap<String, Value>),
 }
 
-/// The changes from the image `from` to the image `to`.
+fn paths_list<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<CanonicalPath>, D::Error> {
+    bounded_list::<D, CanonicalPath, MAX_ENTRIES>(d)
+}
+
+fn worlds_list<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<World>, D::Error> {
+    bounded_list::<D, World, MAX_WORLDS>(d)
+}
+
+fn excludes_list<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<String>, D::Error> {
+    bounded_list::<D, String, MAX_EXCLUDES>(d)
+}
+
+fn withheld_list<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<Withheld>, D::Error> {
+    bounded_list::<D, Withheld, MAX_ENTRIES>(d)
+}
+
+/// A delta changes at most this many fields: each field of an image at most once.
+pub const MAX_CHANGES: usize = 64;
+
+fn changes_list<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<FieldChange>, D::Error> {
+    bounded_list::<D, FieldChange, MAX_CHANGES>(d)
+}
+
+/// The changes from the image `from` to the image `to`. Read one that comes from elsewhere
+/// with [`Delta::from_json`]: its lists are bounded while read either way, but only that
+/// checks the JSON's shape before parsing, as [`Image::from_json`] does.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Delta {
     /// The id of the image this applies to (empty when it wasn't sealed).
@@ -51,21 +85,34 @@ pub struct Delta {
     /// The id of the image it gives (empty when it wasn't sealed).
     pub to: String,
     /// Entries only `to` has, sorted by path.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "entry_list")]
     pub added: Vec<Entry>,
     /// Paths only `from` has, sorted.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "paths_list")]
     pub removed: Vec<CanonicalPath>,
     /// Entries both have that differ in anything (contents, source, env, mode, timestamp),
     /// as `to` has them, sorted by path.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "entry_list")]
     pub replaced: Vec<Entry>,
     /// Fields outside the entries that differ, in the manifest's field order.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "changes_list")]
     pub changes: Vec<FieldChange>,
 }
 
 impl Delta {
+    /// Reads a delta that comes from elsewhere (a server's answer to "what changed?"):
+    /// like a manifest, its shape is checked before it is parsed ([`prescan`]), every list
+    /// is bounded while read and unknown fields are kept only within a budget, so a small
+    /// compressed answer can't exhaust memory. [`apply`] then checks what it makes.
+    pub fn from_json(bytes: &[u8]) -> Result<Delta, DeltaError> {
+        let first = bytes.iter().find(|b| !b.is_ascii_whitespace());
+        if first.is_some_and(|&b| b != b'{') {
+            return Err(DeltaError::Unreadable("it isn't a JSON object".into()));
+        }
+        prescan(bytes).map_err(|e| DeltaError::Unreadable(format!("it {e}")))?;
+        serde_json::from_slice(bytes).map_err(|e| DeltaError::Unreadable(e.to_string()))
+    }
+
     /// Whether the two images are the same in every field.
     pub fn is_empty(&self) -> bool {
         self.added.is_empty()
@@ -107,6 +154,9 @@ pub enum DeltaError {
     /// world it doesn't list…).
     #[error("the result isn't a valid image: {0}")]
     Invalid(String),
+    /// The delta's JSON can't be read, or is larger than any real delta.
+    #[error("the delta can't be read: {0}")]
+    Unreadable(String),
 }
 
 /// The changes from `from` to `to`.
@@ -241,6 +291,8 @@ pub fn apply(from: &Image, delta: &Delta) -> Result<Image, DeltaError> {
         }
     }
     image.normalize();
+    // Validated as the new image, not under `from`'s id (which its parent may well be).
+    image.id = String::new();
     image.validate().map_err(DeltaError::Invalid)?;
     image.id = delta.to.clone();
     if !delta.to.is_empty() {
@@ -479,6 +531,46 @@ mod tests {
         assert!(matches!(
             apply(&from, &bad_hash),
             Err(DeltaError::Invalid(_))
+        ));
+    }
+
+    #[test]
+    fn deltas_from_elsewhere_are_bounded_while_read() {
+        let a = content(&["mods/a.jar"]);
+        let mut b = content(&["mods/a.jar", "mods/b.jar"]);
+        b.parent = Some(a.compute_id());
+        b.extra.insert("future".into(), serde_json::json!([1, 2]));
+        let (mut a, mut b) = (a, b);
+        a.seal();
+        b.seal();
+        let delta = diff(&a, &b);
+        let json = serde_json::to_vec(&delta).unwrap();
+        let read = Delta::from_json(&json).unwrap();
+        assert_eq!(read, delta);
+        // The new image names the old one as its parent: still applies.
+        assert_eq!(apply(&a, &read).unwrap(), b);
+
+        // A huge unknown field in a change is refused on the image's budget.
+        let mut huge = String::from(r#"{"from":"","to":"","changes":[{"extra":{"z":["#);
+        huge.push_str(&"0,".repeat(200_000));
+        huge.push_str("0]}}]}");
+        let error = Delta::from_json(huge.as_bytes()).unwrap_err().to_string();
+        assert!(error.contains("larger than it keeps"), "{error}");
+        // Too many changes, removed paths past the bound, and non-objects are refused.
+        let changes = vec![r#"{"rules":1}"#; MAX_CHANGES + 1].join(",");
+        assert!(Delta::from_json(
+            format!(r#"{{"from":"","to":"","changes":[{changes}]}}"#).as_bytes()
+        )
+        .is_err());
+        let deep = format!(
+            r#"{{"from":"","to":"","x":{}0{}}}"#,
+            "[".repeat(40),
+            "]".repeat(40)
+        );
+        assert!(Delta::from_json(deep.as_bytes()).is_err());
+        assert!(matches!(
+            Delta::from_json(b"[1]"),
+            Err(DeltaError::Unreadable(_))
         ));
     }
 

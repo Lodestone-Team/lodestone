@@ -6,9 +6,11 @@ use crate::settings::{ClientSettings, StoredFile};
 use crate::store::cdc::tests::region_like;
 use crate::store::tests::{age, count, encodings, store, stored_image};
 use crate::store::{Encoding, ObjectForm, StoreError};
+use std::fs::File;
 
 /// Collection without the grace period, for tests about what is used.
 fn now_options() -> GcOptions {
+    allow_short_grace();
     GcOptions {
         grace: Duration::ZERO,
         ..GcOptions::default()
@@ -434,4 +436,91 @@ fn an_also_live_chunk_list_keeps_its_chunks() {
             big
         );
     }
+}
+
+#[test]
+fn a_file_touched_while_it_is_collected_is_put_back() {
+    let (_dir, store) = store(Encoding::Raw);
+    let old = store.put_bytes(b"old and unused").unwrap();
+    let kept = store.put_bytes(b"claimed meanwhile").unwrap();
+    age_all(&store);
+    let old_path = store.object_path(&old.sha256).unwrap();
+    let kept_path = store.object_path(&kept.sha256).unwrap();
+    // Still old once renamed away: deleted.
+    assert_eq!(collect(&old_path, GRACE).unwrap(), Some(14));
+    assert!(!old_path.exists());
+    // A claim touched it after the collection found it old: put back, whole.
+    fsx::touch(&kept_path);
+    assert_eq!(collect(&kept_path, GRACE).unwrap(), None);
+    assert_eq!(
+        store.read_object_bytes(&kept.sha256, kept.size).unwrap(),
+        b"claimed meanwhile"
+    );
+    assert!(crate::store::tests::temp_files(store.root()).is_empty());
+}
+
+#[test]
+fn a_claim_fails_once_a_collection_has_taken_the_file_away() {
+    let (_dir, store) = store(Encoding::Raw);
+    let stored = store.put_bytes(b"about to be named").unwrap();
+    age_all(&store);
+    let path = store.object_path(&stored.sha256).unwrap();
+    // The collection renamed it away (and hasn't decided yet): a claim now fails, so
+    // the manifest that would name it isn't saved.
+    let aside = fsx::temp_path(path.parent().unwrap());
+    fs::rename(&path, &aside).unwrap();
+    assert!(!store.claim_object(&stored.sha256, stored.size));
+    fs::rename(&aside, &path).unwrap();
+    // Back in place: the claim touches it and holds.
+    assert!(store.claim_object(&stored.sha256, stored.size));
+    let age = fsx::age(&fs::metadata(&path).unwrap(), SystemTime::now()).unwrap();
+    assert!(age < Duration::from_secs(60));
+}
+
+#[test]
+fn a_short_grace_is_raised_to_the_minimum() {
+    // On a thread of its own: tests elsewhere lower the minimum on theirs.
+    std::thread::spawn(|| {
+        let (_dir, store) = store(Encoding::Raw);
+        let recent = store.put_bytes(b"stored fifteen minutes ago").unwrap();
+        let old = store.put_bytes(b"stored two hours ago").unwrap();
+        age(&store.object_path(&recent.sha256).unwrap(), 900);
+        age(&store.object_path(&old.sha256).unwrap(), 7200);
+        let report = store
+            .gc(&GcOptions {
+                grace: Duration::ZERO,
+                ..GcOptions::default()
+            })
+            .unwrap();
+        // Fifteen minutes is old enough for a claim to touch it, so a collection with
+        // no grace could take what a snapshot is about to name: the minimum keeps it.
+        assert_eq!(report.objects_removed, 1);
+        assert!(store.has_object(&recent.sha256, recent.size));
+        assert!(!store.has_object(&old.sha256, old.size));
+    })
+    .join()
+    .unwrap();
+}
+
+#[test]
+fn manifests_with_null_lists_mark_and_oversized_ones_refuse() {
+    let (_dir, store) = store(Encoding::Raw);
+    store.put_bytes(b"garbage").unwrap();
+    age_all(&store);
+    let dir = store.instance_dir("one").unwrap();
+    fs::create_dir_all(&dir).unwrap();
+    let name = dir.join(format!("{}.json", sha256_hex(b"null entries")));
+    fs::write(
+        &name,
+        br#"{"schema": 2, "entries": null, "settings": null}"#,
+    )
+    .unwrap();
+    let report = store.gc(&now_options()).unwrap();
+    assert_eq!(report.manifests, 1);
+    assert_eq!(report.objects_removed, 1);
+    // One past the manifest limit isn't read into memory: refused.
+    let file = File::create(&name).unwrap();
+    file.set_len(MAX_MANIFEST_BYTES + 1).unwrap();
+    let error = store.gc(&now_options()).unwrap_err();
+    assert!(error.to_string().contains("larger than"), "{error}");
 }

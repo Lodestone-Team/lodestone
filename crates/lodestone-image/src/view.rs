@@ -56,15 +56,20 @@ pub fn marked_for_players(entry: &Entry) -> bool {
 }
 
 /// Top-level files a server keeps for itself that a client never uses: Bukkit's and its
-/// forks' settings, the player-name caches (a client writes its own), and Forge's and
-/// NeoForge's start scripts and their JVM arguments.
-pub const SERVER_STATE_FILES: [&str; 11] = [
+/// forks' settings (Spigot, Paper, Purpur, Pufferfish), Paper's console history (commands
+/// the admin typed) and version history, the player-name caches (a client writes its own),
+/// and Forge's and NeoForge's start scripts and their JVM arguments.
+pub const SERVER_STATE_FILES: [&str; 15] = [
     "bukkit.yml",
     "spigot.yml",
     "commands.yml",
     "help.yml",
     "permissions.yml",
     "paper.yml",
+    "purpur.yml",
+    "pufferfish.yml",
+    ".console_history",
+    "version_history.json",
     "usercache.json",
     "usernamecache.json",
     "run.sh",
@@ -661,6 +666,130 @@ pub(crate) mod tests {
             local_entries(&both_unsupported).len(),
             both_unsupported.entries.len()
         );
+    }
+
+    /// Random images across every placement class (both sides, server-only, client-only,
+    /// configs, Lodestone's files, server state, worlds) with random env inputs, owner
+    /// marks included: the two views and the local entries always give the image back.
+    #[test]
+    fn lossless_for_random_images() {
+        let mut rng = crate::legacy::TestRng::new(0x1055_1e55);
+        let paths = [
+            "mods/a.jar",
+            "mods/b.jar",
+            "config/a.toml",
+            "defaultconfigs/b.toml",
+            "kubejs/startup.js",
+            "server.properties",
+            "server.jar",
+            "libraries/x.jar",
+            "eula.txt",
+            "banned-players.json",
+            "options.txt",
+            "optionsof.txt",
+            "servers.dat",
+            "resourcepacks/x.zip",
+            "shaderpacks/s.zip",
+            "screenshots/1.png",
+            "saves/loose.txt",
+            ".lodestone_modpack/record.json",
+            ".lodestone_modpack/history.json",
+            "plugins/p.jar",
+            "Plugins/q.jar",
+            "bukkit.yml",
+            "PURPUR.yml",
+            ".console_history",
+            "usercache.json",
+            "run.sh",
+            "user_jvm_args.txt",
+            "saves/w/level.dat",
+            "saves/w/region/r.0.0.mca",
+            "saves/other/level.dat",
+            "README.txt",
+            "Config/upper.toml",
+        ];
+        let values = [
+            None,
+            Some(EnvValue::Required),
+            Some(EnvValue::Optional),
+            Some(EnvValue::Unsupported),
+            Some(EnvValue::Unknown),
+        ];
+        let side_values = |rng: &mut crate::legacy::TestRng| {
+            (rng.below(3) > 0).then(|| SideValues::new(*rng.pick(&values), *rng.pick(&values)))
+        };
+        for case in 0..3000 {
+            let mut image = Image::new(
+                *rng.pick(&[Kind::Content, Kind::Data, Kind::Full]),
+                fabric_pack().game,
+            );
+            let mut chosen: Vec<&str> = paths
+                .iter()
+                .copied()
+                .filter(|_| rng.below(2) == 0)
+                .collect();
+            if image.kind == Kind::Content {
+                chosen.retain(|p| !p.starts_with("saves/") || p.matches('/').count() == 1);
+            }
+            for path in chosen {
+                let inputs = EnvInputs {
+                    owner_mark: *rng.pick(&[
+                        None,
+                        Some(OwnerMark::ForPlayers),
+                        Some(OwnerMark::NotForPlayers),
+                    ]),
+                    base_pack: side_values(&mut rng),
+                    modrinth_environment: side_values(&mut rng),
+                    modrinth_project: side_values(&mut rng),
+                    jar: *rng.pick(&[
+                        None,
+                        Some(JarEnvironment::Client),
+                        Some(JarEnvironment::Server),
+                    ]),
+                };
+                image.entries.push(entry(path, inputs));
+            }
+            let worlds: std::collections::BTreeSet<String> = image
+                .entries
+                .iter()
+                .filter_map(|e| e.world.clone())
+                .collect();
+            image.worlds = worlds
+                .into_iter()
+                .map(|name| World {
+                    name,
+                    level_name: None,
+                    data_version: None,
+                    game_version: None,
+                    size: None,
+                    last_played: None,
+                    quiesced: None,
+                })
+                .collect();
+            if rng.below(2) == 0 {
+                image.settings.server = Some(ServerSettings {
+                    port: Some(25565),
+                    ..ServerSettings::default()
+                });
+            }
+            if rng.below(2) == 0 {
+                image.settings.client = Some(ClientSettings {
+                    recommended_memory_mb: Some(4096),
+                    ..ClientSettings::default()
+                });
+            }
+            image.seal();
+            image
+                .validate()
+                .unwrap_or_else(|e| panic!("case {case}: {e}"));
+            check_lossless(&image).unwrap_or_else(|e| panic!("case {case}: {e}"));
+            // Nothing of Lodestone's or a server's own state ever reaches players.
+            let client = view(&image, Side::Client, RULES).unwrap();
+            assert!(client
+                .entries
+                .iter()
+                .all(|e| !is_lodestone_path(&e.path) && !is_server_state(&e.path)));
+        }
     }
 
     #[test]
