@@ -268,3 +268,56 @@ impl Render for ConnectServiceSetting {
             .children(window_layer(window, dialogs))
     }
 }
+
+/// With GPUI's test platform, which the `screenshot` feature turns on.
+#[cfg(all(test, feature = "screenshot"))]
+mod tests {
+    use gpui::TestAppContext;
+
+    use super::*;
+    use crate::local_core::{self, gpui_tests::state, instance};
+
+    /// Saving a service while the shell shows another core (`shown`), with `local` as
+    /// this computer's core: whether it asks first, and whether it saved.
+    ///
+    /// It saves connect.lodestone.cc itself, which differs from the setting (none) but
+    /// leaves the process's setting as it was, for the other tests.
+    fn save_asks(local: &str, shown: &str) -> Option<(bool, bool)> {
+        if !restarts_core() {
+            // LODESTONE_CONNECT_SERVICE decides the service; saving restarts nothing
+            return None;
+        }
+        let mut cx = TestAppContext::single();
+        cx.update(|cx| {
+            lodestone_ui::components::init(cx);
+            crate::prefs::Prefs::init_for_tests(cx);
+        });
+        let local = state(vec![instance("a", local)], &mut cx);
+        // the shell's state, which the row doesn't take: it counts this computer's core
+        let _shown = state(vec![instance("b", shown)], &mut cx);
+        cx.update(|cx| local_core::set(&local, cx));
+        let row = cx.new(ConnectServiceSetting::new);
+        row.update(&mut cx, |row, cx| row.request(Some(Service::default()), cx));
+        cx.run_until_parked();
+        let asked = row.read_with(&cx, |row, _| row.confirm.is_open());
+        let saved = cx.update(|cx| Prefs::get(cx).connect_service.is_some());
+        Some((asked, saved))
+    }
+
+    /// LS-11: a server running on this computer's core asks before the core restarts,
+    /// though the core shown runs none.
+    #[test]
+    fn saving_asks_about_this_computers_servers_while_another_core_is_shown() {
+        if let Some(result) = save_asks("Running", "Stopped") {
+            assert_eq!(result, (true, false), "asks, and saves nothing yet");
+        }
+    }
+
+    /// LS-11: the shown core's running servers don't ask: the restart doesn't touch them.
+    #[test]
+    fn saving_doesnt_ask_about_the_shown_cores_servers() {
+        if let Some(result) = save_asks("Stopped", "Running") {
+            assert_eq!(result, (false, true), "saves at once");
+        }
+    }
+}

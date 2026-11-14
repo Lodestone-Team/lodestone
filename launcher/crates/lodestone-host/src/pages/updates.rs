@@ -358,3 +358,47 @@ impl ChildrenOpt for SettingRow {
         }
     }
 }
+
+/// With GPUI's test platform, which the `screenshot` feature turns on.
+#[cfg(all(test, feature = "screenshot"))]
+mod tests {
+    use gpui::TestAppContext;
+    use lodestone_ui::components::settings::SettingsSearch;
+
+    use super::*;
+    use crate::local_core::{self, gpui_tests::state, instance};
+
+    /// Settings › Updates while the shell shows another core (`shown`), with `local` as
+    /// this computer's core; whether pressing Restart asks. Without an [`Updater`],
+    /// restarting does nothing, so nothing quits.
+    fn asks_on_restart(local: &str, shown: &str) -> bool {
+        let mut cx = TestAppContext::single();
+        cx.update(|cx| {
+            lodestone_ui::components::init(cx);
+            crate::prefs::Prefs::init_for_tests(cx);
+        });
+        let local = state(vec![instance("a", local)], &mut cx);
+        let remote = state(vec![instance("b", shown)], &mut cx);
+        cx.update(|cx| local_core::set(&local, cx));
+        let page = cx.new(|cx| {
+            let search = cx.new(|cx| SettingsSearch::new("settings-search", cx));
+            UpdatesPage::new(remote, search, cx)
+        });
+        page.update(&mut cx, |page, cx| page.ask_restart(cx));
+        cx.run_until_parked();
+        page.read_with(&cx, |page, _| page.confirm.is_open())
+    }
+
+    /// LS-11: a server running on this computer's core asks, though the core shown
+    /// runs none: the restart stops this computer's.
+    #[test]
+    fn restart_asks_about_this_computers_servers_while_another_core_is_shown() {
+        assert!(asks_on_restart("Running", "Stopped"));
+    }
+
+    /// LS-11: the shown core's running servers don't ask: the restart doesn't touch them.
+    #[test]
+    fn restart_doesnt_ask_about_the_shown_cores_servers() {
+        assert!(!asks_on_restart("Stopped", "Running"));
+    }
+}

@@ -6,6 +6,9 @@
 //! it shows this core, else asked of the core with the Host's session on it. When the
 //! count can't be had, the Host asks anyway.
 
+use std::time::Duration;
+
+use futures::FutureExt as _;
 use gpui::{App, AppContext as _, Entity, Global, Task, WeakEntity};
 use launcher_core::cores::admin::{AdminClient, InstanceInfo};
 
@@ -52,9 +55,14 @@ pub fn running_now(cx: &App) -> Option<usize> {
     state.read(cx).instances.as_deref().map(count_running)
 }
 
+/// How long to wait for this computer's core to list its servers before asking anyway:
+/// the person pressed Restart and waits on it, and a core that hangs would leave the
+/// button doing nothing (one that's gone refuses at once).
+const ASK_FOR: Duration = Duration::from_secs(3);
+
 /// How many of this computer's core's servers run, which restarting it stops: `None`
-/// when that can't be had (the core doesn't answer, or the Host never signed in to it),
-/// so the caller asks.
+/// when that can't be had (the core doesn't answer, or not within [`ASK_FOR`], or the
+/// Host never signed in to it), so the caller asks.
 pub fn running_servers(cx: &mut App) -> Task<Option<usize>> {
     if let Some(running) = running_now(cx) {
         return Task::ready(Some(running));
@@ -65,17 +73,25 @@ pub fn running_servers(cx: &mut App) -> Task<Option<usize>> {
     else {
         return Task::ready(None);
     };
+    let timeout = cx.background_executor().timer(ASK_FOR);
     cx.background_spawn(async move {
-        admin
-            .instances()
-            .await
-            .ok()
-            .map(|instances| count_running(&instances))
+        let listed = async {
+            admin
+                .instances()
+                .await
+                .ok()
+                .map(|instances| count_running(&instances))
+        };
+        futures::select_biased! {
+            running = listed.fuse() => running,
+            _ = timeout.fuse() => None,
+        }
     })
 }
 
+/// A server in `state` ("Running", "Stopped"...), for tests.
 #[cfg(test)]
-fn instance(uuid: &str, state: &str) -> InstanceInfo {
+pub(crate) fn instance(uuid: &str, state: &str) -> InstanceInfo {
     serde_json::from_value(serde_json::json!({
         "uuid": uuid, "name": "SMP", "port": 25565, "state": state,
         "game_type": { "type": "MinecraftJava", "variant": { "type": "Vanilla" } },
@@ -103,9 +119,10 @@ mod tests {
     }
 }
 
-/// With GPUI's test platform, which the `screenshot` feature turns on.
+/// With GPUI's test platform, which the `screenshot` feature turns on. The pages that
+/// restart this computer's core use [`gpui_tests::state`] too.
 #[cfg(all(test, feature = "screenshot"))]
-mod gpui_tests {
+pub(crate) mod gpui_tests {
     use std::{cell::Cell, rc::Rc, sync::Arc};
 
     use gpui::TestAppContext;
@@ -143,7 +160,10 @@ mod gpui_tests {
     }
 
     /// A signed-in state for a core that doesn't answer, listing `instances`.
-    fn state(instances: Vec<InstanceInfo>, cx: &mut TestAppContext) -> Entity<HostState> {
+    pub(crate) fn state(
+        instances: Vec<InstanceInfo>,
+        cx: &mut TestAppContext,
+    ) -> Entity<HostState> {
         let core = CoreClient::new(
             Arc::new(Offline),
             url::Url::parse("http://127.0.0.1:9").unwrap(),
@@ -179,13 +199,11 @@ mod gpui_tests {
         found.take().expect("the count is found")
     }
 
-    /// LS-11: the count is this computer's core's, whichever core the shell shows.
+    /// LS-11: the count is the remembered state's (the pages' tests show another core).
     #[test]
-    fn the_count_is_this_computers_core_while_another_is_shown() {
+    fn the_count_is_the_remembered_cores() {
         let mut cx = TestAppContext::single();
         let local = state(vec![instance("a", "Running")], &mut cx);
-        // another core, with nothing running
-        let _remote = state(vec![instance("b", "Stopped")], &mut cx);
         cx.update(|cx| set(&local, cx));
         assert_eq!(cx.update(|cx| running_now(cx)), Some(1));
         assert_eq!(count(&mut cx), Some(1));
