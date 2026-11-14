@@ -167,40 +167,74 @@ pub(super) struct ZippedFolder {
     _temp_dir: TempDir,
 }
 
-/// What a folder held when it was zipped: how many entries and file bytes, and when the
-/// last of its entries changed. Changing, adding or removing anything in it changes a
-/// file's or a folder's modification time, so a folder with the same fingerprint still
-/// has what its zip has.
+/// What a folder held when it was zipped: every entry's path in it, its kind, and each
+/// file's size and modification time, hashed together, with the files' total size.
+/// Adding, removing or renaming an entry changes the paths, and rewriting a file changes
+/// its modification time, so a folder with the same fingerprint still has what its zip has,
+/// as long as the times can be trusted: see `settled`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct FolderFingerprint {
-    entries: u64,
+    hash: u64,
     bytes: u64,
-    latest_change: Option<SystemTime>,
+    /// Whether every file was last changed more than [`RACY_WINDOW`] before the scan. A
+    /// file changed within that window (or dated in the future, by a clock that was ahead,
+    /// or kept from an archive or a copy) could be rewritten again at the same size without
+    /// its time changing, where the file system keeps times to the second or two, so a
+    /// fingerprint that isn't settled never reuses a zip. Backups trust times the same way.
+    settled: bool,
 }
+
+/// How recently a file may have changed before its modification time stops telling
+/// rewrites apart: FAT keeps times to 2 seconds, HFS+ and some network shares to 1.
+const RACY_WINDOW: Duration = Duration::from_secs(2);
 
 impl FolderFingerprint {
     /// Walks `path` as zipping does, without following symbolic links.
     fn of(path: &std::path::Path) -> Result<FolderFingerprint, Error> {
-        let mut fingerprint = FolderFingerprint {
-            entries: 0,
-            bytes: 0,
-            latest_change: None,
-        };
-        for entry in walkdir::WalkDir::new(path) {
+        use std::hash::{Hash, Hasher};
+        // times from here on may still change unseen
+        let racy_after = SystemTime::now()
+            .checked_sub(RACY_WINDOW)
+            .unwrap_or(SystemTime::UNIX_EPOCH);
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        let mut bytes = 0_u64;
+        let mut settled = true;
+        // sorted, so the same folder hashes the same however the disk lists it
+        for entry in walkdir::WalkDir::new(path).sort_by_file_name() {
             let entry =
                 entry.context(format!("Failed to read the contents of {}", path.display()))?;
             let metadata = entry
                 .metadata()
                 .context(format!("Failed to read the contents of {}", path.display()))?;
-            fingerprint.entries += 1;
-            if metadata.is_file() {
-                fingerprint.bytes = fingerprint.bytes.saturating_add(metadata.len());
+            entry
+                .path()
+                .strip_prefix(path)
+                .unwrap_or(entry.path())
+                .hash(&mut hasher);
+            metadata.is_dir().hash(&mut hasher);
+            metadata.is_symlink().hash(&mut hasher);
+            // a folder's own time only tells that an entry was added or removed, which its
+            // paths already tell
+            if metadata.is_dir() {
+                continue;
             }
-            if let Ok(modified) = metadata.modified() {
-                fingerprint.latest_change = fingerprint.latest_change.max(Some(modified));
+            metadata.len().hash(&mut hasher);
+            if metadata.is_file() {
+                bytes = bytes.saturating_add(metadata.len());
+            }
+            match metadata.modified() {
+                Ok(modified) => {
+                    modified.hash(&mut hasher);
+                    settled &= modified < racy_after;
+                }
+                Err(_) => settled = false,
             }
         }
-        Ok(fingerprint)
+        Ok(FolderFingerprint {
+            hash: hasher.finish(),
+            bytes,
+            settled,
+        })
     }
 }
 
@@ -264,7 +298,9 @@ impl ZippedDownload {
 }
 
 /// Zips the folder at `path` for a download link of `requester`, off the async runtime.
-/// When a live link already holds a zip of the folder as it is now, that zip is reused.
+/// When a live link already holds a zip of the folder as it is now, that zip is reused,
+/// unless a file in it changed too recently (or is dated in the future) for its time to be
+/// trusted.
 /// Otherwise the folder is zipped into a new temporary folder, unless the requester's
 /// links already hold [`MAX_ZIPPED_FOLDERS_PER_USER`] zips or the disk can't fit the
 /// folder's files and still keep its margin free.
@@ -288,7 +324,9 @@ pub(super) async fn zip_folder_for_download(
                 .filter_map(|file| Some((file, file.zip.as_ref()?)))
         };
         let reusable = live_zips()
-            .find(|(_, zip)| zip.source == path && zip.fingerprint == fingerprint)
+            .find(|(_, zip)| {
+                fingerprint.settled && zip.source == path && zip.fingerprint == fingerprint
+            })
             .map(|(_, zip)| zip.clone());
         if let Some(zip) = reusable {
             return Ok(ZippedDownload { zip, slot: None });
@@ -1314,6 +1352,120 @@ mod tests {
         }
     }
 
+    fn hours_ago(hours: u64) -> SystemTime {
+        SystemTime::now() - Duration::from_secs(hours * 60 * 60)
+    }
+
+    /// Sets a file's modification time, as a copy or an archive that keeps times would.
+    fn set_modified(file: &std::path::Path, time: SystemTime) {
+        std::fs::File::options()
+            .write(true)
+            .open(file)
+            .unwrap()
+            .set_modified(time)
+            .unwrap();
+    }
+
+    /// What the file in `zip` whose name ends with `suffix` holds.
+    fn zipped(zip: &std::path::Path, suffix: &str) -> String {
+        use std::io::Read;
+        let mut archive = zip::ZipArchive::new(std::fs::File::open(zip).unwrap()).unwrap();
+        let name = archive
+            .file_names()
+            .map(|name| name.unwrap().into_owned())
+            .find(|name| name.ends_with(suffix))
+            .unwrap();
+        let mut contents = String::new();
+        archive
+            .by_name(&name)
+            .unwrap()
+            .read_to_string(&mut contents)
+            .unwrap();
+        contents
+    }
+
+    /// A file rewritten at the same size gets a new zip even when the folder's latest
+    /// time doesn't change: when another file is dated in the future (a clock that was
+    /// ahead, or times kept from an archive), or when the rewritten file's time goes back
+    /// (LS-86). Before, a folder was matched by its entry count, its bytes and its latest
+    /// time only, so the old zip was handed out again.
+    #[tokio::test]
+    async fn a_rewritten_file_is_zipped_again_whatever_its_time() {
+        let lodestone = tempfile::tempdir().unwrap();
+        crate::prelude::try_init_paths(lodestone.path().to_owned()).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let state = crate::test_util::test_app_state(dir.path(), Default::default()).await;
+        // a user for each folder, so their zips stay within a user's cap
+        let saver = User::new("saver".into(), "pw", false, false, Default::default());
+        let copier = User::new("copier".into(), "pw", false, false, Default::default());
+        let zip_of = |folder: PathBuf, user: &User| {
+            let state = state.clone();
+            let user = user.clone();
+            async move {
+                let zipped = zip_folder_for_download(&state, folder, &user)
+                    .await
+                    .unwrap();
+                let reused = zipped.slot.is_none();
+                let key = register_zipped_folder_download(
+                    &state,
+                    zipped,
+                    user.clone(),
+                    DownloadScope::GlobalFile,
+                )
+                .await;
+                let urls = state.download_urls.lock().await;
+                (urls[&key].path.clone(), reused)
+            }
+        };
+
+        // a file dated in the future, and a region file the server saves in place
+        let future = dir.path().join("future");
+        std::fs::create_dir_all(future.join("region")).unwrap();
+        std::fs::write(future.join("level.dat"), "level").unwrap();
+        set_modified(
+            &future.join("level.dat"),
+            SystemTime::now() + Duration::from_secs(24 * 60 * 60),
+        );
+        std::fs::write(future.join("region/r.0.0.mca"), "aaaa").unwrap();
+        set_modified(&future.join("region/r.0.0.mca"), hours_ago(1));
+        let (first, _) = zip_of(future.clone(), &saver).await;
+        std::fs::write(future.join("region/r.0.0.mca"), "bbbb").unwrap();
+        let (saved, reused) = zip_of(future.clone(), &saver).await;
+        assert!(!reused);
+        assert_ne!(first, saved);
+        assert_eq!(zipped(&saved, "r.0.0.mca"), "bbbb");
+        // while a file is dated in the future, its folder is never trusted to be unchanged
+        let (again, reused) = zip_of(future.clone(), &saver).await;
+        assert!(!reused);
+        assert_ne!(again, saved);
+
+        // a file put back with an older time, at the same size, below the latest time
+        let copied = dir.path().join("copied");
+        std::fs::create_dir_all(&copied).unwrap();
+        std::fs::write(copied.join("a.mca"), "aaaa").unwrap();
+        set_modified(&copied.join("a.mca"), hours_ago(2));
+        std::fs::write(copied.join("b.dat"), "b").unwrap();
+        set_modified(&copied.join("b.dat"), hours_ago(1));
+        let (first, _) = zip_of(copied.clone(), &copier).await;
+        let (again, reused) = zip_of(copied.clone(), &copier).await;
+        assert!(reused);
+        assert_eq!(first, again);
+        std::fs::write(copied.join("a.mca"), "bbbb").unwrap();
+        set_modified(&copied.join("a.mca"), hours_ago(3));
+        let (restored, reused) = zip_of(copied.clone(), &copier).await;
+        assert!(!reused);
+        assert_ne!(first, restored);
+        assert_eq!(zipped(&restored, "a.mca"), "bbbb");
+
+        // a file changed just now can't be told apart from one changed again within the
+        // same second, so its folder isn't reused until its time is old enough
+        std::fs::write(copied.join("b.dat"), "c").unwrap();
+        let (fresh, _) = zip_of(copied.clone(), &copier).await;
+        let (again, reused) = zip_of(copied.clone(), &copier).await;
+        assert!(!reused);
+        assert_ne!(fresh, again);
+    }
+
     /// Holding it keeps folders zipped for download from starting, so a test can cancel a
     /// request while its zip is being made.
     pub(super) static ZIP_GATE: std::sync::Mutex<()> = std::sync::Mutex::new(());
@@ -1382,6 +1534,7 @@ mod tests {
             let path = dir.path().join(name);
             std::fs::create_dir_all(path.join("world")).unwrap();
             std::fs::write(path.join("world/level.dat"), name).unwrap();
+            set_modified(&path.join("world/level.dat"), hours_ago(1));
             path
         };
         let link = |key: &str| {
@@ -1412,6 +1565,7 @@ mod tests {
 
         // a changed file gets a new zip
         std::fs::write(server.join("world/level.dat"), "changed level").unwrap();
+        set_modified(&server.join("world/level.dat"), hours_ago(1));
         let changed = zip_folder_for_download(&state, server.clone(), &viewer)
             .await
             .unwrap();

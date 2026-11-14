@@ -414,6 +414,10 @@ fn extract_zip(
     budget: &mut UnzipBudget,
 ) -> Result<(), Error> {
     let decompress_error = || format!("Failed to decompress file {}", file.display());
+    // as zip's own extraction did, for paths longer than 260 characters on Windows;
+    // `enclosed_name` builds each entry's path from plain components, so joining it onto
+    // the verbatim form is safe
+    let dest = dest.canonicalize().unwrap_or_else(|_| dest.to_path_buf());
     // the central directory lists every entry's size, also for entries that put theirs in
     // a data descriptor after the data, as Finder's Compress, Java and streamed zips do
     // (zip's own `decompressed_size` gives up on those). The bytes actually written are
@@ -449,9 +453,10 @@ fn extract_zip(
             .context(format!("Failed to create {}", relative.display()))?;
         copy_within_budget(&mut entry, &mut out_file, budget)?;
         // the archive's permissions (a script stays runnable), but always readable and
-        // writable by Lodestone, which moves, copies and deletes the files later
+        // writable by Lodestone, which moves, copies and deletes the files later. A link's
+        // mode is always 0777, so the file written for it keeps the default instead.
         #[cfg(unix)]
-        if let Some(mode) = entry.unix_mode() {
+        if let Some(mode) = entry.unix_mode().filter(|_| !entry.is_symlink()) {
             use std::os::unix::fs::PermissionsExt;
             out_file
                 .set_permissions(std::fs::Permissions::from_mode((mode & 0o777) | 0o600))
@@ -1407,6 +1412,30 @@ mod tests {
             };
             assert_eq!(mode("pack/start.sh"), 0o755);
             assert_eq!(mode("pack/locked.txt"), 0o600);
+        }
+
+        // a link is written as a file holding its target, without the link's 0777 mode
+        // (which would leave a world-writable, runnable file)
+        let linked = temp.path().join("linked.zip");
+        let mut writer = zip::ZipWriter::new(std::fs::File::create(&linked).unwrap());
+        writer
+            .add_symlink(
+                "linked/link",
+                "/etc/passwd",
+                zip::write::SimpleFileOptions::default(),
+            )
+            .unwrap();
+        writer.finish().unwrap();
+        unzip_file_in(&linked, UnzipOption::ToDir(dest.clone()), &tmp, None).unwrap();
+        let link = dest.join("linked/link");
+        let metadata = std::fs::symlink_metadata(&link).unwrap();
+        assert!(metadata.is_file());
+        assert_eq!(read(&link), "/etc/passwd");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = metadata.permissions().mode() & 0o777;
+            assert_eq!(mode & 0o111, 0, "{mode:o}");
         }
     }
 
