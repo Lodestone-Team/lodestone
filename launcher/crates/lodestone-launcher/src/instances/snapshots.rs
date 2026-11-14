@@ -354,8 +354,14 @@ impl SnapshotDialog {
                                         (a.category, &a.world).cmp(&(b.category, &b.world))
                                     });
                                 }
+                                // Launch settings from someone else can run programs, so
+                                // the person opts in to them, as the warning says.
+                                let launch_settings = snapshot.sets_launch_settings();
                                 this.chosen = parts
                                     .iter()
+                                    .filter(|p| {
+                                        !(launch_settings && p.category == Category::Settings)
+                                    })
                                     .map(|p| (p.category, p.world.clone()))
                                     .collect();
                                 this.parts = Some(parts);

@@ -386,7 +386,7 @@ pub fn export(call: Call, cx: &mut App) -> Reply {
 }
 
 /// `snapshots.import`: what a `.lodesnap` file holds (`preview`), or a new instance
-/// from it. One with mods needs confirm.
+/// from it. One with mods, or with launch settings and the settings part, needs confirm.
 pub fn import(call: Call, cx: &mut App) -> Reply {
     let path = tri!(path_param(&call));
     // Reads the zip's directory and manifest only; the files are checked as they unpack.
@@ -406,18 +406,30 @@ pub fn import(call: Call, cx: &mut App) -> Reply {
     } else {
         Vec::new()
     };
+    // The sender's launch settings come only with "settings", and can run code too.
+    let launch_settings =
+        selection.categories.contains(&Category::Settings) && snapshot.sets_launch_settings();
+    // One confirmation naming everything that runs code: "confirm" is a single flag, so
+    // asking twice would let a --yes given for the mods pass the settings unheard.
+    let mut risks = Vec::new();
     if !mods.is_empty() {
-        tri!(call.confirm(format!(
-            "makes an instance with {} mods ({}): programs that run when the game starts. Only use snapshots from people the user trusts",
+        risks.push(format!(
+            "{} mods ({}): programs that run when the game starts",
             mods.len(),
             mods.join(", ")
-        )));
-    }
-    // The sender's launch settings come only with "settings", and can run code too.
-    if selection.categories.contains(&Category::Settings) && snapshot.sets_launch_settings() {
-        tri!(call.confirm(
-            "makes an instance with the snapshot's launch settings (its own Java, Java or game arguments, environment variables or memory), which can run programs when the game starts. Only use them from people the user trusts, or leave out the settings part"
         ));
+    }
+    if launch_settings {
+        risks.push(
+            "the snapshot's launch settings (its own Java, Java or game arguments, environment variables or memory), which can run programs when the game starts; leaving out the settings part leaves them out"
+                .to_string(),
+        );
+    }
+    if !risks.is_empty() {
+        tri!(call.confirm(format!(
+            "makes an instance with {}. Only use snapshots from people the user trusts",
+            risks.join("; and ")
+        )));
     }
     let instances = call.control.instances.read(cx);
     let store = instances.snapshot_store();

@@ -109,10 +109,14 @@ The user also sees each connected program (this CLI says
   Show the advisory to the user. Only if they agree, rerun with `--accept-advisory`
   (this once) or run `cores trust <core> --yes` (from now on). A friend's server
   (`friends join`) is never trusted unless the user trusts it in the window.
-- **Snapshot files from other people.** `snapshots import` of a `.lodesnap` with mods
-  fails with `confirmation_required` and lists the mods: programs that run when the game
-  starts. Run `snapshots import <file> --preview` and show the user what it holds; only if
-  they trust who sent it, rerun with `--yes`.
+- **Snapshot files from other people.** `snapshots import` of a `.lodesnap` with mods,
+  or with launch settings (`"launch_settings": true` in the preview: its own Java, Java or
+  game arguments, environment variables or memory) and the `settings` part chosen, fails
+  with `confirmation_required` and names all of them: each can run programs when the game
+  starts. Run `snapshots import <file> --preview` and show the user what it holds,
+  launch settings included; only if they trust who sent it, rerun with `--yes`. Without
+  the `settings` part (`--include` the other parts) the new instance starts with the
+  launcher's own launch settings instead.
 - **Certificates:** a core whose HTTPS certificate isn't trusted fails with
   `untrusted_certificate` and `data.fingerprint`. Ask the user to compare it with the
   fingerprint the core shows (dashboard: Settings, Core Settings; or the core's log).
@@ -277,8 +281,8 @@ lodestone-launcher-cli snapshots create Survival --include worlds --world "New W
 lodestone-launcher-cli snapshots revert Survival "Before 1.21" --yes            # long; snapshots what it replaces first
 lodestone-launcher-cli snapshots revert Survival latest --include mods --include configs --yes
 lodestone-launcher-cli snapshots export Survival latest ~/Desktop               # writes a .lodesnap to share
-lodestone-launcher-cli snapshots import ~/Downloads/Survival.lodesnap --preview # what it holds, its mods
-lodestone-launcher-cli snapshots import ~/Downloads/Survival.lodesnap --yes     # a new instance (needs --yes with mods)
+lodestone-launcher-cli snapshots import ~/Downloads/Survival.lodesnap --preview # what it holds, its mods, launch settings
+lodestone-launcher-cli snapshots import ~/Downloads/Survival.lodesnap --yes     # a new instance (--yes for mods or launch settings)
 lodestone-launcher-cli snapshots delete Survival "Before 1.21" --yes
 lodestone-launcher-cli storage clean snapshots --yes   # automatic ones, deleted instances' ones, share files
 ```
