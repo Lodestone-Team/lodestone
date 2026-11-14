@@ -414,10 +414,15 @@ fn extract_zip(
     budget: &mut UnzipBudget,
 ) -> Result<(), Error> {
     let decompress_error = || format!("Failed to decompress file {}", file.display());
-    // the directory lists every entry's size, and zip refuses to read more than that
-    let declared = archive
-        .decompressed_size()
-        .map_or(u64::MAX, |size| u64::try_from(size).unwrap_or(u64::MAX));
+    // the central directory lists every entry's size, also for entries that put theirs in
+    // a data descriptor after the data, as Finder's Compress, Java and streamed zips do
+    // (zip's own `decompressed_size` gives up on those). The bytes actually written are
+    // counted too, in case the directory lies.
+    let mut declared = 0_u64;
+    for i in 0..archive.len() {
+        let entry = archive.by_index_data(i).with_context(decompress_error)?;
+        declared = declared.saturating_add(entry.size());
+    }
     budget.check_declared(archive.len() as u64, declared)?;
     for i in 0..archive.len() {
         budget.add_entry()?;
@@ -1313,6 +1318,55 @@ mod tests {
             assert!(error.to_string().contains("more than 2 files and folders"));
         }
         assert!(!dest.exists());
+    }
+
+    /// A zip written as a stream, whose entries give their sizes in data descriptors after
+    /// their data (as Finder's Compress, Java's ZipOutputStream and Python's zipfile on a
+    /// stream make them), extracts, and is still held to the limit by the sizes its
+    /// central directory lists (LS-87).
+    #[test]
+    fn a_zip_with_data_descriptors_extracts() {
+        use std::io::Write;
+        let temp = tempfile::tempdir().unwrap();
+        let tmp = temp.path().join("tmp");
+        let dest = temp.path().join("dest");
+        let zip = temp.path().join("streamed.zip");
+        let mut writer = zip::ZipWriter::new_stream(std::fs::File::create(&zip).unwrap());
+        let options = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated);
+        writer.add_directory("pack/", options).unwrap();
+        writer.start_file("pack/a.txt", options).unwrap();
+        writer.write_all(b"hello").unwrap();
+        writer.start_file("pack/zeros.bin", options).unwrap();
+        writer.write_all(&[0_u8; 600_000]).unwrap();
+        writer.finish().unwrap();
+        {
+            let archive = zip::ZipArchive::new(std::fs::File::open(&zip).unwrap()).unwrap();
+            // what made such zips fail before: zip can't tell their size up front
+            assert_eq!(archive.decompressed_size(), None);
+        }
+
+        let unzipped = unzip_file_in(&zip, UnzipOption::ToDir(dest.clone()), &tmp, None).unwrap();
+        assert_eq!(unzipped, HashSet::from([dest.join("pack")]));
+        assert_eq!(read(dest.join("pack/a.txt")), "hello");
+        assert_eq!(
+            std::fs::metadata(dest.join("pack/zeros.bin"))
+                .unwrap()
+                .len(),
+            600_000
+        );
+
+        let error = unzip_file_limited(
+            &zip,
+            UnzipOption::ToDir(temp.path().join("dest2")),
+            &tmp,
+            None,
+            &limits(500_000, 100),
+        )
+        .unwrap_err();
+        assert!(matches!(error.kind, ErrorKind::BadRequest));
+        assert!(error.to_string().contains("streamed.zip expands to more"));
+        assert!(!temp.path().join("dest2").exists());
     }
 
     /// Extracting a zip entry by entry still refuses paths that lead out of the folder,

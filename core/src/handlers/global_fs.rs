@@ -206,7 +206,9 @@ impl FolderFingerprint {
 
 /// The number of folders each user is zipping for download right now, by user id, so a
 /// user's requests at the same time can't all pass [`MAX_ZIPPED_FOLDERS_PER_USER`] before
-/// any of them holds its zip. Only changed while `download_urls` is locked.
+/// any of them holds its zip. A place is checked for and taken only while `download_urls`
+/// is locked, and given back when its [`ZippingSlot`] is dropped: once the zip's link is
+/// stored, or once the zip ends when it failed or its request was cancelled.
 static ZIPPING_FOR_DOWNLOAD: LazyLock<std::sync::Mutex<HashMap<String, usize>>> =
     LazyLock::new(Default::default);
 
@@ -308,17 +310,28 @@ pub(super) async fn zip_folder_for_download(
         ZippingSlot::take(user)
     };
 
-    let zip = tokio::task::spawn_blocking(move || {
+    // The slot goes with the zip onto its blocking thread, which runs to the end even when
+    // the request is cancelled (the client went away): the place stays taken until then,
+    // so cancelled requests can't leave any number of zips being made.
+    let (zip, slot) = tokio::task::spawn_blocking(move || {
+        #[cfg(test)]
+        drop(tests::ZIP_GATE.lock());
         let lodestone_tmp = path_to_tmp();
         std::fs::create_dir_all(lodestone_tmp).context(format!(
             "Failed to create temporary directory {}",
             lodestone_tmp.display()
         ))?;
-        // a world's files hardly compress, so the zip needs about as much room as they use
+        // a world's files hardly compress, so the zip needs about as much room as they use,
+        // on top of what the other zips being made still need
+        let reserved = SpaceForZip::reserve(fingerprint.bytes);
         require_free_space(
             lodestone_tmp,
-            fingerprint.bytes,
-            "to zip the folder for download",
+            fingerprint.bytes.saturating_add(reserved.others),
+            if reserved.others > 0 {
+                "to zip the folder for download, with the other folders being zipped"
+            } else {
+                "to zip the folder for download"
+            },
         )?;
         let temp_dir =
             tempfile::tempdir_in(lodestone_tmp).context("Failed to create temporary folder")?;
@@ -328,12 +341,14 @@ pub(super) async fn zip_folder_for_download(
             .unwrap_or_else(|| "download".to_string());
         let zip_path = temp_dir.path().join(format!("{name}.zip"));
         zip_files(&[&path], &zip_path, true).context("Failed to zip file")?;
-        Ok::<_, Error>(ZippedFolder {
+        drop(reserved);
+        let zip = ZippedFolder {
             zip_path,
             source: path,
             fingerprint,
             _temp_dir: temp_dir,
-        })
+        };
+        Ok::<_, Error>((zip, slot))
     })
     .await
     .context("Failed to zip file")??;
@@ -341,6 +356,32 @@ pub(super) async fn zip_folder_for_download(
         zip: Arc::new(zip),
         slot: Some(slot),
     })
+}
+
+/// The bytes the folders being zipped for download still need, by all users together, so
+/// zips made at the same time can't all pass the free space check against the same free
+/// space.
+static ZIPPING_BYTES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// A zip's place in [`ZIPPING_BYTES`], given back when dropped.
+struct SpaceForZip {
+    bytes: u64,
+    /// What the other zips being made needed when this one started.
+    others: u64,
+}
+
+impl SpaceForZip {
+    fn reserve(bytes: u64) -> SpaceForZip {
+        // folder sizes add up to far less than u64::MAX, so this can't overflow
+        let others = ZIPPING_BYTES.fetch_add(bytes, std::sync::atomic::Ordering::SeqCst);
+        SpaceForZip { bytes, others }
+    }
+}
+
+impl Drop for SpaceForZip {
+    fn drop(&mut self) {
+        ZIPPING_BYTES.fetch_sub(self.bytes, std::sync::atomic::Ordering::SeqCst);
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, TS)]
@@ -1270,6 +1311,57 @@ mod tests {
                 resolve_existing_prefix(&root.join("link/x.txt")).await,
                 Some(root.join("instances/a/macros/x.txt"))
             );
+        }
+    }
+
+    /// Holding it keeps folders zipped for download from starting, so a test can cancel a
+    /// request while its zip is being made.
+    pub(super) static ZIP_GATE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// A request cancelled while its folder is being zipped (its client went away) keeps
+    /// its user's place among the folders being zipped until the zip ends, since the zip
+    /// goes on without it (LS-86). Before, the place was given back at once, so a user
+    /// could start any number of zips by cancelling requests.
+    #[tokio::test]
+    // the gate is held across awaits on purpose, to hold the zip back meanwhile
+    #[allow(clippy::await_holding_lock)]
+    async fn a_cancelled_zip_keeps_its_place_until_it_ends() {
+        let lodestone = tempfile::tempdir().unwrap();
+        crate::prelude::try_init_paths(lodestone.path().to_owned()).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let state = crate::test_util::test_app_state(dir.path(), Default::default()).await;
+        let user = User::new("canceller".into(), "pw", false, false, Default::default());
+        let uid: &str = user.uid.as_ref();
+        let uid = uid.to_owned();
+        let folder = dir.path().join("server");
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::write(folder.join("level.dat"), "level").unwrap();
+
+        let gate = ZIP_GATE.lock().unwrap_or_else(|e| e.into_inner());
+        let request = tokio::spawn({
+            let state = state.clone();
+            let user = user.clone();
+            async move {
+                zip_folder_for_download(&state, folder, &user)
+                    .await
+                    .map(|_| ())
+            }
+        });
+        while ZippingSlot::count(&uid) == 0 {
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+        request.abort();
+        assert!(request.await.unwrap_err().is_cancelled());
+        assert_eq!(ZippingSlot::count(&uid), 1, "the zip still holds its place");
+
+        drop(gate);
+        let started = Instant::now();
+        while ZippingSlot::count(&uid) != 0 {
+            assert!(
+                started.elapsed() < Duration::from_secs(30),
+                "the zip never ended"
+            );
+            tokio::time::sleep(Duration::from_millis(5)).await;
         }
     }
 
