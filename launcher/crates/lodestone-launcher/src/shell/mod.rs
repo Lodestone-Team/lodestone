@@ -2156,15 +2156,18 @@ impl LauncherShell {
     /// A game's window opened: Settings > General > "When a game starts".
     fn game_window_opened(&mut self, cx: &mut Context<Self>) {
         let instances = self.instances.read(cx);
-        match instances.after_launch() {
+        // A "Find it for me" search, open or queued behind another one, opens the
+        // game for each try: quitting would end it half way, with mods still off.
+        let busy = instances.any_preparing()
+            || instances.background_jobs()
+            || self.mod_finder_for(cx).is_some()
+            || self
+                .queued_modals
+                .iter()
+                .any(|m| matches!(m, Modal::ModFinder { .. }));
+        match after_game_opens(instances.after_launch(), busy) {
             AfterLaunch::Stay => {}
             AfterLaunch::Minimize => {
-                self.minimized_for_game = true;
-                self.with_window(cx, |window| window.minimize_window());
-            }
-            // Not while another instance is still installing or starting: quitting
-            // would stop it. Minimized instead, until that game opens too.
-            AfterLaunch::Quit if instances.any_preparing() => {
                 self.minimized_for_game = true;
                 self.with_window(cx, |window| window.minimize_window());
             }
@@ -3192,6 +3195,35 @@ mod tests {
             assert_eq!(cause_text(cause), cause.explanation());
         }
     }
+
+    /// "Quit" never quits while the launcher has something to finish, such as a "Find
+    /// it for me" search whose tries open the game again and again (LS-57).
+    #[test]
+    fn quits_after_launch_only_when_idle() {
+        assert_eq!(
+            after_game_opens(AfterLaunch::Quit, false),
+            AfterLaunch::Quit
+        );
+        assert_eq!(
+            after_game_opens(AfterLaunch::Quit, true),
+            AfterLaunch::Minimize
+        );
+        for after in [AfterLaunch::Stay, AfterLaunch::Minimize] {
+            assert_eq!(after_game_opens(after, true), after);
+            assert_eq!(after_game_opens(after, false), after);
+        }
+    }
+}
+
+/// What "When a game starts" does when a game's window opens. Never quit while the
+/// launcher is `busy` (another instance installing or starting, a modpack import, a
+/// "Find it for me" search whose tries are the games opening): quitting would stop
+/// that half way. The window is minimized instead, and comes back when the game exits.
+fn after_game_opens(after: AfterLaunch, busy: bool) -> AfterLaunch {
+    match after {
+        AfterLaunch::Quit if busy => AfterLaunch::Minimize,
+        after => after,
+    }
 }
 
 /// The paste shortcut in the real window: the shell's key context and its
@@ -3316,6 +3348,40 @@ mod mod_finder_tests {
         shell.read_with(cx, |shell, _| {
             assert!(!shell.modal.is_open());
             assert!(shell.queued_modals.is_empty());
+        });
+    }
+
+    /// "When a game starts: Quit" minimizes instead while a search is open: each try
+    /// opens the game's window, and quitting would end the search half way (LS-57).
+    #[test]
+    fn a_search_keeps_the_launcher_open() {
+        let mut cx = TestAppContext::single();
+        cx.update(crate::components::init);
+        let (shell, cx) = cx.add_window_view(|_, cx| {
+            let accounts = crate::preview::accounts("signed-out", cx);
+            let instances = crate::preview::instances("sidebar-groups", &accounts, cx);
+            LauncherShell::new(accounts, instances, cx)
+        });
+        cx.run_until_parked();
+        let (instances, id) = shell.read_with(cx, |shell, cx| {
+            let instances = shell.instances.clone();
+            let id = instances.read(cx).list()[0].id.clone();
+            (instances, id)
+        });
+        instances.update(cx, |instances, cx| {
+            instances.set_after_launch(AfterLaunch::Quit, cx)
+        });
+        shell.update(cx, |shell, cx| {
+            let instances = shell.instances.clone();
+            let finder = cx.new(|cx| ModFinder::preview(instances, &id, false, cx));
+            shell.show_mod_finder(finder, cx);
+        });
+        cx.run_until_parked();
+        shell.update(cx, |shell, cx| {
+            // The test window can't minimize: only the decision is checked.
+            shell.window = None;
+            shell.game_window_opened(cx);
+            assert!(shell.minimized_for_game, "minimized, not quit");
         });
     }
 }

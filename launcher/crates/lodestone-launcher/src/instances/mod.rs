@@ -478,6 +478,8 @@ pub struct Instances {
     loader_tasks: HashMap<(LoaderKind, String), Task<()>>,
     /// Exports in progress.
     exports: Vec<Task<()>>,
+    /// Exports still writing.
+    exporting: usize,
     /// Replaces the Play button's state, for the offscreen screenshots.
     preview_state: Option<PlayState>,
     /// What Play switches the Play button to instead of playing, for the offscreen
@@ -616,6 +618,7 @@ impl Instances {
             loader_versions: HashMap::new(),
             loader_tasks: HashMap::new(),
             exports: Vec::new(),
+            exporting: 0,
             preview_state: None,
             preview_press: None,
             shared_revision: 0,
@@ -788,6 +791,17 @@ impl Instances {
         self.runs
             .values()
             .any(|run| matches!(run.state, RunState::Preparing { .. }))
+    }
+
+    /// Whether the launcher is busy with work that quitting would stop half way: a
+    /// modpack being imported or updated, an export, files being copied or moved to
+    /// the Trash, a loader being switched.
+    pub fn background_jobs(&self) -> bool {
+        !self.imports.is_empty()
+            || !self.modpack_updates.is_empty()
+            || !self.file_ops.is_empty()
+            || self.exporting > 0
+            || self.loader_switch.is_some()
     }
 
     /// Whether any game is running.
@@ -1274,9 +1288,11 @@ impl Instances {
             export::write(&plan, &out)?;
             Ok::<_, export::ExportError>((plan, out))
         });
+        self.exporting += 1;
         self.exports.push(cx.spawn(async move |this, cx| {
             let result = write.await;
-            this.update(cx, |_, cx| {
+            this.update(cx, |this, cx| {
+                this.exporting -= 1;
                 cx.emit(match result {
                     Ok((plan, out)) => {
                         let saved = trn!(
