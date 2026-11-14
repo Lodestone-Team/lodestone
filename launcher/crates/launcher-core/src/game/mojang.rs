@@ -2,10 +2,11 @@
 //! files are checked.
 //!
 //! Every URL the installer fetches comes from a Mojang file (the version manifest, a
-//! version's details, an asset index, the Java runtime manifest) or a mod loader's
-//! (Fabric's and Quilt's meta, Forge's and NeoForge's installers). [`MojangUrls::resolve`]
-//! only lets through HTTPS URLs on those hosts ([`HOSTS`] and [`LOADER_HOSTS`]),
-//! upgrading old `http://` links. Tests use [`MojangUrls::mirror`], which serves each host from a path on a
+//! version's details, an asset index, the Java runtime manifest), a mod loader's
+//! (Fabric's and Quilt's meta, Forge's and NeoForge's installers) or Azul's list of
+//! Java builds (Zulu 8 for Apple silicon, [`super::zulu`]). [`MojangUrls::resolve`]
+//! only lets through HTTPS URLs on those hosts ([`HOSTS`], [`LOADER_HOSTS`] and
+//! [`JAVA_HOSTS`]), upgrading old `http://` links. Tests use [`MojangUrls::mirror`], which serves each host from a path on a
 //! loopback mock server, so the recorded files can be used with their real URLs.
 
 use url::Url;
@@ -36,11 +37,14 @@ pub const LOADER_HOSTS: &[&str] = &[
     "maven.neoforged.net",
 ];
 
+/// Azul's metadata API and CDN, for the Java 8 Mojang doesn't build for Apple silicon.
+pub const JAVA_HOSTS: &[&str] = &["api.azul.com", "cdn.azul.com"];
+
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum UrlError {
     #[error("{0} is not a valid URL")]
     Invalid(String),
-    #[error("{0} is not on one of Mojang's or the mod loaders' download servers")]
+    #[error("{0} is not on one of Mojang's, the mod loaders' or Azul's download servers")]
     NotMojang(String),
 }
 
@@ -79,13 +83,15 @@ impl MojangUrls {
             .expect("a built-in Mojang URL")
     }
 
-    /// The URL to download `url` from, if it is on one of Mojang's or the mod
-    /// loaders' hosts.
+    /// The URL to download `url` from, if it is on one of Mojang's, the mod loaders'
+    /// or Azul's hosts.
     pub fn resolve(&self, url: &str) -> Result<String, UrlError> {
         let parsed = Url::parse(url).map_err(|_| UrlError::Invalid(url.to_string()))?;
         let host = parsed
             .host_str()
-            .filter(|host| HOSTS.contains(host) || LOADER_HOSTS.contains(host))
+            .filter(|host| {
+                HOSTS.contains(host) || LOADER_HOSTS.contains(host) || JAVA_HOSTS.contains(host)
+            })
             .ok_or_else(|| UrlError::NotMojang(url.to_string()))?;
         if !matches!(parsed.scheme(), "https" | "http")
             || parsed.port().is_some()
@@ -134,6 +140,7 @@ mod tests {
         for bad in [
             "https://evil.example/client.jar",
             "https://maven.fabricmc.net.evil.example/x.jar",
+            "https://cdn.azul.com.evil.example/zulu/bin/x.zip",
             "https://piston-data.mojang.com.evil.example/x",
             "https://piston-data.mojang.com:8443/x",
             "https://user@piston-data.mojang.com/x",

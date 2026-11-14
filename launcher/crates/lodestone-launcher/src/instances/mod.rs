@@ -51,7 +51,7 @@ use launcher_core::{
         loaders::{LoaderChoice, LoaderKind, LoaderVersion},
         log4j::{self, Level, LogLine, Redactor, Stream},
         mojang::MojangUrls,
-        platform::{self, Platform},
+        platform::{self, Arch, Os, Platform},
         process::{GameEvent, GameProcess},
     },
     instances::{Instance, InstanceStore},
@@ -1808,6 +1808,12 @@ impl Instances {
                     rosetta_missing().into(),
                     cx,
                 ),
+                Err(InstallError::NoNativeJava8) => this.fail(
+                    &id,
+                    t(M::CouldntStartMinecraft).into(),
+                    t(M::NoNativeJava8).into(),
+                    cx,
+                ),
                 Err(err) => this.fail(
                     &id,
                     t(M::CouldntStartMinecraft).into(),
@@ -1968,6 +1974,30 @@ impl Instances {
         });
     }
 
+    /// On an Apple silicon Mac, records whether the game about to start runs under
+    /// Rosetta 2 (the instance's header says so while it does), and before the
+    /// instance's first game under Rosetta, tells the player why and what it means. The
+    /// launcher never runs a game under Rosetta without saying so.
+    fn tell_about_rosetta(&mut self, id: &str, rosetta: bool, cx: &mut Context<Self>) {
+        if self.machine.os != Os::MacOs || self.machine.arch != Arch::Arm64 {
+            return;
+        }
+        match self.store.record_rosetta(id, rosetta) {
+            Ok((instance, tell)) => {
+                if tell {
+                    cx.emit(InstancesEvent::Notice {
+                        title: tr!(M::RosettaNoticeTitle, version = instance.game_version).into(),
+                        message: t(M::RosettaNoticeBody).into(),
+                        about: About::Instance(id.to_string()),
+                    });
+                }
+                self.update_listed(instance, cx);
+            }
+            // Only the note is lost; the game starts all the same.
+            Err(err) => eprintln!("lodestone-launcher: saving the instance {id}: {err}"),
+        }
+    }
+
     fn start(
         &mut self,
         id: &str,
@@ -1989,6 +2019,10 @@ impl Instances {
         if rosetta {
             run.log.note(Level::Info, t(M::RosettaNote));
         }
+        self.tell_about_rosetta(id, rosetta, cx);
+        let Some(run) = self.runs.get_mut(id) else {
+            return;
+        };
         // The command line is shown with the access token redacted.
         run.log.note(
             Level::Info,

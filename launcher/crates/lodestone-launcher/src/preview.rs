@@ -100,6 +100,8 @@ pub const SCENES: &[&str] = &[
     "mod-finder",
     "mod-finder-found",
     "rosetta",
+    "rosetta-note",
+    "rosetta-notice",
     "content-mods",
     "content-browse",
     "content-sort",
@@ -556,6 +558,8 @@ fn has_instances(scene: &str) -> bool {
             | "mod-finder"
             | "mod-finder-found"
             | "rosetta"
+            | "rosetta-note"
+            | "rosetta-notice"
     ) || scene.starts_with("content-")
         || scene.starts_with("modpack-")
         || scene == "new-instance-modpack"
@@ -789,6 +793,10 @@ pub fn instances(scene: &str, accounts: &Entity<Accounts>, cx: &mut App) -> Enti
                 if played > 0 {
                     let _ = store.record_play(&instance.id, 1_762_500_000, played);
                 }
+                // 1.8.9 runs under Rosetta 2 on Apple silicon, and the header says so.
+                if name == "Old school" && scene.starts_with("rosetta-") {
+                    let _ = store.record_rosetta(&instance.id, true);
+                }
             }
         }
         if shared::is_scene(scene) {
@@ -822,6 +830,7 @@ pub fn instances(scene: &str, accounts: &Entity<Accounts>, cx: &mut App) -> Enti
         );
         let wanted = match scene.as_str() {
             "content-shaders-vanilla" => Some("Latest release"),
+            scene if scene.starts_with("rosetta-") => Some("Old school"),
             "instance-shared-settings" => Some("Survival 1.20.1"),
             scene if scene.starts_with("instance-linked") => Some("Survival 1.20.1"),
             scene if groups::is_scene(scene) => Some(groups::SELECTED),
@@ -1164,6 +1173,15 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
         "rosetta" => shell.preview_launch_failed(
             crate::i18n::t(crate::i18n::InstancesMsg::RosettaNeeded),
             crate::instances::rosetta_missing(),
+            cx,
+        ),
+        // Before an instance's first game under Rosetta 2.
+        "rosetta-notice" => shell.preview_launch_failed(
+            &crate::i18n::tr!(
+                crate::i18n::InstancesMsg::RosettaNoticeTitle,
+                version = "1.8.9"
+            ),
+            crate::i18n::t(crate::i18n::InstancesMsg::RosettaNoticeBody),
             cx,
         ),
         scene if snapshots::is_scene(scene) => snapshots::apply(scene, shell, cx),

@@ -22,6 +22,7 @@ use launcher_core::{
         },
         platform::{Arch, Os, Platform},
         rules::Features,
+        runtime::{self, JavaSource, RuntimeIndex},
         version::VersionJson,
     },
     instances::{Instance, Memory},
@@ -93,6 +94,24 @@ fn profile(kind: LoaderKind, version: &str, game: &str) -> VersionJson {
     VersionJson::parse(&serde_json::to_vec(&normalized).unwrap()).unwrap()
 }
 
+/// Where the installer puts the Java for `version` on `java`'s platform: Mojang's
+/// runtime for its component, which on Apple silicon is its arm64 Java 17 for Java 16
+/// and 17, or Azul's Zulu 8 for Java 8.
+fn java_path(data: &Path, version: &VersionJson, java: &Platform) -> PathBuf {
+    let index: RuntimeIndex =
+        serde_json::from_slice(&std::fs::read(testdata("runtime/all.json")).unwrap()).unwrap();
+    match runtime::select(&index, version.runtime_component(), java) {
+        Ok(JavaSource::Mojang(choice)) => runtime::java_binary(
+            &runtime::install_dir(&data.join("runtimes"), &choice).unwrap(),
+            java.os,
+        ),
+        Ok(JavaSource::Zulu8) => {
+            data.join("runtimes/zulu-8/mac-os-arm64/zulu-8.jre/Contents/Home/bin/java")
+        }
+        Err(err) => panic!("{}: {err}", version.id),
+    }
+}
+
 fn account() -> LaunchAccount {
     LaunchAccount::microsoft(
         "Lodestoner",
@@ -118,11 +137,7 @@ fn command(version: &VersionJson, machine: Arch, settings: &GameSettings) -> (Ve
     // A loader instance's client jar is under the loader's name.
     classpath.push(data.join(format!("versions/{0}/{0}.jar", version.id)));
     let paths = LaunchPaths {
-        java: data.join(format!(
-            "runtimes/{}/{}/jre.bundle/Contents/Home/bin/java",
-            version.runtime_component(),
-            java.runtime_key()
-        )),
+        java: java_path(data, version, &java),
         game_dir: game_dir.clone(),
         natives_dir: data.join("instances/test/natives"),
         libraries_dir: data.join("libraries"),
@@ -185,6 +200,12 @@ const CASES: &[(LoaderKind, &str, &str, &str)] = &[
         "21.1.209",
         "1.21.1",
         "neoforge-1.21.1",
+    ),
+    (
+        LoaderKind::Forge,
+        "1.16.5-36.2.42",
+        "1.16.5",
+        "forge-1.16.5",
     ),
     (
         LoaderKind::Forge,
@@ -294,6 +315,31 @@ fn loader_specifics() {
         args.iter()
             .any(|a| a == "-DignoreList=client-extra,neoforge-21.1.209.jar")
     );
+
+    // Forge 1.16.5 on Apple silicon runs natively: Azul's Zulu 8, and Mojang's arm64
+    // LWJGL 3.3.1 in place of vanilla's Intel-only 3.2.1, swapped after the merge. On an
+    // Intel Mac it keeps Mojang's Java 8 and LWJGL 3.2.1.
+    let forge = merged(LoaderKind::Forge, "1.16.5-36.2.42", "1.16.5");
+    let (args, text) = command(&forge, Arch::Arm64, &settings);
+    assert_eq!(arg_after(&args, "--launchTarget"), "fmlclient");
+    assert!(
+        text.starts_with("/data/runtimes/zulu-8/mac-os-arm64/zulu-8.jre/Contents/Home/bin/java\n"),
+        "{text}"
+    );
+    let classpath = arg_after(&args, "-cp");
+    assert!(
+        classpath.contains("/org/lwjgl/lwjgl-glfw/3.3.1/lwjgl-glfw-3.3.1-natives-macos-arm64.jar")
+    );
+    assert!(!classpath.contains("/3.2.1/"));
+    assert!(classpath.contains("/java-objc-bridge-1.1.jar"));
+    assert!(classpath.contains("/fmlloader-1.16.5-36.2.42.jar") || classpath.contains("forge"));
+    let (args, text) = command(&forge, Arch::X86_64, &settings);
+    assert!(
+        text.starts_with("/data/runtimes/jre-legacy/mac-os/"),
+        "{text}"
+    );
+    assert!(arg_after(&args, "-cp").contains("/org/lwjgl/lwjgl-glfw/3.2.1/"));
+    assert!(!arg_after(&args, "-cp").contains("3.3.1"));
 
     // Forge 1.12.2: launchwrapper with FML's tweaker, Log4j 2.15 instead of
     // vanilla's 2.8.1, and an Intel Java on Apple Silicon.

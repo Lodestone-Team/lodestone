@@ -207,6 +207,25 @@ pub struct Instance {
     /// until it has set it up.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auto_config: Option<AutoConfig>,
+    /// Whether the instance runs under Rosetta 2 on this Apple silicon Mac, and whether
+    /// the player was told; `None` until the game was first prepared on one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rosetta: Option<RosettaState>,
+}
+
+/// Rosetta 2 and an instance, on an Apple silicon Mac. Versions before 1.13 run in an
+/// Intel Java under Rosetta, because Mojang made no Apple silicon build of their
+/// graphics library (LWJGL 2); the launcher never does that without saying so.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RosettaState {
+    /// The Minecraft version the game was last prepared to run under Rosetta: the
+    /// instance says it runs under Rosetta while its version is still this one. `None`
+    /// when it last ran natively.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    /// Whether the player was told before the instance's first game under Rosetta.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub told: bool,
 }
 
 /// What automatic setup chose for an instance. While a setting still has the value it
@@ -253,7 +272,18 @@ impl Default for Instance {
             prerelease_updates: false,
             recommended_memory: None,
             auto_config: None,
+            rosetta: None,
         }
+    }
+}
+
+impl Instance {
+    /// Whether the instance's version was last prepared to run under Rosetta 2.
+    pub fn runs_under_rosetta(&self) -> bool {
+        self.rosetta
+            .as_ref()
+            .and_then(|rosetta| rosetta.version.as_deref())
+            == Some(self.game_version.as_str())
     }
 }
 
@@ -1036,6 +1066,26 @@ impl InstanceStore {
         Ok(instance)
     }
 
+    /// Records whether the game was just prepared to run under Rosetta 2 (on an Apple
+    /// silicon Mac). Returns the instance, and whether this is its first game under
+    /// Rosetta, which the player is to be told about; it counts as told from now on.
+    pub fn record_rosetta(
+        &self,
+        id: &str,
+        under_rosetta: bool,
+    ) -> Result<(Instance, bool), InstanceError> {
+        let mut instance = self.get(id)?;
+        let mut state = instance.rosetta.clone().unwrap_or_default();
+        state.version = under_rosetta.then(|| instance.game_version.clone());
+        let tell = under_rosetta && !state.told;
+        state.told |= under_rosetta;
+        if instance.rosetta.as_ref() != Some(&state) {
+            instance.rosetta = Some(state);
+            self.save(&instance)?;
+        }
+        Ok((instance, tell))
+    }
+
     /// Records a finished game: when it started and how long it ran.
     pub fn record_play(
         &self,
@@ -1330,6 +1380,41 @@ mod tests {
         let cleared = store.clear_background(&instance.id).unwrap();
         assert_eq!(cleared.background, None);
         assert!(!path.exists());
+    }
+
+    /// The player is told once per instance before its first game under Rosetta, and
+    /// the instance says it runs under Rosetta only while its version is the one that
+    /// did.
+    #[test]
+    fn rosetta_is_told_once_and_follows_the_version() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = InstanceStore::new(dir.path().join("instances"));
+        let instance = store.create("Old", "1.12.2", None).unwrap();
+        assert!(!instance.runs_under_rosetta());
+        let (native, tell) = store.record_rosetta(&instance.id, false).unwrap();
+        assert!(!tell);
+        assert!(!native.runs_under_rosetta());
+        let (first, tell) = store.record_rosetta(&instance.id, true).unwrap();
+        assert!(tell);
+        assert!(first.runs_under_rosetta());
+        let (again, tell) = store.record_rosetta(&instance.id, true).unwrap();
+        assert!(!tell);
+        assert!(again.runs_under_rosetta());
+        // Saved, and only for the version that ran under Rosetta.
+        let mut changed = store.get(&instance.id).unwrap();
+        assert!(changed.runs_under_rosetta());
+        changed.game_version = "1.16.5".into();
+        assert!(!changed.runs_under_rosetta());
+        store.save(&changed).unwrap();
+        let (native, tell) = store.record_rosetta(&instance.id, false).unwrap();
+        assert!(!tell);
+        assert_eq!(
+            native.rosetta,
+            Some(RosettaState {
+                version: None,
+                told: true
+            })
+        );
     }
 
     #[test]

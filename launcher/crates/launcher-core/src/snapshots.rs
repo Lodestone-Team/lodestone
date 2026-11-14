@@ -371,6 +371,8 @@ fn imported_instance(sent: &Instance, settings: bool) -> Instance {
         created: crate::instances::now(),
         last_played: None,
         play_time: 0,
+        // What this Mac found out about Rosetta isn't the sender's.
+        rosetta: None,
         ..base
     }
 }
@@ -959,6 +961,7 @@ impl Store {
                 created: current.created,
                 last_played: current.last_played,
                 play_time: current.play_time,
+                rosetta: current.rosetta.clone(),
                 ..snapshot.instance.clone()
             });
         Ok((settings, safety))

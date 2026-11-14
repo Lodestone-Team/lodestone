@@ -17,6 +17,7 @@ use launcher_core::{
         libraries,
         platform::{Arch, Os, Platform},
         rules::Features,
+        runtime::{self, JavaSource, RuntimeIndex},
         version::VersionJson,
     },
 };
@@ -31,6 +32,24 @@ fn testdata(path: &str) -> PathBuf {
 
 fn version(id: &str) -> VersionJson {
     VersionJson::parse(&std::fs::read(testdata(&format!("versions/{id}.json"))).unwrap()).unwrap()
+}
+
+/// Where the installer puts the Java for `version` on `java`'s platform: Mojang's
+/// runtime for its component, which on Apple silicon is its arm64 Java 17 for Java 16
+/// and 17, or Azul's Zulu 8 for Java 8.
+fn java_path(data: &Path, version: &VersionJson, java: &Platform) -> PathBuf {
+    let index: RuntimeIndex =
+        serde_json::from_slice(&std::fs::read(testdata("runtime/all.json")).unwrap()).unwrap();
+    match runtime::select(&index, version.runtime_component(), java) {
+        Ok(JavaSource::Mojang(choice)) => runtime::java_binary(
+            &runtime::install_dir(&data.join("runtimes"), &choice).unwrap(),
+            java.os,
+        ),
+        Ok(JavaSource::Zulu8) => {
+            data.join("runtimes/zulu-8/mac-os-arm64/zulu-8.jre/Contents/Home/bin/java")
+        }
+        Err(err) => panic!("{}: {err}", version.id),
+    }
 }
 
 fn microsoft() -> LaunchAccount {
@@ -77,11 +96,7 @@ fn command_joining(
         id => data.join("assets/virtual").join(id),
     };
     let paths = LaunchPaths {
-        java: data.join(format!(
-            "runtimes/{}/{}/jre.bundle/Contents/Home/bin/java",
-            version.runtime_component(),
-            java.runtime_key()
-        )),
+        java: java_path(data, version, &java),
         game_dir: game_dir.clone(),
         natives_dir: data.join("instances/test/natives"),
         libraries_dir: data.join("libraries"),
@@ -144,7 +159,9 @@ fn golden_command_lines() {
         max_ram_mb: 4096,
         ..GameSettings::default()
     };
-    for id in ["1.8.9", "1.12.2", "1.16.5", "1.20.1", "26.3"] {
+    for id in [
+        "1.8.9", "1.12.2", "1.13.2", "1.16.5", "1.17.1", "1.18.2", "1.20.1", "26.3",
+    ] {
         let version = version(id);
         for arch in [Arch::Arm64, Arch::X86_64] {
             let (args, text) = command(&version, arch, &microsoft(), &settings);

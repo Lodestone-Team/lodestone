@@ -68,6 +68,12 @@ crate::i18n::messages! {
         CouldntSignIn = "Couldn't sign in",
         RosettaNeeded = "Rosetta 2 is needed",
         RosettaMissing = "This Minecraft version needs an Intel (x86_64) Java, which runs on Apple Silicon through Rosetta 2. Rosetta isn't installed. Install it by running this in Terminal, then press Play again:\n\nsoftwareupdate --install-rosetta",
+        /// Shown once per instance, before its first game under Rosetta 2 on an Apple
+        /// silicon Mac. {version} is the Minecraft version, such as 1.12.2.
+        RosettaNoticeTitle = "Minecraft {version} runs under Rosetta 2",
+        RosettaNoticeBody = "Mojang made no Apple silicon build of the graphics library this version uses, so it runs in an Intel Java through Rosetta 2. It takes longer to start, then plays normally. Minecraft 1.13 and later run natively.",
+        /// Minecraft 1.13 to 1.16.5 on Apple silicon, when Azul lists no Java 8 for it.
+        NoNativeJava8 = "This Minecraft version needs Java 8, and no Java 8 for Apple silicon is available right now: Mojang makes none, and Azul lists none. Try again later, or choose a Java 8 in the instance's Settings.",
         CouldntStartMinecraft = "Couldn't start Minecraft",
         CouldntStartJava = "Couldn't start Java",
         CouldntVerify = "Couldn't verify the game files",

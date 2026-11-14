@@ -1,9 +1,9 @@
 //! The platform the game runs on, as Mojang's version files name it: the operating
 //! system, the CPU architecture of the Java runtime, and the OS version.
 //!
-//! On Apple Silicon the game can run in an x86_64 Java under Rosetta. The platform the
-//! version's rules are evaluated against is then the x86_64 one, because that is what
-//! the game's Java reports.
+//! On Apple Silicon, versions before 1.13 run in an x86_64 Java under Rosetta (see
+//! [`super::libraries::java_arch`]). The platform the version's rules are evaluated
+//! against is then the x86_64 one, because that is what the game's Java reports.
 
 use std::fmt;
 

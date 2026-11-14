@@ -6,9 +6,16 @@
 //! file manifest of files, directories and links, every file with its SHA-1. The
 //! files are downloaded `raw`: Zed's lock has no LZMA crate.
 //!
-//! Mojang has no arm64 build of `jre-legacy` (Java 8), and versions before 1.19 have
-//! only x86_64 natives on macOS. On Apple Silicon those run in the `mac-os` (x86_64)
-//! runtime under Rosetta 2.
+//! On Apple silicon the launcher runs Java natively wherever Minecraft can run natively
+//! (see [`select`]), and never falls back to an Intel Java on its own:
+//! - Mojang has no arm64 build of `java-runtime-alpha` (Java 16, for 1.17) or
+//!   `java-runtime-beta` (Java 17, for 1.18): its arm64 `java-runtime-gamma` (Java 17),
+//!   which those versions and their loaders run on, is used instead.
+//! - Mojang has no arm64 build of `jre-legacy` (Java 8, for 1.13 to 1.16 and their
+//!   Forge) either: Azul's Zulu 8 is used instead ([`super::zulu`]).
+//! - Versions before 1.13 use LWJGL 2, which has no arm64 build from Mojang; they ask
+//!   for the `mac-os` (x86_64) runtime themselves ([`super::libraries::java_arch`]) and
+//!   run under Rosetta 2, which the launcher tells the player about.
 
 use std::{
     collections::BTreeMap,
@@ -113,35 +120,68 @@ impl RuntimeChoice {
     }
 }
 
-/// Picks the runtime `component` for Java built for `java` (the platform with the
-/// architecture the game needs). On an arm64 Mac, a component with no arm64 build
-/// falls back to the x86_64 one, which needs Rosetta.
+/// Where the Java for a version comes from.
+#[derive(Clone, Debug)]
+pub enum JavaSource {
+    /// A runtime from Mojang's manifest.
+    Mojang(RuntimeChoice),
+    /// Azul's Zulu 8 for macOS on arm64, for `jre-legacy`, which Mojang only builds for
+    /// Intel Macs ([`super::zulu`]).
+    Zulu8,
+}
+
+impl JavaSource {
+    /// Whether it is an x86_64 runtime on an Apple Silicon Mac.
+    pub fn needs_rosetta(&self, machine: &Platform) -> bool {
+        match self {
+            JavaSource::Mojang(choice) => choice.needs_rosetta(machine),
+            JavaSource::Zulu8 => false,
+        }
+    }
+}
+
+/// The components Mojang has no arm64 macOS build of whose versions run on its arm64
+/// `java-runtime-gamma` (Java 17): 1.17 (Java 16) and 1.18 (an older Java 17), with
+/// their loaders.
+const RUN_ON_GAMMA_ON_ARM64_MACS: [&str; 2] = ["java-runtime-alpha", "java-runtime-beta"];
+
+/// Picks the Java for the runtime `component` built for `java` (the platform with the
+/// architecture the game needs). On an arm64 Mac, Java 16 and 17 components with no
+/// arm64 build use Mojang's arm64 Java 17, and `jre-legacy` uses Azul's Zulu 8.
+/// Nothing falls back to an x86_64 runtime: a version that runs under Rosetta asks
+/// for the x86_64 platform itself.
 pub fn select(
     index: &RuntimeIndex,
     component: &str,
     java: &Platform,
-) -> Result<RuntimeChoice, RuntimeError> {
-    let lookup = |platform: &Platform| {
-        let key = platform.runtime_key();
+) -> Result<JavaSource, RuntimeError> {
+    let lookup = |component: &str| {
+        let key = java.runtime_key();
         index
             .get(key)
             .and_then(|components| components.get(component))
             .and_then(|builds| builds.first())
-            .map(|entry| RuntimeChoice {
-                component: component.to_string(),
-                platform_key: key,
-                arch: platform.arch,
-                entry: entry.clone(),
+            .map(|entry| {
+                JavaSource::Mojang(RuntimeChoice {
+                    component: component.to_string(),
+                    platform_key: key,
+                    arch: java.arch,
+                    entry: entry.clone(),
+                })
             })
     };
-    if let Some(choice) = lookup(java) {
-        return Ok(choice);
+    if let Some(source) = lookup(component) {
+        return Ok(source);
     }
-    if java.os == Os::MacOs
-        && java.arch == Arch::Arm64
-        && let Some(choice) = lookup(&java.with_arch(Arch::X86_64))
-    {
-        return Ok(choice);
+    if java.os == Os::MacOs && java.arch == Arch::Arm64 {
+        if RUN_ON_GAMMA_ON_ARM64_MACS.contains(&component)
+            && let Some(source) = lookup("java-runtime-gamma")
+        {
+            return Ok(source);
+        }
+        if component == "jre-legacy" {
+            return Ok(JavaSource::Zulu8);
+        }
     }
     Err(RuntimeError::Unavailable {
         component: component.to_string(),
@@ -214,7 +254,7 @@ pub fn plan(
 
 /// Whether the relative link target, resolved from the link's folder, stays inside
 /// the runtime. Resolution is lexical: the runtime's own links are never followed.
-fn link_stays_inside(link: &Path, target: &str) -> bool {
+pub(crate) fn link_stays_inside(link: &Path, target: &str) -> bool {
     if target.is_empty() || target.contains('\0') || Path::new(target).is_absolute() {
         return false;
     }
@@ -399,43 +439,87 @@ mod tests {
         Platform::new(Os::MacOs, arch, "14.6.1")
     }
 
+    fn mojang(source: JavaSource) -> RuntimeChoice {
+        match source {
+            JavaSource::Mojang(choice) => choice,
+            JavaSource::Zulu8 => panic!("expected a Mojang runtime, got Zulu 8"),
+        }
+    }
+
     #[test]
     fn selects_native_runtimes() {
         let index = index();
-        let gamma = select(&index, "java-runtime-gamma", &mac(Arch::Arm64)).unwrap();
+        let gamma = mojang(select(&index, "java-runtime-gamma", &mac(Arch::Arm64)).unwrap());
         assert_eq!(gamma.platform_key, "mac-os-arm64");
         assert_eq!(gamma.arch, Arch::Arm64);
         assert!(!gamma.needs_rosetta(&mac(Arch::Arm64)));
         assert_eq!(gamma.entry.version.name, "17.0.15");
-        let epsilon = select(&index, "java-runtime-epsilon", &mac(Arch::X86_64)).unwrap();
+        let epsilon = mojang(select(&index, "java-runtime-epsilon", &mac(Arch::X86_64)).unwrap());
         assert_eq!(epsilon.platform_key, "mac-os");
         assert_eq!(epsilon.entry.version.name, "25.0.1");
     }
 
+    /// On Apple silicon nothing falls back to an Intel runtime: Java 16 and Mojang's
+    /// older Java 17 use its arm64 Java 17, and Java 8 uses Azul's Zulu 8.
     #[test]
-    fn jre_legacy_falls_back_to_x64_on_apple_silicon() {
+    fn apple_silicon_gets_native_java_for_every_component() {
         let index = index();
         let machine = mac(Arch::Arm64);
+        for component in ["java-runtime-alpha", "java-runtime-beta"] {
+            let source = select(&index, component, &machine).unwrap();
+            assert!(!source.needs_rosetta(&machine), "{component}");
+            let choice = mojang(source);
+            assert_eq!(choice.component, "java-runtime-gamma", "{component}");
+            assert_eq!(choice.platform_key, "mac-os-arm64");
+            assert_eq!(choice.arch, Arch::Arm64);
+        }
         let legacy = select(&index, "jre-legacy", &machine).unwrap();
-        assert_eq!(legacy.platform_key, "mac-os");
-        assert_eq!(legacy.arch, Arch::X86_64);
-        assert!(legacy.needs_rosetta(&machine));
-        assert!(legacy.entry.version.name.starts_with("8u"));
-        // java-runtime-alpha (Java 16) has no arm64 build either.
-        let alpha = select(&index, "java-runtime-alpha", &machine).unwrap();
-        assert_eq!(alpha.platform_key, "mac-os");
-        // A version that needs x86_64 natives asks for the x86_64 platform directly.
-        let gamma_x64 = select(
-            &index,
-            "java-runtime-gamma",
-            &machine.with_arch(Arch::X86_64),
-        )
-        .unwrap();
-        assert_eq!(gamma_x64.platform_key, "mac-os");
-        assert!(gamma_x64.needs_rosetta(&machine));
-        // On an Intel Mac nothing needs Rosetta.
-        let intel = select(&index, "jre-legacy", &mac(Arch::X86_64)).unwrap();
-        assert!(!intel.needs_rosetta(&mac(Arch::X86_64)));
+        assert!(matches!(legacy, JavaSource::Zulu8));
+        assert!(!legacy.needs_rosetta(&machine));
+    }
+
+    #[test]
+    fn versions_that_need_rosetta_ask_for_the_x64_runtime() {
+        let index = index();
+        let machine = mac(Arch::Arm64);
+        // 1.12.2 and older (LWJGL 2) ask for the x86_64 platform themselves.
+        let legacy_x64 =
+            mojang(select(&index, "jre-legacy", &machine.with_arch(Arch::X86_64)).unwrap());
+        assert_eq!(legacy_x64.platform_key, "mac-os");
+        assert_eq!(legacy_x64.arch, Arch::X86_64);
+        assert!(legacy_x64.needs_rosetta(&machine));
+        assert!(legacy_x64.entry.version.name.starts_with("8u"));
+        // On an Intel Mac nothing needs Rosetta, and Mojang's own runtimes are used.
+        let intel = mac(Arch::X86_64);
+        for component in ["jre-legacy", "java-runtime-alpha", "java-runtime-beta"] {
+            let choice = mojang(select(&index, component, &intel).unwrap());
+            assert_eq!(choice.component, component);
+            assert_eq!(choice.platform_key, "mac-os");
+            assert!(!choice.needs_rosetta(&intel));
+        }
+    }
+
+    /// Windows and Linux keep Mojang's runtime for each component.
+    #[test]
+    fn other_systems_are_unchanged() {
+        let mut index = index();
+        // The recorded index has no Windows runtimes; give Windows Linux's.
+        let linux = index["linux"].clone();
+        index.insert("windows-x64".into(), linux);
+        for (platform, key) in [
+            (
+                Platform::new(Os::Windows, Arch::X86_64, "10.0.22631"),
+                "windows-x64",
+            ),
+            (Platform::new(Os::Linux, Arch::X86_64, "6.1"), "linux"),
+        ] {
+            for component in ["jre-legacy", "java-runtime-alpha", "java-runtime-beta"] {
+                let choice = mojang(select(&index, component, &platform).unwrap());
+                assert_eq!(choice.component, component);
+                assert_eq!(choice.platform_key, key);
+                assert_eq!(choice.arch, Arch::X86_64);
+            }
+        }
     }
 
     #[test]
@@ -448,9 +532,10 @@ mod tests {
                 platform: "mac-os-arm64".into()
             }
         );
-        // The fallback is only for macOS.
+        // The substitutions are only for macOS.
         let linux = Platform::new(Os::Linux, Arch::Arm64, "6.1");
         assert!(select(&index(), "jre-legacy", &linux).is_err());
+        assert!(select(&index(), "java-runtime-alpha", &linux).is_err());
     }
 
     #[test]

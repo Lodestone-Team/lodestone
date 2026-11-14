@@ -83,7 +83,13 @@ pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl In
                                 .font_weight(weights::BOLD.into())
                                 .child(subtitle),
                         )
-                        .children(link.as_ref().map(|link| linked_to(link, cx))),
+                        .children(link.as_ref().map(|link| linked_to(link, cx)))
+                        .children(
+                            instance
+                                .as_ref()
+                                .filter(|instance| instance.runs_under_rosetta())
+                                .map(|_| rosetta_note()),
+                        ),
                 )
                 .child(
                     Tabs::new("instance-tabs", InstanceTab::ALL.map(InstanceTab::label))
@@ -259,6 +265,19 @@ fn hero(
                     )
                 }),
         )
+}
+
+/// "Runs under Rosetta 2: …", under the instance's name, while its version runs in an
+/// Intel Java on this Apple silicon Mac (set when the game was last prepared): the
+/// launcher never runs a game under Rosetta without saying so.
+fn rosetta_note() -> impl IntoElement {
+    let note: SharedString = t(M::RunsUnderRosetta).into();
+    div()
+        .id("rosetta-note")
+        .accessible(Role::Label, "rosetta-note", note.clone())
+        .text_size(theme::text_size(text::SMALL))
+        .text_color(crate::theme::ink::muted())
+        .child(note)
 }
 
 /// "Linked to Survival SMP on Peter's core", under the instance's name. Pressing it

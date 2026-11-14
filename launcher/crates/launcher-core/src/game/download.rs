@@ -20,6 +20,7 @@ use std::{
 use futures::{AsyncReadExt as _, TryStreamExt as _, future::BoxFuture};
 use http_client::{AsyncBody, HttpClient, HttpRequestExt as _, Method, RedirectPolicy, Request};
 use sha1::{Digest as _, Sha1};
+use sha2::Sha256;
 
 use super::record::{self, InstallRecord};
 use crate::USER_AGENT;
@@ -296,7 +297,8 @@ impl Downloader {
             .try_for_each_concurrent(self.concurrency, |(item, key)| {
                 let downloaded = &downloaded;
                 async move {
-                    self.download(item, progress, cancel).await?;
+                    self.download(item, Expected::Sha1(&item.sha1), progress, cancel)
+                        .await?;
                     stats.downloaded.fetch_add(1, Ordering::Relaxed);
                     if let (Some(key), Some(stat)) = (key, record::stat(&item.dest)) {
                         downloaded.lock().unwrap_or_else(|p| p.into_inner()).push((
@@ -334,13 +336,41 @@ impl Downloader {
             progress.file_done();
             return Ok(());
         }
-        self.download(item, progress, cancel).await
+        self.download(item, Expected::Sha1(&item.sha1), progress, cancel)
+            .await
+    }
+
+    /// Downloads one file checked against a SHA-256 instead of a SHA-1, for a vendor
+    /// that publishes only that (Azul's Java builds), unless a file with that hash is
+    /// already there. `item.sha1` is not used. `progress` is reset to this one file,
+    /// with `about` bytes: a size that is only shown, never checked, since Azul's
+    /// sizes are rounded.
+    pub async fn fetch_sha256(
+        &self,
+        item: &DownloadItem,
+        sha256: &str,
+        about: Option<u64>,
+        progress: &Progress,
+        cancel: &CancelToken,
+    ) -> Result<(), DownloadError> {
+        progress.reset(1, item.size.or(about).unwrap_or(0));
+        if cancel.is_cancelled() {
+            return Err(DownloadError::Cancelled);
+        }
+        if sha256_of(&item.dest).is_ok_and(|hash| hash.eq_ignore_ascii_case(sha256)) {
+            progress.add_bytes(item.size.or(about).unwrap_or(0));
+            progress.file_done();
+            return Ok(());
+        }
+        self.download(item, Expected::Sha256(sha256), progress, cancel)
+            .await
     }
 
     /// Downloads one file, with retries, whatever is there now.
     async fn download(
         &self,
         item: &DownloadItem,
+        expected: Expected<'_>,
         progress: &Progress,
         cancel: &CancelToken,
     ) -> Result<(), DownloadError> {
@@ -353,9 +383,14 @@ impl Downloader {
                 return Err(DownloadError::Cancelled);
             }
             let mut counted = 0;
-            let result =
-                crate::http::in_http_runtime(self.attempt(item, progress, cancel, &mut counted))
-                    .await;
+            let result = crate::http::in_http_runtime(self.attempt(
+                item,
+                expected,
+                progress,
+                cancel,
+                &mut counted,
+            ))
+            .await;
             match result {
                 Ok(()) => {
                     // Count the expected size, so the total adds up even when a
@@ -478,6 +513,7 @@ impl Downloader {
     async fn attempt(
         &self,
         item: &DownloadItem,
+        expected: Expected<'_>,
         progress: &Progress,
         cancel: &CancelToken,
         counted: &mut u64,
@@ -493,7 +529,7 @@ impl Downloader {
         let _cleanup = RemoveOnDrop(tmp_path.clone());
 
         let mut body = response.into_body();
-        let mut hasher = Sha1::new();
+        let mut hasher = expected.hasher();
         let mut buffer = vec![0u8; 64 * 1024];
         let mut written = 0u64;
         loop {
@@ -522,10 +558,14 @@ impl Downloader {
                 ));
             }
         }
-        let hash = format!("{:x}", hasher.finalize());
-        if !hash.eq_ignore_ascii_case(&item.sha1) {
+        let hash = hasher.finish();
+        if !hash.eq_ignore_ascii_case(expected.hex()) {
             return Err(Attempt::failed(
-                format!("the SHA-1 is {hash}, expected {}", item.sha1),
+                format!(
+                    "the {} is {hash}, expected {}",
+                    expected.algorithm(),
+                    expected.hex()
+                ),
                 true,
             ));
         }
@@ -552,6 +592,56 @@ impl Downloader {
             .map_err(Attempt::Io)?;
         set_executable(item).map_err(Attempt::Io)?;
         Ok(())
+    }
+}
+
+/// The hash a download must have, as hex.
+#[derive(Clone, Copy)]
+enum Expected<'a> {
+    Sha1(&'a str),
+    Sha256(&'a str),
+}
+
+impl<'a> Expected<'a> {
+    fn hex(self) -> &'a str {
+        match self {
+            Expected::Sha1(hex) | Expected::Sha256(hex) => hex,
+        }
+    }
+
+    fn algorithm(self) -> &'static str {
+        match self {
+            Expected::Sha1(_) => "SHA-1",
+            Expected::Sha256(_) => "SHA-256",
+        }
+    }
+
+    fn hasher(self) -> Hasher {
+        match self {
+            Expected::Sha1(_) => Hasher::Sha1(Sha1::new()),
+            Expected::Sha256(_) => Hasher::Sha256(Sha256::new()),
+        }
+    }
+}
+
+enum Hasher {
+    Sha1(Sha1),
+    Sha256(Sha256),
+}
+
+impl Hasher {
+    fn update(&mut self, bytes: &[u8]) {
+        match self {
+            Hasher::Sha1(hasher) => hasher.update(bytes),
+            Hasher::Sha256(hasher) => hasher.update(bytes),
+        }
+    }
+
+    fn finish(self) -> String {
+        match self {
+            Hasher::Sha1(hasher) => format!("{:x}", hasher.finalize()),
+            Hasher::Sha256(hasher) => format!("{:x}", hasher.finalize()),
+        }
     }
 }
 
@@ -680,6 +770,21 @@ pub fn file_matches(path: &Path, expected: &str) -> bool {
 pub fn sha1_of(path: &Path) -> io::Result<String> {
     let mut file = File::open(path)?;
     let mut hasher = Sha1::new();
+    let mut buffer = vec![0u8; 64 * 1024];
+    loop {
+        let read = file.read(&mut buffer)?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
+/// The SHA-256 of a file, as lowercase hex.
+pub fn sha256_of(path: &Path) -> io::Result<String> {
+    let mut file = File::open(path)?;
+    let mut hasher = Sha256::new();
     let mut buffer = vec![0u8; 64 * 1024];
     loop {
         let read = file.read(&mut buffer)?;

@@ -67,6 +67,13 @@ pub fn text(message: M) -> &'static str {
         M::RosettaMissing => {
             "Cette version de Minecraft a besoin d’un Java Intel (x86_64), qui s’exécute sur Apple Silicon grâce à Rosetta 2. Rosetta n’est pas installé. Installez-le en exécutant cette commande dans le Terminal, puis cliquez de nouveau sur Jouer\u{a0}:\n\nsoftwareupdate --install-rosetta"
         }
+        M::RosettaNoticeTitle => "Minecraft {version} s’exécute via Rosetta\u{a0}2",
+        M::RosettaNoticeBody => {
+            "Mojang n’a pas fait de version Apple Silicon de la bibliothèque graphique qu’utilise cette version\u{a0}: elle s’exécute donc dans un Java Intel grâce à Rosetta\u{a0}2. Elle met plus de temps à démarrer, puis fonctionne normalement. Minecraft 1.13 et les versions suivantes s’exécutent nativement."
+        }
+        M::NoNativeJava8 => {
+            "Cette version de Minecraft a besoin de Java\u{a0}8, et aucun Java\u{a0}8 pour Apple Silicon n’est disponible pour le moment\u{a0}: Mojang n’en fait pas, et Azul n’en propose aucun. Réessayez plus tard, ou choisissez un Java\u{a0}8 dans les paramètres de l’instance."
+        }
         M::CouldntStartMinecraft => "Impossible de démarrer Minecraft",
         M::CouldntStartJava => "Impossible de démarrer Java",
         M::CouldntVerify => "Impossible de vérifier les fichiers du jeu",

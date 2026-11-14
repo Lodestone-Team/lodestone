@@ -55,6 +55,13 @@ pub fn text(message: M) -> &'static str {
         M::RosettaMissing => {
             "此 Minecraft 版本需要 Intel（x86_64）Java，它在 Apple Silicon 上通过 Rosetta 2 运行。Rosetta 尚未安装。请在“终端”中运行以下命令安装，然后再次点击“开始游戏”：\n\nsoftwareupdate --install-rosetta"
         }
+        M::RosettaNoticeTitle => "Minecraft {version} 通过 Rosetta 2 运行",
+        M::RosettaNoticeBody => {
+            "Mojang 没有为此版本使用的图形库制作 Apple 芯片版本，因此它会通过 Rosetta 2 在 Intel 版 Java 中运行。启动会慢一些，之后可以正常游玩。Minecraft 1.13 及更高版本会原生运行。"
+        }
+        M::NoNativeJava8 => {
+            "此 Minecraft 版本需要 Java 8，但目前没有适用于 Apple 芯片的 Java 8：Mojang 没有提供，Azul 也没有列出。请稍后再试，或在实例的“设置”中选择一个 Java 8。"
+        }
         M::CouldntStartMinecraft => "无法启动 Minecraft",
         M::CouldntStartJava => "无法启动 Java",
         M::CouldntVerify => "无法校验游戏文件",

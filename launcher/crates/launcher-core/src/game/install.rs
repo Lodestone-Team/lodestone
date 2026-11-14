@@ -3,7 +3,8 @@
 //! [`Installer::prepare`] fetches, in order:
 //! 1. the version manifest (cached for offline use) and the version's details,
 //!    checked against the manifest's SHA-1;
-//! 2. the Java runtime from Mojang's runtime manifest, unless the instance has a Java
+//! 2. the Java runtime from Mojang's runtime manifest (or, for Java 8 on Apple
+//!    silicon, Azul's Zulu 8: see [`super::zulu`]), unless the instance has a Java
 //!    override;
 //! 3. the client jar, the libraries and the Log4j config;
 //! 4. for an instance with a mod loader: the loader's profile, merged onto the
@@ -39,8 +40,9 @@ use super::{
     platform::{self, Arch, Os, Platform},
     record::{self as install_record, InstallRecord},
     rules::Features,
-    runtime::{self, RuntimeIndex, RuntimeManifest},
+    runtime::{self, JavaSource, RuntimeIndex, RuntimeManifest},
     version::VersionJson,
+    zulu,
 };
 use crate::{http, paths::DataDir, storage};
 
@@ -132,6 +134,12 @@ pub enum InstallError {
     Url(#[from] UrlError),
     #[error("{}", platform::ROSETTA_MISSING)]
     RosettaMissing,
+    /// Azul has no Zulu 8 for Apple silicon (its list is empty or not found), and
+    /// Mojang makes no arm64 Java 8.
+    #[error(
+        "This Minecraft version needs Java 8, and no Java 8 made for Apple silicon is available: Mojang makes none, and Azul's list of Zulu 8 builds for it is empty. Lodestone doesn't run it in an Intel Java without saying so; try again later, or choose a Java 8 in the instance's settings."
+    )]
+    NoNativeJava8,
     #[error("{path}: {source}")]
     Io {
         path: PathBuf,
@@ -484,7 +492,7 @@ impl Installer {
                         .filter(|f| !vanilla_paths.contains(f.path.as_path()))
                         .cloned()
                         .collect(),
-                    natives: Vec::new(),
+                    ..Selection::default()
                 };
                 items.extend(self.library_downloads(&loader_only)?);
                 items.extend(self.processor_downloads(&version.id)?);
@@ -537,6 +545,10 @@ impl Installer {
         let assets_layout = self
             .install_assets(&version, game_dir, verify, progress, cancel)
             .await?;
+        let mut version = version;
+        if libraries.arm64_lwjgl && assets_layout.is_none() {
+            self.hide_window_icons(&mut version)?;
+        }
 
         Ok(Prepared {
             version,
@@ -619,14 +631,18 @@ impl Installer {
         let index: RuntimeIndex = serde_json::from_slice(&body).map_err(|err| {
             InstallError::Invalid(format!("Mojang's Java runtime list is invalid: {err}"))
         })?;
-        let choice = runtime::select(
+        let source = runtime::select(
             &index,
             version.runtime_component(),
             &machine.with_arch(java_arch),
         )?;
-        if choice.needs_rosetta(machine) && !(self.can_run_x86_64)() {
+        if source.needs_rosetta(machine) && !(self.can_run_x86_64)() {
             return Err(InstallError::RosettaMissing);
         }
+        let choice = match source {
+            JavaSource::Mojang(choice) => choice,
+            JavaSource::Zulu8 => return self.install_zulu(machine, verify, progress, cancel).await,
+        };
         let java_platform = machine.with_arch(choice.arch);
         let root = runtime::install_dir(&self.data.runtimes_dir(), &choice)?;
         let java = runtime::java_binary(&root, machine.os);
@@ -671,6 +687,147 @@ impl Installer {
         }
         runtime::mark_installed(&root, manifest_sha1).map_err(io_err(&root))?;
         Ok((java, java_platform))
+    }
+
+    /// Installs Azul's newest Zulu 8 for macOS on arm64 ([`zulu`]) into
+    /// `<runtimes>/zulu-8/mac-os-arm64`, unless that build is installed already. When
+    /// Azul can't be reached, the build installed before is used. A 404 or an empty
+    /// list means Azul has none; any other failure is an error, never "none".
+    async fn install_zulu(
+        &self,
+        machine: &Platform,
+        verify: Verify,
+        progress: &InstallProgress,
+        cancel: &CancelToken,
+    ) -> Result<(PathBuf, Platform), InstallError> {
+        let java_platform = machine.with_arch(Arch::Arm64);
+        let root = self
+            .data
+            .runtimes_dir()
+            .join(zulu::COMPONENT)
+            .join(java_platform.runtime_key());
+        let installed = || {
+            fs::read_to_string(root.join(runtime::INSTALLED_MARKER))
+                .ok()
+                .and(zulu::java_binary(&root))
+        };
+        let packages_url = self.urls.resolve(zulu::PACKAGES_URL)?;
+        let build = match self
+            .fetch_cached_or_missing(&packages_url, "zulu_8_macos_aarch64.json", &[404])
+            .await
+        {
+            Ok(Some(body)) => {
+                let packages: Vec<zulu::ZuluPackage> =
+                    serde_json::from_slice(&body).map_err(|err| {
+                        InstallError::Invalid(format!(
+                            "Azul's list of Java builds is invalid: {err}"
+                        ))
+                    })?;
+                zulu::pick(&packages).ok_or(InstallError::NoNativeJava8)?
+            }
+            Ok(None) => return Err(InstallError::NoNativeJava8),
+            // Offline: the build installed before, whichever it is.
+            Err(InstallError::Network(reason)) => {
+                return match installed() {
+                    Some(java) if verify == Verify::Recorded => Ok((java, java_platform)),
+                    _ => Err(InstallError::Network(reason)),
+                };
+            }
+            Err(err) => return Err(err),
+        };
+        if verify == Verify::Recorded
+            && runtime::is_installed(&root, &build.sha256)
+            && let Some(java) = zulu::java_binary(&root)
+        {
+            return Ok((java, java_platform));
+        }
+
+        // The archive, checked against Azul's SHA-256, into the cache; then unpacked
+        // next to the runtime and moved into place, so a failed unpack never leaves a
+        // half runtime where the game would read it.
+        let name = libraries::safe_relative_path(&build.name)
+            .map_err(|err| InstallError::Invalid(err.to_string()))?;
+        let archive = self.data.cache_dir().join("java").join(name);
+        self.downloader
+            .fetch_sha256(
+                &DownloadItem {
+                    url: self.urls.resolve(&build.url)?,
+                    dest: archive.clone(),
+                    sha1: String::new(),
+                    // Azul's sizes are rounded (40346800 for a 40346754-byte zip):
+                    // only shown.
+                    size: None,
+                    executable: false,
+                },
+                &build.sha256,
+                build.size,
+                &progress.downloads,
+                cancel,
+            )
+            .await?;
+        if cancel.is_cancelled() {
+            return Err(InstallError::Cancelled);
+        }
+        let unpacking = root.with_extension("unpacking");
+        let remove = |dir: &Path| match fs::remove_dir_all(dir) {
+            Err(err) if err.kind() != io::ErrorKind::NotFound => Err(io_err(dir)(err)),
+            _ => Ok(()),
+        };
+        remove(&unpacking)?;
+        zulu::unpack(&archive, &unpacking).map_err(|err| InstallError::Invalid(err.to_string()))?;
+        if zulu::java_binary(&unpacking).is_none() {
+            let _ = fs::remove_dir_all(&unpacking);
+            return Err(InstallError::Invalid(format!(
+                "Azul's Java 8 ({}) has no java binary",
+                build.name
+            )));
+        }
+        remove(&root)?;
+        crate::fsx::rename(&unpacking, &root).map_err(io_err(&root))?;
+        runtime::mark_installed(&root, &build.sha256).map_err(io_err(&root))?;
+        // Best effort: it is only taking space now.
+        let _ = fs::remove_file(&archive);
+        let java = zulu::java_binary(&root).ok_or_else(|| {
+            InstallError::Invalid(format!(
+                "the Java runtime in {} has no java",
+                root.display()
+            ))
+        })?;
+        Ok((java, java_platform))
+    }
+
+    /// Points `version` at a copy of its asset index without the window icons.
+    ///
+    /// Mojang's arm64 LWJGL 3.3.1, which 1.13 to 1.18 run with on Apple silicon
+    /// ([`libraries::select`]), has a GLFW that reports an error when a game sets a
+    /// window icon on macOS ("Cocoa: Regular windows do not have icons on macOS"), and
+    /// those versions take any GLFW error while starting as fatal: they show it in a
+    /// dialog and quit ("Failed to create window"). Mojang stopped setting the icon on
+    /// macOS in 1.19. Without the icons in their index, these versions skip setting it
+    /// (they log "Couldn't set icon" and go on), which changes nothing on screen: macOS
+    /// windows have no icons.
+    fn hide_window_icons(&self, version: &mut VersionJson) -> Result<(), InstallError> {
+        let Some(index_ref) = version.asset_index.as_mut() else {
+            return Ok(());
+        };
+        let indexes = self.data.assets_dir().join("indexes");
+        let source = indexes.join(
+            libraries::safe_relative_path(&format!("{}.json", index_ref.id))
+                .map_err(|err| InstallError::Invalid(err.to_string()))?,
+        );
+        let id = format!("{}{WITHOUT_WINDOW_ICONS}", index_ref.id);
+        let dest = indexes.join(
+            libraries::safe_relative_path(&format!("{id}.json"))
+                .map_err(|err| InstallError::Invalid(err.to_string()))?,
+        );
+        let bytes = fs::read(&source).map_err(io_err(&source))?;
+        let filtered = without_window_icons(&bytes)
+            .map_err(|err| InstallError::Invalid(format!("the asset index is invalid: {err}")))?;
+        if fs::read(&dest).ok().as_deref() != Some(filtered.as_slice()) {
+            storage::write_atomic(&dest, &filtered).map_err(io_err(&dest))?;
+        }
+        index_ref.id = id;
+        Ok(())
     }
 
     async fn install_assets(
@@ -751,6 +908,29 @@ impl Installer {
     }
 }
 
+/// What the copy of an asset index without the window icons adds to its id:
+/// `1.16-no-window-icons` ([`Installer::hide_window_icons`]).
+pub const WITHOUT_WINDOW_ICONS: &str = "-no-window-icons";
+
+/// Whether an asset index entry is one of the window icons 1.13 to 1.18 set at
+/// startup, listed with and without the `minecraft/` namespace.
+fn is_window_icon(name: &str) -> bool {
+    let name = name.strip_prefix("minecraft/").unwrap_or(name);
+    matches!(name, "icons/icon_16x16.png" | "icons/icon_32x32.png")
+}
+
+/// An asset index without the window icons, everything else as it was.
+fn without_window_icons(index: &[u8]) -> serde_json::Result<Vec<u8>> {
+    let mut index: serde_json::Value = serde_json::from_slice(index)?;
+    if let Some(objects) = index
+        .get_mut("objects")
+        .and_then(serde_json::Value::as_object_mut)
+    {
+        objects.retain(|name, _| !is_window_icon(name));
+    }
+    serde_json::to_vec(&index)
+}
+
 /// Makes `to` the same file as `from`: a hard link, or a copy where links don't
 /// work. An existing `to` with the same size is kept; the download engine checks it.
 fn link_or_copy(from: &Path, to: &Path) -> io::Result<()> {
@@ -820,5 +1000,36 @@ impl Prepared {
             .map_err(|err| InstallError::Invalid(err.to_string()))?;
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Mojang's 1.16 index lists the window icons with and without the `minecraft/`
+    /// namespace; both go, and nothing else does.
+    #[test]
+    fn the_window_icons_are_left_out_of_the_index() {
+        let index = br#"{"objects": {
+            "icons/icon_16x16.png": {"hash": "bdf48ef6b5d0d23bbb02e17d04865216179f510a", "size": 3665},
+            "icons/icon_32x32.png": {"hash": "92750c5f93c312ba9ab413d546f32190c56d6f1f", "size": 5362},
+            "minecraft/icons/icon_16x16.png": {"hash": "bdf48ef6b5d0d23bbb02e17d04865216179f510a", "size": 3665},
+            "minecraft/icons/icon_32x32.png": {"hash": "92750c5f93c312ba9ab413d546f32190c56d6f1f", "size": 5362},
+            "icons/minecraft.icns": {"hash": "991b421dfd401f115241601b2b373140a8d78572", "size": 114786},
+            "minecraft/sounds/ambient/cave/cave1.ogg": {"hash": "aaa", "size": 1}
+        }}"#;
+        let filtered: serde_json::Value =
+            serde_json::from_slice(&without_window_icons(index).unwrap()).unwrap();
+        let mut names: Vec<&String> = filtered["objects"].as_object().unwrap().keys().collect();
+        names.sort();
+        assert_eq!(
+            names,
+            [
+                "icons/minecraft.icns",
+                "minecraft/sounds/ambient/cave/cave1.ogg"
+            ]
+        );
+        assert!(without_window_icons(b"not json").is_err());
     }
 }

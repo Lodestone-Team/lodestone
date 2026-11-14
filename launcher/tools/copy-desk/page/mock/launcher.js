@@ -414,7 +414,8 @@
     if (inst.played === "yesterday") parts.push(fm("LessThanAMinute"));
     parts.push(playedText(inst));
     return [h("h1.lx-h1", tx(inst.name)), h("div.lx-sub", join(parts)),
-      inst.linked ? h("div.lx-sub", ctx.state.linkedCore === "removed" ? sh("LinkedToRemoved", { server: "Survival SMP", core: "Peter's Lodestone Core" }) : sh("LinkedTo", { server: "Survival SMP", core: "Peter's Lodestone Core" })) : null];
+      inst.linked ? h("div.lx-sub", ctx.state.linkedCore === "removed" ? sh("LinkedToRemoved", { server: "Survival SMP", core: "Peter's Lodestone Core" }) : sh("LinkedTo", { server: "Survival SMP", core: "Peter's Lodestone Core" })) : null,
+      inst.id === "old" ? h("div.lx-muted", { style: { fontSize: "12px" } }, sh("RunsUnderRosetta")) : null];
   }
   function instancePage(ctx) {
     const none = ctx.state.instances === "none" || ctx.route === "home";
@@ -1378,7 +1379,7 @@
         tl(im("AutoMemoryLimitedNote", { wanted: "10 GB" }), "warn"), tl(im("AutoLowMemoryNote", { have: "2 GB", recommended: "6 GB" }), "warn"), tl(im("AutoVideoNoDistanceNote")), tl(im("AutoControlsLauncherNote")),
         tl(im("StoppedNote")), tl(im("EndedBySignal")), tl(im("CancellingNote")), tl(im("TitleAndMessage", { title: "Couldn't start Java", message: "No such file" })), tl(im("TwoSentences", { first: "Imported.", second: "Links were left out." })),
         tl(isp("SharedWrittenNewFile", { count: 42 })), tl(isp("SharedChangedNote", { count: 2 })), tl(is("SharedNotApplied", { error: "options.txt is read-only" }), "warn"), tl(is("SharedNotReadBack", { error: "options.txt is missing" }), "warn")]),
-      mgroup(im("CouldntStartMinecraft"), null, [te(im("RosettaNeeded"), im("RosettaMissing")), te(im("CouldntStartMinecraft"), tx("\u2026")), te(im("CouldntStartJava"), tx("No such file or directory")), te(im("CouldntSignIn"), sh("AuthNetworkBody")),
+      mgroup(im("CouldntStartMinecraft"), null, [te(im("RosettaNeeded"), im("RosettaMissing")), toast(im("RosettaNoticeTitle", { version: "1.12.2" }), im("RosettaNoticeBody")), te(im("CouldntStartMinecraft"), im("NoNativeJava8")), te(im("CouldntStartMinecraft"), tx("\u2026")), te(im("CouldntStartJava"), tx("No such file or directory")), te(im("CouldntSignIn"), sh("AuthNetworkBody")),
         te(im("CouldntVerify"), tx("\u2026")), toast(im("GameFilesVerified"), imp("FilesRepaired", { count: 3, summary: "" }), "ok"), tl(imp("CheckSummary", { count: 4091, ms: 45, unchanged: 4091, hashed: 0, downloaded: 0 })),
         tl(im("FilesBusy"), "warn"), tl(im("StopGameFirst"), "warn"), te(null, im("CouldntSavePlayed", { error: "disk full" })), te(null, im("CouldntSavePlayTime", { error: "disk full" })), te(null, imp("BrokenFolders", { count: 2, path: "instances/old" }))]),
       mgroup(im("ModpackExported"), null, [toast(im("ModpackExported"), [imp("FilesSaved", { count: 1, path: "~/Desktop" }), " ", imp("CurseForgeLeftOut", { count: 2, names: "JourneyMap, Xaero's" }), " ", imp("FilesLeftOut", { count: 2, name: "secret.txt" })], "ok"), te(im("CouldntExportModpack"), tx("\u2026"))]),
