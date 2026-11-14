@@ -453,11 +453,17 @@ pub fn delete(call: Call, cx: &mut App) -> Reply {
         snapshot.name, instance.name
     )));
     launcher_core::trace::emit("snapshot.delete", || json!({ "snapshot": snapshot.id }));
-    let freed = tri!(
-        store
-            .delete(&instance.id, &snapshot.id)
-            .map_err(snapshot_error)
-    );
-    refresh(&call.control, &instance.id, cx);
-    ready(Ok(json!({ "deleted": snapshot.id, "freed_bytes": freed })))
+    // In the background: freeing the files waits for snapshot jobs of other instances
+    // that are storing files, which can take minutes.
+    let deleting = cx.background_spawn({
+        let instance = instance.id.clone();
+        let id = snapshot.id.clone();
+        async move { store.delete(&instance, &id) }
+    });
+    let control = call.control.clone();
+    cx.spawn(async move |cx| {
+        let freed = deleting.await.map_err(snapshot_error)?;
+        cx.update(|cx| refresh(&control, &instance.id, cx));
+        Ok(json!({ "deleted": snapshot.id, "freed_bytes": freed }))
+    })
 }

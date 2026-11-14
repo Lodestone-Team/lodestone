@@ -17,11 +17,12 @@
 //! size and ratio limits, and every object's hash verified.
 
 use std::{
-    collections::{BTreeMap, BTreeSet, HashSet},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     fs::{self, File},
     io::{self, BufReader, BufWriter, Read, Write},
     path::{Path, PathBuf},
-    time::SystemTime,
+    sync::{Arc, Mutex, OnceLock, PoisonError, RwLock},
+    time::{Duration, SystemTime},
 };
 
 use serde::{Deserialize, Serialize};
@@ -421,6 +422,27 @@ pub struct Store {
 /// How far a long job has got.
 pub type Progress<'a> = &'a (dyn Fn(u64, u64) + Sync);
 
+/// The lock of the store at `root`, shared by every [`Store`] for it in this process.
+///
+/// Taking a snapshot or importing one puts its objects in the store before the manifest
+/// that names them, and garbage collection removes every object no manifest names. So
+/// jobs that add objects (or read them) share the lock, and garbage collection takes it
+/// alone: it waits for them, and they for it. Jobs on different instances still run
+/// together.
+fn store_lock(root: &Path) -> Arc<RwLock<()>> {
+    static LOCKS: OnceLock<Mutex<HashMap<PathBuf, Arc<RwLock<()>>>>> = OnceLock::new();
+    let mut locks = LOCKS
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner);
+    locks.entry(root.to_path_buf()).or_default().clone()
+}
+
+/// How old a temporary file in `objects/` must be before garbage collection removes
+/// it. Jobs that write them hold the store's lock, so one seen there was left by a
+/// launcher that stopped, unless another one uses the same folder right now.
+const STALE_TEMP: Duration = Duration::from_secs(24 * 60 * 60);
+
 impl Store {
     pub fn new(data: &DataDir) -> Self {
         Self::at(data.root().join("snapshots"))
@@ -432,6 +454,20 @@ impl Store {
 
     pub fn root(&self) -> &Path {
         &self.root
+    }
+
+    /// Runs `job`, which adds or reads objects, while no garbage collection runs.
+    fn sharing<T>(&self, job: impl FnOnce() -> T) -> T {
+        let lock = store_lock(&self.root);
+        let _shared = lock.read().unwrap_or_else(PoisonError::into_inner);
+        job()
+    }
+
+    /// Runs `job`, which removes manifests or objects, while no other job runs.
+    fn alone<T>(&self, job: impl FnOnce() -> T) -> T {
+        let lock = store_lock(&self.root);
+        let _alone = lock.write().unwrap_or_else(PoisonError::into_inner);
+        job()
     }
 
     fn objects(&self) -> PathBuf {
@@ -489,6 +525,31 @@ impl Store {
     /// Takes a snapshot of `instance` (in `instance_dir`) with `selection`.
     #[allow(clippy::too_many_arguments)]
     pub fn create(
+        &self,
+        instance: &Instance,
+        instance_dir: &Path,
+        name: &str,
+        note: Option<String>,
+        selection: &Selection,
+        automatic: bool,
+        progress: Progress<'_>,
+    ) -> Result<Snapshot, SnapshotError> {
+        self.sharing(|| {
+            self.create_shared(
+                instance,
+                instance_dir,
+                name,
+                note,
+                selection,
+                automatic,
+                progress,
+            )
+        })
+    }
+
+    /// [`Store::create`], with the store's lock already shared.
+    #[allow(clippy::too_many_arguments)]
+    fn create_shared(
         &self,
         instance: &Instance,
         instance_dir: &Path,
@@ -689,6 +750,12 @@ impl Store {
     /// Deletes the automatic snapshots, those of instances that no longer exist, and
     /// the shared files, then what no snapshot uses. Returns the bytes freed.
     pub fn clean_up(&self, instances: &HashSet<&str>) -> u64 {
+        // Alone: an import's manifest is under `.importing`, an instance that doesn't
+        // exist, until it is done.
+        self.alone(|| self.clean_up_alone(instances))
+    }
+
+    fn clean_up_alone(&self, instances: &HashSet<&str>) -> u64 {
         let before = self.size();
         for (instance, snapshot) in self.all() {
             if snapshot.automatic || !instances.contains(instance.as_str()) {
@@ -703,28 +770,38 @@ impl Store {
             let _ = fs::remove_dir(dir.path()); // only when empty
         }
         let _ = fs::remove_dir_all(self.exports_dir());
-        self.collect_garbage();
+        self.collect_garbage_alone();
         before.saturating_sub(self.size())
     }
 
     /// Deletes a snapshot and the objects only it used.
     pub fn delete(&self, instance_id: &str, id: &str) -> Result<u64, SnapshotError> {
-        let snapshot = self.get(instance_id, id)?;
-        let path = self.manifest_path(instance_id, &snapshot.id);
-        fs::remove_file(&path).map_err(io_error(&path))?;
-        Ok(self.collect_garbage())
+        self.alone(|| {
+            let snapshot = self.get(instance_id, id)?;
+            let path = self.manifest_path(instance_id, &snapshot.id);
+            fs::remove_file(&path).map_err(io_error(&path))?;
+            Ok(self.collect_garbage_alone())
+        })
     }
 
     /// Deletes every snapshot of an instance (when it is deleted).
     pub fn delete_instance(&self, instance_id: &str) -> u64 {
-        if valid_id(instance_id) {
-            let _ = fs::remove_dir_all(self.instance_dir(instance_id));
-        }
-        self.collect_garbage()
+        self.alone(|| {
+            if valid_id(instance_id) {
+                let _ = fs::remove_dir_all(self.instance_dir(instance_id));
+            }
+            self.collect_garbage_alone()
+        })
     }
 
-    /// Removes the objects no snapshot uses. Returns the bytes freed.
+    /// Removes the objects no snapshot uses. Returns the bytes freed. Waits for jobs
+    /// that are adding objects to finish first.
     pub fn collect_garbage(&self) -> u64 {
+        self.alone(|| self.collect_garbage_alone())
+    }
+
+    /// [`Store::collect_garbage`], with the store's lock already held alone.
+    fn collect_garbage_alone(&self) -> u64 {
         let mut used: HashSet<String> = HashSet::new();
         for dir in fs::read_dir(self.root.join("instances"))
             .into_iter()
@@ -750,6 +827,20 @@ impl Store {
         for prefix in fs::read_dir(self.objects()).into_iter().flatten().flatten() {
             for object in fs::read_dir(prefix.path()).into_iter().flatten().flatten() {
                 let name = object.file_name().to_string_lossy().to_string();
+                // A file being stored (`.<sha256>.<tag>`, `.<sha256>.import`): only once
+                // it's stale (see `STALE_TEMP`).
+                if name.starts_with('.') {
+                    let age = object
+                        .metadata()
+                        .and_then(|m| m.modified())
+                        .ok()
+                        .and_then(|modified| modified.elapsed().ok());
+                    if age.is_some_and(|age| age > STALE_TEMP) {
+                        set_mode(&object.path(), 0o644);
+                        let _ = fs::remove_file(object.path());
+                    }
+                    continue;
+                }
                 if !used.contains(&name) {
                     freed += object.metadata().map(|m| m.len()).unwrap_or(0);
                     let _ = fs::remove_file(object.path());
@@ -772,7 +863,20 @@ impl Store {
         selection: &Selection,
         progress: Progress<'_>,
     ) -> Result<(Option<Instance>, Snapshot), SnapshotError> {
-        let safety = self.create(
+        // Shared throughout: the safety snapshot's objects are new, and the snapshot gone
+        // back to is read.
+        self.sharing(|| self.revert_shared(snapshot, current, instance_dir, selection, progress))
+    }
+
+    fn revert_shared(
+        &self,
+        snapshot: &Snapshot,
+        current: &Instance,
+        instance_dir: &Path,
+        selection: &Selection,
+        progress: Progress<'_>,
+    ) -> Result<(Option<Instance>, Snapshot), SnapshotError> {
+        let safety = self.create_shared(
             current,
             instance_dir,
             &format!("Before going back to “{}”", snapshot.name),
@@ -858,6 +962,15 @@ impl Store {
         to: &Path,
         progress: Progress<'_>,
     ) -> Result<(), SnapshotError> {
+        self.sharing(|| self.export_shared(snapshot, to, progress))
+    }
+
+    fn export_shared(
+        &self,
+        snapshot: &Snapshot,
+        to: &Path,
+        progress: Progress<'_>,
+    ) -> Result<(), SnapshotError> {
         let tmp = to.with_extension(format!("{EXTENSION}.part"));
         let result = (|| {
             let file = File::create(&tmp).map_err(io_error(&tmp))?;
@@ -901,6 +1014,16 @@ impl Store {
     /// Adds the snapshot in a `.lodesnap` file to the store (checking everything) and
     /// returns its manifest, under the instance id `instance_id`.
     pub fn import(
+        &self,
+        path: &Path,
+        instance_id: &str,
+        progress: Progress<'_>,
+    ) -> Result<Snapshot, SnapshotError> {
+        self.sharing(|| self.import_shared(path, instance_id, progress))
+    }
+
+    /// [`Store::import`], with the store's lock already shared.
+    fn import_shared(
         &self,
         path: &Path,
         instance_id: &str,
@@ -988,8 +1111,10 @@ impl Store {
         let staging = instances
             .new_staging()
             .map_err(|e| SnapshotError::Instance(e.to_string()))?;
-        let result = (|| {
-            let imported = self.import(path, ".importing", progress)?;
+        // Shared until the manifest is under the new instance, so garbage collection or a
+        // clean-up can't remove the objects (or the `.importing` manifest) meanwhile.
+        let result = self.sharing(|| {
+            let imported = self.import_shared(path, ".importing", progress)?;
             for file in imported
                 .files
                 .iter()
@@ -1029,11 +1154,14 @@ impl Store {
             let _ = fs::remove_file(&old);
             let _ = fs::remove_dir(self.instance_dir(".importing"));
             Ok(instance)
-        })();
+        });
         if result.is_err() {
             let _ = fs::remove_dir_all(&staging);
-            let _ = fs::remove_dir_all(self.instance_dir(".importing"));
-            self.collect_garbage();
+            // Alone, so no other import is writing its manifest under `.importing`.
+            self.alone(|| {
+                let _ = fs::remove_dir_all(self.instance_dir(".importing"));
+                self.collect_garbage_alone();
+            });
         }
         result
     }
@@ -1787,6 +1915,72 @@ mod tests {
             new_bytes: 0,
             automatic: false,
         }
+    }
+
+    #[test]
+    fn garbage_collection_waits_for_a_snapshot_being_taken() {
+        use std::sync::{Mutex, atomic::AtomicBool, mpsc};
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("snapshots");
+        let (instance, dir) = instance_at(temp.path(), "a");
+        let (stored, wait_for_stored) = mpsc::channel();
+        let stored = Mutex::new(Some(stored));
+        let first = AtomicBool::new(false);
+        let taking = std::thread::spawn({
+            let root = root.clone();
+            move || {
+                // After the first object is stored, and before the manifest, it pauses
+                // long enough for garbage collection to run if it didn't wait.
+                let progress = |_: u64, _: u64| {
+                    if !first.swap(true, std::sync::atomic::Ordering::SeqCst) {
+                        if let Some(stored) = stored.lock().unwrap().take() {
+                            stored.send(()).unwrap();
+                        }
+                        std::thread::sleep(Duration::from_millis(300));
+                    }
+                };
+                Store::at(root)
+                    .create(
+                        &instance,
+                        &dir,
+                        "s",
+                        None,
+                        &Selection::all(),
+                        false,
+                        &progress,
+                    )
+                    .unwrap()
+            }
+        });
+        wait_for_stored.recv().unwrap();
+        // Another `Store` for the same folder, as the launcher makes them.
+        Store::at(&root).collect_garbage();
+        let snapshot = taking.join().unwrap();
+        let store = Store::at(&root);
+        for file in &snapshot.files {
+            assert!(store.object(&file.sha256).exists(), "{} is gone", file.path);
+        }
+    }
+
+    #[test]
+    fn garbage_collection_leaves_files_being_stored_until_stale() {
+        let temp = tempfile::tempdir().unwrap();
+        let store = Store::at(temp.path().join("snapshots"));
+        let prefix = store.objects().join("ab");
+        fs::create_dir_all(&prefix).unwrap();
+        let fresh = prefix.join(format!(".{}.import", "ab".repeat(32)));
+        let stale = prefix.join(format!(".{}.0123456789abcdef", "ab".repeat(32)));
+        fs::write(&fresh, b"being stored").unwrap();
+        fs::write(&stale, b"left behind").unwrap();
+        File::options()
+            .write(true)
+            .open(&stale)
+            .unwrap()
+            .set_modified(SystemTime::now() - STALE_TEMP - Duration::from_secs(60))
+            .unwrap();
+        store.collect_garbage();
+        assert!(fresh.exists());
+        assert!(!stale.exists());
     }
 
     #[cfg(unix)]
