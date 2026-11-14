@@ -45,19 +45,34 @@ impl Settings {
     }
 }
 
+/// The whitelist's text from reading `whitelist.json`: empty when there's no file yet.
+/// Any other failure (the core unreachable or slow to answer, a file that isn't text)
+/// is passed on, so the file isn't replaced by one with only the new players (LS-105).
+fn current_text(read: Result<String, CoreError>) -> Result<String, CoreError> {
+    match read {
+        Err(CoreError::NotFound(_)) => Ok(String::new()),
+        read => read,
+    }
+}
+
 /// The entries `players` add to `current` (a `whitelist.json`'s text, or empty), and the
 /// whole new text; `None` when there's nothing to add. In online mode offline accounts
 /// can't join and are left out; in offline mode every player goes in with their offline
-/// UUID. A player already there, by UUID or name, isn't added again.
+/// UUID. A player already there, by UUID or name, isn't added again. A file that isn't
+/// a list is an error, and stays as it is.
 pub fn merged(
     current: &str,
     players: &[StatePlayer],
     online_mode: bool,
-) -> Option<(Vec<String>, String)> {
+) -> Result<Option<(Vec<String>, String)>, CoreError> {
     let mut entries: Vec<Value> = if current.trim().is_empty() {
         Vec::new()
     } else {
-        serde_json::from_str(current).ok()?
+        serde_json::from_str(current).map_err(|_| {
+            CoreError::Invalid(format!(
+                "{FILE} isn't a list of players. Fix or delete it in the server's files."
+            ))
+        })?
     };
     let mut added = Vec::new();
     for player in players {
@@ -85,10 +100,11 @@ pub fn merged(
         added.push(player.name.clone());
     }
     if added.is_empty() {
-        return None;
+        return Ok(None);
     }
-    let text = serde_json::to_string_pretty(&entries).ok()?;
-    Some((added, text))
+    let text = serde_json::to_string_pretty(&entries)
+        .map_err(|err| CoreError::Invalid(err.to_string()))?;
+    Ok(Some((added, text)))
 }
 
 /// Puts `players` on the whitelist of the server `instance`, if it has one on. Returns
@@ -105,9 +121,8 @@ pub async fn add(
     if !settings.enabled {
         return Ok(Vec::new());
     }
-    // no file yet: an empty whitelist
-    let current = admin.read_file(instance, FILE).await.unwrap_or_default();
-    let Some((added, text)) = merged(&current, players, settings.online_mode) else {
+    let current = current_text(admin.read_file(instance, FILE).await)?;
+    let Some((added, text)) = merged(&current, players, settings.online_mode)? else {
         return Ok(Vec::new());
     };
     admin.write_file(instance, FILE, &text).await?;
@@ -153,25 +168,52 @@ mod tests {
     fn players_join_the_whitelist_once() {
         let players = [player("Peter_mc", 0x11, false), player("peter", 0x22, true)];
         // online mode: the Microsoft account with its own UUID, not the offline one
-        let (added, text) = merged("", &players, true).unwrap();
+        let (added, text) = merged("", &players, true).unwrap().unwrap();
         assert_eq!(added, ["Peter_mc"]);
         let list: Vec<Value> = serde_json::from_str(&text).unwrap();
         assert_eq!(list[0]["uuid"], "11111111-1111-1111-1111-111111111111");
         // already there: nothing to add
-        assert!(merged(&text, &players, true).is_none());
+        assert!(merged(&text, &players, true).unwrap().is_none());
         // someone else already on it stays, by name too
         let current = r#"[{"uuid":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","name":"PETER_MC"}]"#;
-        assert!(merged(current, &players, true).is_none());
+        assert!(merged(current, &players, true).unwrap().is_none());
 
         // offline mode: both, with offline UUIDs
-        let (added, text) = merged("[]", &players, false).unwrap();
+        let (added, text) = merged("[]", &players, false).unwrap().unwrap();
         assert_eq!(added, ["Peter_mc", "peter"]);
         let list: Vec<Value> = serde_json::from_str(&text).unwrap();
         assert_eq!(
             list[1]["uuid"],
             offline_uuid("peter").hyphenated().to_string()
         );
-        // a file that isn't a list is left alone
-        assert!(merged("{", &players, true).is_none());
+    }
+
+    /// LS-105: only a missing `whitelist.json` counts as an empty whitelist. Any other
+    /// failure to read or parse it stops the write, and says why, so the players already
+    /// on it aren't replaced by the friend's.
+    #[test]
+    fn only_a_missing_whitelist_is_empty() {
+        let players = [player("Peter_mc", 0x11, false)];
+        assert_eq!(
+            current_text(Err(CoreError::NotFound("Not found".into()))),
+            Ok(String::new())
+        );
+        for err in [
+            CoreError::Invalid("The file isn't text.".into()),
+            CoreError::Unreachable("timed out".into()),
+            CoreError::Server {
+                status: 500,
+                message: "Internal".into(),
+            },
+        ] {
+            assert_eq!(current_text(Err(err.clone())), Err(err));
+        }
+        let text = r#"[{"uuid":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","name":"Steve"}]"#;
+        assert_eq!(current_text(Ok(text.into())).as_deref(), Ok(text));
+
+        // a file that isn't a list is an error, not a list to replace
+        let err = merged("{", &players, true).unwrap_err();
+        assert!(err.to_string().contains(FILE), "{err}");
+        assert!(merged(r#"{"name":"Steve"}"#, &players, true).is_err());
     }
 }

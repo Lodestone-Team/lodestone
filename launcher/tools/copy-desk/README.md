@@ -35,6 +35,10 @@ loads, so it always shows the current text.
 
 Edits save as you type. Stop the server with Ctrl+C. Your edits stay in `edits.json`.
 
+Open it at `127.0.0.1` or `localhost` only. The server answers only its own address and
+saves only edits from its own page, so other web pages you have open can't change
+`edits.json` (which `apply` writes into the source).
+
 ## Hand the edits over
 
 Pick one:
@@ -88,6 +92,8 @@ The mock is not generated from the Rust UI. When a page changes a lot, update it
 by hand. If the mock names a string that no longer exists, it shows the key in angle
 brackets, for example `⟨SkinEditorLead⟩`. A new string that the mock doesn't show can
 still be edited in **All strings**.
+
+`python3 -m unittest test_copy_desk` (in this folder) tests the server.
 
 `extract_strings.py` parses the `messages!` enums. `python3 extract_strings.py out.json`
 writes all strings to a file.

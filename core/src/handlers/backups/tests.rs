@@ -1150,6 +1150,46 @@ async fn a_file_the_safety_backup_couldnt_read_stops_the_restore() {
     );
 }
 
+/// LS-97: the same when an older backup has the file: the safety backup only carries that
+/// older copy over, so the file as it is now would still be lost.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_file_the_safety_backup_only_carried_over_stops_the_restore() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let core = core().await;
+    let owner = core.owner().await;
+    core.write("world/data/x.dat", "old copy");
+    let id = core.backup(&owner, None).await;
+    core.write("world/level.dat", "level v2");
+    core.write("world/data/x.dat", "the newer copy");
+    let file = core.root.join("world/data/x.dat");
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o000)).unwrap();
+    if std::fs::File::open(&file).is_ok() {
+        // running as root, which reads every file
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
+        return;
+    }
+
+    let (status, body) = core
+        .call(
+            Method::POST,
+            &format!("/{id}/restore"),
+            &owner,
+            Some(json!({ "scope": "world" })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    core.wait_idle(&owner).await;
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
+    assert_eq!(core.read("world/data/x.dat"), "the newer copy");
+    assert_eq!(
+        core.read("world/level.dat"),
+        "level v2",
+        "nothing was restored"
+    );
+}
+
 /// Without a safety backup, a protected file the core can't read still counts in the
 /// permission check: the restore would delete it, so someone who may not change protected
 /// files is refused, as for one it can read.

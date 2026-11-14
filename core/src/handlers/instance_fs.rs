@@ -32,8 +32,8 @@ use crate::{
 use super::{
     global_fs::{
         create_upload_file, file_entries, finish_upload, multipart_error, register_download,
-        upload_file_name, zip_folder_for_download, DownloadScope, FileEntry, MAX_READ_BYTES,
-        MAX_WRITE_BODY_BYTES,
+        register_zipped_folder_download, upload_file_name, zip_folder_for_download, DownloadScope,
+        FileEntry, MAX_READ_BYTES, MAX_WRITE_BODY_BYTES,
     },
     util::{
         check_code_write, contains_script, decode_base64, is_code_path, is_script_path,
@@ -1199,7 +1199,8 @@ async fn get_instance_file_url(
             source: eyre!("Could not read file metadata"),
         })?
         .is_dir();
-    let (downloadable_path, temp_dir) = if is_dir {
+    let scope = DownloadScope::InstanceFile(uuid);
+    let key = if is_dir {
         let (start_event, id) = Event::new_progression_event_start(
             format!("Zipping {} for download", relative_path),
             None,
@@ -1207,12 +1208,12 @@ async fn get_instance_file_url(
             requester.caused_by(),
         );
         state.event_broadcaster.send(start_event);
-        match zip_folder_for_download(path.clone()).await {
-            Ok((zip_path, temp_dir)) => {
+        match zip_folder_for_download(&state, path.clone(), &requester).await {
+            Ok(zipped) => {
                 let end_event =
                     Event::new_progression_event_end(id, true, Some("Zipping complete"), None);
                 state.event_broadcaster.send(end_event);
-                (zip_path, Some(temp_dir))
+                register_zipped_folder_download(&state, zipped, requester.clone(), scope).await
             }
             Err(e) => {
                 let end_event =
@@ -1222,17 +1223,8 @@ async fn get_instance_file_url(
             }
         }
     } else {
-        (path.clone(), None)
+        register_download(&state, path.clone(), None, requester.clone(), scope).await
     };
-
-    let key = register_download(
-        &state,
-        downloadable_path,
-        temp_dir,
-        requester.clone(),
-        DownloadScope::InstanceFile(uuid),
-    )
-    .await;
 
     let caused_by = requester.caused_by();
     state.event_broadcaster.send(new_fs_event(
@@ -1979,7 +1971,7 @@ mod tests {
     }
 
     /// Copying a folder with a file that can't be read ends with an error naming the file,
-    /// and leaves nothing behind (LS-37). `fs_extra` retried it forever.
+    /// and leaves nothing behind (LS-37, LS-104). `fs_extra` retried it forever.
     #[cfg(unix)]
     #[test]
     fn a_copy_that_cant_read_a_file_fails_and_leaves_nothing() {
@@ -2014,7 +2006,7 @@ mod tests {
     }
 
     /// A copied folder's symbolic links aren't followed: what they point to, maybe outside
-    /// the instance, isn't copied in (LS-37).
+    /// the instance, isn't copied in (LS-37, LS-75).
     #[cfg(unix)]
     #[test]
     fn a_copy_skips_symbolic_links() {
@@ -2059,7 +2051,7 @@ mod tests {
         assert_eq!(calls.last(), Some(&(4, 4)));
     }
 
-    /// Copying sources that share a name keeps each of them (LS-37).
+    /// Copying sources that share a name keeps each of them (LS-37, LS-104).
     #[test]
     fn a_copy_keeps_sources_with_the_same_name() {
         let temp = tempfile::tempdir().unwrap();

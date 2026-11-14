@@ -6,7 +6,9 @@
 //! level and thread the game wrote, as the live console has them.
 
 use std::{
-    io::Read as _,
+    borrow::Cow,
+    collections::VecDeque,
+    io::{BufRead, BufReader, Read as _},
     path::{Path, PathBuf},
     time::SystemTime,
 };
@@ -16,8 +18,12 @@ use super::log4j::Level;
 /// The most lines of a file that are shown: its last ones.
 pub const MAX_LINES: usize = 50_000;
 
-/// The most of a file that is read, once unpacked.
+/// The most text of a file's last lines that is kept, once unpacked.
 const MAX_BYTES: u64 = 256 * 1024 * 1024;
+
+/// The longest line read in one piece. A longer one is split, so one huge line can't
+/// fill the memory.
+const MAX_LINE_BYTES: u64 = 1024 * 1024;
 
 /// What a file is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -155,47 +161,180 @@ fn event(line: &str) -> Option<Line> {
     })
 }
 
-/// Splits a file's text into lines. In a log, a line that doesn't start an event (a
-/// stack trace, the rest of a message) keeps the level of the event before it. A
-/// crash report has no events: its lines are shown as they are.
-pub fn parse(text: &str, kind: Kind) -> Contents {
-    let mut level = Level::Info;
-    let mut lines: Vec<Line> = text
-        .lines()
-        .map(|line| {
-            let line = line.trim_end_matches('\r');
-            if kind == Kind::Log
-                && let Some(event) = event(line)
-            {
-                level = event.level;
-                return event;
+/// The access tokens a line may hold, replaced by `<redacted>` as the live console
+/// and the launch command it shows have them: the session ID that old versions log
+/// (`(Session ID is token:<access token>:<uuid>)`, at INFO in 1.7 and 1.8), and an
+/// `--accessToken` argument, which a JVM crash file has in its command line. Older
+/// files hold older tokens, which no signed-in account's would match, so these are
+/// found by their shape.
+pub fn redact(line: &str) -> Cow<'_, str> {
+    const REDACTED: &str = "<redacted>";
+    if !line.contains("token:") && !line.contains("--accessToken") {
+        return Cow::Borrowed(line);
+    }
+    let mut out = String::new();
+    let mut done = 0;
+    let mut at = 0;
+    while at < line.len() {
+        let rest = &line[at..];
+        // `token:<value>:`, the value as long as `Redactor` wants a secret to be
+        if let Some(after) = rest.strip_prefix("token:")
+            && let Some(len) = after.find(|c: char| c == ':' || c.is_whitespace())
+            && len >= 8
+            && after[len..].starts_with(':')
+        {
+            let value = at + "token:".len();
+            out.push_str(&line[done..value]);
+            out.push_str(REDACTED);
+            done = value + len;
+            at = done;
+            continue;
+        }
+        // `--accessToken <value>` or `--accessToken=<value>`
+        if let Some(after) = rest.strip_prefix("--accessToken")
+            && let Some(value) = after.strip_prefix('=').or_else(|| {
+                let value = after.trim_start();
+                (value.len() < after.len()).then_some(value)
+            })
+            && !value.starts_with("--")
+        {
+            let len = value.find(char::is_whitespace).unwrap_or(value.len());
+            if len > 0 {
+                let start = line.len() - value.len();
+                out.push_str(&line[done..start]);
+                out.push_str(REDACTED);
+                done = start + len;
+                at = done;
+                continue;
             }
-            Line {
-                time: None,
-                level,
-                source: None,
-                text: line.to_string(),
-            }
-        })
-        .collect();
-    let skipped = lines.len().saturating_sub(MAX_LINES);
-    lines.drain(..skipped);
-    Contents { lines, skipped }
+        }
+        at += rest.chars().next().map_or(1, char::len_utf8);
+    }
+    if done == 0 {
+        Cow::Borrowed(line)
+    } else {
+        out.push_str(&line[done..]);
+        Cow::Owned(out)
+    }
 }
 
-/// Reads a file, unpacking a `.gz`. Bytes that aren't UTF-8 are replaced, not refused:
-/// old logs are in the system's encoding.
+/// Turns a file's lines into [`Line`]s, one at a time, keeping the last
+/// [`MAX_LINES`]. In a log, a line that doesn't start an event (a stack trace, the
+/// rest of a message) keeps the level of the event before it. A crash report has no
+/// events: its lines are shown as they are. Every line is [`redact`]ed.
+struct Parser {
+    kind: Kind,
+    level: Level,
+    lines: VecDeque<Line>,
+    /// The bytes of `lines`' texts, kept under [`MAX_BYTES`].
+    bytes: usize,
+    skipped: usize,
+}
+
+impl Parser {
+    fn new(kind: Kind) -> Self {
+        Self {
+            kind,
+            level: Level::Info,
+            lines: VecDeque::new(),
+            bytes: 0,
+            skipped: 0,
+        }
+    }
+
+    fn push(&mut self, line: &str) {
+        let line = redact(line.trim_end_matches('\r'));
+        let line = match self.kind {
+            Kind::Log => event(&line),
+            _ => None,
+        }
+        .inspect(|event| self.level = event.level)
+        .unwrap_or_else(|| Line {
+            time: None,
+            level: self.level,
+            source: None,
+            text: line.into_owned(),
+        });
+        self.bytes += line.text.len();
+        self.lines.push_back(line);
+        while self.lines.len() > MAX_LINES || self.bytes as u64 > MAX_BYTES {
+            let Some(dropped) = self.lines.pop_front() else {
+                break;
+            };
+            self.bytes -= dropped.text.len();
+            self.skipped += 1;
+        }
+    }
+
+    fn finish(self) -> Contents {
+        Contents {
+            lines: self.lines.into(),
+            skipped: self.skipped,
+        }
+    }
+}
+
+/// Splits a file's text into lines (see [`Parser`]).
+pub fn parse(text: &str, kind: Kind) -> Contents {
+    let mut parser = Parser::new(kind);
+    for line in text.lines() {
+        parser.push(line);
+    }
+    parser.finish()
+}
+
+/// Reads a file to its end, unpacking a `.gz`, and keeps its last lines: the end is
+/// where a session stopped or crashed, however long the log is. Bytes that aren't
+/// UTF-8 are replaced, not refused: old logs are in the system's encoding.
 pub fn read(file: &LogFile) -> std::io::Result<Contents> {
     let raw = std::fs::File::open(&file.path)?;
-    let mut bytes = Vec::new();
     if file.name.to_lowercase().ends_with(".gz") {
-        flate2::read::MultiGzDecoder::new(raw)
-            .take(MAX_BYTES)
-            .read_to_end(&mut bytes)?;
+        read_lines(
+            BufReader::new(flate2::read::MultiGzDecoder::new(raw)),
+            file.kind,
+        )
     } else {
-        raw.take(MAX_BYTES).read_to_end(&mut bytes)?;
+        read_lines(BufReader::new(raw), file.kind)
     }
-    Ok(parse(&String::from_utf8_lossy(&bytes), file.kind))
+}
+
+/// The lines of `reader`. A line longer than [`MAX_LINE_BYTES`] is split, between
+/// characters.
+fn read_lines(mut reader: impl BufRead, kind: Kind) -> std::io::Result<Contents> {
+    let mut parser = Parser::new(kind);
+    let mut bytes = Vec::new();
+    // The start of a character the last split cut in two, for the next part.
+    let mut carry = Vec::new();
+    let mut split = false;
+    loop {
+        bytes.clear();
+        bytes.append(&mut carry);
+        let read = (&mut reader)
+            .take(MAX_LINE_BYTES)
+            .read_until(b'\n', &mut bytes)?;
+        if read == 0 {
+            if !bytes.is_empty() {
+                parser.push(&String::from_utf8_lossy(&bytes));
+            }
+            break;
+        }
+        if bytes.last() == Some(&b'\n') {
+            bytes.pop();
+            // the end of a line split just before it isn't a line of its own
+            if std::mem::take(&mut split) && bytes.is_empty() {
+                continue;
+            }
+        } else if read as u64 == MAX_LINE_BYTES {
+            split = true;
+            if let Err(err) = std::str::from_utf8(&bytes)
+                && err.error_len().is_none()
+            {
+                carry = bytes.split_off(err.valid_up_to());
+            }
+        }
+        parser.push(&String::from_utf8_lossy(&bytes));
+    }
+    Ok(parser.finish())
 }
 
 #[cfg(test)]
@@ -279,6 +418,127 @@ java.lang.IllegalStateException: boom\n\
         assert_eq!(contents.skipped, 7);
         assert_eq!(contents.lines.len(), MAX_LINES);
         assert_eq!(contents.lines[0].text, "line 7");
+    }
+
+    #[test]
+    fn access_tokens_are_redacted() {
+        let jwt = "eyJhbGciOiJIUzI1NiJ9.eyJ4dWlkIjoiMjUzNSJ9.c2lnbmF0dXJl";
+        let text = format!(
+            "[12:00:00] [Client thread/INFO]: Setting user: Steve\n\
+[12:00:00] [Client thread/INFO]: (Session ID is token:{jwt}:0123456789abcdef0123456789abcdef)\n\
+Unexpected token: here, a token:short: one\n"
+        );
+        assert_eq!(
+            parse(&text, Kind::Log).lines,
+            vec![
+                line(
+                    "12:00:00",
+                    Level::Info,
+                    "Client thread",
+                    "Setting user: Steve"
+                ),
+                line(
+                    "12:00:00",
+                    Level::Info,
+                    "Client thread",
+                    "(Session ID is token:<redacted>:0123456789abcdef0123456789abcdef)"
+                ),
+                // not tokens
+                rest(Level::Info, "Unexpected token: here, a token:short: one"),
+            ]
+        );
+        // a JVM crash file has the command line
+        let text = format!(
+            "java_command: net.minecraft.client.main.Main --username Steve --accessToken {jwt} --version 1.8.9\n\
+--accessToken={jwt}\n\
+--accessToken --userType msa\n"
+        );
+        let shown: Vec<String> = parse(&text, Kind::JvmCrash)
+            .lines
+            .into_iter()
+            .map(|line| line.text)
+            .collect();
+        assert_eq!(
+            shown,
+            vec![
+                "java_command: net.minecraft.client.main.Main --username Steve --accessToken <redacted> --version 1.8.9",
+                "--accessToken=<redacted>",
+                "--accessToken --userType msa",
+            ]
+        );
+    }
+
+    /// Lines of `width` bytes, `count` of them, then `the end`, without holding them
+    /// all.
+    struct LongLog {
+        line: Vec<u8>,
+        count: usize,
+        at: usize,
+        end: &'static [u8],
+    }
+
+    impl std::io::Read for LongLog {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            if self.count == 0 {
+                let n = self.end.len().min(buf.len());
+                buf[..n].copy_from_slice(&self.end[..n]);
+                self.end = &self.end[n..];
+                return Ok(n);
+            }
+            let n = (self.line.len() - self.at).min(buf.len());
+            buf[..n].copy_from_slice(&self.line[self.at..self.at + n]);
+            self.at += n;
+            if self.at == self.line.len() {
+                self.at = 0;
+                self.count -= 1;
+            }
+            Ok(n)
+        }
+    }
+
+    #[test]
+    fn the_end_of_a_log_bigger_than_what_is_kept_is_read() {
+        let mut line = vec![b'x'; 1023];
+        line.push(b'\n');
+        let count = (MAX_BYTES as usize) / line.len() + 1000;
+        let log = LongLog {
+            line,
+            count,
+            at: 0,
+            end: b"[12:00:00] [main/INFO]: Stopping!\nthe end",
+        };
+        let contents = read_lines(std::io::BufReader::new(log), Kind::Log).unwrap();
+        assert_eq!(contents.lines.len(), MAX_LINES);
+        assert_eq!(contents.skipped, count + 2 - MAX_LINES);
+        let last: Vec<&str> = contents.lines[MAX_LINES - 2..]
+            .iter()
+            .map(|line| line.text.as_str())
+            .collect();
+        assert_eq!(last, ["Stopping!", "the end"]);
+    }
+
+    #[test]
+    fn a_huge_line_is_split() {
+        let mut text = vec![b'y'; MAX_LINE_BYTES as usize + 10];
+        text.extend_from_slice(b"\nnext\n");
+        let contents = read_lines(&text[..], Kind::CrashReport).unwrap();
+        let lengths: Vec<usize> = contents.lines.iter().map(|l| l.text.len()).collect();
+        assert_eq!(lengths, [MAX_LINE_BYTES as usize, 10, 4]);
+    }
+
+    #[test]
+    fn a_split_line_keeps_its_characters_and_adds_no_empty_line() {
+        // a line that just fits, then one with a character across the split
+        let max = MAX_LINE_BYTES as usize;
+        let mut text = vec![b'y'; max];
+        text.push(b'\n');
+        text.extend(std::iter::repeat_n(b'z', max - 1));
+        text.extend_from_slice("é and more\nnext\n".as_bytes());
+        let contents = read_lines(&text[..], Kind::CrashReport).unwrap();
+        let lengths: Vec<usize> = contents.lines.iter().map(|l| l.text.len()).collect();
+        assert_eq!(lengths, [max, max - 1, "é and more".len(), 4]);
+        assert_eq!(contents.lines[2].text, "é and more");
+        assert!(!contents.lines.iter().any(|l| l.text.contains('\u{fffd}')));
     }
 
     #[test]

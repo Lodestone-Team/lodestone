@@ -33,7 +33,23 @@ const NAME: &str = if cfg!(debug_assertions) {
 
 /// Whether this start was asked to stay in the background.
 pub fn started_in_background() -> bool {
-    std::env::args().any(|arg| arg == BACKGROUND_FLAG)
+    in_background(std::env::args_os())
+}
+
+/// Whether a Host started with `args` stays in the background: started at sign-in, and
+/// not restarted into an update. A restart passes the old Host's arguments on
+/// (`launcher_core::update::restart_args`), `--background` too when it was started at
+/// sign-in, but it was asked for from the window (Settings › Updates' Restart), which
+/// comes back as it was (LS-200).
+fn in_background(args: impl IntoIterator<Item = std::ffi::OsString>) -> bool {
+    let mut background = false;
+    for arg in args {
+        if arg == launcher_core::update::AFTER_UPDATE_ARG {
+            return false;
+        }
+        background |= arg == BACKGROUND_FLAG;
+    }
+    background
 }
 
 /// Whether this Host opens when the user signs in.
@@ -452,6 +468,23 @@ mod registry {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// LS-200: restarting into an update from the window brings the window back,
+    /// though the Host was started at sign-in.
+    #[test]
+    fn a_restart_into_an_update_isnt_in_the_background() {
+        let args = |args: &[&str]| {
+            args.iter()
+                .map(std::ffi::OsString::from)
+                .collect::<Vec<_>>()
+        };
+        assert!(in_background(args(&["lodestone-host", BACKGROUND_FLAG])));
+        assert!(!in_background(args(&["lodestone-host"])));
+        let restarted = launcher_core::update::restart_args(args(&[BACKGROUND_FLAG]), 42);
+        assert!(!in_background(
+            std::iter::once("lodestone-host".into()).chain(restarted)
+        ));
+    }
 
     #[test]
     fn each_system_is_told_to_start_the_host_in_the_background() {

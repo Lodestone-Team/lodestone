@@ -22,7 +22,8 @@ use crate::{
     state::HostState,
 };
 
-/// The shortest owner password the core takes, in characters.
+/// The shortest owner password the core takes, in characters: when the owner account is
+/// set up, and whenever the owner's password changes.
 pub const OWNER_PASSWORD_MIN: usize = 12;
 
 /// Whether the signed-in owner has no password yet: sharing the core asks for one first
@@ -64,13 +65,36 @@ pub enum AccountDialogEvent {
 
 enum Kind {
     CreateUser,
-    /// Changing `uid`'s password; the user's own needs the old one.
+    /// Changing `uid`'s password; the user's own needs the old one. The owner's (`owner`)
+    /// must be as long as when the owner account was set up.
     Password {
         uid: String,
         own: bool,
+        owner: bool,
     },
     /// The owner's username and password, before the core is shared.
     OwnerAccount,
+}
+
+impl Kind {
+    /// What the user typed wrong: [`password_problem`], and an owner's password shorter
+    /// than [`OWNER_PASSWORD_MIN`], which the core refuses (LS-84).
+    fn problem(
+        &self,
+        username: Option<&str>,
+        old: Option<&str>,
+        password: &str,
+        confirm: &str,
+    ) -> Option<CoreMsg> {
+        password_problem(username, old, password, confirm).or_else(|| {
+            let owner = matches!(
+                self,
+                Kind::OwnerAccount | Kind::Password { owner: true, .. }
+            );
+            (owner && password.chars().count() < OWNER_PASSWORD_MIN)
+                .then_some(CoreMsg::PasswordTooShort)
+        })
+    }
 }
 
 pub struct AccountDialog {
@@ -103,10 +127,16 @@ impl AccountDialog {
         this
     }
 
-    /// Changes `uid`'s password: with the old one if it is the signed-in user's own.
-    pub fn change_password(state: Entity<HostState>, uid: String, cx: &mut Context<Self>) -> Self {
+    /// Changes `uid`'s password: with the old one if it is the signed-in user's own, and
+    /// at least [`OWNER_PASSWORD_MIN`] characters if it is the owner's (`owner`).
+    pub fn change_password(
+        state: Entity<HostState>,
+        uid: String,
+        owner: bool,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let own = state.read(cx).me.uid == uid;
-        Self::new(state, Kind::Password { uid, own }, cx)
+        Self::new(state, Kind::Password { uid, own, owner }, cx)
     }
 
     fn new(state: Entity<HostState>, kind: Kind, cx: &mut Context<Self>) -> Self {
@@ -141,15 +171,10 @@ impl AccountDialog {
         let password = read(&self.password, cx);
         let confirm = read(&self.confirm, cx);
         if let Some(problem) =
-            password_problem(username.as_deref(), old.as_deref(), &password, &confirm)
+            self.kind
+                .problem(username.as_deref(), old.as_deref(), &password, &confirm)
         {
             self.error = Some(t(problem).to_string());
-            cx.notify();
-            return;
-        }
-        if matches!(self.kind, Kind::OwnerAccount) && password.chars().count() < OWNER_PASSWORD_MIN
-        {
-            self.error = Some(t(CoreMsg::PasswordTooShort).to_string());
             cx.notify();
             return;
         }
@@ -323,5 +348,34 @@ mod tests {
             Some(CoreMsg::PasswordsMustMatch)
         );
         assert_eq!(password_problem(Some("x"), Some("o"), "a", "a"), None);
+    }
+
+    /// LS-84: the owner's password is at least 12 characters when it changes too, as
+    /// when the owner account is set up; other users' passwords may be shorter.
+    #[test]
+    fn the_owners_password_is_long_whenever_it_is_set() {
+        let password = |owner: bool| Kind::Password {
+            uid: "u".into(),
+            own: true,
+            owner,
+        };
+        let short = "a".repeat(OWNER_PASSWORD_MIN - 1);
+        let long = "a".repeat(OWNER_PASSWORD_MIN);
+        for owner in [Kind::OwnerAccount, password(true)] {
+            let username = matches!(owner, Kind::OwnerAccount).then_some("owner");
+            let old = matches!(owner, Kind::Password { .. }).then_some("old");
+            assert_eq!(
+                owner.problem(username, old, &short, &short),
+                Some(CoreMsg::PasswordTooShort)
+            );
+            assert_eq!(owner.problem(username, old, &long, &long), None);
+            // the fields are checked first
+            assert_eq!(
+                owner.problem(username, old, &short, "b"),
+                Some(CoreMsg::PasswordsMustMatch)
+            );
+        }
+        assert_eq!(password(false).problem(None, Some("old"), "a", "a"), None);
+        assert_eq!(Kind::CreateUser.problem(Some("x"), None, "a", "a"), None);
     }
 }

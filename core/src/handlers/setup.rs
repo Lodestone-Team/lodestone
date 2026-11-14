@@ -2,7 +2,10 @@ use axum::{extract::Path, Json, Router};
 use color_eyre::eyre::eyre;
 
 use crate::{
-    auth::{permission::UserPermission, user::User},
+    auth::{
+        permission::UserPermission,
+        user::{valid_username, User},
+    },
     error::{Error, ErrorKind},
     events::CausedBy,
     AppState,
@@ -27,8 +30,12 @@ pub async fn setup_owner(
     let mut setup_key_lock = state.first_time_setup_key.lock().await;
     match setup_key_lock.as_deref() {
         Some(k) if k == key => {
+            let username = valid_username(&owner_setup.username).map_err(|message| Error {
+                kind: ErrorKind::BadRequest,
+                source: eyre!(message.to_string()),
+            })?;
             let owner = User::new(
-                owner_setup.username,
+                username,
                 &owner_setup.password,
                 true,
                 false,

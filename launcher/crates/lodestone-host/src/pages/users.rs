@@ -179,14 +179,16 @@ impl UsersPage {
         }
     }
 
-    fn open_dialog(&mut self, uid: Option<String>, cx: &mut Context<Self>) {
+    /// Changes the password of `user` (their uid, and whether they are the owner), or
+    /// makes a user (`None`; first the owner account, while the owner has no password).
+    fn open_dialog(&mut self, user: Option<(String, bool)>, cx: &mut Context<Self>) {
         self.menu = None;
         let state = self.state.clone();
         // other users sign in from other devices: the owner sets up a password first
-        let owner_first = uid.is_none() && account_dialogs::needs_owner_account(state.read(cx));
+        let owner_first = user.is_none() && account_dialogs::needs_owner_account(state.read(cx));
         let (dialog, subscription) = account_dialogs::open(
-            move |cx| match uid {
-                Some(uid) => AccountDialog::change_password(state, uid, cx),
+            move |cx| match user {
+                Some((uid, owner)) => AccountDialog::change_password(state, uid, owner, cx),
                 None if owner_first => AccountDialog::owner_account(state, cx),
                 None => AccountDialog::create_user(state, cx),
             },
@@ -343,7 +345,7 @@ impl UsersPage {
         let open = uid.clone();
         let menu_open = self.menu.as_deref() == Some(&user.uid);
         let menu = menu_open.then(|| {
-            let password_uid = uid.clone();
+            let password_user = (uid.clone(), user.is_owner);
             let delete_user = user.clone();
             (
                 SharedString::from(format!("user-menu-{uid}")),
@@ -357,7 +359,7 @@ impl UsersPage {
                         .variant(ButtonVariant::Ghost)
                         .full_width()
                         .on_click(cx.listener(move |this, _, _, cx| {
-                            this.open_dialog(Some(password_uid.clone()), cx)
+                            this.open_dialog(Some(password_user.clone()), cx)
                         })),
                     )
                     .child(
