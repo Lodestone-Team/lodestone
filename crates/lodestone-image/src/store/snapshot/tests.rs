@@ -185,14 +185,15 @@ fn deep_folders_and_many_excludes_plan_quickly() {
         }
     }
     let layout = DiskLayout::Server(ServerLayout::new("world", [], false).unwrap());
-    let excludes: Vec<String> = (0..1000)
+    let excludes: Vec<String> = (0..999)
         .map(|i| match i % 3 {
-            0 => format!("dynmap{i}/web/tiles"),
+            0 => format!("dynmap{i}/tiles"),
             1 => format!("*.bak{i}"),
             _ => format!("**/a/**/c{i}/"),
         })
         .chain(["b2".to_string()])
         .collect();
+    assert!(crate::store::excludes::excludes_error(&excludes).is_none());
     let options = SnapshotOptions {
         excludes: &excludes,
         ..SnapshotOptions::default()

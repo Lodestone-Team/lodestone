@@ -89,7 +89,8 @@ Reading never costs much more memory than a real image of the manifest's size: b
 parsing, a manifest with more than 32,000,000 JSON values (objects, arrays and the commas
 between items; a real entry has about 20) or nesting deeper than 32 is refused, and every
 list is refused as soon as it passes its bound while being read (1,000,000 entries,
-removed paths and withheld files, 10,000 worlds, 1,000 excludes, 16 `env_from` inputs,
+removed paths and withheld files, 10,000 worlds, 1,000 excludes (with 2,000 parts other
+than `**` in all, checked when the manifest is validated), 16 `env_from` inputs,
 100,000 items in each setting's list or map).
 A manifest from elsewhere comes in a compressed export, so without these a small file
 could exhaust memory.
@@ -501,13 +502,21 @@ Content-addressed, shared by every instance on one machine:
   the core's schema-1 backups until M2, which neither touch an object they reuse nor give a
   clone a new time) are held off by the collection lock, an operating-system file lock on
   `images/collection.lock`: such a writer holds it shared (`Store::hold_off_collection`)
-  from before its first object until its manifest is saved, and GC holds it exclusively
-  for its whole run. The objects of older manifests are read only inside that hold:
+  from before it first relies on any object being in the store until the manifest naming
+  those objects is saved, without letting go between passes (a live backup's prefetch and
+  final scan), and GC holds it exclusively for its whole run. Relying covers more than
+  storing: an existence check that skips a store, a stat-cache hit and an entry carried
+  over from an earlier manifest count too (the core's `Store::scan_with` with its
+  `object_present` checks, and `carry_over_unlistable`), as `Store::claim_object` covers
+  the image store's own stat cache. The objects of older manifests are read only inside that hold:
   `Store::gc_with_older_formats` calls the caller's reader once it has the lock, so any
   older manifest it doesn't see was written by a writer that started after it ended.
   Plain `Store::gc` refuses while an older manifest (a `.json` under `servers/<id>/` or
   `instances/<id>/` other than the guard's) is in the folder. A thread holding the shared lock
-  must not start GC. A save doesn't claim again what the same store
+  must not start GC, and GC's reader of older manifests must not take the shared lock
+  (either would wait for itself). Released programs don't take the lock, so a released
+  writer running on the same folder at the same time as a new collection isn't protected,
+  as two launchers sharing one data folder already aren't. A save doesn't claim again what the same store
   claimed in the last 5 minutes by the wall clock (objects age by it; a monotonic clock
   stops while a laptop sleeps), and forgets those claims once the manifest is written, so a
   long-lived store holds none between snapshots. Objects only older
@@ -522,12 +531,17 @@ Content-addressed, shared by every instance on one machine:
   syntax (`name` at any depth, `a/b` from the root, `*` within a part, `**` across parts,
   trailing `/` for folders); a pattern outside that syntax (a backslash, a leading `!`, an
   empty part) makes the manifest invalid, since a snapshot would ignore it and it would
-  claim to have left something out. All patterns run as one automaton over path parts,
+  claim to have left something out. All patterns together have at most 2,000 parts other
+  than `**` (more makes the manifest invalid; a snapshot fed more from elsewhere ignores
+  the patterns past it). All patterns run as one automaton over path parts,
   and the walk reuses each folder's state for what is in it. A name is matched against
   one part's glob without backtracking (the glob split at its stars; the first and last
   pieces at the name's ends, each piece between found leftmost with a linear search), so
-  reading a part costs O(total pattern bytes + live globs × name bytes), and a walk pays
-  that once per new part of its paths, however deep the folders or star-heavy the patterns. Links are withheld as `symlink`; folders that can't be
+  reading a part costs O(positions + live globs × (name + glob bytes)), and a walk pays
+  that once per new part of its paths. Every glob can be live at once (`**/*ab*/*ab*/…`
+  under a chain of `ab` folders), so the part budget is what bounds it: at most 2,000
+  globs of at most 256 bytes against a name of at most 255, however deep the folders or
+  star-heavy the patterns. Links are withheld as `symlink`; folders that can't be
   listed, files that can't be read and things that aren't files as `unreadable`; names
   that aren't canonical, files the layout can't read back as themselves and files never
   placed on this side as `bad_name` (a folder with such a name once, not each file in
@@ -687,8 +701,9 @@ names anything by it.
   for an old manifest replaced by an image and its rest, the objects only the rest names
   (`core_backup::Rest::objects`, `lodesnap::Rest::objects`: files the image withholds,
   files beside a Launcher game folder). While an old format still writes to the folder,
-  its writer holds `Store::hold_off_collection` from its first object until its manifest
-  is saved (the Launcher's snapshots, safety snapshots and `.lodesnap` imports until M5;
+  its writer holds `Store::hold_off_collection` from before it first relies on any object
+  being in the store (storing one, an existence check, a stat-cache hit, an entry carried
+  over) until its manifest is saved (the Launcher's snapshots, safety snapshots and `.lodesnap` imports until M5;
   the core's schema-1 backups until M2), since it neither touches what it reuses nor gives
   clones a new time; the reader runs inside GC's exclusive hold, so it sees every manifest
   such a writer saved before GC began.

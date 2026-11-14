@@ -46,7 +46,13 @@
 //!   neither touch an object they reuse nor give a clone a new time, so the claims can't
 //!   protect what they are about to name. Such a writer holds
 //!   [`Store::hold_off_collection`] (a shared lock on `images/collection.lock`) from
-//!   before it stores its first object until its manifest is saved, and a collection
+//!   before it first relies on any object being in the store until the manifest naming
+//!   those objects is saved, without letting go in between (as between a live backup's
+//!   prefetch and its final scan). Relying covers more than storing: an existence check
+//!   that skips storing a file, a stat-cache hit, and an entry carried over from an
+//!   earlier manifest all count (the core's `Store::scan_with`, with its `object_present`
+//!   checks, and `carry_over_unlistable`), as `Store::claim_object` covers this store's
+//!   own stat cache. A collection
 //!   holds the same lock exclusively for its whole run, from before it reads any manifest
 //!   until its last deletion. The objects of older manifests are read only inside that
 //!   hold ([`Store::gc_with_older_formats`] calls the caller's reader once it has the
@@ -54,7 +60,11 @@
 //!   by a writer that started after it ended too, and nothing it deleted was there for
 //!   that writer to reuse. The lock is an operating-system file lock, so it holds across
 //!   processes and threads, and it is released if a process dies. A thread that holds the
-//!   shared lock must not start a collection: it would wait for itself.
+//!   shared lock must not start a collection, and a collection's `read_older` must not
+//!   take the shared lock: either waits for itself. Released programs don't take the
+//!   lock, so a released writer (an older Launcher, say) running on the same folder at the
+//!   same time as a new collection isn't protected; that is accepted, as two launchers on
+//!   one data folder already are.
 //! - [`Store::gc`] is for a folder no older format writes to: it refuses, deleting
 //!   nothing, while an older manifest is there (a `.json` in a folder under `servers/` or
 //!   `instances/` other than the guard's), since it can't know what that names.
@@ -198,8 +208,13 @@ struct MarkClient {
 impl Store {
     /// Holds collections off until the hold is dropped, for a writer that stores objects
     /// in this folder without claiming them (an older format's writer; see the module):
-    /// take it before storing the first object and keep it until the manifest naming them
-    /// is saved. Waits for a collection that is running. Many writers can hold it at once.
+    /// take it before first relying on any object being in the store (storing one, or
+    /// skipping a store because it is there: an existence check, a stat-cache hit, an
+    /// entry carried over from an earlier manifest) and keep it, without letting go
+    /// between passes, until the manifest naming those objects is saved. Waits for a
+    /// collection that is running. Many writers can hold it at once. Never take it inside
+    /// [`Store::gc_with_older_formats`]' reader, which runs while the collection holds the
+    /// lock: it would wait forever.
     pub fn hold_off_collection(&self) -> Result<CollectionHold, StoreError> {
         self.ensure_guard()?;
         let file = self
@@ -231,7 +246,9 @@ impl Store {
     /// [`Store::gc`] in a folder older formats share: `read_older` returns every object
     /// their manifests (and the rests of those replaced by images) name, by SHA-256, or
     /// refuses. It is called once the collection holds the lock that holds those formats'
-    /// writers off, so nothing it doesn't see can be saved until the collection ends.
+    /// writers off, so nothing it doesn't see can be saved until the collection ends. It
+    /// must not take [`Store::hold_off_collection`] on this store (directly or through
+    /// anything it calls): the collection already holds the lock, so it would wait forever.
     pub fn gc_with_older_formats(
         &self,
         options: &GcOptions,

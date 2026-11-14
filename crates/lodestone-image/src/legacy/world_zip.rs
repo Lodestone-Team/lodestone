@@ -118,7 +118,11 @@ fn world_prefix<R: Read + Seek>(
     folder: &str,
 ) -> Result<String, LegacyError> {
     let own = format!("{folder}/");
-    let mut folders: Vec<String> = Vec::new();
+    // Only whether `own` holds a `level.dat`, and whether one other folder does or several,
+    // matter, so each entry costs the same however many folders the zip has.
+    let mut has_own = false;
+    let mut first: Option<String> = None;
+    let mut several = false;
     for index in 0..archive.len() {
         let raw = archive
             .by_index_raw(index)
@@ -133,15 +137,19 @@ fn world_prefix<R: Read + Seek>(
             ["level.dat"] => return Ok(String::new()),
             [top, "level.dat"] if !top.is_empty() => {
                 let top = format!("{top}/");
-                if !folders.contains(&top) {
-                    folders.push(top);
+                if top == own {
+                    has_own = true;
+                } else if first.is_none() {
+                    first = Some(top);
+                } else if first.as_ref() != Some(&top) {
+                    several = true;
                 }
             }
             _ => {}
         }
     }
-    Ok(match folders.as_slice() {
-        [one] if !folders.contains(&own) => one.clone(),
+    Ok(match first {
+        Some(one) if !has_own && !several => one,
         _ => own,
     })
 }
@@ -423,6 +431,23 @@ mod tests {
         ]);
         assert!(entries.is_empty());
         assert_eq!(withheld.len(), 2);
+    }
+
+    #[test]
+    fn many_worlds_in_one_zip_are_read_quickly() {
+        // A zip of many `<n>/level.dat`: finding the world mustn't compare every folder
+        // with every other (minutes for the half million entries a zip may have).
+        let names: Vec<String> = (0..40_000).map(|i| format!("d{i:06}/level.dat")).collect();
+        let items: Vec<Item> = names.iter().map(|n| Item::File(n, b"")).collect();
+        let zip = zip_of(&items);
+        let started = std::time::Instant::now();
+        let mut archive = zip::ZipArchive::new(Cursor::new(&zip)).unwrap();
+        assert_eq!(world_prefix(&mut archive, "survival").unwrap(), "survival/");
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(5),
+            "{:?}",
+            started.elapsed()
+        );
     }
 
     #[test]

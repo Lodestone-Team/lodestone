@@ -61,6 +61,9 @@ pub const MAX_ENV_FROM: usize = 16;
 /// At most this many exclude patterns, each at most [`MAX_EXCLUDE_LEN`] characters.
 pub const MAX_EXCLUDES: usize = 1000;
 pub const MAX_EXCLUDE_LEN: usize = 256;
+/// All exclude patterns together have at most this many parts other than `**`: each is a
+/// name a snapshot may match against every path part (see [`crate::store::excludes`]).
+pub const MAX_EXCLUDE_PARTS: usize = 2000;
 /// Free text (a label, a version string) is at most this many characters.
 pub const MAX_TEXT_LEN: usize = 1000;
 /// Modrinth sources must download from Modrinth's CDN.
@@ -673,15 +676,10 @@ impl Image {
                 return Err(format!("{removed} is both removed and an entry"));
             }
         }
-        if self.excludes.len() > MAX_EXCLUDES {
-            return Err(format!("more than {MAX_EXCLUDES} excludes"));
-        }
         // Only patterns a snapshot applies: `excludes` says what an image left out, and a
         // pattern the matcher refuses (and so ignores) left nothing out.
-        for pattern in &self.excludes {
-            if let Some(why) = crate::store::excludes::pattern_error(pattern) {
-                return Err(format!("exclude {pattern:?}: {why}"));
-            }
+        if let Some(why) = crate::store::excludes::excludes_error(&self.excludes) {
+            return Err(format!("excludes: {why}"));
         }
         for withheld in &self.withheld {
             if withheld.path.len() > MAX_PATH_BYTES {
@@ -1190,6 +1188,14 @@ pub(crate) mod tests {
         let mut image = sample();
         image.excludes = vec!["x".repeat(MAX_EXCLUDE_LEN + 1)];
         assert!(image.validate().is_err());
+        // Few patterns, but too many parts for every snapshot to match against.
+        let mut image = sample();
+        image.excludes = (0..MAX_EXCLUDE_PARTS / 50 + 1)
+            .map(|i| format!("**/{}q{i}", "*ab*/".repeat(49)))
+            .collect();
+        assert!(image.validate().is_err());
+        image.excludes.pop();
+        assert!(image.validate().is_ok());
         let mut image = sample();
         image.label = Some("x".repeat(MAX_TEXT_LEN + 1));
         assert!(image.validate().is_err());

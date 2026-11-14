@@ -16,19 +16,55 @@
 //! automaton over a path's parts (see [`Excludes`]), and a walk's [`ExcludeCursor`] reads
 //! each folder's parts once for everything in it. One name is matched against one glob in
 //! time linear in the two lengths, never backtracking (see `Glob`), so reading a part costs
-//! O(total pattern bytes + live globs × name bytes) and a snapshot costs that times its
-//! paths' parts, however deep the folders or hostile the patterns (`**/**/**/x`,
-//! `*a*a*a…`, a thousand patterns from another computer).
+//! O(positions / 64 + live globs × (name + glob bytes)), and a snapshot costs that once per
+//! new part of its paths. Every glob can be live at once (behind `**/`, under folders that
+//! match them), so what bounds the work is how many there are: all patterns together have
+//! at most [`MAX_EXCLUDE_PARTS`] parts other than `**` (an image with more is invalid, and
+//! [`Excludes::new`] ignores the patterns past it). Reading one part then matches at most
+//! 2,000 globs of at most 256 bytes against a name of at most 255, however deep the
+//! folders or hostile the patterns (`**/**/**/x`, `*a*a*a…`, `**/*ab*/*ab*/…`, a thousand
+//! patterns from another computer).
+
+use crate::manifest::{MAX_EXCLUDES, MAX_EXCLUDE_LEN, MAX_EXCLUDE_PARTS};
+
+/// Why the list `patterns` isn't accepted as an image's excludes, as a sentence; `None`
+/// when it is fine: at most [`MAX_EXCLUDES`] patterns, each accepted by [`pattern_error`],
+/// with at most [`MAX_EXCLUDE_PARTS`] parts other than `**` in all.
+pub fn excludes_error(patterns: &[String]) -> Option<String> {
+    if patterns.len() > MAX_EXCLUDES {
+        return Some(format!(
+            "There can be at most {MAX_EXCLUDES} exclude patterns"
+        ));
+    }
+    if let Some(why) = patterns.iter().find_map(|p| pattern_error(p)) {
+        return Some(why);
+    }
+    let parts: usize = patterns.iter().map(|p| glob_parts(p)).sum();
+    if parts > MAX_EXCLUDE_PARTS {
+        return Some(format!(
+            "The exclude patterns have {parts} parts other than ** in all; at most {MAX_EXCLUDE_PARTS} are allowed"
+        ));
+    }
+    None
+}
+
+/// How many parts other than `**` an accepted pattern has: the globs it compiles to.
+fn glob_parts(pattern: &str) -> usize {
+    pattern
+        .trim_matches('/')
+        .split('/')
+        .filter(|part| *part != "**")
+        .count()
+}
 
 /// Why `pattern` isn't accepted, as a sentence; `None` when it is fine.
 pub fn pattern_error(pattern: &str) -> Option<String> {
     if pattern.trim().is_empty() {
         return Some("Exclude patterns can't be empty".to_string());
     }
-    if pattern.chars().count() > crate::manifest::MAX_EXCLUDE_LEN {
+    if pattern.chars().count() > MAX_EXCLUDE_LEN {
         return Some(format!(
-            "Exclude patterns can be at most {} characters long",
-            crate::manifest::MAX_EXCLUDE_LEN
+            "Exclude patterns can be at most {MAX_EXCLUDE_LEN} characters long"
         ));
     }
     if pattern.chars().any(|c| c.is_control() || c == '\\') {
@@ -64,8 +100,9 @@ enum Position {
 /// All patterns are one automaton over path parts: a position per pattern part plus one
 /// per pattern's end, and a set of live positions (a bitset). Reading one path part moves
 /// every live position at once, so a path of `d` parts costs `d` steps of
-/// O(positions / 64 + live globs × (name + glob)) whatever the patterns, and an [`ExcludeCursor`] reuses
-/// the steps of the folders a walk is already in.
+/// O(positions / 64 + live globs × (name + glob)) whatever the patterns, with at most
+/// [`MAX_EXCLUDE_PARTS`] globs, and an [`ExcludeCursor`] reuses the steps of the folders a
+/// walk is already in.
 #[derive(Debug, Clone, Default)]
 pub struct Excludes {
     positions: Vec<Position>,
@@ -80,12 +117,19 @@ pub struct Excludes {
 }
 
 impl Excludes {
-    /// Compiles `patterns`; those [`pattern_error`] refuses match nothing.
+    /// Compiles `patterns`; those [`pattern_error`] refuses match nothing, and so do the
+    /// rest once the patterns kept have [`MAX_EXCLUDE_PARTS`] parts other than `**` (an
+    /// image's excludes never pass that: see [`excludes_error`]).
     pub fn new(patterns: &[String]) -> Excludes {
         let mut positions = Vec::new();
         let mut starts = Vec::new();
         let mut file_ends = Vec::new();
+        let mut parts = 0;
         for pattern in patterns.iter().filter(|p| pattern_error(p).is_none()) {
+            parts += glob_parts(pattern);
+            if parts > MAX_EXCLUDE_PARTS {
+                break;
+            }
             starts.push(positions.len());
             let dir_only = compile(pattern, &mut positions);
             if !dir_only {
@@ -621,6 +665,59 @@ mod tests {
             assert!(e.matches(&hit, false) || e.matches(&star_hit, false));
             assert!(
                 started.elapsed() < std::time::Duration::from_secs(5),
+                "{:?}",
+                started.elapsed()
+            );
+        }
+    }
+
+    #[test]
+    fn excludes_past_the_part_budget_are_refused_and_ignored() {
+        // `**/` and then `*ab*/` 49 times: under a chain of `ab` folders every one of a
+        // pattern's globs is live at once, so a thousand of them would be 50,000 globs to
+        // match against each file's name.
+        let chained: Vec<String> = (0..1000)
+            .map(|i| format!("**/{}q{i:03}", "*ab*/".repeat(49)))
+            .collect();
+        assert!(chained.iter().all(|p| pattern_error(p).is_none()));
+        assert!(excludes_error(&chained).is_some());
+        let fits = MAX_EXCLUDE_PARTS / 50;
+        assert!(excludes_error(&chained[..fits]).is_none());
+        assert!(excludes_error(&chained[..fits + 1]).is_some());
+        assert!(excludes_error(&["!x".to_string()]).is_some());
+        assert!(excludes_error(&vec!["x".to_string(); MAX_EXCLUDES + 1]).is_some());
+        let e = Excludes::new(&chained);
+        let globs = |e: &Excludes| {
+            e.positions
+                .iter()
+                .filter(|p| matches!(p, Position::Glob(_)))
+                .count()
+        };
+        assert_eq!(globs(&e), fits * 50);
+        // The patterns kept still match; those past the budget match nothing.
+        let chain = vec!["ab"; 51].join("/");
+        assert!(e.matches(&format!("config/{chain}/q000"), false));
+        assert!(!e.matches(&format!("config/{chain}/q{:03}", fits), false));
+
+        // As many live globs as the budget allows, against long names, as a walk meets
+        // them: 2000 files under the chain, each one new part to read.
+        for patterns in [
+            chained[..fits].to_vec(),
+            (0..MAX_EXCLUDE_PARTS / 32)
+                .map(|i| format!("**/{}zz{i:03}", "*ab*/**/".repeat(31)))
+                .collect(),
+        ] {
+            assert!(excludes_error(&patterns).is_none());
+            let e = Excludes::new(&patterns);
+            assert!(globs(&e) <= MAX_EXCLUDE_PARTS);
+            let started = std::time::Instant::now();
+            let mut cursor = e.cursor();
+            for n in 0..2000 {
+                let path = format!("config/{chain}/{}{n:05}", "c".repeat(240));
+                assert!(!cursor.excludes(&path, false));
+            }
+            assert!(
+                started.elapsed() < std::time::Duration::from_secs(10),
                 "{:?}",
                 started.elapsed()
             );
