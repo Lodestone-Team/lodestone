@@ -37,6 +37,7 @@ pub mod instance_settings;
 pub mod minecraft_links;
 pub mod mods;
 pub mod overview;
+pub mod pager;
 pub mod parts;
 pub mod permissions;
 pub mod profile;
@@ -134,6 +135,15 @@ pub fn demo(view: &AnyView, cx: &mut App) {
     }
     if let Ok(page) = view.clone().downcast::<backups::BackupsPage>() {
         page.update(cx, |page, cx| page.demo(cx));
+    }
+}
+
+/// Puts sample mods on the Mods tab's Installed view (development screenshots'
+/// `--mods many|last|pack|few[-end]`, with `--tab mods --fake-instance`).
+#[cfg(feature = "screenshot")]
+pub fn mods_demo(view: &AnyView, scene: &str, cx: &mut App) {
+    if let Ok(page) = view.clone().downcast::<mods::ModsPage>() {
+        page.update(cx, |page, cx| page.demo_installed(scene, cx));
     }
 }
 

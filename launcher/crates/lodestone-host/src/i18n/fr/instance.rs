@@ -194,6 +194,7 @@ pub fn text(message: M) -> &'static str {
             "Les joueurs peuvent se connecter avec Fabric seul (Minecraft {gameVersion}, {loader})."
         }
         M::ModsDownloadPack => "Télécharger le modpack client (.mrpack)",
+        M::ModsPackShowFewer => "Afficher moins",
         M::ModsDownloadPackFailed => "Impossible de télécharger le modpack client : {error}",
         M::ModsPackSaved => "{name} enregistré",
         M::ModsSavePack => "Enregistrer",
@@ -368,6 +369,7 @@ pub fn plural(message: P) -> [&'static str; 2] {
             "Importez-le dans Prism Launcher, l’application Modrinth ou ATLauncher pour tout obtenir dans les bonnes versions. {count} mod n’est pas sur Modrinth, son fichier est donc inclus dans le pack.",
             "Importez-le dans Prism Launcher, l’application Modrinth ou ATLauncher pour tout obtenir dans les bonnes versions. {count} mods ne sont pas sur Modrinth, leurs fichiers sont donc inclus dans le pack.",
         ],
+        P::ModsPackShowAll => ["Afficher {count} mod", "Afficher les {count} mods"],
         P::ModsShowMore => [
             "Afficher plus ({count} restante)",
             "Afficher plus ({count} restantes)",
