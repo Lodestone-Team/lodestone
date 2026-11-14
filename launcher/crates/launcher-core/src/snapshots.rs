@@ -429,6 +429,12 @@ pub type Progress<'a> = &'a (dyn Fn(u64, u64) + Sync);
 /// jobs that add objects (or read them) share the lock, and garbage collection takes it
 /// alone: it waits for them, and they for it. Jobs on different instances still run
 /// together.
+///
+/// The lock is per process. Two launchers on one data folder (a developer build and a
+/// release pointed at the same place, say) can still race; only temp files younger
+/// than [`STALE_TEMP`] are safe from the other's garbage collection, not objects stored
+/// before their manifest is written. The CLI goes through the running launcher, so it
+/// is covered.
 fn store_lock(root: &Path) -> Arc<RwLock<()>> {
     static LOCKS: OnceLock<Mutex<HashMap<PathBuf, Arc<RwLock<()>>>>> = OnceLock::new();
     let mut locks = LOCKS
@@ -935,6 +941,9 @@ impl Store {
                 clone_or_copy(&object, &to)?;
                 set_mode(&to, file.mode);
             }
+            // Each entry is replaced whole, and the safety snapshot can't hold every name
+            // in it: those files go along unchanged rather than being deleted with `old`.
+            carry_unheld(instance_dir, &staging, &entries)?;
             swap_in(instance_dir, &staging, &old, &entries)
         })();
         let _ = fs::remove_dir_all(&staging);
@@ -1393,6 +1402,55 @@ fn swap_in(
     result
 }
 
+/// Copies what under `entries` (top-level paths under `root`) no snapshot can hold into
+/// `staging`, at the same place: names with `:` or `\` (fine on Unix), or that aren't
+/// UTF-8, and everything under such a folder. [`walk`] leaves them out, so a revert,
+/// which replaces each entry whole, would otherwise delete them with nothing to go back
+/// to. Copied rather than moved, so a revert that fails leaves them where they were.
+fn carry_unheld(
+    root: &Path,
+    staging: &Path,
+    entries: &BTreeSet<String>,
+) -> Result<(), SnapshotError> {
+    /// `relative` is `None` under a name that can't be held: all of it is copied.
+    fn visit(from: &Path, to: &Path, relative: Option<&str>) -> Result<(), SnapshotError> {
+        let metadata = match fs::symlink_metadata(from) {
+            Ok(metadata) => metadata,
+            Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(()),
+            Err(err) => return Err(io_error(from)(err)),
+        };
+        let held = relative.is_some_and(|r| checked_relative(r).is_ok());
+        if metadata.file_type().is_symlink() {
+            // Snapshots never take links, wherever they are.
+            return Ok(());
+        }
+        if metadata.is_dir() {
+            if !held {
+                fs::create_dir_all(to).map_err(io_error(to))?;
+            }
+            for entry in fs::read_dir(from).map_err(io_error(from))? {
+                let entry = entry.map_err(io_error(from))?;
+                let name = entry.file_name();
+                let child = match (held, relative, name.to_str()) {
+                    (true, Some(relative), Some(name)) => Some(format!("{relative}/{name}")),
+                    _ => None,
+                };
+                visit(&entry.path(), &to.join(&name), child.as_deref())?;
+            }
+        } else if metadata.is_file() && !held {
+            if let Some(dir) = to.parent() {
+                fs::create_dir_all(dir).map_err(io_error(dir))?;
+            }
+            clone_or_copy(from, to)?;
+        }
+        Ok(())
+    }
+    for entry in entries {
+        visit(&root.join(entry), &staging.join(entry), Some(entry))?;
+    }
+    Ok(())
+}
+
 /// Every file under `instance_dir` a snapshot can take: (path, relative path, size).
 /// Symbolic links are skipped.
 fn walk(instance_dir: &Path) -> Result<Vec<(PathBuf, String, u64)>, SnapshotError> {
@@ -1424,8 +1482,13 @@ fn walk(instance_dir: &Path) -> Result<Vec<(PathBuf, String, u64)>, SnapshotErro
             }
             // A name a manifest can't hold (`:` or `\`, both fine in a Unix file name)
             // is left out: reading the snapshot back refuses such paths, so taking it
-            // would make a snapshot that can't be listed, used or deleted.
+            // would make a snapshot that can't be listed, used or deleted. A revert keeps
+            // such files where they are (see [`carry_unheld`]); the trace says which.
             if checked_relative(&relative).is_err() {
+                crate::trace::emit(
+                    "snapshot.left_out",
+                    || serde_json::json!({ "path": relative }),
+                );
                 continue;
             }
             // Skip whole excluded folders without walking them.
@@ -2011,6 +2074,67 @@ mod tests {
         // It reads back: listed, and found by id.
         assert_eq!(store.list("a").len(), 1);
         assert!(store.get("a", &snapshot.id).is_ok());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn revert_keeps_files_whose_names_a_snapshot_cant_hold() {
+        let temp = tempfile::tempdir().unwrap();
+        let store = Store::at(temp.path().join("snapshots"));
+        let (instance, dir) = instance_at(temp.path(), "a");
+        let snapshot = store
+            .create(
+                &instance,
+                &dir,
+                "before",
+                None,
+                &Selection::all(),
+                false,
+                &none,
+            )
+            .unwrap();
+        // Made after it, in entries a revert replaces whole; the safety snapshot leaves
+        // them out, so nothing else would bring them back.
+        write(&dir, "minecraft/config/foo:bar.json", b"kept");
+        write(&dir, "minecraft/config/new.json", b"new");
+        write(&dir, "minecraft/odd:folder/deep/a.txt", b"deep");
+        write(&dir, "minecraft/saves/World/data/x:y.dat", b"world");
+        let selection = Selection {
+            categories: [Category::Configs, Category::Other, Category::Worlds].into(),
+            worlds: BTreeSet::new(),
+        };
+        store
+            .revert(&snapshot, &instance, &dir, &selection, &none)
+            .unwrap();
+        // What the snapshot holds went back...
+        assert!(!dir.join("minecraft/config/new.json").exists());
+        assert!(dir.join("minecraft/config/sodium.json").is_file());
+        assert!(dir.join("minecraft/kubejs/a.js").is_file());
+        // ...and what it can't hold stayed.
+        assert_eq!(
+            fs::read(dir.join("minecraft/config/foo:bar.json")).unwrap(),
+            b"kept"
+        );
+        assert_eq!(
+            fs::read(dir.join("minecraft/odd:folder/deep/a.txt")).unwrap(),
+            b"deep"
+        );
+        assert_eq!(
+            fs::read(dir.join("minecraft/saves/World/data/x:y.dat")).unwrap(),
+            b"world"
+        );
+        assert!(dir.join("minecraft/saves/World/level.dat").is_file());
+        // Nothing left over from the revert.
+        let leftovers: Vec<_> = fs::read_dir(&dir)
+            .unwrap()
+            .flatten()
+            .filter(|e| {
+                e.file_name()
+                    .to_string_lossy()
+                    .starts_with(".lodestone-restore")
+            })
+            .collect();
+        assert!(leftovers.is_empty());
     }
 
     #[test]
