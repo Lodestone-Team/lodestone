@@ -57,9 +57,44 @@ def save_edits(edits):
 # ---- serve -------------------------------------------------------------------------------
 
 
+def local_names(port):
+    """The addresses the desk is served at: what a browser on this computer puts in
+    Host, and (with http://) in Origin."""
+    return {f"127.0.0.1:{port}", f"localhost:{port}"}
+
+
+def refusal(method, headers, port):
+    """Why a request can't be from the desk's own page, or None.
+
+    Any web page the developer has open can send requests to 127.0.0.1, and `apply`
+    writes saved edits into the source. So every request must name the desk's own
+    address in Host (a page on another domain that resolves to 127.0.0.1, DNS
+    rebinding, names its own), and a write must come from the desk's page (Origin)
+    as JSON, which no other page can send here without the desk agreeing first."""
+    names = local_names(port)
+    if (headers.get("Host") or "").lower() not in names:
+        return "not this desk's address"
+    if method == "POST":
+        origin = (headers.get("Origin") or "").lower()
+        if origin not in {f"http://{name}" for name in names}:
+            return "not from the desk's page"
+        kind = (headers.get("Content-Type") or "").split(";")[0].strip().lower()
+        if kind != "application/json":
+            return "not JSON"
+    return None
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):  # quiet: only errors
         pass
+
+    def refused(self, method):
+        """Answers 403 (and returns True) for a request from anything but the desk's page."""
+        reason = refusal(method, self.headers, self.server.server_port)
+        if reason is None:
+            return False
+        self.send(403, json.dumps({"error": reason}))
+        return True
 
     def send(self, code, body, kind="application/json; charset=utf-8"):
         if isinstance(body, str):
@@ -72,6 +107,8 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self):
+        if self.refused("GET"):
+            return
         path = unquote(urlparse(self.path).path)
         if path in ("/", "/index.html"):
             html = (PAGE / "index.html").read_text(encoding="utf-8")
@@ -96,6 +133,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         # {id, texts, original}: save one edit; texts null removes it.
+        if self.refused("POST"):
+            return
         if urlparse(self.path).path != "/api/edits":
             return self.send(404, "{}")
         try:

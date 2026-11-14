@@ -69,7 +69,8 @@ class Cleanup(unittest.TestCase):
 def staged(folder, build, keys, commit="abc", extras=()):
     """A staged folder as `stage` leaves it, with stand-in files."""
     folder.mkdir(parents=True, exist_ok=True)
-    record = {"build": build, "commit": commit, "version": "0.1.0", "assets": {}, "files": {}}
+    record = {"product": pr.PRODUCT.key, "build": build, "commit": commit, "version": "0.1.0",
+              "assets": {}, "files": {}}
     for key in keys:
         binary = folder / pr.asset_name(build, key)
         binary.write_bytes(f"{key} {build}".encode())
@@ -127,6 +128,54 @@ class Stage(unittest.TestCase):
         with self.assertRaisesRegex(pr.Failure, "isn't the build that was tested"):
             pr.check_candidate(self.dir / "s", 7, "abc")
 
+    def stage_host(self, folder, build=7, keys=("windows-x86_64",)):
+        pr.use_product("host")
+        try:
+            return staged(folder, build, list(keys))
+        finally:
+            pr.use_product("launcher")
+
+    def test_a_host_dry_run_isnt_uploaded_as_the_launcher(self):
+        # Both products dry-run into the same folder: --product host --dry-run, then
+        # --tag launcher-v1.0.0 would upload the Host as LodestoneLauncherSetup.exe.
+        record = self.stage_host(self.dir / "s")
+        self.assertEqual(record["product"], "host")
+        with self.assertRaisesRegex(pr.Failure, "holds a Lodestone Host build, not Lodestone "
+                                                "Launcher's. Run this --product host"):
+            pr.check_candidate(self.dir / "s", 7, "abc")
+        with self.assertRaisesRegex(pr.Failure, "holds a Lodestone Host build"):
+            pr.read_stage(self.dir / "s")
+
+    def test_a_launcher_dry_run_isnt_uploaded_as_the_host(self):
+        staged(self.dir / "s", 7, ["macos-aarch64"])
+        pr.use_product("host")
+        try:
+            with self.assertRaisesRegex(pr.Failure, "holds a Lodestone Launcher build, not "
+                                                    "Lodestone Host's. Run this without"):
+                pr.check_candidate(self.dir / "s", 7, "abc")
+            with self.assertRaisesRegex(pr.Failure, "holds a Lodestone Launcher build"):
+                pr.read_stage(self.dir / "s")
+        finally:
+            pr.use_product("launcher")
+
+    def test_a_record_from_before_products_is_told_apart_by_its_files(self):
+        record = self.stage_host(self.dir / "s")
+        del record["product"]
+        (self.dir / "s" / pr.STAGE_RECORD).write_text(pr.json.dumps(record))
+        with self.assertRaisesRegex(pr.Failure, "holds a Lodestone Host build"):
+            pr.check_candidate(self.dir / "s", 7, "abc")
+        record = staged(self.dir / "l", 7, ["macos-aarch64"])
+        del record["product"]
+        (self.dir / "l" / pr.STAGE_RECORD).write_text(pr.json.dumps(record))
+        self.assertEqual(pr.check_candidate(self.dir / "l", 7, "abc")["build"], 7)
+
+    def test_a_record_that_names_the_wrong_product_for_its_files_is_refused(self):
+        record = self.stage_host(self.dir / "s")
+        record["product"] = "launcher"
+        (self.dir / "s" / pr.STAGE_RECORD).write_text(pr.json.dumps(record))
+        with self.assertRaisesRegex(pr.Failure, "not Lodestone Launcher's"):
+            pr.check_candidate(self.dir / "s", 7, "abc")
+
 
 class FakeRelease(pr.VersionRelease):
     """A version's release with a folder for its files and no GitHub."""
@@ -146,7 +195,7 @@ class FakeRelease(pr.VersionRelease):
             return None
         return {"tagName": self.tag, "isDraft": self.draft, "isPrerelease": self._prerelease,
                 "url": f"release {self.tag}",
-                "assets": [{"name": name} for name in self.folder.names()]}
+                "assets": self.folder.assets()}
 
     def names(self):
         return self.folder.names() if self.exists else []
@@ -173,6 +222,21 @@ class FakeRelease(pr.VersionRelease):
 
     def published_releases(self):
         return self.others
+
+
+class RacedRelease(FakeRelease):
+    """A release where another upload (`meanwhile`) runs between this upload's reading
+    of the manifest and its writing of it, the first time."""
+
+    def __init__(self, *args, meanwhile=None, **kw):
+        super().__init__(*args, **kw)
+        self.meanwhile = meanwhile
+
+    def upload(self, path):
+        if path.name == pr.MANIFEST and self.meanwhile:
+            meanwhile, self.meanwhile = self.meanwhile, None
+            meanwhile()
+        super().upload(path)
 
 
 def published(tag, builds, prerelease=False, draft=False):
@@ -221,6 +285,39 @@ class Publish(unittest.TestCase):
         self.assertEqual(set(manifest["assets"]), {"macos-aarch64", "macos-x86_64", "windows-x86_64"})
         self.assertIn("lodestone-launcher-10-macos-universal.dmg", release.names())
         self.assertIn(pr.STABLE_DMG, release.names())
+
+    def test_uploads_at_the_same_time_keep_each_others_platforms(self):
+        # The Mac upload reads the manifest, the Windows upload then writes its own,
+        # and the Mac's (without Windows) replaces it. Windows' files are in the
+        # release, so the Mac upload puts it back.
+        windows = self.stage_win(10)
+        path = self.dir / "launcher-v0.2.0"
+        other = FakeRelease(path, "launcher-v0.2.0", tag_commit="abc")
+        mac = RacedRelease(path, "launcher-v0.2.0", tag_commit="abc",
+                           meanwhile=lambda: pr.publish(other, [windows]))
+        manifest = pr.publish(mac, [self.stage_mac(10)])
+        self.assertEqual(set(manifest["assets"]), {"macos-aarch64", "macos-x86_64", "windows-x86_64"})
+        self.assertEqual(manifest["assets"]["windows-x86_64"], windows[1]["assets"]["windows-x86_64"])
+        self.assertEqual(mac.manifest(), manifest)
+
+    def test_the_releases_files_fill_in_what_its_manifest_lost(self):
+        # --clobber deletes latest.json before uploading it again: an upload that reads
+        # it then starts from nothing.
+        release = self.release(tag_commit="abc")
+        windows = self.stage_win(10)
+        pr.publish(release, [windows])
+        (release.folder.path / pr.MANIFEST).unlink()
+        manifest = pr.publish(release, [self.stage_mac(10)])
+        self.assertEqual(manifest["assets"]["windows-x86_64"], windows[1]["assets"]["windows-x86_64"])
+        self.assertEqual(set(manifest["assets"]), {"macos-aarch64", "macos-x86_64", "windows-x86_64"})
+
+    def test_a_platform_with_files_of_two_builds_isnt_guessed(self):
+        release = self.release(tag_commit="abc")
+        pr.publish(release, [self.stage_win(10)])
+        (release.folder.path / pr.asset_name(9, "windows-x86_64")).write_bytes(b"old")
+        (release.folder.path / pr.MANIFEST).unlink()
+        manifest = pr.publish(release, [self.stage_mac(10)])
+        self.assertNotIn("windows-x86_64", manifest["assets"])
 
     def test_a_build_of_another_commit_is_refused(self):
         release = self.release(tag_commit="abc")
@@ -644,6 +741,22 @@ class Host(unittest.TestCase):
         with self.assertRaisesRegex(pr.Failure, "core.exe doesn't match its manifest"):
             pr.copy_release(beta, FakeRelease(self.dir / "other", "host-v0.6.1"), None, False)
 
+    def test_a_platform_the_manifest_lost_comes_back_with_its_core(self):
+        win, mac = self.dir / "win", self.dir / "mac"
+        staged_host(win, 10, ["windows-x86_64"])
+        staged_host(mac, 10, ["macos-aarch64"])
+        release = FakeRelease(self.dir / "r", "host-v0.6.0", tag_commit="abc")
+        first = pr.publish(release, [(win, pr.read_stage(win))])
+        (release.folder.path / pr.MANIFEST).unlink()
+        manifest = pr.publish(release, [(mac, pr.read_stage(mac))])
+        self.assertEqual(manifest["assets"]["windows-x86_64"], first["assets"]["windows-x86_64"])
+        self.assertIn("core", manifest["assets"]["windows-x86_64"])
+        # a Host binary without its core yet is still uploading: it's left out
+        (release.folder.path / pr.core_name(10, "windows-x86_64")).unlink()
+        (release.folder.path / pr.MANIFEST).unlink()
+        manifest = pr.publish(release, [(mac, pr.read_stage(mac))], force=True)
+        self.assertNotIn("windows-x86_64", manifest["assets"])
+
     def test_the_host_has_no_old_channel_to_bridge(self):
         with self.assertRaisesRegex(pr.Failure, "no old update channel"):
             pr.main(["--product", "host", "--bridge", "0.6.0"])
@@ -695,7 +808,7 @@ class FakeDevRelease(pr.DevRelease):
             return None
         return {"tagName": self.tag, "isDraft": False, "isPrerelease": True,
                 "url": f"release {self.tag}",
-                "assets": [{"name": name} for name in self.folder.names()]}
+                "assets": self.folder.assets()}
 
     names = FakeRelease.names
     download = FakeRelease.download
