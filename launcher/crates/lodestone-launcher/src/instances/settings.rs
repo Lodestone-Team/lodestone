@@ -267,20 +267,29 @@ pub fn update_candidate(versions: &[RawVersion], current: &ModpackRecord) -> Opt
 
 /// Only the settings the Settings tab's fields edit, for comparing the fields' values.
 fn form_values(instance: &Instance) -> Instance {
-    Instance {
+    let only_id = Instance {
         id: instance.id.clone(),
-        name: instance.name.clone(),
-        group: instance.group.clone(),
-        loader: instance.loader,
-        loader_version: instance.loader_version.clone(),
-        java_override: instance.java_override.clone(),
-        memory: instance.memory,
-        jvm_args: instance.jvm_args.clone(),
-        game_args: instance.game_args.clone(),
-        window: instance.window,
-        env: instance.env.clone(),
-        prerelease_updates: instance.prerelease_updates,
         ..Instance::default()
+    };
+    form_onto(instance, &only_id)
+}
+
+/// `current` with the settings this form changes ([`InstanceSettings::read_fields`])
+/// taken from `form`.
+fn form_onto(form: &Instance, current: &Instance) -> Instance {
+    Instance {
+        name: form.name.clone(),
+        group: form.group.clone(),
+        loader: form.loader,
+        loader_version: form.loader_version.clone(),
+        java_override: form.java_override.clone(),
+        memory: form.memory,
+        jvm_args: form.jvm_args.clone(),
+        game_args: form.game_args.clone(),
+        window: form.window,
+        env: form.env.clone(),
+        prerelease_updates: form.prerelease_updates,
+        ..current.clone()
     }
 }
 
@@ -711,7 +720,8 @@ impl InstanceSettings {
 
     /// The instance's loader or game version changed elsewhere (a modpack update, the
     /// Content tab) while the form has unsaved changes: the loader shows the new one,
-    /// and what was typed stays.
+    /// and what was typed stays. What the tab shows of the instance is read again: the
+    /// Minecraft version, and the pack an update moved to (checked again on request).
     pub fn loader_changed(&mut self, cx: &mut Context<Self>) {
         let Some(instance) = self.instance(cx) else {
             return;
@@ -720,6 +730,25 @@ impl InstanceSettings {
             loader.set_game_version(Some(instance.game_version.clone()), cx);
             loader.set_choice(instance.loader_choice(), cx);
         });
+        if self.game_version != instance.game_version {
+            self.game_version = instance.game_version.clone();
+            let game = self.game_version.clone();
+            self.shared
+                .update(cx, |shared, cx| shared.set_game_version(game, cx));
+        }
+        self.modpack = self.instances.read(cx).modpack(&self.instance_id);
+        self.modpack_versions = Load::NotLoaded;
+        // The new loader isn't an edit, and the form's Undo steps would put the old one
+        // back, to be saved over the new one.
+        let saved = form_values(&instance);
+        if let Some(last) = &mut self.form_last {
+            last.loader = saved.loader;
+            last.loader_version = saved.loader_version.clone();
+        }
+        self.form_seen = Some(saved);
+        self.form_base = None;
+        crate::undo::forget_form(cx.entity_id(), cx);
+        cx.notify();
     }
 
     fn sync_loader(&mut self, cx: &mut Context<Self>) {
@@ -731,11 +760,21 @@ impl InstanceSettings {
     /// Saves `instance`'s form settings, after turning off `disable` (mods, with
     /// `.disabled`). The rest is the record's as it is now: `instance` may have been
     /// read before the loader change dialog, and a session that ended meanwhile added
-    /// to the play time.
+    /// to the play time. Nothing is saved when the tab is another instance's, or when the
+    /// Minecraft version changed meanwhile (a modpack update): the loader version was
+    /// picked for the old one.
     pub fn commit(&mut self, instance: Instance, disable: &[String], cx: &mut Context<Self>) {
         self.prompting = false;
         let before = self.instance(cx);
         let instance = match &before {
+            Some(current) if current.id != instance.id => {
+                self.sync_loader(cx);
+                return;
+            }
+            Some(current) if current.game_version != instance.game_version => {
+                self.sync_loader(cx);
+                return self.set_message(t(M::GameVersionChangedMeanwhile), true, cx);
+            }
             Some(current) => form_onto(&instance, current),
             None => instance,
         };
@@ -3023,25 +3062,6 @@ impl InstanceSettings {
     }
 }
 
-/// `current` with the settings this form changes ([`InstanceSettings::read_fields`])
-/// taken from `form`.
-fn form_onto(form: &Instance, current: &Instance) -> Instance {
-    Instance {
-        name: form.name.clone(),
-        group: form.group.clone(),
-        loader: form.loader,
-        loader_version: form.loader_version.clone(),
-        java_override: form.java_override.clone(),
-        memory: form.memory,
-        jvm_args: form.jvm_args.clone(),
-        game_args: form.game_args.clone(),
-        window: form.window,
-        env: form.env.clone(),
-        prerelease_updates: form.prerelease_updates,
-        ..current.clone()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3213,6 +3233,70 @@ mod tab_tests {
         assert_ne!(tab(&shell, cx).entity_id(), view.entity_id(), "rebuilt");
     }
 
+    /// LS-101: with unsaved changes kept through a modpack update, the tab shows what
+    /// the update changed, and doesn't offer the same update again or note the new
+    /// loader as an edit for Undo.
+    #[test]
+    fn a_modpack_update_with_unsaved_changes_shows_the_new_version() {
+        let mut cx = TestAppContext::single();
+        let (shell, instances, id, cx) = setup(&mut cx);
+        let store = instances.read_with(cx, |instances, _| instances.store());
+        let pack = |version: &str| ModpackRecord {
+            project_id: "pack".into(),
+            version_id: version.into(),
+            version_number: version.into(),
+            ..ModpackRecord::default()
+        };
+        pack("v1").save(&store.dir(&id)).unwrap();
+        instances.update(cx, |instances, cx| instances.reload(cx));
+        cx.run_until_parked();
+        let view = tab(&shell, cx);
+        view.update(cx, |view, cx| {
+            view.preview_modpack(pack("v1"), Vec::new());
+            // as a frame would: the fields as they were, then the edit
+            view.track_edits(cx);
+            view.preview_change(cx);
+            view.track_edits(cx);
+        });
+        assert!(
+            cx.update(|_, cx| crate::undo::last_key(cx).is_some()),
+            "the edit is a step"
+        );
+        // the update moves the instance to another game version, loader and pack version
+        let mut updated = store.get(&id).unwrap();
+        assert_ne!(updated.game_version, "1.21.1");
+        updated.game_version = "1.21.1".into();
+        updated.loader = Loader::NeoForge;
+        updated.loader_version = Some("21.1.77".into());
+        store.save(&updated).unwrap();
+        pack("v2").save(&store.dir(&id)).unwrap();
+        instances.update(cx, |instances, cx| {
+            instances.reload(cx);
+            cx.emit(InstancesEvent::LoaderChanged(id.clone()));
+        });
+        cx.run_until_parked();
+        assert_eq!(tab(&shell, cx).entity_id(), view.entity_id(), "kept");
+        view.update(cx, |view, cx| view.track_edits(cx));
+        view.read_with(cx, |view, cx| {
+            assert_eq!(view.game_version, "1.21.1");
+            assert_eq!(
+                view.modpack.as_ref().map(|p| p.version_id.as_str()),
+                Some("v2")
+            );
+            assert!(matches!(view.modpack_versions, Load::NotLoaded));
+            assert_eq!(view.shared.read(cx).game_version(), "1.21.1");
+            // the typed name stays, and Save would keep the update's loader
+            assert_eq!(view.text(&view.name, cx), "Survival, renamed");
+            let saved = view.read_fields(&updated, cx).unwrap();
+            assert_eq!(
+                (saved.loader, saved.loader_version),
+                (Loader::NeoForge, Some("21.1.77".into()))
+            );
+        });
+        // the old steps would put the old loader back, and the new one isn't a step
+        assert!(cx.update(|_, cx| crate::undo::last_key(cx).is_none()));
+    }
+
     /// LS-100: the instance a loader change dialog asked about was read before a
     /// session ended; confirming it keeps that session's play time.
     #[test]
@@ -3231,5 +3315,36 @@ mod tab_tests {
         assert_eq!(saved.loader, Loader::Quilt);
         assert_eq!(saved.play_time, played.play_time);
         assert_eq!(saved.last_played, Some(1_700_000_000));
+    }
+
+    /// LS-100: a loader change dialog answered after a modpack update moved the
+    /// instance to another Minecraft version saves nothing (the loader version was
+    /// picked for the old one), and one for another instance never saves onto this one.
+    #[test]
+    fn a_confirmed_loader_change_saves_nothing_that_no_longer_applies() {
+        let mut cx = TestAppContext::single();
+        let (shell, instances, id, cx) = setup(&mut cx);
+        let store = instances.read_with(cx, |instances, _| instances.store());
+        let other = instances.read_with(cx, |instances, _| instances.list()[1].id.clone());
+        let before = store.get(&id).unwrap();
+        let other_before = store.get(&other).unwrap();
+
+        let mut elsewhere = other_before.clone();
+        elsewhere.name = "Not this one".into();
+        elsewhere.loader = Loader::Quilt;
+        tab(&shell, cx).update(cx, |view, cx| view.commit(elsewhere, &[], cx));
+        assert_eq!(store.get(&id).unwrap(), before);
+        assert_eq!(store.get(&other).unwrap(), other_before);
+
+        let mut asked = before.clone();
+        asked.loader = Loader::Forge;
+        asked.loader_version = Some("52.0.1".into());
+        let mut updated = before.clone();
+        updated.game_version = format!("{}-updated", before.game_version);
+        store.save(&updated).unwrap();
+        instances.update(cx, |instances, cx| instances.reload(cx));
+        cx.run_until_parked();
+        tab(&shell, cx).update(cx, |view, cx| view.commit(asked, &[], cx));
+        assert_eq!(store.get(&id).unwrap(), updated);
     }
 }

@@ -298,21 +298,39 @@ pub fn read(file: &LogFile) -> std::io::Result<Contents> {
     }
 }
 
-/// The lines of `reader`. A line longer than [`MAX_LINE_BYTES`] is split.
+/// The lines of `reader`. A line longer than [`MAX_LINE_BYTES`] is split, between
+/// characters.
 fn read_lines(mut reader: impl BufRead, kind: Kind) -> std::io::Result<Contents> {
     let mut parser = Parser::new(kind);
     let mut bytes = Vec::new();
+    // The start of a character the last split cut in two, for the next part.
+    let mut carry = Vec::new();
+    let mut split = false;
     loop {
         bytes.clear();
-        if (&mut reader)
+        bytes.append(&mut carry);
+        let read = (&mut reader)
             .take(MAX_LINE_BYTES)
-            .read_until(b'\n', &mut bytes)?
-            == 0
-        {
+            .read_until(b'\n', &mut bytes)?;
+        if read == 0 {
+            if !bytes.is_empty() {
+                parser.push(&String::from_utf8_lossy(&bytes));
+            }
             break;
         }
         if bytes.last() == Some(&b'\n') {
             bytes.pop();
+            // the end of a line split just before it isn't a line of its own
+            if std::mem::take(&mut split) && bytes.is_empty() {
+                continue;
+            }
+        } else if read as u64 == MAX_LINE_BYTES {
+            split = true;
+            if let Err(err) = std::str::from_utf8(&bytes)
+                && err.error_len().is_none()
+            {
+                carry = bytes.split_off(err.valid_up_to());
+            }
         }
         parser.push(&String::from_utf8_lossy(&bytes));
     }
@@ -506,6 +524,21 @@ Unexpected token: here, a token:short: one\n"
         let contents = read_lines(&text[..], Kind::CrashReport).unwrap();
         let lengths: Vec<usize> = contents.lines.iter().map(|l| l.text.len()).collect();
         assert_eq!(lengths, [MAX_LINE_BYTES as usize, 10, 4]);
+    }
+
+    #[test]
+    fn a_split_line_keeps_its_characters_and_adds_no_empty_line() {
+        // a line that just fits, then one with a character across the split
+        let max = MAX_LINE_BYTES as usize;
+        let mut text = vec![b'y'; max];
+        text.push(b'\n');
+        text.extend(std::iter::repeat_n(b'z', max - 1));
+        text.extend_from_slice("é and more\nnext\n".as_bytes());
+        let contents = read_lines(&text[..], Kind::CrashReport).unwrap();
+        let lengths: Vec<usize> = contents.lines.iter().map(|l| l.text.len()).collect();
+        assert_eq!(lengths, [max, max - 1, "é and more".len(), 4]);
+        assert_eq!(contents.lines[2].text, "é and more");
+        assert!(!contents.lines.iter().any(|l| l.text.contains('\u{fffd}')));
     }
 
     #[test]
