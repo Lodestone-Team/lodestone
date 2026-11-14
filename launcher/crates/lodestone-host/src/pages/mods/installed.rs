@@ -739,8 +739,9 @@ impl ModsPage {
         let (toggled, updated, deleted, marked) = (m.clone(), m.clone(), m.clone(), m.clone());
         // client packs are Fabric's: there, the owner can mark a mod for players
         let marks = target.loader == InstalledModLoader::Fabric && !target.is_plugin();
-        let required_anyway =
-            m.client_requirement == ClientRequirement::Required && !m.client_marked;
+        // players get it whatever the box says, except an optional mod the owner can leave out
+        let for_players = m.client_requirement == ClientRequirement::Required;
+        let required_anyway = for_players && !m.client_marked && !m.client_optional;
         div()
             .flex()
             .flex_row()
@@ -859,19 +860,18 @@ impl ModsPage {
                         ))
                     })
                     .when(marks, |this| {
-                        let checkbox = Checkbox::new(
-                            id("players"),
-                            m.client_marked || required_anyway,
-                            t(M::ModsForPlayers),
-                        )
-                        .disabled(!can_write || busy || required_anyway)
-                        .on_change(cx.listener(
-                            move |this, on: &bool, _, cx| this.set_client_mark(&marked, *on, cx),
-                        ));
+                        let checkbox =
+                            Checkbox::new(id("players"), for_players, t(M::ModsForPlayers))
+                                .disabled(!can_write || busy || required_anyway)
+                                .on_change(cx.listener(move |this, on: &bool, _, cx| {
+                                    this.set_client_mark(&marked, *on, cx)
+                                }));
                         let tip = if required_anyway && !m.required_by.is_empty() {
                             tr!(M::ModsNeededBy, mods = format::list(&m.required_by))
                         } else if required_anyway {
                             t(M::ModsForPlayersAlready).to_string()
+                        } else if m.client_optional {
+                            t(M::ModsForPlayersOptional).to_string()
                         } else {
                             t(M::ModsForPlayersHint).to_string()
                         };

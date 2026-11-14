@@ -339,12 +339,13 @@ async fn delete_mod(
 #[derive(Deserialize, TS)]
 #[ts(export)]
 pub struct SetClientMark {
-    /// Whether players need the mod: `true` marks it, `false` takes the mark off.
+    /// Whether players need the mod: `true` marks it, `false` takes the mark off and
+    /// leaves it out of the client pack (where Modrinth says players can join without it).
     pub required: bool,
 }
 
 /// `PUT /instance/{uuid}/mods/{file_name}/client`: marks a mod as needed by players, so
-/// the client pack gives it to them (with the mods it needs), or takes the mark off.
+/// the client pack gives it to them (with the mods it needs), or leaves it out.
 /// Players' copies change the next time they join; the server needs no restart.
 async fn set_client_mark(
     State(state): State<AppState>,

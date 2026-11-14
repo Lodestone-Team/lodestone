@@ -1410,9 +1410,11 @@ export const en = {
     'Players get this mod, and the mods it needs, when they join. Tick it for mods players need that Lodestone can’t tell, such as ones you uploaded.',
   'mods.forPlayers.already':
     'Players get this mod already: Modrinth or the mod says they need it.',
+  'mods.forPlayers.optional':
+    'Modrinth says players can join without this mod, but on Fabric mods like it often stop them joining, so players get it. Untick it to leave it out.',
   /** toasts after ticking or unticking the box; {name}: the mod's name */
   'mods.forPlayers.marked': 'Players get {name} the next time they join',
-  'mods.forPlayers.unmarked': '{name} is no longer marked for players',
+  'mods.forPlayers.unmarked': 'Players no longer get {name} when they join',
   'mods.forPlayers.failed': 'Couldn’t change {name}: {error}',
   /** a Modrinth version's type, on a small label */
   'mods.versionType.release': 'release',

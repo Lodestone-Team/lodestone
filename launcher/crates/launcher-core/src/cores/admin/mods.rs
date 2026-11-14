@@ -865,6 +865,13 @@ pub struct InstalledMod {
     /// The owner marked it as needed by players ([`AdminClient::set_client_mark`]).
     #[serde(default)]
     pub client_marked: bool,
+    /// The owner left it out of the client pack.
+    #[serde(default)]
+    pub client_excluded: bool,
+    /// The owner can leave it out although players get it: Modrinth says players can
+    /// join without it, and no mod they get needs it. Older cores never say so.
+    #[serde(default)]
+    pub client_optional: bool,
 }
 
 impl InstalledMod {
@@ -1104,7 +1111,8 @@ impl AdminClient {
     }
 
     /// `PUT /instance/{uuid}/mods/{file}/client`: marks a mod as needed by players, so the
-    /// client pack gives it to them with what it needs, or takes the mark off.
+    /// client pack gives it to them with what it needs, or takes the mark off and leaves it
+    /// out of the pack (where Modrinth says players can join without it).
     pub async fn set_client_mark(
         &self,
         uuid: &str,

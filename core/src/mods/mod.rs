@@ -110,6 +110,14 @@ pub struct InstalledMod {
     /// The owner marked it as needed by players (`PUT .../mods/{file_name}/client`).
     #[serde(default)]
     pub client_marked: bool,
+    /// The owner left it out of the client pack (`PUT .../mods/{file_name}/client` with
+    /// `false`).
+    #[serde(default)]
+    pub client_excluded: bool,
+    /// The owner can leave it out of the client pack although players get it: Modrinth
+    /// says players can join without it, and no mod they get needs it (Fabric only).
+    #[serde(default)]
+    pub client_optional: bool,
 }
 
 impl InstalledMod {
@@ -119,7 +127,8 @@ impl InstalledMod {
         modrinth: Option<ModrinthMatch>,
         loader: InstalledModLoader,
     ) -> Self {
-        let requirement = client::base_requirement(loader, &file, modrinth.as_ref(), false);
+        let requirement =
+            client::base_requirement(loader, &file, modrinth.as_ref(), Default::default());
         Self::with_requirement(file, modrinth, requirement, Vec::new())
     }
 
@@ -139,6 +148,8 @@ impl InstalledMod {
             client_requirement,
             required_by,
             client_marked: false,
+            client_excluded: false,
+            client_optional: false,
         }
     }
 
@@ -441,11 +452,11 @@ pub async fn build_list(
         .into_iter()
         .map(|file| {
             let matched = matches.get(&file.sha512).cloned();
-            let marked = marks.contains(&enabled_name(&file.file_name));
+            let marks = marks.of(&file.file_name);
             client::MatchedFile {
                 file,
                 matched,
-                marked,
+                marks,
             }
         })
         .collect();
@@ -454,7 +465,13 @@ pub async fn build_list(
         .into_iter()
         .zip(requirements)
         .map(|(f, (requirement, required_by))| InstalledMod {
-            client_marked: f.marked,
+            client_marked: f.marks.required,
+            client_excluded: f.marks.excluded,
+            client_optional: folder.loader == InstalledModLoader::Fabric
+                && required_by.is_empty()
+                && f.matched
+                    .as_ref()
+                    .is_some_and(|(m, _)| m.client_side == "optional"),
             ..InstalledMod::with_requirement(
                 f.file,
                 f.matched.map(|(m, _)| m),

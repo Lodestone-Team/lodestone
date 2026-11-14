@@ -1078,7 +1078,9 @@ export const zhHans: Messages = {
   'mods.forPlayers.already':
     '玩家已会获得这个模组：Modrinth 或模组本身表明玩家需要它。',
   'mods.forPlayers.marked': '玩家下次加入时会获得 {name}',
-  'mods.forPlayers.unmarked': '{name} 不再标记为给玩家',
+  'mods.forPlayers.optional':
+    'Modrinth 表示玩家没有这个模组也能加入，但在 Fabric 上，这类模组常常会让玩家无法加入，所以玩家会获得它。取消勾选即可不给玩家。',
+  'mods.forPlayers.unmarked': '玩家加入时不再获得 {name}',
   'mods.forPlayers.failed': '无法更改 {name}：{error}',
   'mods.versionType.release': '正式版',
   'mods.versionType.beta': '测试版',
