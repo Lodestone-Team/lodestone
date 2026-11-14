@@ -391,16 +391,72 @@ impl Downloader {
         })
     }
 
-    async fn attempt(
+    /// The SHA-1 of the file at `url`, read through without saving it, with retries
+    /// as for a download. For a jar whose SHA-1 isn't published anywhere: unlike
+    /// [`crate::http::send`], this has no size limit, since such jars (old Forge's
+    /// Scala libraries) can be megabytes.
+    pub async fn sha1_of_url(
         &self,
-        item: &DownloadItem,
-        progress: &Progress,
+        url: &str,
         cancel: &CancelToken,
-        counted: &mut u64,
-    ) -> Result<(), Attempt> {
+    ) -> Result<String, DownloadError> {
+        let mut last_error = String::new();
+        for attempt in 0..self.attempts {
+            if attempt > 0 {
+                (self.sleep)(self.backoff * 2u32.saturating_pow(attempt - 1)).await;
+            }
+            if cancel.is_cancelled() {
+                return Err(DownloadError::Cancelled);
+            }
+            match crate::http::in_http_runtime(self.hash_attempt(url, cancel)).await {
+                Ok(sha1) => return Ok(sha1),
+                Err(Attempt::Cancelled) => return Err(DownloadError::Cancelled),
+                Err(Attempt::Io(source)) => {
+                    return Err(DownloadError::Failed {
+                        url: url.to_string(),
+                        reason: source.to_string(),
+                    });
+                }
+                Err(Attempt::Failed(error)) => {
+                    last_error = error.reason;
+                    if !error.retry {
+                        break;
+                    }
+                }
+            }
+        }
+        Err(DownloadError::Failed {
+            url: url.to_string(),
+            reason: last_error,
+        })
+    }
+
+    async fn hash_attempt(&self, url: &str, cancel: &CancelToken) -> Result<String, Attempt> {
+        let response = self.get(url).await?;
+        let mut body = response.into_body();
+        let mut hasher = Sha1::new();
+        let mut buffer = vec![0u8; 64 * 1024];
+        loop {
+            if cancel.is_cancelled() {
+                return Err(Attempt::Cancelled);
+            }
+            let read = body
+                .read(&mut buffer)
+                .await
+                .map_err(|err| Attempt::failed(err.to_string(), true))?;
+            if read == 0 {
+                break;
+            }
+            hasher.update(&buffer[..read]);
+        }
+        Ok(format!("{:x}", hasher.finalize()))
+    }
+
+    /// Sends a GET for `url`, following redirects, and checks the status.
+    async fn get(&self, url: &str) -> Result<http_client::Response<AsyncBody>, Attempt> {
         let request = Request::builder()
             .method(Method::GET)
-            .uri(item.url.as_str())
+            .uri(url)
             .header("User-Agent", USER_AGENT)
             .follow_redirects(RedirectPolicy::FollowAll)
             .body(AsyncBody::empty())
@@ -416,6 +472,17 @@ impl Downloader {
             let retry = status >= 500 || status == 408 || status == 429;
             return Err(Attempt::failed(format!("HTTP {status}"), retry));
         }
+        Ok(response)
+    }
+
+    async fn attempt(
+        &self,
+        item: &DownloadItem,
+        progress: &Progress,
+        cancel: &CancelToken,
+        counted: &mut u64,
+    ) -> Result<(), Attempt> {
+        let response = self.get(&item.url).await?;
 
         let dir = item
             .dest

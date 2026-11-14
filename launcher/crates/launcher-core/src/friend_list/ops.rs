@@ -407,7 +407,7 @@ impl Friends {
     // States
 
     /// This person's current state, as the book has it (retired once the identity is).
-    fn my_state(&self) -> State {
+    pub(super) fn my_state(&self) -> State {
         let retired = self.book.retired;
         let issued = if self.book.state_issued == 0 {
             now()
@@ -439,12 +439,14 @@ impl Friends {
     }
 
     /// Makes sure the current state is numbered and dated, reissuing it once it's a week
-    /// old.
-    fn freshen_state(&mut self) -> Result<(), FriendsError> {
+    /// old, or when it says it was issued later than now: the clock was fast and has
+    /// been put right, and friends refuse a state dated more than a day ahead.
+    pub(super) fn freshen_state(&mut self) -> Result<(), FriendsError> {
         self.modify(|book| {
             let now = now();
             if book.state_seq == 0
                 || book.state_issued == 0
+                || book.state_issued > now
                 || now.saturating_sub(book.state_issued) >= REISSUE_AFTER_SECS
             {
                 if book.state_issued != 0 || book.state_seq == 0 {
