@@ -57,7 +57,10 @@ pub fn text(message: M) -> &'static str {
         M::LinkedTo => "已关联到 {core} 上的 {server}",
         M::LinkedToRemoved => "已关联到 {core} 上的 {server}（该主机已从“Lodestone Host”页面移除）",
         M::RunsUnderRosetta => {
-            "通过 Rosetta 2 运行：Mojang 没有为此版本的图形库制作 Apple 芯片版本。启动较慢，之后可以正常游玩。"
+            "通过 Rosetta 2 运行：Mojang 没有为此版本需要的部分库制作 Apple 芯片版本。启动较慢，之后可以正常游玩。"
+        }
+        M::RunsUnderRosettaOverride => {
+            "通过 Rosetta 2 运行：在“设置”中选择的 Java 是 Intel 版。启动较慢，之后可以正常游玩。"
         }
         M::NoInstances => "没有实例",
         M::AndJoin => "并加入 {server}",
@@ -108,7 +111,7 @@ pub fn text(message: M) -> &'static str {
         }
         M::CauseOutOfMemory => "内存不足。请在“设置”中提高最大内存，或关闭其他应用。",
         M::CauseNatives => {
-            "本地库缺失，或与处理器架构不符。在 Apple 芯片上，1.13 之前的版本会通过 Rosetta 2 在 Intel 版 Java 中运行，之后的版本则在 Apple 芯片版 Java 中运行；请确认已安装 Rosetta，并且自定义 Java 与之适用的处理器一致。"
+            "本地库缺失，或与处理器架构不符。在 Apple 芯片上，1.14 之前的版本会通过 Rosetta 2 在 Intel 版 Java 中运行，之后的版本则在 Apple 芯片版 Java 中运行；请确认已安装 Rosetta，并且自定义 Java 与之适用的处理器一致。"
         }
         M::CauseJvmOptions => "Java 拒绝了其中一项设置。请检查“设置”中的 JVM 参数和内存。",
         M::CauseGraphics => {

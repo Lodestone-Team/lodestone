@@ -11,11 +11,13 @@
 //! - Mojang has no arm64 build of `java-runtime-alpha` (Java 16, for 1.17) or
 //!   `java-runtime-beta` (Java 17, for 1.18): its arm64 `java-runtime-gamma` (Java 17),
 //!   which those versions and their loaders run on, is used instead.
-//! - Mojang has no arm64 build of `jre-legacy` (Java 8, for 1.13 to 1.16 and their
+//! - Mojang has no arm64 build of `jre-legacy` (Java 8, for 1.14 to 1.16 and their
 //!   Forge) either: Azul's Zulu 8 is used instead ([`super::zulu`]).
-//! - Versions before 1.13 use LWJGL 2, which has no arm64 build from Mojang; they ask
-//!   for the `mac-os` (x86_64) runtime themselves ([`super::libraries::java_arch`]) and
-//!   run under Rosetta 2, which the launcher tells the player about.
+//! - Versions before 1.13 use LWJGL 2, which has no arm64 build from Mojang, and 1.13
+//!   to 1.13.2 a narrator that can't load in an arm64 Java 8; they ask for the `mac-os`
+//!   (x86_64) runtime themselves ([`super::libraries::java_arch`]) and run under
+//!   Rosetta 2, which the launcher tells the player about. So does a Java override
+//!   that is an Intel Java (`install::java_arch_for`).
 
 use std::{
     collections::BTreeMap,
@@ -145,6 +147,38 @@ impl JavaSource {
 /// their loaders.
 const RUN_ON_GAMMA_ON_ARM64_MACS: [&str; 2] = ["java-runtime-alpha", "java-runtime-beta"];
 
+/// The Java an Apple silicon Mac uses for runtime `component`, which Mojang has no
+/// arm64 build of, as its runtimes folder and Java major version: Mojang's arm64
+/// `java-runtime-gamma` (Java 17) for Java 16 and the older Java 17, and Azul's Zulu 8
+/// ([`super::zulu`]) for `jre-legacy`. `None` elsewhere, and for other components.
+fn arm64_substitute(component: &str, java: &Platform) -> Option<(&'static str, u32)> {
+    if java.os != Os::MacOs || java.arch != Arch::Arm64 {
+        return None;
+    }
+    if RUN_ON_GAMMA_ON_ARM64_MACS.contains(&component) {
+        Some(("java-runtime-gamma", 17))
+    } else if component == "jre-legacy" {
+        Some((super::zulu::COMPONENT, 8))
+    } else {
+        None
+    }
+}
+
+/// The runtimes folder (`<runtimes>/<folder>`) and Java major version that a version
+/// whose runtime is `component`, with `major`, uses in a Java built for `java`: the
+/// choice [`select`] makes, for the storage settings to tell what is in use. (`select`
+/// would take Mojang's own arm64 build first, were there one; there is none of these.)
+pub fn folder_for<'a>(
+    component: &'a str,
+    major: Option<u32>,
+    java: &Platform,
+) -> (&'a str, Option<u32>) {
+    match arm64_substitute(component, java) {
+        Some((folder, major)) => (folder, Some(major)),
+        None => (component, major),
+    }
+}
+
 /// Picks the Java for the runtime `component` built for `java` (the platform with the
 /// architecture the game needs). On an arm64 Mac, Java 16 and 17 components with no
 /// arm64 build use Mojang's arm64 Java 17, and `jre-legacy` uses Azul's Zulu 8.
@@ -173,15 +207,14 @@ pub fn select(
     if let Some(source) = lookup(component) {
         return Ok(source);
     }
-    if java.os == Os::MacOs && java.arch == Arch::Arm64 {
-        if RUN_ON_GAMMA_ON_ARM64_MACS.contains(&component)
-            && let Some(source) = lookup("java-runtime-gamma")
-        {
-            return Ok(source);
+    match arm64_substitute(component, java) {
+        Some((super::zulu::COMPONENT, _)) => return Ok(JavaSource::Zulu8),
+        Some((folder, _)) => {
+            if let Some(source) = lookup(folder) {
+                return Ok(source);
+            }
         }
-        if component == "jre-legacy" {
-            return Ok(JavaSource::Zulu8);
-        }
+        None => {}
     }
     Err(RuntimeError::Unavailable {
         component: component.to_string(),
@@ -476,6 +509,48 @@ mod tests {
         let legacy = select(&index, "jre-legacy", &machine).unwrap();
         assert!(matches!(legacy, JavaSource::Zulu8));
         assert!(!legacy.needs_rosetta(&machine));
+    }
+
+    /// The storage settings' idea of which folder a component uses is the one `select`
+    /// installs into.
+    #[test]
+    fn folder_for_agrees_with_select() {
+        let index = index();
+        for arch in [Arch::Arm64, Arch::X86_64] {
+            let java = mac(arch);
+            for component in [
+                "jre-legacy",
+                "java-runtime-alpha",
+                "java-runtime-beta",
+                "java-runtime-gamma",
+                "java-runtime-delta",
+            ] {
+                let Ok(source) = select(&index, component, &java) else {
+                    continue;
+                };
+                let folder = match source {
+                    JavaSource::Mojang(choice) => choice.component,
+                    JavaSource::Zulu8 => super::super::zulu::COMPONENT.to_string(),
+                };
+                assert_eq!(
+                    folder_for(component, Some(1), &java).0,
+                    folder,
+                    "{component} {arch}"
+                );
+            }
+        }
+        assert_eq!(
+            folder_for("java-runtime-alpha", Some(16), &mac(Arch::Arm64)),
+            ("java-runtime-gamma", Some(17))
+        );
+        assert_eq!(
+            folder_for("jre-legacy", Some(8), &mac(Arch::Arm64)),
+            ("zulu-8", Some(8))
+        );
+        assert_eq!(
+            folder_for("jre-legacy", Some(8), &mac(Arch::X86_64)),
+            ("jre-legacy", Some(8))
+        );
     }
 
     #[test]

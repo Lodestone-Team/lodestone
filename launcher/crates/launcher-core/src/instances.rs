@@ -17,6 +17,7 @@ use serde_json::{Map, Value};
 
 use crate::{
     game::{
+        install::Rosetta,
         launch::{GameSettings, split_args},
         loaders::{LoaderChoice, LoaderKind},
     },
@@ -207,25 +208,37 @@ pub struct Instance {
     /// until it has set it up.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auto_config: Option<AutoConfig>,
-    /// Whether the instance runs under Rosetta 2 on this Apple silicon Mac, and whether
-    /// the player was told; `None` until the game was first prepared on one.
+    /// Whether the instance ran under Rosetta 2 on this Apple silicon Mac when its game
+    /// was last prepared, and whether the player agreed to it; `None` until the game was
+    /// first prepared on one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rosetta: Option<RosettaState>,
 }
 
-/// Rosetta 2 and an instance, on an Apple silicon Mac. Versions before 1.13 run in an
-/// Intel Java under Rosetta, because Mojang made no Apple silicon build of their
-/// graphics library (LWJGL 2); the launcher never does that without saying so.
+/// Rosetta 2 and an instance, on an Apple silicon Mac. Versions before 1.14 run in an
+/// Intel Java under Rosetta, because Mojang made no Apple silicon build of libraries
+/// they need, and so does any version with an Intel Java override
+/// ([`crate::game::install::Rosetta`]); the launcher never does that without saying so.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RosettaState {
-    /// The Minecraft version the game was last prepared to run under Rosetta: the
-    /// instance says it runs under Rosetta while its version is still this one. `None`
-    /// when it last ran natively.
+    /// The Minecraft version the game was last prepared for, and why it ran under
+    /// Rosetta then, if it did: the instance says it runs under Rosetta while its
+    /// version is still this one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub version: Option<String>,
-    /// Whether the player was told before the instance's first game under Rosetta.
+    pub prepared: Option<RosettaPrepared>,
+    /// Whether the player agreed, before the instance's first game under Rosetta, to
+    /// run it so.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub told: bool,
+}
+
+/// The version an instance's game was last prepared for on an Apple silicon Mac, and
+/// why it ran under Rosetta 2, if it did.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RosettaPrepared {
+    pub version: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<Rosetta>,
 }
 
 /// What automatic setup chose for an instance. While a setting still has the value it
@@ -278,12 +291,20 @@ impl Default for Instance {
 }
 
 impl Instance {
-    /// Whether the instance's version was last prepared to run under Rosetta 2.
-    pub fn runs_under_rosetta(&self) -> bool {
+    /// What the instance's game was last prepared as for its current version: `None`
+    /// when it wasn't prepared for this version yet (on an Apple silicon Mac), and
+    /// `Some(reason)` with why it ran under Rosetta 2, if it did.
+    pub fn prepared_rosetta(&self) -> Option<Option<Rosetta>> {
         self.rosetta
             .as_ref()
-            .and_then(|rosetta| rosetta.version.as_deref())
-            == Some(self.game_version.as_str())
+            .and_then(|rosetta| rosetta.prepared.as_ref())
+            .filter(|prepared| prepared.version == self.game_version)
+            .map(|prepared| prepared.reason)
+    }
+
+    /// Whether the player already agreed to run this instance under Rosetta 2.
+    pub fn told_about_rosetta(&self) -> bool {
+        self.rosetta.as_ref().is_some_and(|rosetta| rosetta.told)
     }
 }
 
@@ -1066,24 +1087,36 @@ impl InstanceStore {
         Ok(instance)
     }
 
-    /// Records whether the game was just prepared to run under Rosetta 2 (on an Apple
-    /// silicon Mac). Returns the instance, and whether this is its first game under
-    /// Rosetta, which the player is to be told about; it counts as told from now on.
+    /// Records whether, and why, the game was just prepared to run under Rosetta 2 (on
+    /// an Apple silicon Mac). Returns the instance, and whether the player must be asked
+    /// first: its first game under Rosetta, until they agree ([`Self::record_told_rosetta`]).
     pub fn record_rosetta(
         &self,
         id: &str,
-        under_rosetta: bool,
+        reason: Option<Rosetta>,
     ) -> Result<(Instance, bool), InstanceError> {
         let mut instance = self.get(id)?;
         let mut state = instance.rosetta.clone().unwrap_or_default();
-        state.version = under_rosetta.then(|| instance.game_version.clone());
-        let tell = under_rosetta && !state.told;
-        state.told |= under_rosetta;
+        state.prepared = Some(RosettaPrepared {
+            version: instance.game_version.clone(),
+            reason,
+        });
+        let ask = reason.is_some() && !state.told;
         if instance.rosetta.as_ref() != Some(&state) {
             instance.rosetta = Some(state);
             self.save(&instance)?;
         }
-        Ok((instance, tell))
+        Ok((instance, ask))
+    }
+
+    /// The player agreed to run the instance under Rosetta 2: they aren't asked again.
+    pub fn record_told_rosetta(&self, id: &str) -> Result<Instance, InstanceError> {
+        let mut instance = self.get(id)?;
+        if !instance.told_about_rosetta() {
+            instance.rosetta.get_or_insert_with(Default::default).told = true;
+            self.save(&instance)?;
+        }
+        Ok(instance)
     }
 
     /// Records a finished game: when it started and how long it ran.
@@ -1382,36 +1415,50 @@ mod tests {
         assert!(!path.exists());
     }
 
-    /// The player is told once per instance before its first game under Rosetta, and
-    /// the instance says it runs under Rosetta only while its version is the one that
-    /// did.
+    /// The player is asked before the instance's first game under Rosetta until they
+    /// agree, then never again, and the instance says it runs under Rosetta only while
+    /// its version is the one that did.
     #[test]
-    fn rosetta_is_told_once_and_follows_the_version() {
+    fn rosetta_is_asked_until_agreed_and_follows_the_version() {
         let dir = tempfile::tempdir().unwrap();
         let store = InstanceStore::new(dir.path().join("instances"));
         let instance = store.create("Old", "1.12.2", None).unwrap();
-        assert!(!instance.runs_under_rosetta());
-        let (native, tell) = store.record_rosetta(&instance.id, false).unwrap();
-        assert!(!tell);
-        assert!(!native.runs_under_rosetta());
-        let (first, tell) = store.record_rosetta(&instance.id, true).unwrap();
-        assert!(tell);
-        assert!(first.runs_under_rosetta());
-        let (again, tell) = store.record_rosetta(&instance.id, true).unwrap();
-        assert!(!tell);
-        assert!(again.runs_under_rosetta());
+        assert_eq!(instance.prepared_rosetta(), None);
+        let (native, ask) = store.record_rosetta(&instance.id, None).unwrap();
+        assert!(!ask);
+        assert_eq!(native.prepared_rosetta(), Some(None));
+        let (first, ask) = store
+            .record_rosetta(&instance.id, Some(Rosetta::Version))
+            .unwrap();
+        assert!(ask);
+        assert_eq!(first.prepared_rosetta(), Some(Some(Rosetta::Version)));
+        // Cancelled: asked again next time.
+        let (_, ask) = store
+            .record_rosetta(&instance.id, Some(Rosetta::Version))
+            .unwrap();
+        assert!(ask);
+        let agreed = store.record_told_rosetta(&instance.id).unwrap();
+        assert!(agreed.told_about_rosetta());
+        let (again, ask) = store
+            .record_rosetta(&instance.id, Some(Rosetta::Version))
+            .unwrap();
+        assert!(!ask);
+        assert_eq!(again.prepared_rosetta(), Some(Some(Rosetta::Version)));
         // Saved, and only for the version that ran under Rosetta.
         let mut changed = store.get(&instance.id).unwrap();
-        assert!(changed.runs_under_rosetta());
+        assert_eq!(changed.prepared_rosetta(), Some(Some(Rosetta::Version)));
         changed.game_version = "1.16.5".into();
-        assert!(!changed.runs_under_rosetta());
+        assert_eq!(changed.prepared_rosetta(), None);
         store.save(&changed).unwrap();
-        let (native, tell) = store.record_rosetta(&instance.id, false).unwrap();
-        assert!(!tell);
+        let (native, ask) = store.record_rosetta(&instance.id, None).unwrap();
+        assert!(!ask);
         assert_eq!(
             native.rosetta,
             Some(RosettaState {
-                version: None,
+                prepared: Some(RosettaPrepared {
+                    version: "1.16.5".into(),
+                    reason: None
+                }),
                 told: true
             })
         );

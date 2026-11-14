@@ -134,12 +134,18 @@ pub enum InstallError {
     Url(#[from] UrlError),
     #[error("{}", platform::ROSETTA_MISSING)]
     RosettaMissing,
-    /// Azul has no Zulu 8 for Apple silicon (its list is empty or not found), and
-    /// Mojang makes no arm64 Java 8.
+    /// Azul has no Zulu 8 for Apple silicon (its list is empty or not found), none was
+    /// installed before, and Mojang makes no arm64 Java 8.
     #[error(
-        "This Minecraft version needs Java 8, and no Java 8 made for Apple silicon is available: Mojang makes none, and Azul's list of Zulu 8 builds for it is empty. Lodestone doesn't run it in an Intel Java without saying so; try again later, or choose a Java 8 in the instance's settings."
+        "This Minecraft version needs Java 8, and no Java 8 made for Apple silicon is available: Mojang makes none, and Azul's list of Zulu 8 builds for it is empty. Lodestone doesn't run it in an Intel Java without saying so; try again later, or choose a Java 8 made for Apple silicon (arm64) in the instance's settings."
     )]
     NoNativeJava8,
+    /// The version runs only in an Intel Java on Apple silicon (its libraries have no
+    /// arm64 build), and the instance's Java override is made for Apple silicon.
+    #[error(
+        "Minecraft {0} runs only in an Intel (x86_64) Java on Apple silicon, through Rosetta 2, and the instance's Java override is made for Apple silicon. Choose an Intel Java in the instance's settings, or remove the override to use the Java Lodestone provides."
+    )]
+    NeedsIntelJava(String),
     #[error("{path}: {source}")]
     Io {
         path: PathBuf,
@@ -185,6 +191,79 @@ pub enum JavaChoice {
     Override(PathBuf),
 }
 
+/// Why a game runs in an Intel Java under Rosetta 2 on an Apple silicon Mac.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Rosetta {
+    /// The version needs libraries Mojang made no Apple silicon build of
+    /// ([`libraries::java_arch`]).
+    Version,
+    /// The instance's Java override is an Intel Java (the version could run natively).
+    JavaOverride,
+}
+
+/// The architecture of the Java `version` runs in on `machine` with `java`.
+///
+/// With Mojang's Java it is [`libraries::java_arch`]. A Java override on an Apple
+/// silicon Mac is read ([`platform::mac_binary_arch`]): an Intel one runs any version
+/// under Rosetta 2, with the version's Intel libraries; one made for Apple silicon
+/// can't run a version that needs an Intel Java ([`InstallError::NeedsIntelJava`]).
+/// Elsewhere, or when the file isn't a Mac program (a script), the override is taken to
+/// be what the version needs, as it always was.
+pub fn java_arch_for(
+    version: &VersionJson,
+    machine: &Platform,
+    java: &JavaChoice,
+) -> Result<Arch, InstallError> {
+    let needed = libraries::java_arch(version, machine);
+    let JavaChoice::Override(path) = java else {
+        return Ok(needed);
+    };
+    if machine.os != Os::MacOs || machine.arch != Arch::Arm64 {
+        return Ok(needed);
+    }
+    match platform::mac_binary_arch(path) {
+        Some(Arch::X86_64) => Ok(Arch::X86_64),
+        Some(Arch::Arm64) if needed == Arch::X86_64 => {
+            Err(InstallError::NeedsIntelJava(version.id.clone()))
+        }
+        Some(arch) => Ok(arch),
+        None => Ok(needed),
+    }
+}
+
+/// Whether, and why, `version` runs under Rosetta 2 on `machine` with `java`: an
+/// Intel Java on an Apple silicon Mac ([`java_arch_for`]). `None` when it can't run
+/// at all with that Java.
+pub fn rosetta_for(
+    version: &VersionJson,
+    machine: &Platform,
+    java: &JavaChoice,
+) -> Option<Rosetta> {
+    let arch = java_arch_for(version, machine, java).ok()?;
+    rosetta_reason(version, machine, java, arch)
+}
+
+fn rosetta_reason(
+    version: &VersionJson,
+    machine: &Platform,
+    java: &JavaChoice,
+    arch: Arch,
+) -> Option<Rosetta> {
+    if machine.os != Os::MacOs || machine.arch != Arch::Arm64 || arch != Arch::X86_64 {
+        return None;
+    }
+    Some(
+        if matches!(java, JavaChoice::Override(_))
+            && libraries::java_arch(version, machine) == Arch::Arm64
+        {
+            Rosetta::JavaOverride
+        } else {
+            Rosetta::Version
+        },
+    )
+}
+
 /// A version ready to launch.
 #[derive(Clone, Debug)]
 pub struct Prepared {
@@ -192,8 +271,9 @@ pub struct Prepared {
     pub java: PathBuf,
     /// The platform of that Java: the machine with the Java's architecture.
     pub java_platform: Platform,
-    /// Whether the Java is x86_64 on an Apple Silicon Mac.
-    pub rosetta: bool,
+    /// Why the Java is x86_64 on an Apple silicon Mac, if it is: the game then runs
+    /// under Rosetta 2, which the player must be told about.
+    pub rosetta: Option<Rosetta>,
     pub libraries: Selection,
     pub client_jar: PathBuf,
     pub logging_config: Option<PathBuf>,
@@ -254,40 +334,47 @@ impl Installer {
         cache_name: &str,
         missing: &[u16],
     ) -> Result<Option<Vec<u8>>, InstallError> {
-        enum Fetched {
-            Body(Vec<u8>),
-            Missing,
-        }
         let cache = self.data.cache_dir().join(cache_name);
-        let fetched = async {
-            let request = http::get(url, None).map_err(|err| format!("{url}: {err}"))?;
-            let response = http::send(&*self.http, request)
-                .await
-                .map_err(|err| format!("{url}: {err}"))?;
-            if missing.contains(&response.status) {
-                return Ok(Fetched::Missing);
-            }
-            if !response.is_success() {
-                return Err(format!("{url}: HTTP {}", response.status));
-            }
-            Ok(Fetched::Body(response.body))
-        }
-        .await;
-        match fetched {
-            Ok(Fetched::Body(body)) => {
+        match self.fetch_or_missing(url, missing).await {
+            Ok(Some(body)) => {
                 // Best effort: the cache only matters when offline.
                 let _ = storage::write_atomic(&cache, &body);
                 Ok(Some(body))
             }
-            Ok(Fetched::Missing) => {
+            Ok(None) => {
                 // A copy from before would now be wrong.
                 let _ = fs::remove_file(&cache);
                 Ok(None)
             }
-            Err(reason) => fs::read(&cache)
+            Err(InstallError::Network(reason)) => fs::read(&cache)
                 .map(Some)
                 .map_err(|_| InstallError::Network(reason)),
+            Err(err) => Err(err),
         }
+    }
+
+    /// Fetches a small file, with no cache: `None` for one of the `missing` statuses,
+    /// [`InstallError::Network`] when it can't be fetched.
+    async fn fetch_or_missing(
+        &self,
+        url: &str,
+        missing: &[u16],
+    ) -> Result<Option<Vec<u8>>, InstallError> {
+        let request =
+            http::get(url, None).map_err(|err| InstallError::Network(format!("{url}: {err}")))?;
+        let response = http::send(&*self.http, request)
+            .await
+            .map_err(|err| InstallError::Network(format!("{url}: {err}")))?;
+        if missing.contains(&response.status) {
+            return Ok(None);
+        }
+        if !response.is_success() {
+            return Err(InstallError::Network(format!(
+                "{url}: HTTP {}",
+                response.status
+            )));
+        }
+        Ok(Some(response.body))
     }
 
     /// Mojang's version list, newest first.
@@ -401,7 +488,7 @@ impl Installer {
             Some(child) => loaders::merge(&child.version, &vanilla),
             None => vanilla.clone(),
         };
-        let java_arch = libraries::java_arch(&version, machine);
+        let java_arch = java_arch_for(&version, machine, java)?;
         if machine.os == Os::MacOs
             && loader.is_some_and(|choice| choice.kind == LoaderKind::Forge)
             && version.minecraft_arguments.is_some()
@@ -411,22 +498,32 @@ impl Installer {
 
         // The Java runtime.
         let (java_path, java_platform) = match java {
-            JavaChoice::Override(path) => (path.clone(), machine.with_arch(java_arch)),
+            JavaChoice::Override(path) => {
+                let java_platform = machine.with_arch(java_arch);
+                // An Intel override needs Rosetta as much as Mojang's Intel Java does.
+                if java_platform.arch == Arch::X86_64
+                    && machine.os == Os::MacOs
+                    && machine.arch == Arch::Arm64
+                    && !(self.can_run_x86_64)()
+                {
+                    return Err(InstallError::RosettaMissing);
+                }
+                (path.clone(), java_platform)
+            }
             JavaChoice::Mojang => {
                 progress.set_stage(Stage::Java);
                 self.install_runtime(&version, machine, java_arch, verify, progress, cancel)
                     .await?
             }
         };
-        let rosetta = machine.os == platform::Os::MacOs
-            && machine.arch == Arch::Arm64
-            && java_platform.arch == Arch::X86_64;
+        let rosetta = rosetta_reason(&version, machine, java, java_platform.arch);
 
         // The vanilla client jar, libraries and logging config, under the vanilla
         // version's record, as for an instance without a loader.
         progress.set_stage(Stage::Libraries);
-        let vanilla_libraries = libraries::select(&vanilla, &java_platform, &Features::default())
-            .map_err(|err| InstallError::Invalid(err.to_string()))?;
+        let vanilla_libraries =
+            libraries::select_on(&vanilla, &java_platform, machine.arch, &Features::default())
+                .map_err(|err| InstallError::Invalid(err.to_string()))?;
         let vanilla_jar = self
             .data
             .versions_dir()
@@ -472,8 +569,13 @@ impl Installer {
         let (libraries, client_jar) = match &child {
             None => (vanilla_libraries, vanilla_jar),
             Some(child) => {
-                let merged = libraries::select(&version, &java_platform, &Features::default())
-                    .map_err(|err| InstallError::Invalid(err.to_string()))?;
+                let merged = libraries::select_on(
+                    &version,
+                    &java_platform,
+                    machine.arch,
+                    &Features::default(),
+                )
+                .map_err(|err| InstallError::Invalid(err.to_string()))?;
                 let client_jar = self
                     .data
                     .versions_dir()
@@ -502,7 +604,12 @@ impl Installer {
                     .await?;
                 if let Some(installer) = &child.installer {
                     let from_installer = || -> Result<(), InstallError> {
-                        self.restore_installer_files(&child.version, installer, verify)?;
+                        self.restore_installer_files(
+                            &child.version,
+                            &version.id,
+                            installer,
+                            verify,
+                        )?;
                         self.run_processors(
                             &version.id,
                             installer,
@@ -546,7 +653,7 @@ impl Installer {
             .install_assets(&version, game_dir, verify, progress, cancel)
             .await?;
         let mut version = version;
-        if libraries.arm64_lwjgl && assets_layout.is_none() {
+        if libraries.swapped_lwjgl && assets_layout.is_none() {
             self.hide_window_icons(&mut version)?;
         }
 
@@ -690,9 +797,14 @@ impl Installer {
     }
 
     /// Installs Azul's newest Zulu 8 for macOS on arm64 ([`zulu`]) into
-    /// `<runtimes>/zulu-8/mac-os-arm64`, unless that build is installed already. When
-    /// Azul can't be reached, the build installed before is used. A 404 or an empty
-    /// list means Azul has none; any other failure is an error, never "none".
+    /// `<runtimes>/zulu-8/mac-os-arm64/<build>`, unless that build is installed already.
+    ///
+    /// When Azul can't be reached, lists no build (a 404 or an empty list) or its build
+    /// can't be downloaded, the newest build installed before is used; only with none
+    /// installed is that an error: [`InstallError::NoNativeJava8`] when Azul has none,
+    /// the network error otherwise (an outage is never taken for "none"). "Verify game
+    /// files" ([`Verify::Full`]) unpacks the build again from its archive, which is
+    /// kept in the cache, and doesn't fall back.
     async fn install_zulu(
         &self,
         machine: &Platform,
@@ -701,21 +813,23 @@ impl Installer {
         cancel: &CancelToken,
     ) -> Result<(PathBuf, Platform), InstallError> {
         let java_platform = machine.with_arch(Arch::Arm64);
-        let root = self
+        let builds = self
             .data
             .runtimes_dir()
             .join(zulu::COMPONENT)
             .join(java_platform.runtime_key());
-        let installed = || {
-            fs::read_to_string(root.join(runtime::INSTALLED_MARKER))
-                .ok()
-                .and(zulu::java_binary(&root))
+        let installed_before = |why: InstallError| match zulu::newest_installed(&builds) {
+            Some(java) if verify == Verify::Recorded => {
+                eprintln!(
+                    "lodestone-launcher: using the Zulu 8 installed before ({}): {why}",
+                    java.display()
+                );
+                Ok((java, java_platform.clone()))
+            }
+            _ => Err(why),
         };
-        let packages_url = self.urls.resolve(zulu::PACKAGES_URL)?;
-        let build = match self
-            .fetch_cached_or_missing(&packages_url, "zulu_8_macos_aarch64.json", &[404])
-            .await
-        {
+        let packages_url = self.urls.resolve_java(zulu::PACKAGES_URL)?;
+        let build = match self.fetch_or_missing(&packages_url, &[404]).await {
             Ok(Some(body)) => {
                 let packages: Vec<zulu::ZuluPackage> =
                     serde_json::from_slice(&body).map_err(|err| {
@@ -723,18 +837,18 @@ impl Installer {
                             "Azul's list of Java builds is invalid: {err}"
                         ))
                     })?;
-                zulu::pick(&packages).ok_or(InstallError::NoNativeJava8)?
+                match zulu::pick(&packages) {
+                    Some(build) => build,
+                    None => return installed_before(InstallError::NoNativeJava8),
+                }
             }
-            Ok(None) => return Err(InstallError::NoNativeJava8),
-            // Offline: the build installed before, whichever it is.
-            Err(InstallError::Network(reason)) => {
-                return match installed() {
-                    Some(java) if verify == Verify::Recorded => Ok((java, java_platform)),
-                    _ => Err(InstallError::Network(reason)),
-                };
-            }
+            Ok(None) => return installed_before(InstallError::NoNativeJava8),
+            Err(err @ InstallError::Network(_)) => return installed_before(err),
             Err(err) => return Err(err),
         };
+        let folder = libraries::safe_relative_path(zulu::build_folder(&build))
+            .map_err(|err| InstallError::Invalid(err.to_string()))?;
+        let root = builds.join(&folder);
         if verify == Verify::Recorded
             && runtime::is_installed(&root, &build.sha256)
             && let Some(java) = zulu::java_binary(&root)
@@ -742,16 +856,17 @@ impl Installer {
             return Ok((java, java_platform));
         }
 
-        // The archive, checked against Azul's SHA-256, into the cache; then unpacked
-        // next to the runtime and moved into place, so a failed unpack never leaves a
-        // half runtime where the game would read it.
+        // The archive, checked against Azul's SHA-256, into the cache, where it stays:
+        // "Verify game files" unpacks it again without downloading it.
         let name = libraries::safe_relative_path(&build.name)
             .map_err(|err| InstallError::Invalid(err.to_string()))?;
-        let archive = self.data.cache_dir().join("java").join(name);
-        self.downloader
+        let archives = self.data.cache_dir().join("java");
+        let archive = archives.join(&name);
+        let fetched = self
+            .downloader
             .fetch_sha256(
                 &DownloadItem {
-                    url: self.urls.resolve(&build.url)?,
+                    url: self.urls.resolve_java(&build.url)?,
                     dest: archive.clone(),
                     sha1: String::new(),
                     // Azul's sizes are rounded (40346800 for a 40346754-byte zip):
@@ -764,29 +879,57 @@ impl Installer {
                 &progress.downloads,
                 cancel,
             )
-            .await?;
+            .await;
+        match fetched {
+            Ok(()) => {}
+            Err(DownloadError::Failed { url, reason }) => {
+                return installed_before(InstallError::Network(format!("{url}: {reason}")));
+            }
+            Err(err) => return Err(err.into()),
+        }
         if cancel.is_cancelled() {
             return Err(InstallError::Cancelled);
         }
-        let unpacking = root.with_extension("unpacking");
-        let remove = |dir: &Path| match fs::remove_dir_all(dir) {
-            Err(err) if err.kind() != io::ErrorKind::NotFound => Err(io_err(dir)(err)),
-            _ => Ok(()),
-        };
-        remove(&unpacking)?;
-        zulu::unpack(&archive, &unpacking).map_err(|err| InstallError::Invalid(err.to_string()))?;
-        if zulu::java_binary(&unpacking).is_none() {
-            let _ = fs::remove_dir_all(&unpacking);
-            return Err(InstallError::Invalid(format!(
-                "Azul's Java 8 ({}) has no java binary",
-                build.name
-            )));
+
+        // Unpacked into a folder of this install's own (two games may start at once),
+        // checked and marked there, then moved into place: a build's folder is either
+        // complete or absent, and nothing here deletes a build a running game uses.
+        let staging = builds.join(format!(
+            ".{}.unpacking-{}-{:016x}",
+            folder.display(),
+            std::process::id(),
+            u64::from_le_bytes(crate::random_bytes())
+        ));
+        let unpacked = (|| {
+            zulu::unpack(&archive, &staging)
+                .map_err(|err| InstallError::Invalid(err.to_string()))?;
+            if zulu::java_binary(&staging).is_none() {
+                return Err(InstallError::Invalid(format!(
+                    "Azul's Java 8 ({}) has no java binary",
+                    build.name
+                )));
+            }
+            runtime::mark_installed(&staging, &build.sha256).map_err(io_err(&staging))
+        })();
+        if let Err(err) = unpacked {
+            let _ = fs::remove_dir_all(&staging);
+            return Err(err);
         }
-        remove(&root)?;
-        crate::fsx::rename(&unpacking, &root).map_err(io_err(&root))?;
-        runtime::mark_installed(&root, &build.sha256).map_err(io_err(&root))?;
-        // Best effort: it is only taking space now.
-        let _ = fs::remove_file(&archive);
+        if let Err(err) = self.move_build_into_place(&staging, &root, &build.sha256) {
+            let _ = fs::remove_dir_all(&staging);
+            return Err(err);
+        }
+        // Best effort: older archives only take space. Older builds may be in use, so
+        // they stay until the storage cleanup, which runs while no game does.
+        if let Ok(entries) = fs::read_dir(&archives) {
+            for entry in entries.flatten() {
+                let file = entry.file_name();
+                let file = file.to_string_lossy();
+                if file.starts_with("zulu8") && file.ends_with(".zip") && entry.path() != archive {
+                    let _ = fs::remove_file(entry.path());
+                }
+            }
+        }
         let java = zulu::java_binary(&root).ok_or_else(|| {
             InstallError::Invalid(format!(
                 "the Java runtime in {} has no java",
@@ -796,10 +939,55 @@ impl Installer {
         Ok((java, java_platform))
     }
 
+    /// Moves an unpacked, marked build from `staging` to `root`. When another launch
+    /// put the same build there first, its copy is kept. A broken copy at `root` (or
+    /// one "Verify game files" redoes) is swapped out: moved aside, the new one moved
+    /// in, then the old one deleted, so the folder is never missing for longer than
+    /// two renames; the files are the same build either way.
+    fn move_build_into_place(
+        &self,
+        staging: &Path,
+        root: &Path,
+        sha256: &str,
+    ) -> Result<(), InstallError> {
+        if crate::fsx::rename(staging, root).is_ok() {
+            return Ok(());
+        }
+        if !root.exists() {
+            // The rename failed for another reason: try once more, to report it.
+            return crate::fsx::rename(staging, root).map_err(io_err(root));
+        }
+        let aside = root.with_file_name(format!(
+            ".{}.old-{}-{:016x}",
+            root.file_name().unwrap_or_default().to_string_lossy(),
+            std::process::id(),
+            u64::from_le_bytes(crate::random_bytes())
+        ));
+        match crate::fsx::rename(root, &aside) {
+            Ok(()) => {}
+            // Another launch is moving it at this moment: theirs will do.
+            Err(_) if runtime::is_installed(root, sha256) => {
+                let _ = fs::remove_dir_all(staging);
+                return Ok(());
+            }
+            Err(err) => return Err(io_err(root)(err)),
+        }
+        let moved = crate::fsx::rename(staging, root);
+        let _ = fs::remove_dir_all(&aside);
+        match moved {
+            Ok(()) => Ok(()),
+            Err(_) if runtime::is_installed(root, sha256) => {
+                let _ = fs::remove_dir_all(staging);
+                Ok(())
+            }
+            Err(err) => Err(io_err(root)(err)),
+        }
+    }
+
     /// Points `version` at a copy of its asset index without the window icons.
     ///
-    /// Mojang's arm64 LWJGL 3.3.1, which 1.13 to 1.18 run with on Apple silicon
-    /// ([`libraries::select`]), has a GLFW that reports an error when a game sets a
+    /// Mojang's LWJGL 3.3.1, which 1.13 to 1.18 run with on Apple silicon, natively or
+    /// under Rosetta ([`libraries::select_on`]), has a GLFW that reports an error when a game sets a
     /// window icon on macOS ("Cocoa: Regular windows do not have icons on macOS"), and
     /// those versions take any GLFW error while starting as fatal: they show it in a
     /// dialog and quit ("Failed to create window"). Mojang stopped setting the icon on

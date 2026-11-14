@@ -30,6 +30,7 @@ impl Modal {
             Modal::LaunchFailed { .. } => "launch_failed",
             Modal::OfferMain { .. } => "offer_main",
             Modal::ConfirmMain { .. } => "confirm_main",
+            Modal::ConfirmRosetta { .. } => "confirm_rosetta",
             Modal::DeleteInstance { .. } => "delete_instance",
             Modal::ToggleMod { prompt, .. } if prompt.enable => "enable_mod",
             Modal::ToggleMod { .. } => "disable_mod",

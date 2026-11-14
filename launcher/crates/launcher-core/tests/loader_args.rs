@@ -106,7 +106,7 @@ fn java_path(data: &Path, version: &VersionJson, java: &Platform) -> PathBuf {
             java.os,
         ),
         Ok(JavaSource::Zulu8) => {
-            data.join("runtimes/zulu-8/mac-os-arm64/zulu-8.jre/Contents/Home/bin/java")
+            data.join("runtimes/zulu-8/mac-os-arm64/zulu8.98.0.111-ca-jre8.0.512-macosx_aarch64/zulu-8.jre/Contents/Home/bin/java")
         }
         Err(err) => panic!("{}: {err}", version.id),
     }
@@ -126,7 +126,8 @@ fn account() -> LaunchAccount {
 fn command(version: &VersionJson, machine: Arch, settings: &GameSettings) -> (Vec<String>, String) {
     let machine = Platform::new(Os::MacOs, machine, "14.6.1");
     let java = machine.with_arch(libraries::java_arch(version, &machine));
-    let selection = libraries::select(version, &java, &Features::default()).unwrap();
+    let selection =
+        libraries::select_on(version, &java, machine.arch, &Features::default()).unwrap();
     let data = Path::new("/data");
     let game_dir = data.join("instances/test/minecraft");
     let mut classpath: Vec<PathBuf> = selection
@@ -201,6 +202,8 @@ const CASES: &[(LoaderKind, &str, &str, &str)] = &[
         "1.21.1",
         "neoforge-1.21.1",
     ),
+    (LoaderKind::Forge, "1.18.2-40.3.0", "1.18.2", "forge-1.18.2"),
+    (LoaderKind::Forge, "1.17.1-37.1.1", "1.17.1", "forge-1.17.1"),
     (
         LoaderKind::Forge,
         "1.16.5-36.2.42",
@@ -316,6 +319,28 @@ fn loader_specifics() {
             .any(|a| a == "-DignoreList=client-extra,neoforge-21.1.209.jar")
     );
 
+    // Forge 1.17.1 and 1.18.2 on Apple silicon run natively on Mojang's arm64 Java 17,
+    // with the arm64 LWJGL 3.3.1 their BootstrapLauncher takes from the classpath (seen
+    // reaching the menu). Their `-DmergeModules` still names objc bridge 1.0.0, which
+    // matches no jar now; nothing needs it merged.
+    for (version, game) in [("1.17.1-37.1.1", "1.17.1"), ("1.18.2-40.3.0", "1.18.2")] {
+        let forge = merged(LoaderKind::Forge, version, game);
+        let (args, text) = command(&forge, Arch::Arm64, &settings);
+        assert!(
+            text.starts_with("/data/runtimes/java-runtime-gamma/mac-os-arm64/"),
+            "{text}"
+        );
+        let classpath = arg_after(&args, "-cp");
+        assert!(
+            classpath.contains("/lwjgl-glfw-3.3.1-natives-macos-arm64.jar"),
+            "{game}"
+        );
+        assert!(
+            !classpath.contains("/3.2.1/") && !classpath.contains("/3.2.2/"),
+            "{game}"
+        );
+    }
+
     // Forge 1.16.5 on Apple silicon runs natively: Azul's Zulu 8, and Mojang's arm64
     // LWJGL 3.3.1 in place of vanilla's Intel-only 3.2.1, swapped after the merge. On an
     // Intel Mac it keeps Mojang's Java 8 and LWJGL 3.2.1.
@@ -323,7 +348,7 @@ fn loader_specifics() {
     let (args, text) = command(&forge, Arch::Arm64, &settings);
     assert_eq!(arg_after(&args, "--launchTarget"), "fmlclient");
     assert!(
-        text.starts_with("/data/runtimes/zulu-8/mac-os-arm64/zulu-8.jre/Contents/Home/bin/java\n"),
+        text.starts_with("/data/runtimes/zulu-8/mac-os-arm64/zulu8.98.0.111-ca-jre8.0.512-macosx_aarch64/zulu-8.jre/Contents/Home/bin/java\n"),
         "{text}"
     );
     let classpath = arg_after(&args, "-cp");

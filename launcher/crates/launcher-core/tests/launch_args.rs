@@ -45,9 +45,10 @@ fn java_path(data: &Path, version: &VersionJson, java: &Platform) -> PathBuf {
             &runtime::install_dir(&data.join("runtimes"), &choice).unwrap(),
             java.os,
         ),
-        Ok(JavaSource::Zulu8) => {
-            data.join("runtimes/zulu-8/mac-os-arm64/zulu-8.jre/Contents/Home/bin/java")
-        }
+        // Each Zulu build has a folder of its own.
+        Ok(JavaSource::Zulu8) => data.join(
+            "runtimes/zulu-8/mac-os-arm64/zulu8.98.0.111-ca-jre8.0.512-macosx_aarch64/zulu-8.jre/Contents/Home/bin/java",
+        ),
         Err(err) => panic!("{}: {err}", version.id),
     }
 }
@@ -82,7 +83,8 @@ fn command_joining(
 ) -> (Vec<String>, String) {
     let machine = Platform::new(Os::MacOs, machine, "14.6.1");
     let java = machine.with_arch(libraries::java_arch(version, &machine));
-    let selection = libraries::select(version, &java, &Features::default()).unwrap();
+    let selection =
+        libraries::select_on(version, &java, machine.arch, &Features::default()).unwrap();
     let data = Path::new("/data");
     let game_dir = data.join("instances/test/minecraft");
     let mut classpath: Vec<PathBuf> = selection

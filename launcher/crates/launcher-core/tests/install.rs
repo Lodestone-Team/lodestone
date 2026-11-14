@@ -28,7 +28,7 @@ use launcher_core::{
 use launcher_core::{
     game::{
         download::{CancelToken, Downloader, Verify, recording_sleep, sha1_hex},
-        install::{InstallError, InstallProgress, Installer, JavaChoice, Stage},
+        install::{InstallError, InstallProgress, Installer, JavaChoice, Rosetta, Stage},
         mojang::MojangUrls,
         platform::{Arch, Os, Platform},
     },
@@ -237,7 +237,10 @@ const ZULU_URL: &str =
 const ZULU_LIST: &str = "https://api.azul.com/metadata/v1/zulu/packages/";
 
 fn zulu_zip() -> Vec<u8> {
-    let top = "zulu8.98.0.111-ca-jre8.0.512-macosx_aarch64";
+    zulu_zip_named("zulu8.98.0.111-ca-jre8.0.512-macosx_aarch64")
+}
+
+fn zulu_zip_named(top: &str) -> Vec<u8> {
     let mut bytes = std::io::Cursor::new(Vec::new());
     {
         let mut writer = zip::ZipWriter::new(&mut bytes);
@@ -269,11 +272,16 @@ fn zulu_zip() -> Vec<u8> {
 }
 
 fn zulu_list(zip: &[u8]) -> String {
+    zulu_list_for(ZULU_NAME, [8, 98, 0, 111], zip)
+}
+
+/// Azul's answer listing one build, `name`, with Azul's build number `distro`.
+fn zulu_list_for(name: &str, distro: [u64; 4], zip: &[u8]) -> String {
     use sha2::Digest as _;
     json!([{
-        "availability_type": "CA", "distro_version": [8, 98, 0, 111],
-        "download_url": ZULU_URL, "java_version": [8, 0, 512], "latest": true,
-        "name": ZULU_NAME, "product": "zulu",
+        "availability_type": "CA", "distro_version": distro,
+        "download_url": format!("https://cdn.azul.com/zulu/bin/{name}"), "java_version": [8, 0, 512], "latest": true,
+        "name": name, "product": "zulu",
         "sha256_hash": format!("{:x}", sha2::Sha256::digest(zip)), "size": zip.len()
     }])
     .to_string()
@@ -326,7 +334,7 @@ fn installs_a_version_with_the_x64_runtime_under_rosetta() {
     .unwrap();
 
     // Java 8 comes from the x86_64 runtime, and the version is set up for it.
-    assert!(prepared.rosetta);
+    assert_eq!(prepared.rosetta, Some(Rosetta::Version));
     assert_eq!(prepared.java_platform.arch, Arch::X86_64);
     let runtime = data.runtimes_dir().join("jre-legacy/mac-os");
     assert_eq!(
@@ -460,7 +468,7 @@ fn a_java_override_skips_the_runtime() {
     ))
     .unwrap();
     assert_eq!(prepared.java, Path::new("/opt/java/bin/java"));
-    assert!(!prepared.rosetta);
+    assert_eq!(prepared.rosetta, None);
     assert_eq!(
         fixture.server.hits(&mojang("v1/packages/rt/manifest.json")),
         0
@@ -815,30 +823,34 @@ fn a_new_version_file_invalidates_its_record() {
     assert_eq!(install_counts(&fixture, Verify::Recorded), (6, 0, 0));
 }
 
-/// Minecraft 1.13 to 1.16.5 need Java 8, which Mojang only makes for Intel Macs. On
+/// Minecraft 1.14 to 1.16.5 need Java 8, which Mojang only makes for Intel Macs. On
 /// Apple silicon they run in Azul's Zulu 8 instead, natively: found through Azul's
-/// list, checked against its SHA-256 and unpacked beside Mojang's runtimes.
+/// list, checked against its SHA-256 and unpacked beside Mojang's runtimes, each build
+/// in a folder of its own.
 #[test]
 fn installs_zulu_8_for_java_8_on_apple_silicon() {
     let fixture = fixture();
     let data = fixture.data_dir();
     let game_dir = fixture.data.path().join("instances/test/minecraft");
-    let prepare = || {
-        block_on(fixture.installer(no).prepare(
+    let prepare_with = |verify| {
+        block_on(fixture.installer(no).prepare_with(
             "test-arm64",
             None,
             &apple_silicon(),
             &JavaChoice::Mojang,
             &game_dir,
+            verify,
             &InstallProgress::default(),
             &CancelToken::new(),
         ))
     };
+    let prepare = || prepare_with(Verify::Recorded);
     // Rosetta isn't needed (the check says it's missing).
     let prepared = prepare().unwrap();
-    assert!(!prepared.rosetta);
+    assert_eq!(prepared.rosetta, None);
     assert_eq!(prepared.java_platform.arch, Arch::Arm64);
-    let runtime = data.runtimes_dir().join("zulu-8/mac-os-arm64");
+    let builds = data.runtimes_dir().join("zulu-8/mac-os-arm64");
+    let runtime = builds.join("zulu8.98.0.111-ca-jre8.0.512-macosx_aarch64");
     assert_eq!(
         prepared.java,
         runtime.join("zulu-8.jre/Contents/Home/bin/java")
@@ -850,32 +862,84 @@ fn installs_zulu_8_for_java_8_on_apple_silicon() {
         assert_eq!(mode & 0o111, 0o111);
         assert!(runtime.join("bin/java").is_file());
     }
-    // Mojang's Intel Java 8 was never fetched, and the archive isn't kept.
+    // Mojang's Intel Java 8 was never fetched; the archive is kept for "Verify game
+    // files"; no folder of the install is left behind.
     assert_eq!(
         fixture.server.hits(&mojang("v1/packages/rt/manifest.json")),
         0
     );
-    assert!(!data.cache_dir().join("java").join(ZULU_NAME).exists());
+    assert!(data.cache_dir().join("java").join(ZULU_NAME).is_file());
     assert_eq!(fixture.server.hits(ZULU_URL), 1);
+    assert_eq!(fs::read_dir(&builds).unwrap().count(), 1);
 
     // Installed: the list is read again, the build isn't downloaded again.
     prepare().unwrap();
     assert_eq!(fixture.server.hits(ZULU_URL), 1);
     assert_eq!(fixture.server.hits(ZULU_LIST), 2);
 
-    // Azul unreachable: the list from before, and the build installed.
+    // "Verify game files" unpacks it again from the kept archive, without a download.
+    fs::remove_file(runtime.join("zulu-8.jre/Contents/Home/lib/rt.jar")).unwrap();
+    assert_eq!(prepare_with(Verify::Full).unwrap().java, prepared.java);
+    assert!(
+        runtime
+            .join("zulu-8.jre/Contents/Home/lib/rt.jar")
+            .is_file()
+    );
+    assert_eq!(fixture.server.hits(ZULU_URL), 1);
+
+    // Azul unreachable, or listing nothing, or its build not downloadable: the build
+    // installed before.
+    for (status, body) in [(503, ""), (404, ""), (200, "[]")] {
+        fixture.server.serve(
+            ZULU_LIST,
+            Entry {
+                status,
+                ..Entry::ok(body)
+            },
+        );
+        assert_eq!(prepare().unwrap().java, prepared.java, "{status} {body}");
+    }
+    let newer = "zulu8.99.0.7-ca-jre8.0.522-macosx_aarch64";
+    let newer_zip = zulu_zip_named(newer);
     fixture.server.serve(
         ZULU_LIST,
+        Entry::ok(zulu_list_for(
+            &format!("{newer}.zip"),
+            [8, 99, 0, 7],
+            &newer_zip,
+        )),
+    );
+    let newer_url = format!("https://cdn.azul.com/zulu/bin/{newer}.zip");
+    fixture.server.serve(
+        &newer_url,
         Entry {
-            status: 503,
+            status: 500,
             ..Entry::ok("")
         },
     );
     assert_eq!(prepare().unwrap().java, prepared.java);
+
+    // A newer build goes into a folder of its own, and the one a running game may
+    // use stays as it was, for the storage cleanup to remove later.
+    fixture.server.serve(&newer_url, Entry::ok(newer_zip));
+    let updated = prepare().unwrap();
+    assert_eq!(
+        updated.java,
+        builds.join(newer).join("zulu-8.jre/Contents/Home/bin/java")
+    );
+    assert!(prepared.java.is_file());
+    assert!(
+        runtime
+            .join("zulu-8.jre/Contents/Home/lib/rt.jar")
+            .is_file()
+    );
+    // The older archive goes: no game uses it.
+    assert!(!data.cache_dir().join("java").join(ZULU_NAME).exists());
 }
 
-/// A 404 or an empty list from Azul means it has no Zulu 8 for Apple silicon; any other
-/// failure is an error, never taken for "none". Either way nothing Intel is used.
+/// With nothing installed, a 404 or an empty list from Azul means it has no Zulu 8 for
+/// Apple silicon; any other failure is an error, never taken for "none". Either way
+/// nothing Intel is used.
 #[test]
 fn no_zulu_8_is_said_plainly_and_outages_are_errors() {
     let prepare = |fixture: &Fixture| {
@@ -923,5 +987,64 @@ fn no_zulu_8_is_said_plainly_and_outages_are_errors() {
         .serve(ZULU_URL, Entry::ok(b"not the zip".to_vec()));
     let err = prepare(&tampered).unwrap_err();
     assert!(err.to_string().contains("SHA-256"), "{err}");
-    assert!(!tampered.data_dir().runtimes_dir().join("zulu-8").exists());
+    let builds = tampered
+        .data_dir()
+        .runtimes_dir()
+        .join("zulu-8/mac-os-arm64");
+    assert!(fs::read_dir(&builds).map_or(true, |mut entries| entries.next().is_none()));
+}
+
+/// A Mac program header: a thin x86_64 or arm64 Mach-O file.
+fn mach_o(arm64: bool) -> Vec<u8> {
+    let cpu: u32 = if arm64 { 0x0100_000c } else { 0x0100_0007 };
+    let mut bytes = vec![0xcf, 0xfa, 0xed, 0xfe];
+    bytes.extend(cpu.to_le_bytes());
+    bytes.extend([0u8; 56]);
+    bytes
+}
+
+/// A Java override is run as what it is. On Apple silicon an Intel one runs a version
+/// that could run natively under Rosetta, with the version's Intel libraries, and the
+/// player is told why; it needs Rosetta like Mojang's Intel Java. One made for Apple
+/// silicon can't run a version that needs an Intel Java, and says so before anything
+/// starts.
+#[test]
+fn a_java_override_runs_as_the_processor_it_is_made_for() {
+    let fixture = fixture();
+    let intel = fixture.data.path().join("intel-java");
+    let arm64 = fixture.data.path().join("arm64-java");
+    fs::write(&intel, mach_o(false)).unwrap();
+    fs::write(&arm64, mach_o(true)).unwrap();
+    let prepare = |id: &str, java: &Path, rosetta: fn() -> bool| {
+        block_on(fixture.installer(rosetta).prepare(
+            id,
+            None,
+            &apple_silicon(),
+            &JavaChoice::Override(java.to_path_buf()),
+            &fixture.data.path().join("game"),
+            &InstallProgress::default(),
+            &CancelToken::new(),
+        ))
+    };
+    let prepared = prepare("test-arm64", &intel, yes).unwrap();
+    assert_eq!(prepared.rosetta, Some(Rosetta::JavaOverride));
+    assert_eq!(prepared.java_platform.arch, Arch::X86_64);
+    assert_eq!(prepared.java, intel);
+    let err = prepare("test-arm64", &intel, no).unwrap_err();
+    assert!(matches!(err, InstallError::RosettaMissing), "{err}");
+
+    let prepared = prepare("test-arm64", &arm64, no).unwrap();
+    assert_eq!(prepared.rosetta, None);
+    assert_eq!(prepared.java_platform.arch, Arch::Arm64);
+
+    // test-1.0 has only Intel natives (LWJGL 2).
+    let prepared = prepare("test-1.0", &intel, yes).unwrap();
+    assert_eq!(prepared.rosetta, Some(Rosetta::Version));
+    let err = prepare("test-1.0", &arm64, yes).unwrap_err();
+    assert!(
+        matches!(&err, InstallError::NeedsIntelJava(id) if id == "test-1.0"),
+        "{err}"
+    );
+    // Neither override's Java was needed from Mojang or Azul.
+    assert_eq!(fixture.server.hits(ZULU_LIST), 0);
 }

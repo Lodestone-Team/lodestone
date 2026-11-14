@@ -65,7 +65,10 @@ pub fn text(message: M) -> &'static str {
             "Liée à {server} sur {core} (cet hôte a été retiré de la page Lodestone Host)"
         }
         M::RunsUnderRosetta => {
-            "S’exécute via Rosetta\u{a0}2\u{a0}: Mojang n’a pas fait de version Apple Silicon de la bibliothèque graphique de cette version. Démarrage plus lent, puis fonctionnement normal."
+            "S’exécute via Rosetta\u{a0}2\u{a0}: Mojang n’a pas fait de version Apple Silicon de certaines bibliothèques dont cette version a besoin. Démarrage plus lent, puis fonctionnement normal."
+        }
+        M::RunsUnderRosettaOverride => {
+            "S’exécute via Rosetta\u{a0}2\u{a0}: le Java choisi dans les paramètres est un Java Intel. Démarrage plus lent, puis fonctionnement normal."
         }
         M::NoInstances => "Aucune instance",
         M::AndJoin => "et rejoindre {server}",
@@ -126,7 +129,7 @@ pub fn text(message: M) -> &'static str {
             "Mémoire insuffisante. Augmentez la mémoire maximale dans Paramètres, ou fermez d’autres applications."
         }
         M::CauseNatives => {
-            "Des bibliothèques natives manquent ou sont faites pour un autre processeur. Sur Apple Silicon, les versions antérieures à 1.13 tournent dans un Java Intel sous Rosetta\u{a0}2, et les suivantes dans un Java Apple Silicon\u{202F}; vérifiez que Rosetta est installé et que le Java personnalisé est fait pour le même processeur."
+            "Des bibliothèques natives manquent ou sont faites pour un autre processeur. Sur Apple Silicon, les versions antérieures à 1.14 tournent dans un Java Intel sous Rosetta\u{a0}2, et les suivantes dans un Java Apple Silicon\u{202F}; vérifiez que Rosetta est installé et que le Java personnalisé est fait pour le même processeur."
         }
         M::CauseJvmOptions => {
             "Java a refusé l’un des réglages. Vérifiez les arguments JVM et la mémoire dans Paramètres."

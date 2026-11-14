@@ -91,8 +91,10 @@ crate::i18n::messages! {
         LinkedTo = "Linked to {server} on {core}",
         LinkedToRemoved = "Linked to {server} on {core} (that host was removed from the Lodestone Host page)",
         /// Under the instance's name, on an Apple silicon Mac, for a version that runs
-        /// in an Intel Java (Minecraft 1.12.2 and older).
-        RunsUnderRosetta = "Runs under Rosetta 2: Mojang made no Apple silicon build of this version's graphics library. Slower to start, then plays normally.",
+        /// in an Intel Java (Minecraft 1.13.2 and older).
+        RunsUnderRosetta = "Runs under Rosetta 2: Mojang made no Apple silicon build of some libraries this version needs. Slower to start, then plays normally.",
+        /// The same, for an instance with an Intel Java chosen in its Settings.
+        RunsUnderRosettaOverride = "Runs under Rosetta 2: the Java chosen in Settings is an Intel Java. Slower to start, then plays normally.",
         NoInstances = "No instances",
         /// Under PLAY, for an instance made for a server.
         AndJoin = "and join {server}",
@@ -144,7 +146,7 @@ crate::i18n::messages! {
         /// The likely causes of a crash.
         CauseWrongJava = "Wrong Java version. This Minecraft version (or a mod) needs a different Java. Clear the Java override in Settings to use the Java Mojang provides.",
         CauseOutOfMemory = "Out of memory. Raise the maximum memory in Settings, or close other apps.",
-        CauseNatives = "Native libraries are missing or are for the wrong processor. On Apple silicon, versions before 1.13 run in an Intel Java under Rosetta 2 and later ones in an Apple silicon Java; check that Rosetta is installed and that a Java override is made for the same processor.",
+        CauseNatives = "Native libraries are missing or are for the wrong processor. On Apple silicon, versions before 1.14 run in an Intel Java under Rosetta 2 and later ones in an Apple silicon Java; check that Rosetta is installed and that a Java override is made for the same processor.",
         CauseJvmOptions = "Java refused one of the settings. Check the JVM arguments and memory in Settings.",
         CauseGraphics = if cfg!(target_os = "macos") {
             "The game couldn't set up its window or OpenGL. Update macOS, or try without a custom window size or fullscreen."

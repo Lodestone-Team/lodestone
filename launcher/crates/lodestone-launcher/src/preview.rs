@@ -102,6 +102,7 @@ pub const SCENES: &[&str] = &[
     "rosetta",
     "rosetta-note",
     "rosetta-notice",
+    "rosetta-override",
     "content-mods",
     "content-browse",
     "content-sort",
@@ -560,6 +561,7 @@ fn has_instances(scene: &str) -> bool {
             | "rosetta"
             | "rosetta-note"
             | "rosetta-notice"
+            | "rosetta-override"
     ) || scene.starts_with("content-")
         || scene.starts_with("modpack-")
         || scene == "new-instance-modpack"
@@ -793,9 +795,16 @@ pub fn instances(scene: &str, accounts: &Entity<Accounts>, cx: &mut App) -> Enti
                 if played > 0 {
                     let _ = store.record_play(&instance.id, 1_762_500_000, played);
                 }
-                // 1.8.9 runs under Rosetta 2 on Apple silicon, and the header says so.
+                // 1.8.9 runs under Rosetta 2 on Apple silicon, and the header says so
+                // (and why: here, an Intel Java chosen in its Settings).
                 if name == "Old school" && scene.starts_with("rosetta-") {
-                    let _ = store.record_rosetta(&instance.id, true);
+                    use launcher_core::game::install::Rosetta;
+                    let reason = if scene == "rosetta-override" {
+                        Rosetta::JavaOverride
+                    } else {
+                        Rosetta::Version
+                    };
+                    let _ = store.record_rosetta(&instance.id, Some(reason));
                 }
             }
         }
@@ -1175,15 +1184,16 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
             crate::instances::rosetta_missing(),
             cx,
         ),
-        // Before an instance's first game under Rosetta 2.
-        "rosetta-notice" => shell.preview_launch_failed(
-            &crate::i18n::tr!(
-                crate::i18n::InstancesMsg::RosettaNoticeTitle,
-                version = "1.8.9"
-            ),
-            crate::i18n::t(crate::i18n::InstancesMsg::RosettaNoticeBody),
-            cx,
-        ),
+        // Before an instance's first game under Rosetta 2: Play or Cancel.
+        "rosetta-notice" | "rosetta-override" => {
+            use launcher_core::game::install::Rosetta;
+            let reason = if scene == "rosetta-override" {
+                Rosetta::JavaOverride
+            } else {
+                Rosetta::Version
+            };
+            shell.preview_confirm_rosetta("1.8.9", reason, cx);
+        }
         scene if snapshots::is_scene(scene) => snapshots::apply(scene, shell, cx),
         scene if is_worlds_scene(scene) => {
             shell.select_tab(InstanceTab::Worlds, cx);

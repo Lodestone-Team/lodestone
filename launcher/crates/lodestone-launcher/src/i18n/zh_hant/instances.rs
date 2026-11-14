@@ -24,7 +24,7 @@ pub fn text(message: M) -> &'static str {
         M::PreparingNote => "正在準備 Minecraft {version}（{loader}）",
         M::JoiningNote => "遊戲啟動後將加入 {address}",
         M::VerifyingNote => "正在驗證 Minecraft {version}（{loader}）的遊戲檔案",
-        M::RosettaNote => "此版本透過 Rosetta 2 在 Intel（x86_64）Java 中執行。",
+        M::RosettaNote => "遊戲透過 Rosetta 2 在 Intel（x86_64）Java 中執行。",
         M::StartingJavaNote => "正在啟動 Java：{command}",
         M::AutoMemoryNote => "自動設定：依這台電腦和實例的模組，將記憶體設為 {memory}",
         M::AutoMemoryLimitedNote => {
@@ -57,10 +57,16 @@ pub fn text(message: M) -> &'static str {
         }
         M::RosettaNoticeTitle => "Minecraft {version} 透過 Rosetta 2 執行",
         M::RosettaNoticeBody => {
-            "Mojang 沒有為這個版本使用的圖形程式庫製作 Apple 晶片版本，因此它會透過 Rosetta 2 在 Intel 版 Java 中執行。啟動會比較慢，之後可以正常遊玩。Minecraft 1.13 及更新版本會原生執行。"
+            "Mojang 沒有為這個版本需要的部分程式庫製作 Apple 晶片版本，因此它會透過 Rosetta 2 在 Intel 版 Java 中執行。啟動會比較慢，之後可以正常遊玩。Minecraft 1.14 及更新版本會原生執行。"
+        }
+        M::RosettaNoticeBodyOverride => {
+            "這個實例使用的是在其「設定」中選擇的 Intel 版 Java，因此遊戲會透過 Rosetta 2 執行。啟動會比較慢，之後可以正常遊玩。若要原生執行，請選擇適用於 Apple 晶片的 Java，或 Mojang 提供的 Java。"
         }
         M::NoNativeJava8 => {
-            "這個 Minecraft 版本需要 Java 8，但目前沒有適用於 Apple 晶片的 Java 8：Mojang 沒有提供，Azul 也沒有列出。請稍後再試，或在實例的「設定」中選擇一個 Java 8。"
+            "這個 Minecraft 版本需要 Java 8，但目前沒有適用於 Apple 晶片的 Java 8：Mojang 沒有提供，Azul 也沒有列出。請稍後再試，或在實例的「設定」中選擇一個適用於 Apple 晶片（arm64）的 Java 8。"
+        }
+        M::NeedsIntelJava => {
+            "在 Apple 晶片上，Minecraft {version} 只能透過 Rosetta 2 在 Intel（x86_64）Java 中執行，而在實例「設定」中選擇的 Java 是 Apple 晶片版。請在那裡選擇 Intel 版 Java，或 Mojang 提供的 Java。"
         }
         M::CouldntStartMinecraft => "無法啟動 Minecraft",
         M::CouldntStartJava => "無法啟動 Java",

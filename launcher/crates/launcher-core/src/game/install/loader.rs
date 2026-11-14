@@ -385,15 +385,24 @@ impl Installer {
     /// (its `maven/` folder, or an old installer's universal jar) when they are
     /// missing, or, with [`Verify::Full`], have the wrong SHA-1. Files the
     /// processors make are left to them.
+    ///
+    /// Those of the installer's `install_profile.json` (`profile_id`'s) too: Forge 1.13
+    /// to 1.16 list their universal jar only there, and FML won't start without it
+    /// ("Missing forge!").
     pub(crate) fn restore_installer_files(
         &self,
         child: &VersionJson,
+        profile_id: &str,
         installer: &Path,
         verify: Verify,
     ) -> Result<(), InstallError> {
         let libraries = self.data.libraries_dir();
+        let profile = self.install_profile(profile_id)?;
+        let profile_libraries = profile
+            .iter()
+            .flat_map(|(profile, _)| profile.libraries.iter());
         let mut wanted: Vec<(PathBuf, Option<String>)> = Vec::new();
-        for library in &child.libraries {
+        for library in child.libraries.iter().chain(profile_libraries) {
             let Some(artifact) = &library.downloads.artifact else {
                 continue;
             };
@@ -413,7 +422,7 @@ impl Installer {
                 (Some(sha1), Verify::Full) => file_matches(&dest, sha1),
                 _ => dest.is_file(),
             };
-            if !good {
+            if !good && !wanted.iter().any(|(listed, _)| *listed == path) {
                 wanted.push((path, sha1));
             }
         }

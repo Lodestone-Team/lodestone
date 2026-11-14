@@ -1,4 +1,4 @@
-/data/runtimes/zulu-8/mac-os-arm64/zulu-8.jre/Contents/Home/bin/java
+/data/runtimes/zulu-8/mac-os-arm64/zulu8.98.0.111-ca-jre8.0.512-macosx_aarch64/zulu-8.jre/Contents/Home/bin/java
 -XstartOnFirstThread
 -Djava.library.path=/data/instances/test/natives
 -Dminecraft.launcher.brand=lodestone-launcher

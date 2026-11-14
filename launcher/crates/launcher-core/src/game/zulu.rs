@@ -1,12 +1,16 @@
-//! Azul's Zulu 8 JRE for macOS on arm64: the Java that runs Minecraft 1.13 to 1.16.5
+//! Azul's Zulu 8 JRE for macOS on arm64: the Java that runs Minecraft 1.14 to 1.16.5
 //! (and their Forge) natively on Apple silicon, where Mojang's `jre-legacy` is Intel
 //! only.
 //!
 //! The build is found through Azul's metadata API, downloaded only from Azul's CDN,
 //! checked against the SHA-256 Azul publishes, and unpacked into the runtimes folder
-//! beside Mojang's runtimes, in a folder of its own ([`COMPONENT`]/`mac-os-arm64`).
-//! It comes as a zip (Azul publishes zips for macOS too, and Zed's lock has no tar
-//! crate). Lodestone Core looks up Java the same way for servers
+//! beside Mojang's runtimes: `<runtimes>/`[`COMPONENT`]`/mac-os-arm64/<build>`, each
+//! build in a folder of its own ([`build_folder`]). A new build goes into a new folder
+//! and the game uses the newest installed one ([`newest_installed`]), so installing
+//! never deletes or changes the Java a running game uses; older builds are removed with
+//! the unused runtimes in Settings › Storage, which only runs while no game does
+//! ([`older_builds`]). It comes as a zip (Azul publishes zips for macOS too, and Zed's
+//! lock has no tar crate). Lodestone Core looks up Java the same way for servers
 //! (`core/src/implementations/minecraft/util.rs`); this is a port of its Zulu lookup,
 //! not a dependency on it.
 
@@ -53,6 +57,69 @@ pub struct ZuluBuild {
     pub sha256: String,
     /// About the size, for progress: Azul rounds it, so it is never checked.
     pub size: Option<u64>,
+}
+
+/// The folder a build is unpacked into: its archive's name without `.zip`, such as
+/// `zulu8.98.0.111-ca-jre8.0.512-macosx_aarch64`. [`pick`] only lets through plain
+/// names, so it is a single path component.
+pub fn build_folder(build: &ZuluBuild) -> &str {
+    build.name.strip_suffix(".zip").unwrap_or(&build.name)
+}
+
+/// Azul's build number from a build's archive or folder name: `[8, 98, 0, 111]` for
+/// `zulu8.98.0.111-ca-jre8.0.512-macosx_aarch64`.
+fn distro_version(name: &str) -> Option<Vec<u64>> {
+    let numbers = name.strip_prefix("zulu")?.split('-').next()?;
+    numbers
+        .split('.')
+        .map(|part| part.parse().ok())
+        .collect::<Option<Vec<u64>>>()
+        .filter(|numbers| !numbers.is_empty())
+}
+
+/// The builds installed in `dir` (`<runtimes>/zulu-8/mac-os-arm64`): each folder that
+/// was marked installed (only done once it was complete) and has a `java`, with its
+/// build number, oldest first.
+fn installed_builds(dir: &Path) -> Vec<(Vec<u64>, PathBuf)> {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    let mut builds: Vec<(Vec<u64>, PathBuf)> = entries
+        .filter_map(|entry| entry.ok())
+        .filter_map(|entry| {
+            let name = entry.file_name().to_str()?.to_string();
+            let version = distro_version(&name)?;
+            let path = entry.path();
+            (path.join(runtime::INSTALLED_MARKER).is_file() && java_binary(&path).is_some())
+                .then_some((version, path))
+        })
+        .collect();
+    builds.sort();
+    builds
+}
+
+/// The `java` of the newest build installed in `dir`, for when Azul can't be asked
+/// or lists none.
+pub fn newest_installed(dir: &Path) -> Option<PathBuf> {
+    installed_builds(dir)
+        .pop()
+        .and_then(|(_, path)| java_binary(&path))
+}
+
+/// Everything in `dir` but the newest installed build: older builds, and folders left
+/// by an install that didn't finish. Only for removing while no game runs.
+pub fn older_builds(dir: &Path) -> Vec<PathBuf> {
+    let newest = installed_builds(dir).pop().map(|(_, path)| path);
+    let Ok(entries) = fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    let mut older: Vec<PathBuf> = entries
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.path())
+        .filter(|path| path.is_dir() && Some(path) != newest.as_ref())
+        .collect();
+    older.sort();
+    older
 }
 
 /// Whether `sha256` looks like a SHA-256 in hex.
@@ -147,8 +214,9 @@ fn is_symlink(mode: Option<u32>) -> bool {
 
 /// Unpacks the Zulu zip `archive` into `dest`, which must not exist yet, without the
 /// folder all its entries are in (`zulu8...-macosx_aarch64/`). Every entry and every
-/// link's target must stay inside `dest`. Files keep only their executable bits; no
-/// other mode from the archive reaches the disk.
+/// link's target must stay inside `dest`, checked as written and again once all the
+/// links are made, through any other link (Azul's own zips have none). Files keep only
+/// their executable bits; no other mode from the archive reaches the disk.
 pub fn unpack(archive: &Path, dest: &Path) -> Result<(), UnpackError> {
     let bad = |reason: String| UnpackError::BadArchive {
         archive: archive.to_owned(),
@@ -220,7 +288,7 @@ pub fn unpack(archive: &Path, dest: &Path) -> Result<(), UnpackError> {
             if !runtime::link_stays_inside(&relative, &link_target) {
                 return Err(unsafe_entry(&name));
             }
-            links.push((target, link_target));
+            links.push((target, link_target, name));
         } else {
             if let Some(parent) = target.parent() {
                 fs::create_dir_all(parent).map_err(io_err(parent))?;
@@ -238,14 +306,25 @@ pub fn unpack(archive: &Path, dest: &Path) -> Result<(), UnpackError> {
     }
     // Links last, so none is followed while files are written.
     #[cfg(unix)]
-    for (link, link_target) in links {
-        if let Some(parent) = link.parent() {
-            fs::create_dir_all(parent).map_err(io_err(parent))?;
+    {
+        for (link, link_target, _) in &links {
+            if let Some(parent) = link.parent() {
+                fs::create_dir_all(parent).map_err(io_err(parent))?;
+            }
+            if fs::symlink_metadata(link).is_ok() {
+                continue;
+            }
+            std::os::unix::fs::symlink(link_target, link).map_err(io_err(link))?;
         }
-        if fs::symlink_metadata(&link).is_ok() {
-            continue;
+        // Each link was checked on its own, which a link through another link can get
+        // past (`a/l1 -> ..`, `a/l2 -> l1/..`): with all of them made, each must
+        // really end inside, at something that exists.
+        let inside = fs::canonicalize(dest).map_err(io_err(dest))?;
+        for (link, _, name) in &links {
+            if !fs::canonicalize(link).is_ok_and(|real| real.starts_with(&inside)) {
+                return Err(unsafe_entry(name));
+            }
         }
-        std::os::unix::fs::symlink(&link_target, &link).map_err(io_err(&link))?;
     }
     #[cfg(not(unix))]
     drop(links);
@@ -421,6 +500,52 @@ mod tests {
         assert_eq!(fs::read(dest.join("bin/java")).unwrap(), b"java");
     }
 
+    /// Each build has its own folder; the newest one installed is used, and the rest
+    /// is what the storage cleanup may remove.
+    #[test]
+    fn the_newest_installed_build_is_used() {
+        let dir = tempfile::tempdir().unwrap();
+        let build = |name: &str, installed: bool| {
+            let home = dir.path().join(name).join("zulu-8.jre/Contents/Home/bin");
+            fs::create_dir_all(&home).unwrap();
+            fs::write(home.join("java"), b"").unwrap();
+            if installed {
+                runtime::mark_installed(&dir.path().join(name), SHA).unwrap();
+            }
+            dir.path().join(name)
+        };
+        assert_eq!(newest_installed(dir.path()), None);
+        let old = build("zulu8.94.0.17-ca-jre8.0.492-macosx_aarch64", true);
+        let new = build("zulu8.98.0.111-ca-jre8.0.512-macosx_aarch64", true);
+        // Never finished: not marked installed.
+        let half = build("zulu8.99.0.1-ca-jre8.0.522-macosx_aarch64", false);
+        let staging = build(
+            ".zulu8.99.0.1-ca-jre8.0.522-macosx_aarch64.unpacking-1-2",
+            false,
+        );
+        assert_eq!(
+            newest_installed(dir.path()),
+            Some(new.join("zulu-8.jre/Contents/Home/bin/java"))
+        );
+        let mut older = vec![old, half, staging];
+        older.sort();
+        assert_eq!(older_builds(dir.path()), older);
+        assert_eq!(
+            build_folder(&ZuluBuild {
+                name: "zulu8.98.0.111-ca-jre8.0.512-macosx_aarch64.zip".into(),
+                url: String::new(),
+                sha256: SHA.into(),
+                size: None,
+            }),
+            "zulu8.98.0.111-ca-jre8.0.512-macosx_aarch64"
+        );
+        assert_eq!(
+            distro_version("zulu8.98.0.111-ca"),
+            Some(vec![8, 98, 0, 111])
+        );
+        assert_eq!(distro_version("zulu-8.jre"), None);
+    }
+
     #[test]
     fn finds_java_in_a_renamed_bundle_or_a_plain_home() {
         let dir = tempfile::tempdir().unwrap();
@@ -447,6 +572,14 @@ mod tests {
             vec![("/abs", None, 0o644, &b"x"[..])],
             vec![("top/link", Some("../../etc/passwd"), 0o777, &b""[..])],
             vec![("top/link", Some("/etc/passwd"), 0o777, &b""[..])],
+            // Each fine on its own, out of the folder together.
+            vec![
+                ("top/a/b/", None, 0o755, &b""[..]),
+                ("top/a/b/l3", Some("../.."), 0o777, &b""[..]),
+                ("top/a/b/l4", Some("l3/../.."), 0o777, &b""[..]),
+            ],
+            // A link to nothing.
+            vec![("top/link", Some("missing"), 0o777, &b""[..])],
         ]
         .into_iter()
         .enumerate()

@@ -198,6 +198,14 @@ enum Modal {
         current: String,
         focus: FocusHandle,
     },
+    /// "Minecraft {version} runs under Rosetta 2", with Play and Cancel, before an
+    /// instance's first game under Rosetta: the game waits for the answer.
+    ConfirmRosetta {
+        id: String,
+        version: String,
+        reason: launcher_core::game::install::Rosetta,
+        focus: FocusHandle,
+    },
     /// "Turn off Fabric API?" or "Turn on Sodium?": a mod linked to others, from the
     /// Content tab.
     ToggleMod {
@@ -437,6 +445,22 @@ impl LauncherShell {
                             id: id.clone(),
                             name,
                             current,
+                            focus,
+                        },
+                        cx,
+                    );
+                }
+                InstancesEvent::ConfirmRosetta {
+                    id,
+                    version,
+                    reason,
+                } => {
+                    let focus = cx.focus_handle();
+                    this.open_modal(
+                        Modal::ConfirmRosetta {
+                            id: id.clone(),
+                            version: version.clone(),
+                            reason: *reason,
                             focus,
                         },
                         cx,
@@ -2091,6 +2115,33 @@ impl LauncherShell {
         }
     }
 
+    /// "Minecraft {version} runs under Rosetta 2" with Play and Cancel, for the
+    /// offscreen screenshots. No game waits, so either button just closes it.
+    #[cfg(feature = "screenshot")]
+    pub fn preview_confirm_rosetta(
+        &mut self,
+        version: &str,
+        reason: launcher_core::game::install::Rosetta,
+        cx: &mut Context<Self>,
+    ) {
+        let id = self
+            .instances
+            .read(cx)
+            .selected()
+            .map(|instance| instance.id.clone())
+            .unwrap_or_default();
+        let focus = cx.focus_handle();
+        self.open_modal(
+            Modal::ConfirmRosetta {
+                id,
+                version: version.to_string(),
+                reason,
+                focus,
+            },
+            cx,
+        );
+    }
+
     /// "Make … your main instance?" over the first two instances, for the offscreen
     /// screenshots: the first-time offer, or (`confirm`) taking over from a main one.
     #[cfg(feature = "screenshot")]
@@ -2554,6 +2605,55 @@ impl LauncherShell {
                     Button::new("confirm-main-cancel", t(CommonMsg::Cancel))
                         .variant(ButtonVariant::Secondary)
                         .on_click(cx.listener(|this, _, _, cx| this.close_modal(cx))),
+                )
+                .into_any_element()
+            }
+            Modal::ConfirmRosetta {
+                id,
+                version,
+                reason,
+                focus,
+            } => {
+                use crate::i18n::InstancesMsg as IM;
+                use launcher_core::game::install::Rosetta;
+                let answer = |play: bool, id: String, cx: &mut Context<Self>| {
+                    let entity = cx.entity();
+                    move |_: &mut Window, cx: &mut gpui::App| {
+                        entity.update(cx, |this, cx| {
+                            this.close_modal(cx);
+                            this.instances.update(cx, |instances, cx| {
+                                instances.confirm_rosetta(&id, play, cx)
+                            });
+                        })
+                    }
+                };
+                let play = answer(true, id.clone(), cx);
+                let cancel = answer(false, id.clone(), cx);
+                let dismiss = answer(false, id.clone(), cx);
+                Dialog::new(
+                    "confirm-rosetta",
+                    tr!(IM::RosettaNoticeTitle, version = version),
+                    focus.clone(),
+                )
+                .on_close(dismiss)
+                .child(
+                    div()
+                        .text_color(crate::theme::ink::secondary())
+                        .whitespace_normal()
+                        .child(t(match reason {
+                            Rosetta::Version => IM::RosettaNoticeBody,
+                            Rosetta::JavaOverride => IM::RosettaNoticeBodyOverride,
+                        })),
+                )
+                .footer(
+                    Button::new("confirm-rosetta-play", t(M::Play))
+                        .variant(ButtonVariant::Primary)
+                        .on_click(move |_, window, cx| play(window, cx)),
+                )
+                .footer(
+                    Button::new("confirm-rosetta-cancel", t(CommonMsg::Cancel))
+                        .variant(ButtonVariant::Secondary)
+                        .on_click(move |_, window, cx| cancel(window, cx)),
                 )
                 .into_any_element()
             }
