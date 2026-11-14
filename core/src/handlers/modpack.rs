@@ -308,7 +308,7 @@ async fn create_modpack_instance(
         }
         None => None,
     };
-    let post_setup: PostSetupStep = Box::new(move |root, event_id| {
+    let post_setup: PostSetupStep = Box::new(move |root, event_id, _uuid| {
         Box::pin(async move {
             // `stored` keeps the pack file until the instance is set up
             let pack_path = stored.path();

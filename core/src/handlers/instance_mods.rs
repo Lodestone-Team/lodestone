@@ -19,6 +19,7 @@ use super::util::{get_instance, AuthedUser};
 use crate::auth::user::UserAction;
 use crate::error::{Error, ErrorKind};
 use crate::events::{Event, ProgressionEndValue};
+use crate::images::{ModrinthHint, OpKind, Operation};
 use crate::modrinth::links::check_api_segment;
 use crate::mods::client::{build_client_pack, ClientPackDownload};
 use crate::mods::install::{self, ModInstallRequest, ModInstallResult};
@@ -54,9 +55,68 @@ pub(super) async fn fabric_loader_version(instance: &GameInstance) -> Option<Str
     }
 }
 
-/// Remembers that the instance needs a restart if it is running.
-async fn note_change(state: &AppState, uuid: &InstanceUuid, instance: &GameInstance) {
+/// After a change succeeded: remembers that the instance needs a restart if it is running,
+/// and ends the change's operation, so its `label` is recorded in the instance's next
+/// content image (with whatever else succeeds within a few seconds, such as the rest of an
+/// "Update all").
+async fn note_change(
+    state: &AppState,
+    uuid: &InstanceUuid,
+    instance: &GameInstance,
+    op: Operation,
+    label: impl Into<String>,
+) {
     state.mods.restart.note_change(uuid, instance.state().await);
+    op.succeed_as(label);
+}
+
+/// Starts the content operation of a Mods tab change. Call it with the mods lock held and
+/// after every permission check passed: dropping it without [`note_change`] records
+/// nothing.
+async fn begin_change(state: &AppState, uuid: &InstanceUuid, kind: OpKind) -> Operation {
+    state.images.begin(uuid, kind, String::new()).await
+}
+
+/// Notes what Modrinth said about the mods in `mods` (by SHA-512) for the `env` and source
+/// of the instance's next content image, from what was fetched anyway. A hint already known
+/// (in memory, or kept with the instance's content state since an earlier run) keeps what
+/// this one lacks: a list knows no download URL, an install does.
+pub(super) async fn note_modrinth_hints(
+    state: &AppState,
+    uuid: &InstanceUuid,
+    mods: &[InstalledMod],
+    urls: &std::collections::HashMap<String, String>,
+) {
+    if !crate::images::ImageService::accepts(uuid) || mods.iter().all(|m| m.modrinth.is_none()) {
+        return;
+    }
+    let (root, id) = (state.images.root().to_path_buf(), uuid.clone());
+    let kept = tokio::task::spawn_blocking(move || crate::images::state::load(&root, &id).modrinth)
+        .await
+        .unwrap_or_default();
+    for installed in mods {
+        let Some(modrinth) = &installed.modrinth else {
+            continue;
+        };
+        let known = state
+            .images
+            .modrinth_hint(&installed.sha512)
+            .or_else(|| kept.get(&installed.sha512).cloned())
+            .unwrap_or_default();
+        let side = |value: &str| (!value.is_empty()).then(|| value.to_string());
+        let hint = ModrinthHint {
+            url: urls.get(&installed.sha512).cloned().or(known.url),
+            environment: known.environment,
+            client_side: side(&modrinth.client_side).or(known.client_side),
+            server_side: side(&modrinth.server_side).or(known.server_side),
+        };
+        state.images.note_modrinth(&installed.sha512, hint);
+    }
+}
+
+/// The name a label gives a mod file: without `.disabled`.
+fn label_name(file_name: &str) -> &str {
+    file_name.strip_suffix(".disabled").unwrap_or(file_name)
 }
 
 fn not_on_modrinth(file_name: &str) -> Error {
@@ -111,6 +171,7 @@ async fn list_mods(
         fabric_loader_version(&instance).await,
     )
     .await?;
+    note_modrinth_hints(&state, &uuid, &list.mods, &Default::default()).await;
     Ok(Json(list))
 }
 
@@ -129,8 +190,16 @@ async fn install_mod(
     let version = api.version(version_id).await?;
     let project = api.project(&version.project_id).await?;
 
+    // the download URLs of this version's files, for the content image's sources
+    let urls: std::collections::HashMap<String, String> = version
+        .files
+        .iter()
+        .map(|file| (file.sha512.to_ascii_lowercase(), file.url.clone()))
+        .collect();
+
     let lock = state.mods.lock_for(&uuid);
     let _guard = lock.lock().await;
+    let op = begin_change(&state, &uuid, OpKind::Mods).await;
     let (start, event_id) = Event::new_progression_event_start(
         format!("Installing {}", project.title),
         None,
@@ -170,8 +239,15 @@ async fn install_mod(
                 message: message.clone(),
             }),
         ));
-    if success {
-        note_change(&state, &uuid, &instance).await;
+    if let Ok(installed) = &result {
+        note_modrinth_hints(&state, &uuid, &installed.installed, &urls).await;
+        // an install that took an older version's place is an update
+        let label = if installed.removed.is_empty() {
+            format!("Added {}", project.title)
+        } else {
+            format!("Updated {}", project.title)
+        };
+        note_change(&state, &uuid, &instance, op, label).await;
     }
     result.map(Json)
 }
@@ -258,8 +334,13 @@ async fn upload_mods(
 
     let lock = state.mods.lock_for(&uuid);
     let _guard = lock.lock().await;
+    let op = begin_change(&state, &uuid, OpKind::Mods).await;
     let files = save_uploads(&folder, uploads, query.overwrite.unwrap_or(false)).await?;
-    note_change(&state, &uuid, &instance).await;
+    let label = match files.as_slice() {
+        [file] => format!("Uploaded {}", label_name(&file.file_name)),
+        files => format!("Uploaded {} {}", files.len(), folder.directory()),
+    };
+    note_change(&state, &uuid, &instance, op, label).await;
     Ok(Json(
         match_files_or_none(state.mods.modrinth.as_ref(), files, folder.loader).await,
     ))
@@ -278,6 +359,7 @@ async fn set_enabled(
     let (instance, folder) = mod_folder(&state, &uuid).await?;
     let lock = state.mods.lock_for(&uuid);
     let _guard = lock.lock().await;
+    let op = begin_change(&state, &uuid, OpKind::Mods).await;
     // the copy that is checked is the one enabled, so the file can't be swapped meanwhile
     let (file, changed) = if enabled {
         crate::mods::enable_checked(&folder, &file_name, |name, sha512| {
@@ -289,7 +371,12 @@ async fn set_enabled(
         crate::mods::set_enabled(&folder, &file_name, enabled).await?
     };
     if changed {
-        note_change(&state, &uuid, &instance).await;
+        let label = format!(
+            "{} {}",
+            if enabled { "Enabled" } else { "Disabled" },
+            label_name(&file_name)
+        );
+        note_change(&state, &uuid, &instance, op, label).await;
     }
     let mut mods =
         match_files_or_none(state.mods.modrinth.as_ref(), vec![file], folder.loader).await;
@@ -325,6 +412,7 @@ async fn delete_mod(
     let (instance, folder) = mod_folder(&state, &uuid).await?;
     let lock = state.mods.lock_for(&uuid);
     let _guard = lock.lock().await;
+    let op = begin_change(&state, &uuid, OpKind::Mods).await;
     crate::mods::delete(&folder, &file_name).await?;
     if let Err(e) = crate::mods::client::forget_mark(&folder, &file_name).await {
         tracing::warn!(
@@ -332,7 +420,8 @@ async fn delete_mod(
             e.source
         );
     }
-    note_change(&state, &uuid, &instance).await;
+    let label = format!("Removed {}", label_name(&file_name));
+    note_change(&state, &uuid, &instance, op, label).await;
     Ok(Json(()))
 }
 
@@ -359,7 +448,15 @@ async fn set_client_mark(
     let (_, folder) = mod_folder(&state, &uuid).await?;
     let lock = state.mods.lock_for(&uuid);
     let _guard = lock.lock().await;
+    let op = begin_change(&state, &uuid, OpKind::ClientMark).await;
     crate::mods::client::set_marked(&folder, &file_name, body.required).await?;
+    // The mark is no file of the image but the jar's client `env`; the server needs no
+    // restart for it.
+    op.succeed_as(if body.required {
+        format!("Marked {} for players", label_name(&file_name))
+    } else {
+        format!("Marked {} as not for players", label_name(&file_name))
+    });
     Ok(Json(()))
 }
 

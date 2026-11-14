@@ -153,10 +153,14 @@ pub async fn create_minecraft_instance(
 }
 
 /// A step that runs after a new Minecraft instance is set up and before it is added, such
-/// as installing a modpack. It gets the instance folder and the creation's progression
-/// event, and returns an extra message for the end of the creation.
+/// as installing a modpack. It gets the instance folder, the creation's progression event
+/// and the new instance's uuid, and returns an extra message for the end of the creation.
 pub(super) type PostSetupStep = Box<
-    dyn FnOnce(PathBuf, ProgressionEventID) -> BoxFuture<'static, Result<Option<String>, Error>>
+    dyn FnOnce(
+            PathBuf,
+            ProgressionEventID,
+            InstanceUuid,
+        ) -> BoxFuture<'static, Result<Option<String>, Error>>
         + Send,
 >;
 
@@ -220,7 +224,8 @@ pub(super) async fn spawn_minecraft_instance_creation(
                 let Some(post_setup) = post_setup else {
                     return Ok((instance, None));
                 };
-                let message = post_setup(setup_path.clone(), event_id.clone()).await?;
+                let message =
+                    post_setup(setup_path.clone(), event_id.clone(), uuid.clone()).await?;
                 // read the instance again: the step may have changed its files
                 drop(instance);
                 let instance = minecraft::MinecraftInstance::restore(
@@ -286,9 +291,40 @@ pub(super) async fn spawn_minecraft_instance_creation(
             state
                 .instances
                 .insert(uuid.clone(), minecraft_instance.into());
+            record_created(&state, &uuid).await;
         }
     });
     Ok(instance_uuid)
+}
+
+/// The first content image of a server just created: "Created <name>", unless its setup
+/// already recorded one (a modpack's "Installed <pack>"). A failure is only logged: the
+/// check before the first start records the content then.
+async fn record_created(state: &AppState, uuid: &InstanceUuid) {
+    if state.images.current_content(uuid).await.is_some() {
+        return;
+    }
+    let Some(ctx) = crate::images::context_of(state, uuid).await else {
+        return;
+    };
+    let name = match state.instances.get(uuid).map(|i| i.value().clone()) {
+        Some(instance) => instance.name().await,
+        None => return,
+    };
+    if let Err(e) = state
+        .images
+        .record_now(
+            ctx,
+            crate::images::OpKind::Created,
+            format!("Created {name}"),
+        )
+        .await
+    {
+        tracing::warn!(
+            "Failed to record the content of the new server {uuid}: {}",
+            e.source
+        );
+    }
 }
 
 pub async fn delete_instance(
@@ -450,3 +486,6 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+mod content_images_tests;

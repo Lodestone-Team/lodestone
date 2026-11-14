@@ -19,6 +19,7 @@ use crate::{
     auth::user::{User, UserAction},
     error::{Error, ErrorKind},
     events::{new_fs_event, Event, FSOperation, FSTarget, ProgressionEndValue, ProgressionEventID},
+    images::{ImageService, OpKind, Operation},
     prelude::path_to_tmp,
     traits::t_configurable::TConfigurable,
     types::InstanceUuid,
@@ -337,6 +338,21 @@ async fn delete_entry(
 /// On macOS's and Windows's file systems, which ignore case, a new name that only changes
 /// letter case (`Server.properties` to `server.properties`) "exists" as the source itself,
 /// and picking a free name made it `server_1.properties`.
+/// The content operation of deleting the entry `relative` of the instance folder `root`
+/// (see [`delete_entry`]), begun when the entry is content or can hold it.
+async fn delete_op(
+    state: &AppState,
+    uuid: &InstanceUuid,
+    root: &FsPath,
+    relative: &str,
+    folder: bool,
+) -> Option<Operation> {
+    // a path that can't be an entry fails in `delete_entry`, which deletes nothing
+    let (entry, _) = instance_join_entry(root, relative).ok()?;
+    let label = format!("Deleted {}", label_path(root, &entry));
+    content_op(state, uuid, root, &[(&entry, folder)], label).await
+}
+
 fn move_destination(source: &FsPath, dest: &FsPath) -> Result<Option<PathBuf>, Error> {
     if source == dest {
         return Ok(None);
@@ -491,6 +507,119 @@ fn fs_target(path: PathBuf, is_dir: bool) -> FSTarget {
     }
 }
 
+/// Which of an instance's files the Files API changes are content (`images::scope`), as
+/// the server's layout maps them: a change there becomes part of the instance's next
+/// content image. Read once per request.
+struct ContentScope {
+    /// The instance folder as the handler resolved it (see [`real_root`]).
+    root: PathBuf,
+    /// `None` when the layout can't be read: then everything counts as content, since a
+    /// record that finds nothing changed writes no image.
+    layout: Option<lodestone_image::DiskLayout>,
+}
+
+impl ContentScope {
+    /// The scope of the instance `uuid`, whose folder the handler resolved as `root`.
+    /// `None` when no images are kept for it (a Docker container, an id the store can't
+    /// name) or it is gone.
+    async fn of(state: &AppState, uuid: &InstanceUuid, root: &FsPath) -> Option<ContentScope> {
+        if uuid.as_ref().starts_with("DOCKER-") || !ImageService::accepts(uuid) {
+            return None;
+        }
+        let ctx = crate::images::context_of(state, uuid).await?;
+        let layout = tokio::task::spawn_blocking(move || {
+            crate::images::layout::server_layout(&ctx.root, &ctx.level_name, &ctx.flavour)
+        })
+        .await
+        .ok()
+        .and_then(|layout| layout.ok())
+        .map(|(layout, _)| layout);
+        Some(ContentScope {
+            root: root.to_path_buf(),
+            layout,
+        })
+    }
+
+    /// Whether `path` (in the instance folder; with `is_dir`, a folder) is content or a
+    /// folder that can hold content. The instance folder itself can.
+    fn covers(&self, path: &FsPath, is_dir: bool) -> bool {
+        let Ok(inside) = path.strip_prefix(&self.root) else {
+            return false;
+        };
+        let Some(disk) = disk_path(inside) else {
+            // a name no image can hold, judged by the snapshot the same way: count it
+            return true;
+        };
+        if disk.is_empty() {
+            return true;
+        }
+        let Some(layout) = &self.layout else {
+            return true;
+        };
+        let canonical = layout.from_disk(&disk).ok().flatten();
+        crate::images::scope::content_filter(&lodestone_image::store::snapshot::Candidate {
+            disk: &disk,
+            path: canonical.as_ref(),
+            is_dir,
+        })
+    }
+
+    /// Starts a content operation labelled `label` when any of `paths` (each with whether
+    /// it is a folder) is covered. Begin it after every permission check passed and right
+    /// before the change; dropping it without succeeding records nothing.
+    async fn begin(
+        &self,
+        state: &AppState,
+        uuid: &InstanceUuid,
+        paths: &[(&FsPath, bool)],
+        label: String,
+    ) -> Option<Operation> {
+        if !paths
+            .iter()
+            .any(|(path, is_dir)| self.covers(path, *is_dir))
+        {
+            return None;
+        }
+        Some(state.images.begin(uuid, OpKind::Files, label).await)
+    }
+}
+
+/// `path` (relative to the instance folder) as a `/`-separated disk path, `None` when a
+/// part isn't UTF-8 or isn't a plain name.
+fn disk_path(path: &FsPath) -> Option<String> {
+    let mut parts = Vec::new();
+    for part in path.components() {
+        match part {
+            std::path::Component::Normal(name) => parts.push(name.to_str()?),
+            std::path::Component::CurDir => {}
+            _ => return None,
+        }
+    }
+    Some(parts.join("/"))
+}
+
+/// Starts the content operation of a Files API change of `paths` in the instance `uuid`
+/// (whose folder the handler resolved as `root`) when any of them is content: see
+/// [`ContentScope`].
+async fn content_op(
+    state: &AppState,
+    uuid: &InstanceUuid,
+    root: &FsPath,
+    paths: &[(&FsPath, bool)],
+    label: String,
+) -> Option<Operation> {
+    ContentScope::of(state, uuid, root)
+        .await?
+        .begin(state, uuid, paths, label)
+        .await
+}
+
+/// How a label names `path`, a path in the instance folder `root`.
+fn label_path(root: &FsPath, path: &FsPath) -> String {
+    let inside = path.strip_prefix(root).unwrap_or(path);
+    disk_path(inside).unwrap_or_else(|| inside.to_string_lossy().replace('\\', "/"))
+}
+
 async fn list_instance_files(
     axum::extract::State(state): axum::extract::State<AppState>,
     Path((uuid, base64_relative_path)): Path<(InstanceUuid, String)>,
@@ -628,6 +757,14 @@ async fn write_instance_file(
     if is_instance_code_path(&root, &path, false) {
         require_code_write(&state, &requester)?;
     }
+    let op = content_op(
+        &state,
+        &uuid,
+        &root,
+        &[(&path, false)],
+        format!("Edited {}", label_path(&root, &path)),
+    )
+    .await;
     let mut file = tokio::fs::File::create(&path)
         .await
         .context("Failed to create file")?;
@@ -635,6 +772,9 @@ async fn write_instance_file(
         .await
         .context("Failed to write to file")?;
     file.flush().await.context("Failed to write to file")?;
+    if let Some(op) = op {
+        op.succeed();
+    }
 
     let caused_by = requester.caused_by();
     state.event_broadcaster.send(new_fs_event(
@@ -666,8 +806,19 @@ async fn make_instance_directory(
     if is_instance_code_path(&root, &path, true) {
         require_code_write(&state, &requester)?;
     }
+    let op = content_op(
+        &state,
+        &uuid,
+        &root,
+        &[(&path, true)],
+        format!("Created {}", label_path(&root, &path)),
+    )
+    .await;
     // create the file if it doesn't exist
     crate::util::fs::create_dir_all(&path).await?;
+    if let Some(op) = op {
+        op.succeed();
+    }
 
     let caused_by = requester.caused_by();
     state.event_broadcaster.send(new_fs_event(
@@ -887,10 +1038,38 @@ async fn copy_instance_files(
         });
     }
 
+    let mut landing = Vec::new();
+    for source in &paths_source {
+        let is_dir = tokio::fs::symlink_metadata(source)
+            .await
+            .map(|m| m.is_dir())
+            .unwrap_or(false);
+        if let Some(name) = source.file_name() {
+            landing.push((path_dest.join(name), is_dir));
+        }
+    }
+    let label = match paths_source.as_slice() {
+        [source] => format!(
+            "Copied {} to {}",
+            label_path(&root, source),
+            label_path(&root, &path_dest)
+        ),
+        sources => format!(
+            "Copied {} files to {}",
+            sources.len(),
+            label_path(&root, &path_dest)
+        ),
+    };
+    let landing: Vec<(&FsPath, bool)> = landing
+        .iter()
+        .map(|(path, is_dir)| (path.as_path(), *is_dir))
+        .collect();
+    let op = content_op(&state, &uuid, &root, &landing, label).await;
+
     let event_broadcaster = state.event_broadcaster.clone();
     let caused_by = requester.caused_by();
 
-    tokio::task::spawn_blocking(move || {
+    let copy = tokio::task::spawn_blocking(move || {
         let mut first = true;
         let mut threshold = 500000_u64;
         let mut last_progression = 0_u64;
@@ -966,9 +1145,19 @@ async fn copy_instance_files(
                         message: "File(s) copied successfully".to_string(),
                     }),
                 ));
+                return true;
             }
         }
+        false
     });
+    // the job's operation ends with it, recorded only when the copy succeeded
+    if let Some(op) = op {
+        tokio::spawn(async move {
+            if let Ok(true) = copy.await {
+                op.succeed();
+            }
+        });
+    }
     Ok(Json(()))
 }
 
@@ -1051,6 +1240,18 @@ async fn move_instance_file(
         return Ok(Json(()));
     };
 
+    let op = content_op(
+        &state,
+        &uuid,
+        &root,
+        &[(&path_source, target_is_dir), (&path_dest, target_is_dir)],
+        format!(
+            "Moved {} to {}",
+            label_path(&root, &path_source),
+            label_path(&root, &path_dest)
+        ),
+    )
+    .await;
     tokio::fs::rename(&path_source, &path_dest)
         .await
         .context(format!(
@@ -1058,6 +1259,9 @@ async fn move_instance_file(
             relative_path_source.display(),
             relative_path_dest.display()
         ))?;
+    if let Some(op) = op {
+        op.succeed();
+    }
 
     let caused_by = requester.caused_by();
 
@@ -1089,6 +1293,7 @@ async fn remove_instance_file(
     })?;
     let root = real_root(instance.path().await).await;
     drop(instance);
+    let op = delete_op(&state, &uuid, &root, &relative_path, false).await;
     let (path, _) = delete_entry(
         &root,
         &relative_path,
@@ -1096,6 +1301,9 @@ async fn remove_instance_file(
         can_write_protected(&requester),
     )
     .await?;
+    if let Some(op) = op {
+        op.succeed();
+    }
 
     let caused_by = requester.caused_by();
     state.event_broadcaster.send(new_fs_event(
@@ -1123,8 +1331,12 @@ async fn remove_instance_dir(
     })?;
     let root = real_root(instance.path().await).await;
     drop(instance);
+    let op = delete_op(&state, &uuid, &root, &relative_path, true).await;
     let (path, is_dir) =
         delete_entry(&root, &relative_path, true, can_write_protected(&requester)).await?;
+    if let Some(op) = op {
+        op.succeed();
+    }
 
     let caused_by = requester.caused_by();
     state.event_broadcaster.send(new_fs_event(
@@ -1161,8 +1373,19 @@ async fn new_instance_file(
         require_code_write(&state, &requester)?;
     }
 
+    let op = content_op(
+        &state,
+        &uuid,
+        &root,
+        &[(&path, false)],
+        format!("Created {}", label_path(&root, &path)),
+    )
+    .await;
     // never replaces an existing file, see `create_new`
     crate::util::fs::create_new(&path).await?;
+    if let Some(op) = op {
+        op.succeed();
+    }
 
     let caused_by = requester.caused_by();
     state.event_broadcaster.send(new_fs_event(
@@ -1273,6 +1496,9 @@ async fn upload_instance_file(
     let threshold = (total.unwrap_or(500000.0) / 100.0).max(1.0);
 
     let mut created_files = Vec::new();
+    // begun at the first file that is content, so an upload elsewhere holds up no record
+    let scope = ContentScope::of(&state, &uuid, &root).await;
+    let mut op: Option<Operation> = None;
     let result: Result<(), Error> = async {
         while let Some(mut field) = multipart.next_field().await.map_err(multipart_error)? {
             let name = upload_file_name(&field)?;
@@ -1283,6 +1509,13 @@ async fn upload_instance_file(
             }
             if is_instance_code_path(&root, &path, false) {
                 require_code_write(&state, &requester)?;
+            }
+            if op.is_none() {
+                if let Some(scope) = &scope {
+                    op = scope
+                        .begin(&state, &uuid, &[(&path, false)], String::new())
+                        .await;
+                }
             }
 
             let mut file = create_upload_file(&path).await?;
@@ -1343,6 +1576,17 @@ async fn upload_instance_file(
         },
     )
     .await;
+    // a failed upload deleted what it created: nothing to record
+    if let (Some(op), Ok(())) = (op, &result) {
+        op.succeed_as(match created_files.as_slice() {
+            [file] => format!("Uploaded {}", label_path(&root, file)),
+            files => format!(
+                "Uploaded {} files to {}",
+                files.len(),
+                label_path(&root, &path_to_dir)
+            ),
+        });
+    }
     result.map(Json)
 }
 
@@ -1471,6 +1715,18 @@ pub async fn unzip_instance_file(
     {
         require_code_write(&state, &requester)?;
     }
+    let landing: Vec<(&FsPath, bool)> = destinations
+        .iter()
+        .map(|dir| (dir.as_path(), true))
+        .collect();
+    let op = content_op(
+        &state,
+        &uuid,
+        &root,
+        &landing,
+        format!("Unzipped {}", label_path(&root, &path_to_zip_file)),
+    )
+    .await;
     let check = code_entry_check(
         root,
         destinations,
@@ -1513,6 +1769,9 @@ pub async fn unzip_instance_file(
                     message: format!("Unzipped {relative_path}"),
                 }),
             ));
+            if let Some(op) = op {
+                op.succeed();
+            }
         }
     });
 
@@ -1675,6 +1934,67 @@ pub fn get_instance_fs_routes(state: AppState) -> Router {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_content_scope_follows_the_layout() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_path_buf();
+        for path in ["world/level.dat", "world_nether/DIM-1/r.mca", "mods/a.jar"] {
+            let path = root.join(path);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, b"x").unwrap();
+        }
+        let paper = crate::implementations::minecraft::Flavour::Paper {
+            build_version: None,
+        };
+        let (layout, _) = crate::images::layout::server_layout(&root, "world", &paper).unwrap();
+        let scope = ContentScope {
+            root: root.clone(),
+            layout: Some(layout),
+        };
+        let covers = |path: &str, is_dir: bool| scope.covers(&root.join(path), is_dir);
+        for (path, is_dir) in [
+            ("", true),
+            ("mods", true),
+            ("mods/b.jar", false),
+            ("config/x.toml", false),
+            ("plugins/Essentials/config.yml", false),
+            ("plugins", true),
+            ("server.properties", false),
+            ("paper.jar", false),
+        ] {
+            assert!(covers(path, is_dir), "{path}");
+        }
+        for (path, is_dir) in [
+            ("world", true),
+            ("world/region/r.0.0.mca", false),
+            ("world_nether", true),
+            ("world_nether/DIM-1/r.mca", false),
+            ("world_the_end/DIM1/r.mca", false),
+            ("logs/latest.log", false),
+            ("plugins/Essentials/userdata/a.yml", false),
+            (".lodestone_config", false),
+            ("mods/.lodestone_client_mods.json", false),
+            ("notes.txt", false),
+        ] {
+            assert!(!covers(path, is_dir), "{path}");
+        }
+        // outside the instance: never
+        assert!(!scope.covers(FsPath::new("/elsewhere/mods/a.jar"), false));
+        // a layout that couldn't be read: everything counts, a record that finds nothing
+        // changed writes no image
+        let unknown = ContentScope {
+            root: root.clone(),
+            layout: None,
+        };
+        assert!(unknown.covers(&root.join("world/region/r.0.0.mca"), false));
+        assert_eq!(disk_path(FsPath::new("a/./b")).as_deref(), Some("a/b"));
+        assert_eq!(disk_path(FsPath::new("a/../b")), None);
+        assert_eq!(
+            label_path(&root, &root.join("config").join("x.toml")),
+            "config/x.toml"
+        );
+    }
 
     fn file(name: &str) -> bool {
         is_protected(FsPath::new(name), false)

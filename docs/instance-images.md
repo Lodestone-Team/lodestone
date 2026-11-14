@@ -996,3 +996,52 @@ of M2 adds its own subsection.
 - **Deleting a server** deletes `images/<uuid>/` (`ImageService::delete_instance`); its
   objects go at the next collection.
 
+
+#### Content: recording on Lodestone's actions
+
+- **Which actions record.** Each of these begins an operation (`ImageService::begin`) after its
+  permission checks passed and right before it changes files, and succeeds only once the change
+  did; a failed or refused request records nothing.
+  - Mods tab (`handlers/instance_mods.rs`), inside the mods lock: install ("Added <title>", or
+    "Updated <title>" when it took an older version's place), upload ("Uploaded <file>" or
+    "Uploaded N mods"/"N plugins"), enable and disable ("Enabled x.jar", "Disabled x.jar"),
+    remove ("Removed x.jar"), and the "For players" mark ("Marked x.jar for players", "Marked
+    x.jar as not for players"). The mark changes no content file, only the jar's client `env`,
+    so it makes a new image too.
+  - Files API (`handlers/instance_fs.rs`): write ("Edited <path>"), mkdir and new ("Created
+    <path>"), rm and rmdir ("Deleted <path>"), move ("Moved <a> to <b>", when either end is
+    content), and the jobs: copy ("Copied <a> to <dest>", "Copied N files to <dest>"), upload
+    ("Uploaded <path>", "Uploaded N files to <dir>") and unzip ("Unzipped <archive>"), each
+    succeeding when its job ends with success. A request records only when one of its paths,
+    mapped through the server's layout, is content or a folder that can hold content (the
+    server folder itself can: an unzip there may write anything); when the layout can't be read,
+    everything counts, since a record that finds nothing changed writes no image. Reads,
+    downloads and zipping never record. Docker instances never do.
+  - Settings: a `server.properties` setting ("Changed <setting>") and the resource pack
+    ("Changed the resource pack"). The command line, JVM and Java settings are the core's own and
+    never recorded. A Minecraft version change records at once after it succeeded ("Changed
+    Minecraft version to X"), outside the operation: `change_version` holds the server's version
+    lock, which a start takes before the content gate.
+  - A new server (created, or imported): "Created <name>" once it is registered, unless its
+    setup recorded an image already (a modpack's install).
+- **Merged labels stay each operation's.** What succeeds within the merge window is one image
+  labelled with each operation's label in order ("Edited a; Edited b"), cut at the label limit,
+  rather than a count: the history then says what happened.
+- **Returning to earlier content.** An image's id is its contents, so an action that brings the
+  content back to an earlier image (enabling a jar again) saves that image's manifest again under
+  the new label and parent rather than keeping two copies.
+- **Starts and stops** (`implementations/minecraft/server.rs`). Every start (a user's, auto start,
+  a restart, the restart after a crash) runs the check before it once the version lock is held
+  and before the state leaves Stopped, then notes the start (`server_started`). The check first
+  waits up to 10 s for the content work of the server's last stop; it does nothing for a server
+  that is running (a start refused right after); and when the last run was never taken in
+  (`running_since` still set: the core stopped while the server ran and the start came before the
+  startup sweep), it takes that run in as the sweep would (`after_restart`, in its own task,
+  waited for up to 10 s) instead of comparing, which would record what the run wrote as "Changed
+  outside Lodestone". Every change of state into Stopped or Error from another state (a stop, a
+  crash, a kill, a start that never launched) counts the stop's content work as pending before
+  the state's event is sent, then runs `server_stopped` in the background; the state machine never
+  waits for it.
+- **What Modrinth said** about installed mods is noted for `env` and sources from what the Mods tab
+  fetched anyway: an install notes its version's download URLs and the project's sides, a list
+  the sides of every matched mod.

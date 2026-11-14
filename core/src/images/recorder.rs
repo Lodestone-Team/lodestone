@@ -176,6 +176,13 @@ impl Operation {
         }
     }
 
+    /// [`Self::succeed`] with a label known only once the operation is done (an install
+    /// that turned out to replace an older version is "Updated", not "Added").
+    pub fn succeed_as(mut self, label: impl Into<String>) {
+        self.label = label.into();
+        self.succeed();
+    }
+
     /// The operation succeeded: records now (with anything queued) and returns the image.
     /// For callers that need the id, such as the modpack history.
     pub async fn succeed_and_record(
