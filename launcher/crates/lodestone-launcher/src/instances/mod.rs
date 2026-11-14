@@ -306,6 +306,10 @@ struct Run {
 /// whether the version file was found, and the reload generation it was looked at.
 type RosettaNote = (Option<Rosetta>, bool, u64);
 
+/// What a version file says about Java: the major version it names, and the Java it
+/// runs in without an override ([`install::default_java`]).
+type VersionJava = (u32, install::DefaultJava);
+
 /// A prepared game that starts once the player agrees to run it under Rosetta 2.
 struct PendingStart {
     command: LaunchCommand,
@@ -503,11 +507,11 @@ pub struct Instances {
     /// The instances linked to a server, as the Lodestone Host page last read their
     /// links: the sidebar groups them under Servers (see [`Self::set_linked`]).
     linked: HashSet<String>,
-    /// [`Self::required_java`]'s answers by game version: the instance Settings tab
-    /// asks on every frame, and each answer reads and parses a version file. An
-    /// installed version's answer never changes; a missing one is asked again after
-    /// a reload (the reload generation it was found at).
-    required_java: std::cell::RefCell<HashMap<String, (Option<u32>, u64)>>,
+    /// [`Self::required_java`]'s and [`Self::default_java`]'s answers by game version:
+    /// the instance Settings tab asks on every frame, and each answer reads and parses
+    /// a version file. An installed version's answer never changes; a missing one is
+    /// asked again after a reload (the reload generation it was found at).
+    required_java: std::cell::RefCell<HashMap<String, (Option<VersionJava>, u64)>>,
     /// [`Self::rosetta_note`]'s answers from version files, by game version and Java
     /// override: the header asks on every frame. With whether the version file was
     /// found, and the reload generation it was looked for at, as for `required_java`.
@@ -1407,6 +1411,17 @@ impl Instances {
 
     /// The Java major version `game_version` needs, if its version file is installed.
     pub fn required_java(&self, game_version: &str) -> Option<u32> {
+        self.version_java(game_version).map(|(major, _)| major)
+    }
+
+    /// The Java `game_version` runs in when the instance chooses none, if its version
+    /// file is installed: on an Apple silicon Mac it may not be the one the version
+    /// names ([`install::default_java`]).
+    pub fn default_java(&self, game_version: &str) -> Option<install::DefaultJava> {
+        self.version_java(game_version).map(|(_, java)| java)
+    }
+
+    fn version_java(&self, game_version: &str) -> Option<VersionJava> {
         if game_version.is_empty()
             || game_version.contains(['/', '\\'])
             || game_version.starts_with('.')
@@ -1426,7 +1441,12 @@ impl Instances {
         let java = std::fs::read(path).ok().and_then(|bytes| {
             launcher_core::game::version::VersionJson::parse(&bytes)
                 .ok()
-                .map(|version| version.java_major())
+                .map(|version| {
+                    (
+                        version.java_major(),
+                        install::default_java(&version, &self.machine),
+                    )
+                })
         });
         self.required_java
             .borrow_mut()
@@ -2146,13 +2166,19 @@ impl Instances {
         );
     }
 
+    /// Whether this is an Apple silicon Mac, where some versions run in another Java
+    /// than the one they name, or under Rosetta 2.
+    pub fn on_apple_silicon(&self) -> bool {
+        self.machine.os == Os::MacOs && self.machine.arch == Arch::Arm64
+    }
+
     /// Whether, and why, the instance's game runs under Rosetta 2 on this Mac, for its
     /// header: what its last preparation for this version found, or before that, what
     /// its installed version file and its Java say ([`install::rosetta_for`]). `None`
     /// on other machines, and when nothing is known yet (the version isn't installed:
     /// the player is asked before the first game anyway).
     pub fn rosetta_note(&self, instance: &Instance) -> Option<Rosetta> {
-        if self.machine.os != Os::MacOs || self.machine.arch != Arch::Arm64 {
+        if !self.on_apple_silicon() {
             return None;
         }
         if let Some(prepared) = instance.prepared_rosetta() {

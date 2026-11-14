@@ -1407,7 +1407,7 @@
       mgroup(is("Group"), tx("Automatic sidebar groups."), L(is, "AutoGroupServers AutoGroupFabric AutoGroupForge AutoGroupNeoForge AutoGroupQuilt AutoGroupVanilla AutoGroupImported", (el) => tl(el))),
       mgroup(is("GameAndLoader"), null, [tl(is("LoaderInstallsNextStart", { loader: "Fabric 0.16.9" })), tl(isp("LoaderNextStartModsOff", { loader: "Fabric 0.16.9", count: 1 })), tl(is("SavedNextStart"), "ok")]),
       mgroup(is("Modpack"), null, [tl(is("FromMrpack")), prog(is("DownloadingNewVersion"), 30), tl(is("StopGameFirst"), "warn"), te(null, is("CouldntPrepareUpdate", { error: "offline" }))]),
-      mgroup(is("JavaAndMemory"), null, [tl(is("Checking")), tl(is("MojangJava")), tl(is("UseThisJava"))]),
+      mgroup(is("JavaAndMemory"), null, [tl(is("Checking")), tl(is("MojangJava")), tl(is("AzulZulu8")), tl(is("MojangIntelJavaVersion", { major: 8 })), tl(is("JavaTheVersionNeeds")), tl(is("UseThisJava"))]),
       mgroup(is("Maintenance"), null, [btn(is("Exporting"), { disabled: true }), btn(is("Duplicating"), { disabled: true })]),
       mgroup(is("SharedGameSettings"), tx("Tags and buttons on a shared value."), [h("div", badge(is("NotShared")), " ", badge(is("NotSharedYet")), " ", badge(is("NotInOptions")), " ", badge(is("Shared")), " ", badge(is("ThisInstance"), "blue")),
         h("div", btn(is("ShareAll"), { sm: true }), " ", btn(is("OverrideAll"), { sm: true }), " ", btn(is("Override"), { sm: true }), " ", btn(is("UseShared", { value: "90" }), { sm: true }), " ", gbtn(is("Hide"))),

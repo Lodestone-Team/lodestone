@@ -140,6 +140,9 @@ pub fn text(message: M) -> &'static str {
         }
         M::MojangJavaVersion => "Mojang 提供的 Java {major}",
         M::MojangJava => "Mojang 提供的 Java",
+        M::AzulZulu8 => "適用於 Apple 晶片的 Azul Zulu 8",
+        M::MojangIntelJavaVersion => "Mojang 提供的 Intel 版 Java {major}，透過 Rosetta 2 執行",
+        M::JavaTheVersionNeeds => "這個版本所需的 Java",
         M::UseThisJava => "使用此 Java",
         M::Check => "檢查",
         M::JvmArguments => "JVM 參數",

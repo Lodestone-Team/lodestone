@@ -192,13 +192,32 @@ impl LaunchCommand {
     /// The process to spawn.
     pub fn to_command(&self) -> Command {
         let mut command = Command::new(&self.program);
+        command.args(&self.args).current_dir(&self.cwd);
+        if cfg!(target_os = "macos") {
+            for name in inherited_loader_vars(std::env::vars_os().map(|(name, _)| name)) {
+                command.env_remove(name);
+            }
+        }
         command
-            .args(&self.args)
-            .current_dir(&self.cwd)
             .envs(self.env.iter().map(|(key, value)| (key, value)))
             .no_console_window();
         command
     }
+}
+
+/// The macOS dynamic loader's variables (`DYLD_*`) among the launcher's own, which the
+/// game must not inherit. `cargo run` sets `DYLD_FALLBACK_LIBRARY_PATH` to its target
+/// folders, and with it every library JNA can't find by name (oshi asks for `IOKit` on
+/// 1.17 and 1.18) fails with a message that lists each folder. JNA 5.8 and 5.10 then
+/// stop the game with "snprintf() output has been truncated" when the message passes
+/// its buffer. Variables set in the instance's settings still apply: they are set
+/// after these are cleared.
+fn inherited_loader_vars(
+    names: impl Iterator<Item = std::ffi::OsString>,
+) -> Vec<std::ffi::OsString> {
+    names
+        .filter(|name| name.to_str().is_some_and(|name| name.starts_with("DYLD_")))
+        .collect()
 }
 
 impl fmt::Debug for LaunchCommand {
@@ -640,6 +659,36 @@ mod tests {
         );
         assert_eq!(split_args(&text), args);
         assert_eq!(join_args::<&str>(&[]), "");
+    }
+
+    #[test]
+    fn the_game_never_inherits_the_loader_variables() {
+        let names = [
+            "PATH",
+            "DYLD_FALLBACK_LIBRARY_PATH",
+            "DYLD_LIBRARY_PATH",
+            "HOME",
+        ]
+        .map(std::ffi::OsString::from);
+        assert_eq!(
+            inherited_loader_vars(names.into_iter()),
+            ["DYLD_FALLBACK_LIBRARY_PATH", "DYLD_LIBRARY_PATH"]
+        );
+
+        // One the player sets in the instance's settings is still passed.
+        let command = LaunchCommand {
+            program: PathBuf::from("java"),
+            args: Vec::new(),
+            cwd: PathBuf::from("."),
+            env: vec![("DYLD_LIBRARY_PATH".into(), "/opt/lib".into())],
+            secret: Secret::new("token"),
+        }
+        .to_command();
+        let set = command
+            .get_envs()
+            .find(|(name, _)| *name == "DYLD_LIBRARY_PATH")
+            .map(|(_, value)| value);
+        assert_eq!(set, Some(Some(std::ffi::OsStr::new("/opt/lib"))));
     }
 
     #[test]

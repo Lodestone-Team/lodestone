@@ -60,7 +60,7 @@ pub fn text(message: M) -> &'static str {
             "Mojang 没有为此版本需要的部分库制作 Apple 芯片版本，因此它会通过 Rosetta 2 在 Intel 版 Java 中运行。启动会慢一些，之后可以正常游玩。Minecraft 1.14 及更高版本会原生运行。"
         }
         M::RosettaNoticeBodyOverride => {
-            "此实例使用的是在其“设置”中选择的 Intel 版 Java，因此游戏会通过 Rosetta 2 运行。启动会慢一些，之后可以正常游玩。若要原生运行，请选择适用于 Apple 芯片的 Java，或 Mojang 提供的 Java。"
+            "此实例使用的是在其“设置”中选择的 Intel 版 Java，因此游戏会通过 Rosetta 2 运行。启动会慢一些，之后可以正常游玩。若要原生运行，请选择适用于 Apple 芯片的 Java，或改回默认的 Java。"
         }
         M::NoNativeJava8 => {
             "此 Minecraft 版本需要 Java 8，但目前没有适用于 Apple 芯片的 Java 8：Mojang 没有提供，Azul 也没有列出。请稍后再试，或在实例的“设置”中选择一个适用于 Apple 芯片（arm64）的 Java 8。"

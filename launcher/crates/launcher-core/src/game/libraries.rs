@@ -383,7 +383,10 @@ fn lwjgl_3_3_1_module(module: &str) -> Option<&'static Lwjgl331Module> {
 /// the narrator needs the objc bridge and JNA, and on an arm64 Java 8 neither loads
 /// (Mojang's objc bridge 1.1 is built for Java 11, and its 1.0.0 and JNA 4.4.0 are
 /// Intel only), so those versions can't run natively. text2speech 1.11 (1.14 on) logs
-/// the error and carries on without a narrator.
+/// the error and carries on without a narrator, but it can't stand in for 1.10.3: it
+/// replaced `Narrator.say(String)` with `say(String, boolean)`, and 1.13.x calls the
+/// old one whenever the narrator mode changes (Ctrl+B), even with no narrator, which
+/// would stop the game with a `NoSuchMethodError` (checked in 1.13.2's client jar).
 fn crashing_narrator(name: &str) -> bool {
     let Some(version) = name.strip_prefix("com.mojang:text2speech:") else {
         return false;

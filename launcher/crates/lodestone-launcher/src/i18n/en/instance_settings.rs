@@ -165,6 +165,14 @@ crate::i18n::messages! {
         /// The Java Mojang provides for the game, "Mojang's Java 21".
         MojangJavaVersion = "Mojang's Java {major}",
         MojangJava = "Mojang's Java",
+        /// The Java a Java 8 version runs in on an Apple silicon Mac, where Mojang has
+        /// no Java 8.
+        AzulZulu8 = "Azul Zulu 8, made for Apple silicon",
+        /// The Intel Java an old version runs in on an Apple silicon Mac, "Mojang's
+        /// Intel Java 8, through Rosetta 2".
+        MojangIntelJavaVersion = "Mojang's Intel Java {major}, through Rosetta 2",
+        /// The default Java on an Apple silicon Mac before the version is installed.
+        JavaTheVersionNeeds = "The Java this version needs",
         /// The button of the file dialog that picks a java binary.
         UseThisJava = "Use this Java",
         /// Checks the chosen java binary.

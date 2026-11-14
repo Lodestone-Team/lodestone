@@ -76,7 +76,7 @@ crate::i18n::messages! {
         RosettaNoticeBody = "Mojang made no Apple silicon build of some libraries this version needs, so it runs in an Intel Java through Rosetta 2. It takes longer to start, then plays normally. Minecraft 1.14 and later run natively.",
         /// A version that could run natively, with an Intel Java chosen in the
         /// instance's Settings.
-        RosettaNoticeBodyOverride = "This instance uses an Intel Java, chosen in its Settings, so the game runs through Rosetta 2. It takes longer to start, then plays normally. To run it natively, choose a Java made for Apple silicon, or Mojang's Java.",
+        RosettaNoticeBodyOverride = "This instance uses an Intel Java, chosen in its Settings, so the game runs through Rosetta 2. It takes longer to start, then plays normally. To run it natively, choose a Java made for Apple silicon, or go back to the default Java.",
         /// Minecraft 1.14 to 1.16.5 on Apple silicon, when Azul lists no Java 8 for it.
         NoNativeJava8 = "This Minecraft version needs Java 8, and no Java 8 for Apple silicon is available right now: Mojang makes none, and Azul lists none. Try again later, or choose a Java 8 made for Apple silicon (arm64) in the instance's Settings.",
         /// Minecraft 1.13.2 and older on Apple silicon, with a Java chosen in the

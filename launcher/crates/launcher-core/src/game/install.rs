@@ -265,6 +265,42 @@ fn rosetta_reason(
     )
 }
 
+/// The Java a version runs in when its instance chooses none, for the instance's
+/// Settings to name it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DefaultJava {
+    /// Mojang's Java of this major version, built for the machine.
+    Mojang(u32),
+    /// Azul's Zulu 8 for Apple silicon, in place of Mojang's Intel-only Java 8
+    /// ([`zulu`]).
+    Zulu8,
+    /// Mojang's Intel Java of this major version, through Rosetta 2 on an Apple
+    /// silicon Mac ([`Rosetta::Version`]).
+    MojangIntel(u32),
+}
+
+/// The Java `version` runs in on `machine` without a Java override: the one
+/// [`Installer::prepare`] installs. On an Apple silicon Mac, a Java 8 version that runs
+/// natively gets Azul's Zulu 8, 1.17 and 1.18 get Mojang's Java 17, and a version that
+/// needs Intel libraries gets Mojang's Intel Java. Elsewhere, Mojang's Java the version
+/// names.
+pub fn default_java(version: &VersionJson, machine: &Platform) -> DefaultJava {
+    let java = machine.with_arch(libraries::java_arch(version, machine));
+    let (folder, major) = runtime::folder_for(
+        version.runtime_component(),
+        Some(version.java_major()),
+        &java,
+    );
+    let major = major.unwrap_or_else(|| version.java_major());
+    if folder == zulu::COMPONENT {
+        DefaultJava::Zulu8
+    } else if rosetta_reason(version, machine, &JavaChoice::Mojang, java.arch).is_some() {
+        DefaultJava::MojangIntel(major)
+    } else {
+        DefaultJava::Mojang(major)
+    }
+}
+
 /// A version ready to launch.
 #[derive(Clone, Debug)]
 pub struct Prepared {
@@ -1123,9 +1159,6 @@ impl Installer {
     }
 }
 
-/// What the copy of an asset index without the window icons adds to its id:
-/// `1.16-no-window-icons` ([`Installer::hide_window_icons`]).
-///
 /// The JVM argument that turns off Forge's early loading window
 /// ([`forge_early_window_sets_icon`]).
 pub const NO_FORGE_EARLY_WINDOW: &str = "-Dfml.earlyprogresswindow=false";
@@ -1180,6 +1213,9 @@ fn without_forge_early_window(version: &mut VersionJson) {
             .push(Argument::Plain(NO_FORGE_EARLY_WINDOW.to_string()));
     }
 }
+
+/// What the copy of an asset index without the window icons adds to its id:
+/// `1.16-no-window-icons` ([`Installer::hide_window_icons`]).
 pub const WITHOUT_WINDOW_ICONS: &str = "-no-window-icons";
 
 /// Whether an asset index entry is one of the window icons 1.13 to 1.18 set at
@@ -1301,6 +1337,46 @@ mod tests {
             ]
         );
         assert!(without_window_icons(b"not json").is_err());
+    }
+
+    /// Settings name the Java that really runs: on Apple silicon, Zulu 8 for 1.16.5,
+    /// Mojang's Java 17 for 1.17.1 (whose own is Java 16), and Mojang's Intel Java for
+    /// 1.13.2 and 1.12.2. Intel Macs and Windows keep the version's own.
+    #[test]
+    fn the_default_java_is_the_one_that_runs() {
+        let version = |id: &str| {
+            let path = format!("{}/testdata/versions/{id}.json", env!("CARGO_MANIFEST_DIR"));
+            VersionJson::parse(&std::fs::read(path).unwrap()).unwrap()
+        };
+        let apple_silicon = Platform::new(Os::MacOs, Arch::Arm64, "14.0");
+        let intel_mac = Platform::new(Os::MacOs, Arch::X86_64, "14.0");
+        let windows = Platform::new(Os::Windows, Arch::X86_64, "10.0");
+        for (id, on_apple_silicon, elsewhere) in [
+            (
+                "1.12.2",
+                DefaultJava::MojangIntel(8),
+                DefaultJava::Mojang(8),
+            ),
+            (
+                "1.13.2",
+                DefaultJava::MojangIntel(8),
+                DefaultJava::Mojang(8),
+            ),
+            ("1.16.5", DefaultJava::Zulu8, DefaultJava::Mojang(8)),
+            ("1.17.1", DefaultJava::Mojang(17), DefaultJava::Mojang(16)),
+            ("1.18.2", DefaultJava::Mojang(17), DefaultJava::Mojang(17)),
+            ("1.20.1", DefaultJava::Mojang(17), DefaultJava::Mojang(17)),
+            ("1.21.1", DefaultJava::Mojang(21), DefaultJava::Mojang(21)),
+        ] {
+            let json = version(id);
+            assert_eq!(
+                default_java(&json, &apple_silicon),
+                on_apple_silicon,
+                "{id}"
+            );
+            assert_eq!(default_java(&json, &intel_mac), elsewhere, "{id}");
+            assert_eq!(default_java(&json, &windows), elsewhere, "{id}");
+        }
     }
 
     /// Forge's early window sets an icon on macOS in 1.14 and 1.15, and in 1.16.x

@@ -72,7 +72,7 @@ pub fn text(message: M) -> &'static str {
             "Mojang n’a pas fait de version Apple Silicon de certaines bibliothèques dont cette version a besoin\u{a0}: elle s’exécute donc dans un Java Intel grâce à Rosetta\u{a0}2. Elle met plus de temps à démarrer, puis fonctionne normalement. Minecraft 1.14 et les versions suivantes s’exécutent nativement."
         }
         M::RosettaNoticeBodyOverride => {
-            "Cette instance utilise un Java Intel, choisi dans ses Paramètres\u{a0}: le jeu s’exécute donc grâce à Rosetta\u{a0}2. Il met plus de temps à démarrer, puis fonctionne normalement. Pour l’exécuter nativement, choisissez un Java fait pour Apple Silicon, ou le Java de Mojang."
+            "Cette instance utilise un Java Intel, choisi dans ses Paramètres\u{a0}: le jeu s’exécute donc grâce à Rosetta\u{a0}2. Il met plus de temps à démarrer, puis fonctionne normalement. Pour l’exécuter nativement, choisissez un Java fait pour Apple Silicon, ou revenez au Java par défaut."
         }
         M::NoNativeJava8 => {
             "Cette version de Minecraft a besoin de Java\u{a0}8, et aucun Java\u{a0}8 pour Apple Silicon n’est disponible pour le moment\u{a0}: Mojang n’en fait pas, et Azul n’en propose aucun. Réessayez plus tard, ou choisissez un Java\u{a0}8 fait pour Apple Silicon (arm64) dans les Paramètres de l’instance."
