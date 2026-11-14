@@ -210,7 +210,10 @@ jobs:
         pattern: launcher-*
         path: ${{ runner.temp }}/builds
 
+    # shell: bash runs it with pipefail, so a refused or failed upload fails the
+    # step through the tee (and the builds below are kept for a re-run).
     - name: Upload to the draft
+      shell: bash
       env:
         GH_TOKEN: ${{ github.token }}
         TAG: ${{ needs.draft.outputs.tag }}
@@ -246,7 +249,10 @@ jobs:
       with:
         persist-credentials: false
 
+    # shell: bash runs it with pipefail, so a refused copy fails the step through
+    # the tee instead of showing green.
     - name: Copy the beta's files to the draft
+      shell: bash
       env:
         GH_TOKEN: ${{ github.token }}
         TAG: ${{ needs.draft.outputs.tag }}
