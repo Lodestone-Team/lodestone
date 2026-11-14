@@ -72,7 +72,7 @@ impl ClientEvent {
 }
 
 /// A snowflake: a string of digits, or a number from an older core.
-fn snowflake<'de, D: serde::Deserializer<'de>>(de: D) -> Result<i64, D::Error> {
+pub(super) fn snowflake<'de, D: serde::Deserializer<'de>>(de: D) -> Result<i64, D::Error> {
     match Value::deserialize(de)? {
         Value::String(text) => text.parse().map_err(serde::de::Error::custom),
         Value::Number(number) => number
@@ -138,6 +138,12 @@ pub enum InstanceEventInner {
     PlayerMessage {
         player: String,
         player_message: String,
+    },
+    /// A newer version of the modpack the server was made from is on Modrinth.
+    ModpackUpdateAvailable {
+        modpack: String,
+        version_id: String,
+        version_number: String,
     },
     #[serde(other)]
     Unknown,
@@ -228,6 +234,14 @@ pub enum ProgressionStartValue {
     InstanceDelete {
         instance_uuid: String,
     },
+    /// A backup of the server started (`super::backups`).
+    Backup {
+        instance_uuid: String,
+    },
+    /// Restoring a backup over the server started.
+    Restore {
+        instance_uuid: String,
+    },
     #[serde(other)]
     Unknown,
 }
@@ -243,6 +257,25 @@ pub enum ProgressionEndValue {
     FsOperationCompleted {
         instance_uuid: String,
         success: bool,
+        message: String,
+    },
+    /// A backup ended: the backup it made (or, when nothing changed, the newest one),
+    /// and the core's message for people.
+    BackupCompleted {
+        instance_uuid: String,
+        #[serde(default)]
+        backup_id: Option<String>,
+        success: bool,
+        #[serde(default)]
+        message: String,
+    },
+    /// A restore ended: the backup restored.
+    RestoreCompleted {
+        instance_uuid: String,
+        #[serde(default)]
+        backup_id: Option<String>,
+        success: bool,
+        #[serde(default)]
         message: String,
     },
     #[serde(other)]
@@ -336,6 +369,65 @@ mod tests {
         )
         .unwrap();
         assert_eq!(event.event_inner, EventInner::Unknown);
+    }
+
+    #[test]
+    fn reads_backup_progressions() {
+        let event = parse(
+            r#"{"event_inner":{"type":"ProgressionEvent","event_id":"7380000000000000001",
+                "progression_event_inner":{"type":"ProgressionStart","progression_name":"Backing up SMP",
+                "total":100,"inner":{"type":"Backup","instance_uuid":"i1"}}},
+                "details":"","snowflake":"7380000000000000002","level":"Info","caused_by":{"type":"System"}}"#,
+        )
+        .unwrap();
+        let EventInner::ProgressionEvent(progression) = &event.event_inner else {
+            panic!("a progression");
+        };
+        assert_eq!(progression.event_id, 7_380_000_000_000_000_001);
+        assert!(matches!(
+            &progression.progression_event_inner,
+            ProgressionEventInner::ProgressionStart {
+                inner: Some(ProgressionStartValue::Backup { instance_uuid }),
+                ..
+            } if instance_uuid == "i1"
+        ));
+        let event = parse(
+            r#"{"event_inner":{"type":"ProgressionEvent","event_id":"5",
+                "progression_event_inner":{"type":"ProgressionEnd","success":true,"message":"Backup done",
+                "inner":{"type":"RestoreCompleted","instance_uuid":"i1","backup_id":"20261112-101500-ab12",
+                "success":true,"message":"Restored"}}},
+                "details":"","snowflake":"6","level":"Info","caused_by":{"type":"System"}}"#,
+        )
+        .unwrap();
+        let EventInner::ProgressionEvent(progression) = &event.event_inner else {
+            panic!("a progression");
+        };
+        assert_eq!(
+            progression.progression_event_inner,
+            ProgressionEventInner::ProgressionEnd {
+                success: true,
+                message: Some("Backup done".into()),
+                inner: Some(ProgressionEndValue::RestoreCompleted {
+                    instance_uuid: "i1".into(),
+                    backup_id: Some("20261112-101500-ab12".into()),
+                    success: true,
+                    message: "Restored".into(),
+                }),
+            }
+        );
+        // a backup that failed before it had an id
+        let end: ProgressionEndValue = serde_json::from_str(
+            r#"{"type":"BackupCompleted","instance_uuid":"i1","backup_id":null,"success":false,"message":"Not enough free disk space"}"#,
+        )
+        .unwrap();
+        assert!(matches!(
+            end,
+            ProgressionEndValue::BackupCompleted {
+                backup_id: None,
+                success: false,
+                ..
+            }
+        ));
     }
 
     /// An older core still sends macro events, and events a macro caused: they read as

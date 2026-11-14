@@ -386,7 +386,7 @@ pub fn export(call: Call, cx: &mut App) -> Reply {
 }
 
 /// `snapshots.import`: what a `.lodesnap` file holds (`preview`), or a new instance
-/// from it. One with mods needs confirm.
+/// from it. One with mods, or with launch settings and the settings part, needs confirm.
 pub fn import(call: Call, cx: &mut App) -> Reply {
     let path = tri!(path_param(&call));
     // Reads the zip's directory and manifest only; the files are checked as they unpack.
@@ -395,6 +395,8 @@ pub fn import(call: Call, cx: &mut App) -> Reply {
     preview["instance_name"] = json!(snapshot.instance.name);
     preview["loader"] = json!(snapshot.instance.loader);
     preview["mods"] = json!(snapshot.mods());
+    // Applied only with the settings part: its own Java, arguments, environment, memory.
+    preview["launch_settings"] = json!(snapshot.sets_launch_settings());
     if call.params.get("preview").and_then(Value::as_bool) == Some(true) {
         return ready(Ok(preview));
     }
@@ -404,11 +406,29 @@ pub fn import(call: Call, cx: &mut App) -> Reply {
     } else {
         Vec::new()
     };
+    // The sender's launch settings come only with "settings", and can run code too.
+    let launch_settings =
+        selection.categories.contains(&Category::Settings) && snapshot.sets_launch_settings();
+    // One confirmation naming everything that runs code: "confirm" is a single flag, so
+    // asking twice would let a --yes given for the mods pass the settings unheard.
+    let mut risks = Vec::new();
     if !mods.is_empty() {
-        tri!(call.confirm(format!(
-            "makes an instance with {} mods ({}): programs that run when the game starts. Only use snapshots from people the user trusts",
+        risks.push(format!(
+            "{} mods ({}): programs that run when the game starts",
             mods.len(),
             mods.join(", ")
+        ));
+    }
+    if launch_settings {
+        risks.push(
+            "the snapshot's launch settings (its own Java, Java or game arguments, environment variables or memory), which can run programs when the game starts; leaving out the settings part leaves them out"
+                .to_string(),
+        );
+    }
+    if !risks.is_empty() {
+        tri!(call.confirm(format!(
+            "makes an instance with {}. Only use snapshots from people the user trusts",
+            risks.join("; and ")
         )));
     }
     let instances = call.control.instances.read(cx);
@@ -445,11 +465,17 @@ pub fn delete(call: Call, cx: &mut App) -> Reply {
         snapshot.name, instance.name
     )));
     launcher_core::trace::emit("snapshot.delete", || json!({ "snapshot": snapshot.id }));
-    let freed = tri!(
-        store
-            .delete(&instance.id, &snapshot.id)
-            .map_err(snapshot_error)
-    );
-    refresh(&call.control, &instance.id, cx);
-    ready(Ok(json!({ "deleted": snapshot.id, "freed_bytes": freed })))
+    // In the background: freeing the files waits for snapshot jobs of other instances
+    // that are storing files, which can take minutes.
+    let deleting = cx.background_spawn({
+        let instance = instance.id.clone();
+        let id = snapshot.id.clone();
+        async move { store.delete(&instance, &id) }
+    });
+    let control = call.control.clone();
+    cx.spawn(async move |cx| {
+        let freed = deleting.await.map_err(snapshot_error)?;
+        cx.update(|cx| refresh(&control, &instance.id, cx));
+        Ok(json!({ "deleted": snapshot.id, "freed_bytes": freed }))
+    })
 }

@@ -23,7 +23,7 @@ be built in parallel with little file overlap. Tick items (`[x]`) as you build t
   builds: `~/.lodestone-host-dev`). `supervisor.rs` waits until `/info` answers,
   restarts a core that exits (giving up after 4 quick exits, showing the end of its
   log), and on Quit closes the core's stdin: the core stops its servers and exits
-  (killed after 20 s). If the Host dies, the system closes the pipe and the core stops
+  (killed after 60 s, longer than the core's 45 s for its servers). If the Host dies, the system closes the pipe and the core stops
   too. The core's output goes to `<host folder>/logs/core.log`.
 - **The Host signs in as the owner without a password**, through the core's local
   claim (`core/src/local_claim.rs`), with `"session": true`: the Host proves it can
@@ -667,6 +667,21 @@ Conventions in the code that every area relies on:
   version_id} | {type:'upload', upload_id}, name, port, description, min_ram, max_ram, auto_start,
   restart_on_crash}` → `InstanceUuid`; progress via progression events.
 
+### 2.4b Import an existing server (Host only)
+**Package: A.**
+
+- [x] Not in the dashboard.
+  - *Host:* the "Existing server" card (`pages/create_instance/import.rs`): choose the
+    server's folder on this computer, which the core reads
+    (`POST /instance/import/inspect`: the Minecraft version, the server software, the
+    port, the size), then the settings (software, version, name, port, RAM) and
+    **Import Server** (`POST /instance/import`). The core makes the server as any
+    other, with its own Java and server software, and copies the folder into it; the
+    folder itself is never changed. Lodestone's own files, the old server's jars,
+    `libraries`, `versions` and caches are left out, as are symbolic links. Purpur,
+    Spigot and the like come in as Paper. Both routes need `CreateInstance` and
+    `ReadGlobalFile` (`core/src/handlers/instance_import.rs`).
+
 ### 2.5 Delete instance — `components/Instance/InstanceSettings.tsx`  
 **Package: C.**
 
@@ -674,7 +689,8 @@ Conventions in the code that every area relies on:
   undone) → `DELETE /instance/{uuid}`; refetch list, deselect; error toast.
 - [x] Permission: `can_delete_instance` (global) and, for atom instances, owner (atom rule removed).
 - [x] No clone, rename-folder, import-existing, backup or export features exist in the dashboard.
-  - *Host:* Not applicable: not in the dashboard.
+  - *Host:* The Host has backups (its Backups tab, §6.5); deleting a server deletes
+    its backups too, and the delete dialog says so.
 
 ---
 
@@ -964,11 +980,21 @@ Conventions in the code that every area relies on:
   `GET /events/all/buffer` then the live event stream (at most 500 lines).
 
 ### 6.5 Players / whitelist / ops / backups / scheduling  
-**Package: nobody (not in the dashboard).**
+**Package: nobody (not in the dashboard); backups: the backups change.**
 
 - [x] Not present in the dashboard (only the read-only player list on Overview). Any such feature would
   come only through the core's settings manifest.
-  - *Host:* Not applicable: not in the dashboard.
+  - *Host:* Players, whitelist and ops: not applicable, not in the dashboard. Backups
+    are the Host's own (the core's `/instance/{uuid}/backups` routes, §10.6b): a
+    **Backups** tab after Files (`pages/backups.rs`, `cores/admin/backups.rs`,
+    `i18n/*/backups.rs`), for Minecraft Java servers when the user may read their
+    files. It backs up now, keeps the schedule (on/off, how often, only when players
+    were on, and Fewer/Normal/More kept), shows the storage used and the list (tags:
+    Manual, Automatic, Before restore, Live, May be inconsistent, files skipped,
+    Pinned), and restores (everything or only the world, after a safety backup),
+    restores as a new server, downloads a zip, pins and deletes. Progress comes from
+    the job's progression events and the list (fetched again while a job runs, since
+    only owners and admins get updates). The dashboard has no backup UI.
 
 ### 6.6 Ports  
 **Package: C (through the settings manifest).**
@@ -1061,6 +1087,12 @@ Conventions in the code that every area relies on:
 - [x] Password: **Change password** button → dialog (old/new/confirm) → `PUT /user/{uid}/password`.
 - [x] **Appearance**: Language select (§1.8), Theme segmented control (§1.8), "Coloured console" toggle
   (local only).
+- [x] Not in the dashboard: **Startup**.
+  - *Host:* "Open Lodestone Host when I sign in" (`login_item.rs`), off until the user
+    turns it on. The system keeps it (Windows: the user's `Run` key; macOS: a launch
+    agent; Linux: an autostart entry), and it starts the Host with `--background`,
+    which keeps the window hidden. The servers set to start automatically then start
+    with the core. Uninstalling on Windows removes it.
 - [x] **API keys** section (own keys, §7.4).
 - [x] **Minecraft accounts** section (own links, §7.5).
 
@@ -1099,7 +1131,8 @@ Conventions in the code that every area relies on:
 **Package: nobody.**
 
 - [x] No system-stats page (`/system/ram|disk|cpu` hooks and `SystemStat.tsx` exist but are unused
-  **(dead)**), no core updater UI, no global event-log page, no extension management (extensions are removed), no backup UI.
+  **(dead)**), no core updater UI, no global event-log page, no extension management (extensions are removed), no backup UI (the Host has a
+  Backups tab, §6.5).
   Version/info appears only in Core › General › Information and the connection tooltip.
   - *Host:* Not applicable: not in the dashboard.
 
@@ -1165,7 +1198,7 @@ Conventions in the code that every area relies on:
   - *Host:* macOS: the menu bar icon (foundation). Windows: a notification area icon with Show and Quit (tray_windows.rs; compile-checked for x86_64-pc-windows-msvc in a scratch crate, not run). Linux: none, see tray.rs.
 - [x] Left click (button up) shows + focuses the main window; on macOS left click also opens the menu.
   - *Host:* Windows: a left click shows the window, a right click opens the menu.
-- [x] Quit: signals core shutdown (stop servers), waits up to 10 s for it, then exits.
+- [x] Quit: signals core shutdown (stop servers), waits up to 60 s for it (the core gives its servers 45 s), then exits.
 
 ### 8.6 Single instance — `main.rs`  
 **Package: foundation (done).**
@@ -1340,6 +1373,20 @@ All paths are under `/api/v1`. Bodies are JSON unless noted. Types are in `dashb
 | POST | `/modpack/inspect` | `ModpackInspectRequest {version_id}` | `ModpackInfo` |
 | POST | `/modpack/upload` | multipart `file` | `ModpackInfo` (with `upload_id`) |
 
+### 10.6b Backups (Host only)
+
+| Method | Path | Request | Response |
+|---|---|---|---|
+| GET | `/instance/{uuid}/backups` | – | `BackupList` |
+| POST | `/instance/{uuid}/backups` | `{name?}` | `{task_id}` |
+| PATCH | `/instance/{uuid}/backups/{id}` | `{name?, pinned?}` | `BackupInfo` |
+| DELETE | `/instance/{uuid}/backups/{id}` | – | `{}` |
+| POST | `/instance/{uuid}/backups/{id}/restore` | `RestoreRequest {scope, stop, start_after, safety_backup}` | `{task_id}` |
+| POST | `/instance/{uuid}/backups/{id}/restore_as_new` | `{name?}` | `{task_id}` (the new server comes as `InstanceCreation`) |
+| POST | `/instance/{uuid}/backups/{id}/download` | – | `{key, file_name, size}` → `/file/{key}` |
+| GET | `/instance/{uuid}/backups/policy` | – | `BackupPolicy` |
+| PUT | `/instance/{uuid}/backups/policy` | `BackupPolicy` | `BackupPolicy` |
+
 ### 10.7 Macros / tasks (removed)
 
 These routes are gone from the core, with `/task/*`, `/history/*`, `/extension/*` and
@@ -1389,7 +1436,9 @@ Event variants the dashboard handles (everything else must at least be tolerated
   {progress_message, progress}`, `ProgressionEnd {success, message, inner: ProgressionEndValue
   (InstanceCreation & InstanceInfo | InstanceDelete {instance_uuid} | FSOperationCompleted {instance_uuid,
   success, message})}`.
-  - *Host:* As above.
+  - *Host:* As above, plus the backups' `Backup`/`Restore {instance_uuid}` starts and
+    `BackupCompleted`/`RestoreCompleted {instance_uuid, backup_id, success, message}` ends,
+    which the Backups tab follows.
 - [x] `FSEvent {operation, target}` (ignored).
   - *Host:* Tolerated and ignored.
 - [x] `GlobalSettingsChanged` (no payload).

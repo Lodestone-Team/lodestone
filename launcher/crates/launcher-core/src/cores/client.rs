@@ -291,6 +291,47 @@ impl CoreClient {
         limit: u64,
         timeout: Duration,
     ) -> Result<RawResponse, CoreError> {
+        let body = || {
+            Ok(body
+                .clone()
+                .map(|(bytes, content_type)| (AsyncBody::from(bytes), content_type, None)))
+        };
+        self.send_body(method, path, auth, body, if_none_match, limit, timeout)
+            .await
+    }
+
+    /// Like `send_typed`, with a body streamed instead of held in memory (an upload):
+    /// `body` makes it, with its content type and length, afresh each time the request
+    /// is sent, since a request may be sent twice (see [`Self::send_checked`]).
+    #[allow(clippy::too_many_arguments)]
+    pub(super) async fn send_streamed(
+        &self,
+        method: Method,
+        path: &str,
+        auth: Auth<'_>,
+        body: impl Fn() -> Result<(AsyncBody, String, u64), CoreError>,
+        limit: u64,
+        timeout: Duration,
+    ) -> Result<RawResponse, CoreError> {
+        let body =
+            || body().map(|(body, content_type, length)| Some((body, content_type, Some(length))));
+        self.send_body(method, path, auth, body, None, limit, timeout)
+            .await
+    }
+
+    /// Sends a request with the body `body` makes (the body, its content type and,
+    /// when it is streamed, its length), and reads the reply, up to `limit` bytes.
+    #[allow(clippy::too_many_arguments)]
+    async fn send_body(
+        &self,
+        method: Method,
+        path: &str,
+        auth: Auth<'_>,
+        body: impl Fn() -> Result<Option<(AsyncBody, String, Option<u64>)>, CoreError>,
+        if_none_match: Option<&str>,
+        limit: u64,
+        timeout: Duration,
+    ) -> Result<RawResponse, CoreError> {
         let request = || {
             let mut builder = Request::builder()
                 .method(method.clone())
@@ -313,10 +354,16 @@ impl CoreClient {
             if let Some(etag) = if_none_match {
                 builder = builder.header("If-None-Match", etag);
             }
-            match body.clone() {
-                Some((body, content_type)) => builder
-                    .header("Content-Type", content_type)
-                    .body(AsyncBody::from(body)),
+            match body()? {
+                Some((body, content_type, length)) => {
+                    builder = builder.header("Content-Type", content_type);
+                    // a streamed body's length isn't known otherwise, and the core
+                    // reports an upload's progress against it
+                    if let Some(length) = length {
+                        builder = builder.header("Content-Length", length);
+                    }
+                    builder.body(body)
+                }
                 None => builder.body(AsyncBody::empty()),
             }
             .map_err(|err| CoreError::InvalidAddress(err.to_string()))

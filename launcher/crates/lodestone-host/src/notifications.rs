@@ -85,6 +85,16 @@ pub fn describe(event: &ClientEvent) -> Option<(String, String)> {
                     tr!(CoreMsg::EventWarning, name = name)
                 }
                 InstanceEventInner::InstanceError { .. } => tr!(CoreMsg::EventError, name = name),
+                InstanceEventInner::ModpackUpdateAvailable {
+                    modpack,
+                    version_number,
+                    ..
+                } => tr!(
+                    CoreMsg::EventModpackUpdate,
+                    pack = modpack,
+                    version = version_number,
+                    name = name
+                ),
                 InstanceEventInner::PlayerChange {
                     players_joined,
                     players_left,
@@ -325,6 +335,16 @@ impl Notifications {
                 InstanceEventInner::InstanceWarning { .. } => {
                     let toast = Toast::error(t(CoreMsg::WarningToast));
                     self.state.update(cx, |state, cx| state.toast(toast, cx));
+                }
+                InstanceEventInner::ModpackUpdateAvailable { .. } => {
+                    if let Some((title, _)) = describe(event) {
+                        if background {
+                            native::notify(crate::APP_NAME, &title);
+                        } else {
+                            let toast = Toast::info(title);
+                            self.state.update(cx, |state, cx| state.toast(toast, cx));
+                        }
+                    }
                 }
                 InstanceEventInner::InstanceError { .. }
                 | InstanceEventInner::StateTransition {

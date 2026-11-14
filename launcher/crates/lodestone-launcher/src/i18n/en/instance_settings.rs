@@ -98,6 +98,9 @@ crate::i18n::messages! {
         SavedNextStart = "Saved. It applies the next time the game starts.",
         /// {error} is the problem, in English.
         CouldntTurnModsOff = "Couldn't turn the mods off: {error}",
+        /// A modpack update changed the Minecraft version while the loader change
+        /// dialog was open; nothing was saved.
+        GameVersionChangedMeanwhile = "The Minecraft version changed meanwhile. Choose the loader again, then save.",
 
         // The loader picker.
         /// No mod loader: the game as Mojang ships it.
@@ -162,6 +165,14 @@ crate::i18n::messages! {
         /// The Java Mojang provides for the game, "Mojang's Java 21".
         MojangJavaVersion = "Mojang's Java {major}",
         MojangJava = "Mojang's Java",
+        /// The Java a Java 8 version runs in on an Apple silicon Mac, where Mojang has
+        /// no Java 8.
+        AzulZulu8 = "Azul Zulu 8, made for Apple silicon",
+        /// The Intel Java an old version runs in on an Apple silicon Mac, "Mojang's
+        /// Intel Java 8, through Rosetta 2".
+        MojangIntelJavaVersion = "Mojang's Intel Java {major}, through Rosetta 2",
+        /// The default Java on an Apple silicon Mac before the version is installed.
+        JavaTheVersionNeeds = "The Java this version needs",
         /// The button of the file dialog that picks a java binary.
         UseThisJava = "Use this Java",
         /// Checks the chosen java binary.
@@ -214,6 +225,8 @@ crate::i18n::messages! {
         ImportSnapshotTitle = "New instance from a snapshot",
         SnapshotFrom = "{name} · Minecraft {version}",
         SnapshotModsWarning = "It has {count} mods: programs that run when the game starts. Only use snapshots from people you trust.",
+        /// "Instance settings" is the part to choose below it.
+        SnapshotLaunchSettingsWarning = "Its instance settings change how the game starts: Java, its arguments, environment variables or memory. These can run programs too, so they are only used with Instance settings chosen. Choose it only for snapshots from people you trust.",
         CreateInstanceButton = "Create instance",
         SnapshotGameRunning = "Stop the game first.",
         ChooseSomething = "Choose at least one part.",
@@ -379,6 +392,36 @@ crate::i18n::messages! {
         /// Words a search of the settings finds the loader by, besides its name; never
         /// shown.
         LoaderKeywords = "mod loader Fabric Forge NeoForge Quilt",
+
+        // "Add a modpack": a modpack's files added to an instance that exists.
+        /// The dialog's title; {name} is the instance.
+        AddModpackTitle = "Add a modpack to {name}",
+        /// Above the list: "Modpacks for Minecraft 1.21.1 with Fabric. {note}".
+        AddModpackFilter = "Modpacks for Minecraft {version} with {loader}. {note}",
+        /// For an instance made for a server.
+        AddModpackServerNote = "The pack's mods go next to {server}'s, which stay as the server has them, so you can still join.",
+        AddModpackNote = "The pack's files go next to the instance's own. Nothing the instance has is replaced.",
+        /// The button that downloads the picked pack and shows what adding it does.
+        AddModpackButton = "Add modpack",
+        CheckingModpack = "Checking the modpack",
+        /// "Fabulously Optimized 6.2.0: 12.4 MiB to download."
+        AddModpackSummary = "{pack} {version}: {size} to download.",
+        AddModpackNothing = "The instance has every file of this pack already.",
+        /// Groups of files in the review.
+        AddGroupFiles = "To add ({count})",
+        AddGroupConfigs = "Configs to add ({count})",
+        /// Files the server's pack has, kept as the server has them.
+        AddGroupServer = "Kept as {server} has them ({count})",
+        /// The same for an instance made from a modpack.
+        AddGroupPack = "Kept as the instance's modpack has them ({count})",
+        AddGroupThere = "Already in the instance ({count})",
+        /// The Settings section of the packs added to an instance.
+        AddedModpacks = "Added modpacks",
+        AddModpackRow = "Add a modpack",
+        AddModpackHint = "Add a modpack's mods and configs to this instance, next to the ones it has.",
+        AddModpackServerHint = "Add a modpack's mods, such as client optimizations, next to {server}'s. The server's mods stay as they are.",
+        AddModpackEllipsis = "Add a modpack…",
+        RemoveAddedModpackNote = "Removes the files the pack added. Files you changed stay.",
     }
 
     pub enum InstanceSettingsPlural {
@@ -430,5 +473,10 @@ crate::i18n::messages! {
             "Shared game settings: {count} setting changed in-game will be replaced by the shared one next launch (see Settings)",
             "Shared game settings: {count} settings changed in-game will be replaced by the shared ones next launch (see Settings)"
         ),
+
+        /// Below a review's list of files.
+        AndMoreFiles = ("and {count} more", "and {count} more"),
+        /// An added modpack's files in the instance.
+        AddedModpackFiles = ("{count} file added", "{count} files added"),
     }
 }

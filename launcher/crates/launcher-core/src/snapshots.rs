@@ -17,11 +17,12 @@
 //! size and ratio limits, and every object's hash verified.
 
 use std::{
-    collections::{BTreeMap, BTreeSet, HashSet},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     fs::{self, File},
     io::{self, BufReader, BufWriter, Read, Write},
     path::{Path, PathBuf},
-    time::SystemTime,
+    sync::{Arc, Mutex, OnceLock, PoisonError, RwLock},
+    time::{Duration, SystemTime},
 };
 
 use serde::{Deserialize, Serialize};
@@ -324,6 +325,56 @@ impl Snapshot {
             .map(|f| f.path.trim_start_matches("minecraft/mods/").to_string())
             .collect()
     }
+
+    /// Whether the snapshot's instance settings change how the game starts: its own
+    /// Java, Java or game arguments, environment variables or memory. They are whoever
+    /// made the snapshot's, and arguments or variables can run code on Play (a
+    /// `-javaagent:` shipped among the files, `JAVA_TOOL_OPTIONS`), so a new instance
+    /// only takes them with [`Category::Settings`] chosen, and the import warns first.
+    pub fn sets_launch_settings(&self) -> bool {
+        let typed = |text: &Option<String>| text.as_deref().is_some_and(|t| !t.trim().is_empty());
+        let instance = &self.instance;
+        instance.java_override.is_some()
+            || instance.memory.is_some()
+            || typed(&instance.jvm_args)
+            || typed(&instance.game_args)
+            || instance.env.as_ref().is_some_and(|env| !env.is_empty())
+    }
+}
+
+/// `sent` without its settings: only what the instance is (its name, Minecraft version
+/// and loader) is kept, and everything else (Java, its arguments, environment, memory,
+/// window, appearance, what automatic setup chose) is left to the defaults. For an
+/// import without [`Category::Settings`], whose settings come from someone else.
+fn without_settings(sent: &Instance) -> Instance {
+    Instance {
+        id: sent.id.clone(),
+        name: sent.name.clone(),
+        imported_from: sent.imported_from.clone(),
+        game_version: sent.game_version.clone(),
+        loader: sent.loader,
+        loader_version: sent.loader_version.clone(),
+        created: sent.created,
+        ..Instance::default()
+    }
+}
+
+/// The instance an import makes from the snapshot's `sent` instance: new, never
+/// played, and with the sender's settings only when the user chose them (`settings`).
+fn imported_instance(sent: &Instance, settings: bool) -> Instance {
+    let base = if settings {
+        sent.clone()
+    } else {
+        without_settings(sent)
+    };
+    Instance {
+        created: crate::instances::now(),
+        last_played: None,
+        play_time: 0,
+        // What this Mac found out about Rosetta isn't the sender's.
+        rosetta: None,
+        ..base
+    }
 }
 
 /// A category (or one world) and how big it is.
@@ -373,6 +424,33 @@ pub struct Store {
 /// How far a long job has got.
 pub type Progress<'a> = &'a (dyn Fn(u64, u64) + Sync);
 
+/// The lock of the store at `root`, shared by every [`Store`] for it in this process.
+///
+/// Taking a snapshot or importing one puts its objects in the store before the manifest
+/// that names them, and garbage collection removes every object no manifest names. So
+/// jobs that add objects (or read them) share the lock, and garbage collection takes it
+/// alone: it waits for them, and they for it. Jobs on different instances still run
+/// together.
+///
+/// The lock is per process. Two launchers on one data folder (a developer build and a
+/// release pointed at the same place, say) can still race; only temp files younger
+/// than [`STALE_TEMP`] are safe from the other's garbage collection, not objects stored
+/// before their manifest is written. The CLI goes through the running launcher, so it
+/// is covered.
+fn store_lock(root: &Path) -> Arc<RwLock<()>> {
+    static LOCKS: OnceLock<Mutex<HashMap<PathBuf, Arc<RwLock<()>>>>> = OnceLock::new();
+    let mut locks = LOCKS
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner);
+    locks.entry(root.to_path_buf()).or_default().clone()
+}
+
+/// How old a temporary file in `objects/` must be before garbage collection removes
+/// it. Jobs that write them hold the store's lock, so one seen there was left by a
+/// launcher that stopped, unless another one uses the same folder right now.
+const STALE_TEMP: Duration = Duration::from_secs(24 * 60 * 60);
+
 impl Store {
     pub fn new(data: &DataDir) -> Self {
         Self::at(data.root().join("snapshots"))
@@ -384,6 +462,20 @@ impl Store {
 
     pub fn root(&self) -> &Path {
         &self.root
+    }
+
+    /// Runs `job`, which adds or reads objects, while no garbage collection runs.
+    fn sharing<T>(&self, job: impl FnOnce() -> T) -> T {
+        let lock = store_lock(&self.root);
+        let _shared = lock.read().unwrap_or_else(PoisonError::into_inner);
+        job()
+    }
+
+    /// Runs `job`, which removes manifests or objects, while no other job runs.
+    fn alone<T>(&self, job: impl FnOnce() -> T) -> T {
+        let lock = store_lock(&self.root);
+        let _alone = lock.write().unwrap_or_else(PoisonError::into_inner);
+        job()
     }
 
     fn objects(&self) -> PathBuf {
@@ -441,6 +533,31 @@ impl Store {
     /// Takes a snapshot of `instance` (in `instance_dir`) with `selection`.
     #[allow(clippy::too_many_arguments)]
     pub fn create(
+        &self,
+        instance: &Instance,
+        instance_dir: &Path,
+        name: &str,
+        note: Option<String>,
+        selection: &Selection,
+        automatic: bool,
+        progress: Progress<'_>,
+    ) -> Result<Snapshot, SnapshotError> {
+        self.sharing(|| {
+            self.create_shared(
+                instance,
+                instance_dir,
+                name,
+                note,
+                selection,
+                automatic,
+                progress,
+            )
+        })
+    }
+
+    /// [`Store::create`], with the store's lock already shared.
+    #[allow(clippy::too_many_arguments)]
+    fn create_shared(
         &self,
         instance: &Instance,
         instance_dir: &Path,
@@ -641,6 +758,12 @@ impl Store {
     /// Deletes the automatic snapshots, those of instances that no longer exist, and
     /// the shared files, then what no snapshot uses. Returns the bytes freed.
     pub fn clean_up(&self, instances: &HashSet<&str>) -> u64 {
+        // Alone: an import's manifest is under `.importing`, an instance that doesn't
+        // exist, until it is done.
+        self.alone(|| self.clean_up_alone(instances))
+    }
+
+    fn clean_up_alone(&self, instances: &HashSet<&str>) -> u64 {
         let before = self.size();
         for (instance, snapshot) in self.all() {
             if snapshot.automatic || !instances.contains(instance.as_str()) {
@@ -655,28 +778,38 @@ impl Store {
             let _ = fs::remove_dir(dir.path()); // only when empty
         }
         let _ = fs::remove_dir_all(self.exports_dir());
-        self.collect_garbage();
+        self.collect_garbage_alone();
         before.saturating_sub(self.size())
     }
 
     /// Deletes a snapshot and the objects only it used.
     pub fn delete(&self, instance_id: &str, id: &str) -> Result<u64, SnapshotError> {
-        let snapshot = self.get(instance_id, id)?;
-        let path = self.manifest_path(instance_id, &snapshot.id);
-        fs::remove_file(&path).map_err(io_error(&path))?;
-        Ok(self.collect_garbage())
+        self.alone(|| {
+            let snapshot = self.get(instance_id, id)?;
+            let path = self.manifest_path(instance_id, &snapshot.id);
+            fs::remove_file(&path).map_err(io_error(&path))?;
+            Ok(self.collect_garbage_alone())
+        })
     }
 
     /// Deletes every snapshot of an instance (when it is deleted).
     pub fn delete_instance(&self, instance_id: &str) -> u64 {
-        if valid_id(instance_id) {
-            let _ = fs::remove_dir_all(self.instance_dir(instance_id));
-        }
-        self.collect_garbage()
+        self.alone(|| {
+            if valid_id(instance_id) {
+                let _ = fs::remove_dir_all(self.instance_dir(instance_id));
+            }
+            self.collect_garbage_alone()
+        })
     }
 
-    /// Removes the objects no snapshot uses. Returns the bytes freed.
+    /// Removes the objects no snapshot uses. Returns the bytes freed. Waits for jobs
+    /// that are adding objects to finish first.
     pub fn collect_garbage(&self) -> u64 {
+        self.alone(|| self.collect_garbage_alone())
+    }
+
+    /// [`Store::collect_garbage`], with the store's lock already held alone.
+    fn collect_garbage_alone(&self) -> u64 {
         let mut used: HashSet<String> = HashSet::new();
         for dir in fs::read_dir(self.root.join("instances"))
             .into_iter()
@@ -684,11 +817,17 @@ impl Store {
             .flatten()
         {
             for entry in fs::read_dir(dir.path()).into_iter().flatten().flatten() {
-                match read_manifest(&entry.path()) {
-                    Ok(snapshot) => used.extend(snapshot.files.into_iter().map(|f| f.sha256)),
-                    // An unreadable manifest: keep everything rather than guess.
-                    Err(_) if entry.path().extension().is_some_and(|x| x == "json") => return 0,
-                    Err(_) => {}
+                let path = entry.path();
+                if !path.extension().is_some_and(|x| x == "json") {
+                    continue;
+                }
+                // Only the objects are read, not the whole checked manifest: one that
+                // doesn't pass the checks (a path an older launcher took, a newer
+                // schema) still names what it uses, and keeps it.
+                match manifest_objects(&path) {
+                    Some(objects) => used.extend(objects),
+                    // Not a manifest at all: keep everything rather than guess.
+                    None => return 0,
                 }
             }
         }
@@ -696,6 +835,20 @@ impl Store {
         for prefix in fs::read_dir(self.objects()).into_iter().flatten().flatten() {
             for object in fs::read_dir(prefix.path()).into_iter().flatten().flatten() {
                 let name = object.file_name().to_string_lossy().to_string();
+                // A file being stored (`.<sha256>.<tag>`, `.<sha256>.import`): only once
+                // it's stale (see `STALE_TEMP`).
+                if name.starts_with('.') {
+                    let age = object
+                        .metadata()
+                        .and_then(|m| m.modified())
+                        .ok()
+                        .and_then(|modified| modified.elapsed().ok());
+                    if age.is_some_and(|age| age > STALE_TEMP) {
+                        set_mode(&object.path(), 0o644);
+                        let _ = fs::remove_file(object.path());
+                    }
+                    continue;
+                }
                 if !used.contains(&name) {
                     freed += object.metadata().map(|m| m.len()).unwrap_or(0);
                     let _ = fs::remove_file(object.path());
@@ -718,7 +871,20 @@ impl Store {
         selection: &Selection,
         progress: Progress<'_>,
     ) -> Result<(Option<Instance>, Snapshot), SnapshotError> {
-        let safety = self.create(
+        // Shared throughout: the safety snapshot's objects are new, and the snapshot gone
+        // back to is read.
+        self.sharing(|| self.revert_shared(snapshot, current, instance_dir, selection, progress))
+    }
+
+    fn revert_shared(
+        &self,
+        snapshot: &Snapshot,
+        current: &Instance,
+        instance_dir: &Path,
+        selection: &Selection,
+        progress: Progress<'_>,
+    ) -> Result<(Option<Instance>, Snapshot), SnapshotError> {
+        let safety = self.create_shared(
             current,
             instance_dir,
             &format!("Before going back to “{}”", snapshot.name),
@@ -777,6 +943,9 @@ impl Store {
                 clone_or_copy(&object, &to)?;
                 set_mode(&to, file.mode);
             }
+            // Each entry is replaced whole, and the safety snapshot can't hold every name
+            // in it: those files go along unchanged rather than being deleted with `old`.
+            carry_unheld(instance_dir, &staging, &entries)?;
             swap_in(instance_dir, &staging, &old, &entries)
         })();
         let _ = fs::remove_dir_all(&staging);
@@ -792,6 +961,7 @@ impl Store {
                 created: current.created,
                 last_played: current.last_played,
                 play_time: current.play_time,
+                rosetta: current.rosetta.clone(),
                 ..snapshot.instance.clone()
             });
         Ok((settings, safety))
@@ -799,6 +969,15 @@ impl Store {
 
     /// Writes `snapshot` and the objects it needs as a `.lodesnap` file at `to`.
     pub fn export(
+        &self,
+        snapshot: &Snapshot,
+        to: &Path,
+        progress: Progress<'_>,
+    ) -> Result<(), SnapshotError> {
+        self.sharing(|| self.export_shared(snapshot, to, progress))
+    }
+
+    fn export_shared(
         &self,
         snapshot: &Snapshot,
         to: &Path,
@@ -847,6 +1026,16 @@ impl Store {
     /// Adds the snapshot in a `.lodesnap` file to the store (checking everything) and
     /// returns its manifest, under the instance id `instance_id`.
     pub fn import(
+        &self,
+        path: &Path,
+        instance_id: &str,
+        progress: Progress<'_>,
+    ) -> Result<Snapshot, SnapshotError> {
+        self.sharing(|| self.import_shared(path, instance_id, progress))
+    }
+
+    /// [`Store::import`], with the store's lock already shared.
+    fn import_shared(
         &self,
         path: &Path,
         instance_id: &str,
@@ -934,8 +1123,10 @@ impl Store {
         let staging = instances
             .new_staging()
             .map_err(|e| SnapshotError::Instance(e.to_string()))?;
-        let result = (|| {
-            let imported = self.import(path, ".importing", progress)?;
+        // Shared until the manifest is under the new instance, so garbage collection or a
+        // clean-up can't remove the objects (or the `.importing` manifest) meanwhile.
+        let result = self.sharing(|| {
+            let imported = self.import_shared(path, ".importing", progress)?;
             for file in imported
                 .files
                 .iter()
@@ -948,22 +1139,26 @@ impl Store {
                 clone_or_copy(&self.object(&file.sha256), &to)?;
                 set_mode(&to, file.mode);
             }
-            let instance = Instance {
-                created: crate::instances::now(),
-                last_played: None,
-                play_time: 0,
-                ..imported.instance.clone()
-            };
+            // The sender's settings only when "Instance settings" is chosen: they can
+            // start other Java or run code on Play (see `Snapshot::sets_launch_settings`).
+            let settings = selection.categories.contains(&Category::Settings);
+            let instance = imported_instance(&imported.instance, settings);
             let instance = instances
                 .commit_staged(&staging, instance)
                 .map_err(|e| SnapshotError::Instance(e.to_string()))?;
-            // Keep the snapshot, now under the new instance.
+            // Keep the snapshot, now under the new instance. Without the settings chosen
+            // it doesn't keep them either, so going back to it later can't bring them in.
+            let kept = if settings {
+                imported.instance.clone()
+            } else {
+                without_settings(&imported.instance)
+            };
             let old = self.manifest_path(".importing", &imported.id);
             let moved = Snapshot {
                 instance_id: instance.id.clone(),
                 instance: Instance {
                     id: instance.id.clone(),
-                    ..imported.instance.clone()
+                    ..kept
                 },
                 ..imported
             };
@@ -971,11 +1166,14 @@ impl Store {
             let _ = fs::remove_file(&old);
             let _ = fs::remove_dir(self.instance_dir(".importing"));
             Ok(instance)
-        })();
+        });
         if result.is_err() {
             let _ = fs::remove_dir_all(&staging);
-            let _ = fs::remove_dir_all(self.instance_dir(".importing"));
-            self.collect_garbage();
+            // Alone, so no other import is writing its manifest under `.importing`.
+            self.alone(|| {
+                let _ = fs::remove_dir_all(self.instance_dir(".importing"));
+                self.collect_garbage_alone();
+            });
         }
         result
     }
@@ -1094,6 +1292,23 @@ pub(crate) fn free_space(_: &Path) -> Option<u64> {
     None
 }
 
+/// The objects the manifest at `path` uses, read without checking the rest; `None` when
+/// it can't be read as one.
+fn manifest_objects(path: &Path) -> Option<Vec<String>> {
+    #[derive(Deserialize)]
+    struct Objects {
+        #[serde(default)]
+        files: Vec<Object>,
+    }
+    #[derive(Deserialize)]
+    struct Object {
+        sha256: String,
+    }
+    let text = fs::read_to_string(path).ok()?;
+    let objects: Objects = serde_json::from_str(&text).ok()?;
+    Some(objects.files.into_iter().map(|f| f.sha256).collect())
+}
+
 fn read_manifest(path: &Path) -> Result<Snapshot, SnapshotError> {
     let text = fs::read_to_string(path).map_err(io_error(path))?;
     parse_manifest(&text)
@@ -1190,6 +1405,55 @@ fn swap_in(
     result
 }
 
+/// Copies what under `entries` (top-level paths under `root`) no snapshot can hold into
+/// `staging`, at the same place: names with `:` or `\` (fine on Unix), or that aren't
+/// UTF-8, and everything under such a folder. [`walk`] leaves them out, so a revert,
+/// which replaces each entry whole, would otherwise delete them with nothing to go back
+/// to. Copied rather than moved, so a revert that fails leaves them where they were.
+fn carry_unheld(
+    root: &Path,
+    staging: &Path,
+    entries: &BTreeSet<String>,
+) -> Result<(), SnapshotError> {
+    /// `relative` is `None` under a name that can't be held: all of it is copied.
+    fn visit(from: &Path, to: &Path, relative: Option<&str>) -> Result<(), SnapshotError> {
+        let metadata = match fs::symlink_metadata(from) {
+            Ok(metadata) => metadata,
+            Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(()),
+            Err(err) => return Err(io_error(from)(err)),
+        };
+        let held = relative.is_some_and(|r| checked_relative(r).is_ok());
+        if metadata.file_type().is_symlink() {
+            // Snapshots never take links, wherever they are.
+            return Ok(());
+        }
+        if metadata.is_dir() {
+            if !held {
+                fs::create_dir_all(to).map_err(io_error(to))?;
+            }
+            for entry in fs::read_dir(from).map_err(io_error(from))? {
+                let entry = entry.map_err(io_error(from))?;
+                let name = entry.file_name();
+                let child = match (held, relative, name.to_str()) {
+                    (true, Some(relative), Some(name)) => Some(format!("{relative}/{name}")),
+                    _ => None,
+                };
+                visit(&entry.path(), &to.join(&name), child.as_deref())?;
+            }
+        } else if metadata.is_file() && !held {
+            if let Some(dir) = to.parent() {
+                fs::create_dir_all(dir).map_err(io_error(dir))?;
+            }
+            clone_or_copy(from, to)?;
+        }
+        Ok(())
+    }
+    for entry in entries {
+        visit(&root.join(entry), &staging.join(entry), Some(entry))?;
+    }
+    Ok(())
+}
+
 /// Every file under `instance_dir` a snapshot can take: (path, relative path, size).
 /// Symbolic links are skipped.
 fn walk(instance_dir: &Path) -> Result<Vec<(PathBuf, String, u64)>, SnapshotError> {
@@ -1217,6 +1481,17 @@ fn walk(instance_dir: &Path) -> Result<Vec<(PathBuf, String, u64)>, SnapshotErro
                 continue;
             };
             if file_type.is_symlink() {
+                continue;
+            }
+            // A name a manifest can't hold (`:` or `\`, both fine in a Unix file name)
+            // is left out: reading the snapshot back refuses such paths, so taking it
+            // would make a snapshot that can't be listed, used or deleted. A revert keeps
+            // such files where they are (see [`carry_unheld`]); the trace says which.
+            if checked_relative(&relative).is_err() {
+                crate::trace::emit(
+                    "snapshot.left_out",
+                    || serde_json::json!({ "path": relative }),
+                );
                 continue;
             }
             // Skip whole excluded folders without walking them.
@@ -1619,6 +1894,304 @@ mod tests {
         assert!(!new_dir.join("minecraft/saves").exists());
         assert_eq!(created.game_version, "1.20.1");
         assert_eq!(other.list(&created.id).len(), 1);
+    }
+
+    #[test]
+    fn imports_launch_settings_only_when_chosen() {
+        let temp = tempfile::tempdir().unwrap();
+        let store = Store::at(temp.path().join("snapshots"));
+        let (mut instance, dir) = instance_at(temp.path(), "a");
+        // A snapshot whose settings run a shipped agent on Play.
+        write(&dir, "minecraft/agent.jar", b"agent");
+        instance.jvm_args = Some("-javaagent:agent.jar".into());
+        instance.game_args = Some("--demo".into());
+        instance.env = Some([("JAVA_TOOL_OPTIONS".to_string(), "-Dx=y".to_string())].into());
+        instance.java_override = Some(PathBuf::from("/opt/java/bin/java"));
+        instance.memory = Some(crate::instances::Memory {
+            min: 512,
+            max: 16384,
+        });
+        instance.loader = crate::instances::Loader::Fabric;
+        instance.loader_version = Some("0.16.0".into());
+        let snapshot = store
+            .create(
+                &instance,
+                &dir,
+                "share",
+                None,
+                &Selection::all(),
+                false,
+                &none,
+            )
+            .unwrap();
+        let file = temp.path().join("share.lodesnap");
+        store.export(&snapshot, &file, &none).unwrap();
+        assert!(inspect(&file).unwrap().sets_launch_settings());
+
+        let other = Store::at(temp.path().join("other-snapshots"));
+        let instances = InstanceStore::new(temp.path().join("other-instances"));
+        fs::create_dir_all(instances.root()).unwrap();
+        // Everything but the settings.
+        let mut selection = Selection::all();
+        selection.categories.remove(&Category::Settings);
+        let created = other
+            .import_as_instance(&instances, &file, &selection, &none)
+            .unwrap();
+        assert_eq!(created.game_version, "1.20.1");
+        assert_eq!(created.loader, crate::instances::Loader::Fabric);
+        assert_eq!(created.loader_version.as_deref(), Some("0.16.0"));
+        let saved: Instance = serde_json::from_slice(
+            &fs::read(instances.dir(&created.id).join("instance.json")).unwrap(),
+        )
+        .unwrap();
+        for instance in [&created, &saved, &other.list(&created.id)[0].instance] {
+            assert_eq!(instance.jvm_args, None);
+            assert_eq!(instance.game_args, None);
+            assert_eq!(instance.env, None);
+            assert_eq!(instance.java_override, None);
+            assert_eq!(instance.memory, None);
+        }
+
+        // Chosen, they come along.
+        let created = other
+            .import_as_instance(&instances, &file, &Selection::all(), &none)
+            .unwrap();
+        assert_eq!(created.jvm_args.as_deref(), Some("-javaagent:agent.jar"));
+        assert_eq!(created.memory.map(|m| m.max), Some(16384));
+        assert!(!snapshot_without_settings().sets_launch_settings());
+    }
+
+    fn snapshot_without_settings() -> Snapshot {
+        Snapshot {
+            schema: SCHEMA,
+            id: "x".into(),
+            instance_id: "x".into(),
+            name: "x".into(),
+            note: None,
+            created: 0,
+            launcher_version: String::new(),
+            instance: Instance {
+                jvm_args: Some("  ".into()),
+                env: Some(BTreeMap::new()),
+                ..Instance::default()
+            },
+            selection: Selection::all(),
+            files: Vec::new(),
+            total_bytes: 0,
+            new_bytes: 0,
+            automatic: false,
+        }
+    }
+
+    #[test]
+    fn garbage_collection_waits_for_a_snapshot_being_taken() {
+        use std::sync::{Mutex, atomic::AtomicBool, mpsc};
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("snapshots");
+        let (instance, dir) = instance_at(temp.path(), "a");
+        let (stored, wait_for_stored) = mpsc::channel();
+        let stored = Mutex::new(Some(stored));
+        let first = AtomicBool::new(false);
+        let taking = std::thread::spawn({
+            let root = root.clone();
+            move || {
+                // After the first object is stored, and before the manifest, it pauses
+                // long enough for garbage collection to run if it didn't wait.
+                let progress = |_: u64, _: u64| {
+                    if !first.swap(true, std::sync::atomic::Ordering::SeqCst) {
+                        if let Some(stored) = stored.lock().unwrap().take() {
+                            stored.send(()).unwrap();
+                        }
+                        std::thread::sleep(Duration::from_millis(300));
+                    }
+                };
+                Store::at(root)
+                    .create(
+                        &instance,
+                        &dir,
+                        "s",
+                        None,
+                        &Selection::all(),
+                        false,
+                        &progress,
+                    )
+                    .unwrap()
+            }
+        });
+        wait_for_stored.recv().unwrap();
+        // Another `Store` for the same folder, as the launcher makes them.
+        Store::at(&root).collect_garbage();
+        let snapshot = taking.join().unwrap();
+        let store = Store::at(&root);
+        for file in &snapshot.files {
+            assert!(store.object(&file.sha256).exists(), "{} is gone", file.path);
+        }
+    }
+
+    #[test]
+    fn garbage_collection_leaves_files_being_stored_until_stale() {
+        let temp = tempfile::tempdir().unwrap();
+        let store = Store::at(temp.path().join("snapshots"));
+        let prefix = store.objects().join("ab");
+        fs::create_dir_all(&prefix).unwrap();
+        let fresh = prefix.join(format!(".{}.import", "ab".repeat(32)));
+        let stale = prefix.join(format!(".{}.0123456789abcdef", "ab".repeat(32)));
+        fs::write(&fresh, b"being stored").unwrap();
+        fs::write(&stale, b"left behind").unwrap();
+        File::options()
+            .write(true)
+            .open(&stale)
+            .unwrap()
+            .set_modified(SystemTime::now() - STALE_TEMP - Duration::from_secs(60))
+            .unwrap();
+        store.collect_garbage();
+        assert!(fresh.exists());
+        assert!(!stale.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn leaves_out_names_a_manifest_cant_hold() {
+        let temp = tempfile::tempdir().unwrap();
+        let store = Store::at(temp.path().join("snapshots"));
+        let (instance, dir) = instance_at(temp.path(), "a");
+        // Fine on macOS and Linux, refused when a manifest is read.
+        write(&dir, "minecraft/config/foo:bar.json", b"{}");
+        write(&dir, "minecraft/config/back\\slash.json", b"{}");
+        write(&dir, "minecraft/odd:folder/a.txt", b"a");
+        let snapshot = store
+            .create(&instance, &dir, "s", None, &Selection::all(), false, &none)
+            .unwrap();
+        assert!(
+            !snapshot
+                .files
+                .iter()
+                .any(|f| f.path.contains(':') || f.path.contains('\\'))
+        );
+        assert!(
+            snapshot
+                .files
+                .iter()
+                .any(|f| f.path == "minecraft/config/sodium.json")
+        );
+        // It reads back: listed, and found by id.
+        assert_eq!(store.list("a").len(), 1);
+        assert!(store.get("a", &snapshot.id).is_ok());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn revert_keeps_files_whose_names_a_snapshot_cant_hold() {
+        let temp = tempfile::tempdir().unwrap();
+        let store = Store::at(temp.path().join("snapshots"));
+        let (instance, dir) = instance_at(temp.path(), "a");
+        let snapshot = store
+            .create(
+                &instance,
+                &dir,
+                "before",
+                None,
+                &Selection::all(),
+                false,
+                &none,
+            )
+            .unwrap();
+        // Made after it, in entries a revert replaces whole; the safety snapshot leaves
+        // them out, so nothing else would bring them back.
+        write(&dir, "minecraft/config/foo:bar.json", b"kept");
+        write(&dir, "minecraft/config/new.json", b"new");
+        write(&dir, "minecraft/odd:folder/deep/a.txt", b"deep");
+        write(&dir, "minecraft/saves/World/data/x:y.dat", b"world");
+        let selection = Selection {
+            categories: [Category::Configs, Category::Other, Category::Worlds].into(),
+            worlds: BTreeSet::new(),
+        };
+        store
+            .revert(&snapshot, &instance, &dir, &selection, &none)
+            .unwrap();
+        // What the snapshot holds went back...
+        assert!(!dir.join("minecraft/config/new.json").exists());
+        assert!(dir.join("minecraft/config/sodium.json").is_file());
+        assert!(dir.join("minecraft/kubejs/a.js").is_file());
+        // ...and what it can't hold stayed.
+        assert_eq!(
+            fs::read(dir.join("minecraft/config/foo:bar.json")).unwrap(),
+            b"kept"
+        );
+        assert_eq!(
+            fs::read(dir.join("minecraft/odd:folder/deep/a.txt")).unwrap(),
+            b"deep"
+        );
+        assert_eq!(
+            fs::read(dir.join("minecraft/saves/World/data/x:y.dat")).unwrap(),
+            b"world"
+        );
+        assert!(dir.join("minecraft/saves/World/level.dat").is_file());
+        // Nothing left over from the revert.
+        let leftovers: Vec<_> = fs::read_dir(&dir)
+            .unwrap()
+            .flatten()
+            .filter(|e| {
+                e.file_name()
+                    .to_string_lossy()
+                    .starts_with(".lodestone-restore")
+            })
+            .collect();
+        assert!(leftovers.is_empty());
+    }
+
+    #[test]
+    fn garbage_collection_keeps_what_a_manifest_that_fails_its_checks_uses() {
+        let temp = tempfile::tempdir().unwrap();
+        let store = Store::at(temp.path().join("snapshots"));
+        let (instance, dir) = instance_at(temp.path(), "a");
+        let kept = store
+            .create(
+                &instance,
+                &dir,
+                "old",
+                None,
+                &Selection::all(),
+                false,
+                &none,
+            )
+            .unwrap();
+        // As an older launcher wrote it: a path reading back refuses.
+        let mut old = kept.clone();
+        old.files[0].path = "minecraft/config/foo:bar.json".into();
+        old.files[0].category = Category::Configs;
+        fs::write(
+            store.manifest_path("a", &kept.id),
+            serde_json::to_vec(&old).unwrap(),
+        )
+        .unwrap();
+        assert!(store.list("a").is_empty());
+        // Another snapshot, with a file only it has, then deleted: that file goes, and
+        // what the unreadable one uses stays.
+        write(&dir, "minecraft/mods/only.jar", b"only in the deleted one");
+        let gone = store
+            .create(
+                &instance,
+                &dir,
+                "gone",
+                None,
+                &Selection::all(),
+                false,
+                &none,
+            )
+            .unwrap();
+        let only = gone
+            .files
+            .iter()
+            .find(|f| f.path == "minecraft/mods/only.jar")
+            .unwrap()
+            .sha256
+            .clone();
+        assert!(store.delete("a", &gone.id).unwrap() > 0);
+        assert!(!store.object(&only).exists());
+        for file in &kept.files {
+            assert!(store.object(&file.sha256).exists());
+        }
     }
 
     fn zip_with(path: &Path, entries: &[(&str, &[u8])]) {

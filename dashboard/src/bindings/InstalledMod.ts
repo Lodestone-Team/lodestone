@@ -15,4 +15,8 @@ client_requirement: ClientRequirement,
 /**
  * The display names of the installed mods that make players need this one.
  */
-required_by: Array<string>, };
+required_by: Array<string>, 
+/**
+ * The owner marked it as needed by players (`PUT .../mods/{file_name}/client`).
+ */
+client_marked: boolean, };

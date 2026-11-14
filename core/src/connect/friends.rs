@@ -15,7 +15,10 @@ use std::{
     collections::{HashMap, HashSet},
     net::{Ipv4Addr, SocketAddr},
     path::PathBuf,
-    sync::{Arc, RwLock},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, RwLock,
+    },
     time::Duration,
 };
 
@@ -224,6 +227,8 @@ pub struct FriendShares {
     /// The knocks the friend host let in, kept while the core runs: the host stops when
     /// nothing is shared and starts again later, and must still refuse old knocks.
     knocks: KnockMemory,
+    /// Set by [`Self::stop`] as the core shuts down: the friend host doesn't start again.
+    stopping: AtomicBool,
 }
 
 impl FriendShares {
@@ -248,6 +253,7 @@ impl FriendShares {
             #[cfg(test)]
             fail_starts: Default::default(),
             knocks: KnockMemory::default(),
+            stopping: AtomicBool::new(false),
         }
     }
 
@@ -596,6 +602,10 @@ impl FriendShares {
     /// [`RETRY`] in the background until it works. A later apply that works stops
     /// the retries.
     async fn apply_or_retry(self: &Arc<Self>, state: &AppState, inner: &mut Inner) {
+        // `stop` sets this before it takes the lock held here
+        if self.stopping.load(Ordering::SeqCst) {
+            return;
+        }
         match self.apply(state, inner).await {
             Ok(()) => {
                 inner.problem = None;
@@ -623,6 +633,9 @@ impl FriendShares {
         loop {
             tokio::time::sleep(self.retry).await;
             let mut inner = self.inner.lock().await;
+            if self.stopping.load(Ordering::SeqCst) {
+                return;
+            }
             match self.apply(&state, &mut inner).await {
                 Ok(()) => {
                     inner.problem = None;
@@ -720,8 +733,9 @@ impl FriendShares {
         self.apply_or_retry(state, &mut inner).await;
     }
 
-    /// Stops the friend host as the core shuts down.
+    /// Stops the friend host as the core shuts down, for good: it doesn't start again.
     pub async fn stop(&self) {
+        self.stopping.store(true, Ordering::SeqCst);
         let mut inner = self.inner.lock().await;
         if let Some(retry) = inner.retry.take() {
             retry.abort();

@@ -9,6 +9,7 @@ use lodestone_host::{
     i18n::{ShellMsg, t},
     single_instance,
     tray::{self, TrayCommand},
+    update_later,
 };
 use lodestone_ui::assets::Assets;
 
@@ -27,6 +28,10 @@ fn main() {
     if !screenshot && !single_instance::acquire(show_tx) {
         return;
     }
+    // an older Host's sign-in entry, rewritten the way this one writes it
+    if !screenshot {
+        lodestone_host::login_item::refresh();
+    }
     let app = gpui_platform::application().with_assets(Assets);
     // a click on the Dock icon brings the window back
     app.on_reopen(|cx| cx.dispatch_action(&ShowWindow));
@@ -37,7 +42,14 @@ fn main() {
         let window: WindowHandle<HostApp> = cx
             .open_window(options, |window, cx| cx.new(|cx| HostApp::new(window, cx)))
             .expect("could not open the Lodestone Host window");
-        cx.activate(true);
+        // opened at sign-in (Settings › Profile › Startup): the window stays out of the way
+        if !screenshot && lodestone_host::login_item::started_in_background() {
+            window
+                .update(cx, |_, window, cx| lodestone_host::app::hide(window, cx))
+                .ok();
+        } else {
+            cx.activate(true);
+        }
 
         let show = move |cx: &mut gpui::App| {
             cx.activate(true);
@@ -45,20 +57,15 @@ fn main() {
                 .update(cx, |_, window, _| window.activate_window())
                 .ok();
         };
-        // Deferred: the Quit action is dispatched while the window is being updated (a
-        // key binding, the menu, Settings › Updates' Restart), and GPUI can't update a
-        // window inside its own update; the call would fail and nothing would happen.
-        let quit = move |cx: &mut gpui::App| {
-            cx.defer(move |cx| {
-                window.update(cx, |app, _, cx| app.quit(cx)).ok();
-            });
-        };
+        // Deferred: the Quit and RestartCore actions are dispatched while the window is
+        // being updated (a key binding, the menu, Settings › Updates' Restart, the
+        // Connect service's "Save and restart core"), and GPUI can't update a window
+        // inside its own update; the call would fail and nothing would happen.
+        let quit = move |cx: &mut gpui::App| update_later(window, HostApp::quit, cx);
 
         cx.on_action(move |_: &Quit, cx| quit(cx));
         cx.on_action(move |_: &ShowWindow, cx| show(cx));
-        cx.on_action(move |_: &RestartCore, cx| {
-            window.update(cx, |app, _, cx| app.restart_core(cx)).ok();
-        });
+        cx.on_action(move |_: &RestartCore, cx| update_later(window, HostApp::restart_core, cx));
 
         // the menu bar icon
         let (tray_tx, mut tray_rx) = futures::channel::mpsc::unbounded();
@@ -90,7 +97,7 @@ fn main() {
 
 /// `--screenshot <file.png> [--wait <seconds>] [--select-first] [--tab <tab>] [--toasts] [--demo]`
 /// `[--power-menu]` (the selected instance's power menu open)
-/// `[--friends <scene>] [--settings-search <text>]`,
+/// `[--friends <scene>] [--mods <scene>] [--settings-search <text>]`,
 /// with the `screenshot` feature: renders the window offscreen after the wait (10 s by
 /// default: the core starts and the Host signs in), optionally with the first instance
 /// selected (on its `--tab`: `console`, `files`, …), sample toasts shown and the page
@@ -152,6 +159,10 @@ mod screenshot {
                             "uuid": "fake-smp", "name": "Survival SMP", "port": 25565,
                             "state": "Running", "version": "1.21.4",
                             "game_type": { "type": "MinecraftJava", "variant": { "type": "Fabric" } },
+                            "modpack": {
+                                "project_id": "1KVo5zza", "version_id": "fake-version",
+                                "name": "Fabulously Optimized", "version_number": "6.4.0",
+                            },
                         }))
                         .ok()?;
                         state.update(cx, |state, cx| {
@@ -334,6 +345,13 @@ mod screenshot {
                 cx.background_executor().timer(Duration::from_secs(4)).await;
             }
             if demo {
+                // the shell makes the page when it draws, and a hidden window hasn't
+                // drawn yet
+                gpui::AppContext::update_window(cx, window.into(), |_, window, cx| {
+                    window.refresh();
+                    window.draw(cx).clear(cx);
+                })
+                .ok();
                 window
                     .update(cx, |app, _, cx| {
                         let view = app.shell()?.read(cx).page_view()?;
@@ -359,6 +377,25 @@ mod screenshot {
                     .update(cx, |app, _, cx| {
                         let view = app.shell()?.read(cx).page_view()?;
                         lodestone_host::pages::friends_demo(&view, &scene, cx);
+                        Some(())
+                    })
+                    .ok();
+                cx.background_executor()
+                    .timer(Duration::from_millis(500))
+                    .await;
+            }
+            // `--mods many|last|pack|few[-end]`: sample mods on the Mods tab's Installed view
+            // (with `--tab mods --fake-instance`)
+            if let Some(scene) = arg_after("--mods") {
+                gpui::AppContext::update_window(cx, window.into(), |_, window, cx| {
+                    window.refresh();
+                    window.draw(cx).clear(cx);
+                })
+                .ok();
+                window
+                    .update(cx, |app, _, cx| {
+                        let view = app.shell()?.read(cx).page_view()?;
+                        lodestone_host::pages::mods_demo(&view, &scene, cx);
                         Some(())
                     })
                     .ok();

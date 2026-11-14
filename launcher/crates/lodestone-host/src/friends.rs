@@ -29,15 +29,26 @@
 //!   ([`sharing_allowed`]), so it never syncs a real friend list into a test core, or a
 //!   test one into the real core.
 //!
+//! - **Removing a friend doesn't end invite links.** A link works for whoever has it,
+//!   so when a sync drops friends from the core ([`removed_from`]) and a server is
+//!   still shared by link, the Host says so and offers new links
+//!   ([`FriendSharing::new_links`]); each such server's Share section says so too
+//!   ([`FriendSharing::link_warning`]) until its link is new.
+//!
 //! Failures are kept in [`FriendSharing::error`], in plain words, beside the last list
 //! that worked.
 
-use std::{collections::HashMap, path::Path, sync::Arc, time::Duration};
+use std::{
+    collections::HashMap,
+    path::Path,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use futures::lock::Mutex;
 use gpui::{AppContext as _, Context, Task, WeakEntity};
 use launcher_core::{
-    cores::admin::AdminClient,
+    cores::admin::{AdminClient, models::Game},
     friend_list::{
         self, Book, FriendStatus, Friends, FriendsError, Opened, StatePlayer,
         core_sync::{self, CoreFriends, SyncError},
@@ -48,7 +59,7 @@ use lodestone_connect::Service;
 
 use crate::{
     core_process,
-    i18n::{InstanceMsg as M, tr},
+    i18n::{InstanceMsg as M, InstancesMsg as SM, t, tr},
     keychain::KeychainStore,
     state::HostState,
 };
@@ -197,6 +208,28 @@ pub fn is_connected(core: Option<&CoreFriends>, key: &str) -> bool {
         .is_some_and(|f| f.connected)
 }
 
+/// The names of friends the core served before a sync and doesn't after: removed,
+/// retired, no longer active, or hidden from. They may still have a server's invite
+/// link.
+pub fn removed_from(before: &CoreFriends, after: &CoreFriends) -> Vec<String> {
+    before
+        .friends
+        .iter()
+        .filter(|was| !was.hidden)
+        .filter(|was| {
+            after
+                .friends
+                .iter()
+                .find(|now| now.key == was.key)
+                .is_none_or(|now| now.hidden)
+        })
+        .map(|was| was.name.clone())
+        .collect()
+}
+
+/// How long the toast about invite links stays: it asks for a decision.
+const LINK_TOAST: Duration = Duration::from_secs(30);
+
 /// Where sharing with friends stands.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Phase {
@@ -275,6 +308,8 @@ struct Outcome {
     whitelisted: Vec<String>,
     /// After a share: why the whitelist couldn't be changed (the friend's name, why).
     whitelist_failed: Option<(String, String)>,
+    /// Friends this sync took off the core ([`removed_from`]).
+    removed: Vec<String>,
 }
 
 /// Sharing with friends, for the Host's own core while signed in as its owner. Pages
@@ -306,6 +341,12 @@ pub struct FriendSharing {
     pub certificate_retired: bool,
     /// Giving the core a new friend certificate.
     pub renew: Renew,
+    /// Friends taken off the core since the Host started, who may still have invite
+    /// links, and when the last was.
+    removed: Vec<String>,
+    removed_at: Option<Instant>,
+    /// When each server's invite link was last made new here.
+    links_renewed: HashMap<String, Instant>,
     in_flight: usize,
     /// The friend list as last synced: a sync runs again when it changes.
     synced_view: Option<SyncView>,
@@ -344,6 +385,9 @@ impl FriendSharing {
             confirm: None,
             certificate_retired: false,
             renew: Renew::Idle,
+            removed: Vec::new(),
+            removed_at: None,
+            links_renewed: HashMap::new(),
             in_flight: 0,
             synced_view: None,
             sync_failed: false,
@@ -752,6 +796,138 @@ impl FriendSharing {
                 .update(cx, |state, cx| state.toast(toast, cx))
                 .ok();
         }
+        if !outcome.removed.is_empty() {
+            for name in &outcome.removed {
+                if !self.removed.contains(name) {
+                    self.removed.push(name.clone());
+                }
+            }
+            self.removed_at = Some(Instant::now());
+            self.warn_about_links(outcome.removed, cx);
+        }
+    }
+
+    /// The friends removed since `instance`'s invite link was made new here, who may
+    /// still have it.
+    pub fn link_warning(&self, instance: &str) -> Option<&[String]> {
+        let removed_at = self.removed_at?;
+        let renewed = self.links_renewed.get(instance);
+        (renewed.is_none_or(|at| *at < removed_at) && !self.removed.is_empty())
+            .then_some(self.removed.as_slice())
+    }
+
+    /// `instance` has a new invite link: removed friends' copies no longer work.
+    pub fn link_renewed(&mut self, instance: &str, cx: &mut Context<Self>) {
+        self.links_renewed
+            .insert(instance.to_string(), Instant::now());
+        cx.notify();
+    }
+
+    /// Hides the warnings about removed friends' links, everywhere.
+    pub fn dismiss_link_warnings(&mut self, cx: &mut Context<Self>) {
+        self.removed.clear();
+        self.removed_at = None;
+        cx.notify();
+    }
+
+    /// After `names` were taken off the core: when servers are still shared by invite
+    /// link, a toast names them and offers new links.
+    fn warn_about_links(&mut self, names: Vec<String>, cx: &mut Context<Self>) {
+        let Some(state) = self.state.upgrade() else {
+            return;
+        };
+        let (admin, servers) = {
+            let state = state.read(cx);
+            let servers: Vec<(String, String)> = state
+                .instances
+                .iter()
+                .flatten()
+                .filter(|i| matches!(i.game_type, Game::MinecraftJava { .. }))
+                .map(|i| (i.uuid.clone(), i.name.clone()))
+                .collect();
+            (state.admin.clone(), servers)
+        };
+        let task = cx.spawn(async move |this, cx| {
+            let shared = cx
+                .background_spawn(async move {
+                    let mut shared = Vec::new();
+                    for (uuid, name) in servers {
+                        if admin.share(&uuid).await.is_ok_and(|s| s.sharing) {
+                            shared.push((uuid, name));
+                        }
+                    }
+                    shared
+                })
+                .await;
+            if shared.is_empty() {
+                return;
+            }
+            this.update(cx, |this, cx| {
+                let weak = cx.entity().downgrade();
+                let servers: Vec<String> = shared.iter().map(|(_, name)| name.clone()).collect();
+                let toast = lodestone_ui::components::Toast::warning(tr!(
+                    SM::ShareRemovedFriendsToast,
+                    names = lodestone_ui::i18n::format::list(&names),
+                    servers = lodestone_ui::i18n::format::list(&servers)
+                ))
+                .key("removed-friends-links")
+                .duration(LINK_TOAST)
+                .action(t(SM::ShareNewLinks), move |_, cx| {
+                    let shared = shared.clone();
+                    weak.update(cx, |this, cx| this.new_links(shared, cx)).ok();
+                });
+                this.state
+                    .update(cx, |state, cx| state.toast(toast, cx))
+                    .ok();
+            })
+            .ok();
+        });
+        self.push(task);
+    }
+
+    /// Makes a new invite link for each of `servers` (uuid, name): the old ones stop
+    /// working and everyone playing through them is disconnected.
+    pub fn new_links(&mut self, servers: Vec<(String, String)>, cx: &mut Context<Self>) {
+        let Some(state) = self.state.upgrade() else {
+            return;
+        };
+        let admin = state.read(cx).admin.clone();
+        let task = cx.spawn(async move |this, cx| {
+            let results = cx
+                .background_spawn(async move {
+                    let mut results = Vec::new();
+                    for (uuid, name) in servers {
+                        let result = new_link(&admin, &uuid).await.map_err(|e| e.to_string());
+                        results.push((uuid, name, result));
+                    }
+                    results
+                })
+                .await;
+            this.update(cx, |this, cx| {
+                let mut failed = None;
+                for (uuid, name, result) in results {
+                    match result {
+                        Ok(_) => this.link_renewed(&uuid, cx),
+                        Err(why) => failed = failed.or(Some((name, why))),
+                    }
+                }
+                let toast = match failed {
+                    None => lodestone_ui::components::Toast::success(t(SM::ShareNewLinksMade)),
+                    Some((name, why)) => lodestone_ui::components::Toast::error(tr!(
+                        SM::ShareNewLinkFailed,
+                        name = name,
+                        error = why
+                    )),
+                };
+                this.state
+                    .update(cx, |state, cx| {
+                        state.toast(toast.key("removed-friends-links"), cx)
+                    })
+                    .ok();
+            })
+            .ok();
+        });
+        self.push(task);
     }
 
     /// Whether the Host tries again by itself after the current error: after a failed
@@ -842,6 +1018,10 @@ impl FriendSharing {
                 }
                 match scene {
                     "confirm" => self.confirm = Some((key('c'), instance.to_string())),
+                    "removed" => {
+                        self.removed = vec!["Riley".into()];
+                        self.removed_at = Some(Instant::now());
+                    }
                     "renew" => self.renew = Renew::Confirming,
                     "certificate" => self.certificate_retired = true,
                     "certificate-manual" => {
@@ -900,6 +1080,8 @@ async fn run(
         } => Some((key.clone(), instance.clone())),
         _ => None,
     };
+    // the core's list before the sync, to see who it takes off
+    let mut before = None;
     let synced = match job {
         Job::Check { last, force } => {
             if !force && last.as_ref() == Some(&view) {
@@ -920,6 +1102,7 @@ async fn run(
                 outcome.view = Some(view);
                 return outcome;
             }
+            before = Some(current);
             core_sync::sync(&mut friends, &admin, &name, Some(&source)).await
         }
         Job::Share {
@@ -929,6 +1112,7 @@ async fn run(
         } => match core_sync::read(&admin).await {
             Ok(current) => {
                 let list = shared_after(&current, &key, &instance, share);
+                before = Some(current);
                 core_sync::share(&mut friends, &admin, &name, Some(&source), &key, list).await
             }
             Err(err) => Err(err.into()),
@@ -952,6 +1136,9 @@ async fn run(
     };
     match synced {
         Ok(core) => {
+            if let Some(before) = &before {
+                outcome.removed = removed_from(before, &core);
+            }
             outcome.core = Some(Ok(core));
             // what the core got: the book as the sync read it
             outcome.view = Some(SyncView::of(&friends.book));
@@ -988,6 +1175,17 @@ async fn run(
     outcome.rows = listed(&friends.book);
     outcome.needs_launcher = needs_launcher(&friends.book);
     outcome
+}
+
+/// Makes a new invite link for `uuid`: ends the current one (everyone playing through
+/// it is disconnected) and shares again, which makes a new one.
+pub async fn new_link(
+    admin: &AdminClient,
+    uuid: &str,
+) -> Result<launcher_core::cores::admin::instances::InstanceShare, launcher_core::cores::CoreError>
+{
+    admin.stop_share(uuid).await?;
+    admin.start_share(uuid).await
 }
 
 /// Retires the core's current friend certificate (when `retire_current`, and it isn't

@@ -19,6 +19,7 @@ pub mod microsoft;
 pub mod minecraft;
 pub mod pkce;
 mod session;
+pub mod wardrobe;
 
 use serde::{Deserialize, Serialize};
 use url::Url;

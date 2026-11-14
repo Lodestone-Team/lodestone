@@ -76,6 +76,7 @@ pub fn text(message: M) -> &'static str {
         M::FilesCreateFolder => "创建文件夹",
         M::FilesRenameFile => "重命名文件",
         M::FilesNameRequired => "请输入名称。",
+        M::FilesNameTaken => "此处已有名为 {name} 的文件或文件夹。",
         M::FilesDeletedFile => "已删除文件：{name}",
         M::FilesDeletedFolder => "已删除文件夹：{path}",
         M::FilesMoveFailed => "移动 {name} 失败：{error}",

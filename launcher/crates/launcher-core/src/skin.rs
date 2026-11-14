@@ -176,6 +176,26 @@ pub async fn cached_profile_head(
         .map(Some)
 }
 
+/// The skin's image, from `textures`. `skin_url` is only followed to its texture hash
+/// ([`texture_hash`]), so nothing but the textures host is asked.
+pub async fn skin_png(
+    client: &dyn HttpClient,
+    textures: &Url,
+    skin_url: &str,
+) -> Result<Vec<u8>, SkinError> {
+    let hash = texture_hash(skin_url)
+        .ok_or_else(|| SkinError::Download("not a Minecraft texture".to_string()))?;
+    let request = http::get(&download_url(textures, &hash), None)
+        .map_err(|err| SkinError::Download(err.to_string()))?;
+    let response = http::send(client, request)
+        .await
+        .map_err(|err| SkinError::Download(err.to_string()))?;
+    if !response.is_success() {
+        return Err(SkinError::Download(format!("HTTP {}", response.status)));
+    }
+    Ok(response.body)
+}
+
 /// The cached head for the skin with texture hash `hash`, downloading and rendering
 /// it from `textures` if needed.
 async fn head_for_hash(
@@ -277,6 +297,35 @@ pub fn encode_png(image: &RgbaImage) -> Result<Vec<u8>, SkinError> {
         .write_to(&mut Cursor::new(&mut bytes), ImageFormat::Png)
         .map_err(|err| SkinError::Invalid(err.to_string()))?;
     Ok(bytes)
+}
+
+/// [`sample_skin`] painted on every side, with a shirt, arms, trousers and hair, for
+/// the screenshots of the skin dialog.
+pub fn sample_body_skin() -> RgbaImage {
+    let mut skin = sample_skin(true);
+    let mut fill = |x0: u32, y0: u32, w: u32, h: u32, colour: [u8; 3]| {
+        for y in 0..h {
+            for x in 0..w {
+                let shade = ((x + y) % 2) as u8 * 10;
+                skin.put_pixel(
+                    x0 + x,
+                    y0 + y,
+                    Rgba([colour[0] - shade, colour[1] - shade, colour[2] - shade, 255]),
+                );
+            }
+        }
+    };
+    // every side of each part, so the player can be seen from any angle: the body,
+    // the arms, the legs, and hair around and over the head
+    fill(16, 16, 24, 16, [40, 150, 190]);
+    fill(40, 16, 16, 16, [200, 150, 110]);
+    fill(32, 48, 16, 16, [200, 150, 110]);
+    fill(0, 16, 16, 16, [60, 60, 130]);
+    fill(16, 48, 16, 16, [60, 60, 130]);
+    fill(0, 8, 8, 8, [110, 70, 40]);
+    fill(16, 8, 16, 8, [110, 70, 40]);
+    fill(8, 0, 16, 8, [110, 70, 40]);
+    skin
 }
 
 /// A made-up skin, with every face and hat pixel distinct, for tests and the

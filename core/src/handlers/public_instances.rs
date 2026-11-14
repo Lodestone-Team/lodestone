@@ -34,7 +34,7 @@ use super::util::{all_instances, get_instance, AuthedUser};
 use crate::{
     auth::user::{User, UserAction},
     error::{Error, ErrorKind},
-    events::{Event, EventInner},
+    events::{Event, EventInner, InstanceEvent, InstanceEventInner},
     mods::{bad_request, client::build_client_pack, InstalledModLoader},
     prelude::GameInstance,
     public_listing::{
@@ -65,6 +65,7 @@ fn loader_of(variant: &MinecraftVariant) -> PublicLoader {
         MinecraftVariant::Vanilla => PublicLoader::Vanilla,
         MinecraftVariant::Fabric => PublicLoader::Fabric,
         MinecraftVariant::Forge => PublicLoader::Forge,
+        MinecraftVariant::NeoForge => PublicLoader::NeoForge,
         MinecraftVariant::Paper => PublicLoader::Paper,
         MinecraftVariant::Spigot => PublicLoader::Spigot,
         MinecraftVariant::Other { .. } => PublicLoader::Other,
@@ -218,12 +219,23 @@ async fn client_pack(
         };
     }
     let built = build_pack(state, &folder, &name, loader_version.as_deref()).await;
-    let pack = match &built {
-        Ok(pack) => CachedPack::Built(pack.clone()),
-        Err(e) => CachedPack::Failed(e.kind.clone(), e.source.to_string()),
-    };
-    *slot = Some(PackSlot { fingerprint, pack });
+    *slot = cached_outcome(&built).map(|pack| PackSlot { fingerprint, pack });
     built
+}
+
+/// What to keep of a build for later requests with the same mods folder: the pack, or a
+/// failure that building again would only repeat (such as a server whose players need no
+/// mods). `None` for a failure that may pass: Modrinth unreachable or rate limited (which
+/// is `External`), or a file that couldn't be read or written (`Internal`). The next
+/// request then tries again, as the message tells people to.
+fn cached_outcome(built: &Result<std::sync::Arc<BuiltPack>, Error>) -> Option<CachedPack> {
+    match built {
+        Ok(pack) => Some(CachedPack::Built(pack.clone())),
+        Err(e) => match e.kind {
+            ErrorKind::External | ErrorKind::Internal | ErrorKind::TooManyRequests => None,
+            _ => Some(CachedPack::Failed(e.kind.clone(), e.source.to_string())),
+        },
+    }
 }
 
 async fn build_pack(
@@ -430,11 +442,20 @@ fn check_change(
     Ok(())
 }
 
-/// What an instance shows, for the event log: "listed publicly (status, address)".
-fn describe(scope: PublicScope) -> String {
-    if !scope.listed {
-        return "no longer listed publicly".to_string();
+/// What changed in what an instance shows, for the event log: "listed publicly (status,
+/// address)", "no longer listed publicly", or the flags of a listed (or unlisted) one.
+fn describe(before: PublicScope, scope: PublicScope) -> String {
+    let shown = shown(scope);
+    match (before.listed, scope.listed) {
+        (false, true) => format!("listed publicly ({shown})"),
+        (true, false) => "no longer listed publicly".to_string(),
+        (true, true) => format!("now shows publicly: {shown}"),
+        (false, false) => format!("will show publicly, once listed: {shown}"),
     }
+}
+
+/// The flags of `scope` that are on: "status, address", or "name and version only".
+fn shown(scope: PublicScope) -> String {
     let shown: Vec<&str> = [
         (scope.status, "status"),
         (scope.address, "address"),
@@ -444,9 +465,9 @@ fn describe(scope: PublicScope) -> String {
     .filter_map(|(on, name)| on.then_some(name))
     .collect();
     if shown.is_empty() {
-        "listed publicly (name and version only)".to_string()
+        "name and version only".to_string()
     } else {
-        format!("listed publicly ({})", shown.join(", "))
+        shown.join(", ")
     }
 }
 
@@ -473,9 +494,15 @@ async fn set_public_listing(
     let before = state.public_listing.scope(&uuid);
     let scope = state.public_listing.change(&uuid, &change).await?;
     if scope != before {
+        // about this instance, so only those who can view it see it (with its name)
+        let name = instance.name().await;
         state.event_broadcaster.send(Event {
-            event_inner: EventInner::GlobalSettingsChanged,
-            details: format!("{} {}", instance.name().await, describe(scope)),
+            details: format!("{name} {}", describe(before, scope)),
+            event_inner: EventInner::InstanceEvent(InstanceEvent {
+                instance_uuid: uuid.clone(),
+                instance_name: name,
+                instance_event_inner: InstanceEventInner::PublicListingChanged { scope },
+            }),
             snowflake: Snowflake::default(),
             caused_by: requester.caused_by(),
         });

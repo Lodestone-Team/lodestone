@@ -421,6 +421,10 @@ mod tests {
             login_with_key(&core, "not a key").await.0,
             StatusCode::UNAUTHORIZED
         );
+        // in a table of their own: made-up key ids, which cost nothing to try, can't push
+        // a locked-out username out of the logins' table
+        assert_eq!(core.state.key_login_limiter.len(), 2);
+        assert_eq!(core.state.login_limiter.len(), 0);
     }
 
     #[tokio::test]
@@ -593,6 +597,60 @@ mod tests {
                 .0,
             StatusCode::OK
         );
+    }
+
+    #[tokio::test]
+    async fn only_sessions_and_full_keys_rename_their_user() {
+        let core = core().await;
+        let (empty, _) = core
+            .create_key(&core.owner_jwt, "empty", custom(UserPermission::default()))
+            .await;
+        let (launcher, _) = core
+            .create_key(&core.owner_jwt, "launcher", json!({ "type": "launcher" }))
+            .await;
+        let (full, _) = core
+            .create_key(&core.owner_jwt, "full", json!({ "type": "full" }))
+            .await;
+        let path = format!("/user/{}/rename", core.owner.uid);
+        let username = || async {
+            let (_, me) = core
+                .call(Method::GET, "/user/info", &core.owner_jwt, None)
+                .await;
+            me["username"].as_str().unwrap().to_string()
+        };
+
+        // scoped keys can't rename their own user, the owner here
+        for key in [&empty, &launcher] {
+            for name in ["", "x"] {
+                let (status, reply) = core.call(Method::PUT, &path, key, Some(json!(name))).await;
+                assert_eq!(status, StatusCode::FORBIDDEN, "{reply}");
+                assert_eq!(message(&reply), api_key::FULL_KEY_REQUIRED_MESSAGE);
+            }
+        }
+        assert_eq!(username().await, "owner");
+
+        // nor can anyone give a blank name or one with control characters
+        for token in [&core.owner_jwt, &full] {
+            for name in ["", "   ", "a\nb", &"x".repeat(65)] {
+                let (status, reply) = core
+                    .call(Method::PUT, &path, token, Some(json!(name)))
+                    .await;
+                assert_eq!(status, StatusCode::BAD_REQUEST, "{name:?}: {reply}");
+            }
+        }
+        assert_eq!(username().await, "owner");
+
+        // a full key and a session can, and the name is trimmed
+        let (status, _) = core
+            .call(Method::PUT, &path, &full, Some(json!(" boss ")))
+            .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(username().await, "boss");
+        let (status, _) = core
+            .call(Method::PUT, &path, &core.owner_jwt, Some(json!("owner")))
+            .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(username().await, "owner");
     }
 
     #[tokio::test]

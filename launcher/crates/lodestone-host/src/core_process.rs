@@ -34,7 +34,10 @@ pub const CORE_PROGRAM: &str = if cfg!(windows) {
 pub const DEFAULT_PORT: u16 = 16662;
 
 /// How long a stopping core may take (its servers stop first) before it is killed.
-pub const STOP_TIMEOUT: Duration = Duration::from_secs(20);
+/// Longer than the core's own 45 s deadline for its servers to stop (saving their
+/// worlds), after which it kills them: killing the core sooner would leave the servers
+/// running without it, and an update could then replace the core under them.
+pub const STOP_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// The core's log files are rotated once they pass this size.
 const MAX_LOG_BYTES: u64 = 5 * 1024 * 1024;
@@ -255,9 +258,12 @@ impl CoreProcess {
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt as _;
-            // no console window for the core
-            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-            command.creation_flags(CREATE_NO_WINDOW);
+            // No console at all for the core: CREATE_NO_WINDOW would still give it a hidden
+            // console, and a conhost.exe process to host it. The core needs none: its
+            // stdio is redirected above, it stops when stdin closes, and nothing sends it
+            // console control events.
+            const DETACHED_PROCESS: u32 = 0x0000_0008;
+            command.creation_flags(DETACHED_PROCESS);
         }
         let mut child = command.spawn()?;
         let stdin = child.stdin.take();
@@ -452,6 +458,32 @@ mod tests {
         }
         let log = fs::read_to_string(&config.log_file).unwrap();
         assert_eq!(log.trim(), "service=https://connect-dev.lodestone.cc data=");
+    }
+
+    /// Started without a console, the core still reads its stdin and writes its log, and
+    /// stops when the Host closes its stdin. `cmd.exe` stands in for it: it ignores the
+    /// core's arguments, runs the commands it reads from stdin, and exits at its end.
+    #[cfg(windows)]
+    #[test]
+    fn a_core_without_a_console_stops_when_its_stdin_closes() {
+        use std::io::Write as _;
+        let dir = tempfile::tempdir().unwrap();
+        let config = CoreConfig {
+            program: "cmd.exe".into(),
+            data_dir: dir.path().join("data"),
+            port: 17000,
+            log_file: dir.path().join("core.log"),
+            connect_service: None,
+        };
+        let mut process = CoreProcess::spawn(&config).unwrap();
+        let stdin = process.stdin.as_mut().unwrap();
+        stdin.write_all(b"echo through the pipe\r\n").unwrap();
+        stdin.flush().unwrap();
+        // a kill would end it with exit code 1
+        let status = process.stop(Duration::from_secs(10)).unwrap();
+        assert!(status.success(), "{status}");
+        let log = fs::read_to_string(&config.log_file).unwrap();
+        assert!(log.lines().any(|l| l == "through the pipe"), "{log}");
     }
 
     #[test]

@@ -367,12 +367,14 @@ mod tests {
             id: "abcdefghij12".to_string(),
             name: "ci".to_string(),
             expires_at: Some(now + 3600),
+            full: true,
         };
         assert!(update_cached_user(&unrelated, &mut user, &users_manager).await);
         user.auth_source = crate::auth::user::AuthSource::ApiKey {
             id: "abcdefghij12".to_string(),
             name: "ci".to_string(),
             expires_at: Some(now - 1),
+            full: true,
         };
         // any event closes the stream, not only events about the user
         assert!(!update_cached_user(&unrelated, &mut user, &users_manager).await);

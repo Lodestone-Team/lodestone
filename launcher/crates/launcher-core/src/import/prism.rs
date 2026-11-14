@@ -314,15 +314,8 @@ fn components(
         loader = Some(WantedLoader::new(kind, version));
     }
     let game = game.ok_or("mmc-pack.json has no net.minecraft component")?;
-    // NeoForge for 1.20.1 is a Forge 47.1 fork; this launcher runs it as Forge.
-    if let Some(l) = &mut loader
-        && l.kind == LoaderKind::NeoForge
-        && game == "1.20.1"
-    {
-        l.kind = LoaderKind::Forge;
-        notes
-            .push("NeoForge for Minecraft 1.20.1 runs as Forge 47.1 in Lodestone Launcher.".into());
-    }
+    // NeoForge for 1.20.1 is turned into Forge for every launcher's instances, by
+    // `Found::settle_loader`.
     Ok((WantedVersion::Exact(game), loader))
 }
 

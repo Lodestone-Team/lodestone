@@ -51,13 +51,14 @@ export const game_to_game_icon = (game: Game) =>
   });
 
 // Titles and descriptions in the current language (call them at render).
-// Product names (Minecraft, Forge, Fabric, Paper, Spigot) are not translated.
+// Product names (Minecraft, Forge, NeoForge, Fabric, Paper, Spigot) are not translated.
 export const game_to_game_title = (game: Game) =>
   match(game, {
     MinecraftJava: ({ variant }) =>
       match(variant, {
         Vanilla: () => 'Minecraft',
         Forge: () => 'Forge (Minecraft)',
+        NeoForge: () => 'NeoForge (Minecraft)',
         Fabric: () => 'Fabric (Minecraft)',
         Paper: () => 'Paper (Minecraft)',
         Spigot: () => 'Spigot (Minecraft)',
@@ -74,6 +75,7 @@ export const game_to_description = (game: Game) =>
       match(variant, {
         Vanilla: () => t('create.game.vanillaDescription'),
         Forge: () => t('create.game.forgeDescription'),
+        NeoForge: () => t('create.game.neoforgeDescription'),
         Fabric: () => t('create.game.fabricDescription'),
         Paper: () => t('create.game.paperDescription'),
         Spigot: () => t('create.game.spigotDescription'),
@@ -101,6 +103,12 @@ export const HandlerGameType_to_Game: Record<HandlerGameType, Game> = {
     type: 'MinecraftJava',
     variant: {
       type: 'Forge',
+    },
+  },
+  MinecraftNeoForge: {
+    type: 'MinecraftJava',
+    variant: {
+      type: 'NeoForge',
     },
   },
   MinecraftPaper: {

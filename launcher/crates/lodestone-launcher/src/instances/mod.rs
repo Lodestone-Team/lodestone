@@ -1,6 +1,7 @@
 //! The app's instances: the list from `launcher-core`, the selected one, and each
 //! instance's run (installing, playing) with its console log.
 
+pub mod add_modpack;
 pub mod appearance;
 mod auto_config;
 pub mod console;
@@ -8,6 +9,7 @@ pub mod content;
 pub mod fields;
 mod files;
 pub mod import;
+mod jobs;
 pub mod loader_picker;
 mod main_instance;
 pub mod mod_finder;
@@ -44,12 +46,12 @@ use launcher_core::{
     game::{
         crash::{self, CrashSummary, Outcome},
         download::{CancelToken, Downloader, ProgressSnapshot, Sleep, Verify},
-        install::{InstallError, InstallProgress, Installer, JavaChoice, Stage},
+        install::{self, InstallError, InstallProgress, Installer, JavaChoice, Rosetta, Stage},
         launch::{self, LaunchCommand},
         loaders::{LoaderChoice, LoaderKind, LoaderVersion},
         log4j::{self, Level, LogLine, Redactor, Stream},
         mojang::MojangUrls,
-        platform::{self, Platform},
+        platform::{self, Arch, Os, Platform},
         process::{GameEvent, GameProcess},
     },
     instances::{Instance, InstanceStore},
@@ -89,6 +91,12 @@ pub struct GameLog {
     pub revision: u64,
     /// Rows pushed since the start, never reset: where a reader of new rows is.
     pushed: u64,
+    /// Events pushed to `recent` since the start, never reset.
+    recent_pushed: u64,
+    /// Where the game's current run started ([`Self::start_run`]): the number of its
+    /// first event in `recent_pushed`, and of its first row in `pushed`. The log
+    /// lasts the whole session, and a crash is worked out from its own run only.
+    run_start: (u64, u64),
 }
 
 impl GameLog {
@@ -100,6 +108,21 @@ impl GameLog {
     /// which stays as older rows are dropped (for the Logs tab's selection).
     pub fn row_id(&self, index: usize) -> u64 {
         self.pushed - self.rows.len() as u64 + index as u64
+    }
+
+    /// A log of `rows` as they are: a file read from disk (the Logs tab's past logs
+    /// and crash reports).
+    pub fn from_rows(rows: impl IntoIterator<Item = LogRow>) -> Self {
+        let rows: VecDeque<LogRow> = rows.into_iter().collect();
+        let pushed = rows.len() as u64;
+        Self {
+            pushed,
+            revision: 1,
+            rows,
+            recent: VecDeque::new(),
+            recent_pushed: 0,
+            run_start: (0, pushed),
+        }
     }
 
     pub fn push(&mut self, line: LogLine) {
@@ -133,16 +156,33 @@ impl GameLog {
             self.rows.pop_front();
         }
         self.recent.push_back(line);
+        self.recent_pushed += 1;
         while self.recent.len() > 500 {
             self.recent.pop_front();
         }
         self.revision += 1;
     }
 
+    /// Marks where a new run of the game starts: the crash summary, its suspects and
+    /// the line under "Launching Minecraft" only read what comes after, not what an
+    /// earlier run of the session left in the log.
+    pub fn start_run(&mut self) {
+        self.run_start = (self.recent_pushed, self.pushed);
+    }
+
+    /// The current run's events still in `recent`.
+    fn run_events(&self) -> impl DoubleEndedIterator<Item = &LogLine> {
+        let first = self.recent_pushed - self.recent.len() as u64;
+        self.recent
+            .iter()
+            .skip(self.run_start.0.saturating_sub(first) as usize)
+    }
+
     /// The game's last line worth showing under "Launching Minecraft": its first
     /// line, without the launcher's own notes, warnings about the JVM or blank lines.
+    /// Only this run's: until the game says something, there is none.
     pub fn latest_game_line(&self) -> Option<SharedString> {
-        self.recent.iter().rev().take(40).find_map(|line| {
+        self.run_events().rev().take(40).find_map(|line| {
             if line.stream == Stream::Launcher || !matches!(line.level, Level::Info) {
                 return None;
             }
@@ -178,21 +218,38 @@ impl GameLog {
     pub fn to_text(&self, filter: impl Fn(&LogRow) -> bool) -> String {
         let mut text = String::new();
         for row in self.rows.iter().filter(|row| filter(row)) {
-            if let Some(time) = &row.time {
-                text.push_str(&format!("[{time}] "));
-            }
-            if let Some(source) = &row.source {
-                text.push_str(&format!("[{source}/{}] ", row.level));
-            }
-            text.push_str(&row.text);
-            text.push('\n');
+            push_row_text(&mut text, row);
         }
         text
     }
 
-    pub fn recent(&self) -> Vec<LogLine> {
-        self.recent.iter().cloned().collect()
+    /// The current run's last events, for the crash summary.
+    pub fn run_recent(&self) -> Vec<LogLine> {
+        self.run_events().cloned().collect()
     }
+
+    /// The current run's rows as text, for the crash dialog's "Copy log".
+    pub fn run_text(&self, filter: impl Fn(&LogRow) -> bool) -> String {
+        let first = self.pushed - self.rows.len() as u64;
+        let skip = self.run_start.1.saturating_sub(first) as usize;
+        let mut text = String::new();
+        for row in self.rows.iter().skip(skip).filter(|row| filter(row)) {
+            push_row_text(&mut text, row);
+        }
+        text
+    }
+}
+
+/// A row as a line of text: "[time] [source/LEVEL] text".
+fn push_row_text(text: &mut String, row: &LogRow) {
+    if let Some(time) = &row.time {
+        text.push_str(&format!("[{time}] "));
+    }
+    if let Some(source) = &row.source {
+        text.push_str(&format!("[{source}/{}] ", row.level));
+    }
+    text.push_str(&row.text);
+    text.push('\n');
 }
 
 /// What an instance is doing.
@@ -240,6 +297,24 @@ struct Run {
     /// Sends [`InstancesEvent::GameWindowOpened`] after a while if the log never
     /// says the window opened.
     window_wait: Option<Task<()>>,
+    /// The game, prepared, waiting for the player to agree to run it under Rosetta 2
+    /// ([`InstancesEvent::ConfirmRosetta`]); the run stays preparing meanwhile.
+    pending: Option<PendingStart>,
+}
+
+/// One of [`Instances::rosetta_note`]'s answers from a version file: the answer,
+/// whether the version file was found, and the reload generation it was looked at.
+type RosettaNote = (Option<Rosetta>, bool, u64);
+
+/// What a version file says about Java: the major version it names, and the Java it
+/// runs in without an override ([`install::default_java`]).
+type VersionJava = (u32, install::DefaultJava);
+
+/// A prepared game that starts once the player agrees to run it under Rosetta 2.
+struct PendingStart {
+    command: LaunchCommand,
+    rosetta: Rosetta,
+    outside: Vec<launcher_core::configurator::Outside>,
 }
 
 impl Default for Run {
@@ -253,6 +328,7 @@ impl Default for Run {
             ticker: None,
             window_opened: false,
             window_wait: None,
+            pending: None,
         }
     }
 }
@@ -294,6 +370,20 @@ pub struct CrashInfo {
     pub mods_refused: bool,
 }
 
+/// What a [`InstancesEvent::Notice`] or [`InstancesEvent::LaunchFailed`] is about, so
+/// the control API's jobs end with their own outcome and not with a notice about
+/// another instance that happened to come first.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum About {
+    /// Nothing in particular, such as a dropped file that isn't a modpack.
+    #[default]
+    Nothing,
+    /// The instance with this id.
+    Instance(String),
+    /// The modpack import with this job id (its instance doesn't exist until it ends).
+    Import(u64),
+}
+
 pub enum InstancesEvent {
     Crashed(CrashInfo),
     /// The game of the instance exited without crashing: closed, or stopped
@@ -310,11 +400,24 @@ pub enum InstancesEvent {
     LaunchFailed {
         title: SharedString,
         message: SharedString,
+        about: About,
     },
+    /// Preparing, verifying or starting the game of the instance failed: signing in, a
+    /// download, Java. Said apart from [`InstancesEvent::LaunchFailed`] so a "Find it for me"
+    /// search can tell its own try's failure from another job's.
+    PlayFailed {
+        id: String,
+        title: SharedString,
+        message: SharedString,
+    },
+    /// The preparation of the instance's game was cancelled before the game started.
+    /// Nothing exited or crashed, so no other event says the run is over.
+    PlayCancelled(String),
     /// Something to tell the user, such as the result of "Verify game files".
     Notice {
         title: SharedString,
         message: SharedString,
+        about: About,
     },
     /// The instance's loader was changed outside its Settings tab.
     LoaderChanged(String),
@@ -337,6 +440,13 @@ pub enum InstancesEvent {
     ConfirmMain {
         id: String,
         current: String,
+    },
+    /// The game of `id` is prepared to run under Rosetta 2 for the first time, for
+    /// `reason`: it starts once the player agrees ([`Instances::confirm_rosetta`]).
+    ConfirmRosetta {
+        id: String,
+        version: String,
+        reason: Rosetta,
     },
 }
 
@@ -367,6 +477,9 @@ pub struct Instances {
     /// Instances whose files are being copied, moved to the Trash or given an image,
     /// off the window's thread (see `files.rs`).
     file_ops: HashMap<String, FileOp>,
+    /// Instances whose files a job of their Content or Worlds tab, or a snapshot, is
+    /// writing (see `jobs.rs`).
+    busy_files: jobs::BusyCount,
     /// Instance images read for Undo, with the file's modification time and size when
     /// read: a change that leaves an image alone doesn't read it again.
     undo_images: HashMap<PathBuf, (SystemTime, u64, Arc<Vec<u8>>)>,
@@ -394,11 +507,15 @@ pub struct Instances {
     /// The instances linked to a server, as the Lodestone Host page last read their
     /// links: the sidebar groups them under Servers (see [`Self::set_linked`]).
     linked: HashSet<String>,
-    /// [`Self::required_java`]'s answers by game version: the instance Settings tab
-    /// asks on every frame, and each answer reads and parses a version file. An
-    /// installed version's answer never changes; a missing one is asked again after
-    /// a reload (the reload generation it was found at).
-    required_java: std::cell::RefCell<HashMap<String, (Option<u32>, u64)>>,
+    /// [`Self::required_java`]'s and [`Self::default_java`]'s answers by game version:
+    /// the instance Settings tab asks on every frame, and each answer reads and parses
+    /// a version file. An installed version's answer never changes; a missing one is
+    /// asked again after a reload (the reload generation it was found at).
+    required_java: std::cell::RefCell<HashMap<String, (Option<VersionJava>, u64)>>,
+    /// [`Self::rosetta_note`]'s answers from version files, by game version and Java
+    /// override: the header asks on every frame. With whether the version file was
+    /// found, and the reload generation it was looked for at, as for `required_java`.
+    rosetta_notes: std::cell::RefCell<HashMap<(String, Option<PathBuf>), RosettaNote>>,
     /// Goes up when an instance's slideshow changes, so the Play tab lists it again.
     slideshow_revision: u64,
     /// The instance whose background is decoded for the Play tab, and the one before,
@@ -411,6 +528,8 @@ pub struct Instances {
     loader_tasks: HashMap<(LoaderKind, String), Task<()>>,
     /// Exports in progress.
     exports: Vec<Task<()>>,
+    /// Exports still writing.
+    exporting: usize,
     /// Replaces the Play button's state, for the offscreen screenshots.
     preview_state: Option<PlayState>,
     /// What Play switches the Play button to instead of playing, for the offscreen
@@ -438,6 +557,9 @@ pub struct Instances {
         HashMap<String, Vec<launcher_core::content::curseforge_install::CfPlannedFile>>,
     /// Modpack updates in progress, by instance.
     modpack_updates: HashMap<String, modpacks::UpdateJob>,
+    /// Counts changes to an instance's content made outside its Content tab (a modpack
+    /// added, removed or updated), so the tab reads its lists again.
+    content_revisions: HashMap<String, u64>,
     /// Redraws while imports and updates run.
     import_ticker: Option<Task<()>>,
     /// Counts changes to the shared game settings made in the launcher's Settings, so
@@ -530,6 +652,7 @@ impl Instances {
             icons: HashMap::new(),
             icon_task: None,
             file_ops: HashMap::new(),
+            busy_files: jobs::BusyCount::default(),
             undo_images: HashMap::new(),
             backgrounds: HashMap::new(),
             background_tasks: HashMap::new(),
@@ -539,6 +662,7 @@ impl Instances {
             list_generation: 0,
             linked: HashSet::new(),
             required_java: Default::default(),
+            rosetta_notes: Default::default(),
             slideshow_revision: 0,
             background_shown: None,
             background_previous: None,
@@ -546,6 +670,7 @@ impl Instances {
             loader_versions: HashMap::new(),
             loader_tasks: HashMap::new(),
             exports: Vec::new(),
+            exporting: 0,
             preview_state: None,
             preview_press: None,
             shared_revision: 0,
@@ -559,6 +684,7 @@ impl Instances {
             snapshot_rows: HashMap::new(),
             snapshot_tasks: HashMap::new(),
             modpack_updates: HashMap::new(),
+            content_revisions: HashMap::new(),
             import_ticker: None,
         };
         this.reload(cx);
@@ -717,6 +843,17 @@ impl Instances {
         self.runs
             .values()
             .any(|run| matches!(run.state, RunState::Preparing { .. }))
+    }
+
+    /// Whether the launcher is busy with work that quitting would stop half way: a
+    /// modpack being imported or updated, an export, files being copied or moved to
+    /// the Trash, a loader being switched.
+    pub fn background_jobs(&self) -> bool {
+        !self.imports.is_empty()
+            || !self.modpack_updates.is_empty()
+            || !self.file_ops.is_empty()
+            || self.exporting > 0
+            || self.loader_switch.is_some()
     }
 
     /// Whether any game is running.
@@ -1084,6 +1221,16 @@ impl Instances {
         cx.notify();
     }
 
+    /// How many times the instance's content changed outside its Content tab.
+    pub fn content_revision(&self, id: &str) -> u64 {
+        self.content_revisions.get(id).copied().unwrap_or(0)
+    }
+
+    /// Notes that the instance's content changed outside its Content tab.
+    pub(crate) fn content_changed(&mut self, id: &str) {
+        *self.content_revisions.entry(id.to_string()).or_default() += 1;
+    }
+
     pub fn is_active(&self, id: &str) -> bool {
         self.runs
             .get(id)
@@ -1193,9 +1340,12 @@ impl Instances {
             export::write(&plan, &out)?;
             Ok::<_, export::ExportError>((plan, out))
         });
+        self.exporting += 1;
+        let id = id.to_string();
         self.exports.push(cx.spawn(async move |this, cx| {
             let result = write.await;
-            this.update(cx, |_, cx| {
+            this.update(cx, |this, cx| {
+                this.exporting -= 1;
                 cx.emit(match result {
                     Ok((plan, out)) => {
                         let saved = trn!(
@@ -1230,11 +1380,13 @@ impl Instances {
                         InstancesEvent::Notice {
                             title: t(M::ModpackExported).into(),
                             message: message.into(),
+                            about: About::Instance(id.clone()),
                         }
                     }
                     Err(err) => InstancesEvent::LaunchFailed {
                         title: t(M::CouldntExportModpack).into(),
                         message: err.to_string().into(),
+                        about: About::Instance(id.clone()),
                     },
                 });
             })
@@ -1259,6 +1411,17 @@ impl Instances {
 
     /// The Java major version `game_version` needs, if its version file is installed.
     pub fn required_java(&self, game_version: &str) -> Option<u32> {
+        self.version_java(game_version).map(|(major, _)| major)
+    }
+
+    /// The Java `game_version` runs in when the instance chooses none, if its version
+    /// file is installed: on an Apple silicon Mac it may not be the one the version
+    /// names ([`install::default_java`]).
+    pub fn default_java(&self, game_version: &str) -> Option<install::DefaultJava> {
+        self.version_java(game_version).map(|(_, java)| java)
+    }
+
+    fn version_java(&self, game_version: &str) -> Option<VersionJava> {
         if game_version.is_empty()
             || game_version.contains(['/', '\\'])
             || game_version.starts_with('.')
@@ -1278,7 +1441,12 @@ impl Instances {
         let java = std::fs::read(path).ok().and_then(|bytes| {
             launcher_core::game::version::VersionJson::parse(&bytes)
                 .ok()
-                .map(|version| version.java_major())
+                .map(|version| {
+                    (
+                        version.java_major(),
+                        install::default_java(&version, &self.machine),
+                    )
+                })
         });
         self.required_java
             .borrow_mut()
@@ -1307,6 +1475,23 @@ impl Instances {
         self.pending_downloads.remove(id)
     }
 
+    /// Gives back files the Content tab took with [`Self::take_pending_downloads`] and
+    /// that aren't in the instance yet, when it stops showing the instance: its card
+    /// comes back with them. Files left since (a pack added meanwhile) follow them.
+    pub fn put_back_pending_downloads(
+        &mut self,
+        id: &str,
+        files: Vec<launcher_core::content::curseforge_install::CfPlannedFile>,
+    ) {
+        // an instance that is gone has no card to show (and a new one may get its id)
+        if files.is_empty() || !self.list.iter().any(|instance| instance.id == id) {
+            return;
+        }
+        let pending = self.pending_downloads.entry(id.to_string()).or_default();
+        let newer = std::mem::replace(pending, files);
+        pending.extend(newer);
+    }
+
     /// The CurseForge client, when this build has an API key and the app is online.
     pub fn curseforge(&self) -> Option<Arc<CurseForge>> {
         self.curseforge.clone()
@@ -1326,6 +1511,17 @@ impl Instances {
     pub fn preview_offline(&mut self) {
         self.modrinth = None;
         self.curseforge = None;
+    }
+
+    /// Has the Content tab offer Modrinth's projects while staying off the network:
+    /// every request to it fails (the list says Modrinth couldn't be reached), for
+    /// the offscreen screenshots of "Looking for something new?".
+    pub fn preview_modrinth_unreachable(&mut self) {
+        self.modrinth = Some(Arc::new(Modrinth::with_urls(
+            Arc::new(http_client::BlockedHttpClient::new()),
+            url::Url::parse(launcher_core::content::modrinth::API_BASE).expect("a valid URL"),
+            None,
+        )));
     }
 
     pub fn content_downloader(&self) -> Downloader {
@@ -1393,6 +1589,7 @@ impl Instances {
                     cx.emit(InstancesEvent::LaunchFailed {
                         title: t(M::CouldntSwitchLoader).into(),
                         message: message.into(),
+                        about: About::Instance(id.clone()),
                     });
                     cx.notify();
                 };
@@ -1418,6 +1615,7 @@ impl Instances {
                                 version = version.display
                             )
                             .into(),
+                            about: About::Instance(id.clone()),
                         });
                     }
                     Err(err) => failed(err, cx),
@@ -1476,6 +1674,60 @@ impl Instances {
         };
     }
 
+    /// Makes `id`'s game prepared and waiting for the Rosetta question, as
+    /// [`Self::start_or_ask`] leaves it, and asks it; for tests. Nothing can start: the
+    /// command runs a program that doesn't exist.
+    #[cfg(test)]
+    pub fn test_ask_rosetta(&mut self, id: &str, cx: &mut Context<Self>) {
+        use launcher_core::game::{
+            launch::{self, GameSettings, LaunchAccount, LaunchPaths},
+            version::VersionJson,
+        };
+        let version = VersionJson::parse(
+            br#"{"id": "1.12.2", "mainClass": "net.minecraft.client.main.Main",
+                 "minecraftArguments": "--username ${auth_player_name}"}"#,
+        )
+        .unwrap();
+        let paths = LaunchPaths {
+            java: "/nonexistent/java".into(),
+            game_dir: "/nonexistent/game".into(),
+            natives_dir: "/nonexistent/natives".into(),
+            libraries_dir: "/nonexistent/libraries".into(),
+            assets_dir: "/nonexistent/assets".into(),
+            game_assets: "/nonexistent/assets".into(),
+            classpath: Vec::new(),
+            logging_config: None,
+        };
+        let account = LaunchAccount {
+            username: "Tester".into(),
+            uuid: Default::default(),
+            access_token: launcher_core::Secret::new("test"),
+            xuid: None,
+            user_type: launcher_core::game::launch::UserType::Legacy,
+        };
+        let command = launch::build(
+            &version,
+            &self.machine,
+            &paths,
+            &account,
+            &GameSettings::default(),
+        )
+        .unwrap();
+        self.preview_preparing(id, Arc::new(InstallProgress::default()));
+        if let Some(run) = self.runs.get_mut(id) {
+            run.pending = Some(PendingStart {
+                command,
+                rosetta: Rosetta::Version,
+                outside: Vec::new(),
+            });
+        }
+        cx.emit(InstancesEvent::ConfirmRosetta {
+            id: id.to_string(),
+            version: "1.12.2".into(),
+            reason: Rosetta::Version,
+        });
+    }
+
     /// Shows the Play button in `state`, for the offscreen screenshots.
     pub fn preview_play_state(&mut self, state: PlayState) {
         self.preview_state = Some(state);
@@ -1519,14 +1771,17 @@ impl Instances {
             cx.emit(InstancesEvent::LaunchFailed {
                 title: t(M::ModpackUpdating).into(),
                 message: t(M::WaitForUpdate).into(),
+                about: About::Instance(id.to_string()),
             });
             return;
         }
-        // its folder is on its way to the Trash
-        if self.file_op(id) == Some(FileOp::Delete) {
+        // its folder is on its way to the Trash, or a tab is still installing mods or
+        // restoring a world into it
+        if self.file_op(id) == Some(FileOp::Delete) || self.files_busy(id) {
             cx.emit(InstancesEvent::LaunchFailed {
                 title: t(M::CouldntStartMinecraft).into(),
                 message: t(M::FilesBusy).into(),
+                about: About::Instance(id.to_string()),
             });
             return;
         }
@@ -1538,6 +1793,7 @@ impl Instances {
         let run = self.runs.entry(id.to_string()).or_default();
         run.reached_menu = false;
         run.mods_refused = false;
+        run.log.start_run();
         run.log.note(
             Level::Info,
             tr!(
@@ -1585,6 +1841,7 @@ impl Instances {
                 .is_some_and(|state| !state.options);
         let id = id.to_string();
         let run_id = id.clone();
+        let stop = cancel.clone();
         let task = cx.spawn(async move |this, cx| {
             let account = match account.await {
                 Ok(account) => account,
@@ -1634,7 +1891,8 @@ impl Instances {
                         join.as_ref(),
                     )
                     .map_err(|err| InstallError::Invalid(err.to_string()))?;
-                    let outside = if find_outside {
+                    // not worth the scan once cancelled
+                    let outside = if find_outside && !cancel.is_cancelled() {
                         launcher_core::configurator::outside_candidates()
                     } else {
                         Vec::new()
@@ -1643,6 +1901,9 @@ impl Instances {
                 })
                 .await;
             this.update(cx, |this, cx| match prepared {
+                // Cancelled after the last check that would have seen it (making the
+                // natives or the command): not started either.
+                Ok(_) if stop.is_cancelled() => this.prepare_cancelled(&id, cx),
                 Ok((command, rosetta, outside)) => {
                     this.take_notes(&id);
                     if let Some(run) = this.runs.get_mut(&id) {
@@ -1651,18 +1912,25 @@ impl Instances {
                             check_summary(&stats_progress, check_started.elapsed()),
                         );
                     }
-                    this.start(&id, command, rosetta, outside, cx)
+                    this.start_or_ask(&id, command, rosetta, outside, cx)
                 }
-                Err(InstallError::Cancelled) => {
-                    if let Some(run) = this.runs.get_mut(&id) {
-                        run.log.note(Level::Warn, t(M::Cancelled));
-                    }
-                    this.set_idle(&id, cx);
-                }
+                Err(InstallError::Cancelled) => this.prepare_cancelled(&id, cx),
                 Err(InstallError::RosettaMissing) => this.fail(
                     &id,
                     t(M::RosettaNeeded).into(),
                     rosetta_missing().into(),
+                    cx,
+                ),
+                Err(InstallError::NoNativeJava8) => this.fail(
+                    &id,
+                    t(M::CouldntStartMinecraft).into(),
+                    t(M::NoNativeJava8).into(),
+                    cx,
+                ),
+                Err(InstallError::NeedsIntelJava(version)) => this.fail(
+                    &id,
+                    t(M::CouldntStartMinecraft).into(),
+                    tr!(M::NeedsIntelJava, version = version).into(),
                     cx,
                 ),
                 Err(err) => this.fail(
@@ -1748,6 +2016,7 @@ impl Instances {
                         } else {
                             trn!(P::FilesRepaired, repaired, summary = summary).into()
                         },
+                        about: About::Instance(id.clone()),
                     });
                 }
                 Err(InstallError::Cancelled) => {
@@ -1790,6 +2059,15 @@ impl Instances {
         cx.notify();
     }
 
+    /// The game's preparation was cancelled: nothing started.
+    fn prepare_cancelled(&mut self, id: &str, cx: &mut Context<Self>) {
+        if let Some(run) = self.runs.get_mut(id) {
+            run.log.note(Level::Warn, t(M::Cancelled));
+        }
+        self.set_idle(id, cx);
+        cx.emit(InstancesEvent::PlayCancelled(id.to_string()));
+    }
+
     fn fail(
         &mut self,
         id: &str,
@@ -1808,14 +2086,151 @@ impl Instances {
             || serde_json::json!({ "instance": id, "title": title.to_string(), "message": message.to_string() }),
         );
         self.set_idle(id, cx);
-        cx.emit(InstancesEvent::LaunchFailed { title, message });
+        cx.emit(InstancesEvent::PlayFailed {
+            id: id.to_string(),
+            title,
+            message,
+        });
+    }
+
+    /// Starts the prepared game, unless it runs under Rosetta 2 on this Apple silicon
+    /// Mac for the first time for the instance: then the player is asked first
+    /// ([`InstancesEvent::ConfirmRosetta`]), and it starts only once they agree
+    /// ([`Self::confirm_rosetta`]). Whether, and why, it runs under Rosetta is recorded
+    /// for the instance's header either way. The launcher never runs a game under
+    /// Rosetta without saying so.
+    fn start_or_ask(
+        &mut self,
+        id: &str,
+        command: LaunchCommand,
+        rosetta: Option<Rosetta>,
+        outside: Vec<launcher_core::configurator::Outside>,
+        cx: &mut Context<Self>,
+    ) {
+        if self.machine.os != Os::MacOs || self.machine.arch != Arch::Arm64 {
+            return self.start(id, command, rosetta, outside, cx);
+        }
+        let ask = match self.store.record_rosetta(id, rosetta) {
+            Ok((instance, ask)) => {
+                let version = instance.game_version.clone();
+                self.update_listed(instance, cx);
+                ask.then_some(version)
+            }
+            Err(err) => {
+                // Not saved: asked all the same, unless the player already agreed.
+                eprintln!("lodestone-launcher: saving the instance {id}: {err}");
+                let instance = self.store.get(id).ok();
+                let told = |reason| {
+                    instance
+                        .as_ref()
+                        .is_some_and(|i| i.told_about_rosetta(reason))
+                };
+                rosetta
+                    .is_some_and(|reason| !told(reason))
+                    .then(|| instance.map(|i| i.game_version).unwrap_or_default())
+            }
+        };
+        match (ask, rosetta) {
+            (Some(version), Some(reason)) => {
+                let Some(run) = self.runs.get_mut(id) else {
+                    return;
+                };
+                run.pending = Some(PendingStart {
+                    command,
+                    rosetta: reason,
+                    outside,
+                });
+                cx.emit(InstancesEvent::ConfirmRosetta {
+                    id: id.to_string(),
+                    version,
+                    reason,
+                });
+                cx.notify();
+            }
+            _ => self.start(id, command, rosetta, outside, cx),
+        }
+    }
+
+    /// The player's answer to [`InstancesEvent::ConfirmRosetta`]: `play` starts the
+    /// waiting game, and it isn't asked again for the instance and this reason;
+    /// otherwise nothing starts, and it is asked again next time. Nothing happens when
+    /// no game waits (it was cancelled meanwhile).
+    pub fn confirm_rosetta(&mut self, id: &str, play: bool, cx: &mut Context<Self>) {
+        let Some(pending) = self.runs.get_mut(id).and_then(|run| run.pending.take()) else {
+            return;
+        };
+        if !play {
+            self.prepare_cancelled(id, cx);
+            return;
+        }
+        match self.store.record_told_rosetta(id, pending.rosetta) {
+            Ok(instance) => self.update_listed(instance, cx),
+            // Only the answer is lost: asked again next time.
+            Err(err) => eprintln!("lodestone-launcher: saving the instance {id}: {err}"),
+        }
+        self.start(
+            id,
+            pending.command,
+            Some(pending.rosetta),
+            pending.outside,
+            cx,
+        );
+    }
+
+    /// Whether this is an Apple silicon Mac, where some versions run in another Java
+    /// than the one they name, or under Rosetta 2.
+    pub fn on_apple_silicon(&self) -> bool {
+        self.machine.os == Os::MacOs && self.machine.arch == Arch::Arm64
+    }
+
+    /// Whether, and why, the instance's game runs under Rosetta 2 on this Mac, for its
+    /// header: what its last preparation for this version found, or before that, what
+    /// its installed version file and its Java say ([`install::rosetta_for`]). `None`
+    /// on other machines, and when nothing is known yet (the version isn't installed:
+    /// the player is asked before the first game anyway).
+    pub fn rosetta_note(&self, instance: &Instance) -> Option<Rosetta> {
+        if !self.on_apple_silicon() {
+            return None;
+        }
+        if let Some(prepared) = instance.prepared_rosetta() {
+            return prepared;
+        }
+        let version = &instance.game_version;
+        if version.is_empty() || version.contains(['/', '\\']) || version.starts_with('.') {
+            return None;
+        }
+        let key = (version.clone(), instance.java_override.clone());
+        if let Some((rosetta, found, generation)) = self.rosetta_notes.borrow().get(&key)
+            && (*found || *generation == self.list_generation)
+        {
+            return *rosetta;
+        }
+        let path = self
+            .data_dir
+            .versions_dir()
+            .join(version)
+            .join(format!("{version}.json"));
+        let json = std::fs::read(path)
+            .ok()
+            .and_then(|bytes| launcher_core::game::version::VersionJson::parse(&bytes).ok());
+        let java = match &instance.java_override {
+            Some(path) => JavaChoice::Override(path.clone()),
+            None => JavaChoice::Mojang,
+        };
+        let rosetta = json
+            .as_ref()
+            .and_then(|json| install::rosetta_for(json, &self.machine, &java));
+        self.rosetta_notes
+            .borrow_mut()
+            .insert(key, (rosetta, json.is_some(), self.list_generation));
+        rosetta
     }
 
     fn start(
         &mut self,
         id: &str,
         command: LaunchCommand,
-        rosetta: bool,
+        rosetta: Option<Rosetta>,
         outside: Vec<launcher_core::configurator::Outside>,
         cx: &mut Context<Self>,
     ) {
@@ -1829,7 +2244,7 @@ impl Instances {
         if let RunState::Preparing { progress, .. } = &run.state {
             progress.set_stage(Stage::Starting);
         }
-        if rosetta {
+        if rosetta.is_some() {
             run.log.note(Level::Info, t(M::RosettaNote));
         }
         // The command line is shown with the access token redacted.
@@ -2033,8 +2448,8 @@ impl Instances {
                 // Finding the mods involved opens their jars, so the report is read and
                 // the crash worked out off the window's thread. It takes well under a
                 // second: the game has just read the same files.
-                let recent = run.log.recent();
-                let log_text = run.log.to_text(|_| true);
+                let recent = run.log.run_recent();
+                let log_text = run.log.run_text(|_| true);
                 let instance_id = id.to_string();
                 let work = cx.background_spawn(async move {
                     let report_text = report
@@ -2078,6 +2493,12 @@ impl Instances {
         cx.emit(InstancesEvent::GameExited(id.to_string()));
     }
 
+    /// Whether the instance's prepared game waits for the player's answer to
+    /// [`InstancesEvent::ConfirmRosetta`].
+    pub fn waits_for_rosetta(&self, id: &str) -> bool {
+        self.runs.get(id).is_some_and(|run| run.pending.is_some())
+    }
+
     /// Cancels the preparation, or kills the game.
     pub fn stop(&mut self, id: &str, cx: &mut Context<Self>) {
         // the offscreen screenshots' Play button, back to Play (`--click` on Cancel)
@@ -2092,6 +2513,12 @@ impl Instances {
             RunState::Idle => {}
             RunState::Preparing { cancel, .. } => {
                 cancel.cancel();
+                // Prepared, waiting for the player to agree to Rosetta 2: nothing else
+                // would end the run.
+                if run.pending.take().is_some() {
+                    self.prepare_cancelled(id, cx);
+                    return;
+                }
                 run.log.note(Level::Warn, t(M::CancellingNote));
             }
             RunState::Running { process, .. } => {
@@ -2235,10 +2662,54 @@ pub enum Ago {
     On(String),
 }
 
+/// The earliest time (Unix seconds) at which an "ago" label drawn since the shell's
+/// clock last redrew the window reads differently: see [`Ago::label_changed`].
+static NEXT_AGO_CHANGE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(u64::MAX);
+
 impl Ago {
-    /// How long ago `then` (Unix seconds) was, in this Mac's time zone.
+    /// How long ago `then` (Unix seconds) was, in this computer's time zone. Notes when
+    /// the label will change, for the shell's clock.
     pub fn since(then: u64) -> Self {
-        Self::between(then, launcher_core::instances::now(), &chrono::Local)
+        let now = launcher_core::instances::now();
+        let ago = Self::between(then, now, &chrono::Local);
+        NEXT_AGO_CHANGE.fetch_min(
+            ago.changes_at(then, now, &chrono::Local),
+            std::sync::atomic::Ordering::Relaxed,
+        );
+        ago
+    }
+
+    /// Whether a label drawn since the last call now reads differently, so the window
+    /// should be drawn again. Forgets the labels: drawing them again notes them anew.
+    pub fn label_changed(now: u64) -> bool {
+        use std::sync::atomic::Ordering::Relaxed;
+        if now < NEXT_AGO_CHANGE.load(Relaxed) {
+            return false;
+        }
+        NEXT_AGO_CHANGE.store(u64::MAX, Relaxed);
+        true
+    }
+
+    /// When (Unix seconds) this label, for `then` at `now`, next reads differently: at
+    /// the next minute or hour it counts, or the next midnight in `zone`, whichever
+    /// comes first.
+    pub fn changes_at<Tz: chrono::TimeZone>(&self, then: u64, now: u64, zone: &Tz) -> u64 {
+        let midnight = zone
+            .timestamp_opt(now.min(i64::MAX as u64) as i64, 0)
+            .earliest()
+            .and_then(|time| time.date_naive().succ_opt())
+            .and_then(|day| day.and_hms_opt(0, 0, 0))
+            .and_then(|start| zone.from_local_datetime(&start).earliest())
+            .map(|start| start.timestamp().max(0) as u64)
+            .unwrap_or(now.saturating_add(3600));
+        let counted = match self {
+            Ago::JustNow => then.saturating_add(60),
+            Ago::Minutes(n) => then.saturating_add(60 * (n + 1)),
+            Ago::Hours(n) => then.saturating_add(3600 * (n + 1)),
+            Ago::Yesterday | Ago::Days(_) | Ago::On(_) => u64::MAX,
+        };
+        // never before now: a label that should already have changed changes at once
+        counted.min(midnight).max(now)
     }
 
     /// How long before `now` `then` was, by the calendar of `zone`. A time after
@@ -2355,6 +2826,45 @@ mod tests {
     }
 
     #[test]
+    fn knows_when_its_label_changes() {
+        use chrono::TimeZone;
+        let utc = chrono::Utc;
+        let at = |y, mo, d, h, mi, s| {
+            utc.with_ymd_and_hms(y, mo, d, h, mi, s)
+                .unwrap()
+                .timestamp() as u64
+        };
+        let now = at(2026, 11, 8, 15, 0, 0);
+        let changes = |then: u64| Ago::between(then, now, &utc).changes_at(then, now, &utc);
+        // "Just now" until a minute has passed, then each minute
+        assert_eq!(changes(now - 10), now + 50);
+        assert_eq!(changes(now - 5 * 60 - 20), now + 40);
+        // each hour, or at midnight if that comes first
+        assert_eq!(changes(now - 2 * 3600 - 600), now + 3000);
+        assert_eq!(
+            changes(at(2026, 11, 8, 0, 30, 0)),
+            at(2026, 11, 8, 15, 30, 0)
+        );
+        let late = at(2026, 11, 8, 23, 40, 0);
+        assert_eq!(
+            Ago::between(late - 3 * 3600, late, &utc).changes_at(late - 3 * 3600, late, &utc),
+            at(2026, 11, 9, 0, 0, 0)
+        );
+        // days and dates: at midnight
+        assert_eq!(changes(at(2026, 11, 7, 12, 0, 0)), at(2026, 11, 9, 0, 0, 0));
+        assert_eq!(changes(at(2026, 3, 12, 9, 0, 0)), at(2026, 11, 9, 0, 0, 0));
+        // a clock that moved back: "Just now" until a minute after `then`
+        assert_eq!(changes(now + 300), now + 360);
+        // the label it gives then really is different, and the one a second before isn't
+        for then in [now - 10, now - 5 * 60 - 20, now - 2 * 3600 - 600] {
+            let change = changes(then);
+            let label = |at: u64| Ago::between(then, at, &utc);
+            assert_eq!(label(change - 1), label(now));
+            assert_ne!(label(change), label(now));
+        }
+    }
+
+    #[test]
     fn formats_progress() {
         let state = progress_state(
             Stage::Assets,
@@ -2412,5 +2922,52 @@ mod tests {
             log.to_text(|_| true),
             "[main/INFO] two\nlines\njava.lang.Error\n    at x\n"
         );
+    }
+
+    /// A crash is worked out from its own run: an earlier run's exception, causes and
+    /// last line, still in the session's log, are left out (LS-59).
+    #[test]
+    fn a_run_reads_only_its_own_lines() {
+        let mut log = GameLog::default();
+        log.start_run();
+        log.push(LogLine::plain(Stream::Stdout, "Stopping!"));
+        log.push(LogLine::plain(
+            Stream::Stderr,
+            "Exception in thread \"main\" java.lang.OutOfMemoryError: Java heap space",
+        ));
+        log.note(Level::Error, "Exited with code 1");
+        assert!(log.latest_game_line().is_some());
+
+        log.start_run();
+        log.note(Level::Info, "Preparing 1.21.1");
+        assert_eq!(log.latest_game_line(), None, "not the last run's line");
+        log.push(LogLine::plain(
+            Stream::Stderr,
+            "# A fatal error has been detected by the Java Runtime Environment:",
+        ));
+        log.note(Level::Error, "Exited with code 134");
+        let recent = log.run_recent();
+        assert_eq!(recent.len(), 3);
+        let summary = crash::summarize(None, &recent);
+        assert_eq!(summary.exception, None, "{summary:?}");
+        assert!(
+            !summary.causes.contains(&crash::Cause::OutOfMemory),
+            "{summary:?}"
+        );
+        let text = log.run_text(|_| true);
+        assert!(text.contains("Preparing 1.21.1"), "{text}");
+        assert!(!text.contains("OutOfMemoryError"), "{text}");
+        assert!(
+            log.to_text(|_| true).contains("OutOfMemoryError"),
+            "the console keeps it"
+        );
+
+        // A run longer than what is kept still reads its last events.
+        log.start_run();
+        for n in 0..600 {
+            log.push(LogLine::plain(Stream::Stdout, &format!("line {n}")));
+        }
+        assert_eq!(log.run_recent().len(), 500);
+        assert_eq!(log.latest_game_line().as_deref(), Some("line 599"));
     }
 }

@@ -133,6 +133,9 @@ impl Installer {
     /// each. Some old jars have no `.sha1` file (Forge 1.8.9's Scala libraries); those
     /// are downloaded and hashed instead, and [`forge::normalize_legacy`] still
     /// requires the result to be one of the profile's `checksums` when it lists any.
+    /// The jar is read through the downloader, with its retries and no size limit:
+    /// a `.sha1` request that failed once makes a jar of many megabytes (Scala's
+    /// compiler) take this path too.
     async fn maven_sha1s(
         &self,
         urls: Vec<String>,
@@ -150,7 +153,11 @@ impl Installer {
                 };
                 let sha1 = match listed {
                     Some(sha1) => sha1,
-                    None => sha1_hex(&self.fetch(&url).await?),
+                    None => {
+                        self.downloader
+                            .sha1_of_url(&self.urls.resolve(&url)?, cancel)
+                            .await?
+                    }
                 };
                 Ok((url, sha1))
             }))
@@ -244,24 +251,7 @@ impl Installer {
         progress: &InstallProgress,
         cancel: &CancelToken,
     ) -> Result<Value, InstallError> {
-        let url = forge::installer_url(choice.kind, &choice.version)?;
-        let sha1 = self
-            .maven_sha1s(vec![url.clone()], cancel)
-            .await?
-            .remove(&url)
-            .expect("asked for this URL");
-        self.downloader
-            .fetch(
-                &DownloadItem {
-                    url: self.urls.resolve(&url)?,
-                    dest: installer.to_owned(),
-                    sha1,
-                    size: None,
-                    executable: false,
-                },
-                &progress.downloads,
-                cancel,
-            )
+        self.fetch_installer(choice, installer, progress, cancel)
             .await?;
         let mut jar = InstallerJar::open(installer)?;
         let wrong_game = |wanted: &str| {
@@ -309,6 +299,37 @@ impl Installer {
                 Ok(normalized)
             }
         }
+    }
+
+    /// Downloads Forge's or NeoForge's installer jar to `installer`, checked against
+    /// its Maven `.sha1` file.
+    pub(crate) async fn fetch_installer(
+        &self,
+        choice: &LoaderChoice,
+        installer: &Path,
+        progress: &InstallProgress,
+        cancel: &CancelToken,
+    ) -> Result<(), InstallError> {
+        let url = forge::installer_url(choice.kind, &choice.version)?;
+        let sha1 = self
+            .maven_sha1s(vec![url.clone()], cancel)
+            .await?
+            .remove(&url)
+            .expect("asked for this URL");
+        self.downloader
+            .fetch(
+                &DownloadItem {
+                    url: self.urls.resolve(&url)?,
+                    dest: installer.to_owned(),
+                    sha1,
+                    size: None,
+                    executable: false,
+                },
+                &progress.downloads,
+                cancel,
+            )
+            .await?;
+        Ok(())
     }
 
     /// The libraries the processors need (`install_profile.json`'s), as downloads.
@@ -364,15 +385,24 @@ impl Installer {
     /// (its `maven/` folder, or an old installer's universal jar) when they are
     /// missing, or, with [`Verify::Full`], have the wrong SHA-1. Files the
     /// processors make are left to them.
+    ///
+    /// Those of the installer's `install_profile.json` (`profile_id`'s) too: Forge 1.13
+    /// to 1.16 list their universal jar only there, and FML won't start without it
+    /// ("Missing forge!").
     pub(crate) fn restore_installer_files(
         &self,
         child: &VersionJson,
+        profile_id: &str,
         installer: &Path,
         verify: Verify,
     ) -> Result<(), InstallError> {
         let libraries = self.data.libraries_dir();
+        let profile = self.install_profile(profile_id)?;
+        let profile_libraries = profile
+            .iter()
+            .flat_map(|(profile, _)| profile.libraries.iter());
         let mut wanted: Vec<(PathBuf, Option<String>)> = Vec::new();
-        for library in &child.libraries {
+        for library in child.libraries.iter().chain(profile_libraries) {
             let Some(artifact) = &library.downloads.artifact else {
                 continue;
             };
@@ -392,7 +422,7 @@ impl Installer {
                 (Some(sha1), Verify::Full) => file_matches(&dest, sha1),
                 _ => dest.is_file(),
             };
-            if !good {
+            if !good && !wanted.iter().any(|(listed, _)| *listed == path) {
                 wanted.push((path, sha1));
             }
         }

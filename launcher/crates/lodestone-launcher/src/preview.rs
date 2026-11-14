@@ -58,6 +58,7 @@ pub const SCENES: &[&str] = &[
     "skin-bright-host",
     "settings-skin",
     "account-menu",
+    "skin-dialog",
     "needs-sign-in",
     "sign-in",
     "sign-in-browser",
@@ -91,12 +92,17 @@ pub const SCENES: &[&str] = &[
     "logs",
     "logs-select",
     "logs-scroll",
+    "logs-past",
+    "logs-past-menu",
     "instance-settings",
     "crash",
     "crash-mods",
     "mod-finder",
     "mod-finder-found",
     "rosetta",
+    "rosetta-note",
+    "rosetta-notice",
+    "rosetta-override",
     "content-mods",
     "content-browse",
     "content-sort",
@@ -109,6 +115,11 @@ pub const SCENES: &[&str] = &[
     "content-menu",
     "content-project",
     "content-resourcepacks",
+    "content-mods-paged",
+    "content-mods-paged-last",
+    "content-mods-paged-search",
+    "content-packs-paged",
+    "content-shaders-paged",
     "content-shaders",
     "content-shaders-missing",
     "content-shaders-vanilla",
@@ -128,6 +139,9 @@ pub const SCENES: &[&str] = &[
     "modpack-importing",
     "modpack-settings",
     "modpack-update",
+    "modpack-add",
+    "modpack-add-review",
+    "modpack-added-settings",
     "worlds",
     "worlds-backups",
     "worlds-datapacks",
@@ -543,12 +557,17 @@ fn has_instances(scene: &str) -> bool {
             | "logs"
             | "logs-select"
             | "logs-scroll"
+            | "logs-past"
+            | "logs-past-menu"
             | "instance-settings"
             | "crash"
             | "crash-mods"
             | "mod-finder"
             | "mod-finder-found"
             | "rosetta"
+            | "rosetta-note"
+            | "rosetta-notice"
+            | "rosetta-override"
     ) || scene.starts_with("content-")
         || scene.starts_with("modpack-")
         || scene == "new-instance-modpack"
@@ -774,11 +793,24 @@ pub fn instances(scene: &str, accounts: &Entity<Accounts>, cx: &mut App) -> Enti
                 if name == "Survival 1.20.1" && is_worlds_scene(scene) {
                     worlds::fill(&store.dir(&instance.id));
                 }
-                if name == "Survival 1.20.1" && scene.starts_with("modpack-") {
+                if name == "Survival 1.20.1" && scene.starts_with("modpack-add") {
+                    modpacks::fill_server(&store.dir(&instance.id), scene);
+                } else if name == "Survival 1.20.1" && scene.starts_with("modpack-") {
                     modpacks::fill(&store.dir(&instance.id));
                 }
                 if played > 0 {
                     let _ = store.record_play(&instance.id, 1_762_500_000, played);
+                }
+                // 1.8.9 runs under Rosetta 2 on Apple silicon, and the header says so
+                // (and why: here, an Intel Java chosen in its Settings).
+                if name == "Old school" && scene.starts_with("rosetta-") {
+                    use launcher_core::game::install::Rosetta;
+                    let reason = if scene == "rosetta-override" {
+                        Rosetta::JavaOverride
+                    } else {
+                        Rosetta::Version
+                    };
+                    let _ = store.record_rosetta(&instance.id, Some(reason));
                 }
             }
         }
@@ -796,6 +828,10 @@ pub fn instances(scene: &str, accounts: &Entity<Accounts>, cx: &mut App) -> Enti
         let mut instances = Instances::new(data_dir, accounts, cx);
         // The screenshots never touch the network.
         instances.preview_offline();
+        // The last page of what is installed ends with the way to Modrinth's projects.
+        if scene == "content-mods-paged-last" {
+            instances.preview_modrinth_unreachable();
+        }
         let manifest: MojangVersionManifest = serde_json::from_str(include_str!(
             "../../launcher-core/testdata/version_manifest_v2.json"
         ))
@@ -813,6 +849,7 @@ pub fn instances(scene: &str, accounts: &Entity<Accounts>, cx: &mut App) -> Enti
         );
         let wanted = match scene.as_str() {
             "content-shaders-vanilla" => Some("Latest release"),
+            scene if scene.starts_with("rosetta-") => Some("Old school"),
             "instance-shared-settings" => Some("Survival 1.20.1"),
             scene if scene.starts_with("instance-linked") => Some("Survival 1.20.1"),
             scene if groups::is_scene(scene) => Some(groups::SELECTED),
@@ -1054,6 +1091,14 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
             shell.show_share(dialog, cx);
         }
         "logs" | "logs-scroll" => shell.select_tab(InstanceTab::Logs, cx),
+        "logs-past" | "logs-past-menu" => {
+            shell.select_tab(InstanceTab::Logs, cx);
+            let console = shell.console().clone();
+            let menu_open = scene == "logs-past-menu";
+            console.update(cx, |console, cx| {
+                console.preview_past(past_log_files(), 1, SAMPLE_CRASH_REPORT, menu_open, cx)
+            });
+        }
         "logs-select" => {
             shell.select_tab(InstanceTab::Logs, cx);
             let console = shell.console().clone();
@@ -1149,15 +1194,28 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
             crate::instances::rosetta_missing(),
             cx,
         ),
+        // Before an instance's first game under Rosetta 2: Play or Cancel.
+        "rosetta-notice" | "rosetta-override" => {
+            use launcher_core::game::install::Rosetta;
+            let reason = if scene == "rosetta-override" {
+                Rosetta::JavaOverride
+            } else {
+                Rosetta::Version
+            };
+            shell.preview_confirm_rosetta("1.8.9", reason, cx);
+        }
         scene if snapshots::is_scene(scene) => snapshots::apply(scene, shell, cx),
         scene if is_worlds_scene(scene) => {
             shell.select_tab(InstanceTab::Worlds, cx);
             let view = shell.worlds().clone();
             view.update(cx, |view, cx| worlds::apply(scene, view, cx));
         }
-        "new-instance-modpack" | "modpack-settings" | "modpack-update" => {
-            modpacks::apply(scene, shell, cx)
-        }
+        "new-instance-modpack"
+        | "modpack-settings"
+        | "modpack-update"
+        | "modpack-add"
+        | "modpack-add-review"
+        | "modpack-added-settings" => modpacks::apply(scene, shell, cx),
         scene if scene.starts_with("content-") => {
             shell.select_tab(InstanceTab::Content, cx);
             let view = shell.content().clone();
@@ -1584,6 +1642,46 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
         }
         "instance-linked-friend-rejoin" => servers::apply_linked_friend_rejoin(shell, cx),
         "account-menu" | "needs-sign-in" | "account-menu-launcher" => shell.open_account_menu(cx),
+        "skin-dialog" => {
+            use launcher_core::auth::wardrobe::{Cape, SkinModel, Wardrobe};
+            let accounts = shell.accounts().clone();
+            let Some(account) = accounts.read(cx).active().cloned() else {
+                return;
+            };
+            let cape = |id: &str, name: &str, active: bool| Cape {
+                id: id.into(),
+                name: name.into(),
+                url: String::new(),
+                active,
+            };
+            let current = Wardrobe {
+                skin_url: Some("http://textures.minecraft.net/texture/abc123".into()),
+                model: SkinModel::Classic,
+                capes: vec![
+                    cape("migrator", "Migrator", true),
+                    cape("vanilla", "Vanilla", false),
+                ],
+            };
+            let png = launcher_core::skin::encode_png(&launcher_core::skin::sample_body_skin())
+                .unwrap_or_default();
+            let sample_cape = |id: &str, colour: [u8; 3]| {
+                let cape = launcher_core::skin_model::sample_cape(colour);
+                (
+                    id.to_string(),
+                    launcher_core::skin::encode_png(&cape).unwrap_or_default(),
+                )
+            };
+            let capes = vec![
+                sample_cape("migrator", [150, 40, 190]),
+                sample_cape("vanilla", [40, 140, 70]),
+            ];
+            let dialog = cx.new(|cx| {
+                crate::accounts::skin_dialog::SkinDialog::preview(
+                    accounts, account, current, png, capes, cx,
+                )
+            });
+            shell.show_skin(dialog, None, cx);
+        }
         "launcher-identity" => shell.preview_enable_launcher_identity(cx),
         "sign-in-launcher" => shell.open_sign_in_at(Stage::Choose, None, cx),
         "sign-in" => shell.open_sign_in_at(Stage::Choose, None, cx),
@@ -1981,3 +2079,69 @@ fn perf_history() -> Vec<crate::perf::Sample> {
         })
         .collect()
 }
+
+/// The files in the Logs tab's list, for the `logs-past` scenes.
+fn past_log_files() -> Vec<launcher_core::game::past_logs::LogFile> {
+    use launcher_core::game::past_logs::{Kind, LogFile};
+    [
+        ("latest.log", Kind::Log, 184_320),
+        (
+            "crash-2026-11-07_12.00.00-client.txt",
+            Kind::CrashReport,
+            41_200,
+        ),
+        ("2026-11-06-2.log.gz", Kind::Log, 22_500),
+        ("2026-11-06-1.log.gz", Kind::Log, 9_800),
+        ("hs_err_pid18244.log", Kind::JvmCrash, 96_000),
+        ("debug.log", Kind::Log, 2_400_000),
+    ]
+    .into_iter()
+    .map(|(name, kind, size)| LogFile {
+        path: name.into(),
+        name: name.into(),
+        kind,
+        modified: None,
+        size,
+    })
+    .collect()
+}
+
+const SAMPLE_CRASH_REPORT: &str = "---- Minecraft Crash Report ----
+// Why did you do that?
+
+Time: 2026-11-07 12:00:00
+Description: Rendering entity in world
+
+java.lang.NullPointerException: Cannot invoke \"net.minecraft.class_1297.method_5628()\" because \"entity\" is null
+\tat knot//com.example.shinymobs.GlowRenderer.render(GlowRenderer.java:48)
+\tat knot//net.minecraft.class_898.method_3954(class_898.java:158)
+\tat knot//net.minecraft.class_761.method_22977(class_761.java:1420)
+\tat knot//net.minecraft.class_757.method_3188(class_757.java:1110)
+\tat knot//net.minecraft.class_310.method_1523(class_310.java:1285)
+\tat knot//net.minecraft.client.main.Main.main(Main.java:256)
+
+A detailed walkthrough of the error, its code path and all known details is as follows:
+---------------------------------------------------------------------------------------
+
+-- Head --
+Thread: Render thread
+Stacktrace:
+\tat knot//com.example.shinymobs.GlowRenderer.render(GlowRenderer.java:48)
+
+-- Entity being rendered --
+Details:
+\tEntity Type: minecraft:zombie (net.minecraft.class_1642)
+\tEntity ID: 418
+\tEntity Name: Zombie
+
+-- System Details --
+Details:
+\tMinecraft Version: 1.21.1
+\tOperating System: Windows 11 (amd64) version 10.0
+\tJava Version: 21.0.4, Microsoft
+\tMemory: 1836056576 bytes (1751 MiB) / 4294967296 bytes (4096 MiB)
+\tFabric Mods:
+\t\tfabric-api: Fabric API 0.105.0+1.21.1
+\t\tshinymobs: Shiny Mobs 1.2.0
+\t\tsodium: Sodium 0.6.0
+";

@@ -4,14 +4,23 @@
 //!
 //! Work package B (see `launcher/docs/host-parity.md`, §5).
 
-use std::{path::Path, time::Duration};
+use std::{
+    collections::VecDeque,
+    io::{Cursor, Read},
+    path::{Path, PathBuf},
+    time::Duration,
+};
 
 use base64::Engine as _;
-use http_client::Method;
+use http_client::{AsyncBody, Method};
 use serde::{Deserialize, Serialize};
 
 use super::{AdminClient, segment};
-use crate::cores::{CoreError, client::MAX_JSON_BYTES};
+use crate::cores::{
+    CoreError,
+    client::{Auth, MAX_JSON_BYTES, check},
+    download::save_via_partial,
+};
 use crate::game::download::{CancelToken, Progress};
 
 /// The largest file the core reads for the editor (`MAX_READ_BYTES` in the core's
@@ -140,31 +149,161 @@ fn fs(uuid: &str, path: &str, action: &str) -> String {
     format!("instance/{}/fs/{}/{action}", segment(uuid), b64(path))
 }
 
+/// A boundary for a `multipart/form-data` body, which no file's bytes are likely to
+/// hold.
+fn multipart_boundary() -> String {
+    format!(
+        "lodestone-host-{:016x}",
+        u64::from_le_bytes(crate::random_bytes())
+    )
+}
+
+/// The header of a `file` field named `name`, as the dashboard's upload sends it.
+fn part_header(boundary: &str, name: &str) -> String {
+    // quotes and line breaks would end the header
+    let safe: String = name
+        .chars()
+        .map(|c| if c == '"' || c.is_control() { '_' } else { c })
+        .collect();
+    format!(
+        "--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"{safe}\"\r\nContent-Type: application/octet-stream\r\n\r\n"
+    )
+}
+
 /// A `multipart/form-data` body with a `file` field per file, as the dashboard's
 /// upload sends it. Returns the body and its content type.
 pub fn multipart_files(files: &[(String, Vec<u8>)]) -> (Vec<u8>, String) {
-    let boundary = format!(
-        "lodestone-host-{:016x}",
-        u64::from_le_bytes(crate::random_bytes())
-    );
+    let boundary = multipart_boundary();
     let mut body = Vec::new();
     for (name, bytes) in files {
-        // quotes and line breaks would end the header
-        let safe: String = name
-            .chars()
-            .map(|c| if c == '"' || c.is_control() { '_' } else { c })
-            .collect();
-        body.extend_from_slice(
-            format!(
-                "--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"{safe}\"\r\nContent-Type: application/octet-stream\r\n\r\n"
-            )
-            .as_bytes(),
-        );
+        body.extend_from_slice(part_header(&boundary, name).as_bytes());
         body.extend_from_slice(bytes);
         body.extend_from_slice(b"\r\n");
     }
     body.extend_from_slice(format!("--{boundary}--\r\n").as_bytes());
     (body, format!("multipart/form-data; boundary={boundary}"))
+}
+
+/// An upload of files on this computer: the [`multipart_files`] body, read from the
+/// files as it is sent instead of held in memory, so uploading a world archive of
+/// many gigabytes takes a buffer's worth of memory, not the archive's size.
+pub struct MultipartUpload {
+    boundary: String,
+    /// Each file's field header, path and size (when the upload was made).
+    parts: Vec<(String, PathBuf, u64)>,
+}
+
+impl MultipartUpload {
+    /// An upload of `paths`, each under its own file name. A file that can't be read
+    /// refuses the upload before anything is sent.
+    pub fn new(paths: &[PathBuf]) -> Result<Self, CoreError> {
+        let boundary = multipart_boundary();
+        let mut parts = Vec::new();
+        for path in paths {
+            let name = path
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            let size = std::fs::metadata(path)
+                .map_err(|err| CoreError::Invalid(format!("{name}: {err}")))?
+                .len();
+            parts.push((part_header(&boundary, &name), path.clone(), size));
+        }
+        Ok(Self { boundary, parts })
+    }
+
+    pub fn content_type(&self) -> String {
+        format!("multipart/form-data; boundary={}", self.boundary)
+    }
+
+    fn closing(&self) -> String {
+        format!("--{}--\r\n", self.boundary)
+    }
+
+    /// The body's length in bytes.
+    pub fn len(&self) -> u64 {
+        let parts: u64 = self
+            .parts
+            .iter()
+            .map(|(header, _, size)| header.len() as u64 + size + 2)
+            .sum();
+        parts + self.closing().len() as u64
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.parts.is_empty()
+    }
+
+    /// The body, from the start. Each file is opened when its turn comes.
+    pub fn reader(&self) -> MultipartReader {
+        let mut segments = VecDeque::new();
+        for (header, path, size) in &self.parts {
+            segments.push_back(Segment::Bytes(Cursor::new(header.clone().into_bytes())));
+            segments.push_back(Segment::File {
+                path: path.clone(),
+                left: *size,
+                file: None,
+            });
+            segments.push_back(Segment::Bytes(Cursor::new(b"\r\n".to_vec())));
+        }
+        segments.push_back(Segment::Bytes(Cursor::new(self.closing().into_bytes())));
+        MultipartReader { segments }
+    }
+}
+
+/// Reads a [`MultipartUpload`]'s body.
+pub struct MultipartReader {
+    segments: VecDeque<Segment>,
+}
+
+enum Segment {
+    Bytes(Cursor<Vec<u8>>),
+    /// A file's bytes: `left` more of them, as many as it had when the upload was
+    /// made, since the body's length was worked out from that.
+    File {
+        path: PathBuf,
+        left: u64,
+        file: Option<std::fs::File>,
+    },
+}
+
+impl Read for MultipartReader {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        if buf.is_empty() {
+            return Ok(0);
+        }
+        while let Some(segment) = self.segments.front_mut() {
+            let read = match segment {
+                Segment::Bytes(bytes) => bytes.read(buf)?,
+                Segment::File { left: 0, .. } => 0,
+                Segment::File { path, left, file } => {
+                    let named = |err: std::io::Error| {
+                        std::io::Error::new(err.kind(), format!("{}: {err}", path.display()))
+                    };
+                    let file = match file {
+                        Some(file) => file,
+                        None => file.insert(std::fs::File::open(&*path).map_err(named)?),
+                    };
+                    let most = (*left).min(buf.len() as u64) as usize;
+                    let read = file.read(&mut buf[..most]).map_err(named)?;
+                    if read == 0 {
+                        return Err(std::io::Error::new(
+                            std::io::ErrorKind::UnexpectedEof,
+                            format!("{} got shorter while it was uploading", path.display()),
+                        ));
+                    }
+                    *left -= read as u64;
+                    read
+                }
+            };
+            if read > 0 {
+                return Ok(read);
+            }
+            // done with it (a file is closed here)
+            self.segments.pop_front();
+        }
+        Ok(0)
+    }
 }
 
 impl AdminClient {
@@ -289,6 +428,38 @@ impl AdminClient {
             .await
     }
 
+    /// `PUT …/upload`: uploads files on this computer into the folder `directory`, each
+    /// under its own name, streamed from disk (see [`MultipartUpload`]).
+    pub async fn upload_paths(
+        &self,
+        uuid: &str,
+        directory: &str,
+        paths: &[PathBuf],
+    ) -> Result<(), CoreError> {
+        let upload = MultipartUpload::new(paths)?;
+        let body = || {
+            let reader = futures::io::AllowStdIo::new(upload.reader());
+            Ok((
+                AsyncBody::from_reader(reader),
+                upload.content_type(),
+                upload.len(),
+            ))
+        };
+        let auth = Auth::Bearer(&self.token);
+        let response = self
+            .client
+            .send_streamed(
+                Method::PUT,
+                &fs(uuid, directory, "upload"),
+                auth,
+                body,
+                MAX_JSON_BYTES,
+                UPLOAD_TIMEOUT,
+            )
+            .await?;
+        check(&response, auth)
+    }
+
     /// `PUT …/upload`: uploads files (name, contents) into the folder `directory`.
     pub async fn upload_files(
         &self,
@@ -328,7 +499,10 @@ impl AdminClient {
         Ok(serde_json::from_str::<String>(&text).unwrap_or(text))
     }
 
-    /// Downloads a file (a folder as a zip) into `out`.
+    /// Downloads a file (a folder as a zip) into `out`; the bytes saved. It is written
+    /// next to `out` and only replaces it once complete, so a download that fails (even
+    /// before the core sent anything) or is dropped leaves a file already at `out` as
+    /// it was, and no partial file.
     pub async fn download_to(
         &self,
         uuid: &str,
@@ -336,15 +510,18 @@ impl AdminClient {
         out: &Path,
     ) -> Result<u64, CoreError> {
         let key = self.download_key(uuid, &file.path, file.is_dir()).await?;
-        self.core()
-            .download_file(
-                &key,
-                out,
-                MAX_DOWNLOAD_BYTES,
-                &Progress::default(),
-                &CancelToken::new(),
-            )
-            .await
+        save_via_partial(out, |partial| async move {
+            self.core()
+                .download_file(
+                    &key,
+                    &partial,
+                    MAX_DOWNLOAD_BYTES,
+                    &Progress::default(),
+                    &CancelToken::new(),
+                )
+                .await
+        })
+        .await
     }
 }
 
@@ -412,6 +589,49 @@ mod tests {
         }))
         .unwrap();
         assert!(file.is_archive());
+    }
+
+    #[test]
+    fn an_upload_streams_the_same_body_from_disk() {
+        let dir = tempfile::tempdir().unwrap();
+        let (a, b) = (dir.path().join("a.txt"), dir.path().join("b\".txt"));
+        std::fs::write(&a, b"one").unwrap();
+        // larger than a read's buffer, so it takes several reads
+        let big: Vec<u8> = (0..200_000u32).map(|i| i as u8).collect();
+        std::fs::write(&b, &big).unwrap();
+        let upload = MultipartUpload::new(&[a, b]).unwrap();
+        let mut streamed = Vec::new();
+        let mut reader = upload.reader();
+        let mut buffer = [0u8; 4096];
+        loop {
+            let read = reader.read(&mut buffer).unwrap();
+            if read == 0 {
+                break;
+            }
+            streamed.extend_from_slice(&buffer[..read]);
+        }
+        assert_eq!(streamed.len() as u64, upload.len());
+        // the in-memory body, with this upload's boundary
+        let (in_memory, content_type) =
+            multipart_files(&[("a.txt".into(), b"one".to_vec()), ("b\".txt".into(), big)]);
+        let theirs = content_type.split("boundary=").nth(1).unwrap();
+        let ours = upload.content_type();
+        let ours = ours.split("boundary=").nth(1).unwrap();
+        let expected = String::from_utf8_lossy(&in_memory).replace(theirs, ours);
+        assert_eq!(String::from_utf8_lossy(&streamed), expected);
+    }
+
+    #[test]
+    fn an_upload_of_a_file_that_shrank_fails() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("world.zip");
+        std::fs::write(&path, b"a whole world").unwrap();
+        let upload = MultipartUpload::new(std::slice::from_ref(&path)).unwrap();
+        std::fs::write(&path, b"half").unwrap();
+        let err = std::io::copy(&mut upload.reader(), &mut std::io::sink()).unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::UnexpectedEof);
+        // and one that can't be read refuses the upload before it starts
+        assert!(MultipartUpload::new(&[dir.path().join("missing.zip")]).is_err());
     }
 
     #[test]

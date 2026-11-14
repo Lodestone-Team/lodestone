@@ -174,6 +174,10 @@ pub fn text(message: M) -> &'static str {
         M::Appearance => "外观",
         M::AppearanceLead => "保存在这台电脑上，而不是核心上。",
         M::ColoredConsole => "彩色控制台",
+        M::Startup => "启动",
+        M::StartAtLogin => "登录时打开 Lodestone Host",
+        M::StartAtLoginHint => "登录这台电脑时，它会在后台打开，并启动设为自动启动的服务器。",
+        M::StartAtLoginFailed => "无法更改启动设置：{error}",
         M::Language => "语言",
         M::LanguageAuto => "系统默认（{language}）",
         M::Theme => "主题",
@@ -264,6 +268,7 @@ pub fn text(message: M) -> &'static str {
         M::EventStopped => "服务器 {name} 已停止！",
         M::EventCrashed => "服务器 {name} 出现错误！",
         M::WarningToast => "警告：某个服务器发出了警告。这不应该发生，请向开发者报告此问题。",
+        M::EventModpackUpdate => "{name} 的 {pack} {version} 已发布",
         M::EventWarning => "服务器 {name} 发出了警告",
         M::EventError => "服务器 {name} 出现错误",
         M::PlayersJoined => "{players} 加入了 {name}",
@@ -375,6 +380,11 @@ pub fn text(message: M) -> &'static str {
         M::PasswordTooShort => "密码至少需要 12 个字符。",
         M::SetPassword => "设置密码",
         M::NoPasswordYet => "还没有密码。只有这台电脑上的应用可以使用这个核心。",
+        M::ModpackChecks => "检查整合包更新",
+        M::ModpackChecksHint => {
+            "每隔几小时在 Modrinth 上查找服务器所用整合包的新版本，有新版本时通知。关闭后，服务器“模组”标签中的“检查更新”仍可使用。"
+        }
+        M::ModpackChecksKeywords => "整合包 更新 通知 Modrinth 自动",
         M::RemoteAccessKeywords => "远程 局域网 网络 共享",
         M::DomainKeywords => "地址 主机名 网址",
         M::OpenPortKeywords => "端口转发 路由器 UPnP 防火墙",

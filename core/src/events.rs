@@ -8,6 +8,7 @@ use ts_rs::TS;
 use crate::{
     auth::{permission::UserPermission, user_id::UserId},
     output_types::ClientEvent,
+    public_listing::PublicScope,
     traits::{t_player::Player, t_server::State, InstanceInfo},
     types::{InstanceUuid, Snowflake, TimeRange},
 };
@@ -115,6 +116,18 @@ pub enum InstanceEventInner {
         player: String,
         player_message: String,
     },
+    /// A newer version of the modpack the server was made from is on Modrinth. Sent once
+    /// per version.
+    ModpackUpdateAvailable {
+        modpack: String,
+        version_id: String,
+        version_number: String,
+    },
+    /// The owner changed what the server shows publicly: `scope` is what it shows now.
+    /// Only for those who can view the server, as its name is in the event.
+    PublicListingChanged {
+        scope: PublicScope,
+    },
 }
 
 impl AsRef<InstanceEventInner> for InstanceEventInner {
@@ -184,6 +197,21 @@ pub enum ProgressionEndValue {
         success: bool,
         message: String,
     },
+    /// A backup ended. `backup_id` is the new backup, or the newest one when nothing had
+    /// changed since it; `None` when the backup failed.
+    BackupCompleted {
+        instance_uuid: InstanceUuid,
+        backup_id: Option<String>,
+        success: bool,
+        message: String,
+    },
+    /// A restore into the server's own folder ended. `backup_id` is the backup restored.
+    RestoreCompleted {
+        instance_uuid: InstanceUuid,
+        backup_id: Option<String>,
+        success: bool,
+        message: String,
+    },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, TS, PartialEq)]
@@ -192,6 +220,8 @@ pub enum ProgressionEndValue {
 pub enum ProgressionStartValue {
     InstanceCreation { instance_uuid: InstanceUuid },
     InstanceDelete { instance_uuid: InstanceUuid },
+    Backup { instance_uuid: InstanceUuid },
+    Restore { instance_uuid: InstanceUuid },
 }
 
 // the backend will keep exactly 1 copy of ProgressionStart, and 1 copy of ProgressionUpdate OR ProgressionEnd

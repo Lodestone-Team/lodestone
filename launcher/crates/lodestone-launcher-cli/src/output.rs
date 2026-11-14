@@ -1,6 +1,6 @@
 //! Printing: JSON for programs, text for people.
 
-use std::io::Write as _;
+use std::io::{self, Write};
 
 use launcher_control::ErrorObject;
 use serde_json::{Value, json};
@@ -24,14 +24,24 @@ pub fn result(mode: Mode, value: &Value) {
     };
 }
 
-/// One line of a stream (log rows, events), on stdout.
-pub fn line(mode: Mode, value: &Value) {
-    let mut out = std::io::stdout().lock();
-    let _ = match mode {
-        Mode::Json => writeln!(out, "{value}"),
-        Mode::Human => writeln!(out, "{}", human_line(value)),
-    };
-    let _ = out.flush();
+/// One line of a stream (log rows, events), on stdout. Fails once stdout is gone,
+/// such as when `head` read what it wanted and exited: Rust ignores SIGPIPE, so the
+/// stream has to stop on the error or it would never end.
+pub fn line(mode: Mode, value: &Value) -> io::Result<()> {
+    match mode {
+        Mode::Json => text_line(&value.to_string()),
+        Mode::Human => text_line(&human_line(value)),
+    }
+}
+
+/// A line of text of a stream, on stdout; fails like [`line`].
+pub fn text_line(text: &str) -> io::Result<()> {
+    write_line(&mut std::io::stdout().lock(), text)
+}
+
+fn write_line(out: &mut impl Write, text: &str) -> io::Result<()> {
+    writeln!(out, "{text}")?;
+    out.flush()
 }
 
 /// An error, on stderr.
@@ -203,6 +213,28 @@ pub fn trace_line(event: &Value) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A pipe whose reader went away.
+    struct Closed;
+
+    impl Write for Closed {
+        fn write(&mut self, _: &[u8]) -> io::Result<usize> {
+            Err(io::ErrorKind::BrokenPipe.into())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Err(io::ErrorKind::BrokenPipe.into())
+        }
+    }
+
+    #[test]
+    fn stream_lines_say_when_stdout_is_gone() {
+        let mut out = Vec::new();
+        write_line(&mut out, "one").unwrap();
+        assert_eq!(out, b"one\n");
+        let err = write_line(&mut Closed, "two").unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::BrokenPipe);
+    }
 
     #[test]
     fn trace_lines_read_well() {

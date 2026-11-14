@@ -10,6 +10,14 @@ data, or the person's real friend identity. It is signed with this Mac's
 keeps treating rebuilds as the same app and Keychain items stay readable after
 "Always Allow"; otherwise ad hoc, for this Mac only.
 
+macOS passes those folders only when the app is opened from Finder or `open`, not when
+launchd starts it for Settings › Profile › "Open at login" (or it's run from a
+terminal). So the Host in it is always built with debug assertions, which make it a
+development build wherever it starts: its own login item (never the installed Host's),
+`~/.lodestone-host-dev` for the core's data instead of `~/.lodestone`, its own Host
+folder, and sharing with friends off. `--release` optimises it the release profile's
+way but keeps them on (cargo's `dev-bundle` profile, defined on the command line).
+
 Nothing is published. Release builds of the Host ("Lodestone Host.app" in a disk
 image, the Windows installer) come from `publish_release.py --product host`; see
 `.claude/skills/publish-host-release/SKILL.md`.
@@ -18,7 +26,7 @@ Usage, from anywhere in the repository:
 
     python3 launcher/scripts/host_dev_bundle.py              # into a new temp folder
     python3 launcher/scripts/host_dev_bundle.py --out DIR    # into DIR
-    python3 launcher/scripts/host_dev_bundle.py --release    # optimised builds
+    python3 launcher/scripts/host_dev_bundle.py --release    # optimised builds (still dev ones)
     python3 launcher/scripts/host_dev_bundle.py --no-build   # bundle what is built
     python3 launcher/scripts/host_dev_bundle.py --data DIR   # the core's data folder
     python3 launcher/scripts/host_dev_bundle.py --open       # and open the app
@@ -41,6 +49,13 @@ BUNDLE_ID = "dev.lodestone.host.dev"
 ROOT = Path(__file__).resolve().parents[2]
 LAUNCHER = ROOT / "launcher"
 ICON = LAUNCHER / "installer" / "macos" / "HostIcon.icns"
+# `--release`'s Host: the release profile with debug assertions on, so it keeps a
+# development build's login item and data folders (see above).
+RELEASE_PROFILE = "dev-bundle"
+RELEASE_PROFILE_CONFIG = [
+    "--config", f'profile.{RELEASE_PROFILE}.inherits="release"',
+    "--config", f"profile.{RELEASE_PROFILE}.debug-assertions=true",
+]
 
 
 def run(cmd: list[str], cwd: Path) -> None:
@@ -49,9 +64,18 @@ def run(cmd: list[str], cwd: Path) -> None:
 
 
 def build(release: bool) -> None:
-    profile = ["--release"] if release else []
-    run(["cargo", "build", "-p", "lodestone_core", "--no-default-features", *profile], ROOT)
-    run(["cargo", "build", "-p", "lodestone-host", *profile], LAUNCHER)
+    core = ["--release"] if release else []
+    host = ["--profile", RELEASE_PROFILE, *RELEASE_PROFILE_CONFIG] if release else []
+    run(["cargo", "build", "-p", "lodestone_core", "--no-default-features", *core], ROOT)
+    run(["cargo", "build", "-p", "lodestone-host", *host], LAUNCHER)
+
+
+def built_programs(release: bool) -> tuple[Path, Path]:
+    """The Host and the core to bundle. A release build's Host is never
+    `target/release`'s, which would take over the installed Host's login item."""
+    host = LAUNCHER / "target" / (RELEASE_PROFILE if release else "debug") / "lodestone-host"
+    core = ROOT / "target" / ("release" if release else "debug") / "lodestone_core"
+    return host, core
 
 
 def info_plist(data: Path, host: Path, launcher: Path) -> dict:
@@ -71,7 +95,8 @@ def info_plist(data: Path, host: Path, launcher: Path) -> dict:
         # Where the core keeps its data, the Host its logs, and where the Host looks
         # for the Launcher's friend list, for this bundle only (so it never shares from
         # the person's real friend identity; the Host turns sharing off without it).
-        # macOS passes these to the app when it is opened from Finder or `open`.
+        # macOS passes these to the app when it is opened from Finder or `open`, not
+        # when launchd opens it at login (see the module's note).
         "LSEnvironment": {
             "LODESTONE_PATH": str(data),
             "LODESTONE_HOST_DATA_DIR": str(host),
@@ -103,9 +128,7 @@ def signing_identity(asked: str | None) -> str:
 
 
 def bundle(out: Path, data: Path, release: bool, identity: str = "-") -> Path:
-    profile = "release" if release else "debug"
-    host_exe = LAUNCHER / "target" / profile / "lodestone-host"
-    core_exe = ROOT / "target" / profile / "lodestone_core"
+    host_exe, core_exe = built_programs(release)
     for exe in (host_exe, core_exe):
         if not exe.is_file():
             sys.exit(f"{exe} isn't built: run without --no-build")
@@ -141,7 +164,8 @@ def main() -> None:
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--out", type=Path, help="the folder for the app (default: a new temp folder)")
     parser.add_argument("--data", type=Path, help="the core's data folder (default: <out>/data)")
-    parser.add_argument("--release", action="store_true", help="optimised builds")
+    parser.add_argument("--release", action="store_true",
+                        help="optimised builds (the Host keeps debug assertions, so it stays a dev build)")
     parser.add_argument("--no-build", action="store_true", help="bundle what is already built")
     parser.add_argument("--open", action="store_true", help="open the app afterwards")
     parser.add_argument("--sign", metavar="IDENTITY",

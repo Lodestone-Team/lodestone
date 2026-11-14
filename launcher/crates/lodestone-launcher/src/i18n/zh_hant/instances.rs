@@ -24,7 +24,7 @@ pub fn text(message: M) -> &'static str {
         M::PreparingNote => "正在準備 Minecraft {version}（{loader}）",
         M::JoiningNote => "遊戲啟動後將加入 {address}",
         M::VerifyingNote => "正在驗證 Minecraft {version}（{loader}）的遊戲檔案",
-        M::RosettaNote => "此版本透過 Rosetta 2 在 Intel（x86_64）Java 中執行。",
+        M::RosettaNote => "遊戲透過 Rosetta 2 在 Intel（x86_64）Java 中執行。",
         M::StartingJavaNote => "正在啟動 Java：{command}",
         M::AutoMemoryNote => "自動設定：依這台電腦和實例的模組，將記憶體設為 {memory}",
         M::AutoMemoryLimitedNote => {
@@ -54,6 +54,19 @@ pub fn text(message: M) -> &'static str {
         M::RosettaNeeded => "需要 Rosetta 2",
         M::RosettaMissing => {
             "此 Minecraft 版本需要 Intel（x86_64）Java，它在 Apple Silicon 上透過 Rosetta 2 執行。尚未安裝 Rosetta。請在「終端機」中執行下列指令來安裝，然後再按一次「開始遊戲」：\n\nsoftwareupdate --install-rosetta"
+        }
+        M::RosettaNoticeTitle => "Minecraft {version} 透過 Rosetta 2 執行",
+        M::RosettaNoticeBody => {
+            "Mojang 沒有為這個版本需要的部分程式庫製作 Apple 晶片版本，因此它會透過 Rosetta 2 在 Intel 版 Java 中執行。啟動會比較慢，之後可以正常遊玩。Minecraft 1.14 及更新版本會原生執行。"
+        }
+        M::RosettaNoticeBodyOverride => {
+            "這個實例使用的是在其「設定」中選擇的 Intel 版 Java，因此遊戲會透過 Rosetta 2 執行。啟動會比較慢，之後可以正常遊玩。若要原生執行，請選擇適用於 Apple 晶片的 Java，或改回預設的 Java。"
+        }
+        M::NoNativeJava8 => {
+            "這個 Minecraft 版本需要 Java 8，但目前沒有適用於 Apple 晶片的 Java 8：Mojang 沒有提供，Azul 也沒有列出。請稍後再試，或在實例的「設定」中選擇一個適用於 Apple 晶片（arm64）的 Java 8。"
+        }
+        M::NeedsIntelJava => {
+            "在 Apple 晶片上，Minecraft {version} 只能透過 Rosetta 2 在 Intel（x86_64）Java 中執行，而在實例「設定」中選擇的 Java 是 Apple 晶片版。請在那裡選擇 Intel 版 Java，或 Mojang 提供的 Java。"
         }
         M::CouldntStartMinecraft => "無法啟動 Minecraft",
         M::CouldntStartJava => "無法啟動 Java",
@@ -86,6 +99,15 @@ pub fn text(message: M) -> &'static str {
         M::NoLinesMatch => "沒有符合篩選條件的行。",
         M::JumpToLatest => "跳至最新",
         M::CopyLog => "複製日誌",
+        M::LogSource => "要顯示的日誌",
+        M::LogThisSession => "本次執行",
+        M::LogNoFiles => "還沒有先前的日誌或當機報告。",
+        M::LogKindLog => "日誌",
+        M::LogKindCrash => "當機報告",
+        M::LogKindJvm => "Java 當機",
+        M::LogReading => "正在讀取 {name}",
+        M::LogReadFailed => "無法讀取 {name}：{error}",
+        M::LogFileEmpty => "此檔案是空的。",
 
         M::ImportTitle => "從其他啟動器匯入",
         M::ImportFromHere => "從這裡匯入",
@@ -211,6 +233,17 @@ pub fn text(message: M) -> &'static str {
         M::FinderInterruptedTitle => "要完成在「{name}」中尋找模組嗎？",
         M::FinderInterrupted => "啟動器在尋找途中關閉了，所以「{name}」的部分模組仍處於停用狀態。",
         M::FinderPutBackFailed => "部分模組無法重新啟用：{error}",
+
+        M::AddingName => "正在加入 {name}",
+        M::ModrinthUnreachable => "無法連線到 Modrinth。",
+        M::ModpackAddedAlready => {
+            "此實例已加入 {pack}。若要加入其他版本，請先在「設定」中將其移除。"
+        }
+        M::CouldntAddModpack => "無法加入模組包",
+        M::ModpackAdded => "模組包已加入",
+        M::ModpackAddedMessage => "{pack} 已加入 {name}。按「開始遊戲」即可啟動。",
+        M::CouldntRemoveModpack => "無法移除模組包",
+        M::ModpackRemoved => "模組包已移除",
     }
 }
 
@@ -228,6 +261,7 @@ pub fn plural(message: P) -> [&'static str; 2] {
                 2]
         }
         P::FilesLeftOut => ["有 {count} 個檔案被略過，例如 {name}。"; 2],
+        P::LogLinesSkipped => ["前 {count} 行未顯示"; 2],
         P::LinesShown => ["顯示 {shown} 行，共 {count} 行"; 2],
         P::LinesShownFollowing => ["顯示 {shown} 行，共 {count} 行 · 自動捲動"; 2],
         P::ProblemAndMore => ["{problem}（另有 {count} 個問題）"; 2],
@@ -243,5 +277,8 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::FinderModsLeft => ["還有 {count} 個模組待檢查"; 2],
         P::FinderModsOff => ["已停用 {count} 個模組"; 2],
         P::FinderTriesLeft => ["大約還需 {count} 次嘗試"; 2],
+
+        P::AddedPackFilesRemoved => ["已移除 {pack} 的 {count} 個檔案。"; 2],
+        P::AddedPackFilesKept => ["你修改過的 {count} 個檔案已保留。"; 2],
     }
 }

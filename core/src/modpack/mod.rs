@@ -2,10 +2,14 @@
 //! into a new instance folder.
 //!
 //! See <https://support.modrinth.com/en/articles/8802351-modrinth-modpack-format-mrpack>.
-//! Only Fabric packs are supported. The index, the zip limits and the path checks are in
-//! [`lodestone_minecraft::mrpack`]; the zip crate's own `extract` is never used.
+//! Fabric, Forge and NeoForge packs are supported. The index, the zip limits and the path
+//! checks are in [`lodestone_minecraft::mrpack`]; the zip crate's own `extract` is never
+//! used.
 
+pub mod history;
 pub mod store;
+pub mod update;
+pub mod updates;
 
 use std::collections::HashMap;
 use std::io::{Read, Write};
@@ -25,7 +29,12 @@ use ts_rs::TS;
 
 use crate::error::{Error, ErrorKind};
 use crate::handlers::util::is_script_path;
+use crate::implementations::minecraft::util::forge_build_for_pack;
+use crate::implementations::minecraft::{
+    FabricLoaderVersion, Flavour, ForgeBuildVersion, NeoForgeBuildVersion,
+};
 use crate::modrinth::ModrinthApi;
+use crate::mods::bad_request;
 
 /// Files are downloaded this many at a time.
 const PARALLEL_DOWNLOADS: usize = 4;
@@ -47,7 +56,7 @@ pub struct ModpackInfo {
     pub version_number: Option<String>,
     pub summary: Option<String>,
     pub game_version: String,
-    /// For example `fabric`.
+    /// `fabric`, `forge` or `neoforge` for a supported pack.
     pub loader: String,
     pub loader_version: Option<String>,
     pub server_file_count: u32,
@@ -82,6 +91,11 @@ pub fn modrinth_cdn_url(url: Option<&str>) -> Option<String> {
         && parsed.username().is_empty()
         && parsed.password().is_none();
     ok.then(|| parsed.to_string())
+}
+
+/// The changelog of the Modrinth version `version_id`, if it has one.
+pub async fn modrinth_changelog(api: &dyn ModrinthApi, version_id: &str) -> Option<String> {
+    api.version(version_id).await.ok()?.changelog
 }
 
 impl ModpackOrigin {
@@ -161,38 +175,124 @@ fn is_valid_version(value: &str) -> bool {
     crate::modrinth::search::is_valid_filter_value(value)
 }
 
-/// Why no instance can be made from a pack with these dependencies, if any. Returns the
-/// loader name and version too.
+/// The mod loaders a pack can need, by their key in the index's `dependencies`, with the
+/// loader name Lodestone uses.
+const PACK_LOADERS: [(&str, &str); 3] = [
+    ("fabric-loader", "fabric"),
+    ("forge", "forge"),
+    ("neoforge", "neoforge"),
+];
+
+/// The loader name for a dependency key Lodestone has no server for (`quilt-loader` is
+/// `quilt`).
+fn loader_name(key: &str) -> String {
+    key.trim_end_matches("-loader").to_string()
+}
+
+/// The display name of a loader Lodestone runs.
+fn loader_title(loader: &str) -> &'static str {
+    match loader {
+        "fabric" => "Fabric",
+        "forge" => "Forge",
+        "neoforge" => "NeoForge",
+        _ => "mod loader",
+    }
+}
+
+/// Which loader a pack with these dependencies needs, its version, and why no instance
+/// can be made from it, if that is so. Lodestone runs Fabric, Forge and NeoForge servers;
+/// a pack must need exactly one of them, and nothing else.
 fn check_dependencies(
     dependencies: &HashMap<String, String>,
+    game_version: Option<&str>,
 ) -> (String, Option<String>, Option<String>) {
     let mut others: Vec<&str> = dependencies
         .keys()
         .map(String::as_str)
-        .filter(|k| *k != "minecraft" && *k != "fabric-loader")
+        .filter(|k| *k != "minecraft" && !PACK_LOADERS.iter().any(|(key, _)| key == k))
         .collect();
     others.sort();
-    let loader_name = |key: &str| key.trim_end_matches("-loader").to_string();
-    match (dependencies.get("fabric-loader"), others.first()) {
-        (Some(version), None) => {
-            let reason = (!is_valid_version(version))
-                .then(|| format!("The Fabric loader version {version:?} is not valid"));
-            ("fabric".into(), Some(version.clone()), reason)
-        }
-        (_, Some(other)) => (
+    let needed: Vec<(&str, &str)> = PACK_LOADERS
+        .into_iter()
+        .filter(|(key, _)| dependencies.contains_key(*key))
+        .collect();
+    if let Some(other) = others.first() {
+        return (
             loader_name(other),
             dependencies.get(*other).cloned(),
             Some(format!(
-                "Only Fabric modpacks are supported, and this pack needs {}",
+                "Only Fabric, Forge and NeoForge modpacks are supported, and this pack needs {}",
                 others.join(", ")
             )),
-        ),
-        (None, None) => (
-            "vanilla".into(),
-            None,
-            Some("Only Fabric modpacks are supported, and this pack needs no mod loader".into()),
-        ),
+        );
     }
+    let (key, loader) = match needed.as_slice() {
+        [] => {
+            return (
+                "vanilla".into(),
+                None,
+                Some("Only modded packs are supported, and this pack needs no mod loader".into()),
+            )
+        }
+        [one] => *one,
+        [first, ..] => {
+            let keys: Vec<&str> = needed.iter().map(|(key, _)| *key).collect();
+            return (
+                first.1.to_string(),
+                dependencies.get(first.0).cloned(),
+                Some(format!(
+                    "The pack needs more than one mod loader ({})",
+                    keys.join(", ")
+                )),
+            );
+        }
+    };
+    let version = dependencies[key].clone();
+    let title = loader_title(loader);
+    let reason = if !is_valid_version(&version) {
+        Some(format!("The {title} version {version:?} is not valid"))
+    } else if loader == "neoforge" {
+        // NeoForge for 1.20.1 was a Forge fork with other versions (`47.1.x`); Lodestone
+        // runs NeoForge for 1.20.2 and later
+        let for_game = lodestone_minecraft::versions::neoforge::neoforge_game_version(&version);
+        match (for_game, game_version) {
+            (Some(for_game), Some(game)) if for_game != game => Some(format!(
+                "NeoForge {version} is for Minecraft {for_game}, but the pack is for {game}"
+            )),
+            (None, Some(game)) => Some(format!(
+                "NeoForge {version} for Minecraft {game} is not supported: NeoForge servers                  need Minecraft 1.20.2 or later"
+            )),
+            _ => None,
+        }
+    } else {
+        None
+    };
+    (loader.to_string(), Some(version), reason)
+}
+
+/// The server software for a supported pack: its loader at the version it names. A Forge
+/// pack names `47.2.0`, which is looked up in Forge's version list as `1.20.1-47.2.0`.
+pub async fn server_flavour(info: &ModpackInfo) -> Result<Flavour, Error> {
+    let title = loader_title(&info.loader);
+    let version = info
+        .loader_version
+        .clone()
+        .ok_or_else(|| bad_request(format!("The modpack does not say which {title} it needs")))?;
+    Ok(match info.loader.as_str() {
+        "fabric" => Flavour::Fabric {
+            loader_version: Some(FabricLoaderVersion::new(version)),
+            installer_version: None,
+        },
+        "forge" => Flavour::Forge {
+            build_version: Some(ForgeBuildVersion::new(
+                forge_build_for_pack(&info.game_version, &version).await?,
+            )),
+        },
+        "neoforge" => Flavour::NeoForge {
+            build_version: Some(NeoForgeBuildVersion::new(version)),
+        },
+        other => return Err(bad_request(format!("{other} modpacks are not supported"))),
+    })
 }
 
 /// Reads and checks the pack at `path`. A pack that cannot be used for an instance is
@@ -204,7 +304,8 @@ pub fn read_pack(path: &Path, allow_scripts: bool) -> Result<Pack, Error> {
     check_zip_limits(&mut archive, MAX_ENTRIES, MAX_UNCOMPRESSED_BYTES)?;
     let index = read_index(&mut archive)?;
     let game_version = index.dependencies.get("minecraft").cloned();
-    let (loader, loader_version, mut reason) = check_dependencies(&index.dependencies);
+    let (loader, loader_version, mut reason) =
+        check_dependencies(&index.dependencies, game_version.as_deref());
     if index.format_version != 1 {
         reason = Some(format!(
             "Pack format version {} is not supported",
@@ -229,8 +330,18 @@ pub fn read_pack(path: &Path, allow_scripts: bool) -> Result<Pack, Error> {
         } else {
             name
         },
-        version_number: index.version_id.clone().filter(|v| !v.trim().is_empty()),
-        summary: index.summary.clone().filter(|v| !v.trim().is_empty()),
+        version_number: index
+            .version_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+            .map(String::from),
+        summary: index
+            .summary
+            .as_deref()
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+            .map(String::from),
         game_version: game_version.unwrap_or_default(),
         loader,
         loader_version,
@@ -273,6 +384,48 @@ fn is_link(path: &Path) -> bool {
     std::fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_symlink())
 }
 
+/// A file written next to where it goes and moved there once complete, or deleted if
+/// it never is. `tempfile`'s own `persist` can't move a file whose path is longer than
+/// Windows' 260 characters (a pack's deep config path in a server folder can be);
+/// `std::fs` adds the long-path prefix itself.
+struct PartFile {
+    path: PathBuf,
+    moved: bool,
+}
+
+impl PartFile {
+    /// A new, empty file named `<prefix><random>.tmp` in `dir`.
+    fn create(dir: &Path, prefix: &str) -> std::io::Result<(PartFile, std::fs::File)> {
+        loop {
+            let path = dir.join(format!("{prefix}{}.tmp", uuid::Uuid::new_v4().simple()));
+            match std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&path)
+            {
+                Ok(file) => return Ok((PartFile { path, moved: false }, file)),
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(e) => return Err(e),
+            }
+        }
+    }
+
+    /// Moves the file to `target`, replacing what is there.
+    fn persist(mut self, target: &Path) -> std::io::Result<()> {
+        std::fs::rename(&self.path, target)?;
+        self.moved = true;
+        Ok(())
+    }
+}
+
+impl Drop for PartFile {
+    fn drop(&mut self) {
+        if !self.moved {
+            let _ = std::fs::remove_file(&self.path);
+        }
+    }
+}
+
 /// Downloads one file of the pack, trying its URLs in order.
 async fn download_one(
     api: &dyn ModrinthApi,
@@ -291,25 +444,15 @@ async fn download_one(
     }
     let mut last_error = None;
     for url in &download.urls {
-        let temp = tempfile::Builder::new()
-            .prefix(".lodestone-download-")
-            .suffix(".tmp")
-            .tempfile_in(&parent)
-            .context("Failed to create a temporary file")?
-            .into_temp_path();
-        let mut file = tokio::fs::OpenOptions::new()
-            .write(true)
-            .truncate(true)
-            .open(&temp)
-            .await
-            .context("Failed to open a temporary file")?;
+        let (temp, file) = PartFile::create(&parent, ".lodestone-download-")
+            .context("Failed to create a temporary file")?;
+        let mut file = tokio::fs::File::from_std(file);
         let result = api.download(url, &mut file, MAX_PACK_FILE_BYTES).await;
         drop(file);
         match result {
             Ok(hashes) if hashes.sha1 == download.sha1 && hashes.sha512 == download.sha512 => {
-                temp.persist(&target).map_err(|e| {
-                    eyre!("Failed to save {}: {}", download.path.display(), e.error)
-                })?;
+                temp.persist(&target)
+                    .map_err(|e| eyre!("Failed to save {}: {e}", download.path.display()))?;
                 return Ok(());
             }
             Ok(_) => {
@@ -343,14 +486,11 @@ fn write_override<R: Read>(
     if is_link(&target) {
         return Err(unsafe_pack("a path leaves the server folder"));
     }
-    let mut temp = tempfile::Builder::new()
-        .prefix(".lodestone-extract-")
-        .suffix(".tmp")
-        .tempfile_in(&parent)
+    let (temp, mut file) = PartFile::create(&parent, ".lodestone-extract-")
         .context("Failed to create a temporary file")?;
     // never trust the size in the zip header
     let limit = (*budget).min(entry.size()).saturating_add(1);
-    let copied = std::io::copy(&mut entry.take(limit), temp.as_file_mut())
+    let copied = std::io::copy(&mut entry.take(limit), &mut file)
         .map_err(|e| invalid_pack(format!("{} cannot be read ({e})", relative.display())))?;
     if copied > entry.size() || copied > *budget {
         return Err(unsafe_pack(format!(
@@ -359,11 +499,10 @@ fn write_override<R: Read>(
         )));
     }
     *budget -= copied;
-    temp.as_file_mut()
-        .flush()
-        .context("Failed to write a modpack file")?;
+    file.flush().context("Failed to write a modpack file")?;
+    drop(file);
     temp.persist(&target)
-        .map_err(|e| eyre!("Failed to save {}: {}", relative.display(), e.error))?;
+        .map_err(|e| eyre!("Failed to save {}: {e}", relative.display()))?;
     Ok(())
 }
 
@@ -391,17 +530,70 @@ fn extract_overrides(pack_path: &Path, root: &Path, allow_scripts: bool) -> Resu
     Ok(written)
 }
 
+/// The SHA-1 of each override file a pack writes into an instance, by its path with `/`
+/// separators. `server-overrides/` comes after `overrides/`, so its files win.
+fn override_hashes(
+    pack_path: &Path,
+    allow_scripts: bool,
+) -> Result<std::collections::BTreeMap<String, String>, Error> {
+    use sha1::Digest;
+    let mut archive = open_pack(pack_path)?;
+    check_zip_limits(&mut archive, MAX_ENTRIES, MAX_UNCOMPRESSED_BYTES)?;
+    let mut budget = MAX_UNCOMPRESSED_BYTES;
+    let mut hashes = std::collections::BTreeMap::new();
+    let policy = InstancePathPolicy { allow_scripts };
+    for_each_override(&mut archive, Side::Server, &policy, |_, item| {
+        if let OverrideItem::File(path, entry) = item {
+            let size = entry.size();
+            let mut hasher = sha1::Sha1::new();
+            let mut reader = entry.take(budget.min(size).saturating_add(1));
+            let mut buffer = vec![0_u8; 64 * 1024];
+            let mut read_total = 0_u64;
+            loop {
+                let read = reader.read(&mut buffer).map_err(|e| {
+                    invalid_pack(format!("{} cannot be read ({e})", path.display()))
+                })?;
+                if read == 0 {
+                    break;
+                }
+                read_total += read as u64;
+                hasher.update(&buffer[..read]);
+            }
+            if read_total > size || read_total > budget {
+                return Err(unsafe_pack(format!(
+                    "{} is larger than its zip header says",
+                    path.display()
+                )));
+            }
+            budget -= read_total;
+            hashes.insert(slash_path(&path), format!("{:x}", hasher.finalize()));
+        }
+        Ok::<_, Error>(())
+    })?;
+    Ok(hashes)
+}
+
+/// A relative path with `/` separators, as records and messages show it.
+pub(crate) fn slash_path(path: &Path) -> String {
+    path.components()
+        .map(|c| c.as_os_str().to_string_lossy())
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
 /// The result of [`install_pack_contents`].
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct PackInstallReport {
     pub downloaded: usize,
     pub extracted: usize,
     pub skipped: Vec<SkippedPath>,
+    /// The pack's files, as recorded.
+    pub files: std::collections::BTreeMap<String, update::PackFile>,
 }
 
 /// Puts the server files of a checked pack into the instance folder `root`: downloads
 /// `files[]` (at most [`PARALLEL_DOWNLOADS`] at a time), then copies `overrides/` and
-/// `server-overrides/`. `progress` gets a message and the progress made.
+/// `server-overrides/`, and records them in [`update::RECORD_FILE`]. `progress` gets a message and the progress made.
 pub async fn install_pack_contents(
     api: &dyn ModrinthApi,
     pack: &Pack,
@@ -435,10 +627,19 @@ pub async fn install_pack_contents(
             .map_err(|e| eyre!("The modpack task failed: {e}"))??
     };
     progress("Copied modpack overrides".to_string(), 1.0);
+    // the record lets the server be updated to another version of the pack later
+    let files = {
+        let (pack, pack_path) = (pack.clone(), pack_path.to_path_buf());
+        tokio::task::spawn_blocking(move || update::pack_files(&pack, &pack_path, allow_scripts))
+            .await
+            .map_err(|e| eyre!("The modpack task failed: {e}"))??
+    };
+    update::record_of(&files).save(root).await?;
     Ok(PackInstallReport {
         downloaded: total,
         extracted,
         skipped: pack.skipped.clone(),
+        files,
     })
 }
 

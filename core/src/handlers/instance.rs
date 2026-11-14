@@ -18,11 +18,11 @@ use crate::events::{
 use crate::traits::t_configurable::GameType;
 
 use crate::implementations::minecraft::{MinecraftInstance, SetupConfig};
-use crate::prelude::path_to_instances;
+use crate::prelude::{path_to_instances, GameInstance};
 use crate::traits::t_configurable::manifest::SetupValue;
-use crate::traits::{t_configurable::TConfigurable, t_server::TServer, InstanceInfo, TInstance};
+use crate::traits::{t_configurable::TConfigurable, InstanceInfo, TInstance};
 use crate::types::{DotLodestoneConfig, InstanceUuid};
-use crate::{implementations::minecraft, traits::t_server::State as InstanceState, AppState};
+use crate::{implementations::minecraft, AppState};
 
 use super::instance_setup_configs::HandlerGameType;
 use super::util::{all_instances, get_instance, require_code_execution, AuthedUser};
@@ -56,7 +56,7 @@ pub fn sanitize_instance_dir_name(name: &str) -> String {
 }
 
 /// The folder for a new instance: `<instances_dir>/<sanitized name>-<first 8 uuid chars>`.
-pub(super) fn instance_setup_path(
+pub(crate) fn instance_setup_path(
     instances_dir: &FsPath,
     name: &str,
     uuid: &InstanceUuid,
@@ -71,7 +71,7 @@ pub(super) fn instance_setup_path(
 }
 
 /// Removes the folder of an instance whose creation failed, logging any error.
-pub(super) async fn remove_failed_instance_dir(setup_path: PathBuf) {
+pub(crate) async fn remove_failed_instance_dir(setup_path: PathBuf) {
     if let Err(e) = crate::util::fs::remove_dir_all(&setup_path).await {
         error!(
             "Failed to remove directory {} after instance creation failed: {}",
@@ -300,78 +300,79 @@ pub async fn delete_instance(
         .require(&state, UserAction::DeleteInstance)
         .await?;
     let caused_by = requester.caused_by();
-    if let Some((_, instance)) = state.instances.remove(&uuid) {
-        if !(instance.state().await == InstanceState::Stopped) {
-            state.instances.insert(uuid.clone(), instance);
-            Err(Error {
-                kind: ErrorKind::BadRequest,
-                source: eyre!("Server must be stopped before deletion"),
-            })
-        } else {
-            let (progression_event_start, event_id) = Event::new_progression_event_start(
-                format!("Deleting server {}", instance.name().await),
-                Some(10.0),
-                Some(ProgressionStartValue::InstanceDelete {
-                    instance_uuid: uuid.clone(),
-                }),
-                caused_by,
-            );
-            let event_broadcaster = state.event_broadcaster.clone();
-            event_broadcaster.send(progression_event_start);
-            if let Err(e) =
-                tokio::fs::remove_file(instance.path().await.join(".lodestone_config")).await
-            {
-                event_broadcaster.send(Event::new_progression_event_end(
-                    event_id,
-                    false,
-                    Some("Failed to delete .lodestone_config. Server not deleted"),
-                    None,
-                ));
-                state.instances.insert(uuid.clone(), instance);
-                return Err::<Json<()>, std::io::Error>(e)
-                    .context("Failed to delete .lodestone_config file. Server not deleted")
-                    .map_err(Into::into);
-            }
-
-            // the link stops working with the server, and friends lose it
-            state.connect.stop(&uuid, true).await;
-            state.connect.friends.refresh(&state).await;
-            state
-                .port_manager
-                .lock()
-                .await
-                .deallocate(instance.port().await);
-            let instance_path = instance.path().await;
-            state.public_listing.forget(&uuid).await;
-            let res = crate::util::fs::remove_dir_all(instance_path).await;
-            match &res {
-                Ok(_) => event_broadcaster.send(Event::new_progression_event_end(
-                    event_id,
-                    true,
-                    Some("Server deleted successfully"),
-                    Some(ProgressionEndValue::InstanceDelete {
-                        instance_uuid: uuid.clone(),
-                    }),
-                )),
-                Err(e) => {
-                    event_broadcaster.send(Event::new_progression_event_end(
-                        event_id,
-                        false,
-                        Some(&format!(
-                            "Failed to delete some or all of the server's files: {e}"
-                        )),
-                        None,
-                    ));
-                }
-            }
-            res.map(|_| Json(()))
-        }
-    } else {
-        Err(Error {
+    let GameInstance::MinecraftInstance(minecraft) = get_instance(&state, &uuid)?;
+    // no backup or restore may be using the folder, and the server can't start until it is
+    // gone; both are held to the end
+    let _job = state.backups.try_lock_job(&uuid).ok_or_else(|| Error {
+        kind: ErrorKind::Conflict,
+        source: eyre!("A backup or restore of this server is running"),
+    })?;
+    let _stopped = minecraft.lock_stopped("deleting it").await?;
+    let Some((_, instance)) = state.instances.remove(&uuid) else {
+        return Err(Error {
             kind: ErrorKind::NotFound,
             source: eyre!("Server not found"),
-        })
+        });
+    };
+    let (progression_event_start, event_id) = Event::new_progression_event_start(
+        format!("Deleting server {}", instance.name().await),
+        Some(10.0),
+        Some(ProgressionStartValue::InstanceDelete {
+            instance_uuid: uuid.clone(),
+        }),
+        caused_by,
+    );
+    let event_broadcaster = state.event_broadcaster.clone();
+    event_broadcaster.send(progression_event_start);
+    if let Err(e) = tokio::fs::remove_file(instance.path().await.join(".lodestone_config")).await {
+        event_broadcaster.send(Event::new_progression_event_end(
+            event_id,
+            false,
+            Some("Failed to delete .lodestone_config. Server not deleted"),
+            None,
+        ));
+        state.instances.insert(uuid.clone(), instance);
+        return Err::<Json<()>, std::io::Error>(e)
+            .context("Failed to delete .lodestone_config file. Server not deleted")
+            .map_err(Into::into);
     }
+
+    // the link stops working with the server, and friends lose it
+    state.connect.stop(&uuid, true).await;
+    state.connect.friends.refresh(&state).await;
+    state
+        .port_manager
+        .lock()
+        .await
+        .deallocate(instance.port().await);
+    let instance_path = instance.path().await;
+    state.public_listing.forget(&uuid).await;
+    let res = crate::util::fs::remove_dir_all(instance_path).await;
+    // the server's backups go with it (the Host's delete confirmation says so)
+    if let Err(e) = state.backups.delete_server(&uuid).await {
+        error!("Failed to delete the backups of {uuid}: {}", e.source);
+    }
+    match &res {
+        Ok(_) => event_broadcaster.send(Event::new_progression_event_end(
+            event_id,
+            true,
+            Some("Server deleted successfully"),
+            Some(ProgressionEndValue::InstanceDelete {
+                instance_uuid: uuid.clone(),
+            }),
+        )),
+        Err(e) => {
+            event_broadcaster.send(Event::new_progression_event_end(
+                event_id,
+                false,
+                Some(&format!(
+                    "Failed to delete some or all of the server's files: {e}"
+                )),
+                None,
+            ));
+        }
+    }
+    res.map(|_| Json(()))
 }
 
 pub fn get_instance_routes(state: AppState) -> Router {

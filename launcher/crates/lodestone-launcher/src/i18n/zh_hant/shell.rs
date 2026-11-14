@@ -58,6 +58,12 @@ pub fn text(message: M) -> &'static str {
         M::LinkedToRemoved => {
             "已連結到 {core} 上的 {server}（該主機已從「Lodestone Host」頁面移除）"
         }
+        M::RunsUnderRosetta => {
+            "透過 Rosetta 2 執行：Mojang 沒有為這個版本需要的部分程式庫製作 Apple 晶片版本。啟動較慢，之後可以正常遊玩。"
+        }
+        M::RunsUnderRosettaOverride => {
+            "透過 Rosetta 2 執行：在「設定」中選擇的 Java 是 Intel 版。啟動較慢，之後可以正常遊玩。"
+        }
         M::NoInstances => "沒有實例",
         M::AndJoin => "並加入 {server}",
         M::PlayWithoutJoining => "開始遊戲但不加入",
@@ -110,7 +116,7 @@ pub fn text(message: M) -> &'static str {
         }
         M::CauseOutOfMemory => "記憶體不足。請在「設定」中提高記憶體上限，或關閉其他應用程式。",
         M::CauseNatives => {
-            "原生程式庫遺失，或與處理器架構不符。在 Apple 晶片上，1.19 之前的版本會透過 Rosetta 2 在 Intel 版 Java 中執行；請確認已安裝 Rosetta，且自訂 Java 不是 arm64 版。"
+            "原生程式庫遺失，或與處理器架構不符。在 Apple 晶片上，1.14 之前的版本會透過 Rosetta 2 在 Intel 版 Java 中執行，之後的版本則在 Apple 晶片版 Java 中執行；請確認已安裝 Rosetta，且自訂 Java 適用的處理器與之相符。"
         }
         M::CauseJvmOptions => "Java 拒絕了其中一項設定。請檢查「設定」中的 JVM 參數和記憶體。",
         M::CauseGraphics => {
@@ -267,6 +273,34 @@ pub fn text(message: M) -> &'static str {
         M::AddOfflineAccount => "新增離線帳號",
         M::RemoveNamed => "移除「{name}」",
         M::OfflineNote => "離線 – 僅限單人遊戲和離線模式伺服器",
+        M::ChangePlayerSkin => "更換外觀…",
+        M::PlayerSkinDialogTitle => "{name} 的外觀",
+        M::PlayerSkinLoading => "正在向 Minecraft 查詢你的外觀",
+        M::PlayerSkinLoadFailed => "無法載入你的外觀：{error}",
+        M::PlayerSkinSection => "外觀",
+        M::PlayerSkinChooseFile => "選擇檔案…",
+        M::PlayerSkinUseDefault => "使用預設外觀",
+        M::PlayerSkinFileHint => "外觀是一張 64×64 的 PNG 圖片。",
+        M::PlayerSkinFileChosen => "儲存後，{name} 會成為你的外觀。",
+        M::PlayerSkinDefaultChosen => "儲存後，你會使用預設外觀。",
+        M::PlayerSkinDefault => "預設外觀",
+        M::PlayerSkinPreview => "你的角色，穿著該外觀",
+        M::PlayerSkinDragHint => "拖曳以旋轉",
+        M::PlayerSkinModel => "手臂",
+        M::PlayerSkinModelClassic => "粗",
+        M::PlayerSkinModelSlim => "細",
+        M::PlayerSkinCape => "披風",
+        M::PlayerSkinNoCape => "無",
+        M::PlayerSkinNoCapes => "此帳號沒有披風。",
+        M::PlayerSkinFileRefused => "無法使用 {name}：{error}",
+        M::PlayerSkinFileTooLarge => "檔案超過 1 MB",
+        M::PlayerSkinFileNotPng => "它不是 PNG 圖片",
+        M::PlayerSkinFileWrongSize => "它的尺寸是 {width}×{height}，而外觀是 64×64",
+        M::PlayerSkinNetworkError => "無法連線到 Minecraft 服務：{error}",
+        M::PlayerSkinRateLimited => "Minecraft 服務忙碌中，請一分鐘後再試。",
+        M::PlayerSkinSignedOut => "登入已過期。請重新登入，然後再更換外觀。",
+        M::PlayerSkinRefusedBecause => "Minecraft 沒有接受這項變更：{reason}",
+        M::PlayerSkinRefused => "Minecraft 沒有接受這項變更（錯誤 {status}）。",
 
         M::OfflineDialogBody => {
             "用於開發和測試。這個帳號沒有 Microsoft 登入，它的 UUID 與離線模式伺服器為這個名稱指派的相同。"

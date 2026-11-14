@@ -61,10 +61,57 @@ pub fn text(message: M) -> &'static str {
         M::GameTypeSubtitle => "À quoi servira votre serveur ?",
         M::GameTypeNew => "Nouveau",
         M::GameTypeModpack => "Modpack Modrinth",
-        M::GameTypeModpackDescription => "Créer un serveur Fabric à partir d’un modpack Modrinth",
+        M::GameTypeModpackDescription => {
+            "Créer un serveur Fabric, Forge ou NeoForge à partir d’un modpack Modrinth"
+        }
+        M::GameTypeImport => "Serveur existant",
+        M::GameTypeImportDescription => {
+            "Importer un serveur Minecraft que vous avez déjà, avec son monde, ses paramètres, ses mods et ses plugins"
+        }
+        M::StepChooseFolder => "Choisir le dossier",
+        M::ImportFolderTitle => "Choisissez le dossier du serveur",
+        M::ImportFolderSubtitle => {
+            "Le dossier qui contient server.properties et le monde. Lodestone le copie et laisse l’original tel quel."
+        }
+        M::ImportFolderPlaceholder => "Chemin du dossier",
+        M::ImportBrowse => "Parcourir…",
+        M::ImportChooseFolder => "Choisissez d’abord le dossier du serveur",
+        M::ImportStopFirst => {
+            "Si le serveur est en marche, arrêtez-le d’abord pour que son monde soit copié en entier."
+        }
+        M::ImportReading => "Lecture du dossier",
+        M::ImportReadFailed => "Impossible de lire le dossier : {error}",
+        M::ImportSettingsSubtitle => "Vérifiez ce que Lodestone a trouvé, puis importez.",
+        M::ImportOtherSoftware => {
+            "Ce serveur utilisait {other}. Lodestone le fait tourner avec {software}, qui utilise les mêmes plugins."
+        }
+        M::ImportNotOffered => {
+            "Ce serveur utilisait {other}, que Lodestone ne propose pas. Choisissez le logiciel avec lequel le faire tourner."
+        }
+        M::ImportSoftwareUnknown => {
+            "Lodestone n’a pas pu déterminer le logiciel de ce serveur. Choisissez-le ci-dessous."
+        }
+        M::FieldSoftware => "Logiciel serveur",
+        M::FieldSoftwareDescription => {
+            "Ce qui fait tourner le serveur. Lodestone l’installe à nouveau."
+        }
+        M::FieldVersion => "Version de Minecraft",
+        M::FieldVersionDescription => "La dernière version utilisée par le serveur",
+        M::ImportLoadingVersions => "Chargement des versions",
+        M::ImportVersionsFailed => "Impossible de charger les versions : {error}",
+        M::ImportNoVersions => "le core n’a envoyé aucune version",
+        M::ImportVersionUnavailable => {
+            "Lodestone n’a pas de serveur {software} pour Minecraft {version}. Choisissez une autre version."
+        }
+        M::ImportChooseSoftware => "Choisissez le logiciel serveur",
+        M::ImportServer => "Importer le serveur",
+        M::ImportFailed => "Impossible d’importer le serveur : {error}",
         M::GameVanillaDescription => "Serveur Minecraft vanilla standard de Mojang.",
         M::GameForgeDescription => {
             "Framework de modding pour installer des mods et personnaliser votre expérience Minecraft."
+        }
+        M::GameNeoForgeDescription => {
+            "Fork communautaire de Forge, avec ses propres mods, pour Minecraft 1.20.2 et versions ultérieures."
         }
         M::GameFabricDescription => "Chaîne d’outils de modding légère pour Minecraft.",
         M::GamePaperDescription => {
@@ -78,10 +125,9 @@ pub fn text(message: M) -> &'static str {
         M::GameGenericDescription => "Jeu inconnu : {name}",
         M::ModpackSourceTitle => "Choisissez un modpack",
         M::ModpackSourceDescription => {
-            "Recherchez sur Modrinth, collez un lien Modrinth ou importez un fichier .mrpack. Seuls les modpacks Fabric sont pris en charge."
+            "Recherchez sur Modrinth, collez un lien Modrinth ou importez un fichier .mrpack. Les modpacks Fabric, Forge et NeoForge sont pris en charge."
         }
         M::ModpackSearchPlaceholder => "Rechercher des modpacks ou coller un lien Modrinth",
-        M::ModpackOnlyFabric => "Afficher uniquement les modpacks Fabric",
         M::ModpackUpload => "Importer un .mrpack",
         M::ModpackVersionTitle => "Choisissez une version",
         M::ModpackVersionUploaded => "Le modpack importé.",
@@ -210,6 +256,25 @@ pub fn text(message: M) -> &'static str {
         M::ShareStopBody => {
             "Les personnes qui jouent via le lien sont déconnectées et le lien ne fonctionne plus. Partager à nouveau crée un nouveau lien."
         }
+        M::ShareNewLink => "Nouveau lien",
+        M::ShareNewLinkTitle => "Créer un nouveau lien ?",
+        M::ShareNewLinkBody => {
+            "Le lien actuel ne fonctionne plus et les personnes qui jouent via ce lien sont déconnectées. Envoyez le nouveau lien aux personnes qui doivent encore pouvoir rejoindre. Les amis avec qui vous partagez depuis votre liste d'amis ne sont pas concernés."
+        }
+        M::ShareNewLinkConfirm => "Créer un nouveau lien",
+        M::ShareNewLinkMade => "Nouveau lien d'invitation créé",
+        M::ShareRemovedFriendsNote => {
+            "Vous avez retiré {names} de vos amis. S'ils ont ce lien d'invitation, ils peuvent encore rejoindre tant que vous n'en créez pas un nouveau."
+        }
+        M::ShareRemovedFriendsDismiss => "Ignorer",
+        M::ShareRemovedFriendsToast => {
+            "{names} peuvent encore rejoindre {servers} s'ils ont le lien d'invitation. Créez de nouveaux liens pour les en empêcher."
+        }
+        M::ShareNewLinks => "Créer de nouveaux liens",
+        M::ShareNewLinksMade => {
+            "Nouveaux liens d'invitation créés. Envoyez-les aux personnes qui doivent encore pouvoir rejoindre."
+        }
+        M::ShareNewLinkFailed => "Impossible de créer un nouveau lien pour {name} : {error}",
         M::ShareShort => "Partager",
         M::ShareShortHint => "Partager ce serveur",
     }
@@ -221,6 +286,7 @@ pub fn plural(message: P) -> [&'static str; 2] {
             "Afficher plus ({count} restante)",
             "Afficher plus ({count} restantes)",
         ],
+        P::ImportFiles => ["{count} fichier", "{count} fichiers"],
         P::ShareConnected => ["{count} personne connectée", "{count} personnes connectées"],
         P::ShareJoins => [
             "({count} connexion jusqu’ici)",

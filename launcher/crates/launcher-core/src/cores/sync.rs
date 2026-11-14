@@ -67,10 +67,14 @@ pub fn loader_for(
     }
 }
 
-/// The plan to bring the instance at `dirs` in step with the server's `pack`.
+/// The plan to bring the instance at `dirs` in step with the server's `pack`. A mod a
+/// pack the user added has, which the server's pack now has too, is removed, so the
+/// game doesn't load two versions of it (see [`modpack::addon`]).
 pub fn plan(dirs: &InstanceDirs, pack: &PackInfo, loader: Option<LoaderChoice>) -> UpdatePlan {
     let current = ModpackRecord::load(&dirs.instance).unwrap_or_default();
-    update::plan_with(dirs, &current, pack, record(pack), loader, &AUTHORITATIVE)
+    let mut plan = update::plan_with(dirs, &current, pack, record(pack), loader, &AUTHORITATIVE);
+    plan.remove_also(modpack::addon::superseded(dirs, pack));
+    plan
 }
 
 fn sha1_at(path: &Path) -> Option<String> {

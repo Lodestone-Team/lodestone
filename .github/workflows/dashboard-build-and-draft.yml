@@ -16,6 +16,11 @@ on:
         required: false
         type: string
         default: ""
+      prerelease:
+        description: "\"true\" or \"false\": whether the version's draft is a pre-release (release-draft.yml's output). Empty: a version with a -suffix is one"
+        required: false
+        type: string
+        default: ""
     # Only needed (and only passed by release.yml) when a version is given.
     secrets:
       TAURI_PRIVATE_KEY:
@@ -113,7 +118,9 @@ jobs:
           releaseBody: "Automated release for ${{ inputs.version }}"
           uploadUpdaterJson: true
           releaseDraft: true
-          prerelease: true
+          # The draft's own flag: a stable vX.Y.Z draft stays stable, so it can be
+          # published as Latest (and Docker tags it latest-stable).
+          prerelease: ${{ inputs.prerelease == 'true' || (inputs.prerelease == '' && contains(inputs.version, '-')) }}
           # Replaces includeDebug/includeRelease: build either debug or release.
           # Without a version nothing is published, so the updater artifacts are not signed.
           args: ${{ format('{0} {1}', inputs.debug && '--debug' || '', !inputs.version && '--no-sign' || '') }}
@@ -129,7 +136,7 @@ jobs:
             ./target/debug/Lodestone Host.exe
           tag_name: ${{ inputs.version }}
           draft: true
-          prerelease: true
+          prerelease: ${{ inputs.prerelease == 'true' || (inputs.prerelease == '' && contains(inputs.version, '-')) }}
 
       # on windows, cache installer in target/release/bundle/msi/Lodestone Host*.msi
       # on windows cache exe in target/release/Lodestone Host.exe

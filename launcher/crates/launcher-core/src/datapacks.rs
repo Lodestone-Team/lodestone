@@ -399,6 +399,13 @@ pub fn add(dirs: &InstanceDirs, world: &str, path: &Path) -> Result<String, Worl
         storage::write_atomic_with(&dest, |file| io::copy(&mut source, file).map(|_| ()))
             .map_err(io_error(&dest))?;
     }
+    // The name was free, so any Modrinth record for it is left from a file that is gone.
+    // It is dropped, so this file isn't taken for that project's and replaced by its
+    // next version.
+    let mut provenance = Provenance::load(dirs);
+    if provenance.remove(world, &name) {
+        provenance.save(dirs).map_err(io_error(&dirs.instance))?;
+    }
     Ok(name)
 }
 
@@ -521,6 +528,31 @@ pub async fn install(
     progress: &Progress,
     cancel: &CancelToken,
 ) -> Result<Installed, WorldError> {
+    install_with(
+        api,
+        downloader,
+        dirs,
+        world,
+        version,
+        progress,
+        cancel,
+        |path| trash::delete(path).map_err(|e| e.to_string()),
+    )
+    .await
+}
+
+/// Like [`install`], with `remove` removing the older file (tests don't use the Trash).
+#[allow(clippy::too_many_arguments)]
+pub async fn install_with(
+    api: &Modrinth,
+    downloader: &Downloader,
+    dirs: &InstanceDirs,
+    world: &str,
+    version: &RawVersion,
+    progress: &Progress,
+    cancel: &CancelToken,
+    remove: impl FnOnce(&Path) -> Result<(), String>,
+) -> Result<Installed, WorldError> {
     let folder = dir(dirs, world)?;
     let file = version_file(version).ok_or_else(|| {
         WorldError::Invalid(format!(
@@ -559,10 +591,35 @@ pub async fn install(
             file.filename
         ))
     })?;
-    let mut provenance = Provenance::load(dirs);
-    let old = provenance
-        .of_project(world, &version.project_id)
-        .filter(|old| existing(dirs, world, old).is_ok());
+    let provenance = Provenance::load(dirs);
+    // The file of this project that the app installed, to replace. Only a record whose
+    // file is still the one installed counts: a file deleted outside the app and then
+    // replaced by another of the same name (the user's own, say) is never trashed or
+    // overwritten. Records whose file is gone or changed are dropped once this install
+    // is done.
+    let mut old = None;
+    let mut stale = Vec::new();
+    for (file, entry) in provenance.of_project(world, &version.project_id) {
+        let installed = match recorded_file(dirs, world, &file, &entry) {
+            Recorded::Same => true,
+            Recorded::Changed => false,
+            // A record from before hashes were kept: Modrinth says whether the file is
+            // this project's. If it can't be asked (offline, rate limited), the install
+            // stops here with the record kept: dropping it would leave the old version
+            // untracked next to the new one for good, and both would load.
+            Recorded::Unchecked(sha1) => api
+                .versions_by_sha1(std::slice::from_ref(&sha1))
+                .await
+                .map_err(|err| content_error(err.into()))?
+                .get(&sha1)
+                .is_some_and(|v| v.project_id == version.project_id),
+        };
+        if installed && old.is_none() {
+            old = Some(file);
+        } else if !installed {
+            stale.push(file);
+        }
+    }
     if old.as_deref() == Some(name.as_str())
         && provenance
             .get(world, &name)
@@ -615,6 +672,7 @@ pub async fn install(
         return Err(WorldError::Invalid(format!("{}: {problem}", file.filename)));
     }
     crate::fsx::rename(&staging, &dest).map_err(io_error(&dest))?;
+    let sha1 = item.sha1;
 
     // The new file takes the old one's place in the lists.
     let replaced = old.filter(|old| old != &name);
@@ -627,8 +685,14 @@ pub async fn install(
                 }
             }
         });
-        let _ = existing(dirs, world, old).map(trash::delete);
-        provenance.remove(world, old);
+        let _ = existing(dirs, world, old).map(|path| remove(&path));
+    }
+    // Loaded again, since the download can take a while and adding a pack or renaming a
+    // world in the meantime also writes the records: only this install's changes are
+    // made to what is there now.
+    let mut provenance = Provenance::load(dirs);
+    for file in stale.iter().chain(&replaced) {
+        provenance.remove(world, file);
     }
     provenance.insert(
         world,
@@ -636,6 +700,7 @@ pub async fn install(
         Entry {
             project_id: version.project_id.clone(),
             version_id: version.id.clone(),
+            sha1: Some(sha1),
         },
     );
     provenance.save(dirs).map_err(io_error(&dirs.instance))?;
@@ -648,6 +713,64 @@ pub async fn install(
 struct Entry {
     project_id: String,
     version_id: String,
+    /// The SHA-1 of the file as installed, to tell it from another file put under the
+    /// same name later. Records from before it was kept have none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    sha1: Option<String>,
+}
+
+/// Whether a record's file is still the one the app installed.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum Recorded {
+    Same,
+    /// Gone, a folder, or a different file.
+    Changed,
+    /// The record has no hash to check against; this is the file's SHA-1.
+    Unchecked(String),
+}
+
+/// Whether the file `name` in the world is still the one `entry` recorded.
+fn recorded_file(dirs: &InstanceDirs, world: &str, name: &str, entry: &Entry) -> Recorded {
+    let Ok(path) = existing(dirs, world, name) else {
+        return Recorded::Changed;
+    };
+    if !path.is_file() {
+        return Recorded::Changed;
+    }
+    let Ok(actual) = hash::sha1_of(&path) else {
+        return Recorded::Changed;
+    };
+    match &entry.sha1 {
+        Some(sha1) if sha1.eq_ignore_ascii_case(&actual) => Recorded::Same,
+        Some(_) => Recorded::Changed,
+        None => Recorded::Unchecked(actual.to_ascii_lowercase()),
+    }
+}
+
+/// Moves the Modrinth records of the world in folder `from` to folder `to`, after the
+/// world was renamed, so its packs still update in place. `to` was a free folder, so
+/// any records it had were left from a deleted world and are replaced.
+pub(crate) fn world_renamed(dirs: &InstanceDirs, from: &str, to: &str) -> io::Result<()> {
+    let mut provenance = Provenance::load(dirs);
+    let moved = provenance.worlds.remove(from);
+    let dropped = provenance.worlds.remove(to).is_some();
+    if moved.is_none() && !dropped {
+        return Ok(());
+    }
+    if let Some(files) = moved {
+        provenance.worlds.insert(to.to_string(), files);
+    }
+    provenance.save(dirs)
+}
+
+/// Drops the Modrinth records of the world in `folder`, after it was deleted, so a new
+/// world in a folder of the same name doesn't inherit them.
+pub(crate) fn world_deleted(dirs: &InstanceDirs, folder: &str) -> io::Result<()> {
+    let mut provenance = Provenance::load(dirs);
+    if provenance.worlds.remove(folder).is_some() {
+        provenance.save(dirs)?;
+    }
+    Ok(())
 }
 
 /// `<instance>/datapacks.json`: world folder → file name → the Modrinth version it is.
@@ -678,12 +801,16 @@ impl Provenance {
         self.worlds.get(world)?.get(name)
     }
 
-    fn of_project(&self, world: &str, project: &str) -> Option<String> {
+    /// The files recorded in the world as versions of `project` (normally one; stale
+    /// records can add more).
+    fn of_project(&self, world: &str, project: &str) -> Vec<(String, Entry)> {
         self.worlds
-            .get(world)?
-            .iter()
-            .find(|(_, e)| e.project_id == project)
-            .map(|(name, _)| name.clone())
+            .get(world)
+            .into_iter()
+            .flatten()
+            .filter(|(_, e)| e.project_id == project)
+            .map(|(name, e)| (name.clone(), e.clone()))
+            .collect()
     }
 
     fn insert(&mut self, world: &str, name: &str, entry: Entry) {

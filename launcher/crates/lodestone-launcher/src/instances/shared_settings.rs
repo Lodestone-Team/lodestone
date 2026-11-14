@@ -189,6 +189,20 @@ impl InstanceSharedSettings {
         this
     }
 
+    /// The instance moved to another Minecraft version (a modpack update): its
+    /// options.txt is read as that version's.
+    pub fn set_game_version(&mut self, game_version: String, cx: &mut Context<Self>) {
+        if self.game_version != game_version {
+            self.game_version = game_version;
+            self.reload(cx);
+        }
+    }
+
+    #[cfg(test)]
+    pub fn game_version(&self) -> &str {
+        &self.game_version
+    }
+
     /// Filters the section by the Settings tab's search.
     pub fn set_search(&mut self, search: Entity<SettingsSearch>) {
         self.search = Some(search);

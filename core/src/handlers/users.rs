@@ -2,7 +2,7 @@ use crate::{
     auth::{
         jwt_token::JwtToken,
         permission::UserPermission,
-        user::{check_credentials, PublicUser, User, UserAction},
+        user::{check_credentials, valid_username, PublicUser, User, UserAction},
         user_id::UserId,
     },
     error::{Error, ErrorKind},
@@ -38,6 +38,14 @@ async fn run_argon2<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -
         .context("Password hashing task failed")?)
 }
 
+/// A 400 with `message`, which is for people.
+fn bad_request(message: &str) -> Error {
+    Error {
+        kind: ErrorKind::BadRequest,
+        source: eyre!(message.to_string()),
+    }
+}
+
 fn require_self_or_manage_user(requester: &User, uid: &UserId, what: &str) -> Result<(), Error> {
     if requester.uid != *uid && !requester.can_perform_action(&UserAction::ManageUser) {
         return Err(Error {
@@ -56,9 +64,11 @@ pub async fn new_user(
     Json(config): Json<NewUser>,
 ) -> Result<Json<PublicUser>, Error> {
     requester.require(&state, UserAction::ManageUser).await?;
+    // checked before the slow hashing
+    let username = valid_username(&config.username).map_err(bad_request)?;
     let user = run_argon2(move || {
         User::new(
-            config.username,
+            username,
             config.password,
             false,
             false,
@@ -177,7 +187,12 @@ pub async fn rename_user(
     requester: AuthedUser,
     Json(new_name): Json<String>,
 ) -> Result<Json<()>, Error> {
+    // The username is what people sign in with, so a key scoped to some permissions (a
+    // launcher's, or a script's custom one) must not change it, even its own user's.
+    requester.require_session_or_full_key()?;
     require_self_or_manage_user(&requester, &uid, "rename other users")?;
+    // so nobody ends up with a name they can't sign in with
+    let new_name = valid_username(&new_name).map_err(bad_request)?;
     state
         .users_manager
         .write()
@@ -242,12 +257,8 @@ pub async fn set_up_owner_account(
 ) -> Result<Json<PublicUser>, Error> {
     requester.require_session()?;
     requester.owner_only("set up the owner account")?;
-    let bad = |message: &str| Error {
-        kind: ErrorKind::BadRequest,
-        source: eyre!(message.to_string()),
-    };
-    let username = crate::remote_access::owner_username(&account.username).map_err(bad)?;
-    crate::remote_access::owner_password(&account.password).map_err(bad)?;
+    let username = valid_username(&account.username).map_err(bad_request)?;
+    crate::remote_access::owner_password(&account.password).map_err(bad_request)?;
     let password = account.password;
     let hashed = run_argon2(move || crate::auth::hashed_password::hash_password(password)).await?;
     let owner = state
@@ -305,8 +316,9 @@ pub struct ApiKeyLogin {
 /// Signs in with an API key: checks it and returns the user it acts as, with its scope
 /// (a custom key's user is never the owner or an admin). The key itself is then the
 /// session's token, so revoking it ends the session at once. Only API keys (`lsk_…`) are
-/// accepted, never session tokens. Failures count towards the same limit as
-/// `POST /user/login`, per client address and key, so one address can't lock others out.
+/// accepted, never session tokens. Failures are limited as for `POST /user/login`, per
+/// client address and key (so one address can't lock others out), in a table of their
+/// own (so a flood of made-up keys can't clear a username's failures).
 pub async fn login_api_key(
     State(state): State<AppState>,
     ClientIp(ip): ClientIp,
@@ -319,7 +331,7 @@ pub async fn login_api_key(
         Some(parsed) => format!("api key {} from {client}", parsed.id),
         None => format!("api key (malformed) from {client}"),
     };
-    if let Err(limited) = state.login_limiter.begin_attempt(&limit_key) {
+    if let Err(limited) = state.key_login_limiter.begin_attempt(&limit_key) {
         return limited.into_response();
     }
     let user = match parsed {
@@ -328,7 +340,7 @@ pub async fn login_api_key(
     };
     match user {
         Some(user) => {
-            state.login_limiter.record_success(&limit_key);
+            state.key_login_limiter.record_success(&limit_key);
             Json(json!({ "user": PublicUser::from(user) })).into_response()
         }
         None => Error {

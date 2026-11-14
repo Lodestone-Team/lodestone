@@ -2,7 +2,9 @@ use color_eyre::eyre::{eyre, Context, ContextCompat};
 use std::collections::HashSet;
 use std::ffi::OsStr;
 use std::io::Write;
-use std::net::{TcpListener, TcpStream};
+use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream};
+use std::sync::LazyLock;
+use std::time::Duration;
 
 use rand::distr::Alphanumeric;
 use rand::RngExt;
@@ -19,6 +21,37 @@ use tar::Archive;
 
 use crate::error::{Error, ErrorKind};
 use crate::prelude::path_to_tmp;
+
+/// Lodestone's user agent. Some APIs (Modrinth, PaperMC) ask clients to identify
+/// themselves. No personal data.
+pub const USER_AGENT: &str = concat!(
+    "Lodestone/",
+    env!("CARGO_PKG_VERSION"),
+    " (https://github.com/Lodestone-Team/lodestone)"
+);
+
+/// The settings of [`http_client`]: a connection is given up after 10 s and a response
+/// that stalls for 60 s, but there is no overall timeout, since downloads can be large.
+/// Requests that should end sooner set their own with [`reqwest::RequestBuilder::timeout`].
+pub(crate) fn http_client_builder() -> reqwest::ClientBuilder {
+    Client::builder()
+        .user_agent(USER_AGENT)
+        .connect_timeout(Duration::from_secs(10))
+        .read_timeout(Duration::from_secs(60))
+}
+
+/// One HTTP client for the core's outgoing requests, so connections are reused. It is
+/// built on first use, not at startup: building a client reads the system's proxy settings
+/// and CA certificates (on Linux it parses the whole bundle), which a core that makes no
+/// request shouldn't pay for. See [`http_client_builder`] for its timeouts.
+pub fn http_client() -> &'static Client {
+    static CLIENT: LazyLock<Client> = LazyLock::new(|| {
+        http_client_builder()
+            .build()
+            .unwrap_or_else(|_| Client::new())
+    });
+    &CLIENT
+}
 
 #[derive(Debug, Clone)]
 pub struct DownloadProgress {
@@ -68,8 +101,7 @@ pub async fn download_file(
     let mut temp_file = tokio::fs::File::create(&temp_file_path)
         .await
         .context("Failed to create temporary file")?;
-    let client = Client::new();
-    let response = client
+    let response = http_client()
         .get(url)
         .send()
         .await
@@ -211,11 +243,270 @@ pub fn unzip_file(
     unzip_file_in(file.as_ref(), unzip_option, path_to_tmp(), None)
 }
 
+/// Extracts `file` (a zip or a gzipped tar archive) to a temporary folder in `tmp_root`,
+/// runs `check_entry` on what was extracted, and moves it to the destination
+/// `unzip_option` picks. Extraction stops with an error, leaving the destination
+/// untouched, once the archive would expand past [`MAX_UNZIP_BYTES`] or
+/// [`MAX_UNZIP_ENTRIES`], or leave the disk with less than 1 GB free.
 fn unzip_file_in(
     file: &Path,
     unzip_option: UnzipOption,
     tmp_root: &Path,
     check_entry: Option<&UnzipEntryCheck>,
+) -> Result<HashSet<PathBuf>, Error> {
+    unzip_file_limited(
+        file,
+        unzip_option,
+        tmp_root,
+        check_entry,
+        &UnzipLimits::DEFAULT,
+    )
+}
+
+/// The most an archive may expand to. Server packs, modpacks and worlds people upload are
+/// a few GB, and the biggest worlds tens of GB, while an archive that expands past this is
+/// almost certainly a zip bomb, made to fill the disk that holds every server and backup.
+/// On a smaller disk the free space check stops extraction sooner.
+pub const MAX_UNZIP_BYTES: u64 = 64_000_000_000;
+
+/// The most entries an archive may have. Even a large modpack has tens of thousands of
+/// files; millions of empty ones would use up the disk's room for files without using
+/// any bytes.
+pub const MAX_UNZIP_ENTRIES: u64 = 1_000_000;
+
+/// The limits extraction keeps to, see [`MAX_UNZIP_BYTES`] and [`MAX_UNZIP_ENTRIES`].
+struct UnzipLimits {
+    max_bytes: u64,
+    max_entries: u64,
+    /// The free space on the disk holding a path, `None` when it can't be found out.
+    free_space: fn(&Path) -> Option<u64>,
+}
+
+impl UnzipLimits {
+    const DEFAULT: UnzipLimits = UnzipLimits {
+        max_bytes: MAX_UNZIP_BYTES,
+        max_entries: MAX_UNZIP_ENTRIES,
+        free_space: crate::backups::store::free_space,
+    };
+}
+
+/// Counts what an extraction has written against its limits: [`UnzipLimits`], and the
+/// disk's free space when it started, less [`FREE_SPACE_MARGIN`] (the space backups and
+/// downloads also always leave free). Extraction stops with an error, before writing it,
+/// at the first entry or byte that would go past either.
+///
+/// [`FREE_SPACE_MARGIN`]: crate::backups::store::FREE_SPACE_MARGIN
+struct UnzipBudget {
+    archive_name: String,
+    max_bytes: u64,
+    max_entries: u64,
+    free: Option<u64>,
+    bytes: u64,
+    entries: u64,
+}
+
+impl UnzipBudget {
+    fn new(archive: &Path, tmp_root: &Path, limits: &UnzipLimits) -> UnzipBudget {
+        UnzipBudget {
+            archive_name: archive
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_else(|| archive.display().to_string()),
+            max_bytes: limits.max_bytes,
+            max_entries: limits.max_entries,
+            free: (limits.free_space)(tmp_root),
+            bytes: 0,
+            entries: 0,
+        }
+    }
+
+    /// Fails unless an archive of `entries` entries that expands to `bytes` fits. For a
+    /// zip, whose directory lists both before anything is extracted.
+    fn check_declared(&self, entries: u64, bytes: u64) -> Result<(), Error> {
+        self.check_entries(entries)?;
+        self.check_bytes(bytes, false)
+    }
+
+    /// Counts one more entry.
+    fn add_entry(&mut self) -> Result<(), Error> {
+        self.entries += 1;
+        self.check_entries(self.entries)
+    }
+
+    /// Counts `bytes` more, before they are written.
+    fn add_bytes(&mut self, bytes: u64) -> Result<(), Error> {
+        self.bytes = self.bytes.saturating_add(bytes);
+        self.check_bytes(self.bytes, true)
+    }
+
+    fn check_entries(&self, entries: u64) -> Result<(), Error> {
+        if entries > self.max_entries {
+            return Err(Error {
+                kind: ErrorKind::BadRequest,
+                source: eyre!(
+                    "{} has more than {} files and folders, the most Lodestone extracts from one archive",
+                    self.archive_name,
+                    self.max_entries
+                ),
+            });
+        }
+        Ok(())
+    }
+
+    /// `so_far` when `bytes` counts what was extracted so far, so the archive needs more.
+    fn check_bytes(&self, bytes: u64, so_far: bool) -> Result<(), Error> {
+        use crate::backups::store::{format_bytes, FREE_SPACE_MARGIN};
+        if bytes > self.max_bytes {
+            return Err(Error {
+                kind: ErrorKind::BadRequest,
+                source: eyre!(
+                    "{} expands to more than {}, the most Lodestone extracts from one archive",
+                    self.archive_name,
+                    format_bytes(self.max_bytes)
+                ),
+            });
+        }
+        let needed = bytes.saturating_add(FREE_SPACE_MARGIN);
+        match self.free {
+            Some(free) if free < needed => Err(Error {
+                kind: ErrorKind::Conflict,
+                source: eyre!(
+                    "Not enough free disk space to extract {}: {}{} needed, {} free",
+                    self.archive_name,
+                    if so_far { "more than " } else { "" },
+                    format_bytes(needed),
+                    format_bytes(free)
+                ),
+            }),
+            _ => Ok(()),
+        }
+    }
+}
+
+/// Copies `reader` into `writer`, counting every chunk against `budget` before writing it.
+fn copy_within_budget(
+    reader: &mut impl std::io::Read,
+    writer: &mut impl Write,
+    budget: &mut UnzipBudget,
+) -> Result<(), Error> {
+    let mut buffer = vec![0_u8; 64 * 1024];
+    loop {
+        let read = reader
+            .read(&mut buffer)
+            .context(format!("Failed to decompress file {}", budget.archive_name))?;
+        if read == 0 {
+            return Ok(());
+        }
+        budget.add_bytes(read as u64)?;
+        writer
+            .write_all(&buffer[..read])
+            .context("Failed to write an extracted file")?;
+    }
+}
+
+/// Extracts a zip into the empty folder `dest`, entry by entry, keeping to `budget`.
+/// Entries whose paths would lead out of `dest` are refused. Symbolic links are written as
+/// files holding the link's target, as zip 0.6 did, so nothing extracted points anywhere.
+fn extract_zip(
+    archive: &mut zip::ZipArchive<std::fs::File>,
+    file: &Path,
+    dest: &Path,
+    budget: &mut UnzipBudget,
+) -> Result<(), Error> {
+    let decompress_error = || format!("Failed to decompress file {}", file.display());
+    // as zip's own extraction did, for paths longer than 260 characters on Windows;
+    // `enclosed_name` builds each entry's path from plain components, so joining it onto
+    // the verbatim form is safe
+    let dest = dest.canonicalize().unwrap_or_else(|_| dest.to_path_buf());
+    // the central directory lists every entry's size, also for entries that put theirs in
+    // a data descriptor after the data, as Finder's Compress, Java and streamed zips do
+    // (zip's own `decompressed_size` gives up on those). The bytes actually written are
+    // counted too, in case the directory lies.
+    let mut declared = 0_u64;
+    for i in 0..archive.len() {
+        let entry = archive.by_index_data(i).with_context(decompress_error)?;
+        declared = declared.saturating_add(entry.size());
+    }
+    budget.check_declared(archive.len() as u64, declared)?;
+    for i in 0..archive.len() {
+        budget.add_entry()?;
+        let mut entry = archive.by_index(i).with_context(decompress_error)?;
+        let relative = entry.enclosed_name().ok_or_else(|| Error {
+            kind: ErrorKind::BadRequest,
+            source: eyre!(
+                "{} has an entry with an unsafe path ({})",
+                budget.archive_name,
+                String::from_utf8_lossy(entry.name_raw())
+            ),
+        })?;
+        let out_path = dest.join(&relative);
+        if entry.is_dir() {
+            std::fs::create_dir_all(&out_path)
+                .context(format!("Failed to create {}", relative.display()))?;
+            continue;
+        }
+        if let Some(parent) = out_path.parent() {
+            std::fs::create_dir_all(parent)
+                .context(format!("Failed to create {}", relative.display()))?;
+        }
+        let mut out_file = std::fs::File::create(&out_path)
+            .context(format!("Failed to create {}", relative.display()))?;
+        copy_within_budget(&mut entry, &mut out_file, budget)?;
+        // the archive's permissions (a script stays runnable), but always readable and
+        // writable by Lodestone, which moves, copies and deletes the files later. A link's
+        // mode is always 0777, so the file written for it keeps the default instead.
+        #[cfg(unix)]
+        if let Some(mode) = entry.unix_mode().filter(|_| !entry.is_symlink()) {
+            use std::os::unix::fs::PermissionsExt;
+            out_file
+                .set_permissions(std::fs::Permissions::from_mode((mode & 0o777) | 0o600))
+                .context(format!(
+                    "Failed to set permissions of {}",
+                    relative.display()
+                ))?;
+        }
+    }
+    Ok(())
+}
+
+/// Extracts a tar archive into the empty folder `dest`, entry by entry, keeping to
+/// `budget`. A tar archive has no directory, so each entry is counted as it comes: its
+/// header gives its size, which `tar` writes exactly. Folders are made last, as
+/// [`Archive::unpack`] makes them, so a read-only folder can't block what goes in it.
+fn extract_tar<R: std::io::Read>(
+    archive: &mut Archive<R>,
+    file: &Path,
+    dest: &Path,
+    budget: &mut UnzipBudget,
+) -> Result<(), Error> {
+    let decompress_error = || format!("Failed to decompress file {}", file.display());
+    // as `Archive::unpack` does, for paths longer than 260 characters on Windows
+    let dest = dest.canonicalize().unwrap_or_else(|_| dest.to_path_buf());
+    let mut directories = Vec::new();
+    for entry in archive.entries().with_context(decompress_error)? {
+        let mut entry = entry.with_context(decompress_error)?;
+        budget.add_entry()?;
+        if entry.header().entry_type() == tar::EntryType::Directory {
+            directories.push(entry);
+            continue;
+        }
+        budget.add_bytes(entry.size())?;
+        entry.unpack_in(&dest).with_context(decompress_error)?;
+    }
+    directories.sort_by(|a, b| b.path_bytes().cmp(&a.path_bytes()));
+    for mut directory in directories {
+        directory.unpack_in(&dest).with_context(decompress_error)?;
+    }
+    Ok(())
+}
+
+/// Like [`unzip_file_in`], keeping to `limits`.
+fn unzip_file_limited(
+    file: &Path,
+    unzip_option: UnzipOption,
+    tmp_root: &Path,
+    check_entry: Option<&UnzipEntryCheck>,
+    limits: &UnzipLimits,
 ) -> Result<HashSet<PathBuf>, Error> {
     if !file.exists() {
         return Err(eyre!("File {} does not exist", file.display()).into());
@@ -246,6 +537,7 @@ fn unzip_file_in(
         "Failed to create temporary directory for unzipping. Please make sure you have enough space in your disk",
     )?;
     let temp_dest = temp_dest_dir.path();
+    let mut budget = UnzipBudget::new(file, tmp_root, limits);
 
     if file_extension == "gz" || file_extension == "tgz" {
         let tar_gz =
@@ -253,23 +545,13 @@ fn unzip_file_in(
         let tar = GzDecoder::new(tar_gz);
         let mut archive = Archive::new(tar);
         archive.set_overwrite(true);
-        archive
-            .unpack(temp_dest)
-            .context(format!("Failed to decompress file {}", file.display()))?;
+        extract_tar(&mut archive, file, temp_dest, &mut budget)?;
     } else if file_extension == "zip" {
         let zip =
             std::fs::File::open(file).context(format!("Failed to open file {}", file.display()))?;
         let mut archive = zip::ZipArchive::new(zip)
             .context(format!("Failed to decompress file {}", file.display()))?;
-        // zip >= 2 creates real symlinks (and rejects ones pointing outside the
-        // destination); keep the zip 0.6 behaviour of writing them as regular files.
-        archive
-            .extract_with_options(
-                temp_dest,
-                zip::read::ExtractOptions::default()
-                    .symlink_action(zip::read::SymlinkExtractAction::ExtractAsFile),
-            )
-            .context(format!("Failed to decompress file {}", file.display()))?;
+        extract_zip(&mut archive, file, temp_dest, &mut budget)?;
     }
 
     if let Some(check_entry) = check_entry {
@@ -509,9 +791,15 @@ pub fn local_port_available(port: u16) -> bool {
     TcpListener::bind(("127.0.0.1", port)).is_ok()
 }
 
+/// How long [`port_in_use`] waits for an answer. A listener on this machine answers within
+/// a millisecond. A closed port is refused at once on Linux and macOS, but Windows tries
+/// again for about 2 seconds before it gives up, which would delay every start of the core.
+const PORT_PROBE_TIMEOUT: Duration = Duration::from_millis(100);
+
 /// Returns true if something accepts TCP connections on `port` on this machine.
 pub fn port_in_use(port: u16) -> bool {
-    TcpStream::connect(("127.0.0.1", port)).is_ok()
+    let addr = SocketAddr::from((Ipv4Addr::LOCALHOST, port));
+    TcpStream::connect_timeout(&addr, PORT_PROBE_TIMEOUT).is_ok()
 }
 
 // safe_path only works on linux and messes up on windows
@@ -638,39 +926,70 @@ pub mod fs {
         })
     }
 
-    pub async fn create(file: impl AsRef<Path>) -> Result<File, Error> {
-        let file = file.as_ref();
-        let file = tokio::fs::File::create(file)
+    /// Creates a new, empty file, never replacing one that is already there: "New file" with
+    /// the name of an existing file used to empty it. Fails with a `Conflict` error when
+    /// something already has that name (a file, a folder or a symbolic link, which isn't
+    /// followed).
+    pub async fn create_new(file: impl AsRef<Path>) -> Result<File, Error> {
+        let path = file.as_ref();
+        tokio::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(path)
             .await
-            .context(format!("Failed to create file at {}", file.display()))?;
-        Ok(file)
+            .map_err(|e| {
+                if e.kind() == std::io::ErrorKind::AlreadyExists {
+                    Error {
+                        kind: ErrorKind::Conflict,
+                        source: eyre!("{} already exists", path.display()),
+                    }
+                } else {
+                    eyre!(e)
+                        .wrap_err(format!("Failed to create file at {}", path.display()))
+                        .into()
+                }
+            })
     }
 }
+/// Starts a console program (Java) without a console on Windows. DETACHED_PROCESS rather
+/// than CREATE_NO_WINDOW, which would still give each server a hidden console and a
+/// conhost.exe process of its own. Every caller redirects the stdio, nothing sends the
+/// servers console control events (they are stopped with `stop` on stdin, or killed), and
+/// a Ctrl+C in the terminal the core runs in still reaches only the core, which stops the
+/// servers itself. Java decides its output encoding from whether stdout is a console,
+/// which a pipe never is, so the output reads the same.
 pub fn dont_spawn_terminal(cmd: &mut tokio::process::Command) -> &mut tokio::process::Command {
     #[cfg(target_os = "windows")]
-    cmd.creation_flags(0x08000000);
+    {
+        const DETACHED_PROCESS: u32 = 0x0000_0008;
+        cmd.creation_flags(DETACHED_PROCESS);
+    }
 
     cmd
 }
 
 pub use lodestone_minecraft::util::{format_byte, format_byte_download};
 
-/// A `System` with CPU and memory information only. `System::new_all()` would also load
-/// every process on the host, including each process's environment variables, which
-/// Lodestone never needs.
+/// A `System` with the CPUs (their names and count, not yet their usage or speed) and the
+/// memory. `System::new_all()` would also load every process on the host, including each
+/// process's environment variables, which Lodestone never needs. Whoever needs the CPUs'
+/// usage refreshes it: setting that up takes about 200 ms on Windows, which every start of
+/// the core paid before.
 pub fn cpu_and_memory_system() -> sysinfo::System {
     sysinfo::System::new_with_specifics(
         sysinfo::RefreshKind::nothing()
-            .with_cpu(sysinfo::CpuRefreshKind::everything())
+            .with_cpu(sysinfo::CpuRefreshKind::nothing())
             .with_memory(sysinfo::MemoryRefreshKind::everything()),
     )
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::error::ErrorKind;
     use crate::util::{
-        file_name_from_content_disposition, resolve_path_conflict, unzip_file_in, zip_files_in,
-        UnzipOption,
+        file_name_from_content_disposition, resolve_path_conflict, unzip_file_in,
+        unzip_file_limited, zip_files_in, UnzipLimits, UnzipOption, MAX_UNZIP_BYTES,
+        MAX_UNZIP_ENTRIES,
     };
     use color_eyre::eyre::eyre;
     use std::collections::HashSet;
@@ -681,6 +1000,27 @@ mod tests {
 
     fn read(path: impl AsRef<Path>) -> String {
         std::fs::read_to_string(path).unwrap().trim().to_string()
+    }
+
+    /// "New file" with the name of an existing file must not empty it (LS-04).
+    #[tokio::test]
+    async fn create_new_never_replaces_a_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("server.properties");
+        std::fs::write(&path, "motd=hello").unwrap();
+        let error = crate::util::fs::create_new(&path).await.unwrap_err();
+        assert!(matches!(error.kind, crate::error::ErrorKind::Conflict));
+        assert_eq!(read(&path), "motd=hello");
+        // nor a folder's name
+        std::fs::create_dir(tmp.path().join("world")).unwrap();
+        let error = crate::util::fs::create_new(tmp.path().join("world"))
+            .await
+            .unwrap_err();
+        assert!(matches!(error.kind, crate::error::ErrorKind::Conflict));
+        // a new name is created empty
+        let new = tmp.path().join("notes.txt");
+        crate::util::fs::create_new(&new).await.unwrap();
+        assert_eq!(read(&new), "");
     }
 
     #[test]
@@ -797,6 +1137,306 @@ mod tests {
             .contains(&Path::new("sample").join("sample.exe")));
         // the temporary extraction folder was cleaned up
         assert_eq!(std::fs::read_dir(tmp.path()).unwrap().count(), 0);
+    }
+
+    /// A zip of `entries`, each `(name, contents, unix mode)`.
+    fn write_zip(path: &Path, entries: &[(&str, &[u8], u32)]) {
+        use std::io::Write;
+        let mut writer = zip::ZipWriter::new(std::fs::File::create(path).unwrap());
+        for (name, contents, mode) in entries {
+            let options = zip::write::SimpleFileOptions::default()
+                .compression_method(zip::CompressionMethod::Deflated)
+                .unix_permissions(*mode);
+            writer.start_file(*name, options).unwrap();
+            writer.write_all(contents).unwrap();
+        }
+        writer.finish().unwrap();
+    }
+
+    /// A gzipped tar of `entries`, each `(name, contents)`.
+    fn write_tar_gz(path: &Path, entries: &[(&str, &[u8])]) {
+        let encoder = flate2::write::GzEncoder::new(
+            std::fs::File::create(path).unwrap(),
+            flate2::Compression::default(),
+        );
+        let mut builder = tar::Builder::new(encoder);
+        for (name, contents) in entries {
+            let mut header = tar::Header::new_gnu();
+            header.set_size(contents.len() as u64);
+            header.set_mode(0o644);
+            header.set_cksum();
+            builder.append_data(&mut header, name, *contents).unwrap();
+        }
+        builder.into_inner().unwrap().finish().unwrap();
+    }
+
+    fn limits(max_bytes: u64, max_entries: u64) -> UnzipLimits {
+        UnzipLimits {
+            max_bytes,
+            max_entries,
+            free_space: |_| None,
+        }
+    }
+
+    /// A small archive that expands past the limit (a zip bomb) is refused while it is
+    /// extracted, and nothing reaches the destination or stays in the temporary folder
+    /// (LS-87). Before, archives were extracted in full, however big.
+    #[test]
+    fn an_archive_that_expands_past_the_limit_is_refused() {
+        let temp = tempfile::tempdir().unwrap();
+        let tmp = temp.path().join("tmp");
+        let dest = temp.path().join("dest");
+        let zeros = vec![0_u8; 4_000_000];
+
+        let zip = temp.path().join("bomb.zip");
+        write_zip(&zip, &[("zeros.bin", &zeros, 0o644)]);
+        assert!(std::fs::metadata(&zip).unwrap().len() < 100_000);
+        let error = unzip_file_limited(
+            &zip,
+            UnzipOption::ToDir(dest.clone()),
+            &tmp,
+            None,
+            &limits(1_000_000, 100),
+        )
+        .unwrap_err();
+        assert!(matches!(error.kind, ErrorKind::BadRequest));
+        assert!(error
+            .to_string()
+            .contains("bomb.zip expands to more than 1.0 MB"));
+
+        // a tar.gz has no directory, so it is stopped at the entry that goes past
+        let tar_gz = temp.path().join("bomb.tar.gz");
+        write_tar_gz(
+            &tar_gz,
+            &[("a.bin", &zeros[..600_000]), ("b.bin", &zeros[..600_000])],
+        );
+        let error = unzip_file_limited(
+            &tar_gz,
+            UnzipOption::ToDir(dest.clone()),
+            &tmp,
+            None,
+            &limits(1_000_000, 100),
+        )
+        .unwrap_err();
+        assert!(matches!(error.kind, ErrorKind::BadRequest));
+        assert!(error.to_string().contains("bomb.tar.gz expands to more"));
+
+        assert!(!dest.exists());
+        assert_eq!(std::fs::read_dir(&tmp).unwrap().count(), 0);
+
+        // within the limit, both extract
+        let unzipped = unzip_file_limited(
+            &tar_gz,
+            UnzipOption::ToDir(dest.clone()),
+            &tmp,
+            None,
+            &limits(1_200_000, 100),
+        )
+        .unwrap();
+        assert_eq!(unzipped.len(), 2);
+        assert_eq!(
+            std::fs::metadata(dest.join("b.bin")).unwrap().len(),
+            600_000
+        );
+        unzip_file_limited(
+            &zip,
+            UnzipOption::ToDir(dest.clone()),
+            &tmp,
+            None,
+            &limits(4_000_000, 100),
+        )
+        .unwrap();
+        assert_eq!(
+            std::fs::metadata(dest.join("zeros.bin")).unwrap().len(),
+            4_000_000
+        );
+    }
+
+    /// An archive that would leave the disk with less than the margin free is refused,
+    /// for a zip before anything is extracted (LS-87).
+    #[test]
+    fn an_archive_that_does_not_fit_on_the_disk_is_refused() {
+        use crate::backups::store::FREE_SPACE_MARGIN;
+        let temp = tempfile::tempdir().unwrap();
+        let tmp = temp.path().join("tmp");
+        let dest = temp.path().join("dest");
+        let zip = temp.path().join("world.zip");
+        write_zip(&zip, &[("level.dat", &[7_u8; 5000], 0o644)]);
+        let tar_gz = temp.path().join("world.tar.gz");
+        write_tar_gz(&tar_gz, &[("level.dat", &[7_u8; 5000])]);
+        let nearly_full = UnzipLimits {
+            free_space: |_| Some(FREE_SPACE_MARGIN + 4000),
+            ..limits(MAX_UNZIP_BYTES, MAX_UNZIP_ENTRIES)
+        };
+        for archive in [&zip, &tar_gz] {
+            let error = unzip_file_limited(
+                archive,
+                UnzipOption::ToDir(dest.clone()),
+                &tmp,
+                None,
+                &nearly_full,
+            )
+            .unwrap_err();
+            assert!(matches!(error.kind, ErrorKind::Conflict), "{error}");
+            assert!(
+                error.to_string().contains("Not enough free disk space"),
+                "{error}"
+            );
+        }
+        assert!(!dest.exists());
+        let roomy = UnzipLimits {
+            free_space: |_| Some(FREE_SPACE_MARGIN + 6000),
+            ..limits(MAX_UNZIP_BYTES, MAX_UNZIP_ENTRIES)
+        };
+        for archive in [&zip, &tar_gz] {
+            unzip_file_limited(
+                archive,
+                UnzipOption::ToDir(dest.clone()),
+                &tmp,
+                None,
+                &roomy,
+            )
+            .unwrap();
+        }
+        assert_eq!(std::fs::read_dir(&dest).unwrap().count(), 2);
+    }
+
+    /// Archives with too many entries are refused (LS-87).
+    #[test]
+    fn an_archive_with_too_many_entries_is_refused() {
+        let temp = tempfile::tempdir().unwrap();
+        let tmp = temp.path().join("tmp");
+        let dest = temp.path().join("dest");
+        let zip = PathBuf::from("testdata/sample.zip");
+        let tar_gz = temp.path().join("many.tar.gz");
+        write_tar_gz(&tar_gz, &[("a", b""), ("b", b""), ("c", b"")]);
+        for archive in [&zip, &tar_gz] {
+            let error = unzip_file_limited(
+                archive,
+                UnzipOption::ToDir(dest.clone()),
+                &tmp,
+                None,
+                &limits(MAX_UNZIP_BYTES, 2),
+            )
+            .unwrap_err();
+            assert!(matches!(error.kind, ErrorKind::BadRequest));
+            assert!(error.to_string().contains("more than 2 files and folders"));
+        }
+        assert!(!dest.exists());
+    }
+
+    /// A zip written as a stream, whose entries give their sizes in data descriptors after
+    /// their data (as Finder's Compress, Java's ZipOutputStream and Python's zipfile on a
+    /// stream make them), extracts, and is still held to the limit by the sizes its
+    /// central directory lists (LS-87).
+    #[test]
+    fn a_zip_with_data_descriptors_extracts() {
+        use std::io::Write;
+        let temp = tempfile::tempdir().unwrap();
+        let tmp = temp.path().join("tmp");
+        let dest = temp.path().join("dest");
+        let zip = temp.path().join("streamed.zip");
+        let mut writer = zip::ZipWriter::new_stream(std::fs::File::create(&zip).unwrap());
+        let options = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated);
+        writer.add_directory("pack/", options).unwrap();
+        writer.start_file("pack/a.txt", options).unwrap();
+        writer.write_all(b"hello").unwrap();
+        writer.start_file("pack/zeros.bin", options).unwrap();
+        writer.write_all(&[0_u8; 600_000]).unwrap();
+        writer.finish().unwrap();
+        {
+            let archive = zip::ZipArchive::new(std::fs::File::open(&zip).unwrap()).unwrap();
+            // what made such zips fail before: zip can't tell their size up front
+            assert_eq!(archive.decompressed_size(), None);
+        }
+
+        let unzipped = unzip_file_in(&zip, UnzipOption::ToDir(dest.clone()), &tmp, None).unwrap();
+        assert_eq!(unzipped, HashSet::from([dest.join("pack")]));
+        assert_eq!(read(dest.join("pack/a.txt")), "hello");
+        assert_eq!(
+            std::fs::metadata(dest.join("pack/zeros.bin"))
+                .unwrap()
+                .len(),
+            600_000
+        );
+
+        let error = unzip_file_limited(
+            &zip,
+            UnzipOption::ToDir(temp.path().join("dest2")),
+            &tmp,
+            None,
+            &limits(500_000, 100),
+        )
+        .unwrap_err();
+        assert!(matches!(error.kind, ErrorKind::BadRequest));
+        assert!(error.to_string().contains("streamed.zip expands to more"));
+        assert!(!temp.path().join("dest2").exists());
+    }
+
+    /// Extracting a zip entry by entry still refuses paths that lead out of the folder,
+    /// and keeps a script runnable while every file stays readable (LS-87).
+    #[test]
+    fn zip_entries_stay_inside_and_keep_their_permissions() {
+        let temp = tempfile::tempdir().unwrap();
+        let tmp = temp.path().join("tmp");
+        let dest = temp.path().join("dest");
+        let evil = temp.path().join("evil.zip");
+        write_zip(
+            &evil,
+            &[("ok.txt", b"ok", 0o644), ("../../evil.txt", b"x", 0o644)],
+        );
+        assert!(unzip_file_in(&evil, UnzipOption::ToDir(dest.clone()), &tmp, None).is_err());
+        assert!(!temp.path().join("evil.txt").exists());
+        assert!(!dest.exists());
+
+        let zip = temp.path().join("pack.zip");
+        write_zip(
+            &zip,
+            &[
+                ("pack/start.sh", b"echo", 0o755),
+                ("pack/locked.txt", b"locked", 0o000),
+            ],
+        );
+        unzip_file_in(&zip, UnzipOption::ToDir(dest.clone()), &tmp, None).unwrap();
+        assert_eq!(read(dest.join("pack/locked.txt")), "locked");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = |name: &str| {
+                std::fs::metadata(dest.join(name))
+                    .unwrap()
+                    .permissions()
+                    .mode()
+                    & 0o777
+            };
+            assert_eq!(mode("pack/start.sh"), 0o755);
+            assert_eq!(mode("pack/locked.txt"), 0o600);
+        }
+
+        // a link is written as a file holding its target, without the link's 0777 mode
+        // (which would leave a world-writable, runnable file)
+        let linked = temp.path().join("linked.zip");
+        let mut writer = zip::ZipWriter::new(std::fs::File::create(&linked).unwrap());
+        writer
+            .add_symlink(
+                "linked/link",
+                "/etc/passwd",
+                zip::write::SimpleFileOptions::default(),
+            )
+            .unwrap();
+        writer.finish().unwrap();
+        unzip_file_in(&linked, UnzipOption::ToDir(dest.clone()), &tmp, None).unwrap();
+        let link = dest.join("linked/link");
+        let metadata = std::fs::symlink_metadata(&link).unwrap();
+        assert!(metadata.is_file());
+        assert_eq!(read(&link), "/etc/passwd");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = metadata.permissions().mode() & 0o777;
+            assert_eq!(mode & 0o111, 0, "{mode:o}");
+        }
     }
 
     #[test]
@@ -976,5 +1616,42 @@ mod tests {
             .is_err());
         #[cfg(unix)]
         assert!(read_to_string_capped("/dev/zero", 1024).await.is_err());
+    }
+
+    /// A program started without a console (as servers are) still reads its piped stdin,
+    /// writes its piped stdout, and sees the end of stdin when the core closes it.
+    /// `findstr` stands in for Java: it echoes every line it reads and exits at the end.
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn a_program_without_a_console_talks_through_its_pipes() {
+        use crate::util::dont_spawn_terminal;
+        use std::process::Stdio;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let mut command = tokio::process::Command::new("findstr");
+        command.arg("^");
+        let mut child = dont_spawn_terminal(&mut command)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut stdin = child.stdin.take().unwrap();
+        stdin.write_all(b"stop\r\n").await.unwrap();
+        drop(stdin);
+        let mut stdout = String::new();
+        child
+            .stdout
+            .take()
+            .unwrap()
+            .read_to_string(&mut stdout)
+            .await
+            .unwrap();
+        let status = tokio::time::timeout(std::time::Duration::from_secs(10), child.wait())
+            .await
+            .expect("findstr did not exit when its stdin closed")
+            .unwrap();
+        assert!(status.success(), "{status}");
+        assert_eq!(stdout.trim(), "stop");
     }
 }

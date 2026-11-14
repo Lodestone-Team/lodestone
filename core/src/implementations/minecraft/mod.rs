@@ -2,13 +2,14 @@ pub mod configurable;
 pub mod eula;
 pub mod fabric;
 mod forge;
-mod line_parser;
+pub(crate) mod line_parser;
 mod paper;
 pub mod player;
 mod players_manager;
 pub use lodestone_minecraft::properties;
 pub mod server;
 pub mod server_properties;
+mod software;
 pub mod util;
 mod vanilla;
 
@@ -20,7 +21,7 @@ use std::collections::HashMap;
 use std::io::Write;
 use std::path::Path;
 use std::process::Stdio;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, AtomicU64};
 use std::sync::{Arc, LazyLock};
 use std::time::Instant;
 use tokio::process::{Child, Command};
@@ -30,7 +31,7 @@ use tokio::sync::Mutex;
 use ::serde::{Deserialize, Serialize};
 use serde_json::to_string_pretty;
 
-use tracing::{error, warn};
+use tracing::{error, info, warn};
 
 use tokio;
 use ts_rs::TS;
@@ -58,11 +59,11 @@ use crate::util::{
 
 use self::configurable::CmdArgSetting;
 use self::fabric::get_fabric_minecraft_versions;
-use self::forge::get_forge_minecraft_versions;
+use self::forge::{get_forge_minecraft_versions, get_neoforge_minecraft_versions};
 use self::paper::get_paper_minecraft_versions;
 use self::players_manager::PlayersManager;
 use self::properties::PropertiesDocument;
-use self::util::{get_jre_major_version, get_server_jar_url, jre_download_url};
+use self::util::{find_jre_download, get_jre_major_version, get_server_jar_url};
 use self::vanilla::get_vanilla_minecraft_versions;
 
 #[derive(Debug, Clone, TS, Serialize, Deserialize, PartialEq)]
@@ -82,6 +83,20 @@ pub struct PaperBuildVersion(i64);
 #[derive(Debug, Clone, TS, Serialize, Deserialize, PartialEq)]
 #[ts(export)]
 pub struct ForgeBuildVersion(String);
+impl ForgeBuildVersion {
+    pub fn new(build: String) -> Self {
+        Self(build)
+    }
+}
+/// A NeoForge version, such as `21.1.209`.
+#[derive(Debug, Clone, TS, Serialize, Deserialize, PartialEq)]
+#[ts(export)]
+pub struct NeoForgeBuildVersion(String);
+impl NeoForgeBuildVersion {
+    pub fn new(version: String) -> Self {
+        Self(version)
+    }
+}
 
 /// A parameter for constructor of `MinecraftInstance`
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, EnumKind)]
@@ -100,6 +115,39 @@ pub enum Flavour {
     Forge {
         build_version: Option<ForgeBuildVersion>,
     },
+    #[serde(rename = "neoforge")]
+    NeoForge {
+        build_version: Option<NeoForgeBuildVersion>,
+    },
+}
+
+impl Flavour {
+    /// Whether the server is installed by running an installer (Forge and NeoForge),
+    /// rather than run from a downloaded `server.jar`.
+    pub fn uses_installer(&self) -> bool {
+        matches!(self, Flavour::Forge { .. } | Flavour::NeoForge { .. })
+    }
+
+    /// The loader or build version: Fabric's loader version, Forge's build
+    /// (`1.20.1-47.2.0`), NeoForge's version or Paper's build.
+    pub fn loader_version(&self) -> Option<String> {
+        match self {
+            Flavour::Fabric {
+                loader_version: Some(FabricLoaderVersion(v)),
+                ..
+            } => Some(v.clone()),
+            Flavour::Forge {
+                build_version: Some(ForgeBuildVersion(b)),
+            } => Some(b.clone()),
+            Flavour::NeoForge {
+                build_version: Some(NeoForgeBuildVersion(b)),
+            } => Some(b.clone()),
+            Flavour::Paper {
+                build_version: Some(PaperBuildVersion(b)),
+            } => Some(b.to_string()),
+            _ => None,
+        }
+    }
 }
 
 impl From<FlavourKind> for Flavour {
@@ -117,6 +165,9 @@ impl From<FlavourKind> for Flavour {
             FlavourKind::Forge => Flavour::Forge {
                 build_version: None,
             },
+            FlavourKind::NeoForge => Flavour::NeoForge {
+                build_version: None,
+            },
         }
     }
 }
@@ -129,6 +180,7 @@ impl ToString for Flavour {
             Flavour::Paper { .. } => "paper".to_string(),
             Flavour::Spigot => "spigot".to_string(),
             Flavour::Forge { .. } => "forge".to_string(),
+            Flavour::NeoForge { .. } => "neoforge".to_string(),
         }
     }
 }
@@ -141,6 +193,7 @@ impl ToString for FlavourKind {
             FlavourKind::Paper => "paper".to_string(),
             FlavourKind::Spigot => "spigot".to_string(),
             FlavourKind::Forge => "forge".to_string(),
+            FlavourKind::NeoForge => "neoforge".to_string(),
         }
     }
 }
@@ -192,19 +245,7 @@ pub struct RestoreConfig {
 impl RestoreConfig {
     /// The [`InstanceDetails`] of an instance with this config.
     pub fn details(&self) -> InstanceDetails {
-        let loader_version = match &self.flavour {
-            Flavour::Fabric {
-                loader_version: Some(FabricLoaderVersion(v)),
-                ..
-            } => Some(v.clone()),
-            Flavour::Forge {
-                build_version: Some(ForgeBuildVersion(b)),
-            } => Some(b.clone()),
-            Flavour::Paper {
-                build_version: Some(PaperBuildVersion(b)),
-            } => Some(b.to_string()),
-            _ => None,
-        };
+        let loader_version = self.flavour.loader_version();
         InstanceDetails {
             icon_url: self
                 .modpack
@@ -238,6 +279,14 @@ pub struct MinecraftInstance {
     stop_requested: Arc<AtomicBool>,
     /// Held while the version changes, so the instance can't start meanwhile
     version_change_lock: Arc<Mutex<()>>,
+    /// Counts the starts: each one takes the next number as it moves to Starting, and
+    /// spawns the server only while it is still the newest. A start that was stopped
+    /// before its process spawned, and then followed by another start, would otherwise
+    /// see the other start's Starting and spawn a second process.
+    launch_generation: Arc<AtomicU64>,
+    /// When the instance last became stopped (or errored) from another state: a crash
+    /// restart may follow, so scheduled work that holds off starts waits a while after it.
+    last_stopped: Arc<std::sync::Mutex<Option<Instant>>>,
     /// Serializes read-modify-write cycles of server.properties
     properties_lock: Arc<Mutex<()>>,
     system: Arc<Mutex<sysinfo::System>>,
@@ -362,8 +411,67 @@ pub(super) fn java_binary(path_to_runtimes: &Path, jre_major_version: u64) -> Pa
         .join("java")
 }
 
+/// The folder that holds `bin/java` (`Contents/Home/bin/java` on macOS) among `dir` and
+/// the folders in it: archives put it at the top (Temurin, Zulu's JREs) or one folder down
+/// (Zulu's JDKs for macOS, in a `zulu-17.jdk` bundle).
+async fn find_java_home(dir: &Path) -> Option<PathBuf> {
+    let java = if std::env::consts::OS == "macos" {
+        "Contents/Home/bin/java"
+    } else if std::env::consts::OS == "windows" {
+        "bin/java.exe"
+    } else {
+        "bin/java"
+    };
+    if tokio::fs::try_exists(dir.join(java)).await.unwrap_or(false) {
+        return Some(dir.to_path_buf());
+    }
+    let mut entries = tokio::fs::read_dir(dir).await.ok()?;
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        let path = entry.path();
+        // not through links, which an archive could point anywhere
+        let is_dir = tokio::fs::symlink_metadata(&path)
+            .await
+            .is_ok_and(|m| m.is_dir());
+        if is_dir
+            && tokio::fs::try_exists(path.join(java))
+                .await
+                .unwrap_or(false)
+        {
+            return Some(path);
+        }
+    }
+    None
+}
+
+/// Checks a downloaded file against the SHA-256 (in hex) that its vendor publishes.
+async fn verify_sha256(path: &Path, expected: &str) -> Result<(), Error> {
+    use sha2::{Digest, Sha256};
+
+    let path = path.to_owned();
+    let actual = tokio::task::spawn_blocking(move || -> std::io::Result<String> {
+        let mut file = std::fs::File::open(&path)?;
+        let mut hasher = Sha256::new();
+        std::io::copy(&mut file, &mut hasher)?;
+        Ok(hex::encode(hasher.finalize()))
+    })
+    .await
+    .context("The checksum task failed")?
+    .context("Could not read the downloaded JRE")?;
+    if !actual.eq_ignore_ascii_case(expected) {
+        return Err(eyre!(
+            "The downloaded JRE is not the one its vendor published (its SHA-256 is {actual}, \
+             expected {expected})"
+        )
+        .into());
+    }
+    Ok(())
+}
+
 /// Downloads the JRE for a Java major version unless it is already there. Returns true if
 /// it was downloaded. Concurrent calls for the same version wait for each other.
+///
+/// The JRE is always a build of exactly that Java version for this computer's own processor
+/// (see [`find_jre_download`]); if there is none, this fails before downloading anything.
 pub(super) async fn ensure_jre(
     path_to_runtimes: &Path,
     jre_major_version: u64,
@@ -384,6 +492,11 @@ pub(super) async fn ensure_jre(
     if tokio::fs::try_exists(&target).await.unwrap_or(false) {
         return Ok(false);
     }
+    let download = find_jre_download(jre_major_version).await?;
+    info!(
+        "Downloading Java {jre_major_version} ({}) from {}",
+        download.vendor, download.url
+    );
     tokio::fs::create_dir_all(&java_dir)
         .await
         .context("Could not create the Java runtime directory")?;
@@ -399,13 +512,16 @@ pub(super) async fn ensure_jre(
         "jre.tar.gz"
     };
     let archive = download_file(
-        &jre_download_url(jre_major_version),
+        &download.url,
         work_dir.path(),
         Some(archive_name),
         on_download,
         true,
     )
     .await?;
+    if let Some(sha256) = &download.sha256 {
+        verify_sha256(&archive, sha256).await?;
+    }
     let extracted = unzip_file_async(
         &archive,
         UnzipOption::ToDir(work_dir.path().join("extracted")),
@@ -422,6 +538,12 @@ pub(super) async fn ensure_jre(
         .into_iter()
         .next()
         .ok_or_else(|| eyre!("The JRE archive is empty"))?;
+    let extracted = find_java_home(&extracted).await.ok_or_else(|| {
+        eyre!(
+            "The Java {jre_major_version} archive from {} has no java program where expected",
+            download.vendor
+        )
+    })?;
     tokio::fs::rename(&extracted, &target)
         .await
         .context(format!(
@@ -480,6 +602,59 @@ async fn tail_of_file(path: &Path, lines: usize) -> String {
     }
 }
 
+/// The file a Forge or NeoForge installer is downloaded to, in the instance folder.
+pub(crate) const INSTALLER_JAR: &str = "forge-installer.jar";
+
+/// Runs the Forge or NeoForge installer at [`INSTALLER_JAR`] in `path_to_instance`, which
+/// puts the server's libraries and its argument files (`unix_args.txt`, `win_args.txt`)
+/// there. The installer's output goes to `forge-installer.log`. `user_jvm_args.txt` is
+/// replaced with a note: Lodestone sets the server's Java arguments itself.
+pub(crate) async fn run_server_installer(
+    jre: &Path,
+    path_to_instance: &Path,
+    flavour_name: &str,
+) -> Result<(), Error> {
+    let log_path = path_to_instance.join("forge-installer.log");
+    let log = std::fs::File::create(&log_path).context("Could not create forge-installer.log")?;
+    let log_stderr = log
+        .try_clone()
+        .context("Could not create forge-installer.log")?;
+    let status = dont_spawn_terminal(
+        Command::new(jre)
+            .arg("-jar")
+            .arg(path_to_instance.join(INSTALLER_JAR))
+            .arg("--installServer")
+            .arg(path_to_instance)
+            .current_dir(path_to_instance),
+    )
+    .stdout(Stdio::from(log))
+    .stderr(Stdio::from(log_stderr))
+    .stdin(Stdio::null())
+    .spawn()
+    .with_context(|| format!("Failed to start the {flavour_name} installer"))?
+    .wait()
+    .await
+    .with_context(|| format!("The {flavour_name} installer failed"))?;
+    if !status.success() {
+        return Err(eyre!(
+            "Failed to install the {flavour_name} server ({status}). The end of {}:
+{}",
+            log_path.display(),
+            tail_of_file(&log_path, 20).await
+        )
+        .into());
+    }
+    tokio::fs::write(
+        path_to_instance.join("user_jvm_args.txt"),
+        "# Generated by Lodestone
+# This file is ignored by Lodestone
+# Please set arguments using Lodestone",
+    )
+    .await
+    .context("Could not create user_jvm_args.txt")?;
+    Ok(())
+}
+
 impl MinecraftInstance {
     /// The versions a flavour supports, newest first. Cached for a few minutes, because
     /// both the setup form and instance creation need them.
@@ -503,6 +678,7 @@ impl MinecraftInstance {
                 })
             }
             FlavourKind::Forge => get_forge_minecraft_versions().await,
+            FlavourKind::NeoForge => get_neoforge_minecraft_versions().await,
         }
         .context("Failed to get minecraft versions")?;
         CACHE
@@ -812,9 +988,10 @@ impl MinecraftInstance {
                 "Could not find a {} server.jar for version {}",
                 flavour_name, config.version
             ))?;
-        let jar_name = match flavour {
-            Flavour::Forge { .. } => "forge-installer.jar",
-            _ => "server.jar",
+        let jar_name = if flavour.uses_installer() {
+            INSTALLER_JAR
+        } else {
+            "server.jar"
         };
 
         download_file(
@@ -853,51 +1030,15 @@ impl MinecraftInstance {
         )
         .await?;
         let jre = java_binary(&path_to_runtimes, jre_major_version);
-        // Step 3 (part 2): Forge Setup
-        if let Flavour::Forge { .. } = flavour.clone() {
+        // Step 3 (part 2): Forge or NeoForge setup
+        if flavour.uses_installer() {
+            let flavour_name = flavour.to_string();
             event_broadcaster.send(Event::new_progression_event_update(
                 progression_event_id,
-                "3/4: Installing Forge Server",
+                format!("3/4: Installing the {flavour_name} server"),
                 1.0,
             ));
-
-            let log_path = path_to_instance.join("forge-installer.log");
-            let log =
-                std::fs::File::create(&log_path).context("Could not create forge-installer.log")?;
-            let log_stderr = log
-                .try_clone()
-                .context("Could not create forge-installer.log")?;
-            let status = dont_spawn_terminal(
-                Command::new(&jre)
-                    .arg("-jar")
-                    .arg(path_to_instance.join("forge-installer.jar"))
-                    .arg("--installServer")
-                    .arg(&path_to_instance)
-                    .current_dir(&path_to_instance),
-            )
-            .stdout(Stdio::from(log))
-            .stderr(Stdio::from(log_stderr))
-            .stdin(Stdio::null())
-            .spawn()
-            .context("Failed to start forge-installer.jar")?
-            .wait()
-            .await
-            .context("forge-installer.jar failed")?;
-            if !status.success() {
-                return Err(eyre!(
-                    "Failed to install forge server ({status}). The end of {}:\n{}",
-                    log_path.display(),
-                    tail_of_file(&log_path, 20).await
-                )
-                .into());
-            }
-
-            tokio::fs::write(
-                &path_to_instance.join("user_jvm_args.txt"),
-                "# Generated by Lodestone\n# This file is ignored by Lodestone\n# Please set arguments using Lodestone",
-            )
-            .await
-            .context("Could not create user_jvm_args.txt")?;
+            run_server_installer(&jre, &path_to_instance, &flavour_name).await?;
         }
 
         // Step 4: Finishing Up
@@ -1004,6 +1145,8 @@ impl MinecraftInstance {
             stdin: Arc::new(Mutex::new(None)),
             stop_requested: Arc::new(AtomicBool::new(false)),
             version_change_lock: Arc::new(Mutex::new(())),
+            launch_generation: Arc::new(AtomicU64::new(0)),
+            last_stopped: Arc::new(std::sync::Mutex::new(None)),
             properties_lock: Arc::new(Mutex::new(())),
             system: Arc::new(Mutex::new(crate::util::cpu_and_memory_system())),
             rcon_conn: Arc::new(Mutex::new(None)),
@@ -1017,6 +1160,59 @@ impl MinecraftInstance {
             );
         }
         Ok(instance)
+    }
+
+    /// A copy of the instance's settings, as in `.lodestone_minecraft_config.json`.
+    pub async fn config_snapshot(&self) -> RestoreConfig {
+        self.config.lock().await.clone()
+    }
+
+    /// Reads the config file and server.properties again after a backup was restored into
+    /// the instance's folder. The instance stays the same object (the `state.instances`
+    /// entry, its state and its locks are kept); only what it read from disk changes.
+    ///
+    /// The restore kept the current command line and port. When the restored Minecraft
+    /// version needs another Java, a `java_cmd` that pointed at the managed Java of the old
+    /// version moves to the new version's, which is downloaded if it isn't there.
+    pub async fn reload_from_disk(&self) -> Result<(), Error> {
+        let bytes = tokio::fs::read(&self.path_to_config)
+            .await
+            .context(format!(
+                "Failed to open config file at {}",
+                self.path_to_config.display()
+            ))?;
+        let mut restored: RestoreConfig = serde_json::from_slice(&bytes)
+            .context("Failed to read the restored server settings")?;
+        let new_jre = restored.jre_major_version;
+        let managed = java_binary(&self.path_to_runtimes, new_jre);
+        let moved_jre = {
+            let mut config = self.config.lock().await;
+            let old_managed = java_binary(&self.path_to_runtimes, config.jre_major_version);
+            let moved = new_jre != config.jre_major_version
+                && restored.java_cmd.as_deref().map(Path::new) == Some(old_managed.as_path());
+            if moved {
+                restored.java_cmd = Some(managed.to_string_lossy().to_string());
+            }
+            *config = restored.clone();
+            moved
+        };
+        if moved_jre {
+            self.write_config_to_file().await?;
+        }
+        let java_cmd = restored
+            .java_cmd
+            .clone()
+            .unwrap_or_else(|| managed.to_string_lossy().to_string());
+        *self.configurable_manifest.lock().await =
+            Self::init_configurable_manifest(&restored, java_cmd.clone());
+        // a broken server.properties must not fail the restore, as at startup
+        if let Err(e) = self.refresh_properties_section().await {
+            warn!("Failed to read {}: {e}", self.path_to_properties.display());
+        }
+        if Path::new(&java_cmd) == managed && !managed.exists() {
+            ensure_jre(&self.path_to_runtimes, new_jre, &|_| {}).await?;
+        }
+        Ok(())
     }
 
     async fn write_config_to_file(&self) -> Result<(), Error> {
@@ -1161,7 +1357,35 @@ impl MinecraftInstance {
     /// while a server runs.
     #[cfg(test)]
     pub(crate) async fn set_state_for_test(&self, state: State) {
-        *self.state.lock().await = state;
+        let mut current = self.state.lock().await;
+        self.note_state_change(*current, state);
+        *current = state;
+    }
+
+    /// Makes the instance look as if it became stopped `ago`, for tests of what waits after a
+    /// stop.
+    #[cfg(test)]
+    pub(crate) fn set_stopped_ago_for_test(&self, ago: std::time::Duration) {
+        *self.last_stopped.lock().unwrap_or_else(|e| e.into_inner()) =
+            Instant::now().checked_sub(ago);
+    }
+
+    /// Records the time when the state changes from running (or starting or stopping) to
+    /// stopped or errored. Called with the state lock held.
+    pub(super) fn note_state_change(&self, previous: State, new: State) {
+        let stopped = |state: State| matches!(state, State::Stopped | State::Error);
+        if stopped(new) && !stopped(previous) {
+            *self.last_stopped.lock().unwrap_or_else(|e| e.into_inner()) = Some(Instant::now());
+        }
+    }
+
+    /// How long ago the instance last became stopped from another state, or `None` if it
+    /// hasn't since Lodestone started.
+    pub fn stopped_ago(&self) -> Option<std::time::Duration> {
+        self.last_stopped
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .map(|at| at.elapsed())
     }
 
     /// The Fabric loader version of a Fabric instance, or `None`.
@@ -1214,6 +1438,55 @@ fn is_release(version: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The java program's place in a Java home on this operating system.
+    fn java_in_home() -> &'static str {
+        if std::env::consts::OS == "macos" {
+            "Contents/Home/bin/java"
+        } else if std::env::consts::OS == "windows" {
+            "bin/java.exe"
+        } else {
+            "bin/java"
+        }
+    }
+
+    #[tokio::test]
+    async fn the_java_home_is_found_at_the_top_or_one_folder_down() {
+        let dir = tempfile::tempdir().unwrap();
+        // Temurin's and Zulu's JREs
+        let top = dir
+            .path()
+            .join("zulu8.98.0.111-ca-jre8.0.512-macosx_aarch64");
+        std::fs::create_dir_all(top.join(java_in_home()).parent().unwrap()).unwrap();
+        std::fs::write(top.join(java_in_home()), "").unwrap();
+        assert_eq!(find_java_home(&top).await, Some(top.clone()));
+        // Zulu's JDKs for macOS
+        let jdk = dir.path().join("zulu17-ca-jdk17-macosx_aarch64");
+        let bundle = jdk.join("zulu-17.jdk");
+        std::fs::create_dir_all(bundle.join(java_in_home()).parent().unwrap()).unwrap();
+        std::fs::write(bundle.join(java_in_home()), "").unwrap();
+        std::fs::create_dir_all(jdk.join("legal")).unwrap();
+        assert_eq!(find_java_home(&jdk).await, Some(bundle));
+        // no java anywhere it is looked for
+        let empty = dir.path().join("empty");
+        std::fs::create_dir_all(empty.join("a/b").join(java_in_home())).unwrap();
+        assert_eq!(find_java_home(&empty).await, None);
+    }
+
+    #[tokio::test]
+    async fn downloads_must_match_their_checksum() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("jre.tar.gz");
+        std::fs::write(&file, "abc").unwrap();
+        let sha256 = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+        verify_sha256(&file, sha256).await.unwrap();
+        verify_sha256(&file, &sha256.to_uppercase()).await.unwrap();
+        let wrong = verify_sha256(&file, &"0".repeat(64)).await.unwrap_err();
+        assert!(wrong
+            .source
+            .to_string()
+            .contains("not the one its vendor published"));
+    }
 
     #[test]
     fn the_setup_form_starts_on_the_newest_release() {

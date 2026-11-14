@@ -11,7 +11,7 @@ use serde_json::{Value, json};
 
 use super::{Call, JobState, Reply, api_error, jobs::progress_json, ready};
 use crate::{
-    instances::{InstancesEvent, LogRow},
+    instances::{About, InstancesEvent, LogRow},
     servers::ServersEvent,
 };
 
@@ -29,6 +29,8 @@ pub struct Notice {
     pub title: String,
     pub message: String,
     pub instance: Option<String>,
+    /// The modpack import it is about, whose instance didn't exist when it started.
+    pub import: Option<u64>,
     pub data: Value,
 }
 
@@ -41,6 +43,7 @@ impl Notice {
             "title": self.title,
             "message": self.message,
             "instance": self.instance,
+            "import": self.import,
             "data": self.data,
         })
     }
@@ -48,6 +51,12 @@ impl Notice {
     /// A failure the window showed.
     pub fn is_failure(&self) -> bool {
         matches!(self.kind, "crashed" | "launch_failed" | "server_failed")
+    }
+
+    /// Whether it is about the instance `id`. Notices are global, so a job that ends
+    /// with one has to pick its own: another instance's verify or crash can come first.
+    pub fn is_about(&self, id: &str) -> bool {
+        self.instance.as_deref() == Some(id)
     }
 }
 
@@ -66,6 +75,18 @@ impl Notices {
         instance: Option<String>,
         data: Value,
     ) {
+        self.push_about(kind, title, message, instance, None, data);
+    }
+
+    fn push_about(
+        &mut self,
+        kind: &'static str,
+        title: impl Into<String>,
+        message: impl Into<String>,
+        instance: Option<String>,
+        import: Option<u64>,
+        data: Value,
+    ) {
         self.next += 1;
         self.list.push_back(Notice {
             seq: self.next,
@@ -74,6 +95,7 @@ impl Notices {
             title: title.into(),
             message: message.into(),
             instance,
+            import,
             data,
         });
         while self.list.len() > KEEP {
@@ -92,7 +114,7 @@ impl Notices {
                     .clone()
                     .or_else(|| crash.summary.description.clone())
                     .unwrap_or_else(|| "Minecraft crashed.".into()),
-                None,
+                Some(crash.instance_id.clone()),
                 json!({
                     "instance_name": crash.instance_name,
                     "exit_code": crash.exit_code,
@@ -110,12 +132,24 @@ impl Notices {
                     "mods_refused": crash.mods_refused,
                 }),
             ),
-            InstancesEvent::LaunchFailed { title, message } => {
-                self.push("launch_failed", title.as_ref(), message.as_ref(), None, Value::Null)
-            }
-            InstancesEvent::Notice { title, message } => {
-                self.push("notice", title.as_ref(), message.as_ref(), None, Value::Null)
-            }
+            InstancesEvent::LaunchFailed {
+                title,
+                message,
+                about,
+            } => self.push_window_notice("launch_failed", title, message, about),
+            InstancesEvent::Notice {
+                title,
+                message,
+                about,
+            } => self.push_window_notice("notice", title, message, about),
+            InstancesEvent::PlayFailed { id, title, message } => self.push_window_notice(
+                "launch_failed",
+                title,
+                message,
+                &About::Instance(id.clone()),
+            ),
+            // Traced as game.state; whoever cancelled it knows.
+            InstancesEvent::PlayCancelled(_) => {}
             // The dialog it opens records itself in traces.
             InstancesEvent::ImportSnapshot(_) => {}
             // Traced as game.window and game.exit.
@@ -124,6 +158,19 @@ impl Notices {
             InstancesEvent::LanOpened { .. } => {}
             // The dialogs they open record themselves in traces.
             InstancesEvent::OfferMain(_) | InstancesEvent::ConfirmMain { .. } => {}
+            // The launch waits for the person's answer in the window: a script
+            // following it should know why it doesn't start yet.
+            InstancesEvent::ConfirmRosetta {
+                id,
+                version,
+                reason,
+            } => self.push(
+                "confirm_rosetta",
+                format!("Minecraft {version} runs under Rosetta 2"),
+                "The game starts once the person presses Play in the launcher's window (asked once per instance), or stops if they cancel.",
+                Some(id.clone()),
+                json!({ "reason": reason }),
+            ),
             InstancesEvent::LoaderChanged(id) => self.push(
                 "loader_changed",
                 "Loader changed",
@@ -153,6 +200,21 @@ impl Notices {
                 Value::Null,
             ),
         }
+    }
+
+    fn push_window_notice(
+        &mut self,
+        kind: &'static str,
+        title: &str,
+        message: &str,
+        about: &About,
+    ) {
+        let (instance, import) = match about {
+            About::Nothing => (None, None),
+            About::Instance(id) => (Some(id.clone()), None),
+            About::Import(job) => (None, Some(*job)),
+        };
+        self.push_about(kind, title, message, instance, import, Value::Null);
     }
 
     pub fn servers_event(&mut self, event: &ServersEvent) {
@@ -204,6 +266,20 @@ pub fn row_json(instance: &str, row: &LogRow) -> Value {
     })
 }
 
+/// The state names `run_status` gives, for `last_state`.
+fn known_state(state: &str) -> Option<&'static str> {
+    ["idle", "preparing", "running"]
+        .into_iter()
+        .find(|known| *known == state)
+}
+
+/// Whether a subscription sends an instance's state: when it changed from the one sent
+/// (or the one the client said it saw). Instances idle at the start are left out, as
+/// nothing happened to them, but not one the client saw doing something.
+fn state_event_due(before: Option<&str>, now: &str, first: bool) -> bool {
+    before != Some(now) && !(first && before.is_none() && now == "idle")
+}
+
 /// Every topic.
 pub const TOPICS: [&str; 5] = ["log", "state", "progress", "jobs", "notices"];
 
@@ -217,6 +293,15 @@ struct SubscribeParams {
     /// Console rows from before the subscription to send first.
     #[serde(default)]
     backlog: usize,
+    /// With `instance`: the `cursor` of the `play.logs` the client read, so the rows
+    /// logged since then come first, not lost between the two requests.
+    #[serde(default)]
+    since: Option<u64>,
+    /// With `instance`: the state the client last saw it in (`play.logs`' `state`). The
+    /// first round sends the state when it differs, idle included, so a game that
+    /// exited between the two requests still says so.
+    #[serde(default)]
+    last_state: Option<String>,
     #[serde(skip)]
     topics_were_empty: bool,
 }
@@ -253,6 +338,22 @@ pub fn subscribe(call: Call, cx: &mut App) -> Reply {
         },
         None => None,
     };
+    if only.is_none() && (params.since.is_some() || params.last_state.is_some()) {
+        return ready(Err(api_error(
+            codes::INVALID_PARAMS,
+            "since and last_state are about one instance: name it with instance.",
+        )));
+    }
+    let last_state = match params.last_state.as_deref().map(known_state) {
+        Some(Some(state)) => Some(state),
+        Some(None) => {
+            return ready(Err(api_error(
+                codes::INVALID_PARAMS,
+                "last_state is idle, preparing or running.",
+            )));
+        }
+        None => None,
+    };
     let wants = |topic: &str| topics.iter().any(|t| t == topic);
     let (log, state, progress, jobs, notices) = (
         wants("log"),
@@ -267,14 +368,19 @@ pub fn subscribe(call: Call, cx: &mut App) -> Reply {
         let instances = control.instances.read(cx);
         for instance in instances.list() {
             let (_, cursor) = instances.log_tail(&instance.id, 0);
-            cursors.insert(
-                instance.id.clone(),
-                cursor.saturating_sub(params.backlog as u64),
-            );
+            let cursor = match params.since {
+                // where the client read up to; never past the tail
+                Some(since) if only.as_ref() == Some(&instance.id) => since.min(cursor),
+                _ => cursor.saturating_sub(params.backlog as u64),
+            };
+            cursors.insert(instance.id.clone(), cursor);
         }
     }
     let mut notice_seq = control.notices.borrow().last_seq();
     let mut states: HashMap<String, (&'static str, Value)> = HashMap::new();
+    if let (Some(id), Some(state)) = (&only, last_state) {
+        states.insert(id.clone(), (state, Value::Null));
+    }
     let mut job_states: HashMap<u64, (JobState, Value)> = HashMap::new();
     let number = control.reserve_subscription();
     let outbox = call.outbox.clone();
@@ -312,10 +418,7 @@ pub fn subscribe(call: Call, cx: &mut App) -> Reply {
                         .map(|(stage, snapshot)| progress_json(stage.label(), snapshot))
                         .unwrap_or(Value::Null);
                     let before = states.get(&id).cloned();
-                    if state
-                        && before.as_ref().map(|b| b.0) != Some(status.state)
-                        && !(first && status.state == "idle")
-                    {
+                    if state && state_event_due(before.as_ref().map(|b| b.0), status.state, first) {
                         events.push((
                             "state",
                             json!({
@@ -434,11 +537,13 @@ mod tests {
         notices.instances_event(&InstancesEvent::Notice {
             title: "Modpack exported".into(),
             message: "3 file(s)".into(),
+            about: About::Instance("a".into()),
         });
         let seq = notices.last_seq();
         notices.instances_event(&InstancesEvent::LaunchFailed {
             title: "Couldn't start Minecraft".into(),
             message: "no Java".into(),
+            about: About::Instance("a".into()),
         });
         notices.servers_event(&ServersEvent::Failed {
             title: "Couldn't join".into(),
@@ -446,6 +551,18 @@ mod tests {
         });
         let since: Vec<&str> = notices.since(seq).iter().map(|n| n.kind).collect();
         assert_eq!(since, ["launch_failed", "server_failed"]);
+        // A failed start is a launch failure too, of its instance.
+        notices.instances_event(&InstancesEvent::PlayFailed {
+            id: "survival".into(),
+            title: "Couldn't sign in".into(),
+            message: "offline".into(),
+        });
+        let failed = notices
+            .find_since(0, |n| n.title == "Couldn't sign in")
+            .unwrap();
+        assert!(failed.is_failure());
+        assert_eq!(failed.instance.as_deref(), Some("survival"));
+        notices.instances_event(&InstancesEvent::PlayCancelled("survival".into()));
         let found = notices
             .find_since(0, |n| n.title.starts_with("Couldn't start"))
             .unwrap();
@@ -454,8 +571,86 @@ mod tests {
             notices.instances_event(&InstancesEvent::Notice {
                 title: format!("{n}").into(),
                 message: "".into(),
+                about: About::Nothing,
             });
         }
         assert_eq!(notices.list.len(), KEEP);
+    }
+
+    /// LS-67: a job on one instance ended with another's notice when it came first.
+    #[test]
+    fn a_job_finds_its_own_notice() {
+        let mut notices = Notices::default();
+        let seq = notices.last_seq();
+        // B's verify ends first, then A's launch fails
+        notices.instances_event(&InstancesEvent::Notice {
+            title: "Game files verified".into(),
+            message: "".into(),
+            about: About::Instance("b".into()),
+        });
+        notices.instances_event(&InstancesEvent::LaunchFailed {
+            title: "Couldn't start Minecraft".into(),
+            message: "no Java".into(),
+            about: About::Instance("a".into()),
+        });
+        let found = notices
+            .find_since(seq, |n| {
+                n.is_about("a") && matches!(n.kind, "notice" | "launch_failed" | "crashed")
+            })
+            .unwrap();
+        assert!(found.is_failure());
+        assert_eq!(found.instance.as_deref(), Some("a"));
+
+        // a crash says which instance crashed
+        let seq = notices.last_seq();
+        notices.instances_event(&InstancesEvent::Crashed(crate::instances::CrashInfo {
+            instance_id: "b".into(),
+            instance_name: "B".into(),
+            summary: Default::default(),
+            suspects: Vec::new(),
+            exit_code: Some(1),
+            report: None,
+            log_text: String::new(),
+            at_startup: false,
+            mods_refused: false,
+        }));
+        notices.instances_event(&InstancesEvent::Notice {
+            title: "Game files verified".into(),
+            message: "".into(),
+            about: About::Instance("a".into()),
+        });
+        let found = notices
+            .find_since(seq, |n| {
+                n.is_about("a") && matches!(n.kind, "notice" | "launch_failed" | "crashed")
+            })
+            .unwrap();
+        assert!(!found.is_failure());
+
+        // a modpack import's notice names the import, not an instance
+        notices.instances_event(&InstancesEvent::Notice {
+            title: "Modpack ready".into(),
+            message: "".into(),
+            about: About::Import(7),
+        });
+        let import = notices.find_since(seq, |n| n.import == Some(7)).unwrap();
+        assert_eq!(import.title, "Modpack ready");
+        assert_eq!(import.instance, None);
+    }
+
+    /// LS-69: a game that went idle before a subscription's first round was never
+    /// reported, though the client had seen it running.
+    #[test]
+    fn a_state_the_client_saw_is_compared_on_the_first_round() {
+        // idle from the start: nothing to say
+        assert!(!state_event_due(None, "idle", true));
+        assert!(state_event_due(None, "running", true));
+        // the client saw it running, and it exited before the first round
+        assert!(state_event_due(Some("running"), "idle", true));
+        assert!(!state_event_due(Some("running"), "running", true));
+        // later rounds send changes only
+        assert!(state_event_due(Some("preparing"), "idle", false));
+        assert!(!state_event_due(Some("idle"), "idle", false));
+        assert_eq!(known_state("running"), Some("running"));
+        assert_eq!(known_state("crashed"), None);
     }
 }

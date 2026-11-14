@@ -3,6 +3,10 @@ services:
     container_name: lodestone
     image: ghcr.io/lodestone-team/lodestone_core
     restart: unless-stopped
+    # `docker stop` sends SIGTERM, and the core then stops its game servers, which save
+    # their worlds first. Docker's default of 10 seconds before it kills them is short for
+    # a big world.
+    stop_grace_period: 1m
     ports:
       - "16662:16662"
     volumes:

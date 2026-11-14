@@ -53,6 +53,7 @@ impl FakeVersion {
                     url: format!("https://cdn.modrinth.com/data/{project}/versions/{id}/file.jar"),
                 }],
                 dependencies: vec![],
+                changelog: None,
             },
             content,
         }
@@ -60,6 +61,11 @@ impl FakeVersion {
 
     pub fn date(mut self, date: &str) -> Self {
         self.version.date_published = date.into();
+        self
+    }
+
+    pub fn changelog(mut self, changelog: &str) -> Self {
+        self.version.changelog = Some(changelog.into());
         self
     }
 

@@ -381,7 +381,7 @@ const MODRINTH_TIMEOUT: Duration = Duration::from_secs(30);
 // ---- Modpacks (A) ----
 
 /// What the core found in a modpack (`ModpackInfo`).
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
 pub struct ModpackInfo {
     pub name: String,
     #[serde(default)]
@@ -390,7 +390,7 @@ pub struct ModpackInfo {
     pub summary: Option<String>,
     #[serde(default)]
     pub game_version: String,
-    /// For example `fabric`.
+    /// `fabric`, `forge` or `neoforge`.
     #[serde(default)]
     pub loader: String,
     #[serde(default)]
@@ -406,6 +406,21 @@ pub struct ModpackInfo {
     /// For `create_modpack`, to reuse the downloaded or uploaded pack.
     #[serde(default)]
     pub upload_id: Option<String>,
+}
+
+/// A loader's name as people read it: `neoforge` is "NeoForge". An unknown one is shown
+/// as it is.
+pub fn loader_title(loader: &str) -> String {
+    match loader {
+        "fabric" => "Fabric".into(),
+        "forge" => "Forge".into(),
+        "neoforge" => "NeoForge".into(),
+        "quilt" => "Quilt".into(),
+        "paper" => "Paper".into(),
+        "spigot" => "Spigot".into(),
+        "vanilla" => "Vanilla".into(),
+        other => other.to_string(),
+    }
 }
 
 impl AdminClient {
@@ -450,6 +465,268 @@ impl AdminClient {
 /// Downloading or uploading a modpack: the dashboard sets no limit.
 const MODPACK_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 
+/// What updating a server's modpack will do (`ModpackUpdatePlan`).
+#[derive(Clone, Debug, Default, PartialEq, Deserialize)]
+pub struct ModpackUpdatePlan {
+    /// The new version; `unsupported_reason` is set when the server can't move to it.
+    pub target: ModpackInfo,
+    #[serde(default)]
+    pub current_game_version: String,
+    #[serde(default)]
+    pub current_loader: String,
+    #[serde(default)]
+    pub current_loader_version: Option<String>,
+    /// The Minecraft or loader version changes, so the server software is installed again.
+    #[serde(default)]
+    pub reinstalls_server: bool,
+    #[serde(default)]
+    pub added: Vec<String>,
+    #[serde(default)]
+    pub replaced: Vec<String>,
+    #[serde(default)]
+    pub removed: Vec<String>,
+    /// Pack files the user changed, which stay as they are.
+    #[serde(default)]
+    pub kept: Vec<String>,
+    #[serde(default)]
+    pub skipped: Vec<String>,
+    /// Set when the core has no record of the old pack's files.
+    #[serde(default)]
+    pub note: Option<String>,
+}
+
+impl ModpackUpdatePlan {
+    /// Whether the update changes anything.
+    pub fn changes_anything(&self) -> bool {
+        self.reinstalls_server
+            || !self.added.is_empty()
+            || !self.replaced.is_empty()
+            || !self.removed.is_empty()
+    }
+}
+
+/// What an update did (`ModpackUpdateResult`).
+#[derive(Clone, Debug, Default, PartialEq, Deserialize)]
+pub struct ModpackUpdateResult {
+    #[serde(default)]
+    pub added: u32,
+    #[serde(default)]
+    pub replaced: u32,
+    #[serde(default)]
+    pub removed: u32,
+    #[serde(default)]
+    pub kept: u32,
+    #[serde(default)]
+    pub skipped: Option<String>,
+}
+
+/// A newer version of a server's modpack (`AvailableUpdate`).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+pub struct AvailableUpdate {
+    pub version_id: String,
+    pub version_number: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub game_versions: Vec<String>,
+    #[serde(default)]
+    pub date_published: String,
+    /// What the modpack's author wrote about it (Markdown).
+    #[serde(default)]
+    pub changelog: Option<String>,
+}
+
+/// What a history entry was (`HistoryKind`).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum HistoryKind {
+    Install,
+    Baseline,
+    #[default]
+    Update,
+    Restore {
+        to: u32,
+    },
+    #[serde(other)]
+    Unknown,
+}
+
+/// What a change did to a file (`ChangeKind`). An updated file is a mod whose file
+/// changed name (another version of the same Modrinth project).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ChangeKind {
+    Added,
+    Updated,
+    #[default]
+    Replaced,
+    Removed,
+    #[serde(other)]
+    Unknown,
+}
+
+/// One file a history entry changed (`ChangeInfo`).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+pub struct ChangeInfo {
+    pub kind: ChangeKind,
+    pub path: String,
+    #[serde(default)]
+    pub old_path: Option<String>,
+    #[serde(default)]
+    pub project_id: Option<String>,
+}
+
+impl ChangeInfo {
+    /// The file name, without its folder.
+    pub fn file_name(&self) -> &str {
+        self.path.rsplit('/').next().unwrap_or(&self.path)
+    }
+
+    pub fn old_file_name(&self) -> Option<&str> {
+        let old = self.old_path.as_deref()?;
+        Some(old.rsplit('/').next().unwrap_or(old))
+    }
+}
+
+/// An install, update or restore of a server's modpack (`HistoryEntryInfo`).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+pub struct HistoryEntryInfo {
+    pub id: u32,
+    /// Unix milliseconds.
+    #[serde(default)]
+    pub time: i64,
+    pub kind: HistoryKind,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub version_number: Option<String>,
+    #[serde(default)]
+    pub game_version: String,
+    #[serde(default)]
+    pub loader: String,
+    #[serde(default)]
+    pub loader_version: Option<String>,
+    #[serde(default)]
+    pub changes: Vec<ChangeInfo>,
+    #[serde(default)]
+    pub kept: Vec<String>,
+    #[serde(default)]
+    pub file_count: u32,
+    /// The server is at this entry.
+    #[serde(default)]
+    pub current: bool,
+    /// Files Lodestone can't get back; it can only be restored when this is 0.
+    #[serde(default)]
+    pub missing: u32,
+    /// What the modpack's author wrote about this version (Markdown).
+    #[serde(default)]
+    pub changelog: Option<String>,
+}
+
+impl HistoryEntryInfo {
+    /// How many changes of `kind` it made.
+    pub fn count(&self, kind: ChangeKind) -> usize {
+        self.changes.iter().filter(|c| c.kind == kind).count()
+    }
+}
+
+/// A server's modpack history (`ModpackHistory`).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+pub struct ModpackHistory {
+    /// Newest first.
+    #[serde(default)]
+    pub entries: Vec<HistoryEntryInfo>,
+    /// For each file of the current pack (its path in the pack), the id of the entry its
+    /// current version came with.
+    #[serde(default)]
+    pub blame: std::collections::BTreeMap<String, u32>,
+    /// The bytes Lodestone keeps to undo updates.
+    #[serde(default)]
+    pub stored_bytes: u64,
+    /// A newer version on Modrinth, when the core's last check found one.
+    #[serde(default)]
+    pub update: Option<AvailableUpdate>,
+}
+
+impl ModpackHistory {
+    pub fn entry(&self, id: u32) -> Option<&HistoryEntryInfo> {
+        self.entries.iter().find(|e| e.id == id)
+    }
+
+    /// The entry a mod file (`mods/x.jar`, or its disabled name) came with.
+    pub fn blame_of(&self, path: &str) -> Option<&HistoryEntryInfo> {
+        let enabled = path
+            .strip_suffix(".disabled")
+            .filter(|p| p.to_lowercase().ends_with(".jar"))
+            .unwrap_or(path);
+        self.entry(*self.blame.get(enabled)?)
+    }
+}
+
+impl AdminClient {
+    /// `GET /instance/{uuid}/modpack/history`.
+    pub async fn modpack_history(&self, uuid: &str) -> Result<ModpackHistory, CoreError> {
+        self.get(&format!("instance/{}/modpack/history", segment(uuid)))
+            .await
+    }
+
+    /// `POST /instance/{uuid}/modpack/check`: looks for a newer version on Modrinth now.
+    pub async fn check_modpack(&self, uuid: &str) -> Result<Option<AvailableUpdate>, CoreError> {
+        let bytes = self
+            .send_slow(
+                Method::POST,
+                &format!("instance/{}/modpack/check", segment(uuid)),
+                None,
+                MAX_JSON_BYTES,
+                MODRINTH_TIMEOUT,
+            )
+            .await?;
+        serde_json::from_slice(&bytes).map_err(|err| CoreError::Invalid(err.to_string()))
+    }
+}
+
+impl AdminClient {
+    /// `POST /instance/{uuid}/modpack/update/plan`: what updating the server to the
+    /// pack `source` will do. The core may download the pack first.
+    pub async fn plan_modpack_update(
+        &self,
+        uuid: &str,
+        source: &super::instances::ModpackSource,
+    ) -> Result<ModpackUpdatePlan, CoreError> {
+        self.modpack_update_call(uuid, "update/plan", source).await
+    }
+
+    /// `POST /instance/{uuid}/modpack/update`: updates the stopped server to the pack
+    /// `source`. Returns once the update is done, which may take minutes.
+    pub async fn update_modpack(
+        &self,
+        uuid: &str,
+        source: &super::instances::ModpackSource,
+    ) -> Result<ModpackUpdateResult, CoreError> {
+        self.modpack_update_call(uuid, "update", source).await
+    }
+
+    async fn modpack_update_call<T: serde::de::DeserializeOwned>(
+        &self,
+        uuid: &str,
+        route: &str,
+        source: &super::instances::ModpackSource,
+    ) -> Result<T, CoreError> {
+        let body = serde_json::to_vec(&serde_json::json!({ "source": source }))
+            .map_err(|err| CoreError::Invalid(err.to_string()))?;
+        let bytes = self
+            .send_slow(
+                Method::POST,
+                &format!("instance/{}/modpack/{route}", super::segment(uuid)),
+                Some((body, "application/json".into())),
+                MAX_JSON_BYTES,
+                MODPACK_TIMEOUT,
+            )
+            .await?;
+        serde_json::from_slice(&bytes).map_err(|err| CoreError::Invalid(err.to_string()))
+    }
+}
+
 // ---- Installed mods and plugins: the Mods tab (C) ----
 
 /// Mods or plugins (`InstalledModKind`).
@@ -468,6 +745,7 @@ pub enum InstalledModLoader {
     #[default]
     Fabric,
     Forge,
+    NeoForge,
     Paper,
     Spigot,
     #[serde(other)]
@@ -479,6 +757,7 @@ impl InstalledModLoader {
         match self {
             InstalledModLoader::Fabric => "fabric",
             InstalledModLoader::Forge => "forge",
+            InstalledModLoader::NeoForge => "neoforge",
             InstalledModLoader::Paper => "paper",
             InstalledModLoader::Spigot => "spigot",
             InstalledModLoader::Unknown => "",
@@ -492,6 +771,7 @@ impl InstalledModLoader {
             InstalledModLoader::Paper => &["paper", "bukkit", "spigot"],
             InstalledModLoader::Fabric => &["fabric"],
             InstalledModLoader::Forge => &["forge"],
+            InstalledModLoader::NeoForge => &["neoforge"],
             InstalledModLoader::Spigot => &["spigot"],
             InstalledModLoader::Unknown => &[],
         }
@@ -582,6 +862,9 @@ pub struct InstalledMod {
     /// The installed mods that make players need this one.
     #[serde(default)]
     pub required_by: Vec<String>,
+    /// The owner marked it as needed by players ([`AdminClient::set_client_mark`]).
+    #[serde(default)]
+    pub client_marked: bool,
 }
 
 impl InstalledMod {
@@ -816,6 +1099,26 @@ impl AdminClient {
                 if enabled { "enable" } else { "disable" }
             ),
             None::<()>,
+        )
+        .await
+    }
+
+    /// `PUT /instance/{uuid}/mods/{file}/client`: marks a mod as needed by players, so the
+    /// client pack gives it to them with what it needs, or takes the mark off.
+    pub async fn set_client_mark(
+        &self,
+        uuid: &str,
+        file_name: &str,
+        required: bool,
+    ) -> Result<(), CoreError> {
+        self.call(
+            Method::PUT,
+            &format!(
+                "instance/{}/mods/{}/client",
+                segment(uuid),
+                segment(file_name)
+            ),
+            Some(serde_json::json!({ "required": required })),
         )
         .await
     }

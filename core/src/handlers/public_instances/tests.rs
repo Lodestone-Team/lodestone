@@ -999,6 +999,31 @@ async fn deleting_an_instance_unlists_it() {
     assert!(!core.state.public_listing.is_listed(&core.vanilla));
 }
 
+/// A failure that may pass, such as Modrinth being unreachable, isn't kept for the next
+/// request; one that building again would repeat is (LS-46).
+#[test]
+fn only_lasting_pack_failures_are_cached() {
+    let failed = |kind: ErrorKind| -> Result<std::sync::Arc<BuiltPack>, Error> {
+        Err(Error {
+            kind,
+            source: eyre!("failed"),
+        })
+    };
+    for kind in [
+        ErrorKind::External,
+        ErrorKind::Internal,
+        ErrorKind::TooManyRequests,
+    ] {
+        assert!(cached_outcome(&failed(kind)).is_none());
+    }
+    for kind in [ErrorKind::BadRequest, ErrorKind::NotFound] {
+        assert!(matches!(
+            cached_outcome(&failed(kind)),
+            Some(CachedPack::Failed(_, message)) if message == "failed"
+        ));
+    }
+}
+
 #[test]
 fn etags_match_with_or_without_weak_prefix() {
     let mut headers = HeaderMap::new();
@@ -1043,25 +1068,99 @@ fn listing_rule() {
 }
 
 #[test]
-fn event_details_name_what_is_shown() {
+fn event_details_name_what_changed() {
+    let unlisted = PublicScope::default();
+    let listed = PublicScope {
+        listed: true,
+        ..Default::default()
+    };
     assert_eq!(
-        describe(PublicScope {
-            listed: true,
-            ..Default::default()
-        }),
+        describe(unlisted, listed),
         "listed publicly (status, address)"
     );
     assert_eq!(
-        describe(PublicScope {
-            listed: true,
-            status: false,
-            address: false,
-            client_pack: false
-        }),
+        describe(
+            unlisted,
+            PublicScope {
+                listed: true,
+                status: false,
+                address: false,
+                client_pack: false
+            }
+        ),
         "listed publicly (name and version only)"
     );
+    assert_eq!(describe(listed, unlisted), "no longer listed publicly");
     assert_eq!(
-        describe(PublicScope::default()),
-        "no longer listed publicly"
+        describe(
+            listed,
+            PublicScope {
+                client_pack: true,
+                ..listed
+            }
+        ),
+        "now shows publicly: status, address, client mods"
     );
+    // a flag of a server that was never listed doesn't unlist it
+    assert_eq!(
+        describe(
+            unlisted,
+            PublicScope {
+                client_pack: true,
+                ..unlisted
+            }
+        ),
+        "will show publicly, once listed: status, address, client mods"
+    );
+}
+
+#[tokio::test]
+async fn listing_changes_are_told_only_to_those_who_see_the_server() {
+    let core = core().await;
+    core.set_switch(true).await;
+    let viewer = add_user(
+        &core.state,
+        "viewer",
+        false,
+        false,
+        UserPermission {
+            can_view_instance: [core.fabric.clone()].into(),
+            ..Default::default()
+        },
+    )
+    .await;
+    let stranger = add_user(&core.state, "stranger", false, false, Default::default()).await;
+    let mut events = core.state.event_broadcaster.subscribe();
+
+    let (status, body) = core
+        .set_scope(&core.fabric, json!({ "client_pack": true }))
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let event = events.recv().await.unwrap();
+    assert_eq!(
+        event.details,
+        "Fabric server will show publicly, once listed: status, address, client mods"
+    );
+    let EventInner::InstanceEvent(instance_event) = &event.event_inner else {
+        panic!("not about the instance: {event:?}");
+    };
+    assert_eq!(instance_event.instance_uuid, core.fabric);
+    assert_eq!(
+        instance_event.instance_event_inner,
+        InstanceEventInner::PublicListingChanged {
+            scope: core.state.public_listing.scope(&core.fabric)
+        }
+    );
+    assert!(viewer.can_view_event(&event));
+    assert!(!stranger.can_view_event(&event));
+
+    let (status, _) = core.set_listed(&core.fabric, true).await;
+    assert_eq!(status, StatusCode::OK);
+    let event = events.recv().await.unwrap();
+    assert_eq!(
+        event.details,
+        "Fabric server listed publicly (status, address, client mods)"
+    );
+    assert!(viewer.can_view_event(&event));
+    assert!(!stranger.can_view_event(&event));
 }

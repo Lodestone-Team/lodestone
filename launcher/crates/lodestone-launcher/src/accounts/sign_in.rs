@@ -305,8 +305,14 @@ async fn finish(
         Ok(tokens) => tokens,
         Err(AuthError::Cancelled) => return,
         Err(err) => {
-            this.update(cx, |this, cx| this.set_stage(Stage::Failed(err), cx))
-                .ok();
+            this.update(cx, |this, cx| {
+                // The browser's answer is in (or never will be): let go of the loopback
+                // server, whose handle otherwise keeps its five threads and its port
+                // until the dialog is closed or tried again.
+                this.cancel = None;
+                this.set_stage(Stage::Failed(err), cx)
+            })
+            .ok();
             return;
         }
     };

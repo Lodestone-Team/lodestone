@@ -9,9 +9,12 @@ use crate::{
 
 use color_eyre::eyre::Context;
 use sqlx::sqlite::SqlitePool;
-use tokio::sync::broadcast::{
-    error::{RecvError, TryRecvError},
-    Receiver,
+use tokio::{
+    sync::broadcast::{
+        error::{RecvError, TryRecvError},
+        Receiver,
+    },
+    time::Instant,
 };
 use tracing::{error, info, warn};
 
@@ -28,8 +31,19 @@ const MAX_BACKOFF: Duration = Duration::from_secs(30);
 pub const RETENTION_MAX_AGE: Duration = Duration::from_secs(30 * 24 * 60 * 60);
 /// At most this many events are kept; the oldest are deleted first.
 pub const RETENTION_MAX_ROWS: i64 = 1_000_000;
-/// How often the retention limits are applied.
+/// Most events one statement of [`apply_retention`] deletes. The first pass after an
+/// upgrade can delete hundreds of thousands; in batches, writes and searches get the
+/// database's one connection between them instead of waiting for all of it.
+const RETENTION_BATCH_ROWS: i64 = 10_000;
+/// How often, at most, the retention limits are applied.
 const RETENTION_INTERVAL: Duration = Duration::from_secs(60 * 60);
+/// How long after the core starts the retention limits can first be applied. Short, so
+/// that they are still applied on computers where the core never runs for long.
+const FIRST_RETENTION_DELAY: Duration = Duration::from_secs(60);
+/// How long the event database's connection stays open unused. Each open SQLite
+/// connection has a thread of its own, and an idle core rarely writes, so the writer
+/// closes the connection soon and the pool opens it again for the next write or search.
+const IDLE_CONNECTION_TIMEOUT: Duration = Duration::from_secs(15);
 
 fn should_store(event: &ClientEvent) -> bool {
     !matches!(
@@ -43,8 +57,13 @@ fn should_store(event: &ClientEvent) -> bool {
 ///
 /// Database errors are logged and retried with backoff; they never end this task, so a
 /// busy or full database cannot shut Lodestone down. Events are written in batches, one
-/// transaction per batch, and old events are pruned periodically (see
-/// [`RETENTION_MAX_AGE`] and [`RETENTION_MAX_ROWS`]).
+/// transaction per batch, and old events are pruned after a write at most once per
+/// [`RETENTION_INTERVAL`] (see [`RETENTION_MAX_AGE`] and [`RETENTION_MAX_ROWS`]).
+///
+/// An idle core has no timers here: pruning waits for a write, which is the only thing
+/// that adds events, and the only timer, which closes the connection
+/// [`IDLE_CONNECTION_TIMEOUT`] after it was last used, is disarmed once it has. A search
+/// can open the connection again; it then stays open until the writer next closes it.
 pub async fn write_event_to_db_task(mut event_receiver: Receiver<Event>, sqlite_pool: SqlitePool) {
     let mut backoff = INITIAL_BACKOFF;
     while let Err(e) = init_client_events_table(&sqlite_pool).await {
@@ -57,17 +76,23 @@ pub async fn write_event_to_db_task(mut event_receiver: Receiver<Event>, sqlite_
         backoff = (backoff * 2).min(MAX_BACKOFF);
     }
 
-    let mut retention_interval = tokio::time::interval(RETENTION_INTERVAL);
-    retention_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    // Not at once: the core has better things to do while it starts.
+    let mut next_retention = Instant::now() + FIRST_RETENTION_DELAY;
+    // opening the database opened the connection
+    let mut close_at = Some(Instant::now() + IDLE_CONNECTION_TIMEOUT);
     let mut batch: Vec<ClientEvent> = Vec::with_capacity(MAX_BATCH_SIZE);
 
     loop {
         let first = tokio::select! {
             result = event_receiver.recv() => result,
-            _ = retention_interval.tick() => {
-                if let Err(e) = apply_retention(&sqlite_pool, chrono::Utc::now().timestamp_millis()).await {
-                    error!("Failed to prune old events: {}", e);
+            _ = async {
+                match close_at {
+                    Some(at) => tokio::time::sleep_until(at).await,
+                    None => std::future::pending().await,
                 }
+            } => {
+                close_idle_connection(&sqlite_pool).await;
+                close_at = None;
                 continue;
             }
         };
@@ -95,8 +120,27 @@ pub async fn write_event_to_db_task(mut event_receiver: Receiver<Event>, sqlite_
         batch.retain(should_store);
         if !batch.is_empty() {
             write_batch_with_retry(&sqlite_pool, &batch).await;
+            if Instant::now() >= next_retention {
+                if let Err(e) =
+                    apply_retention(&sqlite_pool, chrono::Utc::now().timestamp_millis()).await
+                {
+                    error!("Failed to prune old events: {}", e);
+                }
+                next_retention = Instant::now() + RETENTION_INTERVAL;
+            }
+            close_at = Some(Instant::now() + IDLE_CONNECTION_TIMEOUT);
         }
         batch.clear();
+    }
+}
+
+/// Closes the pool's connection if nothing is using it; the pool opens a new one when
+/// it's next needed. A search holding it keeps it open.
+async fn close_idle_connection(pool: &SqlitePool) {
+    if let Some(connection) = pool.try_acquire() {
+        if let Err(e) = connection.close().await {
+            warn!("Couldn't close the event database's idle connection: {e}");
+        }
     }
 }
 
@@ -163,32 +207,83 @@ pub(crate) fn snowflake_lower_bound(unix_millis: i64) -> i64 {
 }
 
 /// Deletes events older than [`RETENTION_MAX_AGE`] and all but the newest
-/// [`RETENTION_MAX_ROWS`] events. Returns the number of deleted rows.
+/// [`RETENTION_MAX_ROWS`] events, [`RETENTION_BATCH_ROWS`] at a time. Returns the number
+/// of deleted rows.
 pub(crate) async fn apply_retention(pool: &SqlitePool, now_unix_millis: i64) -> Result<u64, Error> {
-    let cutoff = snowflake_lower_bound(now_unix_millis - RETENTION_MAX_AGE.as_millis() as i64);
-    let by_age = sqlx::query("DELETE FROM ClientEvents WHERE snowflake < ?1")
-        .bind(cutoff)
-        .execute(pool)
-        .await
-        .context("Failed to delete old events")?
-        .rows_affected();
-    // ids only grow, so the newest rows have the largest ids
-    let by_count = sqlx::query(
-        r#"
-DELETE FROM ClientEvents WHERE id <= (
-    SELECT id FROM ClientEvents ORDER BY id DESC LIMIT 1 OFFSET ?1
-)"#,
+    apply_retention_with(
+        pool,
+        now_unix_millis,
+        RETENTION_MAX_ROWS,
+        RETENTION_BATCH_ROWS,
     )
-    .bind(RETENTION_MAX_ROWS)
-    .execute(pool)
     .await
-    .context("Failed to delete excess events")?
-    .rows_affected();
+}
+
+async fn apply_retention_with(
+    pool: &SqlitePool,
+    now_unix_millis: i64,
+    max_rows: i64,
+    batch_rows: i64,
+) -> Result<u64, Error> {
+    let cutoff = snowflake_lower_bound(now_unix_millis - RETENTION_MAX_AGE.as_millis() as i64);
+    let by_age = delete_in_batches(
+        pool,
+        "DELETE FROM ClientEvents WHERE id IN (SELECT id FROM ClientEvents WHERE snowflake < ?1 LIMIT ?2)",
+        cutoff,
+        batch_rows,
+    )
+    .await
+    .context("Failed to delete old events")?;
+    // ids only grow, so the newest rows have the largest ids: everything up to the
+    // newest row past the limit goes
+    let last_excess: Option<i64> =
+        sqlx::query_scalar("SELECT id FROM ClientEvents ORDER BY id DESC LIMIT 1 OFFSET ?1")
+            .bind(max_rows)
+            .fetch_optional(pool)
+            .await
+            .context("Failed to count events")?;
+    let by_count = match last_excess {
+        Some(last_excess) => delete_in_batches(
+            pool,
+            "DELETE FROM ClientEvents WHERE id IN (SELECT id FROM ClientEvents WHERE id <= ?1 ORDER BY id LIMIT ?2)",
+            last_excess,
+            batch_rows,
+        )
+        .await
+        .context("Failed to delete excess events")?,
+        None => 0,
+    };
     let deleted = by_age + by_count;
     if deleted > 0 {
         info!("Pruned {deleted} old events from the event database");
     }
     Ok(deleted)
+}
+
+/// Runs `delete`, which deletes at most `?2` rows given `?1`, until it deletes no more,
+/// each statement on its own so that the connection is free between them. Returns the
+/// number of deleted rows.
+async fn delete_in_batches(
+    pool: &SqlitePool,
+    delete: &'static str,
+    bound: i64,
+    batch_rows: i64,
+) -> Result<u64, sqlx::Error> {
+    let mut deleted = 0;
+    loop {
+        let rows = sqlx::query(delete)
+            .bind(bound)
+            .bind(batch_rows)
+            .execute(pool)
+            .await?
+            .rows_affected();
+        deleted += rows;
+        if rows < batch_rows as u64 {
+            return Ok(deleted);
+        }
+        // let a waiting write or search have the connection
+        tokio::task::yield_now().await;
+    }
 }
 
 pub async fn init_client_events_table(pool: &SqlitePool) -> Result<(), Error> {
@@ -308,6 +403,43 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
+    async fn the_idle_connection_is_closed_and_reopened_when_needed() {
+        // the core's pool, with its one connection
+        let dir = tempfile::tempdir().unwrap();
+        let pool = crate::db::open_event_database(&dir.path().join("events.db"))
+            .await
+            .unwrap();
+        init_client_events_table(&pool).await.unwrap();
+        write_client_events(&pool, &[fs_event("before")])
+            .await
+            .unwrap();
+        assert_eq!(pool.size(), 1);
+        // a connection goes back to the pool in a task of its own
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while pool.num_idle() == 0 {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        close_idle_connection(&pool).await;
+        assert_eq!(pool.size(), 0);
+        // a connection in use isn't closed
+        let held = pool.acquire().await.unwrap();
+        close_idle_connection(&pool).await;
+        assert_eq!(pool.size(), 1);
+        drop(held);
+        write_client_events(&pool, &[fs_event("after")])
+            .await
+            .unwrap();
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM ClientEvents")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(count, 2);
+    }
+
+    #[tokio::test]
     async fn write_error_does_not_end_the_task() {
         use crate::test_util::wait_until;
         let (_dir, pool) = temp_pool().await;
@@ -380,5 +512,39 @@ pub(crate) mod tests {
             .await
             .unwrap();
         assert_eq!(remaining, snowflake_lower_bound(now));
+    }
+
+    #[tokio::test]
+    async fn retention_deletes_in_batches() {
+        let (_dir, pool) = temp_pool().await;
+        let now = chrono::Utc::now().timestamp_millis();
+        let old = snowflake_lower_bound(now - RETENTION_MAX_AGE.as_millis() as i64 - 1000);
+        let recent = snowflake_lower_bound(now);
+        // 7 too old, then 12 recent ones, of which the newest 5 are kept
+        let snowflakes: Vec<i64> = (0..7)
+            .map(|n| old + n)
+            .chain((0..12).map(|n| recent + n))
+            .collect();
+        for snowflake in &snowflakes {
+            sqlx::query(
+                "INSERT INTO ClientEvents (event_value, details, snowflake, level) VALUES ('{}', '', ?1, 'Info')",
+            )
+            .bind(snowflake)
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+        // batches of 3: several per limit, the last one short
+        assert_eq!(apply_retention_with(&pool, now, 5, 3).await.unwrap(), 14);
+        let remaining: Vec<i64> =
+            sqlx::query_scalar("SELECT snowflake FROM ClientEvents ORDER BY id")
+                .fetch_all(&pool)
+                .await
+                .unwrap();
+        assert_eq!(remaining, snowflakes[14..]);
+        // nothing more to delete
+        assert_eq!(apply_retention_with(&pool, now, 5, 3).await.unwrap(), 0);
+        // a batch exactly as large as what is left
+        assert_eq!(apply_retention_with(&pool, now, 2, 3).await.unwrap(), 3);
     }
 }

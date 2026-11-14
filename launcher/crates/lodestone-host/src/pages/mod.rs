@@ -12,6 +12,7 @@
 //! | Overview | [`overview`] | A |
 //! | Console | [`console`] | B |
 //! | Files | [`files`] | B |
+//! | Backups | [`backups`] | backups |
 //! | Settings (instance) | [`instance_settings`] | C |
 //! | Mods / Plugins | [`mods`] | C |
 //! | Event logs | [`event_logs`] | C |
@@ -21,6 +22,7 @@
 
 pub mod account_dialogs;
 pub mod api_keys;
+pub mod backups;
 pub mod connect_service;
 pub mod console;
 pub mod core_settings;
@@ -35,6 +37,7 @@ pub mod instance_settings;
 pub mod minecraft_links;
 pub mod mods;
 pub mod overview;
+pub mod pager;
 pub mod parts;
 pub mod permissions;
 pub mod profile;
@@ -80,6 +83,9 @@ pub fn open(route: &Route, state: Entity<HostState>, cx: &mut App) -> AnyView {
                     .new(|cx| console::ConsolePage::new(state, uuid, cx))
                     .into(),
                 InstanceTab::Files => cx.new(|cx| files::FilesPage::new(state, uuid, cx)).into(),
+                InstanceTab::Backups => cx
+                    .new(|cx| backups::BackupsPage::new(state, uuid, cx))
+                    .into(),
                 InstanceTab::Mods => cx.new(|cx| mods::ModsPage::new(state, uuid, cx)).into(),
                 InstanceTab::EventLogs => cx
                     .new(|cx| event_logs::EventLogsPage::new(state, uuid, cx))
@@ -124,6 +130,21 @@ pub fn demo(view: &AnyView, cx: &mut App) {
     if let Ok(page) = view.clone().downcast::<overview::OverviewPage>() {
         page.update(cx, |page, cx| page.demo(cx));
     }
+    if let Ok(page) = view.clone().downcast::<mods::ModsPage>() {
+        page.update(cx, |page, cx| page.demo(cx));
+    }
+    if let Ok(page) = view.clone().downcast::<backups::BackupsPage>() {
+        page.update(cx, |page, cx| page.demo(cx));
+    }
+}
+
+/// Puts sample mods on the Mods tab's Installed view (development screenshots'
+/// `--mods many|last|pack|few[-end]`, with `--tab mods --fake-instance`).
+#[cfg(feature = "screenshot")]
+pub fn mods_demo(view: &AnyView, scene: &str, cx: &mut App) {
+    if let Ok(page) = view.clone().downcast::<mods::ModsPage>() {
+        page.update(cx, |page, cx| page.demo_installed(scene, cx));
+    }
 }
 
 /// Opens a dropdown, for the development screenshots' `--open-menu <name>`: on the
@@ -147,7 +168,7 @@ pub fn open_menu_for_screenshot(view: &AnyView, name: &str, cx: &mut App) {
 }
 
 /// Puts sample friends on the Settings tab's Friends section (development
-/// screenshots' `--friends none|loading|off|retired|shared|confirm|renew|certificate|certificate-manual|error`, with `--tab settings`).
+/// screenshots' `--friends none|loading|off|retired|shared|confirm|removed|renew|certificate|certificate-manual|error`, with `--tab settings`).
 #[cfg(feature = "screenshot")]
 pub fn friends_demo(view: &AnyView, scene: &str, cx: &mut App) {
     // the Overview's "Share", with the same friends

@@ -274,6 +274,7 @@ export const en = {
   'shell.event.playersJoinedAndLeft':
     '{joined} Joined {name} and {left} Left {name}',
   /** {player} said {message} (a chat message) on the server {name} */
+  'shell.event.modpackUpdate': '{pack} {version} is out for {name}',
   'shell.event.playerMessage': '{player} said {message} on {name}',
   /** {name} is the name of an API key */
   'shell.event.apiKeyCreated': 'API key “{name}” created',
@@ -474,6 +475,9 @@ export const en = {
     'Domain cannot be longer than {max} characters',
   'settings.core.domain.tooltip':
     'This is your public IP if you are port-forwarded. If not, leave this as is.',
+  'settings.core.modpackChecks.label': 'Check for modpack updates',
+  'settings.core.modpackChecks.hint':
+    'Every few hours, look on Modrinth for newer versions of the modpacks servers were made from, and say when one is out. Check for an update on a server’s Mods tab still works when this is off.',
   'settings.core.listPublicly.label': 'List servers publicly',
   'settings.core.listPublicly.hint':
     'Anyone who can reach this core sees the servers you make public below.',
@@ -1132,7 +1136,7 @@ export const en = {
   'create.gameType.new': 'New',
   'create.gameType.modpack': 'Modrinth modpack',
   'create.gameType.modpackDescription':
-    'Create a Fabric server from a Modrinth modpack',
+    'Create a Fabric, Forge or NeoForge server from a Modrinth modpack',
 
   // GameTypeMappings: games' titles and descriptions
   /** {name}: the game's name, as the core sends it */
@@ -1141,6 +1145,8 @@ export const en = {
     'Standard vanilla Minecraft server from Mojang.',
   'create.game.forgeDescription':
     'Modding framework that allows you to install mods and customize your Minecraft experience.',
+  'create.game.neoforgeDescription':
+    'Community fork of Forge with its own mods, for Minecraft 1.20.2 and later.',
   'create.game.fabricDescription':
     'Lightweight modding toolchain for Minecraft.',
   'create.game.paperDescription':
@@ -1159,7 +1165,7 @@ export const en = {
   // ModpackCreateForm: creating a server from a Modrinth modpack
   'create.modpack.sourceTitle': 'Select a modpack',
   'create.modpack.sourceDescription':
-    'Search Modrinth, paste a Modrinth link, or upload a .mrpack file. Only Fabric modpacks are supported.',
+    'Search Modrinth, paste a Modrinth link, or upload a .mrpack file. Fabric, Forge and NeoForge modpacks are supported.',
   'create.modpack.searchPlaceholder':
     'Search modpacks, or paste a Modrinth link',
   'create.modpack.onlyFabric': 'Only show Fabric modpacks',
@@ -1336,6 +1342,8 @@ export const en = {
   /** the placeholder of the folder name field */
   'files.createFolder.placeholder': 'Untitled folder',
   'files.createFolder.submit': 'Create folder',
+  /** New file or New folder with the name of something already in the folder */
+  'files.nameTaken': '{name} already exists in this folder',
   /** the new name of a file or folder */
   'files.rename.label': 'Name your file',
   'files.rename.submit': 'Rename file',
@@ -1391,6 +1399,21 @@ export const en = {
     'Modrinth doesn’t say whether players need it; check the mod’s page',
   'mods.clientRequirement.unknownNotOnModrinth':
     'Not on Modrinth; check the mod’s page',
+  /** with the "For players" box (Fabric servers) */
+  'mods.clientRequirement.unknownModrinthMark':
+    'Modrinth doesn’t say whether players need it. Check the mod’s page, and tick For players if they do.',
+  'mods.clientRequirement.unknownNotOnModrinthMark':
+    'Not on Modrinth. Check the mod’s page, and tick For players if players need it.',
+  /** a checkbox on a Fabric server's mod row: players download the mod too */
+  'mods.forPlayers.label': 'For players',
+  'mods.forPlayers.hint':
+    'Players get this mod, and the mods it needs, when they join. Tick it for mods players need that Lodestone can’t tell, such as ones you uploaded.',
+  'mods.forPlayers.already':
+    'Players get this mod already: Modrinth or the mod says they need it.',
+  /** toasts after ticking or unticking the box; {name}: the mod's name */
+  'mods.forPlayers.marked': 'Players get {name} the next time they join',
+  'mods.forPlayers.unmarked': '{name} is no longer marked for players',
+  'mods.forPlayers.failed': 'Couldn’t change {name}: {error}',
   /** a Modrinth version's type, on a small label */
   'mods.versionType.release': 'release',
   'mods.versionType.beta': 'beta',
@@ -1478,6 +1501,70 @@ export const en = {
   'mods.installed.empty.plugin':
     'No plugins installed yet. Browse Modrinth or upload a .jar file.',
 
+  // ModpackPanel: a server's modpack, its updates and history
+  'mods.modpack.from': 'This server runs the modpack {pack}.',
+  'mods.modpack.check': 'Check for an update',
+  'mods.modpack.checkFailed': 'Couldn’t check for an update: {error}',
+  'mods.modpack.upToDate': 'It’s the newest version.',
+  'mods.modpack.whatsNew': 'What’s new',
+  'mods.modpack.out': '{version} is out',
+  'mods.modpack.updateTo': 'Update to {version}',
+  'mods.modpack.fromFile': 'Update from a file',
+  'mods.modpack.notMrpack': '{name} isn’t a .mrpack file.',
+  'mods.modpack.planFailed': 'Couldn’t prepare the update: {error}',
+  'mods.modpack.history': 'History',
+  'mods.modpack.historyFailed': 'Couldn’t load the modpack’s history: {error}',
+  'mods.modpack.historyEmpty':
+    'Nothing is recorded yet. Updates from now on can be undone.',
+  'mods.modpack.kind.install': 'Installed',
+  'mods.modpack.kind.baseline': 'First recorded',
+  'mods.modpack.kind.update': 'Updated',
+  'mods.modpack.kind.restore': 'Restored {version}',
+  'mods.modpack.current': 'Current',
+  'mods.modpack.restore': 'Restore',
+  'mods.modpack.restoreMissing':
+    'Lodestone no longer has some of this version’s files.',
+  'mods.modpack.restoreTitle': 'Restore this version?',
+  'mods.modpack.updateTitle': 'Update the modpack?',
+  'mods.modpack.update': 'Update',
+  'mods.modpack.restored': 'Restored {pack} {version}.',
+  'mods.modpack.updated': 'Updated {pack} to {version}.',
+  'mods.modpack.restoreFailed': 'Couldn’t restore the modpack: {error}',
+  'mods.modpack.updateFailed': 'Couldn’t update the modpack: {error}',
+  'mods.modpack.storeSize':
+    'To undo updates, Lodestone keeps {size} of files that can’t be downloaded again.',
+  'mods.modpack.since': 'since {version}',
+  'mods.modpack.sinceTooltip': 'This file came with {version} of the modpack.',
+  'mods.modpack.unknownVersion': 'unknown version',
+  'mods.modpack.dialog.intro': '{pack} goes from {from} to {to}.',
+  'mods.modpack.dialog.reinstall':
+    'The server moves to {software} and installs it again.',
+  'mods.modpack.dialog.kept': 'Files you changed stay as they are: {files}',
+  'mods.modpack.dialog.nothing': 'No files change.',
+  'mods.modpack.dialog.stop':
+    'Stop the server first: it can’t be updated while it runs.',
+  'mods.modpack.dialog.unsupported': 'This version can’t be used: {reason}',
+  'mods.modpack.added': {
+    one: '{count} file added',
+    other: '{count} files added',
+  },
+  'mods.modpack.replaced': {
+    one: '{count} file replaced',
+    other: '{count} files replaced',
+  },
+  'mods.modpack.removed': {
+    one: '{count} file removed',
+    other: '{count} files removed',
+  },
+  'mods.modpack.keptCount': {
+    one: '{count} changed file kept',
+    other: '{count} changed files kept',
+  },
+  'mods.modpack.moreChanges': {
+    one: 'and {count} more',
+    other: 'and {count} more',
+  },
+
   // ClientPackPanel: the mods players need on a Fabric server
   /** {version}: the Fabric loader version, e.g. 0.16.5 */
   'mods.clientPack.loader': 'Fabric loader {version}',
@@ -1490,6 +1577,13 @@ export const en = {
     other: 'Players need {count} mods to join',
   },
   'mods.clientPack.download': 'Download client modpack (.mrpack)',
+  /** Under the first few of a big client pack's mods: shows them all */
+  'mods.clientPack.showAll': {
+    one: 'Show all {count} mod',
+    other: 'Show all {count} mods',
+  },
+  /** Folds the client pack's mods again, after mods.clientPack.showAll */
+  'mods.clientPack.showFewer': 'Show fewer',
   'mods.clientPack.downloadFailed':
     'Failed to download the client modpack: {error}',
   'mods.clientPack.importHint':

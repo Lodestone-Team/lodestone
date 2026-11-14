@@ -211,6 +211,7 @@ export const zhHans: Messages = {
   'shell.event.playersLeft': '{players} 离开了 {name}',
   'shell.event.playersJoinedAndLeft':
     '{joined} 加入了 {name}，{left} 离开了 {name}',
+  'shell.event.modpackUpdate': '{name} 的 {pack} {version} 已发布',
   'shell.event.playerMessage': '{player} 在 {name} 上说：{message}',
   'shell.event.apiKeyCreated': '已创建 API 密钥“{name}”',
   'shell.event.apiKeyRevoked': '已吊销 API 密钥“{name}”',
@@ -363,6 +364,9 @@ export const zhHans: Messages = {
   'settings.core.domain.tooLong': '域名不能超过 {max} 个字符',
   'settings.core.domain.tooltip':
     '如果你已设置端口转发，这里填写你的公网 IP。否则请保持不变。',
+  'settings.core.modpackChecks.label': '检查整合包更新',
+  'settings.core.modpackChecks.hint':
+    '每隔几小时在 Modrinth 上查找服务器所用整合包的新版本，有新版本时通知。关闭后，服务器“模组”标签中的“检查更新”仍可使用。',
   'settings.core.listPublicly.label': '公开列出服务器',
   'settings.core.listPublicly.hint':
     '任何能访问此核心的人都能看到你在下方设为公开的服务器。',
@@ -887,13 +891,16 @@ export const zhHans: Messages = {
   'create.gameType.subtitle': '你的服务器将用于什么？',
   'create.gameType.new': '新功能',
   'create.gameType.modpack': 'Modrinth 整合包',
-  'create.gameType.modpackDescription': '从 Modrinth 整合包创建 Fabric 服务器',
+  'create.gameType.modpackDescription':
+    '从 Modrinth 整合包创建 Fabric、Forge 或 NeoForge 服务器',
 
   // GameTypeMappings: games' titles and descriptions
   'create.game.genericTitle': '{name}（通用）',
   'create.game.vanillaDescription': 'Mojang 官方的标准原版 Minecraft 服务器。',
   'create.game.forgeDescription':
     '模组框架，可用于安装模组并自定义你的 Minecraft 体验。',
+  'create.game.neoforgeDescription':
+    '社区维护的 Forge 分支，有自己的模组，适用于 Minecraft 1.20.2 及更高版本。',
   'create.game.fabricDescription': '轻量级的 Minecraft 模组工具链。',
   'create.game.paperDescription':
     '高性能的 Spigot 分支，旨在修复游戏玩法和机制上的不一致。',
@@ -909,7 +916,7 @@ export const zhHans: Messages = {
   // ModpackCreateForm: creating a server from a Modrinth modpack
   'create.modpack.sourceTitle': '选择整合包',
   'create.modpack.sourceDescription':
-    '搜索 Modrinth、粘贴 Modrinth 链接，或上传 .mrpack 文件。仅支持 Fabric 整合包。',
+    '搜索 Modrinth、粘贴 Modrinth 链接，或上传 .mrpack 文件。支持 Fabric、Forge 和 NeoForge 整合包。',
   'create.modpack.searchPlaceholder': '搜索整合包，或粘贴 Modrinth 链接',
   'create.modpack.onlyFabric': '仅显示 Fabric 整合包',
   'create.modpack.upload': '上传 .mrpack',
@@ -1023,6 +1030,7 @@ export const zhHans: Messages = {
   'files.createFolder.label': '为文件夹命名',
   'files.createFolder.placeholder': '未命名文件夹',
   'files.createFolder.submit': '创建文件夹',
+  'files.nameTaken': '此文件夹中已有 {name}',
   'files.rename.label': '为文件命名',
   'files.rename.submit': '重命名文件',
 
@@ -1060,6 +1068,18 @@ export const zhHans: Messages = {
     'Modrinth 未说明玩家是否需要它，请查看该模组的页面',
   'mods.clientRequirement.unknownNotOnModrinth':
     '不在 Modrinth 上，请查看该模组的页面',
+  'mods.clientRequirement.unknownModrinthMark':
+    'Modrinth 未说明玩家是否需要它，请查看该模组的页面。如果玩家需要，请勾选“给玩家”。',
+  'mods.clientRequirement.unknownNotOnModrinthMark':
+    '不在 Modrinth 上，请查看该模组的页面。如果玩家需要，请勾选“给玩家”。',
+  'mods.forPlayers.label': '给玩家',
+  'mods.forPlayers.hint':
+    '玩家加入时会获得这个模组及其依赖的模组。对于 Lodestone 无法判断但玩家需要的模组（例如你上传的），请勾选此项。',
+  'mods.forPlayers.already':
+    '玩家已会获得这个模组：Modrinth 或模组本身表明玩家需要它。',
+  'mods.forPlayers.marked': '玩家下次加入时会获得 {name}',
+  'mods.forPlayers.unmarked': '{name} 不再标记为给玩家',
+  'mods.forPlayers.failed': '无法更改 {name}：{error}',
   'mods.versionType.release': '正式版',
   'mods.versionType.beta': '测试版',
   'mods.versionType.alpha': '早期测试版',
@@ -1126,6 +1146,50 @@ export const zhHans: Messages = {
   'mods.installed.empty.plugin':
     '尚未安装任何插件。浏览 Modrinth 或上传 .jar 文件。',
 
+  'mods.modpack.from': '此服务器使用整合包 {pack}。',
+  'mods.modpack.check': '检查更新',
+  'mods.modpack.checkFailed': '无法检查更新：{error}',
+  'mods.modpack.upToDate': '已是最新版本。',
+  'mods.modpack.whatsNew': '更新内容',
+  'mods.modpack.out': '{version} 已发布',
+  'mods.modpack.updateTo': '更新到 {version}',
+  'mods.modpack.fromFile': '从文件更新',
+  'mods.modpack.notMrpack': '{name} 不是 .mrpack 文件。',
+  'mods.modpack.planFailed': '无法准备更新：{error}',
+  'mods.modpack.history': '历史',
+  'mods.modpack.historyFailed': '无法加载整合包的历史：{error}',
+  'mods.modpack.historyEmpty': '尚无记录。之后的更新可以撤销。',
+  'mods.modpack.kind.install': '已安装',
+  'mods.modpack.kind.baseline': '首次记录',
+  'mods.modpack.kind.update': '已更新',
+  'mods.modpack.kind.restore': '已恢复 {version}',
+  'mods.modpack.current': '当前',
+  'mods.modpack.restore': '恢复',
+  'mods.modpack.restoreMissing': 'Lodestone 已不再保有此版本的部分文件。',
+  'mods.modpack.restoreTitle': '恢复此版本？',
+  'mods.modpack.updateTitle': '更新整合包？',
+  'mods.modpack.update': '更新',
+  'mods.modpack.restored': '已恢复 {pack} {version}。',
+  'mods.modpack.updated': '已将 {pack} 更新到 {version}。',
+  'mods.modpack.restoreFailed': '无法恢复整合包：{error}',
+  'mods.modpack.updateFailed': '无法更新整合包：{error}',
+  'mods.modpack.storeSize':
+    '为了撤销更新，Lodestone 保留了 {size} 无法重新下载的文件。',
+  'mods.modpack.since': '自 {version} 起',
+  'mods.modpack.sinceTooltip': '此文件随整合包 {version} 而来。',
+  'mods.modpack.unknownVersion': '未知版本',
+  'mods.modpack.dialog.intro': '{pack} 将从 {from} 更新到 {to}。',
+  'mods.modpack.dialog.reinstall': '服务器将改用 {software} 并重新安装。',
+  'mods.modpack.dialog.kept': '你修改过的文件将保持不变：{files}',
+  'mods.modpack.dialog.nothing': '没有文件会改变。',
+  'mods.modpack.dialog.stop': '请先停止服务器：服务器运行时无法更新。',
+  'mods.modpack.dialog.unsupported': '无法使用此版本：{reason}',
+  'mods.modpack.added': { other: '已添加 {count} 个文件' },
+  'mods.modpack.replaced': { other: '已替换 {count} 个文件' },
+  'mods.modpack.removed': { other: '已删除 {count} 个文件' },
+  'mods.modpack.keptCount': { other: '保留了 {count} 个已修改的文件' },
+  'mods.modpack.moreChanges': { other: '还有 {count} 个' },
+
   // ClientPackPanel
   'mods.clientPack.loader': 'Fabric Loader {version}',
   'mods.clientPack.loaderNoVersion': 'Fabric Loader',
@@ -1133,6 +1197,11 @@ export const zhHans: Messages = {
     '玩家只需原版 Fabric 即可加入（Minecraft {gameVersion}，{loader}）。',
   'mods.clientPack.title': { other: '玩家需要 {count} 个模组才能加入' },
   'mods.clientPack.download': '下载客户端整合包（.mrpack）',
+  'mods.clientPack.showAll': {
+    one: '显示全部 {count} 个模组',
+    other: '显示全部 {count} 个模组',
+  },
+  'mods.clientPack.showFewer': '收起',
   'mods.clientPack.downloadFailed': '无法下载客户端整合包：{error}',
   'mods.clientPack.importHint':
     '将其导入 Prism Launcher、Modrinth App 或 ATLauncher，即可获得所有正确版本的内容。',

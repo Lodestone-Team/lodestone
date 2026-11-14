@@ -22,8 +22,9 @@ pub fn text(message: M) -> &'static str {
         M::DeleteConfirm => "Je comprends, supprimer ce serveur",
         M::DeleteCannotUndo => "Cette action est irréversible.",
         M::DeleteWarning => {
-            "Les paramètres, mondes et sauvegardes de cette instance seront définitivement supprimés. Sauvegardez vos données importantes avant de continuer."
+            "Les paramètres et mondes de cette instance seront définitivement supprimés. Sauvegardez vos données importantes avant de continuer."
         }
+        M::DeleteBackupsToo => "Ses sauvegardes sont supprimées aussi.",
         M::Deleting => "Suppression de {name}…",
         M::CommandLineReadOnly => {
             "Lecture seule tant que l’exécution de code est désactivée sur ce core."
@@ -112,9 +113,23 @@ pub fn text(message: M) -> &'static str {
         M::ModsNeededBy => "Requis par {mods}",
         M::ModsUnknown => "Inconnu",
         M::ModsUnknownModrinth => {
-            "Modrinth n’indique pas si les joueurs en ont besoin. Consultez la page du mod."
+            "Modrinth n’indique pas si les joueurs en ont besoin. Consultez la page du mod, et cochez Pour les joueurs si c’est le cas."
         }
-        M::ModsUnknownNotOnModrinth => "Absent de Modrinth. Consultez la page du mod.",
+        M::ModsUnknownNotOnModrinth => {
+            "Absent de Modrinth. Consultez la page du mod, et cochez Pour les joueurs si les joueurs en ont besoin."
+        }
+        M::ModsForPlayers => "Pour les joueurs",
+        M::ModsForPlayersHint => {
+            "Les joueurs reçoivent ce mod, et les mods dont il a besoin, en rejoignant. Cochez-le pour les mods dont les joueurs ont besoin sans que Lodestone puisse le savoir, comme ceux que vous avez téléversés."
+        }
+        M::ModsForPlayersAlready => {
+            "Les joueurs reçoivent déjà ce mod : Modrinth ou le mod indique qu'ils en ont besoin."
+        }
+        M::ModsMarkedForPlayers => {
+            "Les joueurs recevront {name} la prochaine fois qu'ils rejoindront"
+        }
+        M::ModsUnmarkedForPlayers => "{name} n'est plus marqué pour les joueurs",
+        M::ModsMarkFailed => "Impossible de modifier {name} : {error}",
         M::ModsRelease => "stable",
         M::ModsBeta => "bêta",
         M::ModsAlpha => "alpha",
@@ -179,12 +194,57 @@ pub fn text(message: M) -> &'static str {
             "Les joueurs peuvent se connecter avec Fabric seul (Minecraft {gameVersion}, {loader})."
         }
         M::ModsDownloadPack => "Télécharger le modpack client (.mrpack)",
+        M::ModsPackShowFewer => "Afficher moins",
         M::ModsDownloadPackFailed => "Impossible de télécharger le modpack client : {error}",
         M::ModsPackSaved => "{name} enregistré",
         M::ModsSavePack => "Enregistrer",
         M::ModsImportHint => {
             "Importez-le dans Prism Launcher, l’application Modrinth ou ATLauncher pour tout obtenir dans les bonnes versions."
         }
+        M::ModpackFrom => "Ce serveur utilise le modpack {pack}.",
+        M::ModpackCheck => "Rechercher une mise à jour",
+        M::ModpackCheckFailed => "Impossible de rechercher une mise à jour : {error}",
+        M::ModpackUpToDate => "C’est la version la plus récente.",
+        M::ModpackUpdateTo => "Mettre à jour vers {version}",
+        M::ModpackFromFile => "Mettre à jour depuis un fichier",
+        M::ModpackFilePrompt => "Mettre à jour",
+        M::ModpackNotMrpack => "{name} n’est pas un fichier .mrpack.",
+        M::ModpackPlanFailed => "Impossible de préparer la mise à jour : {error}",
+        M::ModpackDialogTitle => "Mettre à jour le modpack ?",
+        M::ModpackDialogIntro => "{pack} passe de {from} à {to}.",
+        M::ModpackDialogReinstall => "Le serveur passe à {software}, qui est réinstallé.",
+        M::ModpackDialogKept => "Les fichiers que vous avez modifiés restent tels quels : {files}",
+        M::ModpackDialogNothing => "Aucun fichier ne change.",
+        M::ModpackDialogStop => {
+            "Arrêtez d’abord le serveur : il ne peut pas être mis à jour pendant qu’il tourne."
+        }
+        M::ModpackDialogUnsupported => "Cette version ne peut pas être utilisée : {reason}",
+        M::ModpackUpdate => "Mettre à jour",
+        M::ModpackUpdated => "{pack} mis à jour vers {version}.",
+        M::ModpackUpdateFailed => "Impossible de mettre à jour le modpack : {error}",
+        M::ModpackUnknownVersion => "version inconnue",
+        M::ModpackWhatsNew => "Nouveautés",
+        M::ModpackOut => "{version} est disponible",
+        M::ModpackHistory => "Historique",
+        M::ModpackHistoryFailed => "Impossible de charger l’historique du modpack : {error}",
+        M::ModpackHistoryEmpty => {
+            "Rien n’est encore enregistré. Les prochaines mises à jour pourront être annulées."
+        }
+        M::ModpackKindInstall => "Installé",
+        M::ModpackKindBaseline => "Premier enregistrement",
+        M::ModpackKindUpdate => "Mis à jour",
+        M::ModpackKindRestore => "{version} restauré",
+        M::ModpackCurrent => "Actuelle",
+        M::ModpackRestore => "Restaurer",
+        M::ModpackRestoreMissing => "Lodestone n’a plus certains fichiers de cette version.",
+        M::ModpackRestoreTitle => "Restaurer cette version ?",
+        M::ModpackRestored => "{pack} {version} restauré.",
+        M::ModpackRestoreFailed => "Impossible de restaurer le modpack : {error}",
+        M::ModpackStoreSize => {
+            "Pour annuler les mises à jour, Lodestone conserve {size} de fichiers qui ne peuvent pas être retéléchargés."
+        }
+        M::ModpackSince => "depuis {version}",
+        M::ModpackSinceTooltip => "Ce fichier est arrivé avec la version {version} du modpack.",
         M::ModsProjectFailed => "Impossible de charger le projet : {error}",
         M::ModsSource => "Code source",
         M::ModsIssues => "Tickets",
@@ -309,11 +369,20 @@ pub fn plural(message: P) -> [&'static str; 2] {
             "Importez-le dans Prism Launcher, l’application Modrinth ou ATLauncher pour tout obtenir dans les bonnes versions. {count} mod n’est pas sur Modrinth, son fichier est donc inclus dans le pack.",
             "Importez-le dans Prism Launcher, l’application Modrinth ou ATLauncher pour tout obtenir dans les bonnes versions. {count} mods ne sont pas sur Modrinth, leurs fichiers sont donc inclus dans le pack.",
         ],
+        P::ModsPackShowAll => ["Afficher {count} mod", "Afficher les {count} mods"],
         P::ModsShowMore => [
             "Afficher plus ({count} restante)",
             "Afficher plus ({count} restantes)",
         ],
         P::ModsMoreGameVersions => ["+{count} autre", "+{count} autres"],
+        P::ModpackAdded => ["{count} fichier ajouté", "{count} fichiers ajoutés"],
+        P::ModpackReplaced => ["{count} fichier remplacé", "{count} fichiers remplacés"],
+        P::ModpackRemoved => ["{count} fichier supprimé", "{count} fichiers supprimés"],
+        P::ModpackKeptCount => [
+            "{count} fichier modifié conservé",
+            "{count} fichiers modifiés conservés",
+        ],
+        P::ModpackMoreChanges => ["et {count} autre", "et {count} autres"],
         P::FriendsConnectedCount => ["{count} ami connecté", "{count} amis connectés"],
     }
 }

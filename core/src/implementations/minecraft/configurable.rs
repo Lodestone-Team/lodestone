@@ -17,8 +17,8 @@ use super::util::{
     get_fabric_jar_url, get_jre_major_version, get_paper_jar_url, get_vanilla_jar_url,
 };
 use super::{
-    ensure_jre, java_binary, join_args, server_properties, split_args, validate_instance_name,
-    Flavour, MinecraftInstance,
+    ensure_jre, join_args, server_properties, split_args, validate_instance_name, Flavour,
+    MinecraftInstance,
 };
 
 fn bad_request(message: impl Into<String>) -> Error {
@@ -132,10 +132,13 @@ impl TConfigurable for MinecraftInstance {
                     source: eyre!("Spigot servers are not supported"),
                 })
             }
-            Flavour::Forge { .. } => {
+            Flavour::Forge { .. } | Flavour::NeoForge { .. } => {
                 return Err(Error {
                     kind: ErrorKind::UnsupportedOperation,
-                    source: eyre!("Changing versions is unsupported for forge servers"),
+                    source: eyre!(
+                        "Changing versions is unsupported for {} servers",
+                        old_flavour.to_string()
+                    ),
                 })
             }
         };
@@ -165,44 +168,8 @@ impl TConfigurable for MinecraftInstance {
         let jar_path = temp_dir.path().join("server.jar");
         crate::util::fs::rename(jar_path, self.path().await.join("server.jar")).await?;
 
-        let new_java_cmd = {
-            let mut config = self.config.lock().await;
-            config.version = version;
-            config.flavour = new_flavour;
-            config.jre_major_version = new_jre;
-            // Only move to the new JRE if the user did not set a custom Java command.
-            let old_default = java_binary(&self.path_to_runtimes, old_jre)
-                .to_string_lossy()
-                .to_string();
-            let uses_default = config
-                .java_cmd
-                .as_ref()
-                .is_none_or(|cmd| *cmd == old_default);
-            if uses_default {
-                let new_default = java_binary(&self.path_to_runtimes, new_jre)
-                    .to_string_lossy()
-                    .to_string();
-                config.java_cmd = Some(new_default.clone());
-                Some(new_default)
-            } else {
-                None
-            }
-        };
-        if let Some(java_cmd) = new_java_cmd {
-            if let Err(e) = self
-                .configurable_manifest
-                .lock()
-                .await
-                .update_setting_value(
-                    CmdArgSetting::get_section_id(),
-                    "java_cmd",
-                    ConfigurableValue::String(java_cmd),
-                )
-            {
-                warn!("Failed to show the new Java command in the settings: {e}");
-            }
-        }
-        self.write_config_to_file().await
+        self.set_server_software(version, new_flavour, new_jre)
+            .await
     }
 
     async fn configurable_manifest(&self) -> ConfigurableManifest {

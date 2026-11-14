@@ -21,8 +21,8 @@
   --bg-raised: #26282c;
   --border: #36393f;
   --text: #e3e3e4;
-  --text-muted: #a5a5ac;
-  --text-faint: #767a82;
+  --text-muted: #bcbdc4;
+  --text-faint: #8f939b;
   --accent: #3fdba0;
   --accent-strong: #1fbfa8;
   --button: #17866f;
@@ -74,6 +74,18 @@ a {
 
 /* Header */
 
+/* Moving between the home page and a product page, the logo stays where it is
+   and changes into the next page's (where the browser supports it). */
+@view-transition {
+  navigation: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  @view-transition {
+    navigation: none;
+  }
+}
+
 .top {
   display: flex;
   align-items: center;
@@ -98,18 +110,6 @@ a {
   display: flex;
   align-items: center;
   gap: 20px;
-}
-
-.nav-link {
-  white-space: nowrap;
-  color: var(--text-muted);
-  text-decoration: none;
-  font-weight: 500;
-  font-size: 15px;
-}
-
-.nav-link:hover {
-  color: var(--text);
 }
 
 .github {
@@ -157,7 +157,25 @@ a {
   width: 100%;
   max-width: 1200px;
   margin: 0 auto;
-  padding: clamp(20px, 5vh, 64px) 24px 0;
+  padding: clamp(28px, 7vh, 88px) 24px 0;
+}
+
+/* The product's own logo, above everything else in the hero: the same box,
+   at the same height, as the home page's logo, so it stays put when someone
+   clicks through from there. */
+.product-mark {
+  display: block;
+  box-sizing: border-box;
+  width: 140px;
+  height: 140px;
+  margin: 0 0 22px;
+  view-transition-name: hero-logo;
+}
+
+/* Host's mark fills its box and the home page draws it 400 of the gem's 580
+   units across, so it gets the same room around it. */
+.product-mark {
+  padding: calc(140px * 90 / 580);
 }
 
 .eyebrow {
@@ -201,6 +219,7 @@ h1 .phrase {
   margin: 16px 0 0;
   max-width: 46ch;
   color: var(--text-muted);
+  font-weight: 500;
   font-size: clamp(17px, 2vw, 20px);
 }
 
@@ -223,9 +242,7 @@ h1 .phrase {
   text-decoration: none;
   font-weight: 700;
   font-size: 16px;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.12),
-    0 8px 24px rgba(23, 134, 111, 0.3);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
   transition: background 0.15s;
 }
 
@@ -271,6 +288,7 @@ a:focus-visible {
   gap: 8px;
   margin: 12px 0 0;
   color: var(--text-faint);
+  font-weight: 500;
   font-size: 14px;
 }
 
@@ -318,7 +336,7 @@ a:focus-visible {
   background: transparent;
   color: var(--text-muted);
   font: inherit;
-  font-weight: 500;
+  font-weight: 600;
   font-size: 14px;
   cursor: pointer;
   transition:
@@ -377,6 +395,7 @@ a:focus-visible {
   padding: 0;
   list-style: none;
   color: var(--text-muted);
+  font-weight: 500;
   font-size: 15px;
   text-align: left;
 }
@@ -399,7 +418,180 @@ a:focus-visible {
 
 .points strong {
   color: var(--text);
+  font-weight: 700;
+}
+
+/* For people new to hosting: what Lodestone Host takes care of. */
+
+.easy {
+  width: 100%;
+  max-width: 880px;
+  margin: clamp(56px, 10vh, 96px) 0 0;
+  text-align: left;
+}
+
+.easy h2 {
+  margin: 0;
+  font-family: 'Clash Grotesk', 'Satoshi', system-ui, sans-serif;
+  font-size: clamp(28px, 4vw, 44px);
   font-weight: 600;
+  line-height: 1.08;
+  letter-spacing: -0.02em;
+  text-align: center;
+  text-wrap: balance;
+}
+
+.easy-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin: 32px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.easy-list li {
+  padding: 20px 22px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--bg-raised);
+}
+
+.easy-list h3 {
+  margin: 0;
+  color: var(--text);
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.easy-list p {
+  margin: 6px 0 0;
+  color: var(--text-muted);
+  font-size: 15px;
+  font-weight: 500;
+}
+
+/* How fast it is next to the others: one chart per measure, our row in the
+   page's accent and the others in grey. Text stays in text colours. */
+
+.speed {
+  width: 100%;
+  max-width: 1080px;
+  margin: clamp(56px, 10vh, 96px) 0 0;
+  text-align: left;
+}
+
+.speed h2 {
+  margin: 0;
+  font-family: 'Clash Grotesk', 'Satoshi', system-ui, sans-serif;
+  font-size: clamp(28px, 4vw, 44px);
+  font-weight: 600;
+  line-height: 1.08;
+  letter-spacing: -0.02em;
+  text-align: center;
+}
+
+.speed-lede {
+  max-width: 56ch;
+  margin: 12px auto 0;
+  color: var(--text-muted);
+  font-size: 17px;
+  text-align: center;
+}
+
+.speed-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 32px;
+}
+
+.speed-chart {
+  margin: 0;
+  padding: 20px 22px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--bg-raised);
+}
+
+.speed-chart figcaption {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 14px;
+}
+
+.speed-chart figcaption b {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.speed-chart figcaption span {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.speed-chart ul {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.speed-chart li {
+  display: grid;
+  grid-template-columns: 112px minmax(0, 1fr) 76px;
+  align-items: center;
+  gap: 12px;
+  color: var(--text-muted);
+  font-size: 13.5px;
+}
+
+.speed-chart li.is-us {
+  color: var(--text);
+  font-weight: 700;
+}
+
+.speed-bar {
+  height: 8px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.05);
+  overflow: hidden;
+}
+
+.speed-bar i {
+  display: block;
+  height: 100%;
+  min-width: 3px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.22);
+}
+
+.is-us .speed-bar i {
+  background: var(--accent);
+}
+
+.speed-value {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.speed-value.is-note {
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.speed-foot {
+  max-width: 80ch;
+  margin: 16px auto 0;
+  color: var(--text-faint);
+  font-size: 13px;
+  text-align: center;
+}
+
+.speed-foot a {
+  color: var(--text-muted);
 }
 
 /* Footer */
@@ -414,6 +606,7 @@ a:focus-visible {
   margin: 0 auto;
   padding: 40px 24px 28px;
   color: var(--text-faint);
+  font-weight: 500;
   font-size: 14px;
 }
 
@@ -426,6 +619,33 @@ a:focus-visible {
 }
 
 @media (max-width: 560px) {
+  .easy-list {
+    grid-template-columns: 1fr;
+  }
+
+  .hero {
+    padding-top: 28px;
+  }
+
+  .product-mark {
+    width: 104px;
+    height: 104px;
+    margin-bottom: 18px;
+  }
+
+  .product-mark {
+    padding: calc(104px * 90 / 580);
+  }
+
+  .speed-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .speed-chart li {
+    grid-template-columns: 92px minmax(0, 1fr) 64px;
+    gap: 8px;
+  }
+
   .top {
     padding: 16px;
   }
@@ -434,9 +654,6 @@ a:focus-visible {
     gap: 12px;
   }
 
-  .nav-link {
-    font-size: 14px;
-  }
 
   .github-label {
     display: none;

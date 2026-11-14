@@ -332,36 +332,25 @@ fn http(url: &str, method: &str, headers: &[(&str, &str)], body: &str) -> Result
         .map_err(|e| e.to_string())?;
     let mut response = Vec::new();
     let _ = stream.take(256 * 1024).read_to_end(&mut response);
-    let text = String::from_utf8_lossy(&response).to_string();
-    let (head, body) = text.split_once("\r\n\r\n").unwrap_or((&text, ""));
-    let status = head.lines().next().unwrap_or_default();
-    if !status.contains(" 200") {
-        return Err(status.to_string());
-    }
-    let chunked = head.lines().any(|line| {
-        line.to_ascii_lowercase()
-            .starts_with("transfer-encoding: chunked")
-    });
-    Ok(if chunked {
-        dechunk(body)
-    } else {
-        body.to_string()
-    })
+    read_answer(&response)
 }
 
-pub(crate) fn dechunk(mut body: &str) -> String {
-    let mut out = String::new();
-    while let Some((size, rest)) = body.split_once("\r\n") {
-        let Ok(size) = usize::from_str_radix(size.trim(), 16) else {
-            break;
-        };
-        if size == 0 || rest.len() < size {
-            break;
-        }
-        out.push_str(&rest[..size]);
-        body = rest[size..].trim_start_matches("\r\n");
+/// The body of a 200 answer, as text. The body is de-chunked as bytes and only then
+/// turned into text: chunk sizes count bytes on the wire, and whatever answered on the
+/// network may send Latin-1 or split a character across chunks, which would put a cut
+/// inside a character of the decoded text.
+fn read_answer(response: &[u8]) -> Result<String, String> {
+    let status_line = || {
+        let end = response
+            .windows(2)
+            .position(|w| w == b"\r\n")
+            .unwrap_or(response.len());
+        String::from_utf8_lossy(&response[..end]).into_owned()
+    };
+    match crate::info::parse_response(response) {
+        Some((200, body)) => Ok(String::from_utf8_lossy(&body).into_owned()),
+        _ => Err(status_line()),
     }
-    out
 }
 
 /// The text inside the first `<name>…</name>` (with or without a namespace prefix).
@@ -434,11 +423,35 @@ mod tests {
             Some("1.2.3.4".into())
         );
         assert_eq!(
-            dechunk("5\r\nhello\r\n6\r\n world\r\n0\r\n\r\n"),
-            "hello world"
+            read_answer(
+                b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n6\r\n world\r\n0\r\n\r\n"
+            ),
+            Ok("hello world".into())
         );
         assert!(is_private("100.72.1.1".parse().unwrap()));
         assert!(!is_private("99.228.45.79".parse().unwrap()));
+    }
+
+    #[test]
+    fn reads_chunks_that_split_a_character() {
+        // Chunk sizes count bytes: a chunk that ends inside a character, or a Latin-1
+        // byte, must not cut the decoded text inside a character (LS-36).
+        assert_eq!(
+            read_answer(
+                b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n3\r\nab\xc3\r\n1\r\n\xa9\r\n0\r\n\r\n"
+            ),
+            Ok("ab\u{e9}".into())
+        );
+        assert_eq!(
+            read_answer(
+                b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n4\r\nGer\xe4\r\n2\r\nt!\r\n0\r\n\r\n"
+            ),
+            Ok("Ger\u{fffd}t!".into())
+        );
+        assert_eq!(
+            read_answer(b"HTTP/1.1 500 Internal Server Error\r\n\r\noops"),
+            Err("HTTP/1.1 500 Internal Server Error".into())
+        );
     }
 
     #[test]

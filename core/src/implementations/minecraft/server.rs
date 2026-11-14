@@ -24,11 +24,17 @@ use crate::types::Snowflake;
 use crate::util::{dont_spawn_terminal, list_dir, local_port_available};
 
 use super::properties::PropertiesDocument;
-use super::{java_binary, Flavour, ForgeBuildVersion, MinecraftInstance, RestoreConfig};
+use super::{
+    java_binary, Flavour, ForgeBuildVersion, MinecraftInstance, NeoForgeBuildVersion, RestoreConfig,
+};
 use tracing::{error, info, warn};
 
 /// Minecraft's default port, used when server.properties has no `server-port`
 const DEFAULT_PORT: u16 = 25565;
+
+/// How long the restart after a crash waits for a change, backup or restore that holds off
+/// starts (one that began between the crash and the restart) before giving up.
+const CRASH_RESTART_LOCK_WAIT: Duration = Duration::from_secs(60);
 
 /// What start() reads from server.properties
 struct LaunchSettings {
@@ -125,6 +131,24 @@ async fn forward_lines(
 }
 
 /// The first `.jar` file in `dir` whose name starts with `prefix`
+/// `@<instance>/libraries/<library>/unix_args.txt` (`win_args.txt` on Windows): the
+/// argument file a modern Forge or NeoForge installer writes, which names the server's
+/// main class and class path.
+fn installer_args_file(path_to_instance: &Path, library: &[&str]) -> std::ffi::OsString {
+    let file = match std::env::consts::OS {
+        "windows" => "win_args.txt",
+        _ => "unix_args.txt",
+    };
+    let mut path = path_to_instance.join("libraries");
+    for part in library {
+        path.push(part);
+    }
+    path.push(file);
+    let mut arg = std::ffi::OsString::from("@");
+    arg.push(path.into_os_string());
+    arg
+}
+
 async fn find_jar(dir: &Path, prefix: &str) -> Result<PathBuf, Error> {
     let files = list_dir(dir, Some(false))
         .await
@@ -138,6 +162,93 @@ async fn find_jar(dir: &Path, prefix: &str) -> Result<PathBuf, Error> {
                     .is_some_and(|n| n.starts_with(prefix))
         })
         .ok_or_else(|| eyre!("Failed to find {prefix}*.jar").into())
+}
+
+/// Whether `cmd` is the `java` of a JRE that Lodestone downloaded (any Java version).
+fn is_managed_java(path_to_runtimes: &Path, cmd: &Path) -> bool {
+    let Ok(rest) = cmd.strip_prefix(path_to_runtimes.join("java")) else {
+        return false;
+    };
+    let Some(major) = rest
+        .components()
+        .next()
+        .and_then(|dir| dir.as_os_str().to_str())
+        .and_then(|dir| dir.strip_prefix("jre"))
+        .and_then(|n| n.parse::<u64>().ok())
+    else {
+        return false;
+    };
+    let managed = java_binary(path_to_runtimes, major);
+    cmd == managed || cmd == managed.with_extension("exe")
+}
+
+/// What on a server's command line runs code Lodestone did not choose, if anything: a Java
+/// command other than Lodestone's own Java, or extra JVM arguments (which can load agents
+/// or any other code). Neither may run while code execution is off.
+fn custom_command_line(config: &RestoreConfig, path_to_runtimes: &Path) -> Option<&'static str> {
+    let custom_java = config
+        .java_cmd
+        .as_deref()
+        .is_some_and(|cmd| !is_managed_java(path_to_runtimes, Path::new(cmd)));
+    let custom_args = config.cmd_args.iter().any(|arg| !arg.is_empty());
+    match (custom_java, custom_args) {
+        (true, true) => Some("a custom Java command and Java arguments"),
+        (true, false) => Some("a custom Java command"),
+        (false, true) => Some("custom Java arguments"),
+        (false, false) => None,
+    }
+}
+
+/// The error for starting a server with a custom command line while code execution is off.
+fn custom_command_line_refused(what: &str) -> Error {
+    Error {
+        kind: ErrorKind::PermissionDenied,
+        source: eyre!(
+            "This server is set to start with {what}, which cannot run while code execution \
+             is turned off on this core. Turn code execution back on to start it."
+        ),
+    }
+}
+
+/// How a Forge server for a Minecraft version starts.
+#[derive(Debug, PartialEq, Eq)]
+enum ForgeLaunch {
+    /// With the argument file its installer writes (1.17 and later).
+    ArgsFile,
+    /// With the jar in the instance folder whose name starts with `prefix`.
+    Jar { prefix: String },
+}
+
+fn forge_launch(version: &str) -> Result<ForgeLaunch, Error> {
+    let mut parts = version.split('.');
+    let mut number = || {
+        parts
+            .next()
+            .and_then(|v| v.split(['-', '_']).next())
+            .and_then(|v| v.parse::<u32>().ok())
+    };
+    let unparsable = || eyre!("Unable to parse major Minecraft version for Forge from {version}");
+    let first = number().ok_or_else(unparsable)?;
+    // Year-based versions (26.1, 26.1.2, ...) came long after 1.17, so they start the
+    // modern way. Only 1.x versions need the minor version to decide.
+    if first != 1 {
+        return Ok(ForgeLaunch::ArgsFile);
+    }
+    let minor = number().ok_or_else(unparsable)?;
+    Ok(if 17 <= minor {
+        ForgeLaunch::ArgsFile
+    } else if (7..=16).contains(&minor) {
+        // 1.7 to 1.16 name the jar forge-<version>-...
+        ForgeLaunch::Jar {
+            prefix: format!("forge-{version}-"),
+        }
+    } else {
+        // 1.5 and 1.6 use minecraftforge (1.4 doesn't work since forge doesn't provide an
+        // installer)
+        ForgeLaunch::Jar {
+            prefix: "minecraftforge".to_string(),
+        }
+    })
 }
 
 impl MinecraftInstance {
@@ -161,6 +272,20 @@ impl MinecraftInstance {
         caused_by: &CausedBy,
         details: &str,
     ) -> Result<State, Error> {
+        self.transition_then(action, caused_by, details, || ())
+            .await
+            .map(|(previous, ())| previous)
+    }
+
+    /// [`Self::transition`], then `then` while the state is still locked. Returns the old
+    /// state and what `then` returned.
+    async fn transition_then<T>(
+        &self,
+        action: StateAction,
+        caused_by: &CausedBy,
+        details: &str,
+        then: impl FnOnce() -> T,
+    ) -> Result<(State, T), Error> {
         let name = self.name().await;
         let mut state = self.state.lock().await;
         let previous = *state;
@@ -171,7 +296,43 @@ impl MinecraftInstance {
                     .send(self.state_event(&name, new_state, caused_by, details))
             }),
         )?;
-        Ok(previous)
+        self.note_state_change(previous, *state);
+        Ok((previous, then()))
+    }
+
+    /// Moves to Starting, and returns this start's launch generation (see
+    /// `launch_generation`). It is taken under the state lock, so whoever sees this
+    /// Starting also sees the generation.
+    async fn begin_start(&self, caused_by: &CausedBy) -> Result<u64, Error> {
+        let (_, generation) = self
+            .transition_then(StateAction::UserStart, caused_by, "Starting server", || {
+                self.launch_generation.fetch_add(1, Ordering::SeqCst) + 1
+            })
+            .await?;
+        Ok(generation)
+    }
+
+    /// Moves the start with `generation` back to Stopped, unless it was stopped already or
+    /// a newer start began: that one's Starting is its own.
+    async fn roll_back_start(&self, generation: u64, caused_by: &CausedBy, details: &str) {
+        self.set_state_when(
+            |state| {
+                state == State::Starting
+                    && self.launch_generation.load(Ordering::SeqCst) == generation
+            },
+            State::Stopped,
+            caused_by,
+            details,
+        )
+        .await;
+    }
+
+    /// Whether the start with `generation` may still launch the server: it is the newest
+    /// start, and the instance is still Starting (no stop or kill came since).
+    async fn still_starting(&self, generation: u64) -> bool {
+        // the state first: a newer start's Starting comes with its generation
+        self.state().await == State::Starting
+            && self.launch_generation.load(Ordering::SeqCst) == generation
     }
 
     /// Sets the state to `new_state` if it is currently one of `expected`, and broadcasts
@@ -183,11 +344,30 @@ impl MinecraftInstance {
         caused_by: &CausedBy,
         details: &str,
     ) -> bool {
+        self.set_state_when(
+            |state| expected.contains(&state),
+            new_state,
+            caused_by,
+            details,
+        )
+        .await
+    }
+
+    /// [`Self::set_state_if`], when `ok` holds for the current state (checked under the
+    /// state lock).
+    async fn set_state_when(
+        &self,
+        ok: impl FnOnce(State) -> bool,
+        new_state: State,
+        caused_by: &CausedBy,
+        details: &str,
+    ) -> bool {
         let name = self.name().await;
         let mut state = self.state.lock().await;
-        if !expected.contains(&*state) {
+        if !ok(*state) {
             return false;
         }
+        self.note_state_change(*state, new_state);
         *state = new_state;
         self.event_broadcaster
             .send(self.state_event(&name, new_state, caused_by, details));
@@ -247,6 +427,16 @@ impl MinecraftInstance {
         command: &mut Command,
         config: &RestoreConfig,
     ) -> Result<(), Error> {
+        if let Flavour::NeoForge { build_version } = &config.flavour {
+            let NeoForgeBuildVersion(build_version) = build_version
+                .as_ref()
+                .ok_or_else(|| eyre!("NeoForge version not found"))?;
+            command.arg(installer_args_file(
+                &self.path_to_instance,
+                &["net", "neoforged", "neoforge", build_version.as_str()],
+            ));
+            return Ok(());
+        }
         let Flavour::Forge { build_version } = &config.flavour else {
             command
                 .arg("-jar")
@@ -256,54 +446,24 @@ impl MinecraftInstance {
         let ForgeBuildVersion(build_version) = build_version
             .as_ref()
             .ok_or_else(|| eyre!("Forge version not found"))?;
-        let major_version: i32 = config
-            .version
-            .split('.')
-            .nth(1)
-            .and_then(|v| v.split(['-', '_']).next())
-            .and_then(|v| v.parse().ok())
-            .ok_or_else(|| {
-                eyre!(
-                    "Unable to parse major Minecraft version for Forge from {}",
-                    config.version
-                )
-            })?;
-
-        if 17 <= major_version {
-            let forge_args = match std::env::consts::OS {
-                "windows" => "win_args.txt",
-                _ => "unix_args.txt",
-            };
-            let mut full_forge_args = std::ffi::OsString::from("@");
-            full_forge_args.push(
-                self.path_to_instance
-                    .join("libraries")
-                    .join("net")
-                    .join("minecraftforge")
-                    .join("forge")
-                    .join(build_version.as_str())
-                    .join(forge_args)
-                    .into_os_string()
-                    .as_os_str(),
-            );
-            command.arg(full_forge_args);
-        } else {
-            // 1.7 to 1.16 name the jar forge-<version>-...; 1.5 and 1.6 use minecraftforge
-            // (1.4 doesn't work since forge doesn't provide an installer)
-            let prefix = if (7..=16).contains(&major_version) {
-                format!("forge-{}-", config.version)
-            } else {
-                "minecraftforge".to_string()
-            };
-            let jar = find_jar(&self.path_to_instance, &prefix).await?;
-            command.arg("-jar").arg(jar);
+        match forge_launch(&config.version)? {
+            ForgeLaunch::ArgsFile => {
+                command.arg(installer_args_file(
+                    &self.path_to_instance,
+                    &["net", "minecraftforge", "forge", build_version.as_str()],
+                ));
+            }
+            ForgeLaunch::Jar { prefix } => {
+                let jar = find_jar(&self.path_to_instance, &prefix).await?;
+                command.arg("-jar").arg(jar);
+            }
         }
         Ok(())
     }
 
-    /// Everything start() does after moving to Starting. On error the caller rolls the
-    /// state back.
-    async fn launch(&self, name: &str, caused_by: &CausedBy) -> Result<(), Error> {
+    /// Everything start() does after moving to Starting, as the start with `generation`
+    /// (see [`Self::begin_start`]). On error the caller rolls the state back.
+    async fn launch(&self, name: &str, caused_by: &CausedBy, generation: u64) -> Result<(), Error> {
         let doc = self.load_properties().await?;
         let settings = LaunchSettings::from_properties(&doc)?;
         self.sync_port_from(&doc).await;
@@ -315,8 +475,9 @@ impl MinecraftInstance {
         }
 
         // The instance may have been stopped or killed (e.g. on shutdown) while it was
-        // getting ready; launching the server now would leave an untracked process behind.
-        if self.state().await != State::Starting {
+        // getting ready, and maybe started again; launching the server now would leave an
+        // untracked process behind.
+        if !self.still_starting(generation).await {
             warn!(
                 "[{}] Instance is no longer starting, not launching the server",
                 name
@@ -325,6 +486,9 @@ impl MinecraftInstance {
         }
 
         let config = self.config.lock().await.clone();
+        // Again, with the command line that is about to run: code execution may have been
+        // turned off since start() checked.
+        self.check_command_line(&config)?;
         let jre = config
             .java_cmd
             .as_ref()
@@ -343,12 +507,17 @@ impl MinecraftInstance {
             .stdin(Stdio::piped())
             .stderr(Stdio::piped());
 
-        // Spawn under the process lock and only while still Starting, so that a stop or
-        // kill that ran meanwhile is not lost.
+        // Spawn under the process lock and only while this start is still the one
+        // Starting, so that a stop or kill that ran meanwhile is not lost, and a start
+        // after it doesn't spawn a second process.
         let (stdout, stderr) = {
             let mut process = self.process.lock().await;
-            if self.state().await != State::Starting {
+            if !self.still_starting(generation).await {
                 return Err(eyre!("Server was stopped before its process started").into());
+            }
+            // never drop a process that runs: it would run on, out of Lodestone's reach
+            if process.is_some() {
+                return Err(eyre!("The server's process is still running").into());
             }
             let mut child = command
                 .spawn()
@@ -593,10 +762,25 @@ impl MinecraftInstance {
         }
         // Only restart servers that started successfully, so a broken setup doesn't loop.
         if did_start && self.config.lock().await.restart_on_crash {
+            if crate::shutdown::has_begun() {
+                info!(
+                    "[{}] Not restarting the server: Lodestone Core is shutting down",
+                    name
+                );
+                return;
+            }
             info!("[{}] Restarting the server because it crashed", name);
             tokio::time::sleep(Duration::from_secs(5)).await;
+            // start() refuses too, but this needs no error in the log
+            if crate::shutdown::has_begun() {
+                return;
+            }
             if self.state().await == State::Stopped {
-                if let Err(e) = self.start(CausedBy::System, false).await {
+                // a backup that began meanwhile holds off starts; wait for it a while
+                if let Err(e) = self
+                    .start_waiting(CausedBy::System, false, CRASH_RESTART_LOCK_WAIT)
+                    .await
+                {
                     error!(
                         "[{}] Failed to restart the server after a crash: {}",
                         name, e
@@ -607,40 +791,96 @@ impl MinecraftInstance {
     }
 }
 
+impl MinecraftInstance {
+    /// Whether the server's command line runs code that only runs while code execution is
+    /// on (see [`custom_command_line`]).
+    pub async fn has_custom_command_line(&self) -> bool {
+        custom_command_line(&*self.config.lock().await, &self.path_to_runtimes).is_some()
+    }
+
+    /// Refuses a command line with code Lodestone did not choose while code execution is
+    /// off, as the code execution setting promises.
+    fn check_command_line(&self, config: &RestoreConfig) -> Result<(), Error> {
+        if self.code_execution.is_enabled() {
+            return Ok(());
+        }
+        match custom_command_line(config, &self.path_to_runtimes) {
+            Some(what) => Err(custom_command_line_refused(what)),
+            None => Ok(()),
+        }
+    }
+
+    /// [`TServer::start`], waiting up to `lock_wait` for a change, backup or restore that
+    /// holds off starts (`lock_stopped`) to end; with a zero wait, failing at once.
+    ///
+    /// Boxed, as `start` is: the crash restart in `watch_output`, which `launch` spawns,
+    /// calls it, and the cycle needs a named `Send` future.
+    fn start_waiting(
+        &self,
+        cause_by: CausedBy,
+        block: bool,
+        lock_wait: Duration,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), Error>> + Send + '_>> {
+        Box::pin(async move {
+            // the shutdown stops only the servers it finds running
+            crate::shutdown::refuse_start()?;
+            // Every start (from a user, auto start at boot, a restart or the restart after a
+            // crash) comes through here.
+            self.check_command_line(&*self.config.lock().await)?;
+            // Minecraft only runs once the user agreed to its EULA; never accept it here.
+            super::eula::require_eula_accepted(&self.path_to_instance).await?;
+            // Changing the version or modpack, or backing up or restoring the server, holds
+            // this (see `lock_stopped`), so don't start meanwhile.
+            let busy = || Error {
+                kind: ErrorKind::BadRequest,
+                source: eyre!(
+                    "Cannot start the server while it is being changed, backed up or restored"
+                ),
+            };
+            let version_guard = if lock_wait.is_zero() {
+                self.version_change_lock.try_lock().map_err(|_| busy())?
+            } else {
+                let guard = tokio::time::timeout(lock_wait, self.version_change_lock.lock())
+                    .await
+                    .map_err(|_| busy())?;
+                // the core began shutting down while this waited (the backup holding the
+                // lock was cancelled): starting now would leave a server behind
+                crate::shutdown::refuse_start()?;
+                guard
+            };
+            // Subscribe first, so a server that exits right away can't be missed.
+            let rx = block.then(|| self.event_broadcaster.subscribe());
+            let generation = self.begin_start(&cause_by).await?;
+            drop(version_guard);
+            // Again, now that the state says Starting: the shutdown, once begun, either sees
+            // this server starting (and kills it), or began first and is refused here.
+            if let Err(e) = crate::shutdown::refuse_start() {
+                self.roll_back_start(generation, &cause_by, "Lodestone Core is shutting down")
+                    .await;
+                return Err(e);
+            }
+            self.stop_requested.store(false, Ordering::SeqCst);
+
+            let name = self.name().await;
+            if let Err(e) = self.launch(&name, &cause_by, generation).await {
+                error!("[{}] Failed to start server: {}", name, e);
+                self.roll_back_start(generation, &cause_by, "Failed to start server")
+                    .await;
+                return Err(e);
+            }
+
+            match rx {
+                Some(rx) => self.wait_for_state(rx, State::Running).await,
+                None => Ok(()),
+            }
+        })
+    }
+}
+
 #[async_trait::async_trait]
 impl TServer for MinecraftInstance {
     async fn start(&self, cause_by: CausedBy, block: bool) -> Result<(), Error> {
-        // Minecraft only runs once the user agreed to its EULA; never accept it here.
-        super::eula::require_eula_accepted(&self.path_to_instance).await?;
-        // Changing the version replaces server.jar, so don't start while it runs.
-        let version_guard = self.version_change_lock.try_lock().map_err(|_| Error {
-            kind: ErrorKind::BadRequest,
-            source: eyre!("Cannot start the server while its version is being changed"),
-        })?;
-        // Subscribe first, so a server that exits right away can't be missed.
-        let rx = block.then(|| self.event_broadcaster.subscribe());
-        self.transition(StateAction::UserStart, &cause_by, "Starting server")
-            .await?;
-        drop(version_guard);
-        self.stop_requested.store(false, Ordering::SeqCst);
-
-        let name = self.name().await;
-        if let Err(e) = self.launch(&name, &cause_by).await {
-            error!("[{}] Failed to start server: {}", name, e);
-            self.set_state_if(
-                &[State::Starting],
-                State::Stopped,
-                &cause_by,
-                "Failed to start server",
-            )
-            .await;
-            return Err(e);
-        }
-
-        match rx {
-            Some(rx) => self.wait_for_state(rx, State::Running).await,
-            None => Ok(()),
-        }
+        self.start_waiting(cause_by, block, Duration::ZERO).await
     }
 
     async fn stop(&self, cause_by: CausedBy, block: bool) -> Result<(), Error> {
@@ -810,8 +1050,9 @@ impl TServer for MinecraftInstance {
     }
 
     async fn monitor(&self) -> MonitorReport {
+        // Only the process is refreshed: the report has none of the system's memory
+        // figures, which would cost a read of the system's memory counters every second.
         let mut sys = self.system.lock().await;
-        sys.refresh_memory();
         if let Some(pid) = self.process.lock().await.as_ref().and_then(|p| p.id()) {
             // Same data the old `refresh_process` refreshed; dead processes are not removed.
             sys.refresh_processes_specifics(
@@ -842,6 +1083,95 @@ impl TServer for MinecraftInstance {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::event_broadcaster::EventBroadcaster;
+    use crate::global_settings::CodeExecutionSwitch;
+    use crate::traits::t_configurable::GameType;
+    use crate::types::{DotLodestoneConfig, InstanceUuid};
+
+    /// A vanilla instance restored from files in a temporary folder, never started: its
+    /// Java is a path that doesn't exist, and code execution is off.
+    async fn instance() -> (tempfile::TempDir, MinecraftInstance) {
+        static LODESTONE_DIR: std::sync::OnceLock<tempfile::TempDir> = std::sync::OnceLock::new();
+        let lodestone = LODESTONE_DIR.get_or_init(|| tempfile::tempdir().unwrap());
+        crate::prelude::try_init_paths(lodestone.path().to_owned()).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("instance");
+        std::fs::create_dir_all(&root).unwrap();
+        let port = std::net::TcpListener::bind(("127.0.0.1", 0))
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        let java = root.join("no-java-here");
+        std::fs::write(
+            root.join(".lodestone_minecraft_config.json"),
+            serde_json::json!({
+                "name": "Survival", "version": "1.21.1", "flavour": "vanilla",
+                "description": "", "cmd_args": [], "java_cmd": java,
+                "port": port, "min_ram": 1024, "max_ram": 2048, "auto_start": false,
+                "restart_on_crash": false, "backup_period": null, "jre_major_version": 21,
+                "has_started": false
+            })
+            .to_string(),
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("server.properties"),
+            format!("server-ip=127.0.0.1\nserver-port={port}\n"),
+        )
+        .unwrap();
+        let (broadcaster, _) = EventBroadcaster::new(64);
+        let instance = MinecraftInstance::restore(
+            root,
+            DotLodestoneConfig::new(InstanceUuid::default(), GameType::MinecraftJava),
+            broadcaster,
+            CodeExecutionSwitch::new(false),
+        )
+        .await
+        .unwrap();
+        (dir, instance)
+    }
+
+    /// LS-128: a start that was stopped before its process spawned never spawns one, even
+    /// once another start is Starting; and it leaves that start's state alone.
+    #[tokio::test]
+    async fn a_stopped_start_never_launches_after_a_newer_start() {
+        let (_dir, instance) = instance().await;
+        let cause = CausedBy::System;
+        let first = instance.begin_start(&cause).await.unwrap();
+        assert!(instance.still_starting(first).await);
+        // stopped while still getting ready: nothing runs yet
+        instance.stop(cause.clone(), false).await.unwrap();
+        assert_eq!(instance.state().await, State::Stopped);
+        assert!(!instance.still_starting(first).await);
+
+        let second = instance.begin_start(&cause).await.unwrap();
+        assert_eq!(instance.state().await, State::Starting);
+        assert!(!instance.still_starting(first).await);
+        assert!(instance.still_starting(second).await);
+        // the first start's launch gives up before it gets to the process
+        let error = instance.launch("test", &cause, first).await.unwrap_err();
+        assert!(
+            error.source.to_string().contains("stopped"),
+            "{}",
+            error.source
+        );
+        assert!(instance.process.lock().await.is_none());
+        // and its roll back leaves the newer start Starting
+        instance
+            .roll_back_start(first, &cause, "Failed to start server")
+            .await;
+        assert_eq!(instance.state().await, State::Starting);
+
+        // a kill before the newer start spawns stops it as surely
+        assert!(instance.kill(cause.clone()).await.is_err());
+        assert_eq!(instance.state().await, State::Stopped);
+        assert!(!instance.still_starting(second).await);
+        instance
+            .roll_back_start(second, &cause, "Failed to start server")
+            .await;
+        assert_eq!(instance.state().await, State::Stopped);
+    }
 
     fn settings(text: &str) -> Result<LaunchSettings, Error> {
         LaunchSettings::from_properties(&PropertiesDocument::parse(text).0)
@@ -865,5 +1195,97 @@ mod tests {
 
         assert!(settings("server-port=70000\n").is_err());
         assert!(settings("server-port=abc\n").is_err());
+    }
+
+    fn config(java_cmd: Option<&str>, cmd_args: &[&str]) -> RestoreConfig {
+        RestoreConfig {
+            name: "server".to_string(),
+            version: "1.20.1".to_string(),
+            flavour: Flavour::Vanilla,
+            description: String::new(),
+            cmd_args: cmd_args.iter().map(|a| a.to_string()).collect(),
+            java_cmd: java_cmd.map(str::to_string),
+            port: 25565,
+            min_ram: 1024,
+            max_ram: 2048,
+            auto_start: false,
+            restart_on_crash: false,
+            backup_period: None,
+            jre_major_version: 17,
+            has_started: false,
+            modpack: None,
+        }
+    }
+
+    #[test]
+    fn custom_command_lines() {
+        let runtimes = Path::new("/data/.lodestone/bin");
+        let managed = java_binary(runtimes, 17);
+        let managed = managed.to_str().unwrap();
+        let other_managed = java_binary(runtimes, 21);
+        let other_managed = other_managed.to_str().unwrap();
+        let custom =
+            |java_cmd, args: &[&str]| custom_command_line(&config(java_cmd, args), runtimes);
+
+        // Lodestone's own Java, of any version, with no extra arguments
+        assert_eq!(custom(None, &[]), None);
+        assert_eq!(custom(Some(managed), &[]), None);
+        assert_eq!(custom(Some(other_managed), &[""]), None);
+        let managed_exe = format!("{managed}.exe");
+        assert_eq!(
+            custom(Some(&managed_exe), &[]),
+            None,
+            "the same file on Windows"
+        );
+
+        assert_eq!(custom(Some("java"), &[]), Some("a custom Java command"));
+        assert_eq!(
+            custom(Some("/usr/bin/java"), &[]),
+            Some("a custom Java command")
+        );
+        // something else in the runtimes folder, or a way out of it
+        for cmd in [
+            "/data/.lodestone/bin/java/jre17/run.sh",
+            "/data/.lodestone/bin/java/jrex/bin/java",
+            "/data/.lodestone/bin/java/jre17/../../../evil/Contents/Home/bin/java",
+        ] {
+            assert_eq!(
+                custom(Some(cmd), &[]),
+                Some("a custom Java command"),
+                "{cmd}"
+            );
+        }
+        assert_eq!(
+            custom(Some(managed), &["-javaagent:/x/agent.jar"]),
+            Some("custom Java arguments")
+        );
+        assert_eq!(
+            custom(Some("/x/script"), &["-Dx=y"]),
+            Some("a custom Java command and Java arguments")
+        );
+    }
+
+    #[test]
+    fn forge_launch_by_version() {
+        let jar = |prefix: &str| ForgeLaunch::Jar {
+            prefix: prefix.to_string(),
+        };
+        assert_eq!(forge_launch("1.20.1").unwrap(), ForgeLaunch::ArgsFile);
+        assert_eq!(forge_launch("1.17").unwrap(), ForgeLaunch::ArgsFile);
+        assert_eq!(forge_launch("1.21.11").unwrap(), ForgeLaunch::ArgsFile);
+        // year-based versions are modern, whatever their second number
+        assert_eq!(forge_launch("26.1").unwrap(), ForgeLaunch::ArgsFile);
+        assert_eq!(forge_launch("26.1.2").unwrap(), ForgeLaunch::ArgsFile);
+        assert_eq!(forge_launch("26.3").unwrap(), ForgeLaunch::ArgsFile);
+        assert_eq!(forge_launch("1.16.5").unwrap(), jar("forge-1.16.5-"));
+        assert_eq!(forge_launch("1.12.2").unwrap(), jar("forge-1.12.2-"));
+        assert_eq!(
+            forge_launch("1.7.10_pre4").unwrap(),
+            jar("forge-1.7.10_pre4-")
+        );
+        assert_eq!(forge_launch("1.6.4").unwrap(), jar("minecraftforge"));
+        assert!(forge_launch("").is_err());
+        assert!(forge_launch("1").is_err());
+        assert!(forge_launch("abc").is_err());
     }
 }

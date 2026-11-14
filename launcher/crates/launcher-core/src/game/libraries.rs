@@ -8,6 +8,18 @@
 //!   into the natives directory.
 //! - **new** (1.19 and later): ordinary libraries named `...:natives-macos-arm64`
 //!   with `os` rules. They go on the classpath, and LWJGL extracts them itself.
+//!
+//! On Apple silicon, versions from 1.13 to 1.18 list LWJGL 3.1 or 3.2, which Mojang
+//! only built for Intel Macs. From 1.14 they run natively all the same: their LWJGL is
+//! swapped for the arm64 LWJGL 3.3.1 that Mojang's own 1.19 and later versions use
+//! ([`LWJGL_3_3_1`]), and the installer hides the window icons from them, which that
+//! GLFW refuses (see `Installer::hide_window_icons`). Versions before 1.13 use LWJGL 2,
+//! which has no arm64 build from Mojang, and 1.13 to 1.13.2 have a narrator that can't
+//! load natively and takes the game down with it ([`crashing_narrator`]); those run in
+//! an Intel Java under Rosetta 2 instead (see [`java_arch`]), which the launcher tells
+//! the player. Under Rosetta, 1.13 (and any LWJGL 3.1 or 3.2 version in an Intel
+//! Java) gets the Intel build of the same LWJGL 3.3.1: the old GLFW can't open a window
+//! on Apple silicon at all ([`swap_lwjgl`]).
 
 use std::path::{Component, Path, PathBuf};
 
@@ -61,6 +73,9 @@ pub struct Selection {
     /// In classpath order, without duplicates. The client jar is not included.
     pub classpath: Vec<LibraryFile>,
     pub natives: Vec<NativeJar>,
+    /// Whether the version's LWJGL was swapped for Mojang's LWJGL 3.3.1 on Apple
+    /// silicon ([`swap_lwjgl`]), whose GLFW won't let it set a window icon.
+    pub swapped_lwjgl: bool,
 }
 
 impl Selection {
@@ -84,6 +99,19 @@ pub enum LibraryError {
 pub fn select(
     version: &VersionJson,
     platform: &Platform,
+    features: &Features,
+) -> Result<Selection, LibraryError> {
+    select_on(version, platform, platform.arch, features)
+}
+
+/// [`select`] for a Java built for `platform` on a machine whose processor is
+/// `machine`: on Apple silicon (an arm64 Mac) the Intel Java of a version that runs
+/// under Rosetta 2 gets Mojang's Intel LWJGL 3.3.1 in place of LWJGL 3.1 or 3.2, as an
+/// arm64 Java gets its arm64 build ([`swap_lwjgl`]).
+pub fn select_on(
+    version: &VersionJson,
+    platform: &Platform,
+    machine: Arch,
     features: &Features,
 ) -> Result<Selection, LibraryError> {
     let mut selection = Selection::default();
@@ -124,8 +152,322 @@ pub fn select(
     }
     if platform.os == Os::MacOs {
         newer_macos_lwjgl(&mut selection)?;
+        if machine == Arch::Arm64 {
+            swap_lwjgl(&mut selection, platform.arch)?;
+        }
     }
     Ok(selection)
+}
+
+/// A jar from Mojang's libraries host, with the path, SHA-1 and size its version
+/// files give it.
+struct MojangJar {
+    name: &'static str,
+    path: &'static str,
+    sha1: &'static str,
+    size: u64,
+}
+
+impl MojangJar {
+    fn file(&self) -> Result<LibraryFile, LibraryError> {
+        Ok(LibraryFile {
+            name: self.name.to_string(),
+            path: safe_relative_path(self.path)?,
+            remote: Some(Remote {
+                url: format!("https://libraries.minecraft.net/{}", self.path),
+                sha1: self.sha1.to_string(),
+                size: Some(self.size),
+            }),
+            sha1: None,
+        })
+    }
+}
+
+/// One LWJGL module of [`LWJGL_3_3_1`]: its name, its jar, and its `natives-macos-arm64`
+/// and `natives-macos` (Intel) jars.
+type Lwjgl331Module = (&'static str, MojangJar, MojangJar, MojangJar);
+
+/// Mojang's LWJGL 3.3.1, the first LWJGL it built for Apple silicon: for each module,
+/// its jar, its `natives-macos-arm64` jar and its `natives-macos` (Intel) jar. Copied
+/// from Minecraft 1.20.1's version file on piston-meta.mojang.com
+/// (`testdata/versions/1.20.1.json`, which a test checks this against); 1.19 to 1.20.2
+/// list the same files. These are the only LWJGL modules any Minecraft version uses.
+const LWJGL_3_3_1: [Lwjgl331Module; 7] = [
+    (
+        "lwjgl",
+        MojangJar {
+            name: "org.lwjgl:lwjgl:3.3.1",
+            path: "org/lwjgl/lwjgl/3.3.1/lwjgl-3.3.1.jar",
+            sha1: "ae58664f88e18a9bb2c77b063833ca7aaec484cb",
+            size: 724_243,
+        },
+        MojangJar {
+            name: "org.lwjgl:lwjgl:3.3.1:natives-macos-arm64",
+            path: "org/lwjgl/lwjgl/3.3.1/lwjgl-3.3.1-natives-macos-arm64.jar",
+            sha1: "71d0d5e469c9c95351eb949064497e3391616ac9",
+            size: 42_693,
+        },
+        MojangJar {
+            name: "org.lwjgl:lwjgl:3.3.1:natives-macos",
+            path: "org/lwjgl/lwjgl/3.3.1/lwjgl-3.3.1-natives-macos.jar",
+            sha1: "fc6bb723dec2cd031557dccb2a95f0ab80acb9db",
+            size: 55_706,
+        },
+    ),
+    (
+        "lwjgl-glfw",
+        MojangJar {
+            name: "org.lwjgl:lwjgl-glfw:3.3.1",
+            path: "org/lwjgl/lwjgl-glfw/3.3.1/lwjgl-glfw-3.3.1.jar",
+            sha1: "cbac1b8d30cb4795149c1ef540f912671a8616d0",
+            size: 128_801,
+        },
+        MojangJar {
+            name: "org.lwjgl:lwjgl-glfw:3.3.1:natives-macos-arm64",
+            path: "org/lwjgl/lwjgl-glfw/3.3.1/lwjgl-glfw-3.3.1-natives-macos-arm64.jar",
+            sha1: "cac0d3f712a3da7641fa174735a5f315de7ffe0a",
+            size: 129_077,
+        },
+        MojangJar {
+            name: "org.lwjgl:lwjgl-glfw:3.3.1:natives-macos",
+            path: "org/lwjgl/lwjgl-glfw/3.3.1/lwjgl-glfw-3.3.1-natives-macos.jar",
+            sha1: "9ec4ce1fc8c85fdef03ef4ff2aace6f5775fb280",
+            size: 131_655,
+        },
+    ),
+    (
+        "lwjgl-jemalloc",
+        MojangJar {
+            name: "org.lwjgl:lwjgl-jemalloc:3.3.1",
+            path: "org/lwjgl/lwjgl-jemalloc/3.3.1/lwjgl-jemalloc-3.3.1.jar",
+            sha1: "a817bcf213db49f710603677457567c37d53e103",
+            size: 36_601,
+        },
+        MojangJar {
+            name: "org.lwjgl:lwjgl-jemalloc:3.3.1:natives-macos-arm64",
+            path: "org/lwjgl/lwjgl-jemalloc/3.3.1/lwjgl-jemalloc-3.3.1-natives-macos-arm64.jar",
+            sha1: "e577b87d8ad2ade361aaea2fcf226c660b15dee8",
+            size: 103_475,
+        },
+        MojangJar {
+            name: "org.lwjgl:lwjgl-jemalloc:3.3.1:natives-macos",
+            path: "org/lwjgl/lwjgl-jemalloc/3.3.1/lwjgl-jemalloc-3.3.1-natives-macos.jar",
+            sha1: "56424dc8db3cfb8e7b594aa6d59a4f4387b7f544",
+            size: 117_480,
+        },
+    ),
+    (
+        "lwjgl-openal",
+        MojangJar {
+            name: "org.lwjgl:lwjgl-openal:3.3.1",
+            path: "org/lwjgl/lwjgl-openal/3.3.1/lwjgl-openal-3.3.1.jar",
+            sha1: "2623a6b8ae1dfcd880738656a9f0243d2e6840bd",
+            size: 88_237,
+        },
+        MojangJar {
+            name: "org.lwjgl:lwjgl-openal:3.3.1:natives-macos-arm64",
+            path: "org/lwjgl/lwjgl-openal/3.3.1/lwjgl-openal-3.3.1-natives-macos-arm64.jar",
+            sha1: "23d55e7490b57495320f6c9e1936d78fd72c4ef8",
+            size: 346_125,
+        },
+        MojangJar {
+            name: "org.lwjgl:lwjgl-openal:3.3.1:natives-macos",
+            path: "org/lwjgl/lwjgl-openal/3.3.1/lwjgl-openal-3.3.1-natives-macos.jar",
+            sha1: "3a57b8911835fb58b5e558d0ca0d28157e263d45",
+            size: 397_196,
+        },
+    ),
+    (
+        "lwjgl-opengl",
+        MojangJar {
+            name: "org.lwjgl:lwjgl-opengl:3.3.1",
+            path: "org/lwjgl/lwjgl-opengl/3.3.1/lwjgl-opengl-3.3.1.jar",
+            sha1: "831a5533a21a5f4f81bbc51bb13e9899319b5411",
+            size: 921_563,
+        },
+        MojangJar {
+            name: "org.lwjgl:lwjgl-opengl:3.3.1:natives-macos-arm64",
+            path: "org/lwjgl/lwjgl-opengl/3.3.1/lwjgl-opengl-3.3.1-natives-macos-arm64.jar",
+            sha1: "eafe34b871d966292e8db0f1f3d6b8b110d4e91d",
+            size: 41_665,
+        },
+        MojangJar {
+            name: "org.lwjgl:lwjgl-opengl:3.3.1:natives-macos",
+            path: "org/lwjgl/lwjgl-opengl/3.3.1/lwjgl-opengl-3.3.1-natives-macos.jar",
+            sha1: "a0d12697ea019a7362eff26475b0531340e876a6",
+            size: 40_709,
+        },
+    ),
+    (
+        "lwjgl-stb",
+        MojangJar {
+            name: "org.lwjgl:lwjgl-stb:3.3.1",
+            path: "org/lwjgl/lwjgl-stb/3.3.1/lwjgl-stb-3.3.1.jar",
+            sha1: "b119297cf8ed01f247abe8685857f8e7fcf5980f",
+            size: 112_380,
+        },
+        MojangJar {
+            name: "org.lwjgl:lwjgl-stb:3.3.1:natives-macos-arm64",
+            path: "org/lwjgl/lwjgl-stb/3.3.1/lwjgl-stb-3.3.1-natives-macos-arm64.jar",
+            sha1: "fcf073ed911752abdca5f0b00a53cfdf17ff8e8b",
+            size: 178_408,
+        },
+        MojangJar {
+            name: "org.lwjgl:lwjgl-stb:3.3.1:natives-macos",
+            path: "org/lwjgl/lwjgl-stb/3.3.1/lwjgl-stb-3.3.1-natives-macos.jar",
+            sha1: "def8879b8d38a47a4cc1d48b1f9a7b772e51258e",
+            size: 203_582,
+        },
+    ),
+    (
+        "lwjgl-tinyfd",
+        MojangJar {
+            name: "org.lwjgl:lwjgl-tinyfd:3.3.1",
+            path: "org/lwjgl/lwjgl-tinyfd/3.3.1/lwjgl-tinyfd-3.3.1.jar",
+            sha1: "0ff1914111ef2e3e0110ef2dabc8d8cdaad82347",
+            size: 6_767,
+        },
+        MojangJar {
+            name: "org.lwjgl:lwjgl-tinyfd:3.3.1:natives-macos-arm64",
+            path: "org/lwjgl/lwjgl-tinyfd/3.3.1/lwjgl-tinyfd-3.3.1-natives-macos-arm64.jar",
+            sha1: "972ecc17bad3571e81162153077b4d47b7b9eaa9",
+            size: 41_380,
+        },
+        MojangJar {
+            name: "org.lwjgl:lwjgl-tinyfd:3.3.1:natives-macos",
+            path: "org/lwjgl/lwjgl-tinyfd/3.3.1/lwjgl-tinyfd-3.3.1-natives-macos.jar",
+            sha1: "78641a0fa5e9afa714adfdd152c357930c97a1ce",
+            size: 44_821,
+        },
+    ),
+];
+
+/// Mojang's java-objc-bridge 1.1, whose `libjcocoa.dylib` is built for both Intel and
+/// Apple silicon, from the same 1.20.1 version file. 1.13 to 1.18 list 1.0.0, whose
+/// library is Intel only; the narrator uses it. 1.1 is built for Java 11, so on the
+/// Java 8 of 1.14 to 1.16 the narrator stays off (as it would with 1.0.0, and with
+/// their JNA 4.4.0, which is Intel only too; their narrator library logs the error and
+/// goes on); on 1.17 and 1.18 it works.
+const UNIVERSAL_OBJC_BRIDGE: MojangJar = MojangJar {
+    name: "ca.weblite:java-objc-bridge:1.1",
+    path: "ca/weblite/java-objc-bridge/1.1/java-objc-bridge-1.1.jar",
+    sha1: "1227f9e0666314f9de41477e3ec277e542ed7f7b",
+    size: 1_330_045,
+};
+
+/// The module of an LWJGL 3 library from before 3.3 (`org.lwjgl:lwjgl-glfw:3.2.1`,
+/// with or without a classifier), which has no arm64 macOS natives.
+fn intel_only_lwjgl3(name: &str) -> Option<&str> {
+    let mut parts = name.split(':');
+    let (Some("org.lwjgl"), Some(module), Some(version)) =
+        (parts.next(), parts.next(), parts.next())
+    else {
+        return None;
+    };
+    let mut numbers = version
+        .split(['.', '-'])
+        .map(|part| part.parse::<u32>().ok());
+    match (numbers.next(), numbers.next()) {
+        (Some(Some(3)), Some(Some(minor))) if minor < 3 => Some(module),
+        _ => None,
+    }
+}
+
+fn lwjgl_3_3_1_module(module: &str) -> Option<&'static Lwjgl331Module> {
+    LWJGL_3_3_1.iter().find(|(known, ..)| *known == module)
+}
+
+/// Whether `name` is Mojang's text2speech before 1.11 (`com.mojang:text2speech:1.10.3`,
+/// Minecraft 1.13 to 1.13.2). The game makes its narrator while it starts, and with
+/// this text2speech any failure there crashes the game: nothing catches it. On macOS
+/// the narrator needs the objc bridge and JNA, and on an arm64 Java 8 neither loads
+/// (Mojang's objc bridge 1.1 is built for Java 11, and its 1.0.0 and JNA 4.4.0 are
+/// Intel only), so those versions can't run natively. text2speech 1.11 (1.14 on) logs
+/// the error and carries on without a narrator, but it can't stand in for 1.10.3: it
+/// replaced `Narrator.say(String)` with `say(String, boolean)`, and 1.13.x calls the
+/// old one whenever the narrator mode changes (Ctrl+B), even with no narrator, which
+/// would stop the game with a `NoSuchMethodError` (checked in 1.13.2's client jar).
+fn crashing_narrator(name: &str) -> bool {
+    let Some(version) = name.strip_prefix("com.mojang:text2speech:") else {
+        return false;
+    };
+    let mut numbers = version
+        .split(['.', '-', ':'])
+        .map(|part| part.parse::<u32>().ok());
+    match (numbers.next(), numbers.next()) {
+        (Some(Some(major)), Some(Some(minor))) => (major, minor) < (1, 11),
+        // An unreadable version: assume the worst.
+        _ => true,
+    }
+}
+
+/// Whether every LWJGL library among `names` is LWJGL 3 before 3.3 in a module Mojang
+/// built 3.3.1 for, and there is at least one: the libraries [`swap_lwjgl`] swaps.
+/// For an arm64 Java (`java`), never with a narrator that would crash the game
+/// natively ([`crashing_narrator`]); in an Intel Java under Rosetta that narrator works.
+fn swappable_lwjgl<'a>(names: impl IntoIterator<Item = &'a str>, java: Arch) -> bool {
+    let mut any = false;
+    for name in names {
+        if java == Arch::Arm64 && crashing_narrator(name) {
+            return false;
+        }
+        if let Some(module) = intel_only_lwjgl3(name) {
+            if lwjgl_3_3_1_module(module).is_none() {
+                return false;
+            }
+            any = true;
+        }
+    }
+    any
+}
+
+/// On Apple silicon, swaps LWJGL 3.1 and 3.2 (1.13 to 1.18, and loaders built on
+/// them) for Mojang's LWJGL 3.3.1, built for the Java's processor (`java`): each jar for
+/// 3.3.1's, followed by its `natives-macos-arm64` jar for an arm64 Java, or its
+/// `natives-macos` jar for an Intel one under Rosetta 2. LWJGL loads them from the
+/// classpath, as in 1.19 and later; the old natives are no longer extracted.
+///
+/// Native or not, the GLFW of LWJGL 3.1 and 3.2 can't open a window on Apple silicon
+/// ("Cocoa: Failed to find service port for display"), which these versions take as
+/// fatal: under Rosetta the Intel 3.3.1 is what lets them start. For an arm64 Java,
+/// java-objc-bridge 1.0.0 (Intel only) also becomes Mojang's universal 1.1; an Intel
+/// Java keeps 1.0.0, which runs on Java 8.
+///
+/// It runs on the final list, after a loader's profile is merged in, so a loader
+/// that lists LWJGL itself is swapped too. When the list has an LWJGL module Mojang
+/// made no 3.3.1 of, or for an arm64 Java a narrator that can't load natively
+/// ([`crashing_narrator`]), nothing is swapped: [`java_arch`] then picks an Intel Java.
+fn swap_lwjgl(selection: &mut Selection, java: Arch) -> Result<(), LibraryError> {
+    let objc_bridge_1_0 =
+        |name: &str| java == Arch::Arm64 && name.starts_with("ca.weblite:java-objc-bridge:1.0");
+    let lwjgl = swappable_lwjgl(selection.files().map(|file| file.name.as_str()), java);
+    let swapped =
+        |name: &str| (lwjgl && intel_only_lwjgl3(name).is_some()) || objc_bridge_1_0(name);
+    selection
+        .natives
+        .retain(|native| !swapped(&native.file.name));
+    let mut classpath: Vec<LibraryFile> = Vec::with_capacity(selection.classpath.len() + 8);
+    let mut push = |file: LibraryFile| {
+        if !classpath.iter().any(|f| f.path == file.path) {
+            classpath.push(file);
+        }
+    };
+    for file in std::mem::take(&mut selection.classpath) {
+        if objc_bridge_1_0(&file.name) {
+            push(UNIVERSAL_OBJC_BRIDGE.file()?);
+        } else if let Some((_, jar, arm64, intel)) = intel_only_lwjgl3(&file.name)
+            .filter(|_| lwjgl)
+            .and_then(lwjgl_3_3_1_module)
+        {
+            push(jar.file()?);
+            push(if java == Arch::Arm64 { arm64 } else { intel }.file()?);
+        } else {
+            push(file);
+        }
+    }
+    selection.classpath = classpath;
+    selection.swapped_lwjgl = lwjgl;
+    Ok(())
 }
 
 /// The LWJGL 2 build Mojang ships for macOS from 1.8 on, with the hashes and sizes
@@ -284,9 +626,9 @@ pub fn safe_relative_path(path: &str) -> Result<PathBuf, LibraryError> {
     Ok(parsed.to_path_buf())
 }
 
-/// Whether `version` has native libraries for Apple Silicon. Versions before 1.19 only
-/// have x86_64 natives on macOS, so on an arm64 Mac they run in an x86_64 Java under
-/// Rosetta.
+/// Whether `version` has native libraries for Apple silicon in its own file. Versions
+/// before 1.19 only have x86_64 natives on macOS; see [`swaps_to_arm64_lwjgl`] for
+/// how 1.14 to 1.18 run natively all the same.
 pub fn has_arm64_natives(version: &VersionJson, platform: &Platform) -> bool {
     let arm64 = platform.with_arch(Arch::Arm64);
     let features = Features::default();
@@ -303,12 +645,33 @@ pub fn has_arm64_natives(version: &VersionJson, platform: &Platform) -> bool {
     })
 }
 
+/// Whether `version`, on an Apple silicon Mac, uses LWJGL 3 from before 3.3 that
+/// [`select`] swaps for Mojang's arm64 LWJGL 3.3.1: 1.14 to 1.18, and loaders built
+/// on them.
+pub fn swaps_to_arm64_lwjgl(version: &VersionJson, platform: &Platform) -> bool {
+    let arm64 = platform.with_arch(Arch::Arm64);
+    let features = Features::default();
+    swappable_lwjgl(
+        version
+            .libraries
+            .iter()
+            .filter(|library| rules::allows(&library.rules, &arm64, &features))
+            .map(|library| library.name.as_str()),
+        Arch::Arm64,
+    )
+}
+
 /// The architecture of the Java to run `version` with on `platform`: the machine's
-/// own, except on Apple Silicon for versions without arm64 natives.
+/// own, except on Apple silicon for versions that have no arm64 natives and whose
+/// LWJGL can't be swapped for an arm64 one. Those are the versions before 1.13 (LWJGL
+/// 2) and 1.13 to 1.13.2 (whose narrator can't run natively, [`crashing_narrator`]),
+/// which run in an Intel Java under Rosetta 2. The launcher says so; it never picks
+/// Rosetta silently.
 pub fn java_arch(version: &VersionJson, platform: &Platform) -> Arch {
     if platform.os == super::platform::Os::MacOs
         && platform.arch == Arch::Arm64
         && !has_arm64_natives(version, platform)
+        && !swaps_to_arm64_lwjgl(version, platform)
     {
         Arch::X86_64
     } else {
@@ -474,6 +837,8 @@ mod tests {
             assert!(selection.files().all(|f| f.remote.is_some()));
         }
         assert!(!has_arm64_natives(&version, &mac(Arch::Arm64)));
+        // LWJGL 2: no arm64 build from Mojang, so an Intel Java under Rosetta.
+        assert!(!swaps_to_arm64_lwjgl(&version, &mac(Arch::Arm64)));
         assert_eq!(java_arch(&version, &mac(Arch::Arm64)), Arch::X86_64);
         assert_eq!(java_arch(&version, &mac(Arch::X86_64)), Arch::X86_64);
     }
@@ -501,14 +866,22 @@ mod tests {
                 .iter()
                 .any(|p| p.contains("text2speech"))
         );
+        // LWJGL 2: an Intel Java and Intel natives under Rosetta on Apple silicon.
+        assert!(!swaps_to_arm64_lwjgl(&version, &mac(Arch::Arm64)));
         assert_eq!(java_arch(&version, &mac(Arch::Arm64)), Arch::X86_64);
+        assert!(
+            native_paths(&selection)
+                .iter()
+                .any(|p| p.ends_with("lwjgl-platform-2.9.2-nightly-20140822-natives-osx.jar"))
+        );
     }
 
-    /// 1.16.5: LWJGL 3.2.1 for macOS with old-style `natives-macos` (x86_64 only).
+    /// 1.16.5: LWJGL 3.2.1 for macOS with old-style `natives-macos` (x86_64 only). On an
+    /// Intel Mac it is used as listed.
     #[test]
-    fn selects_1_16_5() {
+    fn selects_1_16_5_on_intel() {
         let version = fixture("1.16.5");
-        let selection = select(&version, &mac(Arch::Arm64), &Features::default()).unwrap();
+        let selection = select(&version, &mac(Arch::X86_64), &Features::default()).unwrap();
         let classpath = names(&selection.classpath);
         assert!(classpath.contains(&"org.lwjgl:lwjgl:3.2.1"));
         assert!(!classpath.contains(&"org.lwjgl:lwjgl:3.2.2"));
@@ -520,13 +893,302 @@ mod tests {
                 .count(),
             1
         );
+        assert!(classpath.contains(&"ca.weblite:java-objc-bridge:1.0.0"));
         let natives = native_paths(&selection);
         assert!(
             natives.contains(&"org/lwjgl/lwjgl/3.2.1/lwjgl-3.2.1-natives-macos.jar".to_string())
         );
         assert_eq!(natives.len(), 8, "{natives:#?}");
         assert!(!has_arm64_natives(&version, &mac(Arch::Arm64)));
+        assert_eq!(java_arch(&version, &mac(Arch::X86_64)), Arch::X86_64);
+    }
+
+    /// The LWJGL libraries of a selection, and its natives.
+    fn lwjgl(selection: &Selection) -> (Vec<&str>, Vec<String>) {
+        (
+            names(&selection.classpath)
+                .into_iter()
+                .filter(|name| name.starts_with("org.lwjgl"))
+                .collect(),
+            native_paths(selection),
+        )
+    }
+
+    /// What 1.13 to 1.18 select on Apple silicon: Mojang's arm64 LWJGL 3.3.1 in place of
+    /// their Intel-only LWJGL, each jar with its arm64 natives on the classpath, nothing
+    /// of LWJGL left to extract, and the universal objc bridge.
+    fn assert_swapped(id: &str, selection: &Selection, modules: &[&str]) {
+        let (lwjgl, natives) = lwjgl(selection);
+        let expected: Vec<String> = modules
+            .iter()
+            .flat_map(|module| {
+                [
+                    format!("org.lwjgl:{module}:3.3.1"),
+                    format!("org.lwjgl:{module}:3.3.1:natives-macos-arm64"),
+                ]
+            })
+            .collect();
+        let mut sorted = lwjgl.clone();
+        sorted.sort();
+        let mut expected_sorted: Vec<&str> = expected.iter().map(String::as_str).collect();
+        expected_sorted.sort();
+        assert_eq!(sorted, expected_sorted, "{id}");
+        assert!(
+            natives
+                .iter()
+                .all(|path| !path.contains("lwjgl") && !path.contains("objc")),
+            "{id}: {natives:?}"
+        );
+        let classpath = names(&selection.classpath);
+        assert!(
+            classpath.contains(&"ca.weblite:java-objc-bridge:1.1"),
+            "{id}"
+        );
+        assert!(
+            !classpath.iter().any(|n| n.contains("java-objc-bridge:1.0")),
+            "{id}"
+        );
+        for file in selection.files().filter(|f| f.name.contains(":3.3.1")) {
+            let remote = file.remote.as_ref().unwrap();
+            assert!(
+                remote
+                    .url
+                    .starts_with("https://libraries.minecraft.net/org/lwjgl/"),
+                "{remote:?}"
+            );
+            assert_eq!(remote.sha1.len(), 40);
+            assert!(remote.size.is_some());
+        }
+        // Every path is unique.
+        let mut paths: Vec<_> = selection.classpath.iter().map(|f| &f.path).collect();
+        paths.sort();
+        paths.dedup();
+        assert_eq!(paths.len(), selection.classpath.len(), "{id}");
+    }
+
+    const ALL_MODULES: [&str; 7] = [
+        "lwjgl",
+        "lwjgl-glfw",
+        "lwjgl-jemalloc",
+        "lwjgl-openal",
+        "lwjgl-opengl",
+        "lwjgl-stb",
+        "lwjgl-tinyfd",
+    ];
+
+    /// 1.16.5 runs natively on Apple silicon: arm64 Java and Mojang's arm64 LWJGL 3.3.1.
+    #[test]
+    fn selects_1_16_5_on_apple_silicon() {
+        let version = fixture("1.16.5");
+        assert!(swaps_to_arm64_lwjgl(&version, &mac(Arch::Arm64)));
+        assert_eq!(java_arch(&version, &mac(Arch::Arm64)), Arch::Arm64);
+        let selection = select(&version, &mac(Arch::Arm64), &Features::default()).unwrap();
+        assert_swapped("1.16.5", &selection, &ALL_MODULES);
+        assert!(selection.swapped_lwjgl);
+        // Its 8 Intel natives were LWJGL's 7 and the objc bridge's: nothing is left to
+        // extract.
+        assert!(
+            selection.natives.is_empty(),
+            "{:?}",
+            native_paths(&selection)
+        );
+        // The swapped jars keep their place: LWJGL comes where 3.2.1 did.
+        let classpath = names(&selection.classpath);
+        let first_lwjgl = classpath
+            .iter()
+            .position(|n| n.starts_with("org.lwjgl"))
+            .unwrap();
+        let intel = select(&version, &mac(Arch::X86_64), &Features::default()).unwrap();
+        let before = names(&intel.classpath);
+        assert_eq!(
+            classpath[..first_lwjgl],
+            before[..before
+                .iter()
+                .position(|n| n.starts_with("org.lwjgl"))
+                .unwrap()]
+        );
+    }
+
+    /// 1.13.2 (LWJGL 3.1.6, no tinyfd) runs under Rosetta: its text2speech 1.10.3
+    /// crashes the game when the narrator can't load, which it can't on an arm64 Java 8.
+    /// Under Rosetta it gets Mojang's Intel LWJGL 3.3.1, whose GLFW can open a window on
+    /// Apple silicon, and keeps its objc bridge 1.0.0 (for Java 8). Were it asked for
+    /// arm64 all the same, nothing would be swapped.
+    #[test]
+    fn selects_1_13_2_on_apple_silicon() {
+        let version = fixture("1.13.2");
+        assert!(!swaps_to_arm64_lwjgl(&version, &mac(Arch::Arm64)));
         assert_eq!(java_arch(&version, &mac(Arch::Arm64)), Arch::X86_64);
+        let selection = select(&version, &mac(Arch::Arm64), &Features::default()).unwrap();
+        assert!(!selection.swapped_lwjgl);
+        assert!(names(&selection.classpath).contains(&"org.lwjgl:lwjgl:3.1.6"));
+        let rosetta = select_on(
+            &version,
+            &mac(Arch::X86_64),
+            Arch::Arm64,
+            &Features::default(),
+        )
+        .unwrap();
+        assert!(rosetta.swapped_lwjgl);
+        let classpath = names(&rosetta.classpath);
+        assert!(classpath.contains(&"org.lwjgl:lwjgl-glfw:3.3.1"));
+        assert!(classpath.contains(&"org.lwjgl:lwjgl-glfw:3.3.1:natives-macos"));
+        assert!(
+            !classpath
+                .iter()
+                .any(|n| n.contains("natives-macos-arm64") || n.contains("3.1.6"))
+        );
+        assert!(classpath.contains(&"ca.weblite:java-objc-bridge:1.0.0"));
+        // Only the objc bridge's natives are left to extract.
+        assert!(
+            native_paths(&rosetta)
+                .iter()
+                .all(|path| path.contains("java-objc-bridge-1.0.0")),
+            "{:?}",
+            native_paths(&rosetta)
+        );
+        // Without that narrator, the same libraries would be swapped.
+        let mut without = version.clone();
+        without
+            .libraries
+            .retain(|library| !library.name.starts_with("com.mojang:text2speech:"));
+        assert_eq!(java_arch(&without, &mac(Arch::Arm64)), Arch::Arm64);
+        let selection = select(&without, &mac(Arch::Arm64), &Features::default()).unwrap();
+        assert_swapped(
+            "1.13.2",
+            &selection,
+            &[
+                "lwjgl",
+                "lwjgl-glfw",
+                "lwjgl-jemalloc",
+                "lwjgl-openal",
+                "lwjgl-opengl",
+                "lwjgl-stb",
+            ],
+        );
+        assert!(crashing_narrator("com.mojang:text2speech:1.10.3"));
+        assert!(!crashing_narrator("com.mojang:text2speech:1.11.3"));
+        assert!(!crashing_narrator("com.mojang:text2speech:1.12.4"));
+        assert!(!crashing_narrator("com.mojang:other:1.10.3"));
+        // Intel Macs keep 3.1.6.
+        let intel = select(&version, &mac(Arch::X86_64), &Features::default()).unwrap();
+        assert!(names(&intel.classpath).contains(&"org.lwjgl:lwjgl:3.1.6"));
+    }
+
+    #[test]
+    fn selects_1_17_1_and_1_18_2_on_apple_silicon() {
+        for id in ["1.17.1", "1.18.2"] {
+            let version = fixture(id);
+            assert!(!has_arm64_natives(&version, &mac(Arch::Arm64)), "{id}");
+            assert_eq!(java_arch(&version, &mac(Arch::Arm64)), Arch::Arm64, "{id}");
+            let selection = select(&version, &mac(Arch::Arm64), &Features::default()).unwrap();
+            assert_swapped(id, &selection, &ALL_MODULES);
+            let intel = select(&version, &mac(Arch::X86_64), &Features::default()).unwrap();
+            assert!(
+                names(&intel.classpath).contains(&"org.lwjgl:lwjgl:3.2.1"),
+                "{id}"
+            );
+            assert!(
+                !names(&intel.classpath).iter().any(|n| n.contains("3.3.1")),
+                "{id}"
+            );
+        }
+    }
+
+    /// Windows and Linux keep the LWJGL their versions list.
+    #[test]
+    fn other_systems_keep_their_lwjgl() {
+        for id in ["1.13.2", "1.16.5", "1.18.2"] {
+            let version = fixture(id);
+            for platform in [
+                Platform::new(Os::Windows, Arch::X86_64, "10.0.22631"),
+                Platform::new(Os::Linux, Arch::X86_64, "6.1"),
+            ] {
+                let selection = select(&version, &platform, &Features::default()).unwrap();
+                assert!(
+                    !names(&selection.classpath)
+                        .iter()
+                        .any(|n| n.contains("3.3.1")),
+                    "{id} {platform:?}"
+                );
+                assert!(native_paths(&selection).iter().any(|p| p.contains("lwjgl")));
+                assert_eq!(java_arch(&version, &platform), Arch::X86_64);
+            }
+        }
+    }
+
+    /// A loader's profile that lists LWJGL itself (as some Forge builds pin a version)
+    /// is swapped after the merge too; a module Mojang made no 3.3.1 of keeps the whole
+    /// version on Intel, under Rosetta, rather than mixing LWJGL versions.
+    #[test]
+    fn swaps_loader_lwjgl_and_refuses_unknown_modules() {
+        let mut version = fixture("1.16.5");
+        let mut pinned = version
+            .libraries
+            .iter()
+            .find(|l| l.name == "org.lwjgl:lwjgl-glfw:3.2.1" && l.natives.is_empty())
+            .unwrap()
+            .clone();
+        pinned.name = "org.lwjgl:lwjgl-glfw:3.2.2".into();
+        pinned.rules.clear();
+        if let Some(artifact) = pinned.downloads.artifact.as_mut() {
+            artifact.path = Some("org/lwjgl/lwjgl-glfw/3.2.2/lwjgl-glfw-3.2.2.jar".into());
+        }
+        version.libraries.insert(0, pinned);
+        let selection = select(&version, &mac(Arch::Arm64), &Features::default()).unwrap();
+        assert_swapped("pinned", &selection, &ALL_MODULES);
+
+        let mut unknown = version.libraries[0].clone();
+        unknown.name = "org.lwjgl:lwjgl-nanovg:3.2.2".into();
+        version.libraries.push(unknown);
+        assert!(!swaps_to_arm64_lwjgl(&version, &mac(Arch::Arm64)));
+        assert_eq!(java_arch(&version, &mac(Arch::Arm64)), Arch::X86_64);
+    }
+
+    /// The embedded table is exactly Mojang's: every LWJGL 3.3.1 jar and macOS natives
+    /// jar (arm64 and Intel) of Minecraft 1.20.1, with the same path, SHA-1 and size,
+    /// plus its objc bridge.
+    #[test]
+    fn lwjgl_3_3_1_matches_mojangs_1_20_1() {
+        let version = fixture("1.20.1");
+        let mut listed = Vec::new();
+        for library in &version.libraries {
+            let mac = library.name.ends_with(":natives-macos-arm64")
+                || library.name.ends_with(":natives-macos");
+            let plain = library.name.split(':').count() == 3;
+            if !(library.name.starts_with("org.lwjgl:") && (mac || plain))
+                && library.name != "ca.weblite:java-objc-bridge:1.1"
+            {
+                continue;
+            }
+            let artifact = library.downloads.artifact.as_ref().unwrap();
+            listed.push((
+                library.name.clone(),
+                artifact.path.clone().unwrap(),
+                artifact.sha1.clone(),
+                artifact.size.unwrap(),
+                artifact.url.clone(),
+            ));
+        }
+        let mut embedded: Vec<_> = LWJGL_3_3_1
+            .iter()
+            .flat_map(|(_, jar, arm64, intel)| [jar, arm64, intel])
+            .chain([&UNIVERSAL_OBJC_BRIDGE])
+            .map(|jar| {
+                let file = jar.file().unwrap();
+                let remote = file.remote.unwrap();
+                (
+                    file.name,
+                    file.path.display().to_string(),
+                    remote.sha1,
+                    remote.size.unwrap(),
+                    remote.url,
+                )
+            })
+            .collect();
+        listed.sort();
+        embedded.sort();
+        assert_eq!(listed, embedded);
     }
 
     /// 1.20.1: new-style natives, both macOS architectures on the classpath, nothing to
@@ -546,8 +1208,11 @@ mod tests {
                     .any(|n| n.contains("natives-linux") || n.contains("natives-windows"))
             );
             assert!(selection.natives.is_empty());
+            assert!(!selection.swapped_lwjgl);
         }
         assert!(has_arm64_natives(&version, &mac(Arch::Arm64)));
+        // Already arm64: nothing is swapped.
+        assert!(!swaps_to_arm64_lwjgl(&version, &mac(Arch::Arm64)));
         assert_eq!(java_arch(&version, &mac(Arch::Arm64)), Arch::Arm64);
         let linux = Platform::new(Os::Linux, Arch::X86_64, "6.1");
         let selection = select(&version, &linux, &Features::default()).unwrap();

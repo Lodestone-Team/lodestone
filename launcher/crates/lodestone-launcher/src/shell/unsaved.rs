@@ -43,7 +43,7 @@ impl LauncherShell {
         if let Some(window) = window {
             window.focus(&focus, cx);
         }
-        self.modal.open(Modal::Unsaved { focus, target }, cx);
+        self.open_modal(Modal::Unsaved { focus, target }, cx);
     }
 
     /// Asks about unsaved changes in the Settings dialog, for the offscreen screenshots.

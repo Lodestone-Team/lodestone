@@ -174,6 +174,10 @@ pub fn text(message: M) -> &'static str {
         M::Appearance => "外觀",
         M::AppearanceLead => "儲存在這台電腦上，而不是核心上。",
         M::ColoredConsole => "彩色主控台",
+        M::Startup => "啟動",
+        M::StartAtLogin => "登入時開啟 Lodestone Host",
+        M::StartAtLoginHint => "登入這台電腦時，它會在背景開啟，並啟動設為自動啟動的伺服器。",
+        M::StartAtLoginFailed => "無法變更啟動設定：{error}",
         M::Language => "語言",
         M::LanguageAuto => "系統預設（{language}）",
         M::Theme => "主題",
@@ -270,6 +274,7 @@ pub fn text(message: M) -> &'static str {
         M::EventStopped => "伺服器 {name} 已停止！",
         M::EventCrashed => "伺服器 {name} 發生錯誤！",
         M::WarningToast => "警告：某個伺服器發出了警告。這不應該發生，請向開發者回報此問題。",
+        M::EventModpackUpdate => "{name} 的 {pack} {version} 已發布",
         M::EventWarning => "伺服器 {name} 發出了警告",
         M::EventError => "伺服器 {name} 發生錯誤",
         M::PlayersJoined => "{players} 加入了 {name}",
@@ -381,6 +386,11 @@ pub fn text(message: M) -> &'static str {
         M::PasswordTooShort => "密碼至少需要 12 個字元。",
         M::SetPassword => "設定密碼",
         M::NoPasswordYet => "還沒有密碼。只有這台電腦上的應用程式可以使用這個核心。",
+        M::ModpackChecks => "檢查模組包更新",
+        M::ModpackChecksHint => {
+            "每隔幾小時在 Modrinth 上查找伺服器所用模組包的新版本，有新版本時通知。關閉後，伺服器「模組」分頁中的「檢查更新」仍可使用。"
+        }
+        M::ModpackChecksKeywords => "模組包 更新 通知 Modrinth 自動",
         M::RemoteAccessKeywords => "遠端 區域網路 網路 共用",
         M::DomainKeywords => "位址 主機名稱 網址",
         M::OpenPortKeywords => "連接埠轉送 路由器 UPnP 防火牆",

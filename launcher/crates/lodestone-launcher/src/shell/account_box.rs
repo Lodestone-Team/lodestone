@@ -406,6 +406,18 @@ fn menu(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoElem
             )
         })
         .when(has_accounts, |this| this.child(divider()))
+        // a Microsoft account that is signed in: its skin can be changed
+        .when(has_accounts && !active_offline && !needs_sign_in, |this| {
+            this.child(
+                action_row(
+                    "change-skin",
+                    icon_slot(Icon::User, colors::GRAY_400),
+                    t(M::ChangePlayerSkin),
+                    colors::GRAY_300,
+                )
+                .on_press(cx.listener(|this, _, window, cx| this.open_skin(Some(window), cx))),
+            )
+        })
         .when(needs_sign_in, |this| {
             this.child(
                 action_row(

@@ -90,6 +90,11 @@ crate::i18n::messages! {
         /// Under the instance's name: {server} is a server, {core} a host.
         LinkedTo = "Linked to {server} on {core}",
         LinkedToRemoved = "Linked to {server} on {core} (that host was removed from the Lodestone Host page)",
+        /// Under the instance's name, on an Apple silicon Mac, for a version that runs
+        /// in an Intel Java (Minecraft 1.13.2 and older).
+        RunsUnderRosetta = "Runs under Rosetta 2: Mojang made no Apple silicon build of some libraries this version needs. Slower to start, then plays normally.",
+        /// The same, for an instance with an Intel Java chosen in its Settings.
+        RunsUnderRosettaOverride = "Runs under Rosetta 2: the Java chosen in Settings is an Intel Java. Slower to start, then plays normally.",
         NoInstances = "No instances",
         /// Under PLAY, for an instance made for a server.
         AndJoin = "and join {server}",
@@ -148,7 +153,7 @@ crate::i18n::messages! {
         /// The likely causes of a crash.
         CauseWrongJava = "Wrong Java version. This Minecraft version (or a mod) needs a different Java. Clear the Java override in Settings to use the Java Mojang provides.",
         CauseOutOfMemory = "Out of memory. Raise the maximum memory in Settings, or close other apps.",
-        CauseNatives = "Native libraries are missing or are for the wrong processor. On Apple Silicon, versions before 1.19 run in an Intel Java under Rosetta 2; check that Rosetta is installed and that the Java override isn't an arm64 Java.",
+        CauseNatives = "Native libraries are missing or are for the wrong processor. On Apple silicon, versions before 1.14 run in an Intel Java under Rosetta 2 and later ones in an Apple silicon Java; check that Rosetta is installed and that a Java override is made for the same processor.",
         CauseJvmOptions = "Java refused one of the settings. Check the JVM arguments and memory in Settings.",
         CauseGraphics = if cfg!(target_os = "macos") {
             "The game couldn't set up its window or OpenGL. Update macOS, or try without a custom window size or fullscreen."
@@ -321,6 +326,38 @@ crate::i18n::messages! {
         RemoveNamed = "Remove {name}",
         /// Shown wherever an offline account appears.
         OfflineNote = "Offline – single-player and offline-mode servers only",
+
+        // "Change Minecraft skin", from the account menu: the player's skin in the game (not the launcher's own look, Settings > Skin), its arm width and cape.
+        ChangePlayerSkin = "Change skin…",
+        /// {name} is the account's Minecraft username.
+        PlayerSkinDialogTitle = "{name}’s skin",
+        PlayerSkinLoading = "Asking Minecraft what you’re wearing",
+        PlayerSkinLoadFailed = "Couldn’t load your skin: {error}",
+        PlayerSkinSection = "Skin",
+        PlayerSkinChooseFile = "Choose a file…",
+        PlayerSkinUseDefault = "Use the default skin",
+        PlayerSkinFileHint = "A skin is a 64×64 PNG image.",
+        PlayerSkinFileChosen = "{name} will be your skin when you save.",
+        PlayerSkinDefaultChosen = "You’ll have the default skin when you save.",
+        PlayerSkinDefault = "Default skin",
+        PlayerSkinPreview = "Your character, wearing the skin",
+        PlayerSkinDragHint = "Drag to turn",
+        /// The width of the player model's arms.
+        PlayerSkinModel = "Arms",
+        PlayerSkinModelClassic = "Wide",
+        PlayerSkinModelSlim = "Slim",
+        PlayerSkinCape = "Cape",
+        PlayerSkinNoCape = "None",
+        PlayerSkinNoCapes = "This account has no capes.",
+        PlayerSkinFileRefused = "{name} can’t be used: {error}",
+        PlayerSkinFileTooLarge = "the file is larger than 1 MB",
+        PlayerSkinFileNotPng = "it isn’t a PNG image",
+        PlayerSkinFileWrongSize = "it is {width}×{height}, and a skin is 64×64",
+        PlayerSkinNetworkError = "Couldn’t reach the Minecraft services: {error}",
+        PlayerSkinRateLimited = "The Minecraft services are busy. Try again in a minute.",
+        PlayerSkinSignedOut = "Your sign-in has expired. Sign in again, then change the skin.",
+        PlayerSkinRefusedBecause = "Minecraft didn’t accept the change: {reason}",
+        PlayerSkinRefused = "Minecraft didn’t accept the change (error {status}).",
 
         // "Add offline account".
         OfflineDialogBody = "For development and testing. The account has no Microsoft sign-in, and its UUID is the one offline-mode servers give this name.",

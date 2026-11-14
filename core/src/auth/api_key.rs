@@ -50,6 +50,10 @@ pub const MAX_API_KEY_NAME_CHARS: usize = 64;
 /// The message for routes that API keys may not use, whatever their scope.
 pub const SESSION_REQUIRED_MESSAGE: &str = "This action needs a signed-in session, not an API key";
 
+/// The message for routes that only sessions and full API keys may use.
+pub const FULL_KEY_REQUIRED_MESSAGE: &str =
+    "This action needs a signed-in session or a full API key";
+
 const ID_ALPHABET: &[u8; 36] = b"abcdefghijklmnopqrstuvwxyz0123456789";
 
 /// What a key may do.
@@ -413,6 +417,7 @@ pub fn effective_user(record: &ApiKeyRecord, user: &User) -> User {
         id: record.id.clone(),
         name: record.name.clone(),
         expires_at: record.expires_at,
+        full: record.scope == ApiKeyScope::Full,
     };
     effective
 }

@@ -143,21 +143,51 @@ impl Server {
         self
     }
 
-    /// Serves on a thread of its own until the handle is shut down or dropped.
+    /// Serves until the handle is shut down or dropped: each connection on a thread of
+    /// its own. On Unix a thread waits for connections; on Windows the system's thread
+    /// pool does ([`pool_accept`]), so no thread waits in `accept` all day.
     pub fn spawn(self, backend: Arc<dyn Backend>) -> io::Result<ServerHandle> {
+        let Server {
+            listener,
+            path,
+            allowed_uid,
+        } = self;
         let stop = Arc::new(AtomicBool::new(false));
-        let path = self.path.clone();
-        let thread_stop = stop.clone();
         let streams = Streams::default();
-        let thread_streams = streams.clone();
+        let acceptor = Acceptor {
+            backend,
+            stop: stop.clone(),
+            streams: streams.clone(),
+            allowed_uid,
+            connections: Arc::new(AtomicUsize::new(0)),
+            refusing: Arc::new(AtomicUsize::new(0)),
+            next_id: AtomicU64::new(1),
+        };
+        #[cfg(not(windows))]
         thread::Builder::new()
             .name("control-accept".into())
-            .spawn(move || accept_loop(self, backend, thread_stop, thread_streams))?;
+            .spawn(move || {
+                for stream in listener.incoming() {
+                    if acceptor.stop.load(Ordering::SeqCst) {
+                        break;
+                    }
+                    let Ok(stream) = stream else {
+                        continue;
+                    };
+                    if !acceptor.accepted(stream) {
+                        break;
+                    }
+                }
+            })?;
+        #[cfg(windows)]
+        let waiting = Some(pool_accept::start(listener, acceptor)?);
         Ok(ServerHandle {
             path,
             stop,
             stopped: false,
             streams,
+            #[cfg(windows)]
+            waiting,
         })
     }
 }
@@ -230,6 +260,9 @@ pub struct ServerHandle {
     stop: Arc<AtomicBool>,
     stopped: bool,
     streams: Streams,
+    /// The thread pool's wait for connections, and the listening socket.
+    #[cfg(windows)]
+    waiting: Option<pool_accept::Waiting>,
 }
 
 impl ServerHandle {
@@ -244,7 +277,12 @@ impl ServerHandle {
         self.stopped = true;
         self.stop.store(true, Ordering::SeqCst);
         // wake the accept loop so it sees the flag
+        #[cfg(not(windows))]
         let _ = Stream::connect(&self.path);
+        // stop waiting for connections (a connection being let in finishes first), and
+        // close the listening socket
+        #[cfg(windows)]
+        drop(self.waiting.take());
         let _ = fs::remove_file(&self.path);
         let streams = std::mem::take(&mut *lock(&self.streams));
         for stream in streams.values() {
@@ -282,77 +320,57 @@ impl Drop for ServerHandle {
     }
 }
 
-fn accept_loop(server: Server, backend: Arc<dyn Backend>, stop: Arc<AtomicBool>, streams: Streams) {
-    let connections = Arc::new(AtomicUsize::new(0));
-    let refusing = Arc::new(AtomicUsize::new(0));
-    let next_id = AtomicU64::new(1);
-    for stream in server.listener.incoming() {
-        if stop.load(Ordering::SeqCst) {
-            break;
-        }
-        let Ok(stream) = stream else {
-            continue;
-        };
-        let refuse = |stream: &mut Stream, code: &str, message: &str| {
-            let line = Message::result(Value::Null, Err(ErrorObject::new(code, message))).to_line();
-            let _ = stream.write_all(line.as_bytes());
-            // Closing at once can lose the refusal: the client's request then meets a
-            // closed socket (broken pipe) and its buffered answer is dropped. End the
-            // writing side and read until the client hangs up, for a short while, on a
-            // thread of its own so the accept loop never waits; at most a few at once.
-            let _ = stream.shutdown(std::net::Shutdown::Write);
-            if refusing.fetch_add(1, Ordering::SeqCst) < MAX_REFUSING
-                && let Ok(mut held) = stream.try_clone()
-            {
-                let count = refusing.clone();
-                let spawned =
-                    thread::Builder::new()
-                        .name("control-refuse".into())
-                        .spawn(move || {
-                            drain(&mut held);
-                            count.fetch_sub(1, Ordering::SeqCst);
-                        });
-                if spawned.is_err() {
-                    refusing.fetch_sub(1, Ordering::SeqCst);
-                }
-            } else {
-                refusing.fetch_sub(1, Ordering::SeqCst);
-            }
-        };
-        let mut stream = stream;
+/// What letting connections in needs, for the server's life.
+struct Acceptor {
+    backend: Arc<dyn Backend>,
+    stop: Arc<AtomicBool>,
+    streams: Streams,
+    allowed_uid: UserId,
+    /// Connections being served.
+    connections: Arc<AtomicUsize>,
+    /// Refused connections being drained.
+    refusing: Arc<AtomicUsize>,
+    next_id: AtomicU64,
+}
+
+impl Acceptor {
+    /// Checks a new connection's user and serves it on a thread of its own, or refuses
+    /// it. False once the server is stopping.
+    fn accepted(&self, mut stream: Stream) -> bool {
         match peer::peer_uid(&stream) {
-            Ok(uid) if uid == server.allowed_uid => {}
+            Ok(uid) if uid == self.allowed_uid => {}
             _ => {
-                refuse(
+                self.refuse(
                     &mut stream,
                     codes::PERMISSION_DENIED,
                     "Only the user running Lodestone Launcher may control it.",
                 );
-                continue;
+                return true;
             }
         }
-        if connections.load(Ordering::SeqCst) >= MAX_CONNECTIONS {
-            refuse(
+        if self.connections.load(Ordering::SeqCst) >= MAX_CONNECTIONS {
+            self.refuse(
                 &mut stream,
                 codes::BUSY,
                 "Too many connections to the launcher.",
             );
-            continue;
+            return true;
         }
         let Ok(held) = stream.try_clone() else {
-            continue;
+            return true;
         };
-        connections.fetch_add(1, Ordering::SeqCst);
-        let id = next_id.fetch_add(1, Ordering::SeqCst);
-        lock(&streams).insert(id, held);
-        if stop.load(Ordering::SeqCst) {
+        self.connections.fetch_add(1, Ordering::SeqCst);
+        let id = self.next_id.fetch_add(1, Ordering::SeqCst);
+        lock(&self.streams).insert(id, held);
+        if self.stop.load(Ordering::SeqCst) {
             // shut down while this one was being let in
-            lock(&streams).remove(&id);
-            break;
+            lock(&self.streams).remove(&id);
+            self.connections.fetch_sub(1, Ordering::SeqCst);
+            return false;
         }
-        let backend = backend.clone();
-        let open = connections.clone();
-        let thread_streams = streams.clone();
+        let backend = self.backend.clone();
+        let open = self.connections.clone();
+        let thread_streams = self.streams.clone();
         let spawned = thread::Builder::new()
             .name(format!("control-conn-{id}"))
             .spawn(move || {
@@ -363,9 +381,198 @@ fn accept_loop(server: Server, backend: Arc<dyn Backend>, stop: Arc<AtomicBool>,
             });
         if spawned.is_err() {
             // the closure (and its counter) was dropped without running
-            lock(&streams).remove(&id);
-            connections.fetch_sub(1, Ordering::SeqCst);
-            continue;
+            lock(&self.streams).remove(&id);
+            self.connections.fetch_sub(1, Ordering::SeqCst);
+        }
+        true
+    }
+
+    fn refuse(&self, stream: &mut Stream, code: &str, message: &str) {
+        let line = Message::result(Value::Null, Err(ErrorObject::new(code, message))).to_line();
+        let _ = stream.write_all(line.as_bytes());
+        // Closing at once can lose the refusal: the client's request then meets a
+        // closed socket (broken pipe) and its buffered answer is dropped. End the
+        // writing side and read until the client hangs up, for a short while, on a
+        // thread of its own so letting others in never waits; at most a few at once.
+        let _ = stream.shutdown(std::net::Shutdown::Write);
+        if self.refusing.fetch_add(1, Ordering::SeqCst) < MAX_REFUSING
+            && let Ok(mut held) = stream.try_clone()
+        {
+            let count = self.refusing.clone();
+            let spawned = thread::Builder::new()
+                .name("control-refuse".into())
+                .spawn(move || {
+                    drain(&mut held);
+                    count.fetch_sub(1, Ordering::SeqCst);
+                });
+            if spawned.is_err() {
+                self.refusing.fetch_sub(1, Ordering::SeqCst);
+            }
+        } else {
+            self.refusing.fetch_sub(1, Ordering::SeqCst);
+        }
+    }
+}
+
+/// Windows: connections are let in by a wait on the system's thread pool (the one
+/// GPUI's background executor runs on) rather than by a thread waiting in `accept` for
+/// as long as the launcher runs. The listening socket signals an event when a
+/// connection arrives (`WSAEventSelect`, which also makes it non-blocking); the pool
+/// runs [`on_connection`] then, which accepts every connection waiting and waits again.
+#[cfg(windows)]
+mod pool_accept {
+    use std::{ffi::c_void, io, ptr, sync::atomic::Ordering};
+
+    use windows_sys::Win32::{
+        Networking::WinSock::{
+            FD_ACCEPT, WSACloseEvent, WSACreateEvent, WSAEnumNetworkEvents, WSAEventSelect,
+            WSAGetLastError, WSANETWORKEVENTS,
+        },
+        System::Threading::{
+            CloseThreadpoolWait, CreateThreadpoolWait, PTP_CALLBACK_INSTANCE, PTP_WAIT,
+            SetThreadpoolWait, WaitForThreadpoolWaitCallbacks,
+        },
+    };
+
+    use super::Acceptor;
+    use crate::transport::Listener;
+
+    /// Accept failures in a row (clients that gave up while waiting, say) after which
+    /// a callback leaves the rest to the next signal.
+    const MAX_FAILED_ACCEPTS: usize = 16;
+
+    /// What the pool's callback works with. Freed only after the wait is closed and no
+    /// callback runs.
+    struct Context {
+        listener: Listener,
+        /// Manual-reset; signalled while a connection waits to be accepted.
+        event: windows_sys::Win32::Networking::WinSock::WSAEVENT,
+        acceptor: Acceptor,
+    }
+
+    /// The wait for connections. Dropping it stops waiting (letting a callback that
+    /// already runs finish) and closes the listening socket.
+    pub(super) struct Waiting {
+        wait: PTP_WAIT,
+        context: *mut Context,
+    }
+
+    // SAFETY: `context` is only read by the pool's callback, through a shared
+    // reference, and freed by `Drop` after the last callback has returned. What it
+    // holds (a socket, an event handle, the acceptor's `Arc`s and atomics) may be
+    // used from any thread.
+    unsafe impl Send for Waiting {}
+    // SAFETY: as for `Send`; `Waiting` has no methods that take `&self`.
+    unsafe impl Sync for Waiting {}
+
+    fn wsa_error() -> io::Error {
+        // SAFETY: reads this thread's last Winsock error.
+        io::Error::from_raw_os_error(unsafe { WSAGetLastError() })
+    }
+
+    pub(super) fn start(listener: Listener, acceptor: Acceptor) -> io::Result<Waiting> {
+        // SAFETY: no arguments; returns an event handle or null.
+        let event = unsafe { WSACreateEvent() };
+        if event == 0 {
+            return Err(wsa_error());
+        }
+        // SAFETY: a listening socket and an event this function owns.
+        if unsafe { WSAEventSelect(listener.raw(), event, FD_ACCEPT as i32) } != 0 {
+            let err = wsa_error();
+            // SAFETY: the event created above, not used elsewhere.
+            unsafe { WSACloseEvent(event) };
+            return Err(err);
+        }
+        let context = Box::into_raw(Box::new(Context {
+            listener,
+            event,
+            acceptor,
+        }));
+        // SAFETY: `context` stays valid until `Waiting` is dropped, which closes the
+        // wait first; the default pool and callback environment.
+        let wait =
+            unsafe { CreateThreadpoolWait(Some(on_connection), context.cast(), ptr::null()) };
+        if wait == 0 {
+            let err = io::Error::last_os_error();
+            // SAFETY: no wait was created, so nothing else has the context.
+            let context = unsafe { Box::from_raw(context) };
+            // SAFETY: the event created above, no longer waited on.
+            unsafe { WSACloseEvent(context.event) };
+            return Err(err);
+        }
+        // SAFETY: a wait created above and an event that outlives it.
+        unsafe { SetThreadpoolWait(wait, event as *mut c_void, ptr::null()) };
+        Ok(Waiting { wait, context })
+    }
+
+    /// The pool's callback, run when a connection waits: accepts every connection
+    /// waiting, then waits again, unless the server is stopping.
+    unsafe extern "system" fn on_connection(
+        _instance: PTP_CALLBACK_INSTANCE,
+        context: *mut c_void,
+        wait: PTP_WAIT,
+        _result: u32,
+    ) {
+        // SAFETY: `Waiting::drop` frees the context only after the wait is closed and
+        // this callback has returned.
+        let context = unsafe { &*context.cast::<Context>() };
+        let acceptor = &context.acceptor;
+        if acceptor.stop.load(Ordering::SeqCst) {
+            return;
+        }
+        // Resets the event before accepting, so a connection that arrives after the
+        // last accept below signals it again.
+        let mut events = WSANETWORKEVENTS::default();
+        // SAFETY: the listening socket and its event, both owned by the context.
+        unsafe { WSAEnumNetworkEvents(context.listener.raw(), context.event, &mut events) };
+        let mut failed = 0;
+        loop {
+            match context.listener.accept() {
+                Ok(stream) => {
+                    failed = 0;
+                    // It inherited the listener's event selection, and so isn't
+                    // blocking: the connection's threads read and write blocking.
+                    if stream.clear_event_select().is_err() {
+                        continue;
+                    }
+                    if !acceptor.accepted(stream) {
+                        return;
+                    }
+                }
+                Err(err) if err.kind() == io::ErrorKind::WouldBlock => break,
+                Err(_) => {
+                    failed += 1;
+                    if failed >= MAX_FAILED_ACCEPTS {
+                        break;
+                    }
+                }
+            }
+        }
+        if !acceptor.stop.load(Ordering::SeqCst) {
+            // SAFETY: this callback's own wait, and the context's event.
+            unsafe { SetThreadpoolWait(wait, context.event as *mut c_void, ptr::null()) };
+        }
+    }
+
+    impl Drop for Waiting {
+        fn drop(&mut self) {
+            // SAFETY: `wait` and `context` are the ones `start` made; the context is
+            // freed once, after nothing can call back with it.
+            unsafe {
+                // A callback that already checked the flag may still wait again: the
+                // wait is stopped, callbacks are waited for (and queued ones
+                // cancelled), and then once more, after which none can start.
+                (*self.context).acceptor.stop.store(true, Ordering::SeqCst);
+                for _ in 0..2 {
+                    SetThreadpoolWait(self.wait, ptr::null_mut(), ptr::null());
+                    WaitForThreadpoolWaitCallbacks(self.wait, 1);
+                }
+                CloseThreadpoolWait(self.wait);
+                let context = Box::from_raw(self.context);
+                WSACloseEvent(context.event);
+                // closes the listening socket
+                drop(context);
+            }
         }
     }
 }

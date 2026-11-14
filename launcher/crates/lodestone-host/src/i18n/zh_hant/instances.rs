@@ -55,9 +55,46 @@ pub fn text(message: M) -> &'static str {
         M::GameTypeSubtitle => "你的伺服器要用來做什麼？",
         M::GameTypeNew => "新功能",
         M::GameTypeModpack => "Modrinth 模組包",
-        M::GameTypeModpackDescription => "從 Modrinth 模組包建立 Fabric 伺服器",
+        M::GameTypeModpackDescription => "從 Modrinth 模組包建立 Fabric、Forge 或 NeoForge 伺服器",
+        M::GameTypeImport => "現有的伺服器",
+        M::GameTypeImportDescription => "匯入你已有的 Minecraft 伺服器，包含世界、設定、模組和外掛",
+        M::StepChooseFolder => "選擇資料夾",
+        M::ImportFolderTitle => "選擇伺服器的資料夾",
+        M::ImportFolderSubtitle => {
+            "包含 server.properties 和世界的資料夾。Lodestone 會複製它，原資料夾維持不變。"
+        }
+        M::ImportFolderPlaceholder => "資料夾路徑",
+        M::ImportBrowse => "瀏覽…",
+        M::ImportChooseFolder => "請先選擇伺服器的資料夾",
+        M::ImportStopFirst => "如果伺服器正在執行，請先停止它，才能完整複製世界。",
+        M::ImportReading => "正在讀取資料夾",
+        M::ImportReadFailed => "無法讀取資料夾：{error}",
+        M::ImportSettingsSubtitle => "確認 Lodestone 找到的內容，然後匯入。",
+        M::ImportOtherSoftware => {
+            "此伺服器先前使用 {other}。Lodestone 會用 {software} 執行它，兩者使用相同的外掛。"
+        }
+        M::ImportNotOffered => {
+            "此伺服器先前使用 {other}，Lodestone 不提供它。請選擇用來執行它的軟體。"
+        }
+        M::ImportSoftwareUnknown => "Lodestone 無法判斷此伺服器使用的軟體。請在下方選擇。",
+        M::FieldSoftware => "伺服器軟體",
+        M::FieldSoftwareDescription => "執行伺服器的軟體。Lodestone 會重新安裝它。",
+        M::FieldVersion => "Minecraft 版本",
+        M::FieldVersionDescription => "伺服器上次執行的版本",
+        M::ImportLoadingVersions => "正在載入版本",
+        M::ImportVersionsFailed => "無法載入版本：{error}",
+        M::ImportNoVersions => "核心沒有傳回任何版本",
+        M::ImportVersionUnavailable => {
+            "Lodestone 沒有適用於 Minecraft {version} 的 {software} 伺服器。請選擇其他版本。"
+        }
+        M::ImportChooseSoftware => "請選擇伺服器軟體",
+        M::ImportServer => "匯入伺服器",
+        M::ImportFailed => "無法匯入伺服器：{error}",
         M::GameVanillaDescription => "Mojang 官方的標準原版 Minecraft 伺服器。",
         M::GameForgeDescription => "模組框架，可用來安裝模組並自訂你的 Minecraft 體驗。",
+        M::GameNeoForgeDescription => {
+            "社群維護的 Forge 分支，有自己的模組，適用於 Minecraft 1.20.2 及更新版本。"
+        }
         M::GameFabricDescription => "輕量級的 Minecraft 模組工具鏈。",
         M::GamePaperDescription => "高效能的 Spigot 分支，旨在修正遊戲玩法與機制上的不一致。",
         M::GameSpigotDescription => {
@@ -68,10 +105,9 @@ pub fn text(message: M) -> &'static str {
         M::GameGenericDescription => "未知的遊戲：{name}",
         M::ModpackSourceTitle => "選擇模組包",
         M::ModpackSourceDescription => {
-            "搜尋 Modrinth、貼上 Modrinth 連結，或上傳 .mrpack 檔案。僅支援 Fabric 模組包。"
+            "搜尋 Modrinth、貼上 Modrinth 連結，或上傳 .mrpack 檔案。支援 Fabric、Forge 和 NeoForge 模組包。"
         }
         M::ModpackSearchPlaceholder => "搜尋模組包，或貼上 Modrinth 連結",
-        M::ModpackOnlyFabric => "僅顯示 Fabric 模組包",
         M::ModpackUpload => "上傳 .mrpack",
         M::ModpackVersionTitle => "選擇版本",
         M::ModpackVersionUploaded => "已上傳的模組包。",
@@ -194,6 +230,23 @@ pub fn text(message: M) -> &'static str {
         M::ShareStop => "停止分享",
         M::ShareStopTitle => "停止分享？",
         M::ShareStopBody => "透過連結遊戲的人都會中斷連線，連結也將失效。再次分享會產生新連結。",
+        M::ShareNewLink => "新連結",
+        M::ShareNewLinkTitle => "產生新連結？",
+        M::ShareNewLinkBody => {
+            "目前的連結將失效，透過它遊戲的人都會中斷連線。請把新連結傳給仍可加入的人。透過好友名單分享的好友不受影響。"
+        }
+        M::ShareNewLinkConfirm => "產生新連結",
+        M::ShareNewLinkMade => "已產生新的邀請連結",
+        M::ShareRemovedFriendsNote => {
+            "你已移除好友 {names}。如果對方有這個邀請連結，在你產生新連結之前仍可加入。"
+        }
+        M::ShareRemovedFriendsDismiss => "忽略",
+        M::ShareRemovedFriendsToast => {
+            "如果 {names} 有邀請連結，仍可加入 {servers}。產生新連結即可阻止。"
+        }
+        M::ShareNewLinks => "產生新連結",
+        M::ShareNewLinksMade => "已產生新的邀請連結。請傳給仍可加入的人。",
+        M::ShareNewLinkFailed => "無法為 {name} 產生新連結：{error}",
         M::ShareShort => "分享",
         M::ShareShortHint => "分享此伺服器",
     }
@@ -202,6 +255,7 @@ pub fn text(message: M) -> &'static str {
 pub fn plural(message: P) -> [&'static str; 2] {
     match message {
         P::ModpackShowMore => ["顯示更多（還有 {count} 個）", "顯示更多（還有 {count} 個）"],
+        P::ImportFiles => ["{count} 個檔案", "{count} 個檔案"],
         P::ShareConnected => ["{count} 人已連線", "{count} 人已連線"],
         P::ShareJoins => ["（目前共加入 {count} 次）", "（目前共加入 {count} 次）"],
     }

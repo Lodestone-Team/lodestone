@@ -192,7 +192,11 @@ pub(crate) fn addresses(
 /// Asks the router to forward `port` to `local_ip`. `None` if it can't, or if its
 /// forwarding wouldn't help (it's behind another NAT). Blocking.
 pub(crate) fn forward(port: u16, local_ip: Ipv4Addr) -> Option<portmap::Mapping> {
-    match portmap::map(port, local_ip) {
+    // Whatever answers the UPnP search on the network gets parsed here: should a bug
+    // in that parsing panic, it costs only the forwarding, not the whole share or join.
+    let mapped = std::panic::catch_unwind(|| portmap::map(port, local_ip))
+        .unwrap_or_else(|_| Err("asking the router panicked".into()));
+    match mapped {
         Ok(found) => {
             let behind_another_nat = match found.external.ip() {
                 IpAddr::V4(ip) => portmap::is_private(ip),
@@ -211,6 +215,38 @@ pub(crate) fn forward(port: u16, local_ip: Ipv4Addr) -> Option<portmap::Mapping>
             tracing::debug!("router forwarding: not available ({err})");
             None
         }
+    }
+}
+
+/// The router's forwarding of `port` once a host collected its addresses again: renews
+/// `old`, or asks for it again when renewing fails or this computer is on another network
+/// now (`lan_v4` is its address on the local network now, `was_lan_v4` before). Asks
+/// afresh, with `portmap`, only when the network changed: a router that refused once
+/// refuses again. Blocking.
+#[cfg(feature = "host")]
+pub(crate) fn reforward(
+    old: Option<portmap::Mapping>,
+    port: u16,
+    lan_v4: Option<Ipv4Addr>,
+    was_lan_v4: Option<Ipv4Addr>,
+    portmap: bool,
+) -> Option<portmap::Mapping> {
+    match (old, lan_v4) {
+        (Some(old), Some(lan)) if old.local_ip() == lan => match old.renew() {
+            Ok(()) => Some(old),
+            Err(err) => {
+                tracing::debug!("couldn't renew the router's forwarding: {err}");
+                old.remove();
+                forward(port, lan)
+            }
+        },
+        // on another network now
+        (Some(old), lan) => {
+            old.remove();
+            lan.and_then(|lan| forward(port, lan))
+        }
+        (None, Some(lan)) if portmap && lan_v4 != was_lan_v4 => forward(port, lan),
+        (None, _) => None,
     }
 }
 

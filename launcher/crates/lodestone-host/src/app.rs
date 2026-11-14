@@ -185,6 +185,11 @@ impl HostApp {
     fn show_shell_on(&mut self, session: Session, remote: Option<String>, cx: &mut Context<Self>) {
         let on_local = remote.is_none();
         let state = cx.new(|cx| HostState::new(session, cx));
+        // what Restart to update and the Connect service count servers on: this
+        // computer's core, which they restart, even while another is shown
+        if on_local {
+            crate::local_core::set(&state, cx);
+        }
         // sharing with friends: this computer's core, as its owner (another core's
         // friends are its owner's, set up from their own Host)
         if on_local && state.read(cx).me.is_owner {

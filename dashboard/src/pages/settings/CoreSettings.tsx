@@ -271,6 +271,33 @@ export const CoreSettings = () => {
     />
   );
 
+  const modpackChecksSupported =
+    typeof globalSettings?.check_modpack_updates === 'boolean';
+  const modpackChecksField = (
+    <ToggleBox
+      label={t('settings.core.modpackChecks.label')}
+      value={globalSettings?.check_modpack_updates === true}
+      isLoading={isLoading}
+      error={errorString}
+      disabled={!can_change_core_settings}
+      canRead={userInfo !== undefined}
+      description={t('settings.core.modpackChecks.hint')}
+      onChange={async (value) => {
+        await axiosPutSingleValue(
+          '/global_settings/check_modpack_updates',
+          value
+        );
+        queryClient.setQueryData(
+          ['global_settings'],
+          (old: GlobalSettingsData | undefined) =>
+            old && { ...old, check_modpack_updates: value }
+        );
+        notifySaved();
+      }}
+      optimistic={false}
+    />
+  );
+
   const listPubliclySupported =
     typeof globalSettings?.list_instances_publicly === 'boolean';
   const listInstancesPubliclyField = (
@@ -496,6 +523,7 @@ export const CoreSettings = () => {
           <SettingsCard>
             {nameField}
             {domainField}
+            {modpackChecksSupported && modpackChecksField}
           </SettingsCard>
         </SettingsSection>
         {can_change_core_settings && listPubliclySupported && (

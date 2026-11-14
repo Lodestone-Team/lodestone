@@ -1,5 +1,5 @@
 //! Minecraft and mod loader versions: the shapes of the version APIs (Mojang, Fabric,
-//! Forge) and the choice of a version from their answers. Fetching them is up to the
+//! Forge, NeoForge) and the choice of a version from their answers. Fetching them is up to the
 //! caller.
 
 use std::cmp::Ordering;
@@ -7,6 +7,7 @@ use std::cmp::Ordering;
 pub mod fabric;
 pub mod forge;
 pub mod mojang;
+pub mod neoforge;
 
 /// Compares version strings such as "0.14.21" or "1.0.0-beta.2" part by part, numerically
 /// where both parts are numbers. If one is a prefix of the other, the longer one is newer.

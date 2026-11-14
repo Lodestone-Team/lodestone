@@ -26,7 +26,7 @@ pub fn text(message: M) -> &'static str {
         M::PreparingNote => "Préparation de Minecraft {version} ({loader})",
         M::JoiningNote => "Connexion à {address} dès que le jeu aura démarré",
         M::VerifyingNote => "Vérification des fichiers du jeu de Minecraft {version} ({loader})",
-        M::RosettaNote => "Cette version s’exécute dans un Java Intel (x86_64) via Rosetta 2.",
+        M::RosettaNote => "Le jeu s’exécute dans un Java Intel (x86_64) via Rosetta 2.",
         M::StartingJavaNote => "Démarrage de Java\u{a0}: {command}",
         M::AutoMemoryNote => {
             "Configuration automatique\u{a0}: mémoire réglée sur {memory} pour cet ordinateur et les mods de l’instance"
@@ -67,6 +67,19 @@ pub fn text(message: M) -> &'static str {
         M::RosettaMissing => {
             "Cette version de Minecraft a besoin d’un Java Intel (x86_64), qui s’exécute sur Apple Silicon grâce à Rosetta 2. Rosetta n’est pas installé. Installez-le en exécutant cette commande dans le Terminal, puis cliquez de nouveau sur Jouer\u{a0}:\n\nsoftwareupdate --install-rosetta"
         }
+        M::RosettaNoticeTitle => "Minecraft {version} s’exécute via Rosetta\u{a0}2",
+        M::RosettaNoticeBody => {
+            "Mojang n’a pas fait de version Apple Silicon de certaines bibliothèques dont cette version a besoin\u{a0}: elle s’exécute donc dans un Java Intel grâce à Rosetta\u{a0}2. Elle met plus de temps à démarrer, puis fonctionne normalement. Minecraft 1.14 et les versions suivantes s’exécutent nativement."
+        }
+        M::RosettaNoticeBodyOverride => {
+            "Cette instance utilise un Java Intel, choisi dans ses Paramètres\u{a0}: le jeu s’exécute donc grâce à Rosetta\u{a0}2. Il met plus de temps à démarrer, puis fonctionne normalement. Pour l’exécuter nativement, choisissez un Java fait pour Apple Silicon, ou revenez au Java par défaut."
+        }
+        M::NoNativeJava8 => {
+            "Cette version de Minecraft a besoin de Java\u{a0}8, et aucun Java\u{a0}8 pour Apple Silicon n’est disponible pour le moment\u{a0}: Mojang n’en fait pas, et Azul n’en propose aucun. Réessayez plus tard, ou choisissez un Java\u{a0}8 fait pour Apple Silicon (arm64) dans les Paramètres de l’instance."
+        }
+        M::NeedsIntelJava => {
+            "Sur Apple Silicon, Minecraft {version} ne s’exécute que dans un Java Intel (x86_64), grâce à Rosetta\u{a0}2, et le Java choisi dans les Paramètres de l’instance est fait pour Apple Silicon. Choisissez-y un Java Intel, ou le Java de Mojang."
+        }
         M::CouldntStartMinecraft => "Impossible de démarrer Minecraft",
         M::CouldntStartJava => "Impossible de démarrer Java",
         M::CouldntVerify => "Impossible de vérifier les fichiers du jeu",
@@ -100,6 +113,15 @@ pub fn text(message: M) -> &'static str {
         M::NoLinesMatch => "Aucune ligne ne correspond au filtre.",
         M::JumpToLatest => "Aller à la fin",
         M::CopyLog => "Copier le journal",
+        M::LogSource => "Journal à afficher",
+        M::LogThisSession => "Cette session",
+        M::LogNoFiles => "Aucun journal ni rapport de plantage antérieur pour l’instant.",
+        M::LogKindLog => "Journal",
+        M::LogKindCrash => "Rapport de plantage",
+        M::LogKindJvm => "Plantage de Java",
+        M::LogReading => "Lecture de {name}",
+        M::LogReadFailed => "Impossible de lire {name} : {error}",
+        M::LogFileEmpty => "Ce fichier est vide.",
 
         M::ImportTitle => "Importer depuis un autre launcher",
         M::ImportFromHere => "Importer depuis ce dossier",
@@ -239,6 +261,17 @@ pub fn text(message: M) -> &'static str {
             "Lodestone Launcher s’est fermé au milieu d’une recherche, donc certains mods de {name} sont encore désactivés."
         }
         M::FinderPutBackFailed => "Certains mods n’ont pas pu être réactivés\u{a0}: {error}",
+
+        M::AddingName => "Ajout de {name}",
+        M::ModrinthUnreachable => "Modrinth est injoignable.",
+        M::ModpackAddedAlready => {
+            "{pack} est déjà ajouté à cette instance. Retirez-le d’abord dans les Paramètres pour en ajouter une autre version."
+        }
+        M::CouldntAddModpack => "Impossible d’ajouter le modpack",
+        M::ModpackAdded => "Modpack ajouté",
+        M::ModpackAddedMessage => "{pack} a été ajouté à {name}. Appuyez sur Jouer pour la lancer.",
+        M::CouldntRemoveModpack => "Impossible de retirer le modpack",
+        M::ModpackRemoved => "Modpack retiré",
     }
 }
 
@@ -267,6 +300,10 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::FilesLeftOut => [
             "{count} fichier a été ignoré\u{a0}: {name}.",
             "{count} fichiers ont été ignorés, par exemple {name}.",
+        ],
+        P::LogLinesSkipped => [
+            "{count} ligne au début n’est pas affichée",
+            "les {count} premières lignes ne sont pas affichées",
         ],
         P::LinesShown => ["{shown} ligne sur {count}", "{shown} lignes sur {count}"],
         P::LinesShownFollowing => [
@@ -310,6 +347,15 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::FinderTriesLeft => [
             "Environ {count} essai de plus",
             "Environ {count} essais de plus",
+        ],
+
+        P::AddedPackFilesRemoved => [
+            "{count} fichier de {pack} a été supprimé.",
+            "{count} fichiers de {pack} ont été supprimés.",
+        ],
+        P::AddedPackFilesKept => [
+            "{count} fichier que vous avez modifié a été gardé.",
+            "{count} fichiers que vous avez modifiés ont été gardés.",
         ],
     }
 }

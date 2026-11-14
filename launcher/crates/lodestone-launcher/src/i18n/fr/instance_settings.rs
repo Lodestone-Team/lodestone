@@ -87,6 +87,9 @@ pub fn text(message: M) -> &'static str {
         }
         M::SavedNextStart => "Enregistré. Le changement s’applique au prochain démarrage du jeu.",
         M::CouldntTurnModsOff => "Impossible de désactiver les mods\u{a0}: {error}",
+        M::GameVersionChangedMeanwhile => {
+            "La version de Minecraft a changé entre-temps. Choisissez à nouveau le chargeur, puis enregistrez."
+        }
 
         M::Vanilla => "Vanilla",
         M::ModLoader => "Chargeur de mods",
@@ -142,6 +145,9 @@ pub fn text(message: M) -> &'static str {
         }
         M::MojangJavaVersion => "Java {major} de Mojang",
         M::MojangJava => "Java de Mojang",
+        M::AzulZulu8 => "Azul Zulu\u{a0}8, fait pour Apple Silicon",
+        M::MojangIntelJavaVersion => "Java {major} Intel de Mojang, grâce à Rosetta\u{a0}2",
+        M::JavaTheVersionNeeds => "Le Java dont cette version a besoin",
         M::UseThisJava => "Utiliser ce Java",
         M::Check => "Vérifier",
         M::JvmArguments => "Arguments JVM",
@@ -194,6 +200,9 @@ pub fn text(message: M) -> &'static str {
         M::SnapshotFrom => "{name} · Minecraft {version}",
         M::SnapshotModsWarning => {
             "Il contient {count} mods\u{a0}: des programmes qui s’exécutent au lancement du jeu. N’utilisez que des instantanés de personnes de confiance."
+        }
+        M::SnapshotLaunchSettingsWarning => {
+            "Ses paramètres d’instance changent le lancement du jeu\u{a0}: Java, ses arguments, les variables d’environnement ou la mémoire. Ils peuvent aussi exécuter des programmes, et ne sont donc utilisés que si Paramètres de l’instance est choisi. Ne le choisissez que pour des instantanés de personnes de confiance."
         }
         M::CreateInstanceButton => "Créer l’instance",
         M::SnapshotGameRunning => "Arrêtez d’abord le jeu.",
@@ -338,6 +347,36 @@ pub fn text(message: M) -> &'static str {
         M::PlayBackgroundKeywords => "fond d’écran image photo diaporama",
         M::DeleteKeywords => "supprimer retirer désinstaller",
         M::LoaderKeywords => "chargeur de mods Fabric Forge NeoForge Quilt",
+
+        M::AddModpackTitle => "Ajouter un modpack à {name}",
+        M::AddModpackFilter => "Modpacks pour Minecraft {version} avec {loader}. {note}",
+        M::AddModpackServerNote => {
+            "Les mods du pack s’ajoutent à ceux de {server}, qui restent tels que le serveur les a\u{a0}: vous pouvez toujours le rejoindre."
+        }
+        M::AddModpackNote => {
+            "Les fichiers du pack s’ajoutent à ceux de l’instance. Rien de ce qu’elle a n’est remplacé."
+        }
+        M::AddModpackButton => "Ajouter le modpack",
+        M::CheckingModpack => "Vérification du modpack",
+        M::AddModpackSummary => "{pack} {version}\u{a0}: {size} à télécharger.",
+        M::AddModpackNothing => "L’instance a déjà tous les fichiers de ce pack.",
+        M::AddGroupFiles => "À ajouter ({count})",
+        M::AddGroupConfigs => "Configurations à ajouter ({count})",
+        M::AddGroupServer => "Gardés tels que {server} les a ({count})",
+        M::AddGroupPack => "Gardés tels que le modpack de l’instance les a ({count})",
+        M::AddGroupThere => "Déjà dans l’instance ({count})",
+        M::AddedModpacks => "Modpacks ajoutés",
+        M::AddModpackRow => "Ajouter un modpack",
+        M::AddModpackHint => {
+            "Ajoutez les mods et configurations d’un modpack à cette instance, à côté des siens."
+        }
+        M::AddModpackServerHint => {
+            "Ajoutez les mods d’un modpack, comme des optimisations côté client, à côté de ceux de {server}. Les mods du serveur restent tels quels."
+        }
+        M::AddModpackEllipsis => "Ajouter un modpack…",
+        M::RemoveAddedModpackNote => {
+            "Supprime les fichiers ajoutés par le pack. Les fichiers que vous avez modifiés restent."
+        }
     }
 }
 
@@ -389,5 +428,8 @@ pub fn plural(message: P) -> [&'static str; 2] {
             "Paramètres de jeu partagés\u{a0}: {count}\u{a0}paramètre changé en jeu sera remplacé par la valeur partagée au prochain lancement (voir Paramètres)",
             "Paramètres de jeu partagés\u{a0}: {count}\u{a0}paramètres changés en jeu seront remplacés par les valeurs partagées au prochain lancement (voir Paramètres)",
         ],
+
+        P::AndMoreFiles => ["et {count} autre", "et {count} autres"],
+        P::AddedModpackFiles => ["{count} fichier ajouté", "{count} fichiers ajoutés"],
     }
 }

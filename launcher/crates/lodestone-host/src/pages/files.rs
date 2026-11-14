@@ -5,26 +5,32 @@
 //!
 //! Beyond the dashboard: opening another file or folder with unsaved changes asks
 //! first, and changes left unsaved when the tab closes are kept (while the Host runs)
-//! and come back when the file opens again, unless the file changed meanwhile.
+//! and come back when the file opens again, unless the file changed meanwhile. So are
+//! the changes of a file that is moved, renamed or deleted (with a folder it is in).
+//!
+//! Pastes, deletes, uploads and downloads outlive the tab: switching tabs rebuilds the
+//! page, and must not stop them partway. They say how they went through the Host's
+//! toasts, and have the Files tab, open again or not, list the folder once done.
 
-use std::{collections::HashMap, path::PathBuf};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+};
 
 use gpui::{
-    AnyElement, App, AppContext as _, ClickEvent, Context, Entity, ExternalPaths, FocusHandle,
-    Global, IntoElement, KeyBinding, MouseButton, MouseDownEvent, MouseMoveEvent, ParentElement,
-    Pixels, Point, Render, SharedString, Styled, Subscription, Task, UniformListScrollHandle,
-    Window, actions, anchored, deferred, div, img, prelude::*, uniform_list,
+    AnyElement, App, AppContext as _, AsyncApp, ClickEvent, Context, Entity, ExternalPaths,
+    FocusHandle, Global, IntoElement, KeyBinding, MouseButton, MouseDownEvent, MouseMoveEvent,
+    ParentElement, Pixels, Point, Render, SharedString, Styled, Subscription, Task,
+    UniformListScrollHandle, WeakEntity, Window, actions, anchored, deferred, div, img, prelude::*,
+    uniform_list,
 };
-use launcher_core::cores::{
-    CoreError,
-    admin::{
-        EventInner,
-        events::{ProgressionEndValue, ProgressionEventInner},
-        files::{
-            ClientFile, FileType, MAX_READ_BYTES, UnzipOption, file_name, join, parent, separator,
-        },
-        models::InstancePermission,
+use launcher_core::cores::admin::{
+    EventInner,
+    events::{ProgressionEndValue, ProgressionEventInner},
+    files::{
+        ClientFile, FileType, MAX_READ_BYTES, UnzipOption, file_name, join, parent, separator,
     },
+    models::InstancePermission,
 };
 use lodestone_ui::{
     components::{
@@ -298,6 +304,12 @@ impl FilesPage {
 
     /// Keeps unsaved edits for when the file opens again.
     fn keep_draft(&mut self, cx: &mut App) {
+        self.keep_draft_at(None, cx);
+    }
+
+    /// Keeps unsaved edits for when the file opens again, where it is and at
+    /// `moved_to` (where a move or rename puts it), since the move may fail.
+    fn keep_draft_at(&mut self, moved_to: Option<String>, cx: &mut App) {
         let Some(Opened {
             file,
             content: Content::Loaded(original),
@@ -309,10 +321,33 @@ impl FilesPage {
             return;
         }
         let text = self.editor.read(cx).text();
-        cx.default_global::<Remembered>().drafts.insert(
-            (self.uuid.clone(), file.path.clone()),
-            (original.clone(), text),
-        );
+        let drafts = &mut cx.default_global::<Remembered>().drafts;
+        for path in std::iter::once(file.path.clone()).chain(moved_to) {
+            drafts.insert((self.uuid.clone(), path), (original.clone(), text.clone()));
+        }
+    }
+
+    /// Closes the open file when a move or delete takes it away (it is one of the
+    /// paths `taken`, or in a folder among them), keeping its unsaved edits. Each path
+    /// comes with where it moves to, or `None` when it is deleted.
+    fn close_if_taken(
+        &mut self,
+        taken: impl IntoIterator<Item = (String, Option<String>)>,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(opened) = self.opened.as_ref().map(|o| o.file.path.clone()) else {
+            return;
+        };
+        let sep = self.sep;
+        let Some((path, to)) = taken
+            .into_iter()
+            .find(|(path, _)| is_within(&opened, path, sep))
+        else {
+            return;
+        };
+        let moved = to.and_then(|to| moved_path(&opened, &path, &to, sep));
+        self.keep_draft_at(moved, cx);
+        self.close_file(cx);
     }
 
     // ---- The folder ----
@@ -380,6 +415,11 @@ impl FilesPage {
     /// The core finished zipping or unzipping: lists the folder again. (The state says
     /// how it went, on any page, as the dashboard does.)
     fn on_host_event(&mut self, event: &HostEvent, cx: &mut Context<Self>) {
+        if let HostEvent::FilesChanged(uuid) = event
+            && *uuid == self.uuid
+        {
+            return self.load(cx);
+        }
         let HostEvent::Core(event) = event else {
             return;
         };
@@ -636,7 +676,8 @@ impl FilesPage {
         cx.notify();
     }
 
-    /// Pastes the clipboard into `dir`: copies, or moves what was cut.
+    /// Pastes the clipboard into `dir`: copies, or moves what was cut. It goes on
+    /// when the page closes (see the module's notes).
     fn paste(&mut self, dir: String, cx: &mut Context<Self>) {
         if self.clipboard.is_empty() {
             return;
@@ -647,49 +688,52 @@ impl FilesPage {
         let uuid = self.uuid.clone();
         let sep = self.sep;
         // a moved file can't stay open
-        if action == ClipAction::Cut
-            && let Some(opened) = &self.opened
-            && files.iter().any(|f| opened.file.path.starts_with(&f.path))
-        {
-            self.close_file(cx);
+        if action == ClipAction::Cut {
+            let taken = files
+                .iter()
+                .map(|file| (file.path.clone(), Some(join(&dir, &file.name, sep))));
+            self.close_if_taken(taken.collect::<Vec<_>>(), cx);
         }
-        let task = cx.spawn(async move |this, cx| {
+        let state = self.state.downgrade();
+        cx.spawn(async move |_, cx| {
             let failures = cx
-                .background_spawn(async move {
-                    let mut failures = Vec::new();
-                    match action {
-                        ClipAction::Copy => {
-                            let sources: Vec<String> =
-                                files.iter().map(|f| f.path.clone()).collect();
-                            if let Err(err) = admin.copy_paths(&uuid, &sources, &dir).await {
-                                failures.push(err.to_string());
+                .background_spawn({
+                    let uuid = uuid.clone();
+                    async move {
+                        let mut failures = Vec::new();
+                        match action {
+                            ClipAction::Copy => {
+                                let sources: Vec<String> =
+                                    files.iter().map(|f| f.path.clone()).collect();
+                                if let Err(err) = admin.copy_paths(&uuid, &sources, &dir).await {
+                                    failures.push(err.to_string());
+                                }
                             }
-                        }
-                        ClipAction::Cut => {
-                            for file in &files {
-                                let dest = join(&dir, &file.name, sep);
-                                if let Err(err) = admin.move_path(&uuid, &file.path, &dest).await {
-                                    failures.push(tr!(
-                                        M::FilesMoveFailed,
-                                        name = file.name,
-                                        error = err
-                                    ));
+                            ClipAction::Cut => {
+                                for file in &files {
+                                    let dest = join(&dir, &file.name, sep);
+                                    if let Err(err) =
+                                        admin.move_path(&uuid, &file.path, &dest).await
+                                    {
+                                        failures.push(tr!(
+                                            M::FilesMoveFailed,
+                                            name = file.name,
+                                            error = err
+                                        ));
+                                    }
                                 }
                             }
                         }
+                        failures
                     }
-                    failures
                 })
                 .await;
-            this.update(cx, |this, cx| {
-                for failure in failures {
-                    this.toast(Toast::error(failure), cx);
-                }
-                this.load(cx);
-            })
-            .ok();
-        });
-        self.spawn_task(task);
+            for failure in failures {
+                toast_later(&state, Toast::error(failure), cx);
+            }
+            files_changed(&state, &uuid, cx);
+        })
+        .detach();
         cx.notify();
     }
 
@@ -746,15 +790,21 @@ impl FilesPage {
         self.spawn_task(task);
     }
 
+    /// Deletes files and folders, one by one. It goes on when the page closes (see
+    /// the module's notes).
     fn delete(&mut self, files: Vec<ClientFile>, cx: &mut Context<Self>) {
-        if let Some(opened) = &self.opened
-            && files.iter().any(|f| opened.file.path.starts_with(&f.path))
-        {
-            self.close_file(cx);
-        }
+        // the edits come back if the delete fails and the file opens again
+        self.close_if_taken(
+            files
+                .iter()
+                .map(|f| (f.path.clone(), None))
+                .collect::<Vec<_>>(),
+            cx,
+        );
         let admin = self.state.read(cx).admin.clone();
         let uuid = self.uuid.clone();
-        let task = cx.spawn(async move |this, cx| {
+        let state = self.state.downgrade();
+        cx.spawn(async move |this, cx| {
             // one by one, as the dashboard does, each with its own toast
             for file in files {
                 let result = cx
@@ -768,26 +818,23 @@ impl FilesPage {
                         async move { admin.delete_path(&uuid, &path, dir).await }
                     })
                     .await;
-                let alive = this
-                    .update(cx, |this, cx| {
-                        let toast = match result {
-                            Ok(()) if file.is_dir() => {
-                                Toast::success(tr!(M::FilesDeletedFolder, path = file.path))
-                            }
-                            Ok(()) => Toast::success(tr!(M::FilesDeletedFile, name = file.name)),
-                            Err(err) => Toast::error(err.to_string()),
-                        };
-                        this.toast(toast, cx);
-                        this.ticked.retain(|p| *p != file.path);
-                    })
-                    .is_ok();
-                if !alive {
-                    return;
-                }
+                let toast = match result {
+                    Ok(()) if file.is_dir() => {
+                        Toast::success(tr!(M::FilesDeletedFolder, path = file.path))
+                    }
+                    Ok(()) => Toast::success(tr!(M::FilesDeletedFile, name = file.name)),
+                    Err(err) => Toast::error(err.to_string()),
+                };
+                toast_later(&state, toast, cx);
+                this.update(cx, |this, cx| {
+                    this.ticked.retain(|p| *p != file.path);
+                    cx.notify();
+                })
+                .ok();
             }
-            this.update(cx, |this, cx| this.load(cx)).ok();
-        });
-        self.spawn_task(task);
+            files_changed(&state, &uuid, cx);
+        })
+        .detach();
     }
 
     // ---- Upload and download ----
@@ -807,7 +854,8 @@ impl FilesPage {
         self.spawn_task(task);
     }
 
-    /// Uploads files from this computer into the folder shown. Folders are refused.
+    /// Uploads files from this computer into the folder shown, streamed from disk.
+    /// Folders are refused. It goes on when the page closes (see the module's notes).
     fn upload(&mut self, paths: Vec<PathBuf>, cx: &mut Context<Self>) {
         if paths.is_empty() || !self.can_write(cx) {
             return;
@@ -819,35 +867,27 @@ impl FilesPage {
         self.toast(Toast::info(trn!(P::FilesUploading, count)), cx);
         let admin = self.state.read(cx).admin.clone();
         let (uuid, dir) = (self.uuid.clone(), self.path.clone());
-        let task = cx.spawn(async move |this, cx| {
+        let state = self.state.downgrade();
+        cx.spawn(async move |_, cx| {
             let result = cx
-                .background_spawn(async move {
-                    let mut files = Vec::new();
-                    for path in paths {
-                        let name = path
-                            .file_name()
-                            .map(|n| n.to_string_lossy().into_owned())
-                            .unwrap_or_default();
-                        let bytes = std::fs::read(&path)
-                            .map_err(|err| CoreError::Invalid(format!("{name}: {err}")))?;
-                        files.push((name, bytes));
-                    }
-                    admin.upload_files(&uuid, &dir, &files).await
+                .background_spawn({
+                    let uuid = uuid.clone();
+                    async move { admin.upload_paths(&uuid, &dir, &paths).await }
                 })
                 .await;
-            this.update(cx, |this, cx| {
-                if let Err(err) = result {
-                    this.toast(Toast::error(err.to_string()), cx);
-                }
-                this.load(cx);
-            })
-            .ok();
-        });
-        self.spawn_task(task);
+            if let Err(err) = result {
+                toast_later(&state, Toast::error(err.to_string()), cx);
+            }
+            files_changed(&state, &uuid, cx);
+        })
+        .detach();
     }
 
     /// Downloads files: one is saved where the user says, several into a folder they
-    /// pick. A folder comes as a zip, made by the core.
+    /// pick, each under a name nothing there has yet. A folder comes as a zip, made by
+    /// the core. Each is written next to where it goes and only put there once
+    /// complete, so a failed download leaves no partial file and harms no file the
+    /// user had. Downloads go on when the page closes (see the module's notes).
     fn download(&mut self, files: Vec<ClientFile>, cx: &mut Context<Self>) {
         if files.is_empty() {
             return;
@@ -856,10 +896,14 @@ impl FilesPage {
             .or_else(dirs::home_dir)
             .unwrap_or_else(|| PathBuf::from("."));
         let single = files.len() == 1;
-        let task = cx.spawn(async move |this, cx| {
+        let admin = self.state.read(cx).admin.clone();
+        let uuid = self.uuid.clone();
+        let state = self.state.downgrade();
+        cx.spawn(async move |this, cx| {
             let targets: Vec<(ClientFile, PathBuf)> = if single {
                 let file = files[0].clone();
                 let name = download_name(&file);
+                // the save dialog asks before replacing a file
                 let dialog = cx.update(|cx| cx.prompt_for_new_path(&downloads, Some(&name)));
                 let Some(out) = file_dialog::chosen(dialog, &this, cx).await else {
                     return;
@@ -880,59 +924,40 @@ impl FilesPage {
                 else {
                     return;
                 };
-                files
-                    .into_iter()
-                    .map(|file| {
-                        let out = dir.join(download_name(&file));
-                        (file, out)
-                    })
-                    .collect()
+                let names: Vec<String> = files.iter().map(download_name).collect();
+                let outs = download_paths(&dir, &names, |path| path.exists());
+                files.into_iter().zip(outs).collect()
             };
             for (file, out) in targets {
-                let Ok((admin, uuid)) = this.update(cx, |this, cx| {
-                    if file.is_dir() {
-                        this.toast(Toast::info(t(M::FilesZippingForDownload)), cx);
-                    }
+                if file.is_dir() {
+                    toast_later(&state, Toast::info(t(M::FilesZippingForDownload)), cx);
+                }
+                this.update(cx, |this, cx| {
                     this.ticked.retain(|p| *p != file.path);
                     cx.notify();
-                    (this.state.read(cx).admin.clone(), this.uuid.clone())
-                }) else {
-                    return;
-                };
+                })
+                .ok();
                 let result = cx
                     .background_spawn({
-                        let (file, out) = (file.clone(), out.clone());
+                        let (admin, uuid, file, out) =
+                            (admin.clone(), uuid.clone(), file.clone(), out.clone());
                         async move { admin.download_to(&uuid, &file, &out).await }
                     })
                     .await;
-                this.update(cx, |this, cx| match result {
+                let toast = match result {
                     Ok(_) => {
                         let shown = out.clone();
-                        this.toast(
-                            Toast::success(tr!(M::FilesDownloaded, name = file.name))
-                                .action(t(M::FilesShowInFolder), move |_, cx| {
-                                    cx.reveal_path(&shown)
-                                }),
-                            cx,
-                        );
+                        Toast::success(tr!(M::FilesDownloaded, name = file.name))
+                            .action(t(M::FilesShowInFolder), move |_, cx| cx.reveal_path(&shown))
                     }
                     Err(err) => {
-                        // nothing half-written is left behind
-                        std::fs::remove_file(&out).ok();
-                        this.toast(
-                            Toast::error(tr!(
-                                M::FilesDownloadFailed,
-                                name = file.name,
-                                error = err
-                            )),
-                            cx,
-                        );
+                        Toast::error(tr!(M::FilesDownloadFailed, name = file.name, error = err))
                     }
-                })
-                .ok();
+                };
+                toast_later(&state, toast, cx);
             }
-        });
-        self.spawn_task(task);
+        })
+        .detach();
     }
 
     // ---- Dialogs ----
@@ -986,6 +1011,17 @@ impl FilesPage {
             DialogKind::Rename { path } => (path.clone(), 2),
             _ => return,
         };
+        // a new file by the name of one there would empty it: the folder shown is
+        // checked at once, and any folder again just before it is made (below)
+        let dir = match &dialog.kind {
+            DialogKind::NewFile { dir } | DialogKind::NewFolder { dir } => Some(dir.clone()),
+            _ => None,
+        };
+        if dir.as_deref() == Some(self.path.as_str()) && name_taken(&self.files, &name) {
+            self.dialog_error = Some(tr!(M::FilesNameTaken, name = name));
+            cx.notify();
+            return;
+        }
         let renamed = {
             // the same folder, the new name
             let at = target.rfind(sep).map_or(0, |i| i + 1);
@@ -995,17 +1031,24 @@ impl FilesPage {
         let uuid = self.uuid.clone();
         self.dialog_busy = true;
         self.dialog_error = None;
-        let opened = self.opened.as_ref().map(|o| o.file.path.clone());
         let task = cx.spawn(async move |this, cx| {
             let result = cx
                 .background_spawn({
-                    let (target, renamed) = (target.clone(), renamed.clone());
+                    let (target, renamed, name) = (target.clone(), renamed.clone(), name.clone());
+                    // `Err(None)`: the name is taken
                     async move {
+                        if let Some(dir) = &dir {
+                            let files = admin.list_files(&uuid, dir).await.map_err(Some)?;
+                            if name_taken(&files, &name) {
+                                return Err(None);
+                            }
+                        }
                         match action {
                             0 => admin.new_file(&uuid, &target).await,
                             1 => admin.new_folder(&uuid, &target).await,
                             _ => admin.move_path(&uuid, &target, &renamed).await,
                         }
+                        .map_err(Some)
                     }
                 })
                 .await;
@@ -1014,12 +1057,17 @@ impl FilesPage {
                 match result {
                     Ok(()) => {
                         this.dialog.close(cx);
-                        if action == 2 && opened.is_some_and(|o| o.starts_with(&target)) {
-                            this.close_file(cx);
+                        if action == 2 {
+                            // the renamed file (or one in the renamed folder) closes,
+                            // and its unsaved edits wait for it under its new name
+                            this.close_if_taken([(target.clone(), Some(renamed.clone()))], cx);
                         }
                         this.load(cx);
                     }
-                    Err(err) => {
+                    Err(None) => {
+                        this.dialog_error = Some(tr!(M::FilesNameTaken, name = name));
+                    }
+                    Err(Some(err)) => {
                         if action == 2 {
                             let name = file_name(&target, sep).to_string();
                             this.toast(
@@ -1855,6 +1903,95 @@ fn zip_name(files: &[ClientFile]) -> String {
     }
 }
 
+/// A path as the core lists it: `./config` is `config`. (The Host joins names to the
+/// top folder `.`, while the core's paths start without it.)
+fn listed(path: &str, sep: char) -> &str {
+    let mut path = path;
+    while let Some(rest) = path.strip_prefix('.').and_then(|p| p.strip_prefix(sep)) {
+        path = rest;
+    }
+    path
+}
+
+/// Whether `path` is `ancestor` or inside it, part by part: `config/create` holds
+/// `config/create/a.toml`, but not `config/create-common.toml`.
+fn is_within(path: &str, ancestor: &str, sep: char) -> bool {
+    let (path, ancestor) = (
+        listed(path, sep),
+        listed(ancestor, sep).trim_end_matches(sep),
+    );
+    path == ancestor
+        || path
+            .strip_prefix(ancestor)
+            .is_some_and(|rest| rest.starts_with(sep))
+}
+
+/// Where `path` is once `from` (it, or a folder it is in) moved to `to`.
+fn moved_path(path: &str, from: &str, to: &str, sep: char) -> Option<String> {
+    if !is_within(path, from, sep) {
+        return None;
+    }
+    let (path, from) = (listed(path, sep), listed(from, sep).trim_end_matches(sep));
+    Some(format!("{}{}", listed(to, sep), &path[from.len()..]))
+}
+
+/// Where each of several downloads into `dir` is saved: under its own name, or
+/// `name (2).ext`, `name (3).ext`, … when a file there (`exists`) or an earlier one of
+/// these downloads has it, so none replaces another or a file the user had.
+fn download_paths(dir: &Path, names: &[String], exists: impl Fn(&Path) -> bool) -> Vec<PathBuf> {
+    // names differing only in case are the same file on macOS and Windows
+    let mut taken: Vec<String> = Vec::new();
+    names
+        .iter()
+        .map(|name| {
+            let (stem, extension) = {
+                let path = Path::new(name);
+                let stem = path
+                    .file_stem()
+                    .map(|s| s.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| name.clone());
+                let extension = path
+                    .extension()
+                    .map(|e| format!(".{}", e.to_string_lossy()));
+                (stem, extension.unwrap_or_default())
+            };
+            let out = (1..)
+                .map(|n| match n {
+                    1 => name.clone(),
+                    n => format!("{stem} ({n}){extension}"),
+                })
+                .map(|candidate| dir.join(candidate))
+                .find(|out| {
+                    let key = out.to_string_lossy().to_lowercase();
+                    !taken.contains(&key) && !exists(out)
+                })
+                .expect("an unused name");
+            taken.push(out.to_string_lossy().to_lowercase());
+            out
+        })
+        .collect()
+}
+
+/// Shows a toast through the Host, for work that outlives the page.
+fn toast_later(state: &WeakEntity<HostState>, toast: Toast, cx: &mut AsyncApp) {
+    state.update(cx, |state, cx| state.toast(toast, cx)).ok();
+}
+
+/// Has the instance's Files tab, whichever page shows it now, list its folder again.
+fn files_changed(state: &WeakEntity<HostState>, uuid: &str, cx: &mut AsyncApp) {
+    let uuid = uuid.to_string();
+    state
+        .update(cx, |_, cx| cx.emit(HostEvent::FilesChanged(uuid)))
+        .ok();
+}
+
+/// Whether a folder's `files` have one named `name`. Case is ignored, as macOS's and
+/// Windows' file systems do, where `Server.properties` is `server.properties`.
+fn name_taken(files: &[ClientFile], name: &str) -> bool {
+    let name = name.to_lowercase();
+    files.iter().any(|file| file.name.to_lowercase() == name)
+}
+
 /// The name a download is saved under: a folder comes as a zip.
 fn download_name(file: &ClientFile) -> String {
     if file.is_dir() {
@@ -2341,6 +2478,94 @@ mod tests {
         assert_eq!(zip_name(&[a.clone(), b.clone()]), "Archive.zip");
         assert_eq!(download_name(&a), "world.zip");
         assert_eq!(download_name(&b), "server.properties");
+    }
+
+    #[test]
+    fn a_new_name_clashes_with_any_entry_there_whatever_its_case() {
+        let files = [
+            file("server.properties", FileType::File),
+            file("world", FileType::Directory),
+        ];
+        assert!(name_taken(&files, "server.properties"));
+        assert!(name_taken(&files, "Server.Properties"));
+        // a new file can't take a folder's name either
+        assert!(name_taken(&files, "world"));
+        assert!(!name_taken(&files, "ops.json"));
+        assert!(!name_taken(&files, "server.properties.bak"));
+    }
+
+    #[test]
+    fn a_folder_holds_only_paths_under_it_part_by_part() {
+        let sep = '/';
+        assert!(is_within("config/create/a.toml", "config/create", sep));
+        assert!(is_within("config/create", "config/create", sep));
+        assert!(is_within("config/create/a.toml", "config/create/", sep));
+        // names that only start the same aren't in it
+        assert!(!is_within(
+            "config/create-common.toml",
+            "config/create",
+            sep
+        ));
+        assert!(!is_within("world_nether/paper-world.yml", "world", sep));
+        assert!(!is_within("server.properties", "server", sep));
+        // the Host's paths from the top folder are the core's
+        assert!(is_within("world/level.dat", "./world", sep));
+        assert!(is_within("./world/level.dat", "world", sep));
+        // Windows cores use backslashes
+        assert!(is_within(r"config\create\a.toml", r"config\create", '\\'));
+        assert!(!is_within(
+            r"config\create-common.toml",
+            r"config\create",
+            '\\'
+        ));
+    }
+
+    #[test]
+    fn a_moved_file_is_found_under_its_new_folder() {
+        let sep = '/';
+        assert_eq!(
+            moved_path("config/create/a.toml", "config/create", "./old/create", sep).as_deref(),
+            Some("old/create/a.toml")
+        );
+        assert_eq!(
+            moved_path(
+                "server.properties",
+                "server.properties",
+                "./a.properties",
+                sep
+            )
+            .as_deref(),
+            Some("a.properties")
+        );
+        assert_eq!(
+            moved_path("config/create-common.toml", "config/create", "x", sep),
+            None
+        );
+    }
+
+    #[test]
+    fn several_downloads_never_replace_a_file_or_each_other() {
+        let dir = Path::new("downloads");
+        let had = [dir.join("world.zip"), dir.join("world (2).zip")];
+        let names = [
+            "world.zip".to_string(),
+            "world.zip".to_string(),
+            "server.properties".to_string(),
+            "Server.properties".to_string(),
+            "eula".to_string(),
+        ];
+        let outs = download_paths(dir, &names, |path| had.iter().any(|h| h == path));
+        assert_eq!(
+            outs,
+            [
+                dir.join("world (3).zip"),
+                dir.join("world (4).zip"),
+                dir.join("server.properties"),
+                // the same file as the one before on macOS and Windows
+                dir.join("Server (2).properties"),
+                dir.join("eula"),
+            ]
+        );
     }
 
     #[test]

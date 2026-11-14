@@ -5,6 +5,7 @@ pub mod auth_errors;
 mod keychain;
 pub mod offline_dialog;
 pub mod sign_in;
+pub mod skin_dialog;
 
 use std::{
     collections::HashMap,
@@ -84,6 +85,12 @@ pub struct Accounts {
     launcher_identity: bool,
     /// Refreshes and scheduled refreshes, by account id. Dropping one cancels it.
     tasks: HashMap<String, Task<()>>,
+    /// Removals still deleting their Keychain item, by account id. They are kept
+    /// apart from `tasks` so that a refresh never replaces (and so cancels) one:
+    /// removing several accounts at once makes the next one active after each
+    /// removal, and switching to it would otherwise start a refresh in its place.
+    /// An account in here is never refreshed.
+    removals: HashMap<String, Task<()>>,
     avatar_tasks: HashMap<String, Task<()>>,
 }
 
@@ -133,6 +140,7 @@ impl Accounts {
             offline_setting: developer.offline_accounts,
             launcher_identity,
             tasks: HashMap::new(),
+            removals: HashMap::new(),
             avatar_tasks: HashMap::new(),
         };
         for account in this.store.accounts().to_vec() {
@@ -346,12 +354,36 @@ impl Accounts {
         let Some(account) = self.store.get(id).cloned() else {
             return;
         };
+        if self.removals.contains_key(id) {
+            return;
+        }
+        // Cancels any refresh, or scheduled refresh, of the account being removed.
+        self.tasks.remove(id);
         let secrets = self.secrets.clone();
         let task = cx.spawn(async move |this, cx| {
             if let Some(key) = account.secret_key() {
                 let store = secrets.store(cx);
                 if let Err(err) = store.delete(&key).await {
                     this.update(cx, |this, cx| {
+                        // The account stays, so it can be refreshed again. Removing it
+                        // cancelled any refresh and the timer that keeps it fresh: a
+                        // session that's ready gets its timer back, and one that was
+                        // being refreshed is dropped, so switching to it refreshes it
+                        // instead of waiting on a refresh that's gone.
+                        this.removals.remove(&account.id);
+                        match this.sessions.get(&account.id) {
+                            Some(SessionState::Ready(session)) => {
+                                let expires_at = session.expires_at;
+                                this.schedule_refresh(&account.id, expires_at, cx);
+                            }
+                            Some(SessionState::Refreshing) => {
+                                this.sessions.remove(&account.id);
+                            }
+                            _ => {}
+                        }
+                        if this.store.active().is_some_and(|a| a.id == account.id) {
+                            this.switch(&account.id, cx);
+                        }
                         this.notice = Some(
                             tr!(
                                 M::CouldntRemoveSignIn,
@@ -367,6 +399,7 @@ impl Accounts {
                 }
             }
             this.update(cx, |this, cx| {
+                this.removals.remove(&account.id);
                 let result = this.store.forget(&account.id);
                 this.report(result.map(|_| ()));
                 this.sessions.remove(&account.id);
@@ -379,13 +412,14 @@ impl Accounts {
             })
             .ok();
         });
-        // Replaces (and so cancels) any refresh of the account being removed.
-        self.tasks.insert(id.to_string(), task);
+        self.removals.insert(id.to_string(), task);
     }
 
     /// Signs the account in again with its refresh token, in the background.
     pub fn refresh(&mut self, account: &Account, cx: &mut Context<Self>) {
-        if account.is_offline() {
+        // An account being removed is going away; refreshing it would only sign
+        // it in again.
+        if account.is_offline() || self.removals.contains_key(&account.id) {
             return;
         }
         self.sessions
@@ -493,14 +527,20 @@ impl Accounts {
 
     /// Stores the session and schedules a refresh shortly before it expires.
     fn set_session(&mut self, id: &str, session: MinecraftSession, cx: &mut Context<Self>) {
-        let refresh_in = session
-            .expires_at
+        let expires_at = session.expires_at;
+        self.sessions
+            .insert(id.to_string(), SessionState::Ready(session));
+        self.schedule_refresh(id, expires_at, cx);
+    }
+
+    /// Refreshes the account shortly before its session expires, if it's still the
+    /// active one then.
+    fn schedule_refresh(&mut self, id: &str, expires_at: SystemTime, cx: &mut Context<Self>) {
+        let refresh_in = expires_at
             .duration_since(SystemTime::now())
             .unwrap_or_default()
             .saturating_sub(Duration::from_secs(10 * 60))
             .max(Duration::from_secs(60));
-        self.sessions
-            .insert(id.to_string(), SessionState::Ready(session));
         let id = id.to_string();
         let timer = cx.background_executor().timer(refresh_in);
         let task = cx.spawn({
@@ -564,6 +604,26 @@ impl Accounts {
             }
         });
         self.avatar_tasks.insert(id, task);
+    }
+
+    /// The account's skin was changed (the "Change skin" dialog): remembers the new
+    /// one and shows its head.
+    pub fn skin_changed(&mut self, id: &str, skin_url: Option<String>, cx: &mut Context<Self>) {
+        let Some(account) = self.store.get(id).cloned() else {
+            return;
+        };
+        let result = self
+            .store
+            .update_profile(id, &account.username, skin_url.clone());
+        self.report(result);
+        self.load_avatar(
+            &Account {
+                skin_url,
+                ..account
+            },
+            cx,
+        );
+        cx.notify();
     }
 
     /// Shows a cached head for an account without downloading anything. For the
@@ -641,7 +701,11 @@ mod developer_setting_tests {
     use std::path::{Path, PathBuf};
 
     use gpui::{AppContext as _, TestAppContext};
-    use launcher_core::{auth::MsaConfig, paths::DataDir};
+    use launcher_core::{
+        accounts::Account,
+        auth::{ClientIdentity, MsaConfig},
+        paths::DataDir,
+    };
 
     use super::{Accounts, MemorySecretStore, Secrets};
 
@@ -735,5 +799,36 @@ mod developer_setting_tests {
             std::fs::read_to_string(&settings).unwrap(),
             r#"{"version":999}"#
         );
+    }
+
+    #[test]
+    fn turning_off_and_signing_out_removes_every_launcher_identity_account() {
+        let mut cx = TestAppContext::single();
+        let dir = TempDir::new("sign-out-launcher-identity");
+        let accounts = accounts(dir.path(), &mut cx);
+        // Microsoft accounts signed in as the Minecraft Launcher. The memory store
+        // has no sign-ins for them, so nothing here reaches the network.
+        let launcher_account = |name: &str| {
+            let uuid = Account::offline(name).unwrap().uuid;
+            Account::microsoft(uuid, name, None).with_client(ClientIdentity::MinecraftLauncher)
+        };
+        let a = launcher_account("Alex");
+        let b = launcher_account("Steve");
+        cx.update(|cx| {
+            accounts.update(cx, |this, _| {
+                this.store.upsert_and_activate(a.clone()).unwrap();
+                this.store.upsert_and_activate(b.clone()).unwrap();
+                // A is active and listed first, so removing it makes B active
+                // while B's own removal is still waiting.
+                this.store.set_active(&a.id).unwrap();
+            });
+            accounts.update(cx, |this, cx| this.sign_out_launcher_identity_accounts(cx));
+        });
+        cx.run_until_parked();
+        cx.update(|cx| {
+            let this = accounts.read(cx);
+            assert!(this.accounts().is_empty(), "{:?}", this.accounts());
+            assert!(this.active().is_none());
+        });
     }
 }

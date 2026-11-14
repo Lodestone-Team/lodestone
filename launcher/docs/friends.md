@@ -289,6 +289,16 @@ worked; a sync that failed is tried again every minute. A removal reaches a core
 through that sync, so a core whose Host isn't running keeps its old list until it next
 starts (and syncs) or is reached.
 
+**Removing a friend doesn't end invite links.** An invite link (a server shared "with a
+link") works for whoever has it, so a removed friend who got one can still join. When a
+sync takes friends off the core (removed, retired, no longer active, or hidden from) and
+servers are still shared by link, the Host shows a toast naming them with **Make new
+links**, and each such server's Share section says so until its link is new. **New link**
+beside Stop sharing does the same for one server: it stops sharing, which ends the link and
+disconnects everyone on it, and shares again with a new link
+(`lodestone-host/src/friends.rs`, `new_link`). Friends shared with from the friend list
+aren't affected. The Launcher's Remove dialog says this too.
+
 The Host never makes a friend identity. It opens the list that is there, without
 making keys, and reads the Keychain only when the file appears or changes, or on Try
 again (never every minute after a refusal). **A missing file stops it**: when the file

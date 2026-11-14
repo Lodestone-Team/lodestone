@@ -5,8 +5,12 @@
 //! version's details, an asset index, the Java runtime manifest) or a mod loader's
 //! (Fabric's and Quilt's meta, Forge's and NeoForge's installers). [`MojangUrls::resolve`]
 //! only lets through HTTPS URLs on those hosts ([`HOSTS`] and [`LOADER_HOSTS`]),
-//! upgrading old `http://` links. Tests use [`MojangUrls::mirror`], which serves each host from a path on a
-//! loopback mock server, so the recorded files can be used with their real URLs.
+//! upgrading old `http://` links. Azul's hosts ([`JAVA_HOSTS`]), for the Zulu 8 that
+//! runs Java 8 versions on Apple silicon ([`super::zulu`]), are let through only by
+//! [`MojangUrls::resolve_java`], which only that installs with: a version file or a
+//! loader's profile can't point at them. Tests use [`MojangUrls::mirror`], which serves
+//! each host from a path on a loopback mock server, so the recorded files can be used
+//! with their real URLs.
 
 use url::Url;
 
@@ -36,12 +40,18 @@ pub const LOADER_HOSTS: &[&str] = &[
     "maven.neoforged.net",
 ];
 
+/// Azul's metadata API and CDN, for the Java 8 Mojang doesn't build for Apple silicon;
+/// only [`MojangUrls::resolve_java`] accepts them.
+pub const JAVA_HOSTS: &[&str] = &["api.azul.com", "cdn.azul.com"];
+
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum UrlError {
     #[error("{0} is not a valid URL")]
     Invalid(String),
     #[error("{0} is not on one of Mojang's or the mod loaders' download servers")]
     NotMojang(String),
+    #[error("{0} is not on Azul's download servers")]
+    NotAzul(String),
 }
 
 /// Checks and maps the URLs the installer downloads.
@@ -82,17 +92,36 @@ impl MojangUrls {
     /// The URL to download `url` from, if it is on one of Mojang's or the mod
     /// loaders' hosts.
     pub fn resolve(&self, url: &str) -> Result<String, UrlError> {
+        self.resolve_on(
+            url,
+            |host| HOSTS.contains(&host) || LOADER_HOSTS.contains(&host),
+            UrlError::NotMojang,
+        )
+    }
+
+    /// The URL to download `url` from, if it is on Azul's hosts: for Azul's list of
+    /// Zulu builds and the builds themselves, and nothing else.
+    pub fn resolve_java(&self, url: &str) -> Result<String, UrlError> {
+        self.resolve_on(url, |host| JAVA_HOSTS.contains(&host), UrlError::NotAzul)
+    }
+
+    fn resolve_on(
+        &self,
+        url: &str,
+        allowed: impl Fn(&str) -> bool,
+        refused: fn(String) -> UrlError,
+    ) -> Result<String, UrlError> {
         let parsed = Url::parse(url).map_err(|_| UrlError::Invalid(url.to_string()))?;
         let host = parsed
             .host_str()
-            .filter(|host| HOSTS.contains(host) || LOADER_HOSTS.contains(host))
-            .ok_or_else(|| UrlError::NotMojang(url.to_string()))?;
+            .filter(|host| allowed(host))
+            .ok_or_else(|| refused(url.to_string()))?;
         if !matches!(parsed.scheme(), "https" | "http")
             || parsed.port().is_some()
             || !parsed.username().is_empty()
             || parsed.password().is_some()
         {
-            return Err(UrlError::NotMojang(url.to_string()));
+            return Err(refused(url.to_string()));
         }
         let path_and_query = match parsed.query() {
             Some(query) => format!("{}?{query}", parsed.path()),
@@ -134,6 +163,9 @@ mod tests {
         for bad in [
             "https://evil.example/client.jar",
             "https://maven.fabricmc.net.evil.example/x.jar",
+            // Azul's hosts are for its Java builds only.
+            "https://cdn.azul.com/zulu/bin/x.zip",
+            "https://api.azul.com/metadata/v1/zulu/packages/",
             "https://piston-data.mojang.com.evil.example/x",
             "https://piston-data.mojang.com:8443/x",
             "https://user@piston-data.mojang.com/x",
@@ -146,6 +178,22 @@ mod tests {
             urls.resolve("not a url"),
             Err(UrlError::Invalid(_))
         ));
+        assert_eq!(
+            urls.resolve_java("https://cdn.azul.com/zulu/bin/zulu8.zip")
+                .unwrap(),
+            "https://cdn.azul.com/zulu/bin/zulu8.zip"
+        );
+        for bad in [
+            "https://cdn.azul.com.evil.example/zulu/bin/x.zip",
+            "https://cdn.azul.com:8443/zulu/bin/x.zip",
+            "https://libraries.minecraft.net/x.jar",
+            "https://evil.example/x.zip",
+        ] {
+            assert!(
+                matches!(urls.resolve_java(bad), Err(UrlError::NotAzul(_))),
+                "{bad}"
+            );
+        }
         assert_eq!(
             urls.version_manifest(),
             "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json"

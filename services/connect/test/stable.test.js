@@ -98,8 +98,10 @@ test('the invite page offers the launcher and keeps the key in the browser', asy
   assert.equal(page.headers.get('referrer-policy'), 'no-referrer');
   const html = await page.text();
   assert.match(html, /lodestone:\/\/join\?invite=/);
-  assert.match(html, /releases\/download\/launcher-latest\/LodestoneLauncher\.dmg/);
-  assert.match(html, /releases\/download\/launcher-latest\/LodestoneLauncherSetup\.exe/);
+  // The download page, which offers the newest version's installer for this
+  // computer; launcher-latest has no disk image (LS-166).
+  assert.match(html, /href="https:\/\/www\.lodestone\.cc\/launcher\/"/);
+  assert.doesNotMatch(html, /launcher-latest|\.dmg|Setup\.exe/);
   // No outside resources.
   assert.doesNotMatch(html, /<(script|link|img)[^>]+(src|href)=/);
 

@@ -3132,7 +3132,6 @@ dependencies = [
  "enum_dispatch",
  "fancy-regex",
  "flate2",
- "fs_extra",
  "futures",
  "futures-util",
  "hex",
@@ -3181,7 +3180,9 @@ dependencies = [
  "walkdir",
  "which",
  "whoami",
+ "windows-sys 0.61.2",
  "zip",
+ "zstd",
 ]
 
 [[package]]
@@ -6245,6 +6246,7 @@ dependencies = [
  "bytes",
  "futures-core",
  "futures-sink",
+ "futures-util",
  "libc",
  "pin-project-lite",
  "tokio",

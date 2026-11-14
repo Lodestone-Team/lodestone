@@ -414,7 +414,8 @@
     if (inst.played === "yesterday") parts.push(fm("LessThanAMinute"));
     parts.push(playedText(inst));
     return [h("h1.lx-h1", tx(inst.name)), h("div.lx-sub", join(parts)),
-      inst.linked ? h("div.lx-sub", ctx.state.linkedCore === "removed" ? sh("LinkedToRemoved", { server: "Survival SMP", core: "Peter's Lodestone Core" }) : sh("LinkedTo", { server: "Survival SMP", core: "Peter's Lodestone Core" })) : null];
+      inst.linked ? h("div.lx-sub", ctx.state.linkedCore === "removed" ? sh("LinkedToRemoved", { server: "Survival SMP", core: "Peter's Lodestone Core" }) : sh("LinkedTo", { server: "Survival SMP", core: "Peter's Lodestone Core" })) : null,
+      inst.id === "old" ? h("div.lx-muted", { style: { fontSize: "12px" } }, sh("RunsUnderRosetta")) : null];
   }
   function instancePage(ctx) {
     const none = ctx.state.instances === "none" || ctx.route === "home";
@@ -1310,7 +1311,7 @@
     snapshotShare: (ctx) => dialog(ctx, is("ShareSnapshotTitle", { name: "Before 1.21 update" }), [waitBox(is("PreparingFile")), h("div.lx-scard", { style: { display: "flex", flexDirection: "row", alignItems: "center", gap: "10px" } }, ic("folder"), h("span.lx-mono", tx("Before 1.21 update.lsnap"))), h("p.lx-muted", is("DragToShare"))],
       [btn(is("SaveAsEllipsis")), btn(is("ShowInFolder")), btn(cm("Done"), { on: () => ctx.close() })], { narrow: true }),
     snapshotDelete: (ctx) => confirmDlg(ctx, is("DeleteSnapshotTitle", { name: "Before 1.21 update" }), h("p", is("DeleteSnapshotBody")), cm("Delete"), { danger: true }),
-    snapshotImport: (ctx) => dialog(ctx, is("ImportSnapshotTitle"), [waitBox(is("ReadingSnapshot")), h("div.lx-scard", h("b", is("SnapshotFrom", { name: "Survival 1.20.1", version: "1.20.1" }))), note(is("SnapshotModsWarning", { count: 14 }), "warn"), h("div.lx-muted", is("ImportingSnapshot"))],
+    snapshotImport: (ctx) => dialog(ctx, is("ImportSnapshotTitle"), [waitBox(is("ReadingSnapshot")), h("div.lx-scard", h("b", is("SnapshotFrom", { name: "Survival 1.20.1", version: "1.20.1" }))), note(is("SnapshotModsWarning", { count: 14 }), "warn"), note(is("SnapshotLaunchSettingsWarning"), "warn"), h("div.lx-muted", is("ImportingSnapshot"))],
       [pbtn(is("CreateInstanceButton"), () => ctx.close()), btn(cm("Cancel"), { on: () => ctx.close() })], { narrow: true }),
     iconPicker: (ctx) => dialog(ctx, is("Icon"), [seg([["b", is("BlocksAndItems")], ["e", is("Emoji")]], "b"), h("div", { style: { display: "grid", gridTemplateColumns: "repeat(10,1fr)", gap: "8px" } }, Array.from({ length: 30 }, (_, n) => h("span.lx-grass", { style: { filter: `hue-rotate(${n * 12}deg)`, width: "36px", height: "36px" } })))],
       [btn(is("UploadImage")), gbtn(is("UseDefault")), h("span.lx-grow"), btn(cm("Done"), { on: () => ctx.close() })]),
@@ -1378,7 +1379,7 @@
         tl(im("AutoMemoryLimitedNote", { wanted: "10 GB" }), "warn"), tl(im("AutoLowMemoryNote", { have: "2 GB", recommended: "6 GB" }), "warn"), tl(im("AutoVideoNoDistanceNote")), tl(im("AutoControlsLauncherNote")),
         tl(im("StoppedNote")), tl(im("EndedBySignal")), tl(im("CancellingNote")), tl(im("TitleAndMessage", { title: "Couldn't start Java", message: "No such file" })), tl(im("TwoSentences", { first: "Imported.", second: "Links were left out." })),
         tl(isp("SharedWrittenNewFile", { count: 42 })), tl(isp("SharedChangedNote", { count: 2 })), tl(is("SharedNotApplied", { error: "options.txt is read-only" }), "warn"), tl(is("SharedNotReadBack", { error: "options.txt is missing" }), "warn")]),
-      mgroup(im("CouldntStartMinecraft"), null, [te(im("RosettaNeeded"), im("RosettaMissing")), te(im("CouldntStartMinecraft"), tx("\u2026")), te(im("CouldntStartJava"), tx("No such file or directory")), te(im("CouldntSignIn"), sh("AuthNetworkBody")),
+      mgroup(im("CouldntStartMinecraft"), null, [te(im("RosettaNeeded"), im("RosettaMissing")), toast(im("RosettaNoticeTitle", { version: "1.12.2" }), im("RosettaNoticeBody")), toast(im("RosettaNoticeTitle", { version: "1.16.5" }), im("RosettaNoticeBodyOverride")), te(im("CouldntStartMinecraft"), im("NoNativeJava8")), te(im("CouldntStartMinecraft"), im("NeedsIntelJava", { version: "1.12.2" })), te(im("CouldntStartMinecraft"), tx("\u2026")), te(im("CouldntStartJava"), tx("No such file or directory")), te(im("CouldntSignIn"), sh("AuthNetworkBody")),
         te(im("CouldntVerify"), tx("\u2026")), toast(im("GameFilesVerified"), imp("FilesRepaired", { count: 3, summary: "" }), "ok"), tl(imp("CheckSummary", { count: 4091, ms: 45, unchanged: 4091, hashed: 0, downloaded: 0 })),
         tl(im("FilesBusy"), "warn"), tl(im("StopGameFirst"), "warn"), te(null, im("CouldntSavePlayed", { error: "disk full" })), te(null, im("CouldntSavePlayTime", { error: "disk full" })), te(null, imp("BrokenFolders", { count: 2, path: "instances/old" }))]),
       mgroup(im("ModpackExported"), null, [toast(im("ModpackExported"), [imp("FilesSaved", { count: 1, path: "~/Desktop" }), " ", imp("CurseForgeLeftOut", { count: 2, names: "JourneyMap, Xaero's" }), " ", imp("FilesLeftOut", { count: 2, name: "secret.txt" })], "ok"), te(im("CouldntExportModpack"), tx("\u2026"))]),
@@ -1406,7 +1407,7 @@
       mgroup(is("Group"), tx("Automatic sidebar groups."), L(is, "AutoGroupServers AutoGroupFabric AutoGroupForge AutoGroupNeoForge AutoGroupQuilt AutoGroupVanilla AutoGroupImported", (el) => tl(el))),
       mgroup(is("GameAndLoader"), null, [tl(is("LoaderInstallsNextStart", { loader: "Fabric 0.16.9" })), tl(isp("LoaderNextStartModsOff", { loader: "Fabric 0.16.9", count: 1 })), tl(is("SavedNextStart"), "ok")]),
       mgroup(is("Modpack"), null, [tl(is("FromMrpack")), prog(is("DownloadingNewVersion"), 30), tl(is("StopGameFirst"), "warn"), te(null, is("CouldntPrepareUpdate", { error: "offline" }))]),
-      mgroup(is("JavaAndMemory"), null, [tl(is("Checking")), tl(is("MojangJava")), tl(is("UseThisJava"))]),
+      mgroup(is("JavaAndMemory"), null, [tl(is("Checking")), tl(is("MojangJava")), tl(is("AzulZulu8")), tl(is("MojangIntelJavaVersion", { major: 8 })), tl(is("JavaTheVersionNeeds")), tl(is("UseThisJava"))]),
       mgroup(is("Maintenance"), null, [btn(is("Exporting"), { disabled: true }), btn(is("Duplicating"), { disabled: true })]),
       mgroup(is("SharedGameSettings"), tx("Tags and buttons on a shared value."), [h("div", badge(is("NotShared")), " ", badge(is("NotSharedYet")), " ", badge(is("NotInOptions")), " ", badge(is("Shared")), " ", badge(is("ThisInstance"), "blue")),
         h("div", btn(is("ShareAll"), { sm: true }), " ", btn(is("OverrideAll"), { sm: true }), " ", btn(is("Override"), { sm: true }), " ", btn(is("UseShared", { value: "90" }), { sm: true }), " ", gbtn(is("Hide"))),

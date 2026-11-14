@@ -1,6 +1,7 @@
 //! The "New server" dialog: every game the core offers (`GET /games`, then the setup
 //! manifest's form) and the Modrinth modpack flow, after `InstanceCreateForm.tsx` and
-//! `ModpackCreateForm.tsx`.
+//! `ModpackCreateForm.tsx`. "Existing server" makes one from a server folder the user
+//! already has ([`import`]).
 //!
 //! Steps: Select game → Basic settings (name, description) → Server settings (the
 //! core's manifest) → Auto settings, then "Create Server" with the Minecraft EULA box,
@@ -10,6 +11,7 @@
 
 mod eula;
 mod fields;
+mod import;
 mod modpack;
 mod modrinth_search;
 mod wizard;
@@ -37,6 +39,7 @@ use lodestone_ui::{
 
 use self::{
     fields::{Field, HasFields},
+    import::{ImportEvent, ImportFlow},
     modpack::{ModpackEvent, ModpackFlow},
 };
 use crate::{
@@ -88,6 +91,7 @@ pub struct CreateInstance {
     errors: std::collections::HashMap<usize, String>,
     submitting: bool,
     modpack: Option<Entity<ModpackFlow>>,
+    import: Option<Entity<ImportFlow>>,
     _subscriptions: Vec<Subscription>,
     _tasks: Vec<Task<()>>,
 }
@@ -128,6 +132,7 @@ impl CreateInstance {
             errors: Default::default(),
             submitting: false,
             modpack: None,
+            import: None,
             _subscriptions: Vec::new(),
             _tasks: Vec::new(),
         };
@@ -402,6 +407,29 @@ impl CreateInstance {
         cx.notify();
     }
 
+    /// Opens the import flow (the "Existing server" card).
+    pub fn open_import(&mut self, cx: &mut Context<Self>) {
+        self.open_import_with(None, cx);
+    }
+
+    fn open_import_with(&mut self, path: Option<String>, cx: &mut Context<Self>) {
+        let state = self.state.clone();
+        let flow = cx.new(|cx| match path {
+            Some(path) => ImportFlow::with_path(state, path, cx),
+            None => ImportFlow::new(state, cx),
+        });
+        self._subscriptions
+            .push(cx.subscribe(&flow, |this, _, event, cx| match event {
+                ImportEvent::Back => {
+                    this.import = None;
+                    cx.notify();
+                }
+                ImportEvent::Done => cx.emit(CreateInstanceEvent::Close),
+            }));
+        self.import = Some(flow);
+        cx.notify();
+    }
+
     /// For screenshots (`--open-menu`): opens the modpack search's sort list, or the
     /// first list field of the step shown.
     #[cfg(feature = "screenshot")]
@@ -428,10 +456,17 @@ impl CreateInstance {
     }
 
     /// For screenshots: moves the dialog on to `step` (`games`, `basic`, `server`,
-    /// `auto`, `modpack`) as soon as what it needs has loaded.
+    /// `auto`, `modpack`, `import`, or `import:<folder>` to read a folder) as soon as
+    /// what it needs has loaded.
     pub fn advance_for_screenshot(&mut self, step: &str, cx: &mut Context<Self>) {
         if step == "modpack" {
             return self.open_modpack(cx);
+        }
+        if step == "import" {
+            return self.open_import(cx);
+        }
+        if let Some(path) = step.strip_prefix("import:") {
+            return self.open_import_with(Some(path.to_string()), cx);
         }
         if let Some(project) = step.strip_prefix("modpack:") {
             let (project_id, version_id) = match project.split_once('/') {
@@ -524,6 +559,7 @@ fn game_description(game: &HandlerGameType) -> &'static str {
         HandlerGameType::MinecraftJavaVanilla => M::GameVanillaDescription,
         HandlerGameType::MinecraftFabric => M::GameFabricDescription,
         HandlerGameType::MinecraftForge => M::GameForgeDescription,
+        HandlerGameType::MinecraftNeoForge => M::GameNeoForgeDescription,
         HandlerGameType::MinecraftPaper => M::GamePaperDescription,
         HandlerGameType::MinecraftBedrock => M::GameBedrockDescription,
         HandlerGameType::Unknown => M::GameGenericDescription,
@@ -633,6 +669,19 @@ impl CreateInstance {
                 cx,
             )
             .on_press(cx.listener(|this, _, _, cx| this.open_modpack(cx)))
+            .into_any_element(),
+        );
+        body.push(
+            game_card(
+                "game-import",
+                &HandlerGameType::MinecraftJavaVanilla.game(),
+                t(M::GameTypeImport).into(),
+                t(M::GameTypeImportDescription),
+                Some(t(M::GameTypeNew)),
+                false,
+                cx,
+            )
+            .on_press(cx.listener(|this, _, _, cx| this.open_import(cx)))
             .into_any_element(),
         );
         match &self.games {
@@ -794,9 +843,10 @@ impl Render for CreateInstance {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let this = cx.entity().downgrade();
         let height = px(HEIGHT).min(window.viewport_size().height - px(48.));
-        let content = match self.modpack.clone() {
-            Some(flow) => flow.into_any_element(),
-            None => self.render_flow(cx),
+        let content = match (self.modpack.clone(), self.import.clone()) {
+            (Some(flow), _) => flow.into_any_element(),
+            (None, Some(flow)) => flow.into_any_element(),
+            (None, None) => self.render_flow(cx),
         };
         div().absolute().inset_0().child(
             Dialog::new(

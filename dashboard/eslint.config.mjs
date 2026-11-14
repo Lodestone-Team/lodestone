@@ -37,7 +37,8 @@ export default defineConfig([
         },
         {
           name: '@tauri-apps/api',
-          message: 'Please use the global tauri object from tauriUtil.ts instead',
+          message:
+            'Please use the global tauri object from tauriUtil.ts instead',
         },
         {
           name: 'next/router',
@@ -46,6 +47,17 @@ export default defineConfig([
         {
           name: 'tailwind-merge',
           message: 'Please use "myTwMerge" from "utils.ts" instead',
+        },
+      ],
+      // The global `location` includes the base path (/host/app on the hosted
+      // dashboard), which react-router's paths don't. Read the router's
+      // location, or stripBasePath(window.location.pathname).
+      'no-restricted-globals': [
+        'error',
+        {
+          name: 'location',
+          message:
+            'Use the location from react-router or BrowserLocationContext, or stripBasePath(window.location.pathname)',
         },
       ],
       '@next/next/no-img-element': 'off',

@@ -316,10 +316,116 @@ async fn identities_are_saved_for_the_core_user_only_and_resumed_for_existing_in
     // shutting down keeps the identity, to resume with the same link
     shares.stop_all().await;
     assert!(file.exists(), "kept when the core shuts down");
-    assert!(shares.slots.lock().await.is_empty());
+    // nothing shared; the resume may still be trying, and stops once it is done
+    assert!(shares
+        .slots
+        .lock()
+        .await
+        .values()
+        .all(|slot| matches!(slot, Slot::Abandoned(_))));
 
     shares.stop(&core.fabric, true).await;
     assert!(!file.exists(), "stopping for good deletes the identity");
+}
+
+#[tokio::test]
+async fn nothing_starts_sharing_once_the_core_is_shutting_down() {
+    let core = core().await;
+    let shares = &core.state.connect;
+    shares
+        .save(&core.fabric, &HostIdentity::generate().unwrap())
+        .await
+        .unwrap();
+    let file = core
+        .dir
+        .path()
+        .join("connect")
+        .join(format!("{}.json", core.fabric));
+    // as if a share were starting: the shutdown marks it, for the start to stop it once
+    // it has its host, keeping the link
+    shares
+        .slots
+        .lock()
+        .await
+        .insert(core.vanilla.clone(), Slot::Starting(StartTicket::new()));
+    shares.stop_all().await;
+    assert!(matches!(
+        shares.slots.lock().await.remove(&core.vanilla),
+        Some(Slot::Abandoned(_))
+    ));
+
+    let error = shares.start(&core.state, &core.fabric).await.unwrap_err();
+    assert!(
+        error.source.to_string().contains("shutting down"),
+        "{error}"
+    );
+    assert!(shares.slots.lock().await.is_empty());
+    // a resume after the shutdown began starts nothing and keeps the link
+    shares.resume_all(&core.state).await;
+    tokio::task::yield_now().await;
+    assert!(shares.slots.lock().await.is_empty());
+    assert!(file.exists(), "the link is kept for the next start");
+}
+
+#[tokio::test]
+async fn a_share_stopped_while_starting_ends_its_link_and_leaves_a_later_share_alone() {
+    let core = core().await;
+    let shares = &core.state.connect;
+    let uuid = &core.fabric;
+    let file = core.dir.path().join("connect").join(format!("{uuid}.json"));
+    shares
+        .save(uuid, &HostIdentity::generate().unwrap())
+        .await
+        .unwrap();
+
+    // Share, Stop, Share while the first start is still running (LS-52): the first
+    // start must end the link the owner ended, and leave the second start's slot and
+    // identity alone.
+    let first = StartTicket::new();
+    shares
+        .slots
+        .lock()
+        .await
+        .insert(uuid.clone(), Slot::Starting(first.clone()));
+    shares.stop(uuid, true).await;
+    assert!(!file.exists(), "stopping for good deletes the identity");
+    let second = StartTicket::new();
+    shares
+        .slots
+        .lock()
+        .await
+        .insert(uuid.clone(), Slot::Starting(second.clone()));
+    {
+        let slots = shares.slots.lock().await;
+        assert_eq!(
+            Finish::of(slots.get(uuid), &first),
+            Finish::Stopped { end_link: true }
+        );
+        assert!(!Finish::of(slots.get(uuid), &first).owns_slot());
+        assert_eq!(Finish::of(slots.get(uuid), &second), Finish::Install);
+    }
+
+    // a stop that keeps the link tells the start to keep it too
+    shares.stop(uuid, false).await;
+    assert_eq!(
+        Finish::of(None, &second),
+        Finish::Stopped { end_link: false }
+    );
+
+    // a shutdown while a share starts concerns that start only
+    let third = StartTicket::new();
+    shares
+        .slots
+        .lock()
+        .await
+        .insert(uuid.clone(), Slot::Starting(third.clone()));
+    shares.stop_all().await;
+    let slots = shares.slots.lock().await;
+    assert_eq!(Finish::of(slots.get(uuid), &third), Finish::ShuttingDown);
+    assert_eq!(
+        Finish::of(slots.get(uuid), &first),
+        Finish::Stopped { end_link: true }
+    );
 }
 
 #[test]

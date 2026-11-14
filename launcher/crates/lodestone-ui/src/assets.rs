@@ -113,6 +113,7 @@ static FILES: &[(&str, &[u8])] = embed!(
     "images/games/minecraft-fabric.png",
     "images/games/minecraft-forge.png",
     "images/games/minecraft-paper.png",
+    "images/games/minecraft-neoforge.svg",
     "images/games/minecraft-missing-texture.svg",
     "images/games/generic.svg",
     "icons/circle-info.svg",
@@ -136,6 +137,8 @@ static FILES: &[(&str, &[u8])] = embed!(
     "icons/inbox.svg",
     "icons/play.svg",
     "icons/power-off.svg",
+    "icons/clock-rotate-left.svg",
+    "icons/thumbtack.svg",
     // Modrinth's category icons, for the Content tab's filters.
     "images/categories/adventure.svg",
     "images/categories/any.svg",

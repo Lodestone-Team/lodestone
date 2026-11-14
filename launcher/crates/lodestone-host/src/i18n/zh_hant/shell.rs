@@ -31,6 +31,7 @@ pub fn text(message: M) -> &'static str {
         M::TabMods => "模組",
         M::TabPlugins => "外掛程式",
         M::TabEventLogs => "事件日誌",
+        M::TabBackups => "備份",
         M::Settings => "設定",
         M::SettingsMenu => "設定…",
         M::SettingsCore => "Core",

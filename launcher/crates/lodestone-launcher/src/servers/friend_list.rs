@@ -358,6 +358,27 @@ impl FriendList {
             .collect()
     }
 
+    /// The friend's cores to ask for their servers: those not known to be offline.
+    fn cores_to_load(&self, key: &str) -> Vec<String> {
+        let Some(friend) = self.friend(key) else {
+            return Vec::new();
+        };
+        friend
+            .joinable_cores(friend_list::now())
+            .iter()
+            .map(|c| hex(&c.fingerprint))
+            .filter(|fp| self.presence.get(&(key.to_string(), fp.clone())) != Some(&false))
+            .collect()
+    }
+
+    /// Forgets the servers of cores that went offline, so they are asked again when
+    /// they're back: by then a launcher's worlds open to LAN, say, are others.
+    fn forget_offline_servers(&mut self) {
+        let presence = &self.presence;
+        self.servers
+            .retain(|slot, _| presence.get(slot) != Some(&false));
+    }
+
     /// `Some(true)` when one of the friend's cores is sharing with this person now,
     /// `Some(false)` when none is, `None` before the first check.
     pub fn online(&self, friend: &Friend) -> Option<bool> {
@@ -791,7 +812,10 @@ impl Servers {
                 this.friend_list.refreshing = false;
                 this.friend_list.refreshed_at = Some(Instant::now());
                 match &result {
-                    Ok(report) => this.apply_refresh(report),
+                    Ok(report) => {
+                        this.apply_refresh(report);
+                        this.reload_shown_friend_servers(cx);
+                    }
                     // no list yet is how everyone starts, not a failure
                     Err(err) if err == NO_LIST => this.friend_list.problem = None,
                     Err(err) => this.friend_list.problem = Some(err.clone()),
@@ -802,6 +826,17 @@ impl Servers {
             .ok();
             result
         })
+    }
+
+    /// After a refresh, asks the shown friends' cores for their servers again, so a
+    /// server's state (and whether Play is on) follows what it does now, not what it
+    /// did when the friend was shown.
+    fn reload_shown_friend_servers(&mut self, cx: &mut Context<Self>) {
+        self.friend_list.forget_offline_servers();
+        let shown: Vec<String> = self.friend_list.expanded.iter().cloned().collect();
+        for key in shown {
+            self.load_friend_servers(&key, cx);
+        }
     }
 
     fn apply_refresh(&mut self, report: &RefreshReport) {
@@ -1264,10 +1299,17 @@ impl Servers {
             return Task::ready(Err(format!("{fingerprint:?} isn't a core fingerprint.")));
         };
         let slot = (key.clone(), fingerprint);
-        self.friend_list
-            .servers
-            .insert(slot.clone(), CoreServers::Loading);
-        cx.notify();
+        // servers shown already stay while they're asked again, rather than blinking
+        // to "Loading" at each refresh
+        if !matches!(
+            self.friend_list.servers.get(&slot),
+            Some(CoreServers::Loaded(_))
+        ) {
+            self.friend_list
+                .servers
+                .insert(slot.clone(), CoreServers::Loading);
+            cx.notify();
+        }
         let task = self.friend_op(
             cx,
             false,
@@ -1384,21 +1426,7 @@ impl Servers {
         if self.preview {
             return;
         }
-        let Some(friend) = self.friend_list.friend(key) else {
-            return;
-        };
-        let cores: Vec<String> = friend
-            .joinable_cores(friend_list::now())
-            .iter()
-            .map(|c| hex(&c.fingerprint))
-            .filter(|fp| {
-                self.friend_list
-                    .presence
-                    .get(&(key.to_string(), fp.clone()))
-                    != Some(&false)
-            })
-            .collect();
-        for fingerprint in cores {
+        for fingerprint in self.friend_list.cores_to_load(key) {
             self.friend_servers(key.to_string(), fingerprint, cx)
                 .detach();
         }
@@ -2193,5 +2221,44 @@ mod tests {
     fn short_ids_are_a_key_s_start() {
         assert_eq!(short(&"ab".repeat(32)), "abababababab");
         assert_eq!(short("abc"), "abc");
+    }
+
+    /// LS-54: a shown friend's servers were asked for once, so Play stayed off after
+    /// the friend started a server, and a launcher's LAN worlds stayed as they were.
+    #[test]
+    fn refreshes_ask_shown_friends_again_and_forget_offline_cores() {
+        let mut list = FriendList::new(std::path::Path::new("/nonexistent"));
+        let mut alex = friend(&"ab".repeat(32), "Alex", None);
+        let core = |byte: u8| {
+            serde_json::from_value(
+                serde_json::json!({ "fingerprint": hex(&[byte; 32]), "name": "PC" }),
+            )
+            .unwrap()
+        };
+        alex.status = Status::Active;
+        alex.state = Some(FriendState {
+            launchers: Vec::new(),
+            players: Vec::new(),
+            seq: 1,
+            expires: friend_list::now() + 3600,
+            cores: vec![core(1), core(2)],
+        });
+        let key = alex.key.clone();
+        list.snapshot.book.friends.push(alex);
+        let (one, two) = (hex(&[1; 32]), hex(&[2; 32]));
+        list.servers
+            .insert((key.clone(), one.clone()), CoreServers::Loaded(Vec::new()));
+        list.servers
+            .insert((key.clone(), two.clone()), CoreServers::Loaded(Vec::new()));
+        // both cores online: both are asked again
+        assert_eq!(list.cores_to_load(&key), [one.clone(), two.clone()]);
+        // core 2 went offline: its servers are forgotten, and it isn't asked
+        list.presence.insert((key.clone(), two.clone()), false);
+        list.presence.insert((key.clone(), one.clone()), true);
+        list.forget_offline_servers();
+        assert!(list.servers.contains_key(&(key.clone(), one.clone())));
+        assert!(!list.servers.contains_key(&(key.clone(), two.clone())));
+        assert_eq!(list.cores_to_load(&key), [one]);
+        assert!(list.cores_to_load("nobody").is_empty());
     }
 }

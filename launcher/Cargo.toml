@@ -19,7 +19,7 @@ authors = ["Lodestone Team"]
 publish = false
 
 [workspace.dependencies]
-# GPUI from Zed's latest stable release, v1.27.0, plus three commits on our fork's
+# GPUI from Zed's latest stable release, v1.27.0, plus five commits on our fork's
 # `lodestone/idle-v1.27` branch. Two make an idle window use no CPU on either platform
 # (otherwise about 1% of a core, woken on every vblank with nothing to draw):
 # - Windows: the vsync thread only wakes windows that need a frame (Sunny's commit from
@@ -30,19 +30,24 @@ publish = false
 # The third, on Windows, creates the D3D11 device on a background thread at startup, so
 # the GPU driver's first load (~70 ms) overlaps the rest of it instead of delaying the
 # first window. Not upstream.
+# The last two, on Windows, cut the memory the GPU driver commits for a window (the
+# launcher's peak at startup went from 211 MB to 86 MB): the 4x MSAA textures for paths
+# are created by the first frame that draws one (the launcher never does), and an image
+# too large for a default atlas texture gets its own, created with its pixels instead of
+# uploaded into, which made the driver keep a staging copy. Not upstream.
 # When bumping to v1.28 or later, drop the macOS commit (#65472 covers it), rebase the
 # Windows ones onto the new tag, or go back to zed-industries/zed once they're upstream.
 # Bump `rev` together with the `[patch.crates-io]` entries below, which mirror Zed's own
 # at the same tag.
-gpui = { git = "https://github.com/Lodestone-Team/zed", rev = "39a9cfcfd2d65b31b28915bc543d3fdf76491e80", default-features = false }
-gpui_platform = { git = "https://github.com/Lodestone-Team/zed", rev = "39a9cfcfd2d65b31b28915bc543d3fdf76491e80", default-features = false }
+gpui = { git = "https://github.com/Lodestone-Team/zed", rev = "6e65bdf7b79aa74ee54adf6eedbc50004ea3689b", default-features = false }
+gpui_platform = { git = "https://github.com/Lodestone-Team/zed", rev = "6e65bdf7b79aa74ee54adf6eedbc50004ea3689b", default-features = false }
 # Zed's HTTP client: the `HttpClient` trait and its reqwest implementation (rustls with
 # the platform verifier), from the same rev as GPUI.
-http_client = { git = "https://github.com/Lodestone-Team/zed", rev = "39a9cfcfd2d65b31b28915bc543d3fdf76491e80" }
-reqwest_client = { git = "https://github.com/Lodestone-Team/zed", rev = "39a9cfcfd2d65b31b28915bc543d3fdf76491e80" }
+http_client = { git = "https://github.com/Lodestone-Team/zed", rev = "6e65bdf7b79aa74ee54adf6eedbc50004ea3689b" }
+reqwest_client = { git = "https://github.com/Lodestone-Team/zed", rev = "6e65bdf7b79aa74ee54adf6eedbc50004ea3689b" }
 # The same TLS settings (rustls with the platform verifier) for a core's WebSocket
 # streams, which don't go through the HTTP client.
-http_client_tls = { git = "https://github.com/Lodestone-Team/zed", rev = "39a9cfcfd2d65b31b28915bc543d3fdf76491e80" }
+http_client_tls = { git = "https://github.com/Lodestone-Team/zed", rev = "6e65bdf7b79aa74ee54adf6eedbc50004ea3689b" }
 
 launcher-core = { path = "crates/launcher-core" }
 # What Lodestone Launcher and Lodestone Host share on screen.

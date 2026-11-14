@@ -51,6 +51,7 @@ use crate::{
         Accounts,
         offline_dialog::{OfflineDialog, OfflineDialogDismissed},
         sign_in::{SignInDialog, SignInEvent, Stage},
+        skin_dialog::{SkinDialog, SkinDialogDismissed},
     },
     components::{
         Button, ButtonVariant, Dialog, DialogSlot, Icon, RichText, UnderDialogs, focus,
@@ -60,6 +61,7 @@ use crate::{
     i18n::{CommonMsg, ShellMsg as M, ShellPlural as P, format, t, tr, trn},
     instances::{
         CrashInfo, Instances, InstancesEvent,
+        add_modpack::{AddModpackDialog, AddModpackDismissed},
         console::Console,
         content::{ContentEvent, ContentView},
         import::{ImportDialog, ImportDismissed},
@@ -67,8 +69,8 @@ use crate::{
         modpacks::UpdatePrompt,
         new_instance::{NewInstanceDialog, NewInstanceDismissed},
         settings::{
-            DeleteRequested, FindModRequested, HostRequested, InstanceSettings, LoaderChangePrompt,
-            ShareRequested,
+            AddModpackRequested, DeleteRequested, FindModRequested, HostRequested,
+            InstanceSettings, LoaderChangePrompt, ShareRequested,
         },
         share_dialog::{ShareDialog, ShareDismissed},
         worlds::{WorldsEvent, WorldsView},
@@ -154,6 +156,11 @@ enum Modal {
         dialog: Entity<ImportDialog>,
         _events: Subscription,
     },
+    /// "Add a modpack" to an instance.
+    AddModpack {
+        dialog: Entity<AddModpackDialog>,
+        _events: Subscription,
+    },
     /// "Share code" for an instance.
     Share {
         dialog: Entity<ShareDialog>,
@@ -191,6 +198,14 @@ enum Modal {
         current: String,
         focus: FocusHandle,
     },
+    /// "Minecraft {version} runs under Rosetta 2", with Play and Cancel, before an
+    /// instance's first game under Rosetta: the game waits for the answer.
+    ConfirmRosetta {
+        id: String,
+        version: String,
+        reason: launcher_core::game::install::Rosetta,
+        focus: FocusHandle,
+    },
     /// "Turn off Fabric API?" or "Turn on Sodium?": a mod linked to others, from the
     /// Content tab.
     ToggleMod {
@@ -209,6 +224,11 @@ enum Modal {
     },
     Offline {
         dialog: Entity<OfflineDialog>,
+        _events: Subscription,
+    },
+    /// "Change skin", from the account menu.
+    Skin {
+        dialog: Entity<SkinDialog>,
         _events: Subscription,
     },
     RemoveAccount {
@@ -300,7 +320,7 @@ pub struct LauncherShell {
     /// Updating the launcher: Settings > General, and the top bar's notice.
     updater: Entity<Updater>,
     /// The Settings tab of the selected instance, rebuilt when the selection changes.
-    settings: Option<(Entity<InstanceSettings>, [Subscription; 7])>,
+    settings: Option<(Entity<InstanceSettings>, [Subscription; 8])>,
     page: Page,
     tab: InstanceTab,
     /// The launcher's Settings, a large dialog under the other dialogs.
@@ -312,6 +332,9 @@ pub struct LauncherShell {
     settings_nav_open: bool,
     /// The dialog over the window, and those still fading out.
     modal: DialogSlot<LauncherShell, Modal>,
+    /// Dialogs that came up while a "Find it for me" search was open, shown one after
+    /// another once it has closed ([`Self::open_modal`]).
+    queued_modals: std::collections::VecDeque<Modal>,
     account_menu_open: bool,
     /// Settings > Developer > Coding agents: the prompt was just copied, and its
     /// button shows a check for a moment.
@@ -353,7 +376,8 @@ pub struct LauncherShell {
     /// Shows it shortly after the window opens.
     narrator_offer_pending: Option<Task<()>>,
     _observe: Vec<Subscription>,
-    /// Draws the window again every minute, so "5 minutes ago" stays true.
+    /// Draws the window again once a label like "5 minutes ago" would read differently,
+    /// checking each minute, so it stays true.
     _clock: Task<()>,
 }
 
@@ -378,14 +402,19 @@ impl LauncherShell {
                         this.show_crash(crash.clone(), cx)
                     }
                 }
-                InstancesEvent::LaunchFailed { .. } if this.mod_finder_for(cx).is_some() => {}
+                // The search shows why its own try couldn't start.
+                InstancesEvent::PlayFailed { id, .. }
+                    if this.mod_finder_for(cx).as_ref() == Some(id) => {}
+                // Stopped while it waited for the Rosetta question: the question goes.
+                InstancesEvent::PlayCancelled(id) => this.drop_rosetta_question(id, cx),
                 InstancesEvent::Exited { .. }
                 | InstancesEvent::ReachedMenu(_)
                 | InstancesEvent::ModsRefused(_) => {}
-                InstancesEvent::LaunchFailed { title, message }
-                | InstancesEvent::Notice { title, message } => {
+                InstancesEvent::LaunchFailed { title, message, .. }
+                | InstancesEvent::PlayFailed { title, message, .. }
+                | InstancesEvent::Notice { title, message, .. } => {
                     let focus = cx.focus_handle();
-                    this.modal.open(
+                    this.open_modal(
                         Modal::LaunchFailed {
                             title: title.clone(),
                             message: message.clone(),
@@ -400,11 +429,21 @@ impl LauncherShell {
                         cx,
                     );
                 }
-                InstancesEvent::LoaderChanged(_) => {
-                    // The Settings tab shows the loader it was built with; build it again.
-                    this.settings = None;
-                    this.sync_settings(cx);
-                    cx.notify();
+                InstancesEvent::LoaderChanged(id) => {
+                    // The Settings tab shows the loader it was built with; build it again,
+                    // unless that would lose unsaved changes. Another instance's tab
+                    // stays as it is.
+                    if let Some((view, _)) = &this.settings
+                        && view.read(cx).instance_id() == id
+                    {
+                        if view.read(cx).has_changes(cx) {
+                            view.update(cx, |view, cx| view.loader_changed(cx));
+                        } else {
+                            this.settings = None;
+                            this.sync_settings(cx);
+                        }
+                        cx.notify();
+                    }
                 }
                 InstancesEvent::OfferMain(id) => this.offer_main(id.clone(), cx),
                 InstancesEvent::ConfirmMain { id, current } => {
@@ -412,11 +451,38 @@ impl LauncherShell {
                     let name = instances.instance_name(id).unwrap_or_default();
                     let current = instances.instance_name(current).unwrap_or_default();
                     let focus = cx.focus_handle();
-                    this.modal.open(
+                    this.open_modal(
                         Modal::ConfirmMain {
                             id: id.clone(),
                             name,
                             current,
+                            focus,
+                        },
+                        cx,
+                    );
+                }
+                InstancesEvent::ConfirmRosetta {
+                    id,
+                    version,
+                    reason,
+                } => {
+                    // A "Find it for me" try of this instance can't wait for a question
+                    // queued behind the search's own dialog: it is cancelled, and the
+                    // search stops as with Stop. (Its instance ran before, so this only
+                    // happens when the reason changed since.)
+                    if this.mod_finder_for(cx).as_ref() == Some(id) {
+                        let id = id.clone();
+                        this.instances.update(cx, |instances, cx| {
+                            instances.confirm_rosetta(&id, false, cx)
+                        });
+                        return;
+                    }
+                    let focus = cx.focus_handle();
+                    this.open_modal(
+                        Modal::ConfirmRosetta {
+                            id: id.clone(),
+                            version: version.clone(),
+                            reason: *reason,
                             focus,
                         },
                         cx,
@@ -433,12 +499,13 @@ impl LauncherShell {
         let mut observe = observe;
         observe.push(cx.subscribe(&content, |this, _, event, cx| match event {
             ContentEvent::NewFabricInstance => this.open_new_instance_with_loader(cx),
+            ContentEvent::AddModpack(id) => this.open_add_modpack(id, cx),
             ContentEvent::ConfirmToggle(prompt) => {
                 let modal = Modal::ToggleMod {
                     prompt: prompt.clone(),
                     focus: cx.focus_handle(),
                 };
-                this.modal.open(modal, cx);
+                this.open_modal(modal, cx);
             }
         }));
         let worlds = cx.new(|cx| WorldsView::new(instances.clone(), cx));
@@ -460,7 +527,7 @@ impl LauncherShell {
                     focus: cx.focus_handle(),
                 },
             };
-            this.modal.open(modal, cx);
+            this.open_modal(modal, cx);
         }));
         let launcher_settings = {
             let instances = instances.clone();
@@ -473,7 +540,7 @@ impl LauncherShell {
             ServersEvent::ShowServers => this.show(Page::Servers, cx),
             ServersEvent::Failed { title, message } => {
                 let focus = cx.focus_handle();
-                this.modal.open(
+                this.open_modal(
                     Modal::LaunchFailed {
                         title: title.clone(),
                         message: message.clone(),
@@ -521,7 +588,7 @@ impl LauncherShell {
             StorageEvent::DeleteInstance(id) => this.confirm_delete_instance(id, cx),
             StorageEvent::Confirm { what, bytes } => {
                 let focus = cx.focus_handle();
-                this.modal.open(
+                this.open_modal(
                     Modal::StorageClean {
                         what: *what,
                         bytes: *bytes,
@@ -532,7 +599,7 @@ impl LauncherShell {
             }
             StorageEvent::ConfirmMove { to, back } => {
                 let focus = cx.focus_handle();
-                this.modal.open(
+                this.open_modal(
                     Modal::DataMove {
                         to: to.clone(),
                         back: *back,
@@ -581,6 +648,7 @@ impl LauncherShell {
             trace: Default::default(),
             settings_nav_open: false,
             modal: DialogSlot::new(|this: &mut LauncherShell| &mut this.modal),
+            queued_modals: Default::default(),
             account_menu_open: false,
             agent_prompt_copied: false,
             agent_prompt_reset: None,
@@ -601,12 +669,28 @@ impl LauncherShell {
             narrator_offer: None,
             narrator_offer_pending: None,
             _observe: observe,
+            // Redrawing the whole window takes the main thread about 10 ms, so it only
+            // happens when a label changes ("2 hours ago" changes once an hour), not
+            // every minute. Each hour anyway, for anything else that tells the time.
             _clock: cx.spawn(async move |this, cx| {
+                let mut drawn = std::time::Instant::now();
                 loop {
                     cx.background_executor()
                         .timer(std::time::Duration::from_secs(60))
                         .await;
-                    if this.update(cx, |_, cx| cx.notify()).is_err() {
+                    let due = crate::instances::Ago::label_changed(launcher_core::instances::now())
+                        || drawn.elapsed() >= std::time::Duration::from_secs(3600);
+                    if due {
+                        drawn = std::time::Instant::now();
+                    }
+                    if this
+                        .update(cx, |_, cx| {
+                            if due {
+                                cx.notify();
+                            }
+                        })
+                        .is_err()
+                    {
                         return;
                     }
                 }
@@ -762,7 +846,7 @@ impl LauncherShell {
     pub fn show_modpack_update(&mut self, prompt: UpdatePrompt, cx: &mut Context<Self>) {
         self.discard_pending_update(cx);
         let focus = cx.focus_handle();
-        self.modal.open(
+        self.open_modal(
             Modal::ModpackUpdate {
                 prompt: Box::new(prompt),
                 backup_worlds: true,
@@ -983,6 +1067,7 @@ impl LauncherShell {
                         }) => Some(((**prompt).clone(), *backup_worlds)),
                         _ => None,
                     };
+                    this.show_queued_modal_soon(cx);
                     if let Some((prompt, backup_worlds)) = update {
                         this.instances.update(cx, |instances, cx| {
                             instances.apply_modpack_update(prompt, backup_worlds, cx)
@@ -1145,6 +1230,9 @@ impl LauncherShell {
                     cx.subscribe(&settings, |this, _, ShareRequested(id), cx| {
                         this.open_share(id, cx)
                     }),
+                    cx.subscribe(&settings, |this, _, AddModpackRequested(id), cx| {
+                        this.open_add_modpack(id, cx)
+                    }),
                     cx.subscribe(&settings, |this, _, FindModRequested(id), cx| {
                         this.open_mod_finder_by_hand(id, cx)
                     }),
@@ -1213,13 +1301,13 @@ impl LauncherShell {
         cx: &mut Context<Self>,
     ) {
         let focus = cx.focus_handle();
-        self.modal.open(Modal::ToggleMod { prompt, focus }, cx);
+        self.open_modal(Modal::ToggleMod { prompt, focus }, cx);
     }
 
     /// Shows the launch error dialog, for the offscreen screenshots.
     pub fn preview_launch_failed(&mut self, title: &str, message: &str, cx: &mut Context<Self>) {
         let focus = cx.focus_handle();
-        self.modal.open(
+        self.open_modal(
             Modal::LaunchFailed {
                 title: title.to_string().into(),
                 message: message.to_string().into(),
@@ -1236,7 +1324,7 @@ impl LauncherShell {
         self.minimized_for_game = false;
         self.bring_back_soon(cx);
         let focus = cx.focus_handle();
-        self.modal.open(
+        self.open_modal(
             Modal::Crash {
                 crash,
                 focus,
@@ -1307,13 +1395,90 @@ impl LauncherShell {
                 this.close_modal(cx);
             }
         });
-        self.modal.open(
+        self.open_modal(
             Modal::ModFinder {
                 finder,
                 _events: subscription,
             },
             cx,
         );
+    }
+
+    /// Shows a dialog, closing the one that is open; or queues it until that one
+    /// closes, while it is one that mustn't be dropped:
+    /// - a "Find it for me" search: closing its dialog would drop it half way, with
+    ///   mods still turned off and its try's game left running unwatched, so a crash of
+    ///   another instance, a modpack import finishing or another job's error waits;
+    /// - "Runs under Rosetta 2": its game waits for the answer, and would stay
+    ///   "Starting" with nothing to answer.
+    ///
+    /// The Rosetta question itself waits for any open dialog, which may have clean-up
+    /// to do when it closes (a loader change to undo, a downloaded modpack to discard).
+    fn open_modal(&mut self, modal: Modal, cx: &mut Context<Self>) {
+        let current = self.modal.current();
+        let searching = match current {
+            Some(Modal::ModFinder { finder, .. }) => Some(finder.read(cx).instance_id()),
+            _ => None,
+        };
+        // A second search of the same instance would undo the first one's work.
+        if let (Some(searching), Modal::ModFinder { finder, .. }) = (searching, &modal)
+            && finder.read(cx).instance_id() == searching
+        {
+            return;
+        }
+        // The same game's question asked twice (it can't be: one game waits per
+        // instance), shown once.
+        if let Modal::ConfirmRosetta { id, .. } = &modal {
+            let same = |queued: &Modal| matches!(queued, Modal::ConfirmRosetta { id: other, .. } if other == id);
+            if current.is_some_and(same) || self.queued_modals.iter().any(same) {
+                return;
+            }
+        }
+        let wait = searching.is_some()
+            || matches!(current, Some(Modal::ConfirmRosetta { .. }))
+            || (current.is_some() && matches!(modal, Modal::ConfirmRosetta { .. }));
+        if wait {
+            self.queued_modals.push_back(modal);
+            cx.notify();
+            return;
+        }
+        self.modal.open(modal, cx);
+    }
+
+    /// Takes back the Rosetta question of instance `id`, open or queued, once its game
+    /// no longer waits for it (it was stopped).
+    fn drop_rosetta_question(&mut self, id: &str, cx: &mut Context<Self>) {
+        let asks =
+            |modal: &Modal| matches!(modal, Modal::ConfirmRosetta { id: other, .. } if other == id);
+        self.queued_modals.retain(|modal| !asks(modal));
+        if self.modal.current().is_some_and(asks) {
+            self.close_modal(cx);
+        }
+    }
+
+    /// Shows the next queued dialog once none is open ([`Self::open_modal`]), after
+    /// this update: what closed the last dialog may be opening another.
+    fn show_queued_modal_soon(&mut self, cx: &mut Context<Self>) {
+        if self.queued_modals.is_empty() {
+            return;
+        }
+        cx.spawn(async move |this, cx| {
+            this.update(cx, |this, cx| {
+                while !this.modal.is_open()
+                    && let Some(modal) = this.queued_modals.pop_front()
+                {
+                    // A question whose game was stopped meanwhile has nothing to ask.
+                    if let Modal::ConfirmRosetta { id, .. } = &modal
+                        && !this.instances.read(cx).waits_for_rosetta(id)
+                    {
+                        continue;
+                    }
+                    this.open_modal(modal, cx);
+                }
+            })
+            .ok();
+        })
+        .detach();
     }
 
     /// Offers to finish a search that a launcher quit in the middle of, which left some
@@ -1402,7 +1567,7 @@ impl LauncherShell {
     /// Asks before saving a loader change (from the Settings tab).
     pub fn show_loader_change(&mut self, prompt: LoaderChangePrompt, cx: &mut Context<Self>) {
         let focus = cx.focus_handle();
-        self.modal.open(
+        self.open_modal(
             Modal::LoaderChange {
                 prompt: Box::new(prompt),
                 focus,
@@ -1419,6 +1584,7 @@ impl LauncherShell {
         };
         let prompt = (**prompt).clone();
         self.modal.close(cx);
+        self.show_queued_modal_soon(cx);
         let disable: Vec<String> = if turn_off {
             prompt
                 .check
@@ -1575,7 +1741,7 @@ impl LauncherShell {
             return;
         };
         let focus = cx.focus_handle();
-        self.modal.open(
+        self.open_modal(
             Modal::DeleteInstance {
                 id: instance.id,
                 name: instance.name,
@@ -1793,7 +1959,7 @@ impl LauncherShell {
             }
             Err(err) => {
                 let focus = cx.focus_handle();
-                self.modal.open(
+                self.open_modal(
                     Modal::LaunchFailed {
                         title: tr!(M::DeleteNamed, name = name).into(),
                         message: err.into(),
@@ -1813,7 +1979,12 @@ impl LauncherShell {
         {
             settings.update(cx, |settings, cx| settings.revert_loader(cx));
         }
+        // "Add a modpack" closed while it showed a review: its downloaded pack goes.
+        if let Some(Modal::AddModpack { dialog, .. }) = self.modal.current() {
+            dialog.clone().update(cx, |dialog, cx| dialog.discard(cx));
+        }
         self.modal.close(cx);
+        self.show_queued_modal_soon(cx);
     }
 
     /// Whether `dialog` is the open dialog's view. Events from a dialog that is fading
@@ -1824,8 +1995,10 @@ impl LauncherShell {
             Some(Modal::Import { dialog: open, .. }) => open.entity_id() == dialog,
             Some(Modal::Snapshot { dialog: open, .. }) => open.entity_id() == dialog,
             Some(Modal::Share { dialog: open, .. }) => open.entity_id() == dialog,
+            Some(Modal::AddModpack { dialog: open, .. }) => open.entity_id() == dialog,
             Some(Modal::SignIn { dialog: open, .. }) => open.entity_id() == dialog,
             Some(Modal::Offline { dialog: open, .. }) => open.entity_id() == dialog,
+            Some(Modal::Skin { dialog: open, .. }) => open.entity_id() == dialog,
             _ => false,
         }
     }
@@ -1872,7 +2045,7 @@ impl LauncherShell {
         if let Some(window) = window {
             window.focus(&dialog.focus_handle(cx), cx);
         }
-        self.modal.open(
+        self.open_modal(
             Modal::NewInstance {
                 dialog,
                 _events: subscription,
@@ -1896,8 +2069,38 @@ impl LauncherShell {
                 this.close_modal(cx)
             }
         });
-        self.modal.open(
+        self.open_modal(
             Modal::Snapshot {
+                dialog,
+                _events: subscription,
+            },
+            cx,
+        );
+    }
+
+    /// The open "Add a modpack" dialog, for the offscreen screenshots.
+    pub fn add_modpack_dialog(&self) -> Option<&Entity<AddModpackDialog>> {
+        match self.modal.current() {
+            Some(Modal::AddModpack { dialog, .. }) => Some(dialog),
+            _ => None,
+        }
+    }
+
+    /// Opens "Add a modpack" for the instance `id`.
+    pub fn open_add_modpack(&mut self, id: &str, cx: &mut Context<Self>) {
+        if !self.instances.read(cx).list().iter().any(|i| i.id == id) {
+            return;
+        }
+        self.account_menu_open = false;
+        let instances = self.instances.clone();
+        let dialog = cx.new(|cx| AddModpackDialog::new(instances, id, cx));
+        let subscription = cx.subscribe(&dialog, |this, dialog, _: &AddModpackDismissed, cx| {
+            if this.is_open_dialog(dialog.entity_id()) {
+                this.close_modal(cx)
+            }
+        });
+        self.open_modal(
+            Modal::AddModpack {
                 dialog,
                 _events: subscription,
             },
@@ -1920,7 +2123,7 @@ impl LauncherShell {
                 this.close_modal(cx)
             }
         });
-        self.modal.open(
+        self.open_modal(
             Modal::Share {
                 dialog,
                 _events: subscription,
@@ -1946,7 +2149,7 @@ impl LauncherShell {
             this.page = Page::Instance;
             this.close_modal(cx)
         });
-        self.modal.open(
+        self.open_modal(
             Modal::Import {
                 dialog,
                 _events: subscription,
@@ -1968,6 +2171,33 @@ impl LauncherShell {
         if let Some(Modal::SignIn { dialog, .. }) = self.modal.current() {
             dialog.update(cx, |dialog, cx| dialog.ask_to_stop(cx));
         }
+    }
+
+    /// "Minecraft {version} runs under Rosetta 2" with Play and Cancel, for the
+    /// offscreen screenshots. No game waits, so either button just closes it.
+    #[cfg(feature = "screenshot")]
+    pub fn preview_confirm_rosetta(
+        &mut self,
+        version: &str,
+        reason: launcher_core::game::install::Rosetta,
+        cx: &mut Context<Self>,
+    ) {
+        let id = self
+            .instances
+            .read(cx)
+            .selected()
+            .map(|instance| instance.id.clone())
+            .unwrap_or_default();
+        let focus = cx.focus_handle();
+        self.open_modal(
+            Modal::ConfirmRosetta {
+                id,
+                version: version.to_string(),
+                reason,
+                focus,
+            },
+            cx,
+        );
     }
 
     /// "Make … your main instance?" over the first two instances, for the offscreen
@@ -1993,7 +2223,7 @@ impl LauncherShell {
                 focus,
             }
         };
-        self.modal.open(modal, cx);
+        self.open_modal(modal, cx);
     }
 
     /// Offers a new instance as the main one, once whatever dialog made it (New
@@ -2012,7 +2242,7 @@ impl LauncherShell {
                         return true;
                     };
                     let focus = cx.focus_handle();
-                    this.modal.open(
+                    this.open_modal(
                         Modal::OfferMain {
                             id: id.clone(),
                             name,
@@ -2035,15 +2265,18 @@ impl LauncherShell {
     /// A game's window opened: Settings > General > "When a game starts".
     fn game_window_opened(&mut self, cx: &mut Context<Self>) {
         let instances = self.instances.read(cx);
-        match instances.after_launch() {
+        // A "Find it for me" search, open or queued behind another one, opens the
+        // game for each try: quitting would end it half way, with mods still off.
+        let busy = instances.any_preparing()
+            || instances.background_jobs()
+            || self.mod_finder_for(cx).is_some()
+            || self
+                .queued_modals
+                .iter()
+                .any(|m| matches!(m, Modal::ModFinder { .. }));
+        match after_game_opens(instances.after_launch(), busy) {
             AfterLaunch::Stay => {}
             AfterLaunch::Minimize => {
-                self.minimized_for_game = true;
-                self.with_window(cx, |window| window.minimize_window());
-            }
-            // Not while another instance is still installing or starting: quitting
-            // would stop it. Minimized instead, until that game opens too.
-            AfterLaunch::Quit if instances.any_preparing() => {
                 self.minimized_for_game = true;
                 self.with_window(cx, |window| window.minimize_window());
             }
@@ -2111,7 +2344,7 @@ impl LauncherShell {
         if let Some(window) = window {
             window.focus(&dialog.focus_handle(cx), cx);
         }
-        self.modal.open(
+        self.open_modal(
             Modal::SignIn {
                 dialog,
                 _events: subscription,
@@ -2121,6 +2354,48 @@ impl LauncherShell {
     }
 
     /// Opens "Add offline account", with `username` filled in for screenshots.
+    /// Opens "Change skin" for the active account, if it is a Microsoft account.
+    pub fn open_skin(&mut self, window: Option<&mut Window>, cx: &mut Context<Self>) {
+        let Some(account) = self
+            .accounts
+            .read(cx)
+            .active()
+            .filter(|account| !account.is_offline())
+            .cloned()
+        else {
+            return;
+        };
+        let accounts = self.accounts.clone();
+        let dialog = cx.new(|cx| SkinDialog::new(accounts, account, cx));
+        self.show_skin(dialog, window, cx);
+    }
+
+    /// Shows a "Change skin" dialog (the offscreen screenshots make their own).
+    pub fn show_skin(
+        &mut self,
+        dialog: Entity<SkinDialog>,
+        window: Option<&mut Window>,
+        cx: &mut Context<Self>,
+    ) {
+        self.account_menu_open = false;
+        let subscription = cx.subscribe(&dialog, |this, dialog, _: &SkinDialogDismissed, cx| {
+            if this.is_open_dialog(dialog.entity_id()) {
+                this.close_modal(cx)
+            }
+        });
+        if let Some(window) = window {
+            window.focus(&dialog.focus_handle(cx), cx);
+        }
+        self.open_modal(
+            Modal::Skin {
+                dialog,
+                _events: subscription,
+            },
+            cx,
+        );
+        cx.notify();
+    }
+
     pub fn open_offline(
         &mut self,
         username: Option<&str>,
@@ -2144,7 +2419,7 @@ impl LauncherShell {
         if let Some(window) = window {
             window.focus(&dialog.focus_handle(cx), cx);
         }
-        self.modal.open(
+        self.open_modal(
             Modal::Offline {
                 dialog,
                 _events: subscription,
@@ -2175,7 +2450,7 @@ impl LauncherShell {
         if let Some(window) = window {
             window.focus(&focus, cx);
         }
-        self.modal.open(
+        self.open_modal(
             Modal::RemoveAccount {
                 id: account.id,
                 username: account.username,
@@ -2302,6 +2577,7 @@ impl LauncherShell {
             Modal::Import { dialog, .. } => dialog.clone().into_any_element(),
             Modal::Snapshot { dialog, .. } => dialog.clone().into_any_element(),
             Modal::Share { dialog, .. } => dialog.clone().into_any_element(),
+            Modal::AddModpack { dialog, .. } => dialog.clone().into_any_element(),
             Modal::ModFinder { finder, .. } => finder.clone().into_any_element(),
             Modal::Crash {
                 crash,
@@ -2387,6 +2663,55 @@ impl LauncherShell {
                     Button::new("confirm-main-cancel", t(CommonMsg::Cancel))
                         .variant(ButtonVariant::Secondary)
                         .on_click(cx.listener(|this, _, _, cx| this.close_modal(cx))),
+                )
+                .into_any_element()
+            }
+            Modal::ConfirmRosetta {
+                id,
+                version,
+                reason,
+                focus,
+            } => {
+                use crate::i18n::InstancesMsg as IM;
+                use launcher_core::game::install::Rosetta;
+                let answer = |play: bool, id: String, cx: &mut Context<Self>| {
+                    let entity = cx.entity();
+                    move |_: &mut Window, cx: &mut gpui::App| {
+                        entity.update(cx, |this, cx| {
+                            this.close_modal(cx);
+                            this.instances.update(cx, |instances, cx| {
+                                instances.confirm_rosetta(&id, play, cx)
+                            });
+                        })
+                    }
+                };
+                let play = answer(true, id.clone(), cx);
+                let cancel = answer(false, id.clone(), cx);
+                let dismiss = answer(false, id.clone(), cx);
+                Dialog::new(
+                    "confirm-rosetta",
+                    tr!(IM::RosettaNoticeTitle, version = version),
+                    focus.clone(),
+                )
+                .on_close(dismiss)
+                .child(
+                    div()
+                        .text_color(crate::theme::ink::secondary())
+                        .whitespace_normal()
+                        .child(t(match reason {
+                            Rosetta::Version => IM::RosettaNoticeBody,
+                            Rosetta::JavaOverride => IM::RosettaNoticeBodyOverride,
+                        })),
+                )
+                .footer(
+                    Button::new("confirm-rosetta-play", t(M::Play))
+                        .variant(ButtonVariant::Primary)
+                        .on_click(move |_, window, cx| play(window, cx)),
+                )
+                .footer(
+                    Button::new("confirm-rosetta-cancel", t(CommonMsg::Cancel))
+                        .variant(ButtonVariant::Secondary)
+                        .on_click(move |_, window, cx| cancel(window, cx)),
                 )
                 .into_any_element()
             }
@@ -2501,6 +2826,7 @@ impl LauncherShell {
             Modal::Unsaved { focus, target } => self.render_unsaved(focus.clone(), target, cx),
             Modal::SignIn { dialog, .. } => dialog.clone().into_any_element(),
             Modal::Offline { dialog, .. } => dialog.clone().into_any_element(),
+            Modal::Skin { dialog, .. } => dialog.clone().into_any_element(),
             Modal::RemoveAccount {
                 id,
                 username,
@@ -3027,6 +3353,35 @@ mod tests {
             assert_eq!(cause_text(cause), cause.explanation());
         }
     }
+
+    /// "Quit" never quits while the launcher has something to finish, such as a "Find
+    /// it for me" search whose tries open the game again and again (LS-57).
+    #[test]
+    fn quits_after_launch_only_when_idle() {
+        assert_eq!(
+            after_game_opens(AfterLaunch::Quit, false),
+            AfterLaunch::Quit
+        );
+        assert_eq!(
+            after_game_opens(AfterLaunch::Quit, true),
+            AfterLaunch::Minimize
+        );
+        for after in [AfterLaunch::Stay, AfterLaunch::Minimize] {
+            assert_eq!(after_game_opens(after, true), after);
+            assert_eq!(after_game_opens(after, false), after);
+        }
+    }
+}
+
+/// What "When a game starts" does when a game's window opens. Never quit while the
+/// launcher is `busy` (another instance installing or starting, a modpack import, a
+/// "Find it for me" search whose tries are the games opening): quitting would stop
+/// that half way. The window is minimized instead, and comes back when the game exits.
+fn after_game_opens(after: AfterLaunch, busy: bool) -> AfterLaunch {
+    match after {
+        AfterLaunch::Quit if busy => AfterLaunch::Minimize,
+        after => after,
+    }
 }
 
 /// The paste shortcut in the real window: the shell's key context and its
@@ -3065,6 +3420,200 @@ mod paste_tests {
                 "the paste shortcut reaches the root: {:?}",
                 window.context_stack()
             );
+        });
+    }
+}
+
+/// Other dialogs and a "Find it for me" search, which shares their place.
+#[cfg(all(test, feature = "screenshot"))]
+mod mod_finder_tests {
+    use gpui::TestAppContext;
+
+    use super::*;
+
+    fn shown_title(
+        shell: &Entity<LauncherShell>,
+        cx: &mut gpui::VisualTestContext,
+    ) -> Option<String> {
+        shell.read_with(cx, |shell, _| match shell.modal.current() {
+            Some(Modal::LaunchFailed { title, .. }) => Some(title.to_string()),
+            _ => None,
+        })
+    }
+
+    /// Another job's notice or error waits for the search instead of closing it half
+    /// way, and an error of another job is shown, not dropped. The search's own try's
+    /// failure is the search's to show (LS-58).
+    #[test]
+    fn other_dialogs_wait_for_a_search() {
+        let mut cx = TestAppContext::single();
+        cx.update(crate::components::init);
+        let (shell, cx) = cx.add_window_view(|_, cx| {
+            let accounts = crate::preview::accounts("signed-out", cx);
+            let instances = crate::preview::instances("sidebar-groups", &accounts, cx);
+            LauncherShell::new(accounts, instances, cx)
+        });
+        cx.run_until_parked();
+        let (instances, id) = shell.read_with(cx, |shell, cx| {
+            let instances = shell.instances.clone();
+            let id = instances.read(cx).list()[0].id.clone();
+            (instances, id)
+        });
+        let finder = shell.update(cx, |shell, cx| {
+            let instances = shell.instances.clone();
+            let finder = cx.new(|cx| ModFinder::preview(instances, &id, false, cx));
+            shell.show_mod_finder(finder.clone(), cx);
+            finder
+        });
+        cx.run_until_parked();
+
+        instances.update(cx, |_, cx| {
+            cx.emit(InstancesEvent::Notice {
+                title: "Modpack ready".into(),
+                message: "Imported".into(),
+                about: Default::default(),
+            });
+            cx.emit(InstancesEvent::LaunchFailed {
+                title: "Couldn't export modpack".into(),
+                message: "disk full".into(),
+                about: Default::default(),
+            });
+            cx.emit(InstancesEvent::PlayFailed {
+                id: id.clone(),
+                title: "Couldn't sign in".into(),
+                message: "offline".into(),
+            });
+        });
+        cx.run_until_parked();
+        shell.read_with(cx, |shell, cx| {
+            assert_eq!(
+                shell.mod_finder_for(cx).as_ref(),
+                Some(&id),
+                "still searching"
+            );
+            assert_eq!(shell.queued_modals.len(), 2);
+        });
+
+        finder.update(cx, |_, cx| cx.emit(ModFinderClosed));
+        cx.run_until_parked();
+        assert_eq!(shown_title(&shell, cx).as_deref(), Some("Modpack ready"));
+        shell.update(cx, |shell, cx| shell.close_modal(cx));
+        cx.run_until_parked();
+        assert_eq!(
+            shown_title(&shell, cx).as_deref(),
+            Some("Couldn't export modpack")
+        );
+        shell.update(cx, |shell, cx| shell.close_modal(cx));
+        cx.run_until_parked();
+        shell.read_with(cx, |shell, _| {
+            assert!(!shell.modal.is_open());
+            assert!(shell.queued_modals.is_empty());
+        });
+    }
+
+    /// The Rosetta question holds a game, so no other dialog replaces it: a second
+    /// game's question, or another job's error, waits for the answer. The question
+    /// waits for a dialog already open, and goes when its game is stopped.
+    #[test]
+    fn the_rosetta_question_is_never_dropped() {
+        let mut cx = TestAppContext::single();
+        cx.update(crate::components::init);
+        let (shell, cx) = cx.add_window_view(|_, cx| {
+            let accounts = crate::preview::accounts("signed-out", cx);
+            let instances = crate::preview::instances("sidebar-groups", &accounts, cx);
+            LauncherShell::new(accounts, instances, cx)
+        });
+        cx.run_until_parked();
+        let (instances, first, second) = shell.read_with(cx, |shell, cx| {
+            let instances = shell.instances.clone();
+            let list = instances.read(cx).list();
+            (instances, list[0].id.clone(), list[1].id.clone())
+        });
+        let asking = |shell: &Entity<LauncherShell>, cx: &mut gpui::VisualTestContext| {
+            shell.read_with(cx, |shell, _| match shell.modal.current() {
+                Some(Modal::ConfirmRosetta { id, .. }) => Some(id.clone()),
+                _ => None,
+            })
+        };
+
+        // Two games wait; another job fails meanwhile.
+        instances.update(cx, |instances, cx| {
+            instances.test_ask_rosetta(&first, cx);
+            instances.test_ask_rosetta(&second, cx);
+            cx.emit(InstancesEvent::LaunchFailed {
+                title: "Couldn't export modpack".into(),
+                message: "disk full".into(),
+                about: Default::default(),
+            });
+        });
+        cx.run_until_parked();
+        assert_eq!(asking(&shell, cx).as_ref(), Some(&first));
+        shell.read_with(cx, |shell, _| assert_eq!(shell.queued_modals.len(), 2));
+
+        // Cancel: the first game goes back to Play, the second game's question shows.
+        shell.update(cx, |shell, cx| {
+            shell.close_modal(cx);
+            shell.instances.update(cx, |instances, cx| {
+                instances.confirm_rosetta(&first, false, cx)
+            });
+        });
+        cx.run_until_parked();
+        assert!(!instances.read_with(cx, |i, _| i.waits_for_rosetta(&first)));
+        assert_eq!(asking(&shell, cx).as_ref(), Some(&second));
+
+        // Stopped from its Play button: its question goes, and the error shows.
+        instances.update(cx, |instances, cx| instances.stop(&second, cx));
+        cx.run_until_parked();
+        assert_eq!(asking(&shell, cx), None);
+        assert_eq!(
+            shown_title(&shell, cx).as_deref(),
+            Some("Couldn't export modpack")
+        );
+
+        // A question waits for the dialog that is open, and shows once it closes.
+        instances.update(cx, |instances, cx| instances.test_ask_rosetta(&first, cx));
+        cx.run_until_parked();
+        assert_eq!(
+            shown_title(&shell, cx).as_deref(),
+            Some("Couldn't export modpack")
+        );
+        shell.update(cx, |shell, cx| shell.close_modal(cx));
+        cx.run_until_parked();
+        assert_eq!(asking(&shell, cx).as_ref(), Some(&first));
+        assert!(instances.read_with(cx, |i, _| i.waits_for_rosetta(&first)));
+    }
+
+    /// "When a game starts: Quit" minimizes instead while a search is open: each try
+    /// opens the game's window, and quitting would end the search half way (LS-57).
+    #[test]
+    fn a_search_keeps_the_launcher_open() {
+        let mut cx = TestAppContext::single();
+        cx.update(crate::components::init);
+        let (shell, cx) = cx.add_window_view(|_, cx| {
+            let accounts = crate::preview::accounts("signed-out", cx);
+            let instances = crate::preview::instances("sidebar-groups", &accounts, cx);
+            LauncherShell::new(accounts, instances, cx)
+        });
+        cx.run_until_parked();
+        let (instances, id) = shell.read_with(cx, |shell, cx| {
+            let instances = shell.instances.clone();
+            let id = instances.read(cx).list()[0].id.clone();
+            (instances, id)
+        });
+        instances.update(cx, |instances, cx| {
+            instances.set_after_launch(AfterLaunch::Quit, cx)
+        });
+        shell.update(cx, |shell, cx| {
+            let instances = shell.instances.clone();
+            let finder = cx.new(|cx| ModFinder::preview(instances, &id, false, cx));
+            shell.show_mod_finder(finder, cx);
+        });
+        cx.run_until_parked();
+        shell.update(cx, |shell, cx| {
+            // The test window can't minimize: only the decision is checked.
+            shell.window = None;
+            shell.game_window_opened(cx);
+            assert!(shell.minimized_for_game, "minimized, not quit");
         });
     }
 }

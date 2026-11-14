@@ -1,5 +1,6 @@
 //! The Content tab (mods, resource packs, shader packs from Modrinth or files) and
-//! modpacks (the New instance dialog's Modpack mode, and the Settings tab's update).
+//! modpacks (the New instance dialog's Modpack mode, the Settings tab's update, and
+//! "Add a modpack" with the Settings tab's Added modpacks).
 //!
 //! The Content tab keeps its steps in its view, for the selected instance; these are
 //! the same `launcher_core::content` calls in the same order, for any instance, with
@@ -21,6 +22,7 @@ use launcher_core::{
     game::download::CancelToken,
     instances::{Instance, Loader},
     mc_text,
+    modpack::addon::{self, AddedPack},
 };
 use lodestone_minecraft::modrinth::{
     ClientProjectType, ClientSearchParams, ModrinthProject, ModrinthSearchIndex,
@@ -35,7 +37,10 @@ use super::{
     jobs::{Cancel, JobSpec, Progress},
     poll_until, ready,
 };
-use crate::instances::settings::update_candidate;
+use crate::instances::{
+    modpacks::{AddPrompt, AddSource},
+    settings::update_candidate,
+};
 
 /// Results per search page, as the Content tab shows.
 const PAGE_SIZE: u32 = 20;
@@ -1025,10 +1030,9 @@ pub fn switch_loader(call: Call, cx: &mut App) -> Reply {
                 |cx| (!control.instances.read(cx).loader_switch_running()).then_some(()),
             )
             .await?;
-            let notice = control
-                .notices
-                .borrow()
-                .find_since(seq, |n| matches!(n.kind, "notice" | "launch_failed"));
+            let notice = control.notices.borrow().find_since(seq, |n| {
+                n.is_about(&id) && matches!(n.kind, "notice" | "launch_failed")
+            });
             match notice {
                 Some(n) if n.is_failure() => Err(api_error(
                     codes::FAILED,
@@ -1277,10 +1281,10 @@ fn follow_import(call: &Call, before: Option<u64>, seq: u64, label: String, cx: 
             (!watch.instances.read(cx).imports().iter().any(|j| j.id == import)).then_some(())
         })
         .await?;
-        let notice = watch
-            .notices
-            .borrow()
-            .find_since(seq, |n| matches!(n.kind, "notice" | "launch_failed"));
+        // its own notice: another import's or instance's can come first
+        let notice = watch.notices.borrow().find_since(seq, |n| {
+            n.import == Some(import) && matches!(n.kind, "notice" | "launch_failed")
+        });
         match notice {
             Some(n) if n.is_failure() => Err(api_error(codes::FAILED, format!("{}: {}", n.title, n.message))),
             Some(n) => Ok(cx.update(|cx| {
@@ -1445,7 +1449,10 @@ pub fn modpack_update(call: Call, cx: &mut App) -> Reply {
                 instances.apply_modpack_update(prompt, params.backup_worlds, cx)
             });
             let Some(job) = control.instances.read(cx).modpack_update(&id) else {
-                let notice = control.notices.borrow().find_since(seq, |n| n.is_failure());
+                let notice = control
+                    .notices
+                    .borrow()
+                    .find_since(seq, |n| n.is_about(&id) && n.is_failure());
                 return ready(Err(match notice {
                     Some(n) => api_error(codes::FAILED, format!("{}: {}", n.title, n.message)),
                     None => api_error(codes::FAILED, "The update didn't start."),
@@ -1460,10 +1467,10 @@ pub fn modpack_update(call: Call, cx: &mut App) -> Reply {
                     watch.instances.read(cx).modpack_update(&id).is_none().then_some(())
                 })
                 .await?;
-                let notice = watch
-                    .notices
-                    .borrow()
-                    .find_since(seq, |n| matches!(n.kind, "notice" | "launch_failed"));
+                // its own notice: another instance's can come first
+                let notice = watch.notices.borrow().find_since(seq, |n| {
+                    n.is_about(&id) && matches!(n.kind, "notice" | "launch_failed")
+                });
                 match notice {
                     Some(n) if n.is_failure() => Err(api_error(codes::FAILED, format!("{}: {}", n.title, n.message))),
                     Some(n) => Ok(json!({ "instance": id, "title": n.title, "message": n.message, "plan": plan })),
@@ -1481,6 +1488,322 @@ pub fn modpack_update(call: Call, cx: &mut App) -> Reply {
             control.reply_job(&call, job, cx)
         });
         reply.await
+    })
+}
+
+#[derive(Deserialize)]
+struct ModpackAddParams {
+    #[serde(default)]
+    project: Option<String>,
+    #[serde(default)]
+    version: Option<String>,
+    /// A `.mrpack`, or a CurseForge pack's `.zip`, instead of a Modrinth project.
+    #[serde(default)]
+    file: Option<PathBuf>,
+}
+
+fn added_pack_json(pack: &AddedPack) -> Value {
+    let record = &pack.record;
+    json!({
+        "id": pack.id,
+        "title": record.title,
+        "version_number": record.version_number,
+        "project_id": (!record.project_id.is_empty()).then_some(&record.project_id),
+        "slug": (!record.slug.is_empty()).then_some(&record.slug),
+        "curseforge": record.curseforge.as_ref().map(|cf| json!({ "project_id": cf.project_id, "file_id": cf.file_id })),
+        "files": record.files.keys().collect::<Vec<_>>(),
+    })
+}
+
+fn add_plan_json(prompt: &AddPrompt) -> Value {
+    let plan = &prompt.plan;
+    let record = &plan.pack.record;
+    json!({
+        "instance": prompt.instance_id,
+        "server": prompt.server,
+        "pack": {
+            "title": record.title,
+            "version_number": record.version_number,
+            "project_id": (!record.project_id.is_empty()).then_some(&record.project_id),
+        },
+        "added": plan.added,
+        "configs": plan.configs,
+        "kept_instance_pack": plan.kept_instance_pack,
+        "already_there": plan.already_there,
+        "curseforge_website_only": prompt.blocked.len(),
+        "download_bytes": plan.download_size(),
+    })
+}
+
+/// The Modrinth modpack `reference` names, at `wanted` (a version id or number) or the
+/// newest release for the instance's Minecraft version and loader.
+async fn compatible_pack_version(
+    api: &Modrinth,
+    reference: &str,
+    wanted: Option<&str>,
+    instance: &Instance,
+) -> Result<(ModrinthProject, RawVersion), ErrorObject> {
+    let (project, linked) = resolve_project(api, reference).await?;
+    if project.project_type != "modpack" {
+        return Err(api_error(
+            codes::INVALID_PARAMS,
+            format!(
+                "{} is a {}, not a modpack. Install it with `content install`.",
+                project.title, project.project_type
+            ),
+        ));
+    }
+    if let (None, Some(version)) = (wanted, linked) {
+        return Ok((project, version));
+    }
+    let loaders: Vec<String> = instance
+        .loader
+        .kind()
+        .map(|k| vec![k.label().to_ascii_lowercase()])
+        .unwrap_or_default();
+    let games = vec![instance.game_version.clone()];
+    // a version asked for by name is looked for among all of them: adding it says
+    // why it doesn't fit
+    let versions = match wanted {
+        Some(_) => api.versions(&project.id, &[], &[]).await,
+        None => api.versions(&project.id, &loaders, &games).await,
+    }
+    .map_err(|err| api_error(codes::UNAVAILABLE, err.to_string()))?;
+    let version = match wanted {
+        Some(wanted) => versions
+            .into_iter()
+            .find(|v| v.id == wanted || v.version_number == wanted)
+            .ok_or_else(|| {
+                api_error(
+                    codes::NOT_FOUND,
+                    format!("{} has no version \"{wanted}\".", project.title),
+                )
+            })?,
+        None => default_modpack_version(versions).ok_or_else(|| {
+            api_error(
+                codes::NOT_FOUND,
+                format!(
+                    "{} has no version for Minecraft {} with {}.",
+                    project.title,
+                    instance.game_version,
+                    instance.loader.label()
+                ),
+            )
+        })?,
+    };
+    Ok((project, version))
+}
+
+/// Adds a modpack's files to an instance, next to its own (a server's pack, say): the
+/// "Add a modpack" dialog. Without `"confirm": true` it answers with the plan.
+pub fn modpack_add(call: Call, cx: &mut App) -> Reply {
+    let params: ModpackAddParams = params!(call);
+    let control = call.control.clone();
+    let instance = tri!(control.instance_param(&call, cx));
+    tri!(can_change(&control, &instance, cx));
+    if instance.loader.kind().is_none() {
+        return ready(Err(api_error(
+            codes::INVALID_PARAMS,
+            format!(
+                "{} has no mod loader, so a modpack can't be added to it.",
+                instance.name
+            ),
+        )));
+    }
+    let file = match (&params.project, &params.file) {
+        (Some(_), Some(_)) | (None, None) => {
+            return ready(Err(api_error(
+                codes::INVALID_PARAMS,
+                "Give a Modrinth project or a modpack file (.mrpack, or a CurseForge .zip).",
+            )));
+        }
+        (None, Some(file)) => {
+            tri!(absolute(file));
+            if !file.is_file() {
+                return ready(Err(api_error(
+                    codes::NOT_FOUND,
+                    format!("{} isn't a file.", file.display()),
+                )));
+            }
+            Some(file.clone())
+        }
+        (Some(_), None) => None,
+    };
+    let api = match file {
+        Some(_) => None,
+        None => Some(tri!(modrinth(&control, cx))),
+    };
+    let call = Rc::new(call);
+    cx.spawn(async move |cx| {
+        let source = match (file, api) {
+            (Some(file), _) => AddSource::File(file),
+            (None, Some(api)) => {
+                let reference = params.project.clone().unwrap_or_default();
+                let picked = compatible_pack_version(
+                    &api,
+                    &reference,
+                    params.version.as_deref(),
+                    &instance,
+                )
+                .await?;
+                AddSource::Modrinth(Box::new(picked))
+            }
+            (None, None) => return Err(api_error(codes::UNAVAILABLE, "Modrinth isn't available.")),
+        };
+        let id = instance.id.clone();
+        let planned = cx.update(|cx| {
+            control
+                .instances
+                .update(cx, |instances, cx| instances.plan_add_modpack(&id, source, cx))
+        });
+        let prompt = planned.await.map_err(|err| api_error(codes::FAILED, err))?;
+        let plan = add_plan_json(&prompt);
+        if !prompt.plan.changes_files() {
+            control.instances.update(cx, |instances, _| instances.discard_add(&prompt));
+            return Ok(json!({
+                "instance": id,
+                "message": "The instance has every file of this pack already; nothing was added.",
+                "plan": plan,
+            }));
+        }
+        if !super::confirmed(&call.params) {
+            // the window asks before adding; so does the API
+            control.instances.update(cx, |instances, _| instances.discard_add(&prompt));
+            return Err(api_error(
+                codes::CONFIRMATION_REQUIRED,
+                "This adds the pack's files to the instance as the plan says. Show the user the plan, then pass --yes.",
+            )
+            .with_data(json!({ "plan": plan })));
+        }
+        let reply = cx.update(|cx| -> Reply {
+            let seq = control.notices.borrow().last_seq();
+            control
+                .instances
+                .update(cx, |instances, cx| instances.apply_add_modpack(prompt, cx));
+            let Some(job) = control.instances.read(cx).modpack_update(&id) else {
+                let notice = control
+                    .notices
+                    .borrow()
+                    .find_since(seq, |n| n.is_about(&id) && n.is_failure());
+                return ready(Err(match notice {
+                    Some(n) => api_error(codes::FAILED, format!("{}: {}", n.title, n.message)),
+                    None => api_error(codes::FAILED, "Adding the modpack didn't start."),
+                }));
+            };
+            let progress = job.progress.clone();
+            let cancel = job.cancel.clone();
+            let watch = control.clone();
+            let plan = plan.clone();
+            let id = id.clone();
+            let work = cx.spawn(async move |cx| {
+                poll_until(cx, None, Duration::from_millis(300), Duration::from_secs(6 * 3600), |cx| {
+                    watch.instances.read(cx).modpack_update(&id).is_none().then_some(())
+                })
+                .await?;
+                // its own notice: another instance's can come first
+                let notice = watch.notices.borrow().find_since(seq, |n| {
+                    n.is_about(&id) && matches!(n.kind, "notice" | "launch_failed")
+                });
+                match notice {
+                    Some(n) if n.is_failure() => Err(api_error(codes::FAILED, format!("{}: {}", n.title, n.message))),
+                    Some(n) => {
+                        let added = cx.update(|cx| {
+                            watch.instances.read(cx).added_modpacks(&id).packs.iter().map(added_pack_json).collect::<Vec<_>>()
+                        });
+                        Ok(json!({ "instance": id, "title": n.title, "message": n.message, "plan": plan, "added_modpacks": added }))
+                    }
+                    None => Err(api_error(codes::CANCELLED, "Cancelled.")),
+                }
+            });
+            let job = control.start_job(
+                JobSpec::new("modpack_add", format!("Adding a modpack to {}", instance.name))
+                    .instance(&instance)
+                    .progress(Progress::Install(progress))
+                    .cancel(Cancel::Token(cancel)),
+                work,
+                cx,
+            );
+            control.reply_job(&call, job, cx)
+        });
+        reply.await
+    })
+}
+
+/// The modpacks added to an instance on top of its own, with the files each added.
+pub fn modpack_added(call: Call, cx: &mut App) -> Reply {
+    let control = call.control.clone();
+    let instance = tri!(control.instance_param(&call, cx));
+    let packs = control.instances.read(cx).added_modpacks(&instance.id);
+    ready(Ok(json!({
+        "instance": instance.id,
+        "packs": packs.packs.iter().map(added_pack_json).collect::<Vec<_>>(),
+    })))
+}
+
+#[derive(Deserialize)]
+struct ModpackRemoveParams {
+    /// The added pack's id, Modrinth project id or slug, CurseForge project id, or title.
+    pack: String,
+}
+
+/// Removes a pack added to an instance: the files it added that are as it added them.
+/// Without `"confirm": true` it answers with what it would remove and keep.
+pub fn modpack_remove(call: Call, cx: &mut App) -> Reply {
+    let params: ModpackRemoveParams = params!(call);
+    let control = call.control.clone();
+    let instance = tri!(control.instance_param(&call, cx));
+    tri!(can_change(&control, &instance, cx));
+    let packs = control.instances.read(cx).added_modpacks(&instance.id);
+    let Some(pack) = packs.find(&params.pack).cloned() else {
+        return ready(Err(api_error(
+            codes::NOT_FOUND,
+            format!(
+                "{} has no added modpack \"{}\". Added: {}.",
+                instance.name,
+                params.pack,
+                if packs.packs.is_empty() {
+                    "none".to_string()
+                } else {
+                    packs
+                        .packs
+                        .iter()
+                        .map(|p| format!("{} ({})", p.record.title, p.id))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                }
+            ),
+        )));
+    };
+    let dirs = control.instances.read(cx).content_dirs(&instance.id);
+    let preview = addon::removal(&dirs, &pack.id).unwrap_or_default();
+    let plan = json!({
+        "instance": instance.id,
+        "pack": added_pack_json(&pack),
+        "removes": preview.removed,
+        "keeps_changed": preview.kept_changed,
+    });
+    if !super::confirmed(&call.params) {
+        return ready(Err(api_error(
+            codes::CONFIRMATION_REQUIRED,
+            format!(
+                "This deletes the files {} added (not moved to the Trash). Show the user the plan, then pass --yes.",
+                pack.record.title
+            ),
+        )
+        .with_data(json!({ "plan": plan }))));
+    }
+    let id = instance.id.clone();
+    let removed = control.instances.update(cx, |instances, cx| {
+        instances.remove_added_modpack(&id, &pack.id, cx)
+    });
+    ready(match removed {
+        Ok(outcome) => Ok(json!({
+            "instance": id,
+            "pack": added_pack_json(&pack),
+            "removed": outcome.removed,
+            "kept_changed": outcome.kept_changed,
+        })),
+        Err(err) => Err(api_error(codes::FAILED, err)),
     })
 }
 

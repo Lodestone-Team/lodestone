@@ -104,7 +104,7 @@ pub async fn search_events(
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use crate::{
         db::write::{tests::temp_pool, write_client_events},
         events::{CausedBy, EventInner, EventLevel, InstanceEvent, InstanceEventInner},
@@ -113,7 +113,7 @@ mod tests {
 
     use super::*;
 
-    fn query() -> EventQuery {
+    pub(crate) fn query() -> EventQuery {
         EventQuery {
             event_levels: None,
             event_types: None,

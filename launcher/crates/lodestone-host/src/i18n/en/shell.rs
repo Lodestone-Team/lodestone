@@ -34,6 +34,7 @@ crate::i18n::messages! {
         TabMods = "Mods",
         TabPlugins = "Plugins",
         TabEventLogs = "Event logs",
+        TabBackups = "Backups",
         /// The settings and their pages.
         Settings = "Settings",
         /// The app menu's item that opens the Settings dialog.

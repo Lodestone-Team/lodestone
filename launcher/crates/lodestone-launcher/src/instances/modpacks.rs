@@ -1,6 +1,7 @@
 //! Modpacks: importing a `.mrpack` (a file, or a version from Modrinth) or a CurseForge
 //! pack (a `.zip` with `manifest.json`, or a file from CurseForge) as a new instance in
-//! the background, and updating an instance to another version of its pack.
+//! the background, updating an instance to another version of its pack, and adding a
+//! pack's files to an instance that exists (one made for a server, say).
 //! The work is `launcher_core::modpack`'s; this keeps the jobs and their progress.
 
 use std::{path::PathBuf, sync::Arc, time::Duration};
@@ -18,6 +19,7 @@ use launcher_core::{
     instances::{Instance, Loader},
     modpack::{
         self, CurseForgePack, ModpackError, ModpackRecord, PackInfo,
+        addon::{self, AddPlan, AddedPacks},
         import::{self, ImportOptions},
         update::{self, UpdatePlan},
     },
@@ -27,7 +29,7 @@ use lodestone_minecraft::{
     modrinth::{ModrinthProject, RawVersion},
 };
 
-use super::{Instances, InstancesEvent};
+use super::{About, Instances, InstancesEvent};
 use crate::i18n::{InstancesMsg as M, InstancesPlural as P, t, tr, trn};
 
 /// A modpack import's or update's progress label, in the interface's language.
@@ -65,6 +67,9 @@ pub fn progress_label(label: &str) -> String {
             return tr!(message, name = name);
         }
     }
+    if let Some(name) = label.strip_prefix("Adding ") {
+        return tr!(M::AddingName, name = name);
+    }
     if let Some(version) = label.strip_prefix("Updating to ") {
         return tr!(M::UpdatingTo, version = version);
     }
@@ -97,6 +102,59 @@ pub struct UpdatePrompt {
     /// The downloaded pack, removed when the prompt is answered.
     pub pack_path: PathBuf,
     pub pack: Arc<PackInfo>,
+}
+
+/// A pack to add to an instance, picked in "Add a modpack".
+#[derive(Clone)]
+pub enum AddSource {
+    Modrinth(Box<(ModrinthProject, RawVersion)>),
+    CurseForge(Box<(CfMod, CfFile)>),
+    /// A `.mrpack`, or a CurseForge pack's `.zip`, on disk (kept afterwards).
+    File(PathBuf),
+}
+
+impl AddSource {
+    /// The record of the pack, without files.
+    fn record(&self) -> ModpackRecord {
+        match self {
+            AddSource::Modrinth(picked) => ModpackRecord::from_modrinth(&picked.0, &picked.1),
+            AddSource::CurseForge(picked) => curseforge_record(&picked.0, &picked.1),
+            // Filled in from Modrinth, or from the pack, once it is read.
+            AddSource::File(_) => ModpackRecord::default(),
+        }
+    }
+}
+
+/// What adding a pack to an instance will do, before it does it.
+#[derive(Clone)]
+pub struct AddPrompt {
+    pub instance_id: String,
+    pub instance_name: String,
+    /// The server the instance was made for, whose mods the pack can't replace.
+    pub server: Option<String>,
+    pub plan: Arc<AddPlan>,
+    pub pack_path: PathBuf,
+    /// The pack is the user's own file, not a download: it stays when done.
+    pub keep_pack: bool,
+    /// The pack's files only CurseForge's website serves, left out.
+    pub blocked: Vec<CfPlannedFile>,
+}
+
+/// The record of a CurseForge pack's `file`, without files.
+fn curseforge_record(project: &CfMod, file: &CfFile) -> ModpackRecord {
+    ModpackRecord {
+        title: project.name.clone(),
+        slug: project.slug.clone(),
+        version_number: file.display_name_or_file().to_string(),
+        date_published: file.file_date.clone(),
+        curseforge: Some(CurseForgePack {
+            project_id: project.id,
+            file_id: file.id,
+            file_date: file.file_date.clone(),
+            page_url: project.page_url(),
+        }),
+        ..ModpackRecord::default()
+    }
 }
 
 /// What comes before the import itself: where the pack is and where it came from.
@@ -211,6 +269,7 @@ impl Instances {
                             .map_or_else(String::new, |n| n.to_string_lossy().into_owned())
                     )
                     .into(),
+                    about: About::Nothing,
                 });
                 continue;
             }
@@ -243,19 +302,7 @@ impl Instances {
         name: Option<String>,
         cx: &mut Context<Self>,
     ) {
-        let record = ModpackRecord {
-            title: project.name.clone(),
-            slug: project.slug.clone(),
-            version_number: file.display_name_or_file().to_string(),
-            date_published: file.file_date.clone(),
-            curseforge: Some(CurseForgePack {
-                project_id: project.id,
-                file_id: file.id,
-                file_date: file.file_date.clone(),
-                page_url: project.page_url(),
-            }),
-            ..ModpackRecord::default()
-        };
+        let record = curseforge_record(&project, &file);
         let title = name.clone().unwrap_or_else(|| project.name.clone());
         self.start_import(
             title,
@@ -365,6 +412,7 @@ impl Instances {
             cx.emit(InstancesEvent::LaunchFailed {
                 title: t(M::ShareCodeContentFailed).into(),
                 message: t(M::ShareCodeOffline).into(),
+                about: About::Instance(id.clone()),
             });
             return Ok(Some(id));
         };
@@ -384,6 +432,7 @@ impl Instances {
             })
         };
         let instance_name = name.clone();
+        let about = About::Instance(id.clone());
         let task = cx.spawn(async move |this, cx| {
             let result = work.await;
             this.update(cx, |this, cx| {
@@ -412,11 +461,13 @@ impl Instances {
                         cx.emit(InstancesEvent::Notice {
                             title: tr!(M::ShareCodeReady, name = instance_name).into(),
                             message: message.into(),
+                            about: about.clone(),
                         });
                     }
                     Err(err) => cx.emit(InstancesEvent::LaunchFailed {
                         title: t(M::ShareCodeContentFailed).into(),
                         message: err.to_string().into(),
+                        about: about.clone(),
                     }),
                 }
                 cx.notify();
@@ -620,14 +671,17 @@ impl Instances {
                             None => cx.emit(InstancesEvent::Notice {
                                 title: tr!(M::ModpackReady, name = instance.name).into(),
                                 message: message.into(),
+                                about: About::Import(id),
                             }),
                             Some(Ok(outcome)) => cx.emit(InstancesEvent::Notice {
                                 title: tr!(M::ShareCodeReady, name = instance.name).into(),
                                 message: share_message(message, &outcome).into(),
+                                about: About::Import(id),
                             }),
                             Some(Err(err)) => cx.emit(InstancesEvent::LaunchFailed {
                                 title: t(M::ShareCodeContentFailed).into(),
                                 message: err.into(),
+                                about: About::Import(id),
                             }),
                         }
                     }
@@ -635,6 +689,7 @@ impl Instances {
                     Err(err) => cx.emit(InstancesEvent::LaunchFailed {
                         title: t(M::CouldntImportModpack).into(),
                         message: err.to_string().into(),
+                        about: About::Import(id),
                     }),
                 }
                 cx.notify();
@@ -776,6 +831,7 @@ impl Instances {
             cx.emit(InstancesEvent::LaunchFailed {
                 title: t(M::CouldntUpdateModpack).into(),
                 message: t(M::StopGameFirst).into(),
+                about: About::Instance(id.clone()),
             });
             return;
         }
@@ -808,6 +864,7 @@ impl Instances {
             let result = work.await;
             this.update(cx, |this, cx| {
                 this.modpack_updates.remove(&id);
+                this.content_changed(&id);
                 match result {
                     Ok(outcome) => {
                         let plan = &prompt.plan;
@@ -847,12 +904,14 @@ impl Instances {
                         cx.emit(InstancesEvent::Notice {
                             title: t(M::ModpackUpdated).into(),
                             message: message.into(),
+                            about: About::Instance(id.clone()),
                         });
                     }
                     Err(ModpackError::Cancelled) => {}
                     Err(err) => cx.emit(InstancesEvent::LaunchFailed {
                         title: t(M::CouldntUpdateModpack).into(),
                         message: err.to_string().into(),
+                        about: About::Instance(id.clone()),
                     }),
                 }
                 cx.notify();
@@ -869,6 +928,295 @@ impl Instances {
         );
         self.start_import_ticker(cx);
         cx.notify();
+    }
+
+    /// The packs added to the instance on top of its own.
+    pub fn added_modpacks(&self, id: &str) -> AddedPacks {
+        AddedPacks::load(&self.store.dir(id))
+    }
+
+    /// Downloads the pack `source` names and plans adding its files to the instance
+    /// `id`. Refused (an error saying why) when the pack is for another Minecraft
+    /// version or loader, or is added already.
+    pub fn plan_add_modpack(
+        &mut self,
+        id: &str,
+        source: AddSource,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<AddPrompt, String>> {
+        if self.is_active(id) || self.modpack_updates.contains_key(id) {
+            return Task::ready(Err(t(M::StopGameFirst).into()));
+        }
+        let instance = match self.store.get(id) {
+            Ok(instance) => instance,
+            Err(err) => return Task::ready(Err(err.to_string())),
+        };
+        let record = source.record();
+        if let Some(added) = self.added_modpacks(id).same_project(&record) {
+            return Task::ready(Err(tr!(M::ModpackAddedAlready, pack = added.record.title)));
+        }
+        let api = self.modrinth.clone();
+        let cf = self.curseforge.clone();
+        let dirs = self.content_dirs(id);
+        let server = launcher_core::cores::link::load_link(&dirs.instance).map(|l| l.server_name);
+        let downloader = self.content_downloader.clone();
+        cx.background_spawn(async move {
+            let progress = InstallProgress::default();
+            let cancel = CancelToken::new();
+            let pack_path = match &source {
+                AddSource::Modrinth(picked) => {
+                    let version = &picked.1;
+                    let api = api
+                        .as_deref()
+                        .ok_or_else(|| t(M::ModrinthUnreachable).to_string())?;
+                    import::download_pack(
+                        api,
+                        &downloader,
+                        version,
+                        &dirs.instance,
+                        &progress,
+                        &cancel,
+                    )
+                    .await
+                    .map_err(|e| e.to_string())?
+                }
+                AddSource::CurseForge(picked) => {
+                    let file = &picked.1;
+                    let cf = cf
+                        .as_deref()
+                        .ok_or_else(|| t(M::CurseForgeUnreachable).to_string())?;
+                    if !file.downloadable() {
+                        return Err(t(M::CurseForgePackOnWebsite).into());
+                    }
+                    modpack::curseforge::download(
+                        cf,
+                        &downloader,
+                        file,
+                        &dirs.instance,
+                        &progress,
+                        &cancel,
+                    )
+                    .await
+                    .map_err(|e| e.to_string())?
+                }
+                AddSource::File(path) => path.clone(),
+            };
+            let keep_pack = matches!(source, AddSource::File(_));
+            let planned = async {
+                let (pack, blocked) = if modpack::curseforge::is_curseforge_pack(&pack_path) {
+                    let cf = cf
+                        .as_deref()
+                        .ok_or_else(|| ModpackError::Invalid(t(M::CurseForgeUnreachable).into()))?;
+                    let read = modpack::curseforge::read_curseforge_pack(&pack_path)?;
+                    let resolved = modpack::curseforge::resolve(cf, api.as_deref(), &read).await?;
+                    (resolved.info, resolved.blocked)
+                } else {
+                    (modpack::read_pack(&pack_path)?, Vec::new())
+                };
+                if let Some(reason) = addon::incompatibility(&instance, &pack) {
+                    return Err(ModpackError::Invalid(reason));
+                }
+                let mut record = record;
+                if keep_pack
+                    && !modpack::curseforge::is_curseforge_pack(&pack_path)
+                    && let Some(api) = api.as_deref()
+                    && let Some((found, _)) = identify(api, &pack_path).await
+                {
+                    record = found;
+                }
+                if record.title.is_empty() {
+                    record.title = pack.name.clone();
+                }
+                if record.version_number.is_empty() {
+                    record.version_number = pack.version_number.clone().unwrap_or_default();
+                }
+                if let Some(added) = AddedPacks::load(&dirs.instance).same_project(&record) {
+                    return Err(ModpackError::Invalid(tr!(
+                        M::ModpackAddedAlready,
+                        pack = added.record.title
+                    )));
+                }
+                Ok((addon::plan(&dirs, &pack, record), blocked))
+            }
+            .await;
+            match planned {
+                Ok((plan, blocked)) => Ok(AddPrompt {
+                    instance_id: instance.id.clone(),
+                    instance_name: instance.name.clone(),
+                    server,
+                    plan: Arc::new(plan),
+                    pack_path,
+                    keep_pack,
+                    blocked,
+                }),
+                Err(err) => {
+                    if !keep_pack {
+                        let _ = std::fs::remove_file(&pack_path);
+                    }
+                    Err(err.to_string())
+                }
+            }
+        })
+    }
+
+    /// Forgets a planned add (its downloaded pack).
+    pub fn discard_add(&mut self, prompt: &AddPrompt) {
+        if !prompt.keep_pack {
+            let _ = std::fs::remove_file(&prompt.pack_path);
+        }
+    }
+
+    /// Adds a planned pack's files, in the background.
+    pub fn apply_add_modpack(&mut self, prompt: AddPrompt, cx: &mut Context<Self>) {
+        let id = prompt.instance_id.clone();
+        if self.is_active(&id) || self.modpack_updates.contains_key(&id) {
+            self.discard_add(&prompt);
+            cx.emit(InstancesEvent::LaunchFailed {
+                title: t(M::CouldntAddModpack).into(),
+                message: t(M::StopGameFirst).into(),
+                about: About::Instance(id.clone()),
+            });
+            return;
+        }
+        let api = self.modrinth.clone();
+        let cf = self.curseforge.clone();
+        let dirs = self.content_dirs(&id);
+        let downloader = self.content_downloader.clone();
+        let progress = Arc::new(InstallProgress::default());
+        let cancel = CancelToken::new();
+        let work = {
+            let progress = progress.clone();
+            let cancel = cancel.clone();
+            let prompt = prompt.clone();
+            cx.background_spawn(async move {
+                let result = addon::apply(
+                    Platforms::new(api.as_deref(), cf.as_deref()),
+                    &downloader,
+                    &dirs,
+                    &prompt.plan,
+                    &prompt.pack_path,
+                    &progress,
+                    &cancel,
+                )
+                .await;
+                if !prompt.keep_pack {
+                    let _ = std::fs::remove_file(&prompt.pack_path);
+                }
+                result
+            })
+        };
+        let task = cx.spawn(async move |this, cx| {
+            let result = work.await;
+            this.update(cx, |this, cx| {
+                this.modpack_updates.remove(&id);
+                this.content_changed(&id);
+                match result {
+                    Ok(added) => {
+                        let to_download = prompt.blocked.len();
+                        if to_download > 0 {
+                            this.pending_downloads
+                                .entry(id.clone())
+                                .or_default()
+                                .extend(prompt.blocked.clone());
+                        }
+                        let mut message = tr!(
+                            M::ModpackAddedMessage,
+                            pack = added.record.title,
+                            name = prompt.instance_name,
+                        );
+                        if to_download > 0 {
+                            message = tr!(
+                                M::TwoSentences,
+                                first = message,
+                                second = trn!(P::PackFilesToDownload, to_download)
+                            );
+                        }
+                        cx.emit(InstancesEvent::Notice {
+                            title: t(M::ModpackAdded).into(),
+                            message: message.into(),
+                            about: About::Instance(id.clone()),
+                        });
+                    }
+                    Err(ModpackError::Cancelled) => {}
+                    Err(err) => cx.emit(InstancesEvent::LaunchFailed {
+                        title: t(M::CouldntAddModpack).into(),
+                        message: err.to_string().into(),
+                        about: About::Instance(id.clone()),
+                    }),
+                }
+                cx.notify();
+            })
+            .ok();
+        });
+        self.modpack_updates.insert(
+            prompt.instance_id.clone(),
+            UpdateJob {
+                progress,
+                cancel,
+                _task: task,
+            },
+        );
+        self.start_import_ticker(cx);
+        cx.notify();
+    }
+
+    /// Removes the added pack `pack_id` from the instance `id`: its files that are as it
+    /// wrote them. The window is told how it went; so is the caller.
+    pub fn remove_added_modpack(
+        &mut self,
+        id: &str,
+        pack_id: &str,
+        cx: &mut Context<Self>,
+    ) -> Result<addon::RemoveOutcome, String> {
+        if self.is_active(id) || self.modpack_updates.contains_key(id) {
+            cx.emit(InstancesEvent::LaunchFailed {
+                title: t(M::CouldntRemoveModpack).into(),
+                message: t(M::StopGameFirst).into(),
+                about: About::Instance(id.to_string()),
+            });
+            return Err(t(M::StopGameFirst).into());
+        }
+        let dirs = self.content_dirs(id);
+        let title = self
+            .added_modpacks(id)
+            .get(pack_id)
+            .map(|p| p.record.title.clone())
+            .unwrap_or_default();
+        let removed = addon::remove(&dirs, pack_id);
+        self.content_changed(id);
+        let result = match &removed {
+            Ok(outcome) => Ok(outcome.clone()),
+            Err(err) => Err(err.to_string()),
+        };
+        match removed {
+            Ok(outcome) => {
+                let removed = trn!(
+                    P::AddedPackFilesRemoved,
+                    outcome.removed.len(),
+                    pack = title
+                );
+                let message = match outcome.kept_changed.len() {
+                    0 => removed,
+                    n => tr!(
+                        M::TwoSentences,
+                        first = removed,
+                        second = trn!(P::AddedPackFilesKept, n)
+                    ),
+                };
+                cx.emit(InstancesEvent::Notice {
+                    title: t(M::ModpackRemoved).into(),
+                    message: message.into(),
+                    about: About::Instance(id.to_string()),
+                });
+            }
+            Err(err) => cx.emit(InstancesEvent::LaunchFailed {
+                title: t(M::CouldntRemoveModpack).into(),
+                message: err.to_string().into(),
+                about: About::Instance(id.to_string()),
+            }),
+        }
+        cx.notify();
+        result
     }
 
     /// Shows an import in progress, for the offscreen screenshots.

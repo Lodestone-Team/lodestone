@@ -4,12 +4,15 @@ use axum::{
     Json, Router,
 };
 use color_eyre::eyre::eyre;
+use dashmap::DashMap;
 use tracing::{info, warn};
 
 use crate::{
     error::ErrorKind,
-    events::{Event, EventInner},
-    types::Snowflake,
+    events::{CausedBy, Event, EventInner},
+    prelude::GameInstance,
+    traits::t_server::{State, TServer},
+    types::{InstanceUuid, Snowflake},
     AppState, Error, GlobalSettingsData,
 };
 
@@ -90,6 +93,9 @@ pub async fn change_code_execution(
         "Code execution turned {}",
         if enabled { "on" } else { "off" }
     );
+    if !enabled {
+        stop_custom_command_lines(&state.instances, requester.caused_by()).await;
+    }
     state.event_broadcaster.send(Event {
         event_inner: EventInner::GlobalSettingsChanged,
         details: format!(
@@ -100,6 +106,28 @@ pub async fn change_code_execution(
         caused_by: requester.caused_by(),
     });
     Ok(())
+}
+
+/// Stops the servers that run a custom Java command or Java arguments, which may only run
+/// while code execution is on; they can't start again until it is turned back on. Each is
+/// asked to stop, which saves its world, as a user's stop would.
+pub(crate) async fn stop_custom_command_lines(
+    instances: &DashMap<InstanceUuid, GameInstance>,
+    caused_by: CausedBy,
+) {
+    for (uuid, instance) in crate::snapshot_instances(instances) {
+        if !matches!(instance.state().await, State::Starting | State::Running) {
+            continue;
+        }
+        let GameInstance::MinecraftInstance(minecraft) = &instance;
+        if !minecraft.has_custom_command_line().await {
+            continue;
+        }
+        info!("Stopping instance {uuid}: its custom Java command line needs code execution");
+        if let Err(e) = instance.stop(caused_by.clone(), false).await {
+            warn!("Failed to stop instance {uuid} after code execution was turned off: {e}");
+        }
+    }
 }
 
 /// Allows or refuses plain HTTP from other devices. Takes effect for new connections;
@@ -201,6 +229,34 @@ pub async fn change_allow_local_claim(
     Ok(())
 }
 
+/// Turns the background check for newer versions of servers' modpacks on or off. Owner
+/// only. "Check for an update" on a server still works while it is off.
+pub async fn change_check_modpack_updates(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    requester: AuthedUser,
+    Json(enabled): Json<bool>,
+) -> Result<(), Error> {
+    requester.owner_only("turn modpack update checks on or off")?;
+    state
+        .global_settings
+        .lock()
+        .await
+        .set_check_modpack_updates(enabled)
+        .await?;
+    let details = format!(
+        "Checking for modpack updates turned {}",
+        if enabled { "on" } else { "off" }
+    );
+    info!("{details}");
+    state.event_broadcaster.send(Event {
+        event_inner: EventInner::GlobalSettingsChanged,
+        details,
+        snowflake: Snowflake::default(),
+        caused_by: requester.caused_by(),
+    });
+    Ok(())
+}
+
 /// Shows or hides the listed instances at `GET /public/instances`, for Lodestone
 /// Launcher. Owner only.
 pub async fn change_list_instances_publicly(
@@ -288,6 +344,10 @@ pub fn get_global_settings_routes(state: AppState) -> Router {
         .route(
             "/global_settings/allow_remote_access",
             put(change_allow_remote_access),
+        )
+        .route(
+            "/global_settings/check_modpack_updates",
+            put(change_check_modpack_updates),
         )
         .with_state(state)
 }

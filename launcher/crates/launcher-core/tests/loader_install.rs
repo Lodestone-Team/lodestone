@@ -303,6 +303,13 @@ fn patched() -> Vec<u8> {
 /// Serves a Forge-style installer with one client processor (and one server-only
 /// processor that must not run), its jars, and the installer's `.sha1`.
 fn serve_forge(fixture: &Fixture) {
+    serve_forge_with(fixture, false);
+}
+
+/// [`serve_forge`]; with `universal_in_profile`, the universal jar is listed in the
+/// installer's `install_profile.json` instead of its `version.json`, as Forge 1.13 to
+/// 1.16 list it.
+fn serve_forge_with(fixture: &Fixture, universal_in_profile: bool) {
     let patcher = zip(&[(
         "META-INF/MANIFEST.MF",
         b"Manifest-Version: 1.0\r\nMain-Class: net.minecraftforge.binarypatcher.Con\r\n soleTool\r\n",
@@ -316,7 +323,10 @@ fn serve_forge(fixture: &Fixture) {
         b"modlauncher",
     );
     let universal = b"forge universal jar";
-    let install_profile = json!({
+    let universal_library = json!({"name": format!("net.minecraftforge:forge:{FORGE}:universal"), "downloads": {"artifact": {
+        "path": format!("net/minecraftforge/forge/{FORGE}/forge-{FORGE}-universal.jar"),
+        "url": "", "sha1": sha1_hex(universal), "size": universal.len()}}});
+    let mut install_profile = json!({
         "spec": 1,
         "minecraft": GAME,
         "json": "/version.json",
@@ -341,7 +351,7 @@ fn serve_forge(fixture: &Fixture) {
                 "url": jopt_url, "sha1": jopt_ref["sha1"], "size": jopt_ref["size"]}}},
         ],
     });
-    let version = json!({
+    let mut version = json!({
         "id": FORGE_ID,
         "inheritsFrom": GAME,
         "type": "release",
@@ -349,9 +359,6 @@ fn serve_forge(fixture: &Fixture) {
         "logging": {},
         "arguments": {"game": ["--launchTarget", "forgeclient"], "jvm": ["-DignoreList=${version_name}.jar"]},
         "libraries": [
-            {"name": format!("net.minecraftforge:forge:{FORGE}:universal"), "downloads": {"artifact": {
-                "path": format!("net/minecraftforge/forge/{FORGE}/forge-{FORGE}-universal.jar"),
-                "url": "", "sha1": sha1_hex(universal), "size": universal.len()}}},
             {"name": format!("net.minecraftforge:forge:{FORGE}:client"), "downloads": {"artifact": {
                 "path": format!("net/minecraftforge/forge/{FORGE}/forge-{FORGE}-client.jar"),
                 "url": "", "sha1": sha1_hex(&patched()), "size": patched().len()}}},
@@ -360,6 +367,15 @@ fn serve_forge(fixture: &Fixture) {
                 "url": modlauncher["url"], "sha1": modlauncher["sha1"], "size": modlauncher["size"]}}},
         ],
     });
+    let listed_in = if universal_in_profile {
+        &mut install_profile
+    } else {
+        &mut version
+    };
+    listed_in["libraries"]
+        .as_array_mut()
+        .unwrap()
+        .insert(0, universal_library);
     let install_profile = install_profile.to_string();
     let version = version.to_string();
     let universal_entry =
@@ -415,6 +431,44 @@ fn runs(fixture: &Fixture) -> Vec<String> {
         .lines()
         .map(str::to_string)
         .collect()
+}
+
+/// Forge 1.13 to 1.16 list their universal jar only in the installer's
+/// `install_profile.json`; it comes out of the installer all the same, or FML says
+/// "Missing forge!".
+#[test]
+#[cfg_attr(windows, ignore = "the made-up java is a shell script")]
+fn restores_a_universal_jar_listed_only_in_the_install_profile() {
+    let fixture = Fixture::new();
+    serve_forge_with(&fixture, true);
+    let java = patcher_java(&fixture, false);
+    let choice = LoaderChoice {
+        kind: LoaderKind::Forge,
+        version: FORGE.into(),
+    };
+    let universal = fixture.data_dir().libraries_dir().join(format!(
+        "net/minecraftforge/forge/{FORGE}/forge-{FORGE}-universal.jar"
+    ));
+    fixture
+        .prepare(
+            &choice,
+            &java,
+            Verify::Recorded,
+            &InstallProgress::default(),
+        )
+        .unwrap();
+    assert_eq!(fs::read(&universal).unwrap(), b"forge universal jar");
+    // Gone (deleted by hand): back from the installer on the next launch.
+    fs::remove_file(&universal).unwrap();
+    fixture
+        .prepare(
+            &choice,
+            &java,
+            Verify::Recorded,
+            &InstallProgress::default(),
+        )
+        .unwrap();
+    assert_eq!(fs::read(&universal).unwrap(), b"forge universal jar");
 }
 
 #[test]
@@ -543,6 +597,57 @@ fn installs_forge_and_runs_its_processor_once() {
 
 #[test]
 #[cfg_attr(windows, ignore = "the made-up java is a shell script")]
+fn a_deleted_libraries_folder_is_repaired_with_the_installer_downloaded_again() {
+    let fixture = Fixture::new();
+    serve_forge(&fixture);
+    let java = patcher_java(&fixture, false);
+    let choice = LoaderChoice {
+        kind: LoaderKind::Forge,
+        version: FORGE.into(),
+    };
+    let libraries = fixture.data_dir().libraries_dir();
+    let installer_url = format!(
+        "https://maven.minecraftforge.net/net/minecraftforge/forge/{FORGE}/forge-{FORGE}-installer.jar"
+    );
+    fixture
+        .prepare(
+            &choice,
+            &java,
+            Verify::Recorded,
+            &InstallProgress::default(),
+        )
+        .unwrap();
+    assert_eq!(fixture.server.hits(&installer_url), 1);
+
+    // Only the installer gone: nothing needs it, so it isn't fetched.
+    let installer = libraries.join(format!(
+        "net/minecraftforge/forge/{FORGE}/forge-{FORGE}-installer.jar"
+    ));
+    fs::remove_file(&installer).unwrap();
+    fixture
+        .prepare(
+            &choice,
+            &java,
+            Verify::Recorded,
+            &InstallProgress::default(),
+        )
+        .unwrap();
+    assert_eq!(fixture.server.hits(&installer_url), 1);
+
+    // The whole folder gone, the installer with it, while the saved profile stays.
+    fs::remove_dir_all(&libraries).unwrap();
+    for verify in [Verify::Recorded, Verify::Full] {
+        fixture
+            .prepare(&choice, &java, verify, &InstallProgress::default())
+            .unwrap();
+        fs::remove_dir_all(&libraries).unwrap();
+    }
+    assert_eq!(fixture.server.hits(&installer_url), 3);
+    assert_eq!(runs(&fixture).len(), 3);
+}
+
+#[test]
+#[cfg_attr(windows, ignore = "the made-up java is a shell script")]
 fn a_processor_output_with_the_wrong_sha1_fails() {
     let fixture = Fixture::new();
     serve_forge(&fixture);
@@ -605,8 +710,14 @@ const LEGACY: &str = "1.20.1-11.0.0.1";
 /// jar's SHA-1 when `listed`, and only an unrelated one otherwise.
 fn serve_legacy_forge(fixture: &Fixture, listed: bool) -> &'static [u8] {
     let scala: &'static [u8] = b"scala library jar";
+    serve_legacy_forge_with(fixture, listed, scala);
+    scala
+}
+
+/// [`serve_legacy_forge`], with `scala` as the Scala library jar.
+fn serve_legacy_forge_with(fixture: &Fixture, listed: bool, scala: &[u8]) {
     let scala_url = "https://maven.minecraftforge.net/org/scala-lang/scala-library/2.11.1/scala-library-2.11.1.jar";
-    fixture.server.serve(scala_url, Entry::ok(scala));
+    fixture.server.serve(scala_url, Entry::ok(scala.to_vec()));
     let other_url = "https://maven.minecraftforge.net/com/example/other/1.0/other-1.0.jar";
     fixture.serve_maven(other_url, b"other library");
     let checksums = if listed {
@@ -642,7 +753,32 @@ fn serve_legacy_forge(fixture: &Fixture, listed: bool) -> &'static [u8] {
         &format!("https://maven.minecraftforge.net/net/minecraftforge/forge/{LEGACY}/forge-{LEGACY}-installer.jar"),
         &installer,
     );
-    scala
+}
+
+#[test]
+fn an_old_forge_library_without_a_sha1_file_is_hashed_whatever_its_size() {
+    // Larger than the 2 MiB limit on API responses, as Scala's compiler (13 MB) is.
+    let scala: Vec<u8> = (0..3 * 1024 * 1024).map(|i| (i % 251) as u8).collect();
+    let fixture = Fixture::new();
+    serve_legacy_forge_with(&fixture, true, &scala);
+    let java = fixture.script("java", "#!/bin/sh\n");
+    let choice = LoaderChoice {
+        kind: LoaderKind::Forge,
+        version: LEGACY.into(),
+    };
+    fixture
+        .prepare(
+            &choice,
+            &java,
+            Verify::Recorded,
+            &InstallProgress::default(),
+        )
+        .unwrap();
+    let installed = fixture
+        .data
+        .path()
+        .join("libraries/org/scala-lang/scala-library/2.11.1/scala-library-2.11.1.jar");
+    assert!(fs::read(installed).unwrap() == scala);
 }
 
 #[test]

@@ -101,7 +101,8 @@ pub enum Command {
     /// Mods, resource packs and shader packs: search Modrinth, install, update, remove.
     #[command(subcommand)]
     Content(Content),
-    /// Modpacks: search, install as an instance, check for and apply updates.
+    /// Modpacks: search, install as an instance, check for and apply updates, and add
+    /// a pack's files to an instance (next to a server's mods, say).
     #[command(subcommand)]
     Modpacks(Modpacks),
     /// Worlds and their backups.
@@ -815,6 +816,37 @@ pub enum Modpacks {
         #[arg(long)]
         no_backup_worlds: bool,
     },
+    /// Adds a modpack's mods and configs to an instance, next to the ones it has: for an
+    /// instance made for a server, the server's mods stay as the server has them.
+    /// Without --yes it prints the plan (exit code 5).
+    #[command(
+        after_help = "Examples:\n  lodestone-launcher-cli modpacks add \"Friends SMP\" fabulously-optimized          # the plan\n  lodestone-launcher-cli modpacks add \"Friends SMP\" fabulously-optimized --yes    # add it\n  lodestone-launcher-cli modpacks add SMP --file ./pack.mrpack --yes"
+    )]
+    Add {
+        instance: String,
+        /// A slug, project id or modrinth.com link.
+        #[arg(required_unless_present = "file")]
+        project: Option<String>,
+        /// A .mrpack, or a CurseForge pack's .zip.
+        #[arg(long, conflicts_with = "project")]
+        file: Option<PathBuf>,
+        /// A version id or number; the newest release for the instance without it.
+        #[arg(long)]
+        version: Option<String>,
+    },
+    /// The modpacks added to an instance, with the files each added.
+    #[command(after_help = "Examples:\n  lodestone-launcher-cli modpacks added \"Friends SMP\"")]
+    Added(InstanceArg),
+    /// Removes a modpack added to an instance: the files it added that you didn't
+    /// change. Without --yes it prints what it removes (exit code 5).
+    #[command(
+        after_help = "Examples:\n  lodestone-launcher-cli modpacks remove \"Friends SMP\" fabulously-optimized\n  lodestone-launcher-cli modpacks remove \"Friends SMP\" \"Fabulously Optimized\" --yes"
+    )]
+    Remove {
+        instance: String,
+        /// The added pack's id (from `modpacks added`), slug, project id or title.
+        pack: String,
+    },
 }
 
 #[derive(Args, Debug, Clone)]
@@ -1400,7 +1432,8 @@ pub enum Snapshots {
         path: PathBuf,
     },
     /// Makes a new instance from a .lodesnap file. --preview only reads it (its mods,
-    /// parts and sizes). One with mods needs --yes: only use files from people you trust.
+    /// launch settings, parts and sizes). One with mods, or with launch settings and the
+    /// settings part, needs --yes: only use files from people you trust.
     #[command(
         after_help = "Examples:\n  lodestone-launcher-cli snapshots import ~/Downloads/Survival.lodesnap --preview\n  lodestone-launcher-cli snapshots import ~/Downloads/Survival.lodesnap --yes"
     )]

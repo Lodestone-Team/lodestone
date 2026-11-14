@@ -64,6 +64,12 @@ pub fn text(message: M) -> &'static str {
         M::LinkedToRemoved => {
             "Liée à {server} sur {core} (cet hôte a été retiré de la page Lodestone Host)"
         }
+        M::RunsUnderRosetta => {
+            "S’exécute via Rosetta\u{a0}2\u{a0}: Mojang n’a pas fait de version Apple Silicon de certaines bibliothèques dont cette version a besoin. Démarrage plus lent, puis fonctionnement normal."
+        }
+        M::RunsUnderRosettaOverride => {
+            "S’exécute via Rosetta\u{a0}2\u{a0}: le Java choisi dans les Paramètres est un Java Intel. Démarrage plus lent, puis fonctionnement normal."
+        }
         M::NoInstances => "Aucune instance",
         M::AndJoin => "et rejoindre {server}",
         M::PlayWithoutJoining => "Jouer sans rejoindre",
@@ -126,7 +132,7 @@ pub fn text(message: M) -> &'static str {
             "Mémoire insuffisante. Augmentez la mémoire maximale dans Paramètres, ou fermez d’autres applications."
         }
         M::CauseNatives => {
-            "Des bibliothèques natives manquent ou sont faites pour un autre processeur. Sur Apple Silicon, les versions antérieures à 1.19 tournent dans un Java Intel sous Rosetta\u{a0}2\u{202F}; vérifiez que Rosetta est installé et que le Java personnalisé n’est pas un Java arm64."
+            "Des bibliothèques natives manquent ou sont faites pour un autre processeur. Sur Apple Silicon, les versions antérieures à 1.14 tournent dans un Java Intel sous Rosetta\u{a0}2, et les suivantes dans un Java Apple Silicon\u{202F}; vérifiez que Rosetta est installé et que le Java personnalisé est fait pour le même processeur."
         }
         M::CauseJvmOptions => {
             "Java a refusé l’un des réglages. Vérifiez les arguments JVM et la mémoire dans Paramètres."
@@ -323,6 +329,38 @@ pub fn text(message: M) -> &'static str {
         M::AddOfflineAccount => "Ajouter un compte hors ligne",
         M::RemoveNamed => "Retirer {name}",
         M::OfflineNote => "Hors ligne – solo et serveurs en mode hors ligne uniquement",
+        M::ChangePlayerSkin => "Changer de skin…",
+        M::PlayerSkinDialogTitle => "Skin de {name}",
+        M::PlayerSkinLoading => "Minecraft indique ce que vous portez",
+        M::PlayerSkinLoadFailed => "Impossible de charger votre skin : {error}",
+        M::PlayerSkinSection => "Skin",
+        M::PlayerSkinChooseFile => "Choisir un fichier…",
+        M::PlayerSkinUseDefault => "Utiliser le skin par défaut",
+        M::PlayerSkinFileHint => "Un skin est une image PNG de 64×64.",
+        M::PlayerSkinFileChosen => "{name} sera votre skin une fois enregistré.",
+        M::PlayerSkinDefaultChosen => "Vous aurez le skin par défaut une fois enregistré.",
+        M::PlayerSkinDefault => "Skin par défaut",
+        M::PlayerSkinPreview => "Votre personnage, avec le skin",
+        M::PlayerSkinDragHint => "Faites glisser pour tourner",
+        M::PlayerSkinModel => "Bras",
+        M::PlayerSkinModelClassic => "Larges",
+        M::PlayerSkinModelSlim => "Fins",
+        M::PlayerSkinCape => "Cape",
+        M::PlayerSkinNoCape => "Aucune",
+        M::PlayerSkinNoCapes => "Ce compte n’a pas de cape.",
+        M::PlayerSkinFileRefused => "{name} ne peut pas être utilisé : {error}",
+        M::PlayerSkinFileTooLarge => "le fichier dépasse 1 Mo",
+        M::PlayerSkinFileNotPng => "ce n’est pas une image PNG",
+        M::PlayerSkinFileWrongSize => "il fait {width}×{height}, et un skin fait 64×64",
+        M::PlayerSkinNetworkError => "Impossible de joindre les services Minecraft : {error}",
+        M::PlayerSkinRateLimited => {
+            "Les services Minecraft sont occupés. Réessayez dans une minute."
+        }
+        M::PlayerSkinSignedOut => {
+            "Votre connexion a expiré. Reconnectez-vous, puis changez de skin."
+        }
+        M::PlayerSkinRefusedBecause => "Minecraft n’a pas accepté le changement : {reason}",
+        M::PlayerSkinRefused => "Minecraft n’a pas accepté le changement (erreur {status}).",
 
         M::OfflineDialogBody => {
             "Pour le développement et les tests. Le compte n’a pas de connexion Microsoft, et son UUID est celui que les serveurs en mode hors ligne donnent à ce nom."

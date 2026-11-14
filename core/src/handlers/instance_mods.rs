@@ -11,6 +11,7 @@ use axum::{Json, Router};
 use color_eyre::eyre::{eyre, Context};
 use serde::Deserialize;
 use tokio::io::AsyncWriteExt;
+use ts_rs::TS;
 
 use super::global_fs::{multipart_error, register_download, DownloadScope};
 use super::instance::sanitize_instance_dir_name;
@@ -21,7 +22,7 @@ use crate::events::{Event, ProgressionEndValue};
 use crate::modrinth::links::check_api_segment;
 use crate::mods::client::{build_client_pack, ClientPackDownload};
 use crate::mods::install::{self, ModInstallRequest, ModInstallResult};
-use crate::mods::scan::{scan_file, scan_folder, sha512_of};
+use crate::mods::scan::{scan_folder, sha512_of};
 use crate::mods::{
     bad_request, build_list, match_files_or_none, safe_jar_name, save_uploads, InstalledMod,
     InstalledModList, InstalledModLoader, ModFolder, MAX_MOD_BYTES,
@@ -277,12 +278,16 @@ async fn set_enabled(
     let (instance, folder) = mod_folder(&state, &uuid).await?;
     let lock = state.mods.lock_for(&uuid);
     let _guard = lock.lock().await;
-    if enabled && crate::mods::is_disabled_name(&file_name) {
-        let path = crate::mods::existing_mod_path(&folder, &file_name).await?;
-        let file = scan_file(&path, folder.loader).await?;
-        require_known_jars(&state, &requester, &[(file.file_name, file.sha512)]).await?;
-    }
-    let (file, changed) = crate::mods::set_enabled(&folder, &file_name, enabled).await?;
+    // the copy that is checked is the one enabled, so the file can't be swapped meanwhile
+    let (file, changed) = if enabled {
+        crate::mods::enable_checked(&folder, &file_name, |name, sha512| {
+            let (state, requester) = (&state, &requester);
+            async move { require_known_jars(state, requester, &[(name, sha512)]).await }
+        })
+        .await?
+    } else {
+        crate::mods::set_enabled(&folder, &file_name, enabled).await?
+    };
     if changed {
         note_change(&state, &uuid, &instance).await;
     }
@@ -321,7 +326,39 @@ async fn delete_mod(
     let lock = state.mods.lock_for(&uuid);
     let _guard = lock.lock().await;
     crate::mods::delete(&folder, &file_name).await?;
+    if let Err(e) = crate::mods::client::forget_mark(&folder, &file_name).await {
+        tracing::warn!(
+            "Failed to unmark {file_name} after deleting it: {}",
+            e.source
+        );
+    }
     note_change(&state, &uuid, &instance).await;
+    Ok(Json(()))
+}
+
+#[derive(Deserialize, TS)]
+#[ts(export)]
+pub struct SetClientMark {
+    /// Whether players need the mod: `true` marks it, `false` takes the mark off.
+    pub required: bool,
+}
+
+/// `PUT /instance/{uuid}/mods/{file_name}/client`: marks a mod as needed by players, so
+/// the client pack gives it to them (with the mods it needs), or takes the mark off.
+/// Players' copies change the next time they join; the server needs no restart.
+async fn set_client_mark(
+    State(state): State<AppState>,
+    Path((uuid, file_name)): Path<(InstanceUuid, String)>,
+    requester: AuthedUser,
+    Json(body): Json<SetClientMark>,
+) -> Result<Json<()>, Error> {
+    requester
+        .require(&state, UserAction::WriteInstanceFile(uuid.clone()))
+        .await?;
+    let (_, folder) = mod_folder(&state, &uuid).await?;
+    let lock = state.mods.lock_for(&uuid);
+    let _guard = lock.lock().await;
+    crate::mods::client::set_marked(&folder, &file_name, body.required).await?;
     Ok(Json(()))
 }
 
@@ -388,6 +425,10 @@ pub fn get_instance_mods_routes(state: AppState) -> Router {
         .route(
             "/instance/{uuid}/mods/{file_name}/disable",
             put(disable_mod),
+        )
+        .route(
+            "/instance/{uuid}/mods/{file_name}/client",
+            put(set_client_mark),
         )
         .with_state(state)
 }

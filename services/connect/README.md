@@ -208,7 +208,9 @@ part after `#` in the browser and offers:
   percent-encoded>`. The launcher registers the `lodestone://` scheme and parses the
   invite (the `lodestone_connect` crate reads all three forms).
 - **Copy invite link**, to paste into the launcher.
-- Downloads of the launcher for macOS and Windows, from the `launcher-latest` release.
+- **Download for macOS or Windows**, a link to the launcher's download page
+  (`https://www.lodestone.cc/launcher/`), which offers that computer's installer from
+  the newest version's release.
 
 It loads nothing from anywhere else (a strict Content-Security-Policy allows only its
 own script), sends no referrer, and never sends the part after `#` anywhere.
@@ -219,7 +221,7 @@ own script), sends no referrer, and never sends the part after `#` anywhere.
 (`https://connect.lodestone.cc/f/<code>#<key hash>.<link secret>`, 32 and 64 hex
 digits). It says "You've been invited to be friends on Lodestone" (it can't know who
 from), and offers **Open in Lodestone Launcher** (`lodestone://friend?link=<the whole
-link, percent-encoded>`), **Copy link**, the downloads, and a note that the link can be
+link, percent-encoded>`), **Copy link**, the download link, and a note that the link can be
 pasted into Lodestone Launcher › Friends › Add friend. It has the same
 Content-Security-Policy, with its own script's hash, and loads nothing from elsewhere.
 

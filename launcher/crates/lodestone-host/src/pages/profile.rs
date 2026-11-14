@@ -77,6 +77,9 @@ pub struct ProfilePage {
     username: Entity<TextSetting>,
     api_keys: Entity<ApiKeysSection>,
     links: Entity<MinecraftLinksSection>,
+    /// Whether the Host opens when the user signs in to the computer, as the system
+    /// has it ([`crate::login_item`]).
+    start_at_login: bool,
     /// The Settings' search field: the page shows the settings that match it.
     search: Entity<SettingsSearch>,
     dialog: DialogSlot<Self, Entity<AccountDialog>>,
@@ -84,6 +87,12 @@ pub struct ProfilePage {
 }
 
 impl ProfilePage {
+    /// The signed-in user's API keys: for tests.
+    #[cfg(test)]
+    pub fn api_keys(&self) -> &Entity<ApiKeysSection> {
+        &self.api_keys
+    }
+
     pub fn new(
         state: Entity<HostState>,
         search: Entity<SettingsSearch>,
@@ -131,6 +140,7 @@ impl ProfilePage {
             menu: None,
             username,
             api_keys,
+            start_at_login: crate::login_item::is_enabled(),
             links,
             search,
             dialog: DialogSlot::new(|this: &mut Self| &mut this.dialog),
@@ -166,13 +176,14 @@ impl ProfilePage {
     fn change_password(&mut self, cx: &mut Context<Self>) {
         let state = self.state.clone();
         let uid = state.read(cx).me.uid.clone();
+        let owner = state.read(cx).me.is_owner;
         let set_up = account_dialogs::needs_owner_account(state.read(cx));
         let (dialog, subscription) = account_dialogs::open(
             move |cx| {
                 if set_up {
                     AccountDialog::owner_account(state, cx)
                 } else {
-                    AccountDialog::change_password(state, uid, cx)
+                    AccountDialog::change_password(state, uid, owner, cx)
                 }
             },
             |this: &mut Self, dialog, event, cx| {
@@ -271,6 +282,40 @@ impl ProfilePage {
             Some(menu)
         };
         cx.notify();
+    }
+
+    /// Turns opening at sign-in on or off. The switch only moves once the system took
+    /// the change.
+    fn set_start_at_login(&mut self, enabled: bool, cx: &mut Context<Self>) {
+        match crate::login_item::set(enabled) {
+            Ok(()) => self.start_at_login = enabled,
+            Err(error) => {
+                let text = tr!(CoreMsg::StartAtLoginFailed, error = error);
+                self.state.update(cx, |state, cx| {
+                    state.toast(
+                        lodestone_ui::components::Toast::error(text).key("start-at-login"),
+                        cx,
+                    )
+                });
+            }
+        }
+        cx.notify();
+    }
+
+    fn startup(&self, query: &SettingsQuery, cx: &mut Context<Self>) -> Option<AnyElement> {
+        query
+            .section(t(CoreMsg::Startup), None)
+            .card([SettingRow::new(t(CoreMsg::StartAtLogin))
+                .hint(t(CoreMsg::StartAtLoginHint))
+                .child(
+                    Toggle::new("start-at-login", self.start_at_login)
+                        .label(t(CoreMsg::StartAtLogin))
+                        .on_change(cx.listener(|this, value: &bool, _, cx| {
+                            this.set_start_at_login(*value, cx)
+                        })),
+                )])
+            .finish()
+            .map(IntoElement::into_any_element)
     }
 
     fn appearance(&self, query: &SettingsQuery, cx: &mut Context<Self>) -> Option<AnyElement> {
@@ -400,6 +445,7 @@ impl Render for ProfilePage {
             .finish()
             .map(IntoElement::into_any_element);
         let appearance = self.appearance(&query, cx);
+        let startup = self.startup(&query, cx);
         // the API keys and accounts are drawn by views of their own, which match
         // what is typed themselves; their count is added here for the status line
         if query.is_active() {
@@ -417,6 +463,7 @@ impl Render for ProfilePage {
                 .into_iter()
                 .chain(account)
                 .chain(appearance)
+                .chain(startup)
                 .chain([
                     self.api_keys.clone().into_any_element(),
                     self.links.clone().into_any_element(),
