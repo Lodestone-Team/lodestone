@@ -164,6 +164,47 @@ async fn find_jar(dir: &Path, prefix: &str) -> Result<PathBuf, Error> {
         .ok_or_else(|| eyre!("Failed to find {prefix}*.jar").into())
 }
 
+/// How a Forge server for a Minecraft version starts.
+#[derive(Debug, PartialEq, Eq)]
+enum ForgeLaunch {
+    /// With the argument file its installer writes (1.17 and later).
+    ArgsFile,
+    /// With the jar in the instance folder whose name starts with `prefix`.
+    Jar { prefix: String },
+}
+
+fn forge_launch(version: &str) -> Result<ForgeLaunch, Error> {
+    let mut parts = version.split('.');
+    let mut number = || {
+        parts
+            .next()
+            .and_then(|v| v.split(['-', '_']).next())
+            .and_then(|v| v.parse::<u32>().ok())
+    };
+    let unparsable = || eyre!("Unable to parse major Minecraft version for Forge from {version}");
+    let first = number().ok_or_else(unparsable)?;
+    // Year-based versions (26.1, 26.1.2, ...) came long after 1.17, so they start the
+    // modern way. Only 1.x versions need the minor version to decide.
+    if first != 1 {
+        return Ok(ForgeLaunch::ArgsFile);
+    }
+    let minor = number().ok_or_else(unparsable)?;
+    Ok(if 17 <= minor {
+        ForgeLaunch::ArgsFile
+    } else if (7..=16).contains(&minor) {
+        // 1.7 to 1.16 name the jar forge-<version>-...
+        ForgeLaunch::Jar {
+            prefix: format!("forge-{version}-"),
+        }
+    } else {
+        // 1.5 and 1.6 use minecraftforge (1.4 doesn't work since forge doesn't provide an
+        // installer)
+        ForgeLaunch::Jar {
+            prefix: "minecraftforge".to_string(),
+        }
+    })
+}
+
 impl MinecraftInstance {
     fn state_event(&self, name: &str, state: State, caused_by: &CausedBy, details: &str) -> Event {
         Event {
@@ -292,34 +333,17 @@ impl MinecraftInstance {
         let ForgeBuildVersion(build_version) = build_version
             .as_ref()
             .ok_or_else(|| eyre!("Forge version not found"))?;
-        let major_version: i32 = config
-            .version
-            .split('.')
-            .nth(1)
-            .and_then(|v| v.split(['-', '_']).next())
-            .and_then(|v| v.parse().ok())
-            .ok_or_else(|| {
-                eyre!(
-                    "Unable to parse major Minecraft version for Forge from {}",
-                    config.version
-                )
-            })?;
-
-        if 17 <= major_version {
-            command.arg(installer_args_file(
-                &self.path_to_instance,
-                &["net", "minecraftforge", "forge", build_version.as_str()],
-            ));
-        } else {
-            // 1.7 to 1.16 name the jar forge-<version>-...; 1.5 and 1.6 use minecraftforge
-            // (1.4 doesn't work since forge doesn't provide an installer)
-            let prefix = if (7..=16).contains(&major_version) {
-                format!("forge-{}-", config.version)
-            } else {
-                "minecraftforge".to_string()
-            };
-            let jar = find_jar(&self.path_to_instance, &prefix).await?;
-            command.arg("-jar").arg(jar);
+        match forge_launch(&config.version)? {
+            ForgeLaunch::ArgsFile => {
+                command.arg(installer_args_file(
+                    &self.path_to_instance,
+                    &["net", "minecraftforge", "forge", build_version.as_str()],
+                ));
+            }
+            ForgeLaunch::Jar { prefix } => {
+                let jar = find_jar(&self.path_to_instance, &prefix).await?;
+                command.arg("-jar").arg(jar);
+            }
         }
         Ok(())
     }
@@ -950,5 +974,26 @@ mod tests {
 
         assert!(settings("server-port=70000\n").is_err());
         assert!(settings("server-port=abc\n").is_err());
+    }
+
+    #[test]
+    fn forge_launch_by_version() {
+        let jar = |prefix: &str| ForgeLaunch::Jar {
+            prefix: prefix.to_string(),
+        };
+        assert_eq!(forge_launch("1.20.1").unwrap(), ForgeLaunch::ArgsFile);
+        assert_eq!(forge_launch("1.17").unwrap(), ForgeLaunch::ArgsFile);
+        assert_eq!(forge_launch("1.21.11").unwrap(), ForgeLaunch::ArgsFile);
+        // year-based versions are modern, whatever their second number
+        assert_eq!(forge_launch("26.1").unwrap(), ForgeLaunch::ArgsFile);
+        assert_eq!(forge_launch("26.1.2").unwrap(), ForgeLaunch::ArgsFile);
+        assert_eq!(forge_launch("26.3").unwrap(), ForgeLaunch::ArgsFile);
+        assert_eq!(forge_launch("1.16.5").unwrap(), jar("forge-1.16.5-"));
+        assert_eq!(forge_launch("1.12.2").unwrap(), jar("forge-1.12.2-"));
+        assert_eq!(forge_launch("1.7.10_pre4").unwrap(), jar("forge-1.7.10_pre4-"));
+        assert_eq!(forge_launch("1.6.4").unwrap(), jar("minecraftforge"));
+        assert!(forge_launch("").is_err());
+        assert!(forge_launch("1").is_err());
+        assert!(forge_launch("abc").is_err());
     }
 }
