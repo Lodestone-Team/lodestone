@@ -9,7 +9,6 @@ use axum::{
 };
 use axum_auth::AuthBearer;
 use color_eyre::eyre::{eyre, Context};
-use fs_extra::TransitProcess;
 use serde::Deserialize;
 use tokio::io::AsyncWriteExt;
 use tracing::error;
@@ -620,6 +619,128 @@ async fn make_instance_directory(
     Ok(Json(()))
 }
 
+/// Copies each of `sources` into the folder `dest` under its own name, or a free name next
+/// to it (`name_1.ext`) when that is taken, and returns where each went. Everything is
+/// copied into a temporary folder in `tmp_root` first and moved into `dest` once all of it
+/// copied, so a copy that fails leaves nothing behind.
+///
+/// The first file or folder that can't be read or written ends the copy with an error that
+/// names it. `fs_extra`, used before, retried a file it couldn't read forever, on a thread
+/// that never finished. Folders are walked without following symbolic links, and links
+/// are skipped, as zipping skips them: a link in a copied folder that pointed out of the
+/// instance (into Lodestone's stores, say) had what it pointed to copied in, where it could
+/// be read. Other special files, such as sockets and pipes, are skipped too. Sources with
+/// the same name (`a/config.yml` and `b/config.yml`) each get their own name instead of
+/// the second being dropped.
+///
+/// `progress` gets the bytes copied so far, the bytes to copy in all and the name of the
+/// file being copied: first once with nothing copied yet, then as each file copies.
+fn copy_entries_in(
+    sources: &[PathBuf],
+    dest: &FsPath,
+    tmp_root: &FsPath,
+    mut progress: impl FnMut(u64, u64, &str),
+) -> Result<Vec<PathBuf>, Error> {
+    use std::io::{Read, Write};
+
+    // a path as the person copying sees it: from the folder the source is in
+    let shown = |source: &FsPath, path: &FsPath| -> String {
+        let base = source.parent().unwrap_or(source);
+        path.strip_prefix(base)
+            .unwrap_or(path)
+            .display()
+            .to_string()
+    };
+    let walk_error = |source: &FsPath, e: walkdir::Error| -> Error {
+        let path = e.path().unwrap_or(source).to_path_buf();
+        eyre!(e)
+            .wrap_err(format!("Failed to read {}", shown(source, &path)))
+            .into()
+    };
+
+    let mut names = Vec::with_capacity(sources.len());
+    let mut total_bytes = 0_u64;
+    for source in sources {
+        let name = source.file_name().ok_or_else(|| Error {
+            kind: ErrorKind::BadRequest,
+            source: eyre!("Cannot copy {}", source.display()),
+        })?;
+        names.push(name.to_owned());
+        for entry in WalkDir::new(source) {
+            let entry = entry.map_err(|e| walk_error(source, e))?;
+            if entry.file_type().is_file() {
+                total_bytes += entry.metadata().map_err(|e| walk_error(source, e))?.len();
+            }
+        }
+    }
+    progress(0, total_bytes, "");
+
+    let tmp_dir = tempfile::tempdir_in(tmp_root).context("Failed to create temporary folder")?;
+    let mut copied_bytes = 0_u64;
+    let mut buffer = vec![0_u8; 256 * 1024];
+    let mut staged = Vec::with_capacity(sources.len());
+    for (i, (source, name)) in sources.iter().zip(&names).enumerate() {
+        // each source in a folder of its own, so sources with the same name don't meet
+        let folder = tmp_dir.path().join(i.to_string());
+        std::fs::create_dir(&folder).context("Failed to create temporary folder")?;
+        let to = folder.join(name);
+        for entry in WalkDir::new(source) {
+            let entry = entry.map_err(|e| walk_error(source, e))?;
+            let from = entry.path();
+            let target = match from.strip_prefix(source) {
+                Ok(inside) if inside.as_os_str().is_empty() => to.clone(),
+                Ok(inside) => to.join(inside),
+                Err(_) => continue,
+            };
+            let file_type = entry.file_type();
+            if file_type.is_dir() {
+                std::fs::create_dir(&target)
+                    .context(format!("Failed to copy {}", shown(source, from)))?;
+            } else if file_type.is_file() {
+                let read_error = || format!("Failed to read {}", shown(source, from));
+                let write_error = || format!("Failed to copy {}", shown(source, from));
+                let mut reader = std::fs::File::open(from).with_context(read_error)?;
+                let permissions = reader.metadata().with_context(read_error)?.permissions();
+                let mut writer = std::fs::OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .open(&target)
+                    .with_context(write_error)?;
+                let file_name = entry.file_name().to_string_lossy();
+                loop {
+                    let read = reader.read(&mut buffer).with_context(read_error)?;
+                    if read == 0 {
+                        break;
+                    }
+                    writer
+                        .write_all(&buffer[..read])
+                        .with_context(write_error)?;
+                    copied_bytes += read as u64;
+                    progress(copied_bytes, total_bytes, &file_name);
+                }
+                drop(writer);
+                // keeps a script runnable, as copying it did before
+                std::fs::set_permissions(&target, permissions).with_context(write_error)?;
+            }
+            // symbolic links and special files are skipped, see above
+        }
+        staged.push(to);
+    }
+
+    let mut copied = Vec::with_capacity(staged.len());
+    for (from, name) in staged.iter().zip(&names) {
+        // a symbolic link counts as taken even when what it points to doesn't exist
+        let taken = |path: &FsPath| std::fs::symlink_metadata(path).is_ok();
+        let to = resolve_path_conflict(dest.join(name), Some(&taken));
+        std::fs::rename(from, &to).context(format!(
+            "Failed to move {} into place",
+            name.to_string_lossy()
+        ))?;
+        copied.push(to);
+    }
+    Ok(copied)
+}
+
 #[derive(Deserialize, TS)]
 #[ts(export)]
 struct CopyInstanceFileRequest {
@@ -716,13 +837,13 @@ async fn copy_instance_files(
         let mut last_progression = 0_u64;
         let mut progression_event_id: Option<ProgressionEventID> = None;
 
-        let handle = |process_info: TransitProcess| {
+        let handle = |copied_bytes: u64, total_bytes: u64, file_name: &str| {
             if first {
                 // at least 1, so small copies do not divide by zero below
-                threshold = (process_info.total_bytes / 100).max(1);
+                threshold = (total_bytes / 100).max(1);
                 let (progression_event_start, id) = Event::new_progression_event_start(
                     "Copying files(s)",
-                    Some(process_info.total_bytes as f64),
+                    Some(total_bytes as f64),
                     None,
                     caused_by.clone(),
                 );
@@ -730,44 +851,25 @@ async fn copy_instance_files(
                 progression_event_id = Some(id);
                 first = false;
             } else if let Some(id) = progression_event_id.as_ref() {
-                let progression = process_info.copied_bytes / threshold;
+                let progression = copied_bytes / threshold;
                 if progression > last_progression {
+                    let steps = progression - last_progression;
                     last_progression = progression;
                     event_broadcaster.send(Event::new_progression_event_update(
                         id,
                         format!(
                             "Copying file {}, {}",
-                            process_info.file_name,
-                            format_byte_download(
-                                process_info.copied_bytes,
-                                process_info.total_bytes
-                            )
+                            file_name,
+                            format_byte_download(copied_bytes, total_bytes)
                         ),
-                        threshold as f64,
+                        (steps * threshold) as f64,
                     ));
                 }
             }
-            fs_extra::dir::TransitProcessResult::SkipAll
         };
 
         let inner = || -> Result<(), Error> {
-            let tmp_dir =
-                tempfile::tempdir_in(path_to_tmp()).context("Failed to create temporary file")?;
-            let temp_dir_path = tmp_dir.path().to_owned();
-
-            fs_extra::copy_items_with_progress(
-                &paths_source,
-                &temp_dir_path,
-                &fs_extra::dir::CopyOptions::new(),
-                handle,
-            )
-            .context("Failed to copy file(s)")?;
-
-            for entry in std::fs::read_dir(temp_dir_path).context("Failed to read tmp directory")? {
-                let entry = entry.context("Failed to read tmp directory")?;
-                let dest_path = resolve_path_conflict(path_dest.join(entry.file_name()), None);
-                std::fs::rename(entry.path(), dest_path).context("Failed to move file")?;
-            }
+            copy_entries_in(&paths_source, &path_dest, &path_to_tmp(), handle)?;
             Ok(())
         };
 
@@ -1803,6 +1905,124 @@ mod tests {
         // a folder still can't move into itself
         std::fs::create_dir(root.join("world")).unwrap();
         assert!(move_destination(&root.join("world"), &root.join("world/sub")).is_err());
+    }
+
+    /// Copying a folder with a file that can't be read ends with an error naming the file,
+    /// and leaves nothing behind (LS-37). `fs_extra` retried it forever.
+    #[cfg(unix)]
+    #[test]
+    fn a_copy_that_cant_read_a_file_fails_and_leaves_nothing() {
+        use std::os::unix::fs::PermissionsExt;
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("server");
+        let tmp = temp.path().join("tmp");
+        std::fs::create_dir_all(root.join("world/region")).unwrap();
+        std::fs::create_dir_all(&tmp).unwrap();
+        std::fs::write(root.join("world/level.dat"), "level").unwrap();
+        let locked = root.join("world/region/r.0.0.mca");
+        std::fs::write(&locked, "region").unwrap();
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+        if std::fs::File::open(&locked).is_ok() {
+            // running as root, which reads anything
+            return;
+        }
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        let (sources, dest, tmp_root) =
+            (vec![root.join("world")], root.join("backup"), tmp.clone());
+        std::fs::create_dir_all(&dest).unwrap();
+        std::thread::spawn(move || {
+            let _ = done_tx.send(copy_entries_in(&sources, &dest, &tmp_root, |_, _, _| {}));
+        });
+        let result = done_rx
+            .recv_timeout(std::time::Duration::from_secs(30))
+            .expect("the copy never finished");
+        let error = result.unwrap_err().to_string();
+        assert!(error.contains("world/region/r.0.0.mca"), "{error}");
+        assert_eq!(std::fs::read_dir(root.join("backup")).unwrap().count(), 0);
+        assert_eq!(std::fs::read_dir(&tmp).unwrap().count(), 0);
+    }
+
+    /// A copied folder's symbolic links aren't followed: what they point to, maybe outside
+    /// the instance, isn't copied in (LS-37).
+    #[cfg(unix)]
+    #[test]
+    fn a_copy_skips_symbolic_links() {
+        use std::os::unix::fs::{symlink, PermissionsExt};
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("server");
+        let tmp = temp.path().join("tmp");
+        let stores = temp.path().join("stores");
+        std::fs::create_dir_all(root.join("d")).unwrap();
+        std::fs::create_dir_all(&tmp).unwrap();
+        std::fs::create_dir_all(&stores).unwrap();
+        std::fs::write(stores.join("users.json"), "secret").unwrap();
+        std::fs::write(root.join("d/start.sh"), "echo").unwrap();
+        std::fs::set_permissions(
+            root.join("d/start.sh"),
+            std::fs::Permissions::from_mode(0o755),
+        )
+        .unwrap();
+        symlink(&stores, root.join("d/s")).unwrap();
+        symlink(stores.join("users.json"), root.join("d/users.json")).unwrap();
+
+        let mut calls = Vec::new();
+        let copied = copy_entries_in(&[root.join("d")], &root, &tmp, |copied, total, _| {
+            calls.push((copied, total))
+        })
+        .unwrap();
+        assert_eq!(copied, [root.join("d_1")]);
+        assert!(std::fs::symlink_metadata(root.join("d_1/s")).is_err());
+        assert!(std::fs::symlink_metadata(root.join("d_1/users.json")).is_err());
+        assert_eq!(
+            std::fs::read_to_string(root.join("d_1/start.sh")).unwrap(),
+            "echo"
+        );
+        // still runnable
+        let mode = std::fs::metadata(root.join("d_1/start.sh"))
+            .unwrap()
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o777, 0o755);
+        // starts with nothing copied, and counts only the real file
+        assert_eq!(calls.first(), Some(&(0, 4)));
+        assert_eq!(calls.last(), Some(&(4, 4)));
+    }
+
+    /// Copying sources that share a name keeps each of them (LS-37).
+    #[test]
+    fn a_copy_keeps_sources_with_the_same_name() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("server");
+        let tmp = temp.path().join("tmp");
+        for folder in ["a", "b", "backup"] {
+            std::fs::create_dir_all(root.join(folder)).unwrap();
+        }
+        std::fs::create_dir_all(&tmp).unwrap();
+        std::fs::write(root.join("a/config.yml"), "a").unwrap();
+        std::fs::write(root.join("b/config.yml"), "b").unwrap();
+        let copied = copy_entries_in(
+            &[root.join("a/config.yml"), root.join("b/config.yml")],
+            &root.join("backup"),
+            &tmp,
+            |_, _, _| {},
+        )
+        .unwrap();
+        assert_eq!(
+            copied,
+            [
+                root.join("backup/config.yml"),
+                root.join("backup/config_1.yml")
+            ]
+        );
+        assert_eq!(std::fs::read_to_string(&copied[0]).unwrap(), "a");
+        assert_eq!(std::fs::read_to_string(&copied[1]).unwrap(), "b");
+        // and copying a folder to where it is gives the copy a new name
+        let copied = copy_entries_in(&[root.join("a")], &root, &tmp, |_, _, _| {}).unwrap();
+        assert_eq!(copied, [root.join("a_1")]);
+        assert_eq!(
+            std::fs::read_to_string(root.join("a_1/config.yml")).unwrap(),
+            "a"
+        );
     }
 
     #[test]

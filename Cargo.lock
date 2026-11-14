@@ -3132,7 +3132,6 @@ dependencies = [
  "enum_dispatch",
  "fancy-regex",
  "flate2",
- "fs_extra",
  "futures",
  "futures-util",
  "hex",
