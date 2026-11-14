@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "project_id": "1KVo5zza",
+  "version_id": "Xk3Lp9qA",
+  "slug": "fabulously-optimized",
+  "title": "Fabulously Optimized",
+  "version_number": "6.4.0",
+  "date_published": "2026-10-01T12:00:00Z",
+  "icon_url": "https://cdn.modrinth.com/data/1KVo5zza/icon.png",
+  "files": {
+    "config/pack.toml": {
+      "sha1": "6b1bf77dbd824e42c7f729acf8ab8ac1c0247861",
+      "source": "override"
+    },
+    "mods/pack-mod.jar": {
+      "sha1": "395b4786e72c076489ceff24064f205f80137f8d",
+      "source": "index",
+      "project": "PACKMOD1"
+    },
+    "mods/sodium.jar": {
+      "sha1": "8a40bca843619111be9435b0316a941435aee19a",
+      "source": "index",
+      "project": "AANobbMI"
+    }
+  }
+}

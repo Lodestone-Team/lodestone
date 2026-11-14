@@ -36,6 +36,7 @@ pub mod env;
 pub mod hex;
 pub mod identity;
 pub mod layout;
+pub mod legacy;
 pub mod manifest;
 pub mod paths;
 pub mod settings;

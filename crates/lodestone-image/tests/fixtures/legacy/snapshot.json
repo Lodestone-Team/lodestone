@@ -1,0 +1,255 @@
+{
+  "schema": 1,
+  "id": "20261114-125244-a7d2",
+  "instance_id": "survival",
+  "name": "Before the update",
+  "note": "Taken by hand",
+  "created": 1794660764,
+  "launcher_version": "0.1.0",
+  "instance": {
+    "id": "survival",
+    "name": "Survival",
+    "icon": "custom",
+    "background": "custom",
+    "group": "Friends",
+    "game_version": "1.21.1",
+    "loader": "fabric",
+    "loader_version": "0.16.10",
+    "created": 1794000000,
+    "last_played": 1794645000,
+    "play_time": 36000,
+    "java_override": "/opt/java/bin/java",
+    "memory": {
+      "min": 1024,
+      "max": 6144
+    },
+    "jvm_args": "-XX:+UseG1GC",
+    "game_args": "--demo",
+    "window": {
+      "resolution": {
+        "width": 1280,
+        "height": 720
+      },
+      "fullscreen": false
+    },
+    "env": {
+      "MESA_GL_VERSION_OVERRIDE": "4.5"
+    },
+    "recommended_memory": 6144
+  },
+  "selection": {
+    "categories": [
+      "mods",
+      "resource_packs",
+      "shader_packs",
+      "configs",
+      "worlds",
+      "screenshots",
+      "settings",
+      "other"
+    ],
+    "worlds": []
+  },
+  "files": [
+    {
+      "path": "background.jpg",
+      "category": "settings",
+      "size": 3,
+      "sha256": "f8146b6cb4961f87a1519047b8c83402754ed108ade55457d43166e564b7b4fe",
+      "mode": 420,
+      "modified": 1794660764
+    },
+    {
+      "path": "content.json",
+      "category": "mods",
+      "size": 2542,
+      "sha256": "18e6833817553dcdb88ea81c1a74593de3e43af1890acf9a73cd4f09dd3f6c10",
+      "mode": 384,
+      "modified": 1794660764
+    },
+    {
+      "path": "icon.png",
+      "category": "settings",
+      "size": 3,
+      "sha256": "8f8cbb7dcf46e0bc7d53265749a6c17d116093a6ba95e442764060c76fd4a86c",
+      "mode": 420,
+      "modified": 1794660764
+    },
+    {
+      "path": "minecraft/cache/thing.bin",
+      "category": "other",
+      "size": 5,
+      "sha256": "5e1ecee06a7fc06f305ae5c12acfe7a7f67b8ece7af76932ed3afab00c3c6921",
+      "mode": 420,
+      "modified": 1794660764
+    },
+    {
+      "path": "minecraft/config/pack.toml",
+      "category": "configs",
+      "size": 13,
+      "sha256": "418582fc610c45b37ac23ea6a3f6468eabe2b9d04f650b6cf2cb4c60d96dcd33",
+      "mode": 420,
+      "modified": 1794660764
+    },
+    {
+      "path": "minecraft/config/sodium.json",
+      "category": "configs",
+      "size": 2,
+      "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+      "mode": 420,
+      "modified": 1794660764
+    },
+    {
+      "path": "minecraft/kubejs/a.js",
+      "category": "other",
+      "size": 2,
+      "sha256": "16cedf80ade01c62bdd1ae931d0492330c0b62bf294c08c095ce2fab21a9298d",
+      "mode": 420,
+      "modified": 1794660764
+    },
+    {
+      "path": "minecraft/mods/iris.jar.disabled",
+      "category": "mods",
+      "size": 4,
+      "sha256": "47612b3175fece07f6c3e91992412c5b16ca88a9068cb72fecbcf653eb5ffcd7",
+      "mode": 420,
+      "modified": 1794660764
+    },
+    {
+      "path": "minecraft/mods/pack-mod.jar",
+      "category": "mods",
+      "size": 8,
+      "sha256": "b2db93140b66e154e97628265fc37f566f1cde5f81e6d036d3cb9d3a2eb492b4",
+      "mode": 420,
+      "modified": 1794660764
+    },
+    {
+      "path": "minecraft/mods/sodium.jar",
+      "category": "mods",
+      "size": 6,
+      "sha256": "ee9d62778c8b664aa8501af83ec4738e01d20f2cdca133208c7bf66cbcaa37b8",
+      "mode": 420,
+      "modified": 1794660764
+    },
+    {
+      "path": "minecraft/options.txt",
+      "category": "configs",
+      "size": 6,
+      "sha256": "7b5e89095d23ccae892dd4053b314ca9ee235f285f000d1511703e362883eaf2",
+      "mode": 420,
+      "modified": 1794660764
+    },
+    {
+      "path": "minecraft/resourcepacks/faithful.zip",
+      "category": "resource_packs",
+      "size": 8,
+      "sha256": "4b63a9017b09f194f6c071411d4313fe30be077085a05e44da0b481e9c9c8c80",
+      "mode": 420,
+      "modified": 1794660764
+    },
+    {
+      "path": "minecraft/run.sh",
+      "category": "other",
+      "size": 9,
+      "sha256": "3af71adb278ad4af33c144b78fa1ae708da03b773d98324ae991a7daedb53ca2",
+      "mode": 493,
+      "modified": 1794660764
+    },
+    {
+      "path": "minecraft/saves/Other/level.dat",
+      "category": "worlds",
+      "world": "Other",
+      "size": 5,
+      "sha256": "d9298a10d1b0735837dc4bd85dac641b0f3cef27a47e5d53a54f2f3f5b2fcffa",
+      "mode": 420,
+      "modified": 1794660764
+    },
+    {
+      "path": "minecraft/saves/World/DIM-1/region/r.0.0.mca",
+      "category": "worlds",
+      "world": "World",
+      "size": 6,
+      "sha256": "c26cbbb2ab8a616681899b7d3aa92c5c06aee31aeb99b4042f1bf2e06ecbb5a1",
+      "mode": 420,
+      "modified": 1794660764
+    },
+    {
+      "path": "minecraft/saves/World/level.dat",
+      "category": "worlds",
+      "world": "World",
+      "size": 5,
+      "sha256": "486ea46224d1bb4fb680f34f7c9ad96a8f24ec88be73ea8e5a6c65260e9cb8a7",
+      "mode": 420,
+      "modified": 1794660764
+    },
+    {
+      "path": "minecraft/saves/World/region/r.0.0.mca",
+      "category": "worlds",
+      "world": "World",
+      "size": 6,
+      "sha256": "c697d2981bf416569a16cfbcdec1542b5398f3cc77d2b905819aa99c46ecf6f6",
+      "mode": 420,
+      "modified": 1794660764
+    },
+    {
+      "path": "minecraft/saves/World/session.lock",
+      "category": "worlds",
+      "world": "World",
+      "size": 4,
+      "sha256": "0c030586945fe504b604ecc2e875c38ede400cd5cd73da9730302162e6b02c6f",
+      "mode": 420,
+      "modified": 1794660764
+    },
+    {
+      "path": "minecraft/screenshots/2026-11-01.png",
+      "category": "screenshots",
+      "size": 4,
+      "sha256": "8dccea5217902053b636f0e105c590eb30db4280b8a7a51806110f7ff7b5177e",
+      "mode": 420,
+      "modified": 1794660764
+    },
+    {
+      "path": "minecraft/server.properties",
+      "category": "other",
+      "size": 8,
+      "sha256": "72a051700802cd30680a059fcab0283352ac4672706b80d62a13cb92bb457671",
+      "mode": 420,
+      "modified": 1794660764
+    },
+    {
+      "path": "minecraft/servers.dat",
+      "category": "configs",
+      "size": 7,
+      "sha256": "8e3dc1afbc3ec556bb8b13749fb07bf6e431acf8a13f06e0f281566b60c4841f",
+      "mode": 420,
+      "modified": 1794660764
+    },
+    {
+      "path": "minecraft/shaderpacks/bsl.zip",
+      "category": "shader_packs",
+      "size": 3,
+      "sha256": "9869bf660fcd599baf1b9781ccd17796a0509f17a1b3af41e37192f538cccfd3",
+      "mode": 420,
+      "modified": 1794660764
+    },
+    {
+      "path": "modpack.json",
+      "category": "mods",
+      "size": 705,
+      "sha256": "c3d7a658d40699e5fb0366d74f8c471ce1685bf047fc1e6a9d5d6dae983b9d6b",
+      "mode": 384,
+      "modified": 1794660764
+    },
+    {
+      "path": "shared_options.json",
+      "category": "settings",
+      "size": 2,
+      "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+      "mode": 420,
+      "modified": 1794660764
+    }
+  ],
+  "total_bytes": 3366,
+  "new_bytes": 3364,
+  "automatic": false
+}
