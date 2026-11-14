@@ -21,6 +21,7 @@ use crate::error::{Error, ErrorKind};
 use crate::events::Event;
 use crate::implementations::minecraft::{validate_new_instance_name, SetupConfig};
 use crate::modpack::history::{entry_as_is, History, HistoryKind};
+use crate::modpack::lineage;
 use crate::modpack::store::StoredPack;
 use crate::modpack::update::record_of;
 use crate::modpack::{
@@ -308,8 +309,10 @@ async fn create_modpack_instance(
         }
         None => None,
     };
-    let post_setup: PostSetupStep = Box::new(move |root, event_id| {
+    let state_for_setup = state.clone();
+    let post_setup: PostSetupStep = Box::new(move |root, event_id, uuid| {
         Box::pin(async move {
+            let state = state_for_setup;
             // `stored` keeps the pack file until the instance is set up
             let pack_path = stored.path();
             let progress = |message: String, progress: f64| {
@@ -327,6 +330,18 @@ async fn create_modpack_instance(
             )
             .await?;
             write_port(&root, port).await?;
+            // the server's first content image, on the pack as its base
+            let image = lineage::record_install(
+                &state,
+                &uuid,
+                &root,
+                &origin,
+                &pack_path,
+                &report.files,
+                &game_version,
+                &flavour,
+            )
+            .await;
             drop(stored);
             // the first entry of the history, which later updates can go back to
             let mut history = History::default();
@@ -339,6 +354,7 @@ async fn create_modpack_instance(
                 &record_of(&report.files),
             );
             entry.changelog = changelog;
+            entry.image = image;
             history.push(&root, entry);
             if let Err(e) = history.save(&root).await {
                 tracing::warn!("Could not start the modpack history: {e}");

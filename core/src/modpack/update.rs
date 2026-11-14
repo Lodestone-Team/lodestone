@@ -34,8 +34,10 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Component, Path, PathBuf};
+use std::sync::Arc;
 
 use color_eyre::eyre::{eyre, Context};
+use lodestone_image::store::Store;
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 use ts_rs::TS;
@@ -113,6 +115,17 @@ pub struct PackFile {
     pub project_id: Option<String>,
     /// A copy of the file in the history's store.
     pub stored: Option<PathBuf>,
+    /// The file in the image store, for an entry whose file has neither a stored copy nor a
+    /// download but whose content image has it ([`super::lineage`]). Staging reads it from
+    /// the store and checks its SHA-1 against [`Self::sha1`].
+    pub image: Option<ImageFile>,
+}
+
+/// A file of a content image: the object the image store keeps it as.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ImageFile {
+    pub sha256: String,
+    pub size: u64,
 }
 
 /// The Modrinth project of a `https://cdn.modrinth.com/data/<project>/versions/...` URL.
@@ -145,6 +158,7 @@ pub fn pack_files(
                 from_overrides: false,
                 project_id: project_of(download),
                 stored: None,
+                image: None,
             },
         );
     }
@@ -158,6 +172,7 @@ pub fn pack_files(
                 from_overrides: true,
                 project_id: None,
                 stored: None,
+                image: None,
             },
         );
     }
@@ -689,8 +704,74 @@ fn copy_stored(staging: &Path, path: &str, stored: &Path, sha1: &str) -> Result<
     Ok(())
 }
 
+/// Copies the file `image` stands for out of the image store to `path` in the staging
+/// folder. The store checks every byte against the object's SHA-256; this checks the
+/// copy's SHA-1 against `sha1`, the file the history names.
+fn copy_from_image(
+    images: &Store,
+    staging: &Path,
+    path: &str,
+    image: &ImageFile,
+    sha1: &str,
+) -> Result<(), Error> {
+    use sha1::Digest;
+    use std::io::Write;
+
+    /// Writes to the file and the hash at once.
+    struct Tee<'a> {
+        file: &'a mut std::fs::File,
+        hasher: &'a mut sha1::Sha1,
+    }
+    impl Write for Tee<'_> {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            let written = self.file.write(bytes)?;
+            self.hasher.update(&bytes[..written]);
+            Ok(written)
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            self.file.flush()
+        }
+    }
+
+    let target = staging.join(path);
+    prepare_parent(staging, &target)?;
+    let mut file = std::fs::File::create(&target)
+        .with_context(|| format!("Failed to write the saved copy of {path}"))?;
+    let mut hasher = sha1::Sha1::new();
+    let read = images.read_object(
+        &image.sha256,
+        image.size,
+        &mut Tee {
+            file: &mut file,
+            hasher: &mut hasher,
+        },
+        lodestone_image::store::NEVER,
+    );
+    drop(file);
+    let result = match read {
+        Err(e) => Err(eyre!("Failed to read the saved copy of {path}: {e}").into()),
+        Ok(()) => {
+            let copied: String = hasher
+                .finalize()
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect();
+            if copied.eq_ignore_ascii_case(sha1) {
+                Ok(())
+            } else {
+                Err(eyre!("The saved copy of {path} is not the file this version had").into())
+            }
+        }
+    };
+    if result.is_err() {
+        let _ = std::fs::remove_file(&target);
+    }
+    result
+}
+
 /// Puts the new files of `plan` into the staging folder: stored copies from the history,
 /// then downloads, then the overrides of the pack at `pack_path` (when there is one).
+#[cfg(test)]
 pub async fn stage_files(
     api: &dyn ModrinthApi,
     pack_path: Option<&Path>,
@@ -698,6 +779,32 @@ pub async fn stage_files(
     plan: &FilePlan,
     root: &Path,
     allow_scripts: bool,
+    progress: &(dyn Fn(String) + Send + Sync),
+) -> Result<(), Error> {
+    stage_files_from(
+        api,
+        pack_path,
+        new,
+        plan,
+        root,
+        allow_scripts,
+        None,
+        progress,
+    )
+    .await
+}
+
+/// [`stage_files`], also copying the files only the image store has ([`PackFile::image`])
+/// out of `images`.
+#[allow(clippy::too_many_arguments)]
+pub async fn stage_files_from(
+    api: &dyn ModrinthApi,
+    pack_path: Option<&Path>,
+    new: &BTreeMap<String, PackFile>,
+    plan: &FilePlan,
+    root: &Path,
+    allow_scripts: bool,
+    images: Option<Arc<Store>>,
     progress: &(dyn Fn(String) + Send + Sync),
 ) -> Result<(), Error> {
     use futures::TryStreamExt;
@@ -727,6 +834,24 @@ pub async fn stage_files(
         .await
         .map_err(|e| eyre!("The modpack task failed: {e}"))??;
     }
+    let from_images: Vec<(String, ImageFile, String)> = wanted
+        .iter()
+        .filter(|(_, file)| file.stored.is_none() && file.download.is_none())
+        .filter_map(|(path, file)| Some(((*path).clone(), file.image.clone()?, file.sha1.clone())))
+        .collect();
+    if !from_images.is_empty() {
+        let images =
+            images.ok_or_else(|| eyre!("Some files of this version are no longer available"))?;
+        progress("Copying saved modpack files".to_string());
+        let staging = staging.clone();
+        tokio::task::spawn_blocking(move || {
+            from_images.iter().try_for_each(|(path, image, sha1)| {
+                copy_from_image(&images, &staging, path, image, sha1)
+            })
+        })
+        .await
+        .map_err(|e| eyre!("The modpack task failed: {e}"))??;
+    }
     let downloads: Vec<&PackDownload> = wanted
         .iter()
         .filter(|(_, file)| file.stored.is_none())
@@ -747,7 +872,7 @@ pub async fn stage_files(
         .await?;
     let needs_overrides = wanted
         .iter()
-        .any(|(_, file)| file.stored.is_none() && file.download.is_none());
+        .any(|(_, file)| file.stored.is_none() && file.download.is_none() && file.image.is_none());
     if needs_overrides {
         let pack_path =
             pack_path.ok_or_else(|| eyre!("Some files of this version are no longer available"))?;

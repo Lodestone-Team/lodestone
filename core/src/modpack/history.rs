@@ -22,7 +22,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 
-use color_eyre::eyre::Context;
+use color_eyre::eyre::{eyre, Context};
 use lodestone_minecraft::mrpack::{is_allowed_download, PathPolicy};
 use serde::{Deserialize, Serialize};
 use tracing::warn;
@@ -103,6 +103,11 @@ pub struct HistoryEntry {
     /// What the modpack's author wrote about the version it installed (Markdown).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub changelog: Option<String>,
+    /// The content image of the server after this entry ([`super::lineage`]): recorded
+    /// from disk for new entries, converted from this history for older ones. Left out when
+    /// there is none, so cores from before images read the file as they always did.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image: Option<String>,
 }
 
 impl HistoryEntry {
@@ -179,6 +184,19 @@ impl History {
             warn!("Ignoring {HISTORY_FILE}, which can't be read: {e}");
             History::default()
         })
+    }
+
+    /// The history in `root`: empty when there is none, an error when it is there but
+    /// can't be read. For what must not take a damaged history for an empty one (which
+    /// images it keeps).
+    pub async fn load_checked(root: &Path) -> Result<History, Error> {
+        let bytes = match tokio::fs::read(root.join(HISTORY_FILE)).await {
+            Ok(bytes) => bytes,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(History::default()),
+            Err(e) => return Err(eyre!("Failed to read {HISTORY_FILE}: {e}").into()),
+        };
+        serde_json::from_slice(&bytes)
+            .map_err(|e| eyre!("{HISTORY_FILE} can't be read: {e}").into())
     }
 
     pub async fn save(&self, root: &Path) -> Result<(), Error> {
@@ -397,6 +415,7 @@ impl History {
                     from_overrides: recorded.from_overrides,
                     project_id: recorded.project_id.clone(),
                     stored,
+                    image: None,
                 },
             );
         }
@@ -450,6 +469,7 @@ impl History {
                         from_overrides: true,
                         project_id: None,
                         stored,
+                        image: None,
                     },
                 );
             }
@@ -545,6 +565,7 @@ pub fn entry_for(
         changes,
         kept: plan.kept.clone(),
         changelog: None,
+        image: None,
     }
 }
 
@@ -568,6 +589,7 @@ pub fn entry_as_is(
         changes: Vec::new(),
         kept: Vec::new(),
         changelog: None,
+        image: None,
     }
 }
 
@@ -620,6 +642,29 @@ pub struct HistoryEntryInfo {
     pub missing: u32,
     /// What the modpack's author wrote about this version (Markdown).
     pub changelog: Option<String>,
+    /// The content image of the server after this entry, when it has one. Left out
+    /// otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub image: Option<String>,
+}
+
+/// Where else a file of a history entry can be got back from, besides the history's own
+/// store and downloads: the image store ([`super::lineage::ImageLookup`]).
+pub trait EntryFiles {
+    /// Whether the file `entry` had at `path`, with `sha1`, can be got back.
+    fn can_get_back(&self, entry: &HistoryEntry, path: &str, sha1: &str) -> bool;
+}
+
+/// No other place: what the history alone can get back.
+#[cfg(test)]
+pub struct HistoryOnly;
+
+#[cfg(test)]
+impl EntryFiles for HistoryOnly {
+    fn can_get_back(&self, _: &HistoryEntry, _: &str, _: &str) -> bool {
+        false
+    }
 }
 
 /// `GET /instance/{uuid}/modpack/history`.
@@ -698,13 +743,26 @@ fn change_infos(entry: &HistoryEntry) -> Vec<ChangeInfo> {
 }
 
 impl History {
-    /// What the dashboard shows. `root` is used to check which stored copies are there,
-    /// and which files are still on the server: a restore leaves the configs a version
-    /// added, so they needn't be got back. Reads files, so call it on a blocking thread.
+    /// [`Self::info_with`] with nothing but the history to get files back from.
+    #[cfg(test)]
     pub fn info(
         &self,
         root: &Path,
         update: Option<super::updates::AvailableUpdate>,
+    ) -> ModpackHistory {
+        self.info_with(root, update, &HistoryOnly)
+    }
+
+    /// What the dashboard shows. `root` is used to check which stored copies are there,
+    /// and which files are still on the server: a restore leaves the configs a version
+    /// added, so they needn't be got back. A file `elsewhere` can get back (the image
+    /// store) counts as one Lodestone has; it is asked only about files that are needed and
+    /// that the history itself can't get back. Reads files, so call it on a blocking thread.
+    pub fn info_with(
+        &self,
+        root: &Path,
+        update: Option<super::updates::AvailableUpdate>,
+        elsewhere: &dyn EntryFiles,
     ) -> ModpackHistory {
         let current = self.latest();
         // the SHA-1 of the file at each pack path on the server, read once
@@ -743,7 +801,9 @@ impl History {
                         .files
                         .iter()
                         .filter(|(path, file)| {
-                            !self.can_get_back(root, &file.sha1) && needs_bytes(path, file)
+                            !self.can_get_back(root, &file.sha1)
+                                && needs_bytes(path, file)
+                                && !elsewhere.can_get_back(entry, path, &file.sha1)
                         })
                         .count() as u32
                 };
@@ -762,6 +822,7 @@ impl History {
                     current: current.is_some_and(|c| c.id == entry.id),
                     missing,
                     changelog: entry.changelog.clone(),
+                    image: entry.image.clone(),
                 }
             })
             .collect();

@@ -153,10 +153,15 @@ pub async fn create_minecraft_instance(
 }
 
 /// A step that runs after a new Minecraft instance is set up and before it is added, such
-/// as installing a modpack. It gets the instance folder and the creation's progression
-/// event, and returns an extra message for the end of the creation.
+/// as installing a modpack. It gets the instance folder, the creation's progression
+/// event and the new instance's uuid, and returns an extra message for the end of the
+/// creation.
 pub(super) type PostSetupStep = Box<
-    dyn FnOnce(PathBuf, ProgressionEventID) -> BoxFuture<'static, Result<Option<String>, Error>>
+    dyn FnOnce(
+            PathBuf,
+            ProgressionEventID,
+            InstanceUuid,
+        ) -> BoxFuture<'static, Result<Option<String>, Error>>
         + Send,
 >;
 
@@ -220,7 +225,8 @@ pub(super) async fn spawn_minecraft_instance_creation(
                 let Some(post_setup) = post_setup else {
                     return Ok((instance, None));
                 };
-                let message = post_setup(setup_path.clone(), event_id.clone()).await?;
+                let message =
+                    post_setup(setup_path.clone(), event_id.clone(), uuid.clone()).await?;
                 // read the instance again: the step may have changed its files
                 drop(instance);
                 let instance = minecraft::MinecraftInstance::restore(

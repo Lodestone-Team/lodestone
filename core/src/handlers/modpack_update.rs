@@ -24,6 +24,7 @@ use std::sync::Arc;
 use axum::extract::{Path, State};
 use axum::Json;
 use color_eyre::eyre::eyre;
+use lodestone_image::store::Store;
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 use ts_rs::TS;
@@ -34,14 +35,16 @@ use super::util::{get_instance, AuthedUser};
 use crate::auth::user::UserAction;
 use crate::error::{Error, ErrorKind};
 use crate::events::{CausedBy, Event};
+use crate::images::OpKind;
 use crate::implementations::minecraft::{Flavour, MinecraftInstance};
 use crate::modpack::history::{entry_for, History, HistoryKind, ModpackHistory};
+use crate::modpack::lineage::{self, ImageLookup};
 use crate::modpack::store::StoredPack;
 use crate::modpack::update::{
     begin_update, end_update, keep_unwritten_scripts, other_copies, pack_files, place_files,
-    plan_files, record_of, recover_interrupted, remove_other_copies, remove_work_dirs, stage_files,
-    undo_placed_files, FileAction, FilePlan, ModpackUpdatePlan, ModpackUpdateResult, PackFile,
-    PackRecord,
+    plan_files, record_of, recover_interrupted, remove_other_copies, remove_work_dirs,
+    stage_files_from, undo_placed_files, FileAction, FilePlan, ModpackUpdatePlan,
+    ModpackUpdateResult, PackFile, PackRecord,
 };
 use crate::modpack::updates::{self, AvailableUpdate};
 use crate::modpack::{
@@ -261,15 +264,34 @@ async fn prepare(
             for path in theirs.keys() {
                 plan.record.files.remove(path);
             }
+            // what neither the history's store nor a download has may be in the entry's
+            // content image
+            let new_files = {
+                let mut files = Arc::unwrap_or_clone(new_files);
+                let (store, uuid, entry, plan) = (
+                    state.images().store(),
+                    uuid.clone(),
+                    entry.clone(),
+                    plan.clone(),
+                );
+                Arc::new(
+                    spawn_blocking(move || {
+                        let lookup = ImageLookup::new(store, &uuid);
+                        lineage::fill_from_image(&lookup, &entry, &plan, &mut files);
+                        Ok(files)
+                    })
+                    .await?,
+                )
+            };
             // files to put back that Lodestone can't get
             let missing: Vec<&str> = plan
                 .changes
                 .iter()
                 .filter(|c| c.action != FileAction::Remove)
                 .filter(|c| {
-                    new_files
-                        .get(&c.path)
-                        .is_some_and(|f| f.stored.is_none() && f.download.is_none())
+                    new_files.get(&c.path).is_some_and(|f| {
+                        f.stored.is_none() && f.download.is_none() && f.image.is_none()
+                    })
                 })
                 .map(|c| c.target.as_str())
                 .collect();
@@ -446,11 +468,12 @@ async fn from_pack(
 
 /// The protected files (see [`is_protected`]) that `plan` adds or replaces, with the
 /// SHA-512 of the bytes it would put there: of the stored copy it copies, else of the
-/// download it checks. `None` when neither is there. Reads stored copies, so call it on a
-/// blocking thread.
+/// download it checks, else of its copy in `images`. `None` when none is there. Reads stored
+/// copies, so call it on a blocking thread.
 fn protected_new_files(
     plan: &FilePlan,
     new_files: &BTreeMap<String, PackFile>,
+    images: Option<&Store>,
 ) -> Vec<(String, Option<String>)> {
     plan.changes
         .iter()
@@ -464,7 +487,7 @@ fn protected_new_files(
             let sha512 = file.and_then(|file| match (&file.stored, &file.download) {
                 (Some(stored), _) => lodestone_minecraft::hash::sha512_of(stored).ok(),
                 (None, Some(download)) => Some(download.sha512.clone()),
-                (None, None) => None,
+                (None, None) => lineage::image_sha512(images?, file.image.as_ref()?),
             });
             (c.target.clone(), sha512.map(|h| h.to_lowercase()))
         })
@@ -480,10 +503,12 @@ async fn require_known_restored_files(
     api: &dyn ModrinthApi,
     plan: &FilePlan,
     new_files: &Arc<BTreeMap<String, PackFile>>,
+    images: Option<Arc<Store>>,
 ) -> Result<(), Error> {
     let files = {
         let (plan, new_files) = (plan.clone(), new_files.clone());
-        spawn_blocking(move || Ok(protected_new_files(&plan, &new_files))).await?
+        spawn_blocking(move || Ok(protected_new_files(&plan, &new_files, images.as_deref())))
+            .await?
     };
     if files.is_empty() {
         return Ok(());
@@ -527,6 +552,7 @@ async fn check_restore(
         state.mods.modrinth.as_ref(),
         &prepared.plan,
         &prepared.new_files,
+        Some(state.images().store()),
     )
     .await
 }
@@ -551,17 +577,32 @@ pub(super) async fn plan_update(
 
 /// Adds the change to the server's history: keeps the files it took off the server that
 /// can't be downloaded again, and remembers where the new ones come from. A server
-/// without a history gets an entry for what it had first.
-async fn record_history(prepared: &Prepared, root: &std::path::Path) -> Result<(), Error> {
+/// without a history gets an entry for what it had first. The new entry is linked to
+/// `image`, the content image recorded after the change, and older entries to what
+/// `lineage` converted them to; a baseline entry gets the content image from before the
+/// change.
+async fn record_history(
+    prepared: &Prepared,
+    root: &std::path::Path,
+    lineage: &lineage::Before,
+    image: Option<String>,
+) -> Result<(), Error> {
     let mut history = prepared.history.clone();
+    lineage.link(&mut history);
     let before = &prepared.before;
     if let Some(origin) = &before.origin {
+        let was_empty = history.entries.is_empty();
         history.begin_with_baseline(
             origin,
             &before.game_version,
             &before.flavour,
             &before.record,
         );
+        if was_empty {
+            if let Some(baseline) = history.entries.first_mut() {
+                baseline.image = lineage.current.clone();
+            }
+        }
     }
     if let Some(files) = &before.pack_files {
         history.remember_downloads(files);
@@ -576,6 +617,7 @@ async fn record_history(prepared: &Prepared, root: &std::path::Path) -> Result<(
         &prepared.plan,
     );
     entry.changelog = prepared.changelog.clone();
+    entry.image = image;
     let (root, plan, new_files) = (
         root.to_path_buf(),
         prepared.plan.clone(),
@@ -587,6 +629,65 @@ async fn record_history(prepared: &Prepared, root: &std::path::Path) -> Result<(
     })
     .await?;
     history.save(&prepared.instance.path().await).await
+}
+
+/// How long a restore waits for its pack's `.mrpack` (for the `env` of its files) before
+/// it records the content image without it.
+const PACK_WAIT: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// Records the content image of the server after `prepared` succeeded, ending `op`: writes
+/// `pack.json` first, from the pack an update used, or for a restore from the restored
+/// version's pack (downloaded again when Lodestone no longer has it), else from the base the
+/// restored entry's image had. `None` when nothing was recorded, which never fails the
+/// change.
+async fn record_image(
+    state: &AppState,
+    prepared: &Prepared,
+    uuid: &InstanceUuid,
+    op: crate::images::Operation,
+) -> Option<String> {
+    let images = state.images().clone();
+    let ctx = crate::images::context_of(state, uuid).await?;
+    let mut pack = prepared.pack.as_ref().map(|(stored, _)| stored.clone());
+    let mut fallback = None;
+    if let HistoryKind::Restore { to } = prepared.kind {
+        let version_id = &prepared.origin.version_id;
+        if pack.is_none() && !version_id.is_empty() {
+            match tokio::time::timeout(PACK_WAIT, modrinth_pack(state, version_id)).await {
+                Ok(Ok(stored)) => pack = Some(stored),
+                Ok(Err(e)) => warn!("Could not get the modpack version {version_id}: {e}"),
+                Err(_) => warn!("Gave up getting the modpack version {version_id}"),
+            }
+        }
+        if let Some(entry) = prepared.history.entry(to).cloned() {
+            let (store, uuid) = (images.store(), uuid.clone());
+            fallback = spawn_blocking(move || Ok(lineage::image_base(&store, &uuid, &entry)))
+                .await
+                .ok()
+                .flatten();
+        }
+    }
+    let info = {
+        let (origin, files) = (prepared.origin.clone(), prepared.plan.record.files.clone());
+        let new_files = prepared.new_files.clone();
+        spawn_blocking(move || {
+            // the pack's files after the change: those the record keeps
+            let files = new_files
+                .iter()
+                .filter(|(path, _)| files.contains_key(*path))
+                .map(|(path, file)| (path.clone(), file.clone()))
+                .collect();
+            Ok(lineage::base_info(
+                &origin,
+                pack.as_ref().map(|p| p.path()).as_deref(),
+                &files,
+                fallback,
+            ))
+        })
+        .await
+        .ok()?
+    };
+    lineage::record(&images, ctx, op, info).await
 }
 
 /// Stages, places and records the files of `prepared`, and installs the server software
@@ -607,13 +708,29 @@ async fn apply(
         (None, true) => Some(server_flavour(&summary.target).await?),
     };
     let pack_path = prepared.pack.as_ref().map(|(stored, _)| stored.path());
-    stage_files(
+    let uuid = instance.uuid().await;
+    let images = state.images().clone();
+    // the content as it is before the change, and the history's older entries as images
+    let lineage = match crate::images::context_of(state, &uuid).await {
+        Some(ctx) => lineage::before_change(&images, &ctx, Some(&state.mods.packs)).await,
+        None => lineage::Before::default(),
+    };
+    // held until the change is recorded; dropped on failure, which records nothing
+    let op = images
+        .begin(
+            &uuid,
+            OpKind::Modpack,
+            lineage::label(&prepared.kind, &prepared.origin),
+        )
+        .await;
+    stage_files_from(
         state.mods.modrinth.as_ref(),
         pack_path.as_deref(),
         &prepared.new_files,
         plan,
         &root,
         prepared.allow_scripts,
+        Some(images.store()),
         progress,
     )
     .await?;
@@ -653,8 +770,10 @@ async fn apply(
         undo().await?;
         return Err(e);
     }
+    // the change is done: record the server's content image, which the entry links to
+    let image = record_image(state, prepared, &uuid, op).await;
     // the files are in place: a history that can't be written only loses the undo
-    if let Err(e) = record_history(prepared, &root).await {
+    if let Err(e) = record_history(prepared, &root, &lineage, image).await {
         warn!("Could not add the modpack change to the history: {e}");
     }
     let origin = instance
@@ -679,7 +798,7 @@ async fn apply(
     })
 }
 
-pub(super) async fn update_modpack(
+pub(crate) async fn update_modpack(
     State(state): State<AppState>,
     Path(uuid): Path<InstanceUuid>,
     requester: AuthedUser,
@@ -763,7 +882,7 @@ pub(super) async fn update_modpack(
     Ok(Json(result))
 }
 
-pub(super) async fn modpack_history(
+pub(crate) async fn modpack_history(
     State(state): State<AppState>,
     Path(uuid): Path<InstanceUuid>,
     requester: AuthedUser,
@@ -775,7 +894,13 @@ pub(super) async fn modpack_history(
     let root = instance.path().await;
     let history = History::load(&root).await;
     let update = state.mods.updates.get(&uuid);
-    let info = spawn_blocking(move || Ok(history.info(&root, update))).await?;
+    let store = state.images().store();
+    let info = spawn_blocking(move || {
+        // a file the history can't get back may be in its entry's content image
+        let lookup = ImageLookup::new(store, &uuid);
+        Ok(history.info_with(&root, update, &lookup))
+    })
+    .await?;
     Ok(Json(info))
 }
 
@@ -811,6 +936,7 @@ mod tests {
             from_overrides: false,
             project_id: None,
             stored: None,
+            image: None,
         }
     }
 
@@ -866,12 +992,12 @@ mod tests {
         ]));
 
         let plan = adds(&["mods/sodium.jar", "config/a.toml"]);
-        assert!(require_known_restored_files(&api, &plan, &new_files)
+        assert!(require_known_restored_files(&api, &plan, &new_files, None)
             .await
             .is_ok());
 
         let plan = adds(&["mods/sodium.jar", "mods/evil.jar", "config/a.toml"]);
-        let error = require_known_restored_files(&api, &plan, &new_files)
+        let error = require_known_restored_files(&api, &plan, &new_files, None)
             .await
             .unwrap_err();
         assert!(matches!(error.kind, ErrorKind::PermissionDenied));
@@ -889,7 +1015,43 @@ mod tests {
         disguised.stored = Some(stored);
         let new_files = Arc::new(BTreeMap::from([("mods/sodium.jar".to_string(), disguised)]));
         let plan = adds(&["mods/sodium.jar"]);
-        assert!(require_known_restored_files(&api, &plan, &new_files)
+        assert!(require_known_restored_files(&api, &plan, &new_files, None)
+            .await
+            .is_err());
+
+        // so is a copy in the image store
+        let store = Arc::new(Store::new(
+            dir.path().join("images"),
+            lodestone_image::store::Encoding::Zstd,
+        ));
+        let from_image = |content: &[u8]| {
+            let stored = store.put_bytes(content).unwrap();
+            let mut file = download(
+                "mods/sodium.jar",
+                &known_content,
+                "https://cdn.modrinth.com/data/sodium/versions/v1/file.jar",
+            );
+            file.download = None;
+            file.image = Some(crate::modpack::update::ImageFile {
+                sha256: stored.sha256,
+                size: stored.size,
+            });
+            Arc::new(BTreeMap::from([("mods/sodium.jar".to_string(), file)]))
+        };
+        let disguised = from_image(evil);
+        assert!(
+            require_known_restored_files(&api, &plan, &disguised, Some(store.clone()))
+                .await
+                .is_err()
+        );
+        let genuine = from_image(&known_content);
+        assert!(
+            require_known_restored_files(&api, &plan, &genuine, Some(store.clone()))
+                .await
+                .is_ok()
+        );
+        // without the store to read it from, it isn't known
+        assert!(require_known_restored_files(&api, &plan, &genuine, None)
             .await
             .is_err());
     }
