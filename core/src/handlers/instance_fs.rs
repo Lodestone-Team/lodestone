@@ -372,18 +372,23 @@ async fn write_instance_file(
     )?;
     let can_write_protected = can_write_protected(&requester);
     if uuid.to_string().starts_with("DOCKER-") {
-        // container paths are not on this disk, so check the name only
-        if !can_write_protected && is_protected(FsPath::new(&relative_path), false) {
-            return Err(protected_error(
-                "You don't have permission to write to this file",
-            ));
-        }
-        if is_code_path(FsPath::new(&relative_path), false) {
-            require_code_write(&state, &requester)?;
-        }
+        // Container paths are `<mount name>/<path in the mount>`, so check them by name:
+        // the path asked for, and the path it resolves to (through links in the mount).
+        let check = |path: &FsPath| {
+            if !can_write_protected && is_protected(path, false) {
+                return Err(protected_error(
+                    "You don't have permission to write to this file",
+                ));
+            }
+            if is_code_path(path, false) {
+                require_code_write(&state, &requester)?;
+            }
+            Ok(())
+        };
+        check(FsPath::new(&relative_path))?;
         state
             .docker_bridge
-            .write_container_file(&uuid, relative_path.into(), &body)
+            .write_container_file(&uuid, relative_path.into(), &body, check)
             .await?;
         return Ok(Json(()));
     }

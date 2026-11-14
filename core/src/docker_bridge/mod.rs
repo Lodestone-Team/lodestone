@@ -20,7 +20,9 @@ use tracing::{error, info, warn};
 use virtual_fs::{get_virtual_path, to_virtual_path};
 
 use crate::error::ErrorKind;
-use crate::handlers::global_fs::{FileEntry, MAX_READ_BYTES};
+use crate::handlers::global_fs::{
+    canonicalize_global_read, reject_protected_change, FileEntry, MAX_READ_BYTES,
+};
 use crate::persist::write_atomic;
 use crate::traits::t_configurable::Game::Generic;
 use crate::util::{list_dir, scoped_join_win_safe};
@@ -409,17 +411,35 @@ impl DockerBridge {
 
     /// Resolves a path of the form `<mount name>/<path inside the mount>` to a host path.
     /// Returns `(host path, mount root, mount name)`.
-    fn resolve_virtual_path(
+    ///
+    /// The path stays inside the mount's folder on this computer: its symbolic links are
+    /// resolved within that folder, as the Minecraft instance file routes do, so a link
+    /// planted from inside the container (which can write to its mounts) can't reach the
+    /// rest of this computer's files.
+    async fn resolve_virtual_path(
         roots: &[PathBuf],
         relative_path: &Path,
     ) -> Result<(PathBuf, PathBuf, String), Error> {
-        get_virtual_path(roots, relative_path).ok_or_else(|| Error {
-            kind: ErrorKind::NotFound,
-            source: eyre!(
-                "{} does not start with the name of one of the container's mounts",
-                relative_path.display()
-            ),
-        })
+        let (mount_point, inside, mount_name) =
+            get_virtual_path(roots, relative_path).ok_or_else(|| Error {
+                kind: ErrorKind::NotFound,
+                source: eyre!(
+                    "{} does not start with the name of one of the container's mounts",
+                    relative_path.display()
+                ),
+            })?;
+        // With its own links resolved, so the joined paths start with it. Not on Windows,
+        // where a resolved path takes the `\\?\` form that `scoped_join_win_safe` doesn't
+        // expect.
+        let root = if cfg!(windows) {
+            mount_point
+        } else {
+            tokio::fs::canonicalize(&mount_point)
+                .await
+                .unwrap_or(mount_point)
+        };
+        let path = scoped_join_win_safe(&root, &inside)?;
+        Ok((path, root, mount_name))
     }
 
     pub async fn list_files(
@@ -431,8 +451,10 @@ impl DockerBridge {
         if roots.is_empty() {
             return Ok(Vec::new());
         }
-        let safe_relative_path = scoped_join_win_safe("/", &relative_path)?;
-        if safe_relative_path == Path::new("/") {
+        if !relative_path
+            .components()
+            .any(|c| matches!(c, std::path::Component::Normal(_)))
+        {
             return Ok(roots
                 .iter()
                 .filter_map(|path| {
@@ -447,7 +469,10 @@ impl DockerBridge {
                 })
                 .collect());
         }
-        let (path, v_root, mount_point) = Self::resolve_virtual_path(&roots, &relative_path)?;
+        let (path, v_root, mount_point) =
+            Self::resolve_virtual_path(&roots, &relative_path).await?;
+        // a container may mount Lodestone's own data folder
+        canonicalize_global_read(&path, false).await?;
         let ret: Vec<FileEntry> = list_dir(&path, None)
             .await?
             .iter()
@@ -473,28 +498,69 @@ impl DockerBridge {
         if roots.is_empty() {
             return Ok("".to_string());
         }
-        let (path, ..) = Self::resolve_virtual_path(&roots, &relative_path)?;
+        let (path, ..) = Self::resolve_virtual_path(&roots, &relative_path).await?;
+        canonicalize_global_read(&path, false).await?;
 
         crate::util::fs::read_to_string_capped(&path, MAX_READ_BYTES).await
     }
 
+    /// Writes a file in one of the container's mounts. `check` is given the path that will
+    /// be written, as `<mount name>/<path inside the mount>` with its links resolved, and
+    /// can refuse it.
     pub async fn write_container_file(
         &self,
         uuid: &InstanceUuid,
         relative_path: PathBuf,
         content: &[u8],
+        check: impl FnOnce(&Path) -> Result<(), Error>,
     ) -> Result<(), Error> {
         let roots = self.mount_roots(uuid).await?;
         if roots.is_empty() {
             return Ok(());
         }
-        let (path, ..) = Self::resolve_virtual_path(&roots, &relative_path)?;
-
-        tokio::fs::write(&path, content)
-            .await
-            .context("Failed to write file")?;
-        Ok(())
+        let (path, v_root, mount_point) =
+            Self::resolve_virtual_path(&roots, &relative_path).await?;
+        let virtual_path = to_virtual_path(&path, &v_root, &mount_point).ok_or_else(|| {
+            eyre!(
+                "{} is not inside the container's mount {}",
+                path.display(),
+                v_root.display()
+            )
+        })?;
+        check(&virtual_path)?;
+        reject_protected_change(&path).await?;
+        write_without_following_links(&path, content).await
     }
+}
+
+/// Writes `content` to `path`, refusing to write through a symbolic link: the container can
+/// put one there after the path was resolved.
+async fn write_without_following_links(path: &Path, content: &[u8]) -> Result<(), Error> {
+    use tokio::io::AsyncWriteExt;
+
+    let is_link = tokio::fs::symlink_metadata(path)
+        .await
+        .is_ok_and(|m| m.file_type().is_symlink());
+    if is_link {
+        return Err(Error {
+            kind: ErrorKind::PermissionDenied,
+            source: eyre!(
+                "{} is a symbolic link, which is not written",
+                path.display()
+            ),
+        });
+    }
+    let mut options = tokio::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    // the check above can be raced; this can't (on Windows, nothing like it is at hand)
+    #[cfg(unix)]
+    options.custom_flags(libc::O_NOFOLLOW);
+    let mut file = options.open(path).await.context("Failed to write file")?;
+    file.write_all(content)
+        .await
+        .context("Failed to write file")?;
+    file.flush().await.context("Failed to write file")?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -509,14 +575,24 @@ mod tests {
         assert!(container_name(&uuid).is_err());
     }
 
-    #[test]
-    fn unknown_mount_is_an_error_not_a_panic() {
-        let roots = [PathBuf::from("/data/world")];
-        assert!(DockerBridge::resolve_virtual_path(&roots, Path::new("other/file")).is_err());
-        assert!(DockerBridge::resolve_virtual_path(&roots, Path::new("/")).is_err());
-        let (path, ..) =
-            DockerBridge::resolve_virtual_path(&roots, Path::new("world/level.dat")).unwrap();
-        assert_eq!(path, PathBuf::from("/data/world/level.dat"));
+    #[tokio::test]
+    async fn unknown_mount_is_an_error_not_a_panic() {
+        let dir = tempfile::tempdir().unwrap();
+        let world = std::fs::canonicalize(dir.path()).unwrap().join("world");
+        std::fs::create_dir(&world).unwrap();
+        let roots = [world.clone()];
+        assert!(
+            DockerBridge::resolve_virtual_path(&roots, Path::new("other/file"))
+                .await
+                .is_err()
+        );
+        assert!(DockerBridge::resolve_virtual_path(&roots, Path::new("/"))
+            .await
+            .is_err());
+        let (path, ..) = DockerBridge::resolve_virtual_path(&roots, Path::new("world/level.dat"))
+            .await
+            .unwrap();
+        assert_eq!(path, world.join("level.dat"));
     }
 
     #[test]
@@ -543,5 +619,54 @@ mod tests {
         std::fs::write(&path, r#"["DOCKER-a"]"#).unwrap();
         let list = load_watch_list(&path).await;
         assert!(list.contains(&docker_id_to_uuid("a")));
+    }
+
+    /// A link that the container planted in its mount stays inside the mount, wherever it
+    /// points, and a write never goes through a link.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn links_in_a_mount_stay_inside_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let base = std::fs::canonicalize(dir.path()).unwrap();
+        let mount = base.join("data");
+        let secrets = base.join("secrets");
+        std::fs::create_dir_all(&mount).unwrap();
+        std::fs::create_dir_all(&secrets).unwrap();
+        std::fs::write(secrets.join("users.json"), "secret").unwrap();
+        std::os::unix::fs::symlink(&secrets, mount.join("s")).unwrap();
+        std::os::unix::fs::symlink("../secrets", mount.join("up")).unwrap();
+        std::os::unix::fs::symlink(secrets.join("users.json"), mount.join("u.json")).unwrap();
+        let roots = [mount.clone()];
+
+        for request in ["data/s/users.json", "data/up/users.json", "data/u.json"] {
+            let (path, root, name) = DockerBridge::resolve_virtual_path(&roots, Path::new(request))
+                .await
+                .unwrap();
+            assert!(
+                path.starts_with(&mount),
+                "{request} gave {}",
+                path.display()
+            );
+            assert_eq!(root, mount);
+            assert_eq!(name, "data");
+            assert!(std::fs::read_to_string(&path).is_err(), "{request}");
+        }
+
+        let link = mount.join("link.txt");
+        std::os::unix::fs::symlink(secrets.join("users.json"), &link).unwrap();
+        assert!(write_without_following_links(&link, b"changed")
+            .await
+            .is_err());
+        assert_eq!(
+            std::fs::read_to_string(secrets.join("users.json")).unwrap(),
+            "secret"
+        );
+        write_without_following_links(&mount.join("plain.txt"), b"hello")
+            .await
+            .unwrap();
+        assert_eq!(
+            std::fs::read_to_string(mount.join("plain.txt")).unwrap(),
+            "hello"
+        );
     }
 }
