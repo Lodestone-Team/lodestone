@@ -307,6 +307,20 @@ pub struct CrashInfo {
     pub mods_refused: bool,
 }
 
+/// What a [`InstancesEvent::Notice`] or [`InstancesEvent::LaunchFailed`] is about, so
+/// the control API's jobs end with their own outcome and not with a notice about
+/// another instance that happened to come first.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum About {
+    /// Nothing in particular, such as a dropped file that isn't a modpack.
+    #[default]
+    Nothing,
+    /// The instance with this id.
+    Instance(String),
+    /// The modpack import with this job id (its instance doesn't exist until it ends).
+    Import(u64),
+}
+
 pub enum InstancesEvent {
     Crashed(CrashInfo),
     /// The game of the instance exited without crashing: closed, or stopped
@@ -323,11 +337,13 @@ pub enum InstancesEvent {
     LaunchFailed {
         title: SharedString,
         message: SharedString,
+        about: About,
     },
     /// Something to tell the user, such as the result of "Verify game files".
     Notice {
         title: SharedString,
         message: SharedString,
+        about: About,
     },
     /// The instance's loader was changed outside its Settings tab.
     LoaderChanged(String),
@@ -1220,6 +1236,7 @@ impl Instances {
             export::write(&plan, &out)?;
             Ok::<_, export::ExportError>((plan, out))
         });
+        let id = id.to_string();
         self.exports.push(cx.spawn(async move |this, cx| {
             let result = write.await;
             this.update(cx, |_, cx| {
@@ -1257,11 +1274,13 @@ impl Instances {
                         InstancesEvent::Notice {
                             title: t(M::ModpackExported).into(),
                             message: message.into(),
+                            about: About::Instance(id.clone()),
                         }
                     }
                     Err(err) => InstancesEvent::LaunchFailed {
                         title: t(M::CouldntExportModpack).into(),
                         message: err.to_string().into(),
+                        about: About::Instance(id.clone()),
                     },
                 });
             })
@@ -1420,6 +1439,7 @@ impl Instances {
                     cx.emit(InstancesEvent::LaunchFailed {
                         title: t(M::CouldntSwitchLoader).into(),
                         message: message.into(),
+                        about: About::Instance(id.clone()),
                     });
                     cx.notify();
                 };
@@ -1445,6 +1465,7 @@ impl Instances {
                                 version = version.display
                             )
                             .into(),
+                            about: About::Instance(id.clone()),
                         });
                     }
                     Err(err) => failed(err, cx),
@@ -1546,6 +1567,7 @@ impl Instances {
             cx.emit(InstancesEvent::LaunchFailed {
                 title: t(M::ModpackUpdating).into(),
                 message: t(M::WaitForUpdate).into(),
+                about: About::Instance(id.to_string()),
             });
             return;
         }
@@ -1554,6 +1576,7 @@ impl Instances {
             cx.emit(InstancesEvent::LaunchFailed {
                 title: t(M::CouldntStartMinecraft).into(),
                 message: t(M::FilesBusy).into(),
+                about: About::Instance(id.to_string()),
             });
             return;
         }
@@ -1775,6 +1798,7 @@ impl Instances {
                         } else {
                             trn!(P::FilesRepaired, repaired, summary = summary).into()
                         },
+                        about: About::Instance(id.clone()),
                     });
                 }
                 Err(InstallError::Cancelled) => {
@@ -1835,7 +1859,11 @@ impl Instances {
             || serde_json::json!({ "instance": id, "title": title.to_string(), "message": message.to_string() }),
         );
         self.set_idle(id, cx);
-        cx.emit(InstancesEvent::LaunchFailed { title, message });
+        cx.emit(InstancesEvent::LaunchFailed {
+            title,
+            message,
+            about: About::Instance(id.to_string()),
+        });
     }
 
     fn start(

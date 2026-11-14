@@ -11,7 +11,7 @@ use serde_json::{Value, json};
 
 use super::{Call, JobState, Reply, api_error, jobs::progress_json, ready};
 use crate::{
-    instances::{InstancesEvent, LogRow},
+    instances::{About, InstancesEvent, LogRow},
     servers::ServersEvent,
 };
 
@@ -29,6 +29,8 @@ pub struct Notice {
     pub title: String,
     pub message: String,
     pub instance: Option<String>,
+    /// The modpack import it is about, whose instance didn't exist when it started.
+    pub import: Option<u64>,
     pub data: Value,
 }
 
@@ -41,6 +43,7 @@ impl Notice {
             "title": self.title,
             "message": self.message,
             "instance": self.instance,
+            "import": self.import,
             "data": self.data,
         })
     }
@@ -48,6 +51,12 @@ impl Notice {
     /// A failure the window showed.
     pub fn is_failure(&self) -> bool {
         matches!(self.kind, "crashed" | "launch_failed" | "server_failed")
+    }
+
+    /// Whether it is about the instance `id`. Notices are global, so a job that ends
+    /// with one has to pick its own: another instance's verify or crash can come first.
+    pub fn is_about(&self, id: &str) -> bool {
+        self.instance.as_deref() == Some(id)
     }
 }
 
@@ -66,6 +75,18 @@ impl Notices {
         instance: Option<String>,
         data: Value,
     ) {
+        self.push_about(kind, title, message, instance, None, data);
+    }
+
+    fn push_about(
+        &mut self,
+        kind: &'static str,
+        title: impl Into<String>,
+        message: impl Into<String>,
+        instance: Option<String>,
+        import: Option<u64>,
+        data: Value,
+    ) {
         self.next += 1;
         self.list.push_back(Notice {
             seq: self.next,
@@ -74,6 +95,7 @@ impl Notices {
             title: title.into(),
             message: message.into(),
             instance,
+            import,
             data,
         });
         while self.list.len() > KEEP {
@@ -92,7 +114,7 @@ impl Notices {
                     .clone()
                     .or_else(|| crash.summary.description.clone())
                     .unwrap_or_else(|| "Minecraft crashed.".into()),
-                None,
+                Some(crash.instance_id.clone()),
                 json!({
                     "instance_name": crash.instance_name,
                     "exit_code": crash.exit_code,
@@ -110,12 +132,16 @@ impl Notices {
                     "mods_refused": crash.mods_refused,
                 }),
             ),
-            InstancesEvent::LaunchFailed { title, message } => {
-                self.push("launch_failed", title.as_ref(), message.as_ref(), None, Value::Null)
-            }
-            InstancesEvent::Notice { title, message } => {
-                self.push("notice", title.as_ref(), message.as_ref(), None, Value::Null)
-            }
+            InstancesEvent::LaunchFailed {
+                title,
+                message,
+                about,
+            } => self.push_window_notice("launch_failed", title, message, about),
+            InstancesEvent::Notice {
+                title,
+                message,
+                about,
+            } => self.push_window_notice("notice", title, message, about),
             // The dialog it opens records itself in traces.
             InstancesEvent::ImportSnapshot(_) => {}
             // Traced as game.window and game.exit.
@@ -153,6 +179,15 @@ impl Notices {
                 Value::Null,
             ),
         }
+    }
+
+    fn push_window_notice(&mut self, kind: &'static str, title: &str, message: &str, about: &About) {
+        let (instance, import) = match about {
+            About::Nothing => (None, None),
+            About::Instance(id) => (Some(id.clone()), None),
+            About::Import(job) => (None, Some(*job)),
+        };
+        self.push_about(kind, title, message, instance, import, Value::Null);
     }
 
     pub fn servers_event(&mut self, event: &ServersEvent) {
@@ -434,11 +469,13 @@ mod tests {
         notices.instances_event(&InstancesEvent::Notice {
             title: "Modpack exported".into(),
             message: "3 file(s)".into(),
+            about: About::Instance("a".into()),
         });
         let seq = notices.last_seq();
         notices.instances_event(&InstancesEvent::LaunchFailed {
             title: "Couldn't start Minecraft".into(),
             message: "no Java".into(),
+            about: About::Instance("a".into()),
         });
         notices.servers_event(&ServersEvent::Failed {
             title: "Couldn't join".into(),
@@ -454,8 +491,69 @@ mod tests {
             notices.instances_event(&InstancesEvent::Notice {
                 title: format!("{n}").into(),
                 message: "".into(),
+                about: About::Nothing,
             });
         }
         assert_eq!(notices.list.len(), KEEP);
+    }
+
+    /// LS-67: a job on one instance ended with another's notice when it came first.
+    #[test]
+    fn a_job_finds_its_own_notice() {
+        let mut notices = Notices::default();
+        let seq = notices.last_seq();
+        // B's verify ends first, then A's launch fails
+        notices.instances_event(&InstancesEvent::Notice {
+            title: "Game files verified".into(),
+            message: "".into(),
+            about: About::Instance("b".into()),
+        });
+        notices.instances_event(&InstancesEvent::LaunchFailed {
+            title: "Couldn't start Minecraft".into(),
+            message: "no Java".into(),
+            about: About::Instance("a".into()),
+        });
+        let found = notices
+            .find_since(seq, |n| {
+                n.is_about("a") && matches!(n.kind, "notice" | "launch_failed" | "crashed")
+            })
+            .unwrap();
+        assert!(found.is_failure());
+        assert_eq!(found.instance.as_deref(), Some("a"));
+
+        // a crash says which instance crashed
+        let seq = notices.last_seq();
+        notices.instances_event(&InstancesEvent::Crashed(crate::instances::CrashInfo {
+            instance_id: "b".into(),
+            instance_name: "B".into(),
+            summary: Default::default(),
+            suspects: Vec::new(),
+            exit_code: Some(1),
+            report: None,
+            log_text: String::new(),
+            at_startup: false,
+            mods_refused: false,
+        }));
+        notices.instances_event(&InstancesEvent::Notice {
+            title: "Game files verified".into(),
+            message: "".into(),
+            about: About::Instance("a".into()),
+        });
+        let found = notices
+            .find_since(seq, |n| {
+                n.is_about("a") && matches!(n.kind, "notice" | "launch_failed" | "crashed")
+            })
+            .unwrap();
+        assert!(!found.is_failure());
+
+        // a modpack import's notice names the import, not an instance
+        notices.instances_event(&InstancesEvent::Notice {
+            title: "Modpack ready".into(),
+            message: "".into(),
+            about: About::Import(7),
+        });
+        let import = notices.find_since(seq, |n| n.import == Some(7)).unwrap();
+        assert_eq!(import.title, "Modpack ready");
+        assert_eq!(import.instance, None);
     }
 }

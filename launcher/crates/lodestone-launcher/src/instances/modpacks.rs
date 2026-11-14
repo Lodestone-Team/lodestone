@@ -29,7 +29,7 @@ use lodestone_minecraft::{
     modrinth::{ModrinthProject, RawVersion},
 };
 
-use super::{Instances, InstancesEvent};
+use super::{About, Instances, InstancesEvent};
 use crate::i18n::{InstancesMsg as M, InstancesPlural as P, t, tr, trn};
 
 /// A modpack import's or update's progress label, in the interface's language.
@@ -269,6 +269,7 @@ impl Instances {
                             .map_or_else(String::new, |n| n.to_string_lossy().into_owned())
                     )
                     .into(),
+                    about: About::Nothing,
                 });
                 continue;
             }
@@ -411,6 +412,7 @@ impl Instances {
             cx.emit(InstancesEvent::LaunchFailed {
                 title: t(M::ShareCodeContentFailed).into(),
                 message: t(M::ShareCodeOffline).into(),
+                about: About::Instance(id.clone()),
             });
             return Ok(Some(id));
         };
@@ -430,6 +432,7 @@ impl Instances {
             })
         };
         let instance_name = name.clone();
+        let about = About::Instance(id.clone());
         let task = cx.spawn(async move |this, cx| {
             let result = work.await;
             this.update(cx, |this, cx| {
@@ -458,11 +461,13 @@ impl Instances {
                         cx.emit(InstancesEvent::Notice {
                             title: tr!(M::ShareCodeReady, name = instance_name).into(),
                             message: message.into(),
+                            about: about.clone(),
                         });
                     }
                     Err(err) => cx.emit(InstancesEvent::LaunchFailed {
                         title: t(M::ShareCodeContentFailed).into(),
                         message: err.to_string().into(),
+                        about: about.clone(),
                     }),
                 }
                 cx.notify();
@@ -666,14 +671,17 @@ impl Instances {
                             None => cx.emit(InstancesEvent::Notice {
                                 title: tr!(M::ModpackReady, name = instance.name).into(),
                                 message: message.into(),
+                                about: About::Import(id),
                             }),
                             Some(Ok(outcome)) => cx.emit(InstancesEvent::Notice {
                                 title: tr!(M::ShareCodeReady, name = instance.name).into(),
                                 message: share_message(message, &outcome).into(),
+                                about: About::Import(id),
                             }),
                             Some(Err(err)) => cx.emit(InstancesEvent::LaunchFailed {
                                 title: t(M::ShareCodeContentFailed).into(),
                                 message: err.into(),
+                                about: About::Import(id),
                             }),
                         }
                     }
@@ -681,6 +689,7 @@ impl Instances {
                     Err(err) => cx.emit(InstancesEvent::LaunchFailed {
                         title: t(M::CouldntImportModpack).into(),
                         message: err.to_string().into(),
+                        about: About::Import(id),
                     }),
                 }
                 cx.notify();
@@ -822,6 +831,7 @@ impl Instances {
             cx.emit(InstancesEvent::LaunchFailed {
                 title: t(M::CouldntUpdateModpack).into(),
                 message: t(M::StopGameFirst).into(),
+                about: About::Instance(id.clone()),
             });
             return;
         }
@@ -894,12 +904,14 @@ impl Instances {
                         cx.emit(InstancesEvent::Notice {
                             title: t(M::ModpackUpdated).into(),
                             message: message.into(),
+                            about: About::Instance(id.clone()),
                         });
                     }
                     Err(ModpackError::Cancelled) => {}
                     Err(err) => cx.emit(InstancesEvent::LaunchFailed {
                         title: t(M::CouldntUpdateModpack).into(),
                         message: err.to_string().into(),
+                        about: About::Instance(id.clone()),
                     }),
                 }
                 cx.notify();
@@ -1062,6 +1074,7 @@ impl Instances {
             cx.emit(InstancesEvent::LaunchFailed {
                 title: t(M::CouldntAddModpack).into(),
                 message: t(M::StopGameFirst).into(),
+                about: About::Instance(id.clone()),
             });
             return;
         }
@@ -1121,12 +1134,14 @@ impl Instances {
                         cx.emit(InstancesEvent::Notice {
                             title: t(M::ModpackAdded).into(),
                             message: message.into(),
+                            about: About::Instance(id.clone()),
                         });
                     }
                     Err(ModpackError::Cancelled) => {}
                     Err(err) => cx.emit(InstancesEvent::LaunchFailed {
                         title: t(M::CouldntAddModpack).into(),
                         message: err.to_string().into(),
+                        about: About::Instance(id.clone()),
                     }),
                 }
                 cx.notify();
@@ -1157,6 +1172,7 @@ impl Instances {
             cx.emit(InstancesEvent::LaunchFailed {
                 title: t(M::CouldntRemoveModpack).into(),
                 message: t(M::StopGameFirst).into(),
+                about: About::Instance(id.to_string()),
             });
             return Err(t(M::StopGameFirst).into());
         }
@@ -1190,11 +1206,13 @@ impl Instances {
                 cx.emit(InstancesEvent::Notice {
                     title: t(M::ModpackRemoved).into(),
                     message: message.into(),
+                    about: About::Instance(id.to_string()),
                 });
             }
             Err(err) => cx.emit(InstancesEvent::LaunchFailed {
                 title: t(M::CouldntRemoveModpack).into(),
                 message: err.to_string().into(),
+                about: About::Instance(id.to_string()),
             }),
         }
         cx.notify();

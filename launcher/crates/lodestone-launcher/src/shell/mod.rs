@@ -395,8 +395,8 @@ impl LauncherShell {
                 InstancesEvent::Exited { .. }
                 | InstancesEvent::ReachedMenu(_)
                 | InstancesEvent::ModsRefused(_) => {}
-                InstancesEvent::LaunchFailed { title, message }
-                | InstancesEvent::Notice { title, message } => {
+                InstancesEvent::LaunchFailed { title, message, .. }
+                | InstancesEvent::Notice { title, message, .. } => {
                     let focus = cx.focus_handle();
                     this.modal.open(
                         Modal::LaunchFailed {
