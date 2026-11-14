@@ -1,0 +1,49 @@
+[package]
+name = "lodestone_image"
+description = "Instance images: the one format Lodestone Core and Lodestone Launcher use for backups, snapshots, modpack history, what a server sends players, and sharing"
+publish = false
+rust-version.workspace = true
+authors.workspace = true
+homepage.workspace = true
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+# Lodestone Launcher (launcher/) depends on this crate too, and its dependencies must be
+# the crates and versions already in its lockfile (Zed stable's). So every requirement
+# below is a version both lockfiles have, and nothing here is new to either of them.
+# docs/instance-images.md is the format this crate implements.
+#
+# The store's zstd encoding is for the core only, behind the optional `zstd` feature that
+# the core turns on and the Launcher leaves off (zstd isn't in the Launcher's lockfile).
+[features]
+zstd = ["dep:zstd"]
+
+[dependencies]
+serde = { version = "1.0.229", features = ["derive"] }
+# preserve_order, as both the core and the Launcher already have it: the v1 readers keep
+# parts of old manifests as JSON values and write them back in their original order.
+serde_json = { version = "1.0.151", features = ["preserve_order"] }
+# Without its `asm` feature (sha2-asm, in neither lockfile), sha2 0.10 hashes in software
+# on ARM (Apple silicon, ARM servers): about 550 MB/s, against FastCDC's 2 GB/s. A chunked
+# file is hashed twice (whole and per chunk), so hashing caps storing one large file at
+# about 150 MiB/s there. Hardware SHA-256 (ring has it, in both lockfiles) would be a new
+# dependency of this crate, so it waits for a decision.
+sha2 = "0.10.9"
+thiserror = "2.0.17"
+# Walking folders to snapshot them.
+walkdir = "2.5.0"
+# Image exports (`container`), the Launcher's world backup zips and `.lodesnap` files (the
+# legacy readers). Only deflate: both workspaces have it.
+zip = { version = "9.0.5", default-features = false, features = ["deflate-flate2"] }
+# Only to pick deflate's backend for zip (flate2 builds without one otherwise): the Rust
+# one, as the Launcher does. Both lockfiles already have flate2 and miniz_oxide; in the
+# core, which also enables zlib-rs, flate2 prefers zlib-rs, so its choice doesn't change.
+flate2 = { version = "1.1.8", default-features = false, features = ["rust_backend"] }
+# Objects as zstd frames, the core's store encoding (`store::Encoding::Zstd`).
+zstd = { version = "0.14.3", optional = true }
+
+[dev-dependencies]
+tempfile = "3.27.0"
+# The legacy readers' tests hash files the way the core's modpack history does.
+sha1 = "0.10.6"

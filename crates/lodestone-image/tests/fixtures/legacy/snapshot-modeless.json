@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "id": "20251002-091500-0c1d",
+  "instance_id": "old",
+  "name": "From before modes were kept",
+  "created": 1759396500,
+  "launcher_version": "0.1.0",
+  "instance": {
+    "id": "old",
+    "name": "Old",
+    "game_version": "1.21.1",
+    "loader": "fabric",
+    "created": 1759000000
+  },
+  "selection": {
+    "categories": [
+      "mods"
+    ]
+  },
+  "files": [
+    {
+      "path": "minecraft/mods/a.jar",
+      "category": "mods",
+      "size": 9,
+      "sha256": "17f8ba3f790d40b48383e4699e93bca0a974310c7c287c93103ad905e876b330"
+    }
+  ],
+  "total_bytes": 9,
+  "new_bytes": 9
+}

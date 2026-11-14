@@ -2,7 +2,7 @@ name: Launcher - Check
 
 # Lodestone Launcher is its own Cargo workspace (launcher/), so the core's CI never
 # builds it. This workflow checks it on macOS, the first supported platform, and on
-# Linux, and only runs when the launcher, the crate it shares with the core or this
+# Linux, and only runs when the launcher, the crates it shares with the core or this
 # file changes.
 on:
   workflow_dispatch:
@@ -10,6 +10,7 @@ on:
     paths:
       - "launcher/**"
       - "crates/lodestone-minecraft/**"
+      - "crates/lodestone-image/**"
       - ".github/workflows/launcher.yml"
       - "rust-toolchain.toml"
   push:
@@ -18,6 +19,7 @@ on:
     paths:
       - "launcher/**"
       - "crates/lodestone-minecraft/**"
+      - "crates/lodestone-image/**"
       - ".github/workflows/launcher.yml"
       - "rust-toolchain.toml"
 

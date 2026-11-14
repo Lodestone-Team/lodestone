@@ -1,0 +1,65 @@
+{
+  "schema": 1,
+  "id": "20261114-125244-85a7",
+  "instance_id": "plain",
+  "name": "Worlds",
+  "created": 1794660764,
+  "launcher_version": "0.1.0",
+  "instance": {
+    "id": "plain",
+    "name": "Plain",
+    "game_version": "1.20.1",
+    "loader": "none",
+    "created": 1790000000,
+    "play_time": 0
+  },
+  "selection": {
+    "categories": [
+      "worlds"
+    ],
+    "worlds": [
+      "World"
+    ]
+  },
+  "files": [
+    {
+      "path": "minecraft/saves/World/DIM-1/region/r.0.0.mca",
+      "category": "worlds",
+      "world": "World",
+      "size": 6,
+      "sha256": "c26cbbb2ab8a616681899b7d3aa92c5c06aee31aeb99b4042f1bf2e06ecbb5a1",
+      "mode": 420,
+      "modified": 1794660764
+    },
+    {
+      "path": "minecraft/saves/World/level.dat",
+      "category": "worlds",
+      "world": "World",
+      "size": 5,
+      "sha256": "486ea46224d1bb4fb680f34f7c9ad96a8f24ec88be73ea8e5a6c65260e9cb8a7",
+      "mode": 420,
+      "modified": 1794660764
+    },
+    {
+      "path": "minecraft/saves/World/region/r.0.0.mca",
+      "category": "worlds",
+      "world": "World",
+      "size": 6,
+      "sha256": "c697d2981bf416569a16cfbcdec1542b5398f3cc77d2b905819aa99c46ecf6f6",
+      "mode": 420,
+      "modified": 1794660764
+    },
+    {
+      "path": "minecraft/saves/World/session.lock",
+      "category": "worlds",
+      "world": "World",
+      "size": 4,
+      "sha256": "0c030586945fe504b604ecc2e875c38ede400cd5cd73da9730302162e6b02c6f",
+      "mode": 420,
+      "modified": 1794660764
+    }
+  ],
+  "total_bytes": 21,
+  "new_bytes": 0,
+  "automatic": true
+}

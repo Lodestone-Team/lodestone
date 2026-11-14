@@ -1,0 +1,2 @@
+# The legacy readers write these files back byte for byte: never convert line endings.
+* -text
