@@ -116,7 +116,7 @@ pub struct RuntimeChoice {
 }
 
 impl RuntimeChoice {
-    /// Whether it is an x86_64 runtime on an Apple Silicon Mac.
+    /// Whether it is an x86_64 runtime on an Apple silicon Mac.
     pub fn needs_rosetta(&self, machine: &Platform) -> bool {
         machine.os == Os::MacOs && machine.arch == Arch::Arm64 && self.arch == Arch::X86_64
     }
@@ -133,7 +133,7 @@ pub enum JavaSource {
 }
 
 impl JavaSource {
-    /// Whether it is an x86_64 runtime on an Apple Silicon Mac.
+    /// Whether it is an x86_64 runtime on an Apple silicon Mac.
     pub fn needs_rosetta(&self, machine: &Platform) -> bool {
         match self {
             JavaSource::Mojang(choice) => choice.needs_rosetta(machine),

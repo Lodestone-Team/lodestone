@@ -1643,6 +1643,60 @@ impl Instances {
         };
     }
 
+    /// Makes `id`'s game prepared and waiting for the Rosetta question, as
+    /// [`Self::start_or_ask`] leaves it, and asks it; for tests. Nothing can start: the
+    /// command runs a program that doesn't exist.
+    #[cfg(test)]
+    pub fn test_ask_rosetta(&mut self, id: &str, cx: &mut Context<Self>) {
+        use launcher_core::game::{
+            launch::{self, GameSettings, LaunchAccount, LaunchPaths},
+            version::VersionJson,
+        };
+        let version = VersionJson::parse(
+            br#"{"id": "1.12.2", "mainClass": "net.minecraft.client.main.Main",
+                 "minecraftArguments": "--username ${auth_player_name}"}"#,
+        )
+        .unwrap();
+        let paths = LaunchPaths {
+            java: "/nonexistent/java".into(),
+            game_dir: "/nonexistent/game".into(),
+            natives_dir: "/nonexistent/natives".into(),
+            libraries_dir: "/nonexistent/libraries".into(),
+            assets_dir: "/nonexistent/assets".into(),
+            game_assets: "/nonexistent/assets".into(),
+            classpath: Vec::new(),
+            logging_config: None,
+        };
+        let account = LaunchAccount {
+            username: "Tester".into(),
+            uuid: Default::default(),
+            access_token: launcher_core::Secret::new("test"),
+            xuid: None,
+            user_type: launcher_core::game::launch::UserType::Legacy,
+        };
+        let command = launch::build(
+            &version,
+            &self.machine,
+            &paths,
+            &account,
+            &GameSettings::default(),
+        )
+        .unwrap();
+        self.preview_preparing(id, Arc::new(InstallProgress::default()));
+        if let Some(run) = self.runs.get_mut(id) {
+            run.pending = Some(PendingStart {
+                command,
+                rosetta: Rosetta::Version,
+                outside: Vec::new(),
+            });
+        }
+        cx.emit(InstancesEvent::ConfirmRosetta {
+            id: id.to_string(),
+            version: "1.12.2".into(),
+            reason: Rosetta::Version,
+        });
+    }
+
     /// Shows the Play button in `state`, for the offscreen screenshots.
     pub fn preview_play_state(&mut self, state: PlayState) {
         self.preview_state = Some(state);
@@ -2034,7 +2088,13 @@ impl Instances {
                 // Not saved: asked all the same, unless the player already agreed.
                 eprintln!("lodestone-launcher: saving the instance {id}: {err}");
                 let instance = self.store.get(id).ok();
-                (rosetta.is_some() && !instance.as_ref().is_some_and(Instance::told_about_rosetta))
+                let told = |reason| {
+                    instance
+                        .as_ref()
+                        .is_some_and(|i| i.told_about_rosetta(reason))
+                };
+                rosetta
+                    .is_some_and(|reason| !told(reason))
                     .then(|| instance.map(|i| i.game_version).unwrap_or_default())
             }
         };
@@ -2060,9 +2120,9 @@ impl Instances {
     }
 
     /// The player's answer to [`InstancesEvent::ConfirmRosetta`]: `play` starts the
-    /// waiting game, and it isn't asked again for the instance; otherwise nothing
-    /// starts, and it is asked again next time. Nothing happens when no game waits
-    /// (it was cancelled meanwhile).
+    /// waiting game, and it isn't asked again for the instance and this reason;
+    /// otherwise nothing starts, and it is asked again next time. Nothing happens when
+    /// no game waits (it was cancelled meanwhile).
     pub fn confirm_rosetta(&mut self, id: &str, play: bool, cx: &mut Context<Self>) {
         let Some(pending) = self.runs.get_mut(id).and_then(|run| run.pending.take()) else {
             return;
@@ -2071,7 +2131,7 @@ impl Instances {
             self.prepare_cancelled(id, cx);
             return;
         }
-        match self.store.record_told_rosetta(id) {
+        match self.store.record_told_rosetta(id, pending.rosetta) {
             Ok(instance) => self.update_listed(instance, cx),
             // Only the answer is lost: asked again next time.
             Err(err) => eprintln!("lodestone-launcher: saving the instance {id}: {err}"),
@@ -2393,6 +2453,12 @@ impl Instances {
             });
         }
         cx.emit(InstancesEvent::GameExited(id.to_string()));
+    }
+
+    /// Whether the instance's prepared game waits for the player's answer to
+    /// [`InstancesEvent::ConfirmRosetta`].
+    pub fn waits_for_rosetta(&self, id: &str) -> bool {
+        self.runs.get(id).is_some_and(|run| run.pending.is_some())
     }
 
     /// Cancels the preparation, or kills the game.

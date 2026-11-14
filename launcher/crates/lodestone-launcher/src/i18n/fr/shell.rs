@@ -68,7 +68,7 @@ pub fn text(message: M) -> &'static str {
             "S’exécute via Rosetta\u{a0}2\u{a0}: Mojang n’a pas fait de version Apple Silicon de certaines bibliothèques dont cette version a besoin. Démarrage plus lent, puis fonctionnement normal."
         }
         M::RunsUnderRosettaOverride => {
-            "S’exécute via Rosetta\u{a0}2\u{a0}: le Java choisi dans les paramètres est un Java Intel. Démarrage plus lent, puis fonctionnement normal."
+            "S’exécute via Rosetta\u{a0}2\u{a0}: le Java choisi dans les Paramètres est un Java Intel. Démarrage plus lent, puis fonctionnement normal."
         }
         M::NoInstances => "Aucune instance",
         M::AndJoin => "et rejoindre {server}",

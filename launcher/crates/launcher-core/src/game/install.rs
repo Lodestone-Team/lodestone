@@ -134,10 +134,11 @@ pub enum InstallError {
     Url(#[from] UrlError),
     #[error("{}", platform::ROSETTA_MISSING)]
     RosettaMissing,
-    /// Azul has no Zulu 8 for Apple silicon (its list is empty or not found), none was
-    /// installed before, and Mojang makes no arm64 Java 8.
+    /// Azul has no Zulu 8 for Apple silicon that the version can run in (its list is
+    /// empty, not found, or has only newer builds than [`zulu::Zulu8::Before8u321`]
+    /// takes), none was installed before, and Mojang makes no arm64 Java 8.
     #[error(
-        "This Minecraft version needs Java 8, and no Java 8 made for Apple silicon is available: Mojang makes none, and Azul's list of Zulu 8 builds for it is empty. Lodestone doesn't run it in an Intel Java without saying so; try again later, or choose a Java 8 made for Apple silicon (arm64) in the instance's settings."
+        "This Minecraft version needs Java 8, and no Java 8 made for Apple silicon is available: Mojang makes none, and Azul lists none this version can run in. Lodestone doesn't run it in an Intel Java without saying so; try again later, or choose a Java 8 made for Apple silicon (arm64) in the instance's settings."
     )]
     NoNativeJava8,
     /// The version runs only in an Intel Java on Apple silicon (its libraries have no
@@ -656,6 +657,9 @@ impl Installer {
         if libraries.swapped_lwjgl && assets_layout.is_none() {
             self.hide_window_icons(&mut version)?;
         }
+        if libraries.swapped_lwjgl && forge_early_window_sets_icon(&version) {
+            without_forge_early_window(&mut version);
+        }
 
         Ok(Prepared {
             version,
@@ -748,7 +752,12 @@ impl Installer {
         }
         let choice = match source {
             JavaSource::Mojang(choice) => choice,
-            JavaSource::Zulu8 => return self.install_zulu(machine, verify, progress, cancel).await,
+            JavaSource::Zulu8 => {
+                let line = zulu::Zulu8::for_version(version);
+                return self
+                    .install_zulu(machine, line, verify, progress, cancel)
+                    .await;
+            }
         };
         let java_platform = machine.with_arch(choice.arch);
         let root = runtime::install_dir(&self.data.runtimes_dir(), &choice)?;
@@ -796,18 +805,21 @@ impl Installer {
         Ok((java, java_platform))
     }
 
-    /// Installs Azul's newest Zulu 8 for macOS on arm64 ([`zulu`]) into
-    /// `<runtimes>/zulu-8/mac-os-arm64/<build>`, unless that build is installed already.
+    /// Installs Azul's newest Zulu 8 of `line` for macOS on arm64 ([`zulu`]) into
+    /// `<runtimes>/<line's component>/mac-os-arm64/<build>`, unless that build is
+    /// installed already.
     ///
-    /// When Azul can't be reached, lists no build (a 404 or an empty list) or its build
-    /// can't be downloaded, the newest build installed before is used; only with none
-    /// installed is that an error: [`InstallError::NoNativeJava8`] when Azul has none,
-    /// the network error otherwise (an outage is never taken for "none"). "Verify game
-    /// files" ([`Verify::Full`]) unpacks the build again from its archive, which is
-    /// kept in the cache, and doesn't fall back.
+    /// When Azul can't be reached, lists no build (a 404 or an empty list), answers
+    /// something that isn't a list, or its build can't be downloaded, the newest build
+    /// installed before is used; only with none installed is that an error:
+    /// [`InstallError::NoNativeJava8`] when Azul has none, the network error otherwise
+    /// (an outage is never taken for "none"). "Verify game files" ([`Verify::Full`])
+    /// unpacks the build again from its archive, which is kept in the cache, and
+    /// doesn't fall back.
     async fn install_zulu(
         &self,
         machine: &Platform,
+        line: zulu::Zulu8,
         verify: Verify,
         progress: &InstallProgress,
         cancel: &CancelToken,
@@ -816,7 +828,7 @@ impl Installer {
         let builds = self
             .data
             .runtimes_dir()
-            .join(zulu::COMPONENT)
+            .join(line.component())
             .join(java_platform.runtime_key());
         let installed_before = |why: InstallError| match zulu::newest_installed(&builds) {
             Some(java) if verify == Verify::Recorded => {
@@ -828,16 +840,20 @@ impl Installer {
             }
             _ => Err(why),
         };
-        let packages_url = self.urls.resolve_java(zulu::PACKAGES_URL)?;
+        let packages_url = self.urls.resolve_java(line.packages_url())?;
         let build = match self.fetch_or_missing(&packages_url, &[404]).await {
             Ok(Some(body)) => {
-                let packages: Vec<zulu::ZuluPackage> =
-                    serde_json::from_slice(&body).map_err(|err| {
-                        InstallError::Invalid(format!(
+                // A body that isn't Azul's list (a proxy's or a captive portal's page
+                // served as 200) is no reason to stop using the build installed.
+                let packages: Vec<zulu::ZuluPackage> = match serde_json::from_slice(&body) {
+                    Ok(packages) => packages,
+                    Err(err) => {
+                        return installed_before(InstallError::Invalid(format!(
                             "Azul's list of Java builds is invalid: {err}"
-                        ))
-                    })?;
-                match zulu::pick(&packages) {
+                        )));
+                    }
+                };
+                match zulu::pick(&packages, line) {
                     Some(build) => build,
                     None => return installed_before(InstallError::NoNativeJava8),
                 }
@@ -919,13 +935,18 @@ impl Installer {
             let _ = fs::remove_dir_all(&staging);
             return Err(err);
         }
-        // Best effort: older archives only take space. Older builds may be in use, so
+        // Best effort: this line's older archives only take space (the other line's
+        // archive stays, for its "Verify game files"). Older builds may be in use, so
         // they stay until the storage cleanup, which runs while no game does.
         if let Ok(entries) = fs::read_dir(&archives) {
             for entry in entries.flatten() {
                 let file = entry.file_name();
                 let file = file.to_string_lossy();
-                if file.starts_with("zulu8") && file.ends_with(".zip") && entry.path() != archive {
+                if file.starts_with("zulu8")
+                    && file.ends_with(".zip")
+                    && line.owns_archive(&file)
+                    && entry.path() != archive
+                {
                     let _ = fs::remove_file(entry.path());
                 }
             }
@@ -941,9 +962,12 @@ impl Installer {
 
     /// Moves an unpacked, marked build from `staging` to `root`. When another launch
     /// put the same build there first, its copy is kept. A broken copy at `root` (or
-    /// one "Verify game files" redoes) is swapped out: moved aside, the new one moved
-    /// in, then the old one deleted, so the folder is never missing for longer than
-    /// two renames; the files are the same build either way.
+    /// one "Verify game files" redoes) is swapped out: moved aside and the new one
+    /// moved in, so the folder is never missing for longer than two renames; the files
+    /// are the same build either way. The old copy is left beside it, because a game
+    /// another instance started may still run from it (and load its libraries later):
+    /// the storage cleanup removes it ([`zulu::older_builds`]), only while no game
+    /// runs.
     fn move_build_into_place(
         &self,
         staging: &Path,
@@ -973,7 +997,10 @@ impl Installer {
             Err(err) => return Err(io_err(root)(err)),
         }
         let moved = crate::fsx::rename(staging, root);
-        let _ = fs::remove_dir_all(&aside);
+        if moved.is_err() && !root.exists() {
+            // Put the old copy back rather than leave no build.
+            let _ = crate::fsx::rename(&aside, root);
+        }
         match moved {
             Ok(()) => Ok(()),
             Err(_) if runtime::is_installed(root, sha256) => {
@@ -1098,6 +1125,61 @@ impl Installer {
 
 /// What the copy of an asset index without the window icons adds to its id:
 /// `1.16-no-window-icons` ([`Installer::hide_window_icons`]).
+///
+/// The JVM argument that turns off Forge's early loading window
+/// ([`forge_early_window_sets_icon`]).
+pub const NO_FORGE_EARLY_WINDOW: &str = "-Dfml.earlyprogresswindow=false";
+
+/// Whether `version` is Forge for 1.14 to 1.16.5 whose early loading window (FML's
+/// `ClientVisualization`, opened before Minecraft's own) sets a window icon on macOS.
+/// With Mojang's LWJGL 3.3, which those versions get on Apple silicon
+/// ([`libraries::select_on`]), GLFW reports that as an error, and Minecraft then stops
+/// at startup ("GLFW error before init: Cocoa: Regular windows do not have icons on
+/// macOS"). Forge 1.16.5-36.2.30 and later skip the icon on macOS; 1.14 and 1.15 never
+/// got that fix, and 1.13 and 1.17 and later have no such window.
+pub fn forge_early_window_sets_icon(version: &VersionJson) -> bool {
+    let Some(forge) = version.libraries.iter().find_map(|library| {
+        let mut parts = library.name.split(':');
+        (parts.next() == Some("net.minecraftforge") && parts.next() == Some("forge"))
+            .then(|| parts.next())
+            .flatten()
+    }) else {
+        return false;
+    };
+    let Some((game, build)) = forge.split_once('-') else {
+        return false;
+    };
+    let numbers = |text: &str| -> Vec<u64> {
+        text.split('.')
+            .map_while(|part| part.parse().ok())
+            .collect()
+    };
+    let game = numbers(game);
+    if game.len() < 2 || game[0] != 1 || !(14..=16).contains(&game[1]) {
+        return false;
+    }
+    !(game == [1, 16, 5] && numbers(build).as_slice() >= [36, 2, 30].as_slice())
+}
+
+/// Turns off Forge's early loading window ([`forge_early_window_sets_icon`]): Forge
+/// then shows its loading progress in Minecraft's own window, as it does where the
+/// early window can't open.
+fn without_forge_early_window(version: &mut VersionJson) {
+    use super::version::Argument;
+    // 1.14 and later always have `arguments`.
+    let Some(arguments) = version.arguments.as_mut() else {
+        return;
+    };
+    let present = arguments
+        .jvm
+        .iter()
+        .any(|argument| matches!(argument, Argument::Plain(text) if text == NO_FORGE_EARLY_WINDOW));
+    if !present {
+        arguments
+            .jvm
+            .push(Argument::Plain(NO_FORGE_EARLY_WINDOW.to_string()));
+    }
+}
 pub const WITHOUT_WINDOW_ICONS: &str = "-no-window-icons";
 
 /// Whether an asset index entry is one of the window icons 1.13 to 1.18 set at
@@ -1219,5 +1301,66 @@ mod tests {
             ]
         );
         assert!(without_window_icons(b"not json").is_err());
+    }
+
+    /// Forge's early window sets an icon on macOS in 1.14 and 1.15, and in 1.16.x
+    /// before 1.16.5-36.2.30 (checked in Forge's jars); those get it turned off, once.
+    #[test]
+    fn old_forge_early_windows_are_turned_off() {
+        let forge = |coordinates: &str, arguments: bool| {
+            let mut json = serde_json::json!({
+                "id": "forge",
+                "mainClass": "cpw.mods.modlauncher.Launcher",
+                "libraries": [
+                    {"name": "cpw.mods:modlauncher:8.0.9"},
+                    {"name": coordinates},
+                ],
+            });
+            if arguments {
+                json["arguments"] = serde_json::json!({"jvm": ["-Xss1M"], "game": []});
+            }
+            VersionJson::parse(json.to_string().as_bytes()).unwrap()
+        };
+        for old in [
+            "net.minecraftforge:forge:1.14.4-28.2.26",
+            "net.minecraftforge:forge:1.15.2-31.2.57",
+            "net.minecraftforge:forge:1.16.4-35.1.37",
+            "net.minecraftforge:forge:1.16.5-36.2.20",
+            "net.minecraftforge:forge:1.16.5-36.2.29",
+        ] {
+            assert!(forge_early_window_sets_icon(&forge(old, true)), "{old}");
+        }
+        for fixed in [
+            "net.minecraftforge:forge:1.16.5-36.2.30",
+            "net.minecraftforge:forge:1.16.5-36.2.42",
+            "net.minecraftforge:forge:1.13.2-25.0.223",
+            "net.minecraftforge:forge:1.17.1-37.1.1",
+            "net.minecraftforge:forge:1.20.1-47.4.0",
+            "net.minecraftforge:fmlloader:1.16.5-36.2.20",
+        ] {
+            assert!(
+                !forge_early_window_sets_icon(&forge(fixed, true)),
+                "{fixed}"
+            );
+        }
+
+        let mut version = forge("net.minecraftforge:forge:1.16.5-36.2.20", true);
+        without_forge_early_window(&mut version);
+        without_forge_early_window(&mut version);
+        let jvm: Vec<String> = version
+            .arguments
+            .unwrap()
+            .jvm
+            .into_iter()
+            .filter_map(|argument| match argument {
+                super::super::version::Argument::Plain(text) => Some(text),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(jvm, ["-Xss1M", NO_FORGE_EARLY_WINDOW]);
+        // Old-style arguments are left alone.
+        let mut legacy = forge("net.minecraftforge:forge:1.16.5-36.2.20", false);
+        without_forge_early_window(&mut legacy);
+        assert!(legacy.arguments.is_none());
     }
 }

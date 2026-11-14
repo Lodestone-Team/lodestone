@@ -13,6 +13,10 @@
 //! lock has no tar crate). Lodestone Core looks up Java the same way for servers
 //! (`core/src/implementations/minecraft/util.rs`); this is a port of its Zulu lookup,
 //! not a dependency on it.
+//!
+//! Forge for 1.16.3 to 1.16.5 before its January 2022 builds (ModLauncher 8.0) can't
+//! start in Java 8u321 or newer, so those get the newest build before it, in a
+//! component of its own ([`Zulu8::Before8u321`]).
 
 use std::{
     fs::{self, File},
@@ -22,13 +26,92 @@ use std::{
 
 use serde::Deserialize;
 
-use super::{natives, runtime};
+use super::{natives, runtime, version::VersionJson};
 
 /// The runtime folder's component name: `<runtimes>/zulu-8/mac-os-arm64`.
 pub const COMPONENT: &str = "zulu-8";
 
+/// The component of the builds before 8u321, for [`Zulu8::Before8u321`].
+pub const COMPONENT_BEFORE_8U321: &str = "zulu-8-before-8u321";
+
 /// Azul's newest Zulu 8 JRE builds for macOS on arm64, as zips.
 pub const PACKAGES_URL: &str = "https://api.azul.com/metadata/v1/zulu/packages/?java_version=8&os=macos&arch=aarch64&archive_type=zip&java_package_type=jre&javafx_bundled=false&crac_supported=false&release_status=ga&availability_types=CA&latest=true&include_fields=sha256_hash,size&page_size=20";
+
+/// Every Zulu 8 JRE build for macOS on arm64 (about 30 in 2026; Azul started with
+/// 8u282), for [`Zulu8::Before8u321`].
+pub const ALL_PACKAGES_URL: &str = "https://api.azul.com/metadata/v1/zulu/packages/?java_version=8&os=macos&arch=aarch64&archive_type=zip&java_package_type=jre&javafx_bundled=false&crac_supported=false&release_status=ga&availability_types=CA&include_fields=sha256_hash,size&page_size=1000";
+
+/// Which Zulu 8 builds a version can start in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Zulu8 {
+    /// The newest build, for everything but [`Zulu8::Before8u321`].
+    Newest,
+    /// The newest build before Java 8u321. ModLauncher 8.0, which Forge for 1.16.3 to
+    /// 1.16.5 used until its January 2022 builds (1.16.5-36.2.26 has 8.1.3), makes a
+    /// `sun.security.util.ManifestEntryVerifier` with the constructor 8u321 replaced,
+    /// and stops at startup with a `NoSuchMethodError` in a newer Java. Mojang's
+    /// `jre-legacy` (8u51) is older, so they run on Intel Macs and Windows. Older
+    /// ModLauncher versions (Forge for 1.14 to 1.16.2) and 8.1 don't use it.
+    Before8u321,
+}
+
+impl Zulu8 {
+    /// The builds `version` (with its loader's profile merged) can start in.
+    pub fn for_version(version: &VersionJson) -> Self {
+        let old_modlauncher = version.libraries.iter().any(|library| {
+            let mut parts = library.name.split(':');
+            parts.next() == Some("cpw.mods")
+                && parts.next() == Some("modlauncher")
+                && parts
+                    .next()
+                    .is_some_and(|v| v == "8.0" || v.starts_with("8.0."))
+        });
+        if old_modlauncher {
+            Zulu8::Before8u321
+        } else {
+            Zulu8::Newest
+        }
+    }
+
+    /// Its runtimes folder: `<runtimes>/<component>/mac-os-arm64/<build>`.
+    pub fn component(self) -> &'static str {
+        match self {
+            Zulu8::Newest => COMPONENT,
+            Zulu8::Before8u321 => COMPONENT_BEFORE_8U321,
+        }
+    }
+
+    /// Where Azul lists its builds.
+    pub fn packages_url(self) -> &'static str {
+        match self {
+            Zulu8::Newest => PACKAGES_URL,
+            Zulu8::Before8u321 => ALL_PACKAGES_URL,
+        }
+    }
+
+    /// Whether a build of Java `java_version` (`[8, 0, 512]`) is one of these.
+    fn accepts(self, java_version: &[u64]) -> bool {
+        match self {
+            Zulu8::Newest => true,
+            Zulu8::Before8u321 => java_version < [8, 0, 321].as_slice(),
+        }
+    }
+
+    /// Whether the archive `name` (`zulu8.98.0.111-ca-jre8.0.512-macosx_aarch64.zip`)
+    /// is a build of these, by the Java version in its name.
+    pub fn owns_archive(self, name: &str) -> bool {
+        let Some(update) = name
+            .split("-jre8.0.")
+            .nth(1)
+            .and_then(|rest| rest.split('-').next())
+            .and_then(|update| update.parse::<u64>().ok())
+        else {
+            return false;
+        };
+        let before = Zulu8::Before8u321.accepts(&[8, 0, update]);
+        before == (self == Zulu8::Before8u321)
+    }
+}
 
 /// Where downloads must come from.
 const CDN: &str = "https://cdn.azul.com/zulu/bin/";
@@ -127,10 +210,10 @@ fn is_sha256(sha256: &str) -> bool {
     sha256.len() == 64 && sha256.bytes().all(|b| b.is_ascii_hexdigit())
 }
 
-/// Picks the newest Zulu 8 JRE from Azul's answer, checking that it is Java 8, a JRE
-/// zip for macOS on arm64, from Azul's own CDN, with a SHA-256. `None` when there is
-/// no such build.
-pub fn pick(packages: &[ZuluPackage]) -> Option<ZuluBuild> {
+/// Picks the newest Zulu 8 JRE of `line` from Azul's answer, checking that it is Java
+/// 8, a JRE zip for macOS on arm64, from Azul's own CDN, with a SHA-256. `None` when
+/// there is no such build.
+pub fn pick(packages: &[ZuluPackage], line: Zulu8) -> Option<ZuluBuild> {
     // Azul names its files zulu8.98.0.111-ca-jre8.0.512-macosx_aarch64.zip.
     let plain_name = |name: &str| {
         !name.is_empty()
@@ -143,6 +226,7 @@ pub fn pick(packages: &[ZuluPackage]) -> Option<ZuluBuild> {
         .iter()
         .filter(|p| {
             p.java_version.first() == Some(&8)
+                && line.accepts(&p.java_version)
                 && plain_name(&p.name)
                 && p.name.starts_with("zulu")
                 && p.name.contains("-jre8")
@@ -368,7 +452,7 @@ mod tests {
              "sha256_hash": "d2175167d93ecdc39005582943a21f6470389d1044c08390e659d87148338cf8", "size": 40888000}
         ]"#;
         let mut packages: Vec<ZuluPackage> = serde_json::from_str(answer).unwrap();
-        let build = pick(&packages).unwrap();
+        let build = pick(&packages, Zulu8::Newest).unwrap();
         assert_eq!(
             build.name,
             "zulu8.98.0.111-ca-jre8.0.512-macosx_aarch64.zip"
@@ -377,8 +461,8 @@ mod tests {
         assert_eq!(build.size, Some(40_346_800));
         // The order of the answer doesn't matter.
         packages.reverse();
-        assert_eq!(pick(&packages).unwrap(), build);
-        assert_eq!(pick(&[]), None);
+        assert_eq!(pick(&packages, Zulu8::Newest).unwrap(), build);
+        assert_eq!(pick(&[], Zulu8::Newest), None);
     }
 
     #[test]
@@ -388,7 +472,7 @@ mod tests {
             [8, 0, 512],
             [8, 98, 0, 111],
         );
-        assert!(pick(std::slice::from_ref(&good)).is_some());
+        assert!(pick(std::slice::from_ref(&good), Zulu8::Newest).is_some());
         let bad = [
             // Another host, or a URL that isn't the file named.
             ZuluPackage {
@@ -441,8 +525,83 @@ mod tests {
             ),
         ];
         for package in bad {
-            assert_eq!(pick(std::slice::from_ref(&package)), None, "{package:?}");
+            assert_eq!(
+                pick(std::slice::from_ref(&package), Zulu8::Newest),
+                None,
+                "{package:?}"
+            );
         }
+    }
+
+    /// Forge with ModLauncher 8.0 gets the newest build before 8u321, from Azul's whole
+    /// list; everything else the newest.
+    #[test]
+    fn modlauncher_8_0_gets_a_build_before_8u321() {
+        let packages = [
+            package(
+                "zulu8.98.0.111-ca-jre8.0.512-macosx_aarch64.zip",
+                [8, 0, 512],
+                [8, 98, 0, 111],
+            ),
+            package(
+                "zulu8.60.0.21-ca-jre8.0.322-macosx_aarch64.zip",
+                [8, 0, 322],
+                [8, 60, 0, 21],
+            ),
+            package(
+                "zulu8.58.0.13-ca-jre8.0.312-macosx_aarch64.zip",
+                [8, 0, 312],
+                [8, 58, 0, 13],
+            ),
+            package(
+                "zulu8.56.0.23-ca-jre8.0.302-macosx_aarch64.zip",
+                [8, 0, 302],
+                [8, 56, 0, 23],
+            ),
+        ];
+        assert_eq!(
+            pick(&packages, Zulu8::Before8u321).unwrap().name,
+            "zulu8.58.0.13-ca-jre8.0.312-macosx_aarch64.zip"
+        );
+        assert_eq!(
+            pick(&packages, Zulu8::Newest).unwrap().name,
+            "zulu8.98.0.111-ca-jre8.0.512-macosx_aarch64.zip"
+        );
+        assert_eq!(pick(&packages[..2], Zulu8::Before8u321), None);
+
+        let version = |modlauncher: &str| {
+            VersionJson::parse(
+                serde_json::json!({
+                    "id": "1.16.5-forge",
+                    "mainClass": "cpw.mods.modlauncher.Launcher",
+                    "libraries": [
+                        {"name": "net.minecraftforge:forge:1.16.5-36.2.20"},
+                        {"name": format!("cpw.mods:modlauncher:{modlauncher}")},
+                    ],
+                })
+                .to_string()
+                .as_bytes(),
+            )
+            .unwrap()
+        };
+        // Forge 1.16.5-36.2.20, 1.16.3-34.1.42, and 36.2.26 and later, 1.15.2, 1.16.1.
+        assert_eq!(Zulu8::for_version(&version("8.0.9")), Zulu8::Before8u321);
+        assert_eq!(Zulu8::for_version(&version("8.0.6")), Zulu8::Before8u321);
+        for fixed in ["8.1.3", "5.1.2", "6.1.1", "4.1.0"] {
+            assert_eq!(
+                Zulu8::for_version(&version(fixed)),
+                Zulu8::Newest,
+                "{fixed}"
+            );
+        }
+        assert_eq!(Zulu8::Before8u321.component(), "zulu-8-before-8u321");
+
+        // Each line keeps its own archives in the cache.
+        let new = "zulu8.98.0.111-ca-jre8.0.512-macosx_aarch64.zip";
+        let old = "zulu8.58.0.13-ca-jre8.0.312-macosx_aarch64.zip";
+        assert!(Zulu8::Newest.owns_archive(new) && !Zulu8::Newest.owns_archive(old));
+        assert!(Zulu8::Before8u321.owns_archive(old) && !Zulu8::Before8u321.owns_archive(new));
+        assert!(!Zulu8::Newest.owns_archive("zulu8.zip"));
     }
 
     fn zip_file(entries: &[(&str, Option<&str>, u32, &[u8])]) -> tempfile::NamedTempFile {

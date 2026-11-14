@@ -67,7 +67,7 @@ crate::i18n::messages! {
         // Launch errors and notices.
         CouldntSignIn = "Couldn't sign in",
         RosettaNeeded = "Rosetta 2 is needed",
-        RosettaMissing = "This Minecraft version needs an Intel (x86_64) Java, which runs on Apple Silicon through Rosetta 2. Rosetta isn't installed. Install it by running this in Terminal, then press Play again:\n\nsoftwareupdate --install-rosetta",
+        RosettaMissing = "This Minecraft version needs an Intel (x86_64) Java, which runs on Apple silicon through Rosetta 2. Rosetta isn't installed. Install it by running this in Terminal, then press Play again:\n\nsoftwareupdate --install-rosetta",
         /// Asked once per instance, before its first game under Rosetta 2 on an Apple
         /// silicon Mac, with Play and Cancel. {version} is the Minecraft version, such
         /// as 1.12.2.

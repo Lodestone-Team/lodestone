@@ -221,24 +221,40 @@ pub struct Instance {
 /// ([`crate::game::install::Rosetta`]); the launcher never does that without saying so.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RosettaState {
-    /// The Minecraft version the game was last prepared for, and why it ran under
-    /// Rosetta then, if it did: the instance says it runs under Rosetta while its
-    /// version is still this one.
+    /// The Minecraft version and Java override the game was last prepared with, and
+    /// why it ran under Rosetta then, if it did: the instance says it runs under
+    /// Rosetta while its version and override are still these.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prepared: Option<RosettaPrepared>,
-    /// Whether the player agreed, before the instance's first game under Rosetta, to
-    /// run it so.
+    /// Whether the player agreed, before the instance's first game under Rosetta
+    /// because of its version ([`Rosetta::Version`]), to run it so.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub told: bool,
+    /// The same for an Intel Java override ([`Rosetta::JavaOverride`]): a different
+    /// reason, asked about on its own.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub told_override: bool,
 }
 
-/// The version an instance's game was last prepared for on an Apple silicon Mac, and
-/// why it ran under Rosetta 2, if it did.
+impl RosettaState {
+    /// Whether the player agreed to run the instance under Rosetta for `reason`.
+    pub fn told_for(&self, reason: Rosetta) -> bool {
+        match reason {
+            Rosetta::Version => self.told,
+            Rosetta::JavaOverride => self.told_override,
+        }
+    }
+}
+
+/// The version and Java override an instance's game was last prepared with on an
+/// Apple silicon Mac, and why it ran under Rosetta 2, if it did.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RosettaPrepared {
     pub version: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reason: Option<Rosetta>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub java_override: Option<PathBuf>,
 }
 
 /// What automatic setup chose for an instance. While a setting still has the value it
@@ -291,20 +307,26 @@ impl Default for Instance {
 }
 
 impl Instance {
-    /// What the instance's game was last prepared as for its current version: `None`
-    /// when it wasn't prepared for this version yet (on an Apple silicon Mac), and
-    /// `Some(reason)` with why it ran under Rosetta 2, if it did.
+    /// What the instance's game was last prepared as for its current version and
+    /// Java override: `None` when it wasn't prepared with these yet (on an Apple
+    /// silicon Mac), and `Some(reason)` with why it ran under Rosetta 2, if it did.
     pub fn prepared_rosetta(&self) -> Option<Option<Rosetta>> {
         self.rosetta
             .as_ref()
             .and_then(|rosetta| rosetta.prepared.as_ref())
-            .filter(|prepared| prepared.version == self.game_version)
+            .filter(|prepared| {
+                prepared.version == self.game_version
+                    && prepared.java_override == self.java_override
+            })
             .map(|prepared| prepared.reason)
     }
 
-    /// Whether the player already agreed to run this instance under Rosetta 2.
-    pub fn told_about_rosetta(&self) -> bool {
-        self.rosetta.as_ref().is_some_and(|rosetta| rosetta.told)
+    /// Whether the player already agreed to run this instance under Rosetta 2 for
+    /// `reason`.
+    pub fn told_about_rosetta(&self, reason: Rosetta) -> bool {
+        self.rosetta
+            .as_ref()
+            .is_some_and(|rosetta| rosetta.told_for(reason))
     }
 }
 
@@ -1089,7 +1111,8 @@ impl InstanceStore {
 
     /// Records whether, and why, the game was just prepared to run under Rosetta 2 (on
     /// an Apple silicon Mac). Returns the instance, and whether the player must be asked
-    /// first: its first game under Rosetta, until they agree ([`Self::record_told_rosetta`]).
+    /// first: its first game under Rosetta for this reason, until they agree
+    /// ([`Self::record_told_rosetta`]).
     pub fn record_rosetta(
         &self,
         id: &str,
@@ -1100,8 +1123,9 @@ impl InstanceStore {
         state.prepared = Some(RosettaPrepared {
             version: instance.game_version.clone(),
             reason,
+            java_override: instance.java_override.clone(),
         });
-        let ask = reason.is_some() && !state.told;
+        let ask = reason.is_some_and(|reason| !state.told_for(reason));
         if instance.rosetta.as_ref() != Some(&state) {
             instance.rosetta = Some(state);
             self.save(&instance)?;
@@ -1109,11 +1133,20 @@ impl InstanceStore {
         Ok((instance, ask))
     }
 
-    /// The player agreed to run the instance under Rosetta 2: they aren't asked again.
-    pub fn record_told_rosetta(&self, id: &str) -> Result<Instance, InstanceError> {
+    /// The player agreed to run the instance under Rosetta 2 for `reason`: they aren't
+    /// asked again for it.
+    pub fn record_told_rosetta(
+        &self,
+        id: &str,
+        reason: Rosetta,
+    ) -> Result<Instance, InstanceError> {
         let mut instance = self.get(id)?;
-        if !instance.told_about_rosetta() {
-            instance.rosetta.get_or_insert_with(Default::default).told = true;
+        if !instance.told_about_rosetta(reason) {
+            let state = instance.rosetta.get_or_insert_with(Default::default);
+            match reason {
+                Rosetta::Version => state.told = true,
+                Rosetta::JavaOverride => state.told_override = true,
+            }
             self.save(&instance)?;
         }
         Ok(instance)
@@ -1437,8 +1470,11 @@ mod tests {
             .record_rosetta(&instance.id, Some(Rosetta::Version))
             .unwrap();
         assert!(ask);
-        let agreed = store.record_told_rosetta(&instance.id).unwrap();
-        assert!(agreed.told_about_rosetta());
+        let agreed = store
+            .record_told_rosetta(&instance.id, Rosetta::Version)
+            .unwrap();
+        assert!(agreed.told_about_rosetta(Rosetta::Version));
+        assert!(!agreed.told_about_rosetta(Rosetta::JavaOverride));
         let (again, ask) = store
             .record_rosetta(&instance.id, Some(Rosetta::Version))
             .unwrap();
@@ -1457,11 +1493,40 @@ mod tests {
             Some(RosettaState {
                 prepared: Some(RosettaPrepared {
                     version: "1.16.5".into(),
-                    reason: None
+                    reason: None,
+                    java_override: None,
                 }),
-                told: true
+                told: true,
+                told_override: false,
             })
         );
+
+        // An Intel Java override is another reason: asked about on its own, and the
+        // header follows the override, not only the version.
+        let mut with_override = store.get(&instance.id).unwrap();
+        assert_eq!(with_override.prepared_rosetta(), Some(None));
+        with_override.java_override = Some(PathBuf::from("/intel/jdk8/bin/java"));
+        assert_eq!(
+            with_override.prepared_rosetta(),
+            None,
+            "not prepared with it"
+        );
+        store.save(&with_override).unwrap();
+        let (intel, ask) = store
+            .record_rosetta(&instance.id, Some(Rosetta::JavaOverride))
+            .unwrap();
+        assert!(ask);
+        assert_eq!(intel.prepared_rosetta(), Some(Some(Rosetta::JavaOverride)));
+        store
+            .record_told_rosetta(&instance.id, Rosetta::JavaOverride)
+            .unwrap();
+        let (_, ask) = store
+            .record_rosetta(&instance.id, Some(Rosetta::JavaOverride))
+            .unwrap();
+        assert!(!ask);
+        let mut cleared = store.get(&instance.id).unwrap();
+        cleared.java_override = None;
+        assert_eq!(cleared.prepared_rosetta(), None, "the override is gone");
     }
 
     #[test]

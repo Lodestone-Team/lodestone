@@ -1,7 +1,7 @@
 //! The platform the game runs on, as Mojang's version files name it: the operating
 //! system, the CPU architecture of the Java runtime, and the OS version.
 //!
-//! On Apple Silicon, versions before 1.14 run in an x86_64 Java under Rosetta (see
+//! On Apple silicon, versions before 1.14 run in an x86_64 Java under Rosetta (see
 //! [`super::libraries::java_arch`]). The platform the version's rules are evaluated
 //! against is then the x86_64 one, because that is what the game's Java reports.
 
@@ -301,7 +301,7 @@ fn sysctl_string(name: &std::ffi::CStr) -> Option<String> {
 }
 
 /// Whether x86_64 programs can run on this Mac. On Intel Macs they always can; on
-/// Apple Silicon they need Rosetta 2.
+/// Apple silicon they need Rosetta 2.
 pub fn can_run_x86_64() -> bool {
     if !cfg!(target_os = "macos") || Arch::current() != Arch::Arm64 {
         return Arch::current() == Arch::X86_64;
@@ -324,11 +324,17 @@ pub fn rosetta_installed() -> bool {
 /// The architecture a Mac program at `path` runs as on Apple silicon, from its Mach-O
 /// header: `X86_64` for an Intel-only program (which runs under Rosetta 2), `Arm64`
 /// for an arm64 one or a universal one that has arm64 (macOS runs a universal program
-/// natively). `None` when the file can't be read or isn't a Mac program (a script, say).
+/// natively). `None` when the file can't be read or isn't a Mac program (a script, say),
+/// and for Apple's stubs in `/usr/bin` (`/usr/bin/java` is universal, but runs whichever
+/// JDK is chosen in the system, which may be Intel).
 ///
 /// It is read, never run: a Java override is the player's file, and starting it to ask
 /// would run it before they pressed Play.
 pub fn mac_binary_arch(path: &Path) -> Option<Arch> {
+    let resolved = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    if path.starts_with("/usr/bin") || resolved.starts_with("/usr/bin") {
+        return None;
+    }
     let mut header = [0u8; 4096];
     let mut file = std::fs::File::open(path).ok()?;
     let mut read = 0;
@@ -387,7 +393,7 @@ fn mach_o_arch(bytes: &[u8]) -> Option<Arch> {
 }
 
 /// What to tell the user when an x86_64 Java is needed but Rosetta is missing.
-pub const ROSETTA_MISSING: &str = "This Minecraft version needs an Intel (x86_64) Java, which runs on Apple Silicon through Rosetta 2. Rosetta isn't installed. Install it by running this in Terminal, then press Play again:\n\nsoftwareupdate --install-rosetta";
+pub const ROSETTA_MISSING: &str = "This Minecraft version needs an Intel (x86_64) Java, which runs on Apple silicon through Rosetta 2. Rosetta isn't installed. Install it by running this in Terminal, then press Play again:\n\nsoftwareupdate --install-rosetta";
 
 #[cfg(test)]
 mod tests {
@@ -427,6 +433,9 @@ mod tests {
         assert_eq!(mach_o_arch(b"#!/bin/sh\nexec java \"$@\"\n"), None);
         assert_eq!(mach_o_arch(&[]), None);
         assert_eq!(mac_binary_arch(Path::new("/nonexistent/java")), None);
+        // Apple's stub runs whichever JDK is chosen: unknown, whatever its header.
+        #[cfg(target_os = "macos")]
+        assert_eq!(mac_binary_arch(Path::new("/usr/bin/java")), None);
     }
 
     #[test]

@@ -39,6 +39,7 @@ use serde::Serialize;
 use crate::{
     game::{
         assets::AssetIndex,
+        install::WITHOUT_WINDOW_ICONS,
         libraries,
         loaders::{self, profile_id},
         platform::Platform,
@@ -341,7 +342,7 @@ fn scan_on(
         let users = used.runtimes.get(&component);
         // Zulu 8 keeps each build in a folder of its own and runs the newest: while it
         // is in use, the older builds are listed apart, unused.
-        if users.is_some() && component == zulu::COMPONENT {
+        if users.is_some() && is_zulu(&component) {
             for older in older_zulu_builds(&entry.path()) {
                 let older_bytes = sizer.size(&older)?;
                 bytes = bytes.saturating_sub(older_bytes);
@@ -402,8 +403,14 @@ fn scan_on(
     Ok(report)
 }
 
-/// The Zulu 8 builds in `<runtimes>/zulu-8` that games no longer use: all but the newest
-/// for each platform ([`zulu::older_builds`]).
+/// Whether runtimes folder `component` holds Zulu 8 builds: `zulu-8`, or
+/// `zulu-8-before-8u321` ([`zulu::Zulu8`]).
+fn is_zulu(component: &str) -> bool {
+    component == zulu::COMPONENT || component == zulu::COMPONENT_BEFORE_8U321
+}
+
+/// The Zulu 8 builds in `<runtimes>/zulu-8` (or `zulu-8-before-8u321`) that games no
+/// longer use: all but the newest for each platform ([`zulu::older_builds`]).
 fn older_zulu_builds(component_dir: &Path) -> Vec<PathBuf> {
     read_dir(component_dir)
         .into_iter()
@@ -464,7 +471,7 @@ fn clean_on(
                 }
                 if !used.runtimes.contains_key(&name) {
                     remove(&entry.path(), &mut cleaned, cancel)?;
-                } else if name == zulu::COMPONENT {
+                } else if is_zulu(&name) {
                     // No game runs now (callers make sure), so no older build is open.
                     for older in older_zulu_builds(&entry.path()) {
                         remove(&older, &mut cleaned, cancel)?;
@@ -519,8 +526,9 @@ struct Used {
     /// doesn't parse is missing here, and [`Used::complete`] is false.
     jsons: Vec<VersionJson>,
     asset_indexes: BTreeSet<String>,
-    /// By runtimes folder (a component, or `zulu-8`): the Java major version and the
-    /// versions that need it, as they run on this machine ([`runtime::folder_for`]).
+    /// By runtimes folder (a component, `zulu-8` or `zulu-8-before-8u321`): the Java
+    /// major version and the versions that need it, as they run on this machine
+    /// ([`runtime::folder_for`], [`zulu::Zulu8`]).
     runtimes: BTreeMap<String, (Option<u32>, BTreeSet<String>)>,
     /// Every version in use was read, so libraries and assets can be judged.
     complete: bool,
@@ -618,7 +626,10 @@ impl Used {
                     loaders::merge(child, &parent)
                 });
             let java = machine.with_arch(libraries::java_arch(&merged, machine));
-            let (folder, major) = runtime::folder_for(&component, Some(major), &java);
+            let (mut folder, major) = runtime::folder_for(&component, Some(major), &java);
+            if folder == zulu::COMPONENT {
+                folder = zulu::Zulu8::for_version(&merged).component();
+            }
             let entry = used
                 .runtimes
                 .entry(folder.to_string())
@@ -723,14 +734,19 @@ impl UnusedPlan {
                 }
             }
         }
-        // Indexes no version in use names, with their records.
+        // Indexes no version in use names, with their records. A version's copy
+        // without the window icons (1.13 to 1.18 on Apple silicon) goes with it.
         for entry in read_dir(&data.assets_dir().join("indexes")) {
             let name = entry.file_name().to_string_lossy().into_owned();
             let id = name
                 .strip_suffix(".install.json")
                 .or_else(|| name.strip_suffix(".json"));
+            let in_use = |id: &str| {
+                let id = id.strip_suffix(WITHOUT_WINDOW_ICONS).unwrap_or(id);
+                used.asset_indexes.contains(id)
+            };
             if let Some(id) = id
-                && !used.asset_indexes.contains(id)
+                && !in_use(id)
             {
                 plan.asset_files.push(entry.path());
             }
@@ -1214,6 +1230,10 @@ mod tests {
     #[test]
     fn removes_only_what_nothing_uses() {
         let (_tmp, data, instances) = fixture();
+        // The copies without window icons go with their version's index.
+        let used_hash = "aa".to_string() + &"1".repeat(38);
+        index(&data, "5-no-window-icons", &[&used_hash]);
+        index(&data, "1.8-no-window-icons", &[&used_hash]);
         let cleaned = clean(
             &data,
             &instances,
@@ -1249,6 +1269,17 @@ mod tests {
         assert!(!data.assets_dir().join("objects/bb").exists());
         assert!(data.assets_dir().join("indexes/5.json").exists());
         assert!(!data.assets_dir().join("indexes/1.8.json").exists());
+        assert!(
+            data.assets_dir()
+                .join("indexes/5-no-window-icons.json")
+                .exists()
+        );
+        assert!(
+            !data
+                .assets_dir()
+                .join("indexes/1.8-no-window-icons.json")
+                .exists()
+        );
         // nothing more to remove
         let again = scan(&data, &instances, &Cancel::new()).unwrap();
         assert_eq!(again.game_files.unused.total(), 0);
@@ -1378,8 +1409,9 @@ mod tests {
 
     /// On Apple silicon, 1.16.5 runs in Zulu 8 and 1.17.1 in Mojang's arm64 Java 17
     /// (`java-runtime-gamma`), not in the runtimes their files name; 1.12.2 runs in the
-    /// Intel Java 8 those name. Those are kept, and Zulu's older build goes. On an Intel
-    /// Mac the same versions use the runtimes their files name.
+    /// Intel Java 8 those name, and Forge 1.16.5-36.2.20 (ModLauncher 8.0) in a Zulu 8
+    /// before 8u321. Those are kept, and Zulu's older build goes. On an Intel Mac the
+    /// same versions use the runtimes their files name.
     #[test]
     fn apple_silicon_keeps_the_java_versions_really_run_in() {
         let tmp = tempfile::tempdir().unwrap();
@@ -1391,6 +1423,22 @@ mod tests {
             version(&data, id, json, &[]);
             instances.push(instance(id, id, None));
         }
+        version(
+            &data,
+            "1.16.5-forge-36.2.20",
+            serde_json::json!({
+                "id": "1.16.5-forge-36.2.20",
+                "mainClass": "cpw.mods.modlauncher.Launcher",
+                "inheritsFrom": "1.16.5",
+                "libraries": [{ "name": "cpw.mods:modlauncher:8.0.9" }],
+            }),
+            &[],
+        );
+        instances.push(instance(
+            "old-forge",
+            "1.16.5",
+            Some((Loader::Forge, "1.16.5-36.2.20")),
+        ));
         let runtimes = data.runtimes_dir();
         for folder in [
             "jre-legacy/mac-os",
@@ -1409,6 +1457,10 @@ mod tests {
             write(&java, &vec![b'z'; size]);
             crate::game::runtime::mark_installed(&zulu.join(build), &"0".repeat(64)).unwrap();
         }
+        let before = runtimes.join("zulu-8-before-8u321/mac-os-arm64");
+        let old_build = before.join("zulu8.58.0.13-ca-jre8.0.312-macosx_aarch64");
+        write(&old_build.join("zulu-8.jre/Contents/Home/bin/java"), b"z");
+        crate::game::runtime::mark_installed(&old_build, &"0".repeat(64)).unwrap();
         let arm64 = Platform::new(Os::MacOs, Arch::Arm64, "14.6.1");
 
         let report = scan_on(&data, &instances, &arm64, &Cancel::new()).unwrap();
@@ -1422,6 +1474,9 @@ mod tests {
         };
         assert_eq!(row("zulu-8").used_by, ["1.16.5"]);
         assert_eq!(row("zulu-8").java, Some(8));
+        // Listed under the version that names the Java, as other loaders are.
+        assert_eq!(row("zulu-8-before-8u321").used_by, ["1.16.5"]);
+        assert_eq!(row("zulu-8-before-8u321").java, Some(8));
         assert_eq!(row("java-runtime-gamma").used_by, ["1.17.1"]);
         assert_eq!(row("java-runtime-gamma").java, Some(17));
         assert_eq!(row("jre-legacy").used_by, ["1.12.2"]);
@@ -1449,6 +1504,7 @@ mod tests {
                 .join("zulu8.94.0.17-ca-jre8.0.492-macosx_aarch64")
                 .exists()
         );
+        assert!(old_build.exists());
         assert!(runtimes.join("java-runtime-gamma").exists());
         assert!(runtimes.join("jre-legacy").exists());
         assert!(!runtimes.join("java-runtime-alpha").exists());
