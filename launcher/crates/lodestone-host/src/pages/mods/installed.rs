@@ -23,7 +23,10 @@ use lodestone_ui::{
 };
 
 use super::{ModsPage, Prompt, Target, muted};
-use crate::i18n::{InstanceMsg as M, InstancePlural as P, t, tr, trn};
+use crate::{
+    i18n::{InstanceMsg as M, InstancePlural as P, t, tr, trn},
+    state::HostEvent,
+};
 
 /// A project's icon from Modrinth's CDN, or a cube.
 pub(super) fn mod_icon(url: Option<&str>, size: f32, cx: &mut Context<ModsPage>) -> AnyElement {
@@ -185,7 +188,8 @@ impl ModsPage {
         let admin = self.state.read(cx).admin.clone();
         let uuid = self.uuid.clone();
         // this tab says how the update went; the core's event needn't
-        self.state
+        let claim = self
+            .state
             .update(cx, |state, _| state.expect_own_file_toast(&uuid));
         let task = cx.spawn(async move |this, cx| {
             let request = ModInstallRequest {
@@ -203,7 +207,12 @@ impl ModsPage {
                         tr!(M::ModsUpdated, name = name, version = update.version_number),
                         &result,
                     ),
-                    Err(err) => Toast::error(tr!(M::ModsUpdateFailed, name = name, error = err)),
+                    Err(err) => {
+                        // the core may not have sent an event to take the claim
+                        this.state
+                            .update(cx, |state, _| state.release_own_file_toast(claim));
+                        Toast::error(tr!(M::ModsUpdateFailed, name = name, error = err))
+                    }
                 };
                 this.toast(toast, cx);
                 this.reload(cx);
@@ -214,6 +223,11 @@ impl ModsPage {
     }
 
     /// Updates every mod with an update, one after another (`updateAll`).
+    ///
+    /// The batch outlives the page: switching tabs rebuilds the page, and must not
+    /// stop the updates after the one in flight. So the task is detached, keeps its
+    /// "updating" mark in the Host's state (where the next Mods tab sees it), says how
+    /// it went through the Host's toasts, and has the Mods tab list the mods again.
     fn update_all(&mut self, cx: &mut Context<Self>) {
         let Some(list) = &self.list else {
             return;
@@ -226,60 +240,77 @@ impl ModsPage {
                 Some((m.name().to_string(), update.version_id.clone()))
             })
             .collect();
-        if updates.is_empty() || self.updating_all {
+        if updates.is_empty() {
             return;
         }
-        self.updating_all = true;
-        cx.notify();
-        let admin = self.state.read(cx).admin.clone();
         let uuid = self.uuid.clone();
-        // one toast for them all, not one per mod from the core's events
-        self.state.update(cx, |state, _| {
-            for _ in 0..updates.len() {
-                state.expect_own_file_toast(&uuid);
-            }
+        let started = self.state.update(cx, |state, cx| {
+            let started = state.set_updating_mods(&uuid, true);
+            cx.notify();
+            started
         });
-        let task = cx.spawn(async move |this, cx| {
-            let (total, failures) = cx
-                .background_spawn(async move {
-                    let mut total = ModInstallResult::default();
-                    let mut failures = Vec::new();
-                    for (name, version_id) in updates {
-                        let request = ModInstallRequest {
-                            version_id,
-                            install_dependencies: true,
-                            force: false,
-                        };
-                        match admin.install_mod(&uuid, &request).await {
-                            Ok(result) => total.extend(result),
-                            Err(err) => failures.push(format!("{name}: {err}")),
+        if !started {
+            return;
+        }
+        let admin = self.state.read(cx).admin.clone();
+        let state = self.state.downgrade();
+        cx.spawn(async move |_, cx| {
+            let mut total = ModInstallResult::default();
+            let mut failures = Vec::new();
+            for (name, version_id) in updates {
+                // one toast for them all, not one per mod from the core's events: each
+                // event is claimed just before its update starts, and the claim given
+                // up when the update fails, so none is left to hide another's toast
+                let claim = state
+                    .update(cx, |state, _| state.expect_own_file_toast(&uuid))
+                    .ok();
+                let request = ModInstallRequest {
+                    version_id,
+                    install_dependencies: true,
+                    force: false,
+                };
+                let result = cx
+                    .background_spawn({
+                        let (admin, uuid) = (admin.clone(), uuid.clone());
+                        async move { admin.install_mod(&uuid, &request).await }
+                    })
+                    .await;
+                match result {
+                    Ok(result) => total.extend(result),
+                    Err(err) => {
+                        if let Some(claim) = claim {
+                            state
+                                .update(cx, |state, _| state.release_own_file_toast(claim))
+                                .ok();
                         }
+                        failures.push(format!("{name}: {err}"));
                     }
-                    (total, failures)
+                }
+            }
+            state
+                .update(cx, |state, cx| {
+                    state.set_updating_mods(&uuid, false);
+                    if !total.installed.is_empty() || !total.removed.is_empty() {
+                        state.toast(
+                            Self::result_toast(t(M::ModsUpdatesInstalled).to_string(), &total),
+                            cx,
+                        );
+                    }
+                    if !failures.is_empty() {
+                        state.toast(
+                            Toast::error(tr!(
+                                M::ModsSomeUpdatesFailed,
+                                failures = failures.join("; ")
+                            )),
+                            cx,
+                        );
+                    }
+                    cx.emit(HostEvent::ModsChanged(uuid.clone()));
+                    cx.notify();
                 })
-                .await;
-            this.update(cx, |this, cx| {
-                this.updating_all = false;
-                if !total.installed.is_empty() || !total.removed.is_empty() {
-                    this.toast(
-                        Self::result_toast(t(M::ModsUpdatesInstalled).to_string(), &total),
-                        cx,
-                    );
-                }
-                if !failures.is_empty() {
-                    this.toast(
-                        Toast::error(tr!(
-                            M::ModsSomeUpdatesFailed,
-                            failures = failures.join("; ")
-                        )),
-                        cx,
-                    );
-                }
-                this.reload(cx);
-            })
-            .ok();
-        });
-        self.push(task);
+                .ok();
+        })
+        .detach();
     }
 
     fn check_for_updates(&mut self, cx: &mut Context<Self>) {
@@ -819,6 +850,7 @@ impl ModsPage {
 
     pub(super) fn render_installed(&self, target: &Target, cx: &mut Context<Self>) -> AnyElement {
         let can_write = self.can_write(cx);
+        let updating_all = self.state.read(cx).updating_mods(&self.uuid);
         let plugin = target.is_plugin();
         let first_load = self.list.is_none() && self.list_error.is_none();
         let updates = self
@@ -864,8 +896,8 @@ impl ModsPage {
                             Button::new("update-all", tr!(M::ModsUpdateAll, count = updates))
                                 .variant(ButtonVariant::Primary)
                                 .icon(Icon::CircleUp)
-                                .loading(self.updating_all)
-                                .disabled(!can_write || self.updating_all)
+                                .loading(updating_all)
+                                .disabled(!can_write || updating_all)
                                 .on_click(cx.listener(|this, _, _, cx| this.update_all(cx))),
                         ))
                     })
