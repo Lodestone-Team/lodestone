@@ -272,6 +272,20 @@ impl MinecraftInstance {
         caused_by: &CausedBy,
         details: &str,
     ) -> Result<State, Error> {
+        self.transition_then(action, caused_by, details, || ())
+            .await
+            .map(|(previous, ())| previous)
+    }
+
+    /// [`Self::transition`], then `then` while the state is still locked. Returns the old
+    /// state and what `then` returned.
+    async fn transition_then<T>(
+        &self,
+        action: StateAction,
+        caused_by: &CausedBy,
+        details: &str,
+        then: impl FnOnce() -> T,
+    ) -> Result<(State, T), Error> {
         let name = self.name().await;
         let mut state = self.state.lock().await;
         let previous = *state;
@@ -283,7 +297,42 @@ impl MinecraftInstance {
             }),
         )?;
         self.note_state_change(previous, *state);
-        Ok(previous)
+        Ok((previous, then()))
+    }
+
+    /// Moves to Starting, and returns this start's launch generation (see
+    /// `launch_generation`). It is taken under the state lock, so whoever sees this
+    /// Starting also sees the generation.
+    async fn begin_start(&self, caused_by: &CausedBy) -> Result<u64, Error> {
+        let (_, generation) = self
+            .transition_then(StateAction::UserStart, caused_by, "Starting server", || {
+                self.launch_generation.fetch_add(1, Ordering::SeqCst) + 1
+            })
+            .await?;
+        Ok(generation)
+    }
+
+    /// Moves the start with `generation` back to Stopped, unless it was stopped already or
+    /// a newer start began: that one's Starting is its own.
+    async fn roll_back_start(&self, generation: u64, caused_by: &CausedBy, details: &str) {
+        self.set_state_when(
+            |state| {
+                state == State::Starting
+                    && self.launch_generation.load(Ordering::SeqCst) == generation
+            },
+            State::Stopped,
+            caused_by,
+            details,
+        )
+        .await;
+    }
+
+    /// Whether the start with `generation` may still launch the server: it is the newest
+    /// start, and the instance is still Starting (no stop or kill came since).
+    async fn still_starting(&self, generation: u64) -> bool {
+        // the state first: a newer start's Starting comes with its generation
+        self.state().await == State::Starting
+            && self.launch_generation.load(Ordering::SeqCst) == generation
     }
 
     /// Sets the state to `new_state` if it is currently one of `expected`, and broadcasts
@@ -295,9 +344,27 @@ impl MinecraftInstance {
         caused_by: &CausedBy,
         details: &str,
     ) -> bool {
+        self.set_state_when(
+            |state| expected.contains(&state),
+            new_state,
+            caused_by,
+            details,
+        )
+        .await
+    }
+
+    /// [`Self::set_state_if`], when `ok` holds for the current state (checked under the
+    /// state lock).
+    async fn set_state_when(
+        &self,
+        ok: impl FnOnce(State) -> bool,
+        new_state: State,
+        caused_by: &CausedBy,
+        details: &str,
+    ) -> bool {
         let name = self.name().await;
         let mut state = self.state.lock().await;
-        if !expected.contains(&*state) {
+        if !ok(*state) {
             return false;
         }
         self.note_state_change(*state, new_state);
@@ -394,9 +461,9 @@ impl MinecraftInstance {
         Ok(())
     }
 
-    /// Everything start() does after moving to Starting. On error the caller rolls the
-    /// state back.
-    async fn launch(&self, name: &str, caused_by: &CausedBy) -> Result<(), Error> {
+    /// Everything start() does after moving to Starting, as the start with `generation`
+    /// (see [`Self::begin_start`]). On error the caller rolls the state back.
+    async fn launch(&self, name: &str, caused_by: &CausedBy, generation: u64) -> Result<(), Error> {
         let doc = self.load_properties().await?;
         let settings = LaunchSettings::from_properties(&doc)?;
         self.sync_port_from(&doc).await;
@@ -408,8 +475,9 @@ impl MinecraftInstance {
         }
 
         // The instance may have been stopped or killed (e.g. on shutdown) while it was
-        // getting ready; launching the server now would leave an untracked process behind.
-        if self.state().await != State::Starting {
+        // getting ready, and maybe started again; launching the server now would leave an
+        // untracked process behind.
+        if !self.still_starting(generation).await {
             warn!(
                 "[{}] Instance is no longer starting, not launching the server",
                 name
@@ -439,12 +507,17 @@ impl MinecraftInstance {
             .stdin(Stdio::piped())
             .stderr(Stdio::piped());
 
-        // Spawn under the process lock and only while still Starting, so that a stop or
-        // kill that ran meanwhile is not lost.
+        // Spawn under the process lock and only while this start is still the one
+        // Starting, so that a stop or kill that ran meanwhile is not lost, and a start
+        // after it doesn't spawn a second process.
         let (stdout, stderr) = {
             let mut process = self.process.lock().await;
-            if self.state().await != State::Starting {
+            if !self.still_starting(generation).await {
                 return Err(eyre!("Server was stopped before its process started").into());
+            }
+            // never drop a process that runs: it would run on, out of Lodestone's reach
+            if process.is_some() {
+                return Err(eyre!("The server's process is still running").into());
             }
             let mut child = command
                 .spawn()
@@ -777,33 +850,22 @@ impl MinecraftInstance {
             };
             // Subscribe first, so a server that exits right away can't be missed.
             let rx = block.then(|| self.event_broadcaster.subscribe());
-            self.transition(StateAction::UserStart, &cause_by, "Starting server")
-                .await?;
+            let generation = self.begin_start(&cause_by).await?;
             drop(version_guard);
             // Again, now that the state says Starting: the shutdown, once begun, either sees
             // this server starting (and kills it), or began first and is refused here.
             if let Err(e) = crate::shutdown::refuse_start() {
-                self.set_state_if(
-                    &[State::Starting],
-                    State::Stopped,
-                    &cause_by,
-                    "Lodestone Core is shutting down",
-                )
-                .await;
+                self.roll_back_start(generation, &cause_by, "Lodestone Core is shutting down")
+                    .await;
                 return Err(e);
             }
             self.stop_requested.store(false, Ordering::SeqCst);
 
             let name = self.name().await;
-            if let Err(e) = self.launch(&name, &cause_by).await {
+            if let Err(e) = self.launch(&name, &cause_by, generation).await {
                 error!("[{}] Failed to start server: {}", name, e);
-                self.set_state_if(
-                    &[State::Starting],
-                    State::Stopped,
-                    &cause_by,
-                    "Failed to start server",
-                )
-                .await;
+                self.roll_back_start(generation, &cause_by, "Failed to start server")
+                    .await;
                 return Err(e);
             }
 
@@ -1021,6 +1083,95 @@ impl TServer for MinecraftInstance {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::event_broadcaster::EventBroadcaster;
+    use crate::global_settings::CodeExecutionSwitch;
+    use crate::traits::t_configurable::GameType;
+    use crate::types::{DotLodestoneConfig, InstanceUuid};
+
+    /// A vanilla instance restored from files in a temporary folder, never started: its
+    /// Java is a path that doesn't exist, and code execution is off.
+    async fn instance() -> (tempfile::TempDir, MinecraftInstance) {
+        static LODESTONE_DIR: std::sync::OnceLock<tempfile::TempDir> = std::sync::OnceLock::new();
+        let lodestone = LODESTONE_DIR.get_or_init(|| tempfile::tempdir().unwrap());
+        crate::prelude::try_init_paths(lodestone.path().to_owned()).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("instance");
+        std::fs::create_dir_all(&root).unwrap();
+        let port = std::net::TcpListener::bind(("127.0.0.1", 0))
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        let java = root.join("no-java-here");
+        std::fs::write(
+            root.join(".lodestone_minecraft_config.json"),
+            serde_json::json!({
+                "name": "Survival", "version": "1.21.1", "flavour": "vanilla",
+                "description": "", "cmd_args": [], "java_cmd": java,
+                "port": port, "min_ram": 1024, "max_ram": 2048, "auto_start": false,
+                "restart_on_crash": false, "backup_period": null, "jre_major_version": 21,
+                "has_started": false
+            })
+            .to_string(),
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("server.properties"),
+            format!("server-ip=127.0.0.1\nserver-port={port}\n"),
+        )
+        .unwrap();
+        let (broadcaster, _) = EventBroadcaster::new(64);
+        let instance = MinecraftInstance::restore(
+            root,
+            DotLodestoneConfig::new(InstanceUuid::default(), GameType::MinecraftJava),
+            broadcaster,
+            CodeExecutionSwitch::new(false),
+        )
+        .await
+        .unwrap();
+        (dir, instance)
+    }
+
+    /// LS-128: a start that was stopped before its process spawned never spawns one, even
+    /// once another start is Starting; and it leaves that start's state alone.
+    #[tokio::test]
+    async fn a_stopped_start_never_launches_after_a_newer_start() {
+        let (_dir, instance) = instance().await;
+        let cause = CausedBy::System;
+        let first = instance.begin_start(&cause).await.unwrap();
+        assert!(instance.still_starting(first).await);
+        // stopped while still getting ready: nothing runs yet
+        instance.stop(cause.clone(), false).await.unwrap();
+        assert_eq!(instance.state().await, State::Stopped);
+        assert!(!instance.still_starting(first).await);
+
+        let second = instance.begin_start(&cause).await.unwrap();
+        assert_eq!(instance.state().await, State::Starting);
+        assert!(!instance.still_starting(first).await);
+        assert!(instance.still_starting(second).await);
+        // the first start's launch gives up before it gets to the process
+        let error = instance.launch("test", &cause, first).await.unwrap_err();
+        assert!(
+            error.source.to_string().contains("stopped"),
+            "{}",
+            error.source
+        );
+        assert!(instance.process.lock().await.is_none());
+        // and its roll back leaves the newer start Starting
+        instance
+            .roll_back_start(first, &cause, "Failed to start server")
+            .await;
+        assert_eq!(instance.state().await, State::Starting);
+
+        // a kill before the newer start spawns stops it as surely
+        assert!(instance.kill(cause.clone()).await.is_err());
+        assert_eq!(instance.state().await, State::Stopped);
+        assert!(!instance.still_starting(second).await);
+        instance
+            .roll_back_start(second, &cause, "Failed to start server")
+            .await;
+        assert_eq!(instance.state().await, State::Stopped);
+    }
 
     fn settings(text: &str) -> Result<LaunchSettings, Error> {
         LaunchSettings::from_properties(&PropertiesDocument::parse(text).0)
