@@ -14,11 +14,26 @@ license.workspace = true
 # below is a version both lockfiles have, and nothing here is new to either of them.
 # docs/instance-images.md is the format this crate implements.
 #
-# The store's zstd encoding (core only) will come behind an optional `zstd` feature when
-# the store is added: zstd is only in the root lockfile, and an optional dependency is
-# still written into every lockfile that can see it.
+# The store's zstd encoding is for the core only, behind the optional `zstd` feature that
+# the core turns on and the Launcher leaves off (zstd isn't in the Launcher's lockfile).
+[features]
+zstd = ["dep:zstd"]
+
 [dependencies]
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 sha2 = "0.10.9"
 thiserror = "2.0.17"
+# Walking folders to snapshot them.
+walkdir = "2.5.0"
+# Image exports (`container`). Only deflate: both workspaces have it, and exports are read
+# back only by this crate.
+zip = { version = "9.0.5", default-features = false, features = ["deflate-flate2"] }
+# Only to pick deflate's backend for zip (flate2 builds without one otherwise): the Rust
+# one, as the Launcher does. Both lockfiles already have flate2 and miniz_oxide.
+flate2 = { version = "1.1.8", default-features = false, features = ["rust_backend"] }
+# Objects as zstd frames, the core's store encoding (`store::Encoding::Zstd`).
+zstd = { version = "0.14.3", optional = true }
+
+[dev-dependencies]
+tempfile = "3.27.0"

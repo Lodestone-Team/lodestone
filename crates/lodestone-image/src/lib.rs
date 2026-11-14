@@ -30,6 +30,7 @@
 //! and store objects. Untrusted input (a manifest from another computer, a path from a
 //! disk) never panics; it gives an error.
 
+pub mod container;
 pub mod delta;
 pub mod env;
 pub mod hex;
@@ -38,6 +39,7 @@ pub mod layout;
 pub mod manifest;
 pub mod paths;
 pub mod settings;
+pub mod store;
 mod strings;
 pub mod view;
 

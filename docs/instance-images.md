@@ -283,20 +283,72 @@ Content-addressed, shared by every instance on one machine:
 <root>/objects/ab/<sha256>        whole files (small) or chunk lists (large)
 <root>/chunks/ab/<sha256>         chunks of large files
 <root>/images/<instance>/<id>.json
+<root>/images/<instance>/stat-cache.json
+<root>/{objects,chunks,images/<instance>}/.incoming-<16 hex>.tmp    writes in flight
 ```
 
 - Objects are named by the SHA-256 of their uncompressed bytes. Encoding belongs to the
-  store, not the manifest: the core stores zstd frames, the Launcher stores raw files
-  (APFS clones where possible). Moving an object between stores re-encodes it.
+  store, not the manifest: the core stores zstd frames (level 3, checksum and content size
+  in the frame, exactly as its backups write them, so its existing objects are read in
+  place), the Launcher stores raw files (APFS clones where possible, checked by hash
+  before they are kept). Moving an object between stores re-encodes it.
 - Files over 1 MiB are split with FastCDC (min 16 KiB, average 64 KiB, max 256 KiB,
   implemented in the shared crate, no new dependency). The object is then a chunk list.
   Region files dedup well because Minecraft rewrites a chunk in place or moves only that
-  chunk.
-- Writes: temp file, fsync, read-only, rename; manifests last. Reads verify the SHA-256.
+  chunk. FastCDC here is the 2016 paper's, with cut-point skipping and normalized chunking
+  level 2: a gear fingerprint `fp = (fp << 1) + GEAR[byte]`, no cut before 16 KiB (those
+  bytes aren't hashed), 18 mask bits before 64 KiB and 14 after, a cut at 256 KiB at the
+  latest. `GEAR` is 256 outputs of SplitMix64 seeded with `0x4c6f646573746f6e`
+  ("Lodeston"); the masks put their bits on every second (18 bits: `0xaaaaaaaaa0000000`) or
+  third (14 bits: `0x9249249249000000`) bit from bit 63 down. A cut happens where
+  `fp & mask == 0`, counting the cut byte into the chunk.
+- A chunk list is text with one spelling, `lodestone-chunks 1\n`, `size <file size>\n`,
+  then `<chunk sha256> <chunk size>\n` per chunk in order (decimal, no leading zeros).
+  Readers refuse anything else: a size of 1 MiB or less, chunks of 0 or over 256 KiB,
+  chunks before the last under 16 KiB, sizes that don't add up. An object whose plain
+  bytes are as long as the entry's `size` is the file itself (every file up to 1 MiB, and
+  large files the core stored whole before chunking); any other length must be a chunk
+  list for that size. A list is under 1% of its file, so the two can't be confused.
+  Reading a list reassembles the file and checks each chunk's and the whole file's
+  SHA-256.
+- Writes: temp file, fsync, read-only, rename; manifests last (after the folders of the
+  objects written since the last manifest are flushed). Reads verify the SHA-256. Like the
+  core's backups, presence is checked cheaply (a raw object's length, a zstd frame's
+  header); a damaged object is found when read, and deleting it lets the next write store
+  it again.
 - A stat cache (path, size, mtime, older than scan start minus 2 s) skips rehashing
-  unchanged files, as backups already do; the Launcher gains it too.
+  unchanged files, as backups already do; the Launcher gains it too. It is kept per
+  instance next to its manifests, keyed by the path relative to the folder walked, and is
+  only an optimization: a missing or odd one hashes everything again.
+- A manifest is a file named `<id>.json` in its instance's folder (instance ids are 1 to
+  100 of `A-Z a-z 0-9 - _`, not a Windows device name); other files there aren't
+  manifests. Loading one checks its contents hash to the id in its name.
 - GC: mark and sweep over every manifest; refuses to delete anything while a manifest
-  can't be read or has a newer schema; temp files are swept after an hour.
+  can't be read or has a schema other than 2 (newer, or from before images: those live in
+  their own folders); temp files are swept after an hour. Objects named by entries (any
+  source: the store may hold a downloadable file's bytes) and by the settings' stored files
+  (icon, background) are live, and so are the chunks of live chunk lists. When a live
+  chunk list can't be read, no chunk is deleted. Objects and chunks modified in the last
+  hour are kept (with the chunks of such lists), and a write that finds an object already
+  there touches it when it is older than 10 minutes, so a snapshot running at the same
+  time never loses what it is about to name. Objects only older formats use are passed
+  in by the caller, which refuses the same way when it can't read those manifests.
+- Snapshots walk the folder with the side's disk layout. Files never recorded, outside a
+  client's game folder, or left out by the image's `excludes` are skipped without a
+  withheld record (`excludes` says what they are). `excludes` match canonical paths
+  (`saves/<world>/…` on both sides), case-sensitively, with the core's backup pattern
+  syntax (`name` at any depth, `a/b` from the root, `*` within a part, `**` across parts,
+  trailing `/` for folders). Links are withheld as `symlink`; folders that can't be
+  listed, files that can't be read and things that aren't files as `unreadable`; names
+  that aren't canonical, files the layout can't read back as themselves and files never
+  placed on this side as `bad_name` (a folder with such a name once, not each file in
+  it); files that change while read, three tries each, as `kept_changing`. A withheld
+  path is canonical where the layout gives one, else as found relative to the game
+  folder. Entries record `mode` as the unix bits without setuid, setgid and sticky
+  (0o444 or 0o644 on Windows); placing a file applies only those bits.
+- Materializing places files in a staging folder, never over an existing file, checking
+  every byte, and refuses names that differ only in letter case when the staging disk
+  ignores case.
 
 ## When images are recorded
 
@@ -370,6 +422,26 @@ hash with the `.lodesnap` reader's rules (entry and size limits, no duplicates, 
 and always creates a new instance or server first; launch settings are reset unless chosen,
 as today.
 
+```
+image.json            the image, sealed
+images/<id>.json      only the image's `content` link
+objects/<sha256>      plain bytes of each object entries with source `object` and the
+                      settings' stored files (icon, background) name; for a file over
+                      1 MiB, its chunk list
+chunks/<sha256>       the chunks those lists name, each once
+```
+
+Entries are deflated with a fixed timestamp, so the same image gives the same file, which is
+written as `<file>.part` and renamed when whole. The reader refuses any other name (folder
+entries `objects/`, `chunks/` and `images/` aside), a name twice, local headers that differ
+from the central directory, encrypted entries, more than 1,000,000 entries or 64 GB
+declared, manifests over 512 MiB, a manifest whose contents don't hash to its id, a linked
+manifest the image doesn't link to, an object the images need that is missing or of the
+wrong size, a chunk list that isn't one or names a missing or wrongly sized chunk, and any
+object or chunk nothing needs. Import asks the caller whether the disk has room for what
+it will unpack, then checks each chunk's and each whole file's SHA-256 before the store
+names anything by it.
+
 - Host to Host: restore as new from an image.
 - Launcher to Host: "Host this" sends the image; the core makes a server from its server view.
 - Host to Launcher: "Download this world" sends a data image; the Launcher builds the linked
@@ -401,7 +473,8 @@ as today.
 
 1. Shared crate `crates/lodestone-image`: manifest, identity, paths, views, store, FastCDC,
    v1 readers, property tests. (Done first: manifest, identity, paths and disk layouts, env,
-   views, deltas. Then: store, FastCDC, v1 readers.)
+   views, deltas. Then: store, FastCDC, snapshots, materializing, GC and exports; v1
+   readers.)
 2. Core: backups write data images with their content link and excludes; content images on
    Lodestone actions and before start; modpack history as lineage; Paper world layout.
 3. Core: client view and delta endpoints; objects endpoint. The `.mrpack` client pack stays.
