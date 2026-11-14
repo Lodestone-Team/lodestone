@@ -84,17 +84,6 @@ pub fn text(message: M) -> &'static str {
             "“{name}”会恢复到{when} 时的状态。此后的所有改动都会从世界中丢失，但会先备份，当前文件夹会移到{trash}。"
         }
         M::BackUpAndReplace => "备份并替换",
-        M::SwitchToLoader => "切换到 {loader}？",
-        M::SwitchToVanilla => "切换到原版？",
-        M::ModsWontLoadOn => "以下已启用的模组是为其他加载器制作的，在 {loader} 上无法加载：",
-        M::ModsWontLoadVanilla => "原版 Minecraft 不加载任何模组，因此以下已启用的模组无法加载：",
-        M::ModMadeFor => "{loader} 模组",
-        M::TurningOffRenames => {
-            "禁用后，它们会被重命名为 .disabled，你之后可以在“内容”中重新启用。"
-        }
-        M::WorldsAtRisk => "使用过这些模组中的方块或物品的世界可能会丢失它们。请先备份你的世界。",
-        M::TurnOffAndSave => "禁用并保存",
-        M::SaveAndKeep => "保存并保留",
         M::RemoveAccountTitle => "移除“{name}”？",
         M::RemoveAccountBody => {
             "Lodestone Launcher 会忘记此账户，并从你的{keychain}中删除其保存的登录信息。你之后可以重新添加。"

@@ -81,14 +81,6 @@ pub fn text(message: M) -> &'static str {
         M::CouldntSavePlayTime => "无法保存游戏时长：{error}",
         M::ModpackExported => "整合包已导出",
         M::CouldntExportModpack => "无法导出整合包",
-        M::CouldntSwitchLoader => "无法切换到模组加载器",
-        M::NoModLoaderFor => {
-            "Lodestone Launcher 支持的模组加载器都无法在 Minecraft {version} 上运行：Fabric 从 1.14 起才支持，而 Forge 没有适用于该版本的构建。"
-        }
-        M::SwitchedTo => "已切换到 {loader}",
-        M::SwitchedToMessage => {
-            "{name} 现在使用 {loader} {version}。下次点击“开始游戏”时会自动安装。"
-        }
 
         M::SearchLog => "搜索日志",
         M::LevelDebug => "调试",
@@ -161,6 +153,11 @@ pub fn text(message: M) -> &'static str {
         M::UpdatedButNotSaved => "文件已更新，但无法保存实例：{error}",
         M::DownloadingName => "正在下载 {name}",
         M::InstallingName => "正在安装 {name}",
+        M::CopyReady => "{name} 已就绪",
+        M::CouldntCopy => "无法创建副本",
+        M::CopyingWorlds => "正在复制世界",
+        M::CopyingPacksAndOptions => "正在复制资源包、光影和选项",
+        M::InstallingMods => "正在安装模组",
         M::CopyingConfigs => "正在复制整合包的配置文件",
         M::RecordingFiles => "正在记录整合包的文件",
         M::SavingSnapshot => "正在保存实例文件的快照",
@@ -272,6 +269,8 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::PackFilesLeftOut => ["整合包中有 {count} 个文件被跳过，例如 {path}。"; 2],
         P::WorldsBackedUp => ["已先备份 {count} 个世界。"; 2],
         P::DownloadingFiles => ["正在下载 {count} 个文件"; 2],
+        P::CopyModsLeftBehind => ["{count} 个模组未复制：{names}。"; 2],
+        P::CopyDependenciesMissing => ["{count} 个所需的前置模组无法安装：{names}。"; 2],
         P::FinderModsLeft => ["还有 {count} 个模组待检查"; 2],
         P::FinderModsOff => ["已禁用 {count} 个模组"; 2],
         P::FinderTriesLeft => ["大约还需 {count} 次尝试"; 2],

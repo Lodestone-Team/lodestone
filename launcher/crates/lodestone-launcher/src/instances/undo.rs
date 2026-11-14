@@ -171,7 +171,8 @@ pub(crate) enum Field {
     Group,
     Icon,
     Background,
-    Loader,
+    /// The loader's version: the loader itself is never a setting (see `still_apply`).
+    LoaderVersion,
     Prerelease,
     Colors,
     Memory,
@@ -193,7 +194,7 @@ impl Field {
             Field::Group => t(IM::Group),
             Field::Icon => t(IM::Icon),
             Field::Background => t(IM::PlayBackground),
-            Field::Loader => t(IM::ModLoader),
+            Field::LoaderVersion => t(IM::LoaderVersion),
             Field::Prerelease => t(IM::PrereleaseUpdates),
             Field::Colors => t(SM::Skin),
             Field::Memory => t(IM::Memory),
@@ -222,10 +223,7 @@ pub(crate) fn changed_fields(a: &Instance, b: &Instance) -> Vec<Field> {
         a.background == b.background && a.slideshow == b.slideshow,
         Field::Background,
     );
-    check(
-        (a.loader, &a.loader_version) == (b.loader, &b.loader_version),
-        Field::Loader,
-    );
+    check(a.loader_version == b.loader_version, Field::LoaderVersion);
     check(
         a.prerelease_updates == b.prerelease_updates,
         Field::Prerelease,
@@ -244,9 +242,9 @@ pub(crate) fn changed_fields(a: &Instance, b: &Instance) -> Vec<Field> {
 }
 
 /// Copies `fields` from `from` onto `to`, and nothing else: an Undo step puts back
-/// only what it changed. Other writes of `instance.json` record no step (switching to
-/// Fabric from the Content tab, a modpack update, automatic setup), and the step's
-/// snapshot of everything else is older than they are.
+/// only what it changed. Other writes of `instance.json` record no step (a modpack
+/// update, a linked server's pack, automatic setup), and the step's snapshot of
+/// everything else is older than they are.
 pub(crate) fn put_back(from: &Instance, to: &mut Instance, fields: &[Field]) {
     for field in fields {
         match field {
@@ -257,10 +255,7 @@ pub(crate) fn put_back(from: &Instance, to: &mut Instance, fields: &[Field]) {
                 to.background = from.background.clone();
                 to.slideshow = from.slideshow;
             }
-            Field::Loader => {
-                to.loader = from.loader;
-                to.loader_version = from.loader_version.clone();
-            }
+            Field::LoaderVersion => to.loader_version = from.loader_version.clone(),
             Field::Prerelease => to.prerelease_updates = from.prerelease_updates,
             Field::Colors => {
                 to.play_color = from.play_color;
@@ -276,15 +271,27 @@ pub(crate) fn put_back(from: &Instance, to: &mut Instance, fields: &[Field]) {
     }
 }
 
-/// Which of `fields` can still be put back from `snapshot` onto `current`. A loader
-/// version is made for one game version: once a modpack update moved the instance to
-/// another (which records no step), the old loader would no longer start it, so that
-/// part of the step is gone.
-fn still_apply(snapshot: &Instance, current: &Instance, fields: &[Field]) -> Vec<Field> {
+/// Which of `fields` can still be put back from `snapshot` onto `current`, where the
+/// step left the instance as `left`. A loader version is made for one loader and game
+/// version: once a modpack update or a linked server's pack moved the instance to
+/// another, or set another loader version (none of which records a step), putting the
+/// old one back would undo what the pack or the server needs, so that part of the step
+/// is gone. Undo never changes the loader itself.
+fn still_apply(
+    snapshot: &Instance,
+    left: &Instance,
+    current: &Instance,
+    fields: &[Field],
+) -> Vec<Field> {
     fields
         .iter()
         .copied()
-        .filter(|field| *field != Field::Loader || snapshot.game_version == current.game_version)
+        .filter(|field| {
+            *field != Field::LoaderVersion
+                || (snapshot.game_version == current.game_version
+                    && snapshot.loader == current.loader
+                    && left.loader_version == current.loader_version)
+        })
         .collect()
 }
 
@@ -307,7 +314,7 @@ pub(crate) fn describe_instance(instance: &Instance, fields: &[Field]) -> String
             .group
             .clone()
             .unwrap_or_else(|| t(IM::NoGroup).to_string()),
-        Field::Loader => instance.loader_label(),
+        Field::LoaderVersion => instance.loader_label(),
         Field::Prerelease => on_off(instance.prerelease_updates).to_string(),
         Field::Memory => instance.memory.map_or_else(
             || t(CommonMsg::Default).to_string(),
@@ -461,18 +468,28 @@ impl Instances {
             {
                 let entity = entity.clone();
                 let fields = fields.clone();
-                move |cx| entity.update(cx, |this, cx| this.restore_instance(&before, &fields, cx))
+                let (before, after) = (before.clone(), after.clone());
+                move |cx| {
+                    entity.update(cx, |this, cx| {
+                        this.restore_instance(&before, &after, &fields, cx)
+                    })
+                }
             },
-            move |cx| entity.update(cx, |this, cx| this.restore_instance(&after, &fields, cx)),
+            move |cx| {
+                entity.update(cx, |this, cx| {
+                    this.restore_instance(&after, &before, &fields, cx)
+                })
+            },
         );
         undo::record(step, cx);
     }
 
-    /// Puts the settings `fields` of an instance back as `snapshot` has them. The rest
-    /// of its record stays as it is now.
+    /// Puts the settings `fields` of an instance back as `snapshot` has them, where the
+    /// step left them as `left`. The rest of its record stays as it is now.
     fn restore_instance(
         &mut self,
         snapshot: &InstanceSnapshot,
+        left: &InstanceSnapshot,
         fields: &[Field],
         cx: &mut Context<Self>,
     ) -> Result<(), UndoError> {
@@ -481,7 +498,7 @@ impl Instances {
         if !same_instance(&snapshot.instance, &instance) {
             return Err(UndoError::Gone);
         }
-        let fields = still_apply(&snapshot.instance, &instance, fields);
+        let fields = still_apply(&snapshot.instance, &left.instance, &instance, fields);
         if fields.is_empty() {
             return Err(UndoError::Gone);
         }
@@ -602,8 +619,9 @@ mod tests {
     #[test]
     fn put_back_restores_only_the_steps_fields() {
         use launcher_core::instances::{AutoConfig, Loader, Memory};
-        // LS-20: renamed (a step), then switched to Fabric and set up automatically
-        // (no steps); undoing the rename puts back the name and nothing else.
+        // LS-20: renamed (a step), then a modpack update moved it to Fabric and it was
+        // set up automatically (no steps); undoing the rename puts back the name and
+        // nothing else.
         let before = Instance {
             name: "Old".into(),
             game_version: "1.21.1".into(),
@@ -628,7 +646,7 @@ mod tests {
 
     #[test]
     fn put_back_covers_every_field_it_describes() {
-        use launcher_core::instances::{Loader, Memory, SlideshowSource, WindowSettings};
+        use launcher_core::instances::{Memory, SlideshowSource, WindowSettings};
         let a = Instance::default();
         let mut b = Instance {
             name: "B".into(),
@@ -636,7 +654,6 @@ mod tests {
             icon: Some("emoji:x".into()),
             background: Some("custom".into()),
             slideshow: Some(SlideshowSource::Custom),
-            loader: Loader::Quilt,
             loader_version: Some("1".into()),
             prerelease_updates: true,
             play_color: Some(launcher_core::ui_skin::Rgb(0x010203)),
@@ -731,7 +748,7 @@ mod step_tests {
 
     #[gpui::test]
     fn undo_puts_back_only_the_steps_setting(cx: &mut TestAppContext) {
-        // LS-20: renamed (a step), then the loader switched with no step
+        // LS-20: renamed (a step), then a modpack update switched the loader (no step)
         let (instances, id) = setup(cx);
         let name = record(&instances, &id, cx).name;
         change(&instances, &id, true, |i| i.name = "Renamed".into(), cx);
@@ -765,30 +782,53 @@ mod step_tests {
     }
 
     #[gpui::test]
-    fn a_loader_for_another_game_version_isnt_put_back(cx: &mut TestAppContext) {
-        // the loader changed (a step), then a modpack update moved the game version
+    fn a_loader_version_for_another_loader_or_game_version_isnt_put_back(cx: &mut TestAppContext) {
         let (instances, id) = setup(cx);
-        change(
-            &instances,
-            &id,
-            true,
+        let fabric = |i: &mut Instance| {
+            i.loader = Loader::Fabric;
+            i.loader_version = Some("0.16.9".into());
+        };
+        // the loader's version changed (a step), then a modpack update moved the
+        // instance to another loader, another game version, or another loader version
+        // (no steps)
+        let moves: [fn(&mut Instance); 3] = [
             |i| {
                 i.loader = Loader::Quilt;
                 i.loader_version = Some("0.27.1".into());
             },
-            cx,
-        );
+            |i| i.game_version = "1.21.4".into(),
+            |i| i.loader_version = Some("0.16.15".into()),
+        ];
+        for moved in moves {
+            change(&instances, &id, false, fabric, cx);
+            change(
+                &instances,
+                &id,
+                true,
+                |i| i.loader_version = Some("0.16.14".into()),
+                cx,
+            );
+            change(&instances, &id, false, moved, cx);
+            let before = record(&instances, &id, cx);
+            let outcome = cx.update(undo::undo);
+            assert!(matches!(outcome, Outcome::Nothing));
+            assert_eq!(record(&instances, &id, cx), before);
+        }
+        // with neither moved, Undo puts the version back, and never the loader
+        change(&instances, &id, false, fabric, cx);
         change(
             &instances,
             &id,
-            false,
-            |i| i.game_version = "1.21.4".into(),
+            true,
+            |i| i.loader_version = Some("0.16.14".into()),
             cx,
         );
         let outcome = cx.update(undo::undo);
-        assert!(matches!(outcome, Outcome::Nothing));
+        assert!(matches!(outcome, Outcome::Undid(_)));
         let now = record(&instances, &id, cx);
-        assert_eq!(now.loader, Loader::Quilt);
-        assert_eq!(now.game_version, "1.21.4");
+        assert_eq!(
+            (now.loader, now.loader_version.as_deref()),
+            (Loader::Fabric, Some("0.16.9"))
+        );
     }
 }

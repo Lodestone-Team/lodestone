@@ -109,17 +109,18 @@ crate::i18n::messages! {
         // A vanilla instance: content that needs a mod loader.
         ModsNeedLoader = "Mods need a mod loader",
         ShadersNeedLoader = "Shaders need a mod loader",
-        /// {loader} is Fabric or Forge.
-        VanillaSwitchMods = "This instance is vanilla Minecraft. Mods run through a mod loader such as {loader}; switching keeps your worlds and settings, and {loader} installs the next time you press Play.",
-        VanillaSwitchShaders = "This instance is vanilla Minecraft. Shaders run through a mod loader such as {loader}; switching keeps your worlds and settings, and {loader} installs the next time you press Play.",
         VanillaNoLoaderMods = "This instance is vanilla Minecraft {version}. Mods need a mod loader, and none that Lodestone Launcher supports runs on this version: Fabric starts at 1.14, and Forge has no build for it. A new instance on a newer version can use them.",
         VanillaNoLoaderShaders = "This instance is vanilla Minecraft {version}. Shaders need a mod loader, and none that Lodestone Launcher supports runs on this version: Fabric starts at 1.14, and Forge has no build for it. A new instance on a newer version can use them.",
         VanillaCheckFailedMods = "This instance is vanilla Minecraft. Mods need a mod loader, but checking which one fits didn't work: {error}",
         VanillaCheckFailedShaders = "This instance is vanilla Minecraft. Shaders need a mod loader, but checking which one fits didn't work: {error}",
         VanillaCheckingMods = "This instance is vanilla Minecraft. Mods run through a mod loader; checking which one runs on Minecraft {version}…",
         VanillaCheckingShaders = "This instance is vanilla Minecraft. Shaders run through a mod loader; checking which one runs on Minecraft {version}…",
-        SwitchTo = "Switch to {loader}",
         NewFabricInstance = "New Fabric instance…",
+        /// {loader} is Fabric or Forge.
+        VanillaCopyMods = "This instance is vanilla Minecraft. Mods run through a mod loader such as {loader}, and an instance keeps the loader it was made with. A copy with {loader} can take your worlds and settings along.",
+        VanillaCopyShaders = "This instance is vanilla Minecraft. Shaders run through a mod loader such as {loader}, and an instance keeps the loader it was made with. A copy with {loader} can take your worlds and settings along.",
+        /// Opens "Copy with another version or loader" with the loader chosen.
+        CopyWith = "Copy with {loader}…",
 
         // The Shaders section's shader mod card. {shader_mod} is Iris, Oculus or OptiFine.
         ShaderModUsingPack = "{shader_mod} is using {pack}.",

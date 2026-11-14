@@ -213,6 +213,42 @@ fn owned_entries(category: Category, world: Option<&str>) -> Vec<String> {
     }
 }
 
+/// The instance's settings after reverting `selection` from `snapshot`, when they
+/// change: the snapshot's settings with Settings chosen, and its Minecraft version and
+/// loader with Mods chosen when the snapshot took the mods (see [`Store::revert`]).
+fn reverted_settings(
+    snapshot: &Snapshot,
+    current: &Instance,
+    selection: &Selection,
+) -> Option<Instance> {
+    let settings = selection.categories.contains(&Category::Settings);
+    // only a snapshot that took the mods knows the version and loader they were for
+    let mods = selection.categories.contains(&Category::Mods)
+        && snapshot.selection.categories.contains(&Category::Mods);
+    let base = if settings {
+        Instance {
+            // The instance stays itself: its id, name and history.
+            id: current.id.clone(),
+            name: current.name.clone(),
+            created: current.created,
+            last_played: current.last_played,
+            play_time: current.play_time,
+            rosetta: current.rosetta.clone(),
+            ..snapshot.instance.clone()
+        }
+    } else {
+        current.clone()
+    };
+    let version_from = if mods { &snapshot.instance } else { current };
+    let reverted = Instance {
+        game_version: version_from.game_version.clone(),
+        loader: version_from.loader,
+        loader_version: version_from.loader_version.clone(),
+        ..base
+    };
+    (settings || reverted != *current).then_some(reverted)
+}
+
 /// The game folder's top-level entries in [`Category::Other`] now.
 fn other_entries(instance_dir: &Path) -> Vec<String> {
     let game = instance_dir.join("minecraft");
@@ -308,6 +344,23 @@ pub struct Snapshot {
 }
 
 impl Snapshot {
+    /// Whether reverting its mods would put back another Minecraft version or loader
+    /// than `current` has: it took the mods, and they were for another one. A
+    /// snapshot of an instance without mods has no Mods files, so the revert dialog
+    /// offers the part for this.
+    pub fn moves_version(&self, current: &Instance) -> bool {
+        self.selection.categories.contains(&Category::Mods)
+            && (
+                &self.instance.game_version,
+                self.instance.loader,
+                &self.instance.loader_version,
+            ) != (
+                &current.game_version,
+                current.loader,
+                &current.loader_version,
+            )
+    }
+
     /// Sizes and file counts by category (worlds by folder).
     pub fn summary(&self) -> Vec<Part> {
         summarize(
@@ -861,8 +914,14 @@ impl Store {
 
     /// Puts back what `selection` chooses from `snapshot` into the instance at
     /// `instance_dir`, replacing each chosen category whole. Takes an automatic snapshot
-    /// of the same categories first. Returns the instance's new settings when they were
-    /// put back (the caller saves them), and the automatic snapshot.
+    /// of the same categories first. Returns the instance's new settings when they
+    /// changed (the caller saves them), and the automatic snapshot.
+    ///
+    /// The Minecraft version and the loader (with its version) go with the mods, not
+    /// with the settings: they are fixed for an instance, and only move back with the
+    /// mods (and the modpack record) they were for, as when going back to the snapshot
+    /// taken before a modpack update. So reverting the settings alone keeps the version
+    /// and loader the instance has, and reverting the mods alone takes the snapshot's.
     pub fn revert(
         &self,
         snapshot: &Snapshot,
@@ -951,20 +1010,7 @@ impl Store {
         let _ = fs::remove_dir_all(&staging);
         let _ = fs::remove_dir_all(&old);
         result?;
-        let settings = selection
-            .categories
-            .contains(&Category::Settings)
-            .then(|| Instance {
-                // The instance stays itself: its id, name and history.
-                id: current.id.clone(),
-                name: current.name.clone(),
-                created: current.created,
-                last_played: current.last_played,
-                play_time: current.play_time,
-                rosetta: current.rosetta.clone(),
-                ..snapshot.instance.clone()
-            });
-        Ok((settings, safety))
+        Ok((reverted_settings(snapshot, current, selection), safety))
     }
 
     /// Writes `snapshot` and the objects it needs as a `.lodesnap` file at `to`.
@@ -1853,6 +1899,82 @@ mod tests {
                 .permissions()
                 .readonly()
         );
+    }
+
+    #[test]
+    fn the_version_and_loader_go_back_only_with_the_mods() {
+        let temp = tempfile::tempdir().unwrap();
+        let store = Store::at(temp.path().join("snapshots"));
+        let (instance, dir) = instance_at(temp.path(), "a");
+        let snapshot = store
+            .create(
+                &instance,
+                &dir,
+                "before",
+                None,
+                &Selection::all(),
+                false,
+                &none,
+            )
+            .unwrap();
+        // a pack update (or a server sync) moved it on, and a setting changed too
+        let changed = Instance {
+            game_version: "1.21.1".into(),
+            loader_version: Some("0.16.14".into()),
+            jvm_args: Some("-Dchanged".into()),
+            ..instance.clone()
+        };
+        let only = |category| Selection {
+            categories: [category].into(),
+            worlds: BTreeSet::new(),
+        };
+        // the settings alone: the version and loader stay as they are now
+        let (settings, _) = store
+            .revert(&snapshot, &changed, &dir, &only(Category::Settings), &none)
+            .unwrap();
+        let settings = settings.unwrap();
+        assert_eq!(settings.jvm_args, instance.jvm_args);
+        assert_eq!(
+            (
+                settings.game_version.as_str(),
+                settings.loader_version.as_deref()
+            ),
+            ("1.21.1", Some("0.16.14"))
+        );
+        // the mods alone: the version and loader they were for come back with them
+        let (settings, _) = store
+            .revert(&snapshot, &changed, &dir, &only(Category::Mods), &none)
+            .unwrap();
+        let settings = settings.unwrap();
+        assert_eq!(settings.jvm_args.as_deref(), Some("-Dchanged"));
+        assert_eq!(
+            (settings.game_version.as_str(), &settings.loader_version),
+            (instance.game_version.as_str(), &instance.loader_version)
+        );
+        // neither: nothing to save
+        let (settings, _) = store
+            .revert(&snapshot, &changed, &dir, &only(Category::Configs), &none)
+            .unwrap();
+        assert_eq!(settings, None);
+        assert!(snapshot.moves_version(&changed));
+        assert!(!snapshot.moves_version(&instance));
+        // a snapshot that didn't take the mods doesn't know their version: it stays
+        let worlds_only = store
+            .create(
+                &instance,
+                &dir,
+                "worlds",
+                None,
+                &only(Category::Worlds),
+                false,
+                &none,
+            )
+            .unwrap();
+        assert!(!worlds_only.moves_version(&changed));
+        let (settings, _) = store
+            .revert(&worlds_only, &changed, &dir, &only(Category::Mods), &none)
+            .unwrap();
+        assert_eq!(settings, None);
     }
 
     #[test]

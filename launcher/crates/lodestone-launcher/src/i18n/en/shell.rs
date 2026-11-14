@@ -121,17 +121,6 @@ crate::i18n::messages! {
         /// {when} is when the backup was made: "today, 14:05".
         ReplaceWorldBody = "{name} goes back to how it was {when}. Everything since is lost from the world, but it is backed up first and the current folder goes to {trash}.",
         BackUpAndReplace = "Back up and replace",
-        /// {loader} is a mod loader's name.
-        SwitchToLoader = "Switch to {loader}?",
-        SwitchToVanilla = "Switch to vanilla?",
-        ModsWontLoadOn = "These enabled mods are made for another loader and won't load on {loader}:",
-        ModsWontLoadVanilla = "Vanilla Minecraft loads no mods, so these enabled mods won't load:",
-        /// What a mod is made for: "Forge mod".
-        ModMadeFor = "{loader} mod",
-        TurningOffRenames = "Turning them off renames them to .disabled, so you can turn them back on in Content.",
-        WorldsAtRisk = "Worlds that used blocks or items from these mods can lose them. Back up your worlds first.",
-        TurnOffAndSave = "Turn them off and save",
-        SaveAndKeep = "Save and keep them",
         RemoveAccountTitle = "Remove {name}?",
         RemoveAccountBody = "Lodestone Launcher forgets this account and deletes its saved sign-in from your {keychain}. You can add it again later.",
         RemoveAccount = "Remove account",

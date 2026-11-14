@@ -80,16 +80,14 @@ pub fn text(message: M) -> &'static str {
         M::AutoGroupVanilla => "Vanilla",
         M::AutoGroupImported => "Importées",
 
-        M::GameVersionHint => "Choisie à la création de l’instance.",
+        M::GameVersionHint => "Ne change plus une fois l’instance créée.",
+        M::GameVersionFollowsModpack => "Suit les mises à jour de son modpack.",
+        M::GameVersionFollowsServer => "Suit le pack du serveur lié.",
         M::LoaderInstallsNextStart => "{loader} s’installera au prochain démarrage du jeu.",
         M::LoaderInstallsNextPlay => {
             "{loader} s’installera la prochaine fois que vous cliquerez sur Jouer."
         }
         M::SavedNextStart => "Enregistré. Le changement s’applique au prochain démarrage du jeu.",
-        M::CouldntTurnModsOff => "Impossible de désactiver les mods\u{a0}: {error}",
-        M::GameVersionChangedMeanwhile => {
-            "La version de Minecraft a changé entre-temps. Choisissez à nouveau le chargeur, puis enregistrez."
-        }
 
         M::Vanilla => "Vanilla",
         M::ModLoader => "Chargeur de mods",
@@ -228,6 +226,51 @@ pub fn text(message: M) -> &'static str {
         M::Exporting => "Exportation…",
         M::Duplicate => "Dupliquer",
         M::Duplicating => "Duplication…",
+        M::ChangeVersionOrLoader => "Une autre version ou un autre chargeur",
+        M::ChangeVersionOrLoaderHint => {
+            "Une instance garde la version et le chargeur choisis à sa création. Une copie peut en avoir d’autres."
+        }
+        M::CopyAs => "Copier avec une autre version ou un autre chargeur",
+        M::CopyAsButton => "Copier…",
+        M::CopyAsKeywords => {
+            "changer passer mettre à jour monter descendre version chargeur Fabric Forge NeoForge Quilt"
+        }
+        M::CopyAsTitle => "Copier avec une autre version ou un autre chargeur",
+        M::CopyFrom => {
+            "Une nouvelle instance à partir de {name} ({version}), qui reste telle quelle."
+        }
+        M::CopyWhat => "Ce qui est copié",
+        M::CopyWorlds => "Mondes",
+        M::CopyNoWorlds => "Cette instance n’a aucun monde.",
+        M::CopyWorldsOlder => {
+            "Les mondes ne peuvent pas passer à une version plus ancienne de Minecraft\u{a0}: elle ne peut pas les ouvrir."
+        }
+        M::CopyWorldsUnknown => {
+            "Les mondes restent\u{a0}: Lodestone Launcher ne peut pas savoir si {version} est plus récente."
+        }
+        M::CopyWorldsUpgraded => {
+            "Minecraft {version} met les mondes à niveau en les ouvrant, sans retour possible. Les originaux restent dans {name}."
+        }
+        M::CopyWorldsModsGone => {
+            "Les blocs et objets des mods qui ne suivent pas sont retirés quand la copie ouvre les mondes. Les originaux restent dans {name}."
+        }
+        M::CopyPacks => "Packs de ressources, shaders et options",
+        M::CopyMods => "Mods",
+        M::CopyReading => "Lecture des mods de l’instance…",
+        M::CopyNoMods => "Cette instance n’a aucun mod.",
+        M::CopyModsVanilla => "Minecraft vanilla ne charge aucun mod.",
+        M::CopyModsOffline => "Modrinth est injoignable, donc aucun mod ne peut être copié.",
+        M::CopyModsFailed => "Impossible de vérifier les mods\u{a0}: {error}",
+        M::CopyModsNoBuild => "Pas de build pour {target}, donc ceux-ci restent\u{a0}: {names}.",
+        M::CopyModsNotOnModrinth => "Absents de Modrinth, donc ceux-ci restent\u{a0}: {names}.",
+        M::CopyModsUnchecked => {
+            "Impossible de vérifier ceux-ci sur Modrinth, donc ils restent\u{a0}: {names}."
+        }
+        M::CopyOrUncheckMods => "ou décochez Mods pour copier sans eux.",
+        M::CopySameTarget => {
+            "Choisissez une autre version de Minecraft ou un autre chargeur. Dupliquer, dans Maintenance, copie l’instance telle quelle."
+        }
+        M::CopyAsStart => "Faire la copie",
         M::HostOnCore => "Héberger sur Lodestone",
         M::HostHint => "Crée un serveur avec les mods de cette instance.",
         M::HostButton => "Héberger…",
@@ -394,14 +437,6 @@ pub fn plural(message: P) -> [&'static str; 2] {
             "{count} activés ou désactivés",
         ],
         P::CodePackChanges => ["+ {count} modification", "+ {count} modifications"],
-        P::LoaderNextStartModsOff => [
-            "{loader} s’installera au prochain démarrage du jeu. {count}\u{a0}mod a été désactivé.",
-            "{loader} s’installera au prochain démarrage du jeu. {count}\u{a0}mods ont été désactivés.",
-        ],
-        P::LoaderNextPlayModsOff => [
-            "{loader} s’installera la prochaine fois que vous cliquerez sur Jouer. {count}\u{a0}mod a été désactivé.",
-            "{loader} s’installera la prochaine fois que vous cliquerez sur Jouer. {count}\u{a0}mods ont été désactivés.",
-        ],
         P::SharedCount => ["{count}\u{a0}partagé", "{count}\u{a0}partagés"],
         P::OverriddenCount => ["{count}\u{a0}remplacé", "{count}\u{a0}remplacés"],
         P::AndMore => [
@@ -431,5 +466,14 @@ pub fn plural(message: P) -> [&'static str; 2] {
 
         P::AndMoreFiles => ["et {count} autre", "et {count} autres"],
         P::AddedModpackFiles => ["{count} fichier ajouté", "{count} fichiers ajoutés"],
+        P::CopyWorldsCount => ["{count}\u{a0}monde", "{count}\u{a0}mondes"],
+        P::CopyCheckingMods => [
+            "Vérification de {count}\u{a0}mod sur Modrinth…",
+            "Vérification de {count}\u{a0}mods sur Modrinth…",
+        ],
+        P::CopyModsFound => [
+            "{found} sur {count}\u{a0}mod a un build pour {target}.",
+            "{found} sur {count}\u{a0}mods ont un build pour {target}.",
+        ],
     }
 }

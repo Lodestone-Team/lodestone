@@ -82,13 +82,11 @@ pub fn text(message: M) -> &'static str {
         M::AutoGroupImported => "已导入",
 
         M::GameVersionHint => "在创建实例时设置。",
+        M::GameVersionFollowsModpack => "随整合包更新而变化。",
+        M::GameVersionFollowsServer => "随关联服务器的整合包而变化。",
         M::LoaderInstallsNextStart => "{loader} 将在游戏下次启动时安装。",
         M::LoaderInstallsNextPlay => "{loader} 将在你下次点击“开始游戏”时安装。",
         M::SavedNextStart => "已保存。将在游戏下次启动时生效。",
-        M::CouldntTurnModsOff => "无法禁用模组：{error}",
-        M::GameVersionChangedMeanwhile => {
-            "Minecraft 版本已在此期间更改。请重新选择加载器，然后保存。"
-        }
 
         M::Vanilla => "原版",
         M::ModLoader => "模组加载器",
@@ -215,6 +213,41 @@ pub fn text(message: M) -> &'static str {
         M::Exporting => "正在导出…",
         M::Duplicate => "创建副本",
         M::Duplicating => "正在创建副本…",
+        M::ChangeVersionOrLoader => "其他版本或加载器",
+        M::ChangeVersionOrLoaderHint => {
+            "实例会保留创建时的版本和加载器。副本可以使用其他版本或加载器。"
+        }
+        M::CopyAs => "以其他版本或加载器复制",
+        M::CopyAsButton => "换版本复制…",
+        M::CopyAsKeywords => "更改 切换 更新 升级 降级 版本 加载器 Fabric Forge NeoForge Quilt",
+        M::CopyAsTitle => "以其他版本或加载器复制",
+        M::CopyFrom => "基于 {name}（{version}）新建一个实例，原实例保持不变。",
+        M::CopyWhat => "要复制的内容",
+        M::CopyWorlds => "世界",
+        M::CopyNoWorlds => "此实例没有世界。",
+        M::CopyWorldsOlder => "世界无法复制到较旧的 Minecraft 版本：旧版本无法打开它们。",
+        M::CopyWorldsUnknown => "世界不会复制：Lodestone Launcher 无法判断 {version} 是否更新。",
+        M::CopyWorldsUpgraded => {
+            "Minecraft {version} 打开世界时会将其升级，且无法还原。原世界仍保留在 {name} 中。"
+        }
+        M::CopyWorldsModsGone => {
+            "副本打开世界时，未一同复制的模组中的方块和物品会被移除。原世界仍保留在 {name} 中。"
+        }
+        M::CopyPacks => "资源包、光影和选项",
+        M::CopyMods => "模组",
+        M::CopyReading => "正在读取实例的模组…",
+        M::CopyNoMods => "此实例没有模组。",
+        M::CopyModsVanilla => "原版 Minecraft 不运行模组。",
+        M::CopyModsOffline => "无法连接到 Modrinth，因此无法复制模组。",
+        M::CopyModsFailed => "无法检查模组：{error}",
+        M::CopyModsNoBuild => "没有适用于 {target} 的构建，以下模组不会复制：{names}。",
+        M::CopyModsNotOnModrinth => "不在 Modrinth 上，以下模组不会复制：{names}。",
+        M::CopyModsUnchecked => "无法在 Modrinth 上检查以下模组，因此不会复制：{names}。",
+        M::CopyOrUncheckMods => "或取消勾选“模组”，不带模组复制。",
+        M::CopySameTarget => {
+            "请选择其他 Minecraft 版本或加载器。若要原样复制此实例，请使用“维护”中的“创建副本”。"
+        }
+        M::CopyAsStart => "开始复制",
         M::HostOnCore => "在 Lodestone 上托管",
         M::HostHint => "用此实例的模组创建服务器。",
         M::HostButton => "托管…",
@@ -358,12 +391,6 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::ShareChangedCount => ["更改 {count} 项"; 2],
         P::ShareToggledCount => ["启用或禁用 {count} 项"; 2],
         P::CodePackChanges => ["+ {count} 项更改"; 2],
-        P::LoaderNextStartModsOff => {
-            ["{loader} 将在游戏下次启动时安装。已禁用 {count} 个模组。"; 2]
-        }
-        P::LoaderNextPlayModsOff => {
-            ["{loader} 将在你下次点击“开始游戏”时安装。已禁用 {count} 个模组。"; 2]
-        }
         P::SharedCount => ["{count} 项共享"; 2],
         P::OverriddenCount => ["{count} 项覆盖"; 2],
         P::AndMore => ["{names}及另外 {count} 项"; 2],
@@ -379,5 +406,8 @@ pub fn plural(message: P) -> [&'static str; 2] {
 
         P::AndMoreFiles => ["以及另外 {count} 个"; 2],
         P::AddedModpackFiles => ["已添加 {count} 个文件"; 2],
+        P::CopyWorldsCount => ["{count} 个世界"; 2],
+        P::CopyCheckingMods => ["正在 Modrinth 上检查 {count} 个模组…"; 2],
+        P::CopyModsFound => ["{count} 个模组中有 {found} 个有适用于 {target} 的构建。"; 2],
     }
 }

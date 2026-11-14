@@ -40,6 +40,14 @@ impl Backend for Fake {
                 "This moves the instance \"Survival\" to the Trash. Ask the user first, then pass --yes.",
             )),
             "instances.delete" => Ok(json!({ "deleted": "a1", "trash": true })),
+            "instances.copy_as" if p["confirm"] != true => Err(ErrorObject::new(
+                codes::CONFIRMATION_REQUIRED,
+                "The copy leaves 1 mod(s) behind (no build for Minecraft 1.21.1 fabric, or not on Modrinth). Show the user the plan, then pass --yes.",
+            )
+            .with_data(json!({ "plan": { "no_build": [{ "title": "Iris" }], "mods": [{ "title": "Sodium" }] } }))),
+            "instances.copy_as" => Ok(
+                json!({ "instance": { "id": "survival-1-21-1-fabric", "name": "Survival (1.21.1 Fabric)" }, "job": 2 }),
+            ),
             "instances.show" => Err(ErrorObject::new(
                 codes::NOT_FOUND,
                 "No instance is called \"x\".",
@@ -198,6 +206,37 @@ fn destructive_commands_need_yes() {
     assert_eq!(stdout_json(&output)["trash"], true);
     let requests = launcher.fake.requests.lock().unwrap();
     assert_eq!(requests.last().unwrap().params["confirm"], true);
+}
+
+#[test]
+fn a_copy_that_leaves_mods_behind_needs_yes_and_shows_the_plan() {
+    let launcher = launcher();
+    let args = ["instances", "copy-as", "Survival", "--version", "1.21.1"];
+    let output = cli(&launcher.socket, &args, None);
+    assert_eq!(output.status.code(), Some(5));
+    let error = stderr_error(&output);
+    assert_eq!(error.code, codes::CONFIRMATION_REQUIRED);
+    assert_eq!(error.data.unwrap()["plan"]["no_build"][0]["title"], "Iris");
+
+    let mut confirmed = args.to_vec();
+    confirmed.push("--yes");
+    let output = cli(&launcher.socket, &confirmed, None);
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(
+        stdout_json(&output)["instance"]["name"],
+        "Survival (1.21.1 Fabric)"
+    );
+    let requests = launcher.fake.requests.lock().unwrap();
+    let last = &requests.last().unwrap().params;
+    assert_eq!(
+        (
+            &last["confirm"],
+            &last["wait"],
+            &last["version"],
+            &last["mods"]
+        ),
+        (&json!(true), &json!(true), &json!("1.21.1"), &json!(true))
+    );
 }
 
 #[test]

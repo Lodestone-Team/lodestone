@@ -45,6 +45,12 @@ pub fn progress_label(label: &str) -> String {
             M::SavingSnapshot,
         ),
         ("Reading the modpack", M::ReadingModpack),
+        ("Copying the worlds", M::CopyingWorlds),
+        (
+            "Copying the resource packs, shaders and options",
+            M::CopyingPacksAndOptions,
+        ),
+        ("Installing the mods", M::InstallingMods),
     ];
     if let Some((_, message)) = fixed.iter().find(|(english, _)| *english == label) {
         return t(*message).into();
@@ -76,13 +82,32 @@ pub fn progress_label(label: &str) -> String {
     label.to_string()
 }
 
-/// A pack being made into an instance.
+/// A pack being made into an instance (or an instance being copied with another version
+/// or loader, see `copy_as.rs`): a row in the sidebar until it ends.
 pub struct ImportJob {
     pub id: u64,
     pub name: SharedString,
     pub progress: Arc<InstallProgress>,
     pub cancel: CancelToken,
     _task: Task<()>,
+}
+
+impl ImportJob {
+    pub(super) fn new(
+        id: u64,
+        name: SharedString,
+        progress: Arc<InstallProgress>,
+        cancel: CancelToken,
+        task: Task<()>,
+    ) -> Self {
+        Self {
+            id,
+            name,
+            progress,
+            cancel,
+            _task: task,
+        }
+    }
 }
 
 /// An update of an instance's pack in progress.
@@ -708,7 +733,7 @@ impl Instances {
     }
 
     /// Redraws while imports or updates run.
-    fn start_import_ticker(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn start_import_ticker(&mut self, cx: &mut Context<Self>) {
         if self.import_ticker.is_some() {
             return;
         }

@@ -763,6 +763,29 @@ pub(crate) fn world_renamed(dirs: &InstanceDirs, from: &str, to: &str) -> io::Re
     provenance.save(dirs)
 }
 
+/// Copies the Modrinth records of `worlds` from the instance in `from` to the one in
+/// `to`, after those worlds were copied there, so their packs keep their source and
+/// updates.
+pub(crate) fn worlds_copied(
+    from: &InstanceDirs,
+    to: &InstanceDirs,
+    worlds: &[String],
+) -> io::Result<()> {
+    let source = Provenance::load(from);
+    let mut provenance = Provenance::load(to);
+    let mut copied = false;
+    for world in worlds {
+        if let Some(files) = source.worlds.get(world) {
+            provenance.worlds.insert(world.clone(), files.clone());
+            copied = true;
+        }
+    }
+    if copied {
+        provenance.save(to)?;
+    }
+    Ok(())
+}
+
 /// Drops the Modrinth records of the world in `folder`, after it was deleted, so a new
 /// world in a folder of the same name doesn't inherit them.
 pub(crate) fn world_deleted(dirs: &InstanceDirs, folder: &str) -> io::Result<()> {

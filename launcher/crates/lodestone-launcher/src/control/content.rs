@@ -15,12 +15,11 @@ use launcher_core::{
         ContentKind, InstanceDirs, Modrinth, Target, files,
         install::{self, InstallOutcome, InstallProgress, InstallRequest},
         listing::{self, Item},
-        loader_change,
         shaders::{self, ShaderModOffer},
         share,
     },
     game::download::CancelToken,
-    instances::{Instance, Loader},
+    instances::Instance,
     mc_text,
     modpack::addon::{self, AddedPack},
 };
@@ -33,7 +32,7 @@ use serde_json::{Value, json};
 
 use super::{
     ApiResult, Call, Control, Reply, api_error,
-    instances::{absolute, failed, params, parse_loader, tri},
+    instances::{absolute, failed, params, tri},
     jobs::{Cancel, JobSpec, Progress},
     poll_until, ready,
 };
@@ -593,7 +592,7 @@ pub fn install(call: Call, cx: &mut App) -> Reply {
                     ShaderModOffer::NeedsModLoader => {
                         return Err(api_error(
                             codes::CONFLICT,
-                            "Shader packs need a mod loader, and this instance is vanilla. Switch it to Fabric first: `content switch-loader <instance> fabric`.",
+                            "Shader packs need a mod loader, and this instance is vanilla (its loader never changes). Make a copy with Fabric first: `instances copy-as <instance> --loader fabric`.",
                         ));
                     }
                     ShaderModOffer::Unavailable { reason } => {
@@ -980,133 +979,6 @@ pub fn update(call: Call, cx: &mut App) -> Reply {
         refresh_kinds,
         cx,
     )
-}
-
-#[derive(Deserialize)]
-struct SwitchLoaderParams {
-    /// fabric, quilt, forge, neoforge or vanilla; the Content tab's offer (Fabric, or
-    /// Forge before 1.14) without it.
-    #[serde(default)]
-    loader: Option<String>,
-    #[serde(default)]
-    loader_version: Option<String>,
-    /// Turn off the mods made for another loader (the window asks).
-    #[serde(default)]
-    disable_mismatched: bool,
-}
-
-pub fn switch_loader(call: Call, cx: &mut App) -> Reply {
-    let params: SwitchLoaderParams = params!(call);
-    let control = call.control.clone();
-    let instance = tri!(control.instance_param(&call, cx));
-    tri!(can_change(&control, &instance, cx));
-    if control.instances.read(cx).loader_switch_running() {
-        return ready(Err(api_error(codes::BUSY, "A loader switch is running.")));
-    }
-    let Some(loader) = params.loader.clone() else {
-        // "Switch to Fabric" on a vanilla instance
-        if instance.loader != Loader::None {
-            return ready(Err(api_error(
-                codes::INVALID_PARAMS,
-                format!(
-                    "{} has {} already; name the loader to change to.",
-                    instance.name,
-                    instance.loader_label()
-                ),
-            )));
-        }
-        let seq = control.notices.borrow().last_seq();
-        let id = instance.id.clone();
-        control
-            .instances
-            .update(cx, |instances, cx| instances.switch_to_mod_loader(&id, cx));
-        let outbox = call.outbox.clone();
-        return cx.spawn(async move |cx| {
-            poll_until(
-                cx,
-                Some(&outbox),
-                Duration::from_millis(200),
-                Duration::from_secs(120),
-                |cx| (!control.instances.read(cx).loader_switch_running()).then_some(()),
-            )
-            .await?;
-            let notice = control.notices.borrow().find_since(seq, |n| {
-                n.is_about(&id) && matches!(n.kind, "notice" | "launch_failed")
-            });
-            match notice {
-                Some(n) if n.is_failure() => Err(api_error(
-                    codes::FAILED,
-                    format!("{}: {}", n.title, n.message),
-                )),
-                Some(n) => Ok(json!({ "instance": id, "title": n.title, "message": n.message })),
-                None => Ok(json!({ "instance": id })),
-            }
-        });
-    };
-    let kind = tri!(parse_loader(&loader));
-    let installer = control.instances.read(cx).installer();
-    let dirs = control.instances.read(cx).content_dirs(&instance.id);
-    cx.spawn(async move |cx| {
-        let choice = match kind {
-            None => None,
-            Some(kind) => {
-                let game_version = instance.game_version.clone();
-                let list = cx
-                    .background_spawn(async move { installer.loader_versions(kind, &game_version).await })
-                    .await
-                    .map_err(|err| api_error(codes::UNAVAILABLE, err.to_string()))?;
-                let version = match &params.loader_version {
-                    Some(wanted) => list.iter().find(|v| &v.id == wanted || &v.display == wanted),
-                    None => list.iter().find(|v| v.recommended).or_else(|| list.first()),
-                }
-                .ok_or_else(|| {
-                    api_error(
-                        codes::NOT_FOUND,
-                        format!("{} has no such build for Minecraft {}.", kind.label(), instance.game_version),
-                    )
-                })?;
-                Some(launcher_core::game::loaders::LoaderChoice { kind, version: version.id.clone() })
-            }
-        };
-        let to = Loader::from_kind(choice.as_ref().map(|c| c.kind));
-        // the Settings tab's check before a loader change
-        let check = loader_change::check(&dirs, instance.loader, to, &instance.game_version)
-            .map_err(|err| api_error(codes::FAILED, err.to_string()))?;
-        let mismatched: Vec<String> = check.mismatched.iter().map(|m| m.file_name.clone()).collect();
-        if check.needs_confirmation() && !params.disable_mismatched && !super::confirmed(&call.params) {
-            return Err(api_error(
-                codes::CONFIRMATION_REQUIRED,
-                format!(
-                    "Changing the loader leaves {} mod(s) behind{}. Ask the user, then pass --yes to keep them as they are, or --disable-mismatched to turn them off.",
-                    mismatched.len(),
-                    if check.worlds_at_risk { " and may damage this instance's worlds (back them up first)" } else { "" }
-                ),
-            )
-            .with_data(json!({
-                "mismatched": check.mismatched.iter().map(|m| json!({ "file": m.file_name, "name": m.name, "made_for": m.made_for })).collect::<Vec<_>>(),
-                "worlds": check.worlds,
-                "worlds_at_risk": check.worlds_at_risk,
-            })));
-        }
-        if params.disable_mismatched {
-            loader_change::disable_mods(&dirs, &mismatched)
-                .map_err(|err| api_error(codes::FAILED, err.to_string()))?;
-        }
-        let mut changed = instance.clone();
-        changed.loader = to;
-        changed.loader_version = choice.map(|c| c.version);
-        let saved = control
-            .instances
-            .update(cx, |instances, cx| instances.save(&changed, cx));
-        failed(saved)?;
-        Ok(json!({
-            "instance": changed.id,
-            "loader": changed.loader,
-            "loader_version": changed.loader_version,
-            "disabled": if params.disable_mismatched { mismatched } else { Vec::new() },
-            "message": "The loader installs the next time the game starts.",
-        }))
-    })
 }
 
 // --- modpacks ---
