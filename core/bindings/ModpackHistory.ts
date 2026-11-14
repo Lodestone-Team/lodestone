@@ -11,14 +11,10 @@ export type ModpackHistory = {
  */
 entries: Array<HistoryEntryInfo>, 
 /**
- * For each file of the current pack (its path in the pack, with `/`), the id of the
- * entry its current version came with.
+ * For each mod and config of the current content (by path, a mod by its enabled name),
+ * the id of the entry its current version came with.
  */
-blame: { [key in string]: number }, 
-/**
- * The bytes the stored copies take.
- */
-stored_bytes: number, 
+blame: { [key in string]: string }, 
 /**
  * A newer version of the modpack on Modrinth, when the last check found one.
  */

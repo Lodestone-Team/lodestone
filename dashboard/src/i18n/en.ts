@@ -1517,11 +1517,7 @@ export const en = {
   'mods.modpack.history': 'History',
   'mods.modpack.historyFailed': 'Couldn’t load the modpack’s history: {error}',
   'mods.modpack.historyEmpty':
-    'Nothing is recorded yet. Updates from now on can be undone.',
-  'mods.modpack.kind.install': 'Installed',
-  'mods.modpack.kind.baseline': 'First recorded',
-  'mods.modpack.kind.update': 'Updated',
-  'mods.modpack.kind.restore': 'Restored {version}',
+    'Nothing is recorded yet. Changes from now on can be undone.',
   'mods.modpack.current': 'Current',
   'mods.modpack.restore': 'Restore',
   'mods.modpack.restoreMissing':
@@ -1529,16 +1525,16 @@ export const en = {
   'mods.modpack.restoreTitle': 'Restore this version?',
   'mods.modpack.updateTitle': 'Update the modpack?',
   'mods.modpack.update': 'Update',
-  'mods.modpack.restored': 'Restored {pack} {version}.',
+  'mods.modpack.restored': 'Restored “{change}”.',
   'mods.modpack.updated': 'Updated {pack} to {version}.',
-  'mods.modpack.restoreFailed': 'Couldn’t restore the modpack: {error}',
+  'mods.modpack.restoreFailed': 'Couldn’t restore that version: {error}',
   'mods.modpack.updateFailed': 'Couldn’t update the modpack: {error}',
-  'mods.modpack.storeSize':
-    'To undo updates, Lodestone keeps {size} of files that can’t be downloaded again.',
-  'mods.modpack.since': 'since {version}',
-  'mods.modpack.sinceTooltip': 'This file came with {version} of the modpack.',
+  'mods.modpack.since': 'since {date}',
+  'mods.modpack.sinceTooltip': 'This file is as it was after “{change}”.',
   'mods.modpack.unknownVersion': 'unknown version',
   'mods.modpack.dialog.intro': '{pack} goes from {from} to {to}.',
+  'mods.modpack.dialog.restoreIntro':
+    'The mods and configs go back to how they were after “{change}”.',
   'mods.modpack.dialog.reinstall':
     'The server moves to {software} and installs it again.',
   'mods.modpack.dialog.kept': 'Files you changed stay as they are: {files}',
@@ -1557,10 +1553,6 @@ export const en = {
   'mods.modpack.removed': {
     one: '{count} file removed',
     other: '{count} files removed',
-  },
-  'mods.modpack.keptCount': {
-    one: '{count} changed file kept',
-    other: '{count} changed files kept',
   },
   'mods.modpack.moreChanges': {
     one: 'and {count} more',

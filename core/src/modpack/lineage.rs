@@ -1,256 +1,84 @@
-//! A server's modpack history as the lineage of its content images
+//! A server's modpack history: the lineage of its content images
 //! (`docs/instance-images.md`, "M2 decisions").
 //!
-//! [`super::history`] stays the lineage's bookkeeping: `history.json` is the "rest" beside
-//! the images (what an image doesn't model: the entry's kind, origin, changes, kept files,
-//! changelog and how to get files back), and `record.json` stays the update engine's record
-//! for its three-way merge. Both live in the server folder, so a backup restores them with
-//! the files they describe.
-//! Each entry names its content image ([`HistoryEntry::image`]); a separate index in the
-//! image store would go out of step with `history.json` after a backup restore.
+//! There is no history file. Every content image the core records for a server (a modpack
+//! install, update or restore, a Mods-tab change, an edit through the Files API, a change
+//! found before a start) is an entry, and the store keeps them as it keeps every content
+//! image: the newest 30, the current one, and every one a backup links to
+//! ([`crate::images::retention`]).
 //!
-//! - **Writes.** A modpack install, update or restore records a content image of the whole
-//!   server once it succeeded, after writing `images/<uuid>/pack.json` ([`base_info`]: the
-//!   pack as the image's base and the `env` its index and override folders give each file),
-//!   and links the new history entry to it. Recording never fails the operation: without
-//!   an image the entry is kept as before.
-//! - **Restoring.** An entry restores through the update engine as it always did. A file it
-//!   can't get back from the history's store or a download is read from its content image
-//!   ([`ImageLookup`]), checked against the entry's SHA-1.
-//! - **Retention.** [`LineageRefs`] tells the image service's pruning which images the
-//!   history names, so those stay besides the newest 30 and those backups link to.
+//! - **Writes.** A modpack install, update or restore records one content image of the
+//!   whole server once it succeeded, after `pack.json` ([`super::pack_info`]) says which
+//!   pack the server is now built on, so the image's base and sources are the pack's.
+//!   Before an update or restore changes anything, the content as it is on disk is recorded
+//!   ([`before_change`]), so every file it replaces or removes is in an image.
+//! - **Listing** ([`history`]): the content images newest first, each with what it changed
+//!   from the one before it, and for each current file the image its version came with.
+//! - **Restoring** ([`plan_restore`]): putting back a content image's mods and configs
+//!   through the update's journaled placement ([`super::update`]), from the image store. A
+//!   restore records a new content image; going back again is restoring that one's parent.
 
-use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex as StdMutex, OnceLock};
 
 use async_trait::async_trait;
-use dashmap::DashMap;
+use color_eyre::eyre::eyre;
 use lodestone_image::store::{Store, NEVER};
-use lodestone_image::{Base, Entry, Env, EnvValue};
-use lodestone_minecraft::mrpack::{for_each_override, open_pack, read_index, OverrideItem, Side};
-use sha1::Digest;
+use lodestone_image::{Base, DiskLayout, Entry, Game, Image, Kind, Loader, Source};
+use serde::{Deserialize, Serialize};
 use tracing::warn;
+use ts_rs::TS;
 
-use super::history::{EntryFiles, History, HistoryEntry, HistoryKind};
-use super::update::{FileAction, FilePlan, ImageFile, PackFile};
-use super::{InstancePathPolicy, ModpackOrigin};
-use crate::error::Error;
-use crate::images::base::{BaseFile, BaseInfo};
-use crate::images::{ImageRefs, ImageService, InstanceContext, OpKind, Operation};
-use crate::implementations::minecraft::Flavour;
-use crate::mods::disabled_name;
-use crate::prelude::GameInstance;
-use crate::traits::t_configurable::TConfigurable;
+use super::update::{record_of, FileAction, FileChange, FilePlan, FileSource, ImageFile, PackFile};
+use super::{InstancePathPolicy, ModpackOrigin, PackDownload};
+use crate::error::{Error, ErrorKind};
+use crate::images::recorder::{INITIAL_LABEL, OUTSIDE_LABEL};
+use crate::images::{ImageRefs, ImageService, InstanceContext, OpKind};
+use crate::implementations::minecraft::{
+    FabricLoaderVersion, Flavour, ForgeBuildVersion, NeoForgeBuildVersion,
+};
+use crate::mods::{disabled_name, enabled_name};
 use crate::types::InstanceUuid;
 
-/// The label of the content image an install, update or restore records, as the image
-/// service's labels read ("Updated Test Pack to 2").
-pub fn label(kind: &HistoryKind, origin: &ModpackOrigin) -> String {
+// ---- labels ----
+
+/// "Test Pack 2", or "Test Pack" when the version has no number.
+fn pack_and_version(origin: &ModpackOrigin, joiner: &str) -> String {
     let version = origin.version_number.as_deref().unwrap_or("").trim();
     let pack = origin.name.trim();
-    let with_version = |verb: &str, joiner: &str| {
-        if version.is_empty() {
-            format!("{verb} {pack}")
-        } else {
-            format!("{verb} {pack}{joiner}{version}")
-        }
-    };
-    match kind {
-        HistoryKind::Install => with_version("Installed", " "),
-        HistoryKind::Baseline => with_version("Modpack history began with", " "),
-        HistoryKind::Update => with_version("Updated", " to "),
-        HistoryKind::Restore { .. } => with_version("Restored", " to "),
+    if version.is_empty() {
+        pack.to_string()
+    } else {
+        format!("{pack}{joiner}{version}")
     }
 }
 
-// ---- pack.json ----
-
-/// The SHA-512 of the `.mrpack` at `path`, lowercase. Blocking.
-fn pack_sha512(path: &Path) -> Option<String> {
-    match lodestone_minecraft::hash::sha512_of(path) {
-        Ok(hash) => Some(hash.to_ascii_lowercase()),
-        Err(e) => {
-            warn!("Could not read the modpack {}: {e}", path.display());
-            None
-        }
-    }
+/// The label of the content image a new server made from a pack records.
+pub fn install_label(origin: &ModpackOrigin) -> String {
+    format!("Installed {}", pack_and_version(origin, " "))
 }
 
-/// What the pack at `path` says about each file it writes into a server: an index file's
-/// `env` as written, an override's from its folder. `overrides/` is for both sides,
-/// `server-overrides/` for the server only (it replaces an `overrides/` file of the same
-/// path there), and an `overrides/` file that `client-overrides/` replaces on clients isn't
-/// what clients get, so it is unsupported on their side. Blocking.
-fn pack_envs(path: &Path) -> Result<HashMap<String, Env>, Error> {
-    let mut archive = open_pack(path)?;
-    let index = read_index(&mut archive)?;
-    let mut envs = HashMap::new();
-    for file in &index.files {
-        let side = |value: Option<&String>| {
-            value
-                .and_then(|v| EnvValue::parse_loose(v))
-                .unwrap_or(EnvValue::Unknown)
-        };
-        let env = match &file.env {
-            Some(env) => Env::new(side(env.client.as_ref()), side(env.server.as_ref())),
-            None => Env::UNKNOWN,
-        };
-        envs.insert(file.path.clone(), env);
-    }
-    // Which override paths clients get from their own folder. Only compared with the
-    // checked server paths below, so the names needn't be checked themselves.
-    let client_only: HashSet<String> = archive
-        .file_names()
-        .filter_map(|name| name.ok())
-        .filter_map(|name| name.strip_prefix("client-overrides/").map(str::to_string))
-        .filter(|name| !name.is_empty() && !name.ends_with('/'))
-        .collect();
-    for_each_override(
-        &mut archive,
-        Side::Server,
-        &InstancePathPolicy {
-            allow_scripts: true,
-        },
-        |prefix, item| {
-            if let OverrideItem::File(path, _) = item {
-                let path = super::slash_path(&path);
-                let client = if prefix == "server-overrides/" || client_only.contains(&path) {
-                    EnvValue::Unsupported
-                } else {
-                    EnvValue::Required
-                };
-                envs.insert(path, Env::new(client, EnvValue::Required));
-            }
-            Ok::<_, Error>(())
-        },
-    )?;
-    Ok(envs)
+/// The label of the content image an update records.
+pub fn update_label(origin: &ModpackOrigin) -> String {
+    format!("Updated {}", pack_and_version(origin, " to "))
 }
 
-/// The modrinth CDN URL of a download, if it has one.
-fn cdn_url(file: &PackFile) -> Option<String> {
-    file.download.as_ref()?.urls.iter().find_map(|url| {
-        (url.scheme() == "https" && url.host_str() == Some(crate::modrinth::CDN_HOST))
-            .then(|| url.to_string())
-    })
-}
-
-/// `images/<uuid>/pack.json` for a server whose pack files are now `files` (by disk path,
-/// as the record has them), from the pack `origin`:
-///
-/// - the base is the pack (`modrinth_pack`) when it is on Modrinth and its `.mrpack` is at
-///   `pack_path` (hashed here), else `fallback` when that is the same Modrinth version (the
-///   base a restored entry's image had), else none;
-/// - each file has its SHA-1, its download's SHA-512, size and CDN URL, and the `env` the
-///   pack at `pack_path` gives it (unknown without the pack). A mod is listed under its
-///   disabled name too, so a pack mod disabled in the Mods tab keeps what the pack says.
-///
-/// Reads the pack, so call it on a blocking thread.
-pub fn base_info(
-    origin: &ModpackOrigin,
-    pack_path: Option<&Path>,
-    files: &BTreeMap<String, PackFile>,
-    fallback: Option<Base>,
-) -> BaseInfo {
-    let on_modrinth = !origin.project_id.is_empty() && !origin.version_id.is_empty();
-    let hashed = pack_path
-        .filter(|_| on_modrinth)
-        .and_then(pack_sha512)
-        .map(|sha512| Base::ModrinthPack {
-            project: origin.project_id.clone(),
-            version: origin.version_id.clone(),
-            sha512,
-        });
-    let fallback = fallback.filter(|base| {
-        on_modrinth
-            && matches!(base, Base::ModrinthPack { project, version, .. }
-                if *project == origin.project_id && *version == origin.version_id)
-    });
-    let envs = match pack_path {
-        Some(path) => pack_envs(path).unwrap_or_else(|e| {
-            warn!("Could not read which sides the modpack's files are for: {e}");
-            HashMap::new()
-        }),
-        None => HashMap::new(),
-    };
-    let mut info = BaseInfo {
-        base: hashed.or(fallback),
-        files: BTreeMap::new(),
-    };
-    for (path, file) in files {
-        let base_file = BaseFile {
-            sha1: file.sha1.to_ascii_lowercase(),
-            sha256: None,
-            size: file.download.as_ref().map(|d| d.size),
-            env: envs.get(path).copied(),
-            modrinth_url: cdn_url(file),
-            sha512: file
-                .download
-                .as_ref()
-                .map(|d| d.sha512.to_ascii_lowercase()),
-        };
-        if path.to_ascii_lowercase().ends_with(".jar") {
-            info.files.insert(disabled_name(path), base_file.clone());
-        }
-        info.files.insert(path.clone(), base_file);
+/// The label of the content image a restore records, from the label of the image it went
+/// back to.
+pub fn restore_label(target: Option<&str>) -> String {
+    match target.map(str::trim).filter(|label| !label.is_empty()) {
+        Some(label) => format!("Restored \u{201c}{label}\u{201d}"),
+        None => "Restored an earlier version".to_string(),
     }
-    info
 }
 
 // ---- recording ----
 
-/// Saves `info` as the server's `pack.json`, then ends `op` by recording the server's
-/// content image now. Returns the image's id, or `None` when nothing could be recorded (or
-/// images aren't kept for the server), which is logged and never fails the caller.
-pub async fn record(
-    images: &Arc<ImageService>,
-    ctx: InstanceContext,
-    op: Operation,
-    info: BaseInfo,
-) -> Option<String> {
-    save_pack(images, &ctx.uuid, info).await;
-    let uuid = ctx.uuid.clone();
-    match op.succeed_and_record(ctx).await {
-        Ok(recorded) => recorded.map(|r| r.id),
-        Err(e) => {
-            warn!(
-                "Could not record the content image of {uuid}; the modpack history keeps the entry without one: {}",
-                e.source
-            );
-            None
-        }
-    }
-}
-
-/// [`record`] for a server that has no operation to end: a new server, whose files nobody
-/// else changes yet.
-pub async fn record_new(
-    images: &Arc<ImageService>,
-    ctx: InstanceContext,
-    info: BaseInfo,
-    label: String,
-) -> Option<String> {
-    save_pack(images, &ctx.uuid, info).await;
-    let uuid = ctx.uuid.clone();
-    match images.record_now(ctx, OpKind::Modpack, label).await {
-        Ok(recorded) => recorded.map(|r| r.id),
-        Err(e) => {
-            warn!(
-                "Could not record the content image of {uuid}; the modpack history keeps the entry without one: {}",
-                e.source
-            );
-            None
-        }
-    }
-}
-
 /// Records the first content image of a server just made from the pack at `pack_path`
 /// (its files, as installed, are `files`), before the core lists it: `pack.json` from the
-/// pack, then the image, labelled "Installed <pack> <version>". Returns its id for the
-/// history's Install entry; `None` when nothing could be recorded, which never fails the
-/// creation.
+/// pack, then the image, labelled "Installed <pack> <version>". Returns its id; `None` when
+/// nothing could be recorded, which is logged and never fails the creation.
 #[allow(clippy::too_many_arguments)]
 pub async fn record_install(
     state: &crate::AppState,
@@ -267,12 +95,14 @@ pub async fn record_install(
     }
     let info = {
         let (origin, pack_path, files) = (origin.clone(), pack_path.to_path_buf(), files.clone());
-        tokio::task::spawn_blocking(move || base_info(&origin, Some(&pack_path), &files, None))
-            .await
-            .ok()?
+        tokio::task::spawn_blocking(move || {
+            super::pack_info::base_info(&origin, Some(&pack_path), &record_of(&files), &files)
+        })
+        .await
+        .ok()?
     };
-    // pruning finds the server's history in its folder until the core lists it
-    let _creating = creating(uuid, root);
+    let images = state.images();
+    super::pack_info::save(images, uuid, info).await;
     let exclude = state
         .backups
         .policy(uuid)
@@ -287,29 +117,15 @@ pub async fn record_install(
         exclude,
     )
     .await;
-    record_new(
-        state.images(),
-        ctx,
-        info,
-        label(&HistoryKind::Install, origin),
-    )
-    .await
-}
-
-/// Writes `pack.json`; a failure only loses the base and `env` of the images to come.
-async fn save_pack(images: &Arc<ImageService>, uuid: &InstanceUuid, info: BaseInfo) {
-    if !ImageService::accepts(uuid) {
-        return;
-    }
-    let root = images.root().to_path_buf();
-    let id = uuid.clone();
-    let saved =
-        tokio::task::spawn_blocking(move || crate::images::base::save_base(&root, &id, &info))
-            .await;
-    match saved {
-        Ok(Ok(())) => {}
-        Ok(Err(e)) => warn!("Could not write the modpack files of {uuid}: {}", e.source),
-        Err(e) => warn!("Could not write the modpack files of {uuid}: {e}"),
+    match images
+        .record_now(ctx, OpKind::Modpack, install_label(origin))
+        .await
+    {
+        Ok(recorded) => recorded.map(|r| r.id),
+        Err(e) => {
+            warn!("Could not record the content image of {uuid}: {}", e.source);
+            None
+        }
     }
 }
 
@@ -345,189 +161,561 @@ pub async fn new_server_context(
     }
 }
 
-/// What an update or restore learned before it changed anything.
-#[derive(Debug, Clone, Default)]
-pub struct Before {
-    /// The current content image before the change: a baseline entry's image.
-    pub current: Option<String>,
-}
-
-/// Before an update or restore of the server `ctx` changes its files: records what the Mods
-/// tab or the Files API changed in the last seconds (so the current image is the content
-/// as it is) and notes the current image. Best effort; never fails.
-pub async fn before_change(images: &Arc<ImageService>, ctx: &InstanceContext) -> Before {
+/// Before an update or restore of the server `ctx` changes its files: records its content
+/// as it is now (what the Mods tab or the Files API changed in the last seconds, and what
+/// changed outside Lodestone), so the current image is the content on disk and every file
+/// the change takes off the server is in an image. A server with no image yet gets its
+/// first. Best effort: a failure is logged, and the change goes on.
+pub async fn before_change(images: &Arc<ImageService>, ctx: InstanceContext) {
     if !ImageService::accepts(&ctx.uuid) {
-        return Before::default();
+        return;
     }
-    if let Err(e) = images.flush(ctx.clone()).await {
+    let uuid = ctx.uuid.clone();
+    let label = match images.current_content(&uuid).await {
+        Some(_) => OUTSIDE_LABEL,
+        None => INITIAL_LABEL,
+    };
+    if let Err(e) = images
+        .record_now(ctx, OpKind::Modpack, label.to_string())
+        .await
+    {
         warn!(
-            "Could not record the content of {} before its modpack changed: {}",
-            ctx.uuid, e.source
+            "Could not record the content of {uuid} before its modpack changed: {}",
+            e.source
         );
     }
-    Before {
-        current: images.current_content(&ctx.uuid).await,
+}
+
+// ---- which files a restore changes ----
+
+/// The server software, which a restore never copies: when the loader version differs,
+/// the restore installs it again instead.
+const SOFTWARE_DIRS: [&str; 2] = ["libraries/", "versions/"];
+/// Content a restore leaves as it is: the server software's start files, and the server's
+/// settings and admin lists, which Lodestone and the server's commands manage (an older
+/// image must not bring back an op removed since, or another port).
+const LEFT_AS_THEY_ARE: [&str; 7] = [
+    "server.properties",
+    "eula.txt",
+    "ops.json",
+    "whitelist.json",
+    "run.sh",
+    "run.bat",
+    "user_jvm_args.txt",
+];
+
+/// Whether a restore puts back the content file at canonical `path`: mods, configs,
+/// plugins and the rest of the content, but not the server software (`libraries/`,
+/// `versions/`, top-level jars) or the files in [`LEFT_AS_THEY_ARE`]. Scripts only when
+/// `allow_scripts`, as for installing a pack. Names match ignoring ASCII case, as the
+/// content scope's do.
+fn restorable(path: &str, allow_scripts: bool) -> bool {
+    let lower = path.to_ascii_lowercase();
+    let top_level = !lower.contains('/');
+    if SOFTWARE_DIRS.iter().any(|dir| lower.starts_with(dir))
+        || (top_level && (lower.ends_with(".jar") || LEFT_AS_THEY_ARE.contains(&lower.as_str())))
+    {
+        return false;
+    }
+    let Some(relative) = super::update::record_path(path) else {
+        return false;
+    };
+    let components: Vec<String> = relative
+        .components()
+        .map(|c| c.as_os_str().to_string_lossy().into_owned())
+        .collect();
+    let components: Vec<&str> = components.iter().map(String::as_str).collect();
+    use lodestone_minecraft::mrpack::PathPolicy;
+    InstancePathPolicy { allow_scripts }
+        .skip_reason(&relative, &components, false)
+        .is_none()
+}
+
+/// An image's entries a restore puts back, by canonical path. History listings count
+/// scripts too: whether one may be restored depends on who asks.
+fn restorable_entries(image: &Image, allow_scripts: bool) -> BTreeMap<&str, &Entry> {
+    image
+        .entries
+        .iter()
+        .filter(|e| restorable(e.path.as_str(), allow_scripts))
+        .map(|e| (e.path.as_str(), e))
+        .collect()
+}
+
+/// Whether `entry` can be downloaded again: a Modrinth file with the hashes a download is
+/// checked against.
+fn download_of(entry: &Entry, disk: &str) -> Option<PackDownload> {
+    let Source::Modrinth { url, .. } = &entry.source else {
+        return None;
+    };
+    let url = url::Url::parse(url).ok()?;
+    if !lodestone_minecraft::mrpack::is_allowed_download(&url) {
+        return None;
+    }
+    Some(PackDownload {
+        path: PathBuf::from(disk),
+        urls: vec![url],
+        sha1: entry.sha1.clone()?.to_ascii_lowercase(),
+        sha512: entry.sha512.clone()?.to_ascii_lowercase(),
+        size: entry.size,
+    })
+}
+
+// ---- the History API ----
+
+/// A change as the dashboard shows it. A removed and an added file of the same Modrinth
+/// project, or with the same contents (a mod enabled or disabled), are one `updated`
+/// change, from `old_path` to `path`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum ChangeKind {
+    Added,
+    Updated,
+    Replaced,
+    Removed,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct ChangeInfo {
+    pub kind: ChangeKind,
+    /// The file's path after the change (before it, for a removed file).
+    pub path: String,
+    /// The old path of an updated file.
+    pub old_path: Option<String>,
+    pub project_id: Option<String>,
+}
+
+/// One entry of the history: a content image.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct HistoryEntryInfo {
+    /// The content image's id: what a restore names.
+    pub id: String,
+    /// When it was recorded, unix milliseconds.
+    #[ts(type = "number")]
+    pub time: i64,
+    /// What made it: "Installed Test Pack 1", "Updated Test Pack to 2", "Added JEI",
+    /// "Changed outside Lodestone".
+    pub label: String,
+    pub game_version: String,
+    /// `fabric`, `forge`, `neoforge` (or `vanilla` for a server without mods).
+    pub loader: String,
+    pub loader_version: Option<String>,
+    /// The mods and configs it changed, from the image before it. Empty for the first.
+    pub changes: Vec<ChangeInfo>,
+    /// How many files a restore of it puts back (mods, configs and other content, not
+    /// the server software or the server's own settings).
+    pub file_count: u32,
+    /// The server's content is this image.
+    pub current: bool,
+    /// How many of the files a restore would write Lodestone can't get (the store lost
+    /// them and they can't be downloaded): it can only be restored when this is 0.
+    pub missing: u32,
+}
+
+/// `GET /instance/{uuid}/modpack/history`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct ModpackHistory {
+    /// Newest first.
+    pub entries: Vec<HistoryEntryInfo>,
+    /// For each mod and config of the current content (by path, a mod by its enabled name),
+    /// the id of the entry its current version came with.
+    pub blame: BTreeMap<String, String>,
+    /// A newer version of the modpack on Modrinth, when the last check found one.
+    pub update: Option<super::updates::AvailableUpdate>,
+}
+
+/// The Modrinth project of an entry, from its source.
+fn project_of(entry: &Entry) -> Option<String> {
+    match &entry.source {
+        Source::Modrinth { project, .. } => Some(project.clone()),
+        _ => None,
     }
 }
 
-// ---- restoring from images ----
+/// What `newer` changed from `older` (both by path), with removed and added files of one
+/// project, or with the same contents, paired as updates.
+fn change_infos(newer: &BTreeMap<&str, &Entry>, older: &BTreeMap<&str, &Entry>) -> Vec<ChangeInfo> {
+    let removed: Vec<&Entry> = older
+        .iter()
+        .filter(|(path, _)| !newer.contains_key(*path))
+        .map(|(_, e)| *e)
+        .collect();
+    let mut paired: HashSet<&str> = HashSet::new();
+    let mut infos = Vec::new();
+    for (path, entry) in newer {
+        match older.get(path) {
+            Some(old) if old.sha256 == entry.sha256 => {}
+            Some(_) => infos.push(ChangeInfo {
+                kind: ChangeKind::Replaced,
+                path: path.to_string(),
+                old_path: None,
+                project_id: project_of(entry),
+            }),
+            None => {
+                let project = project_of(entry);
+                let old = removed.iter().find(|old| {
+                    !paired.contains(old.path.as_str())
+                        && (old.sha256 == entry.sha256
+                            || (project.is_some() && project_of(old) == project))
+                });
+                match old {
+                    Some(old) => {
+                        paired.insert(old.path.as_str());
+                        infos.push(ChangeInfo {
+                            kind: ChangeKind::Updated,
+                            path: path.to_string(),
+                            old_path: Some(old.path.to_string()),
+                            project_id: project,
+                        });
+                    }
+                    None => infos.push(ChangeInfo {
+                        kind: ChangeKind::Added,
+                        path: path.to_string(),
+                        old_path: None,
+                        project_id: project,
+                    }),
+                }
+            }
+        }
+    }
+    for old in removed {
+        if !paired.contains(old.path.as_str()) {
+            infos.push(ChangeInfo {
+                kind: ChangeKind::Removed,
+                path: old.path.to_string(),
+                old_path: None,
+                project_id: project_of(old),
+            });
+        }
+    }
+    infos.sort_by(|a, b| (a.kind as u8, &a.path).cmp(&(b.kind as u8, &b.path)));
+    infos
+}
+
+/// Whether `files` has the file at `path` with these contents, under its own name or the
+/// mod's other (enabled or disabled) name.
+fn has_file(files: &BTreeMap<&str, &Entry>, path: &str, sha256: &str) -> bool {
+    let enabled = enabled_name(path);
+    [path.to_string(), enabled.clone(), disabled_name(&enabled)]
+        .iter()
+        .any(|candidate| {
+            files
+                .get(candidate.as_str())
+                .is_some_and(|e| e.sha256 == sha256)
+        })
+}
+
+/// The loader an image's game runs, as the dashboard names it.
+fn loader_of(game: &Game) -> String {
+    game.loader.as_str().to_string()
+}
+
+/// The content images among `images`, newest first: by when they were recorded, and those
+/// recorded in the same second by their lineage (an image comes before the one it was
+/// recorded after), since a restore and the record before it are often a second apart at
+/// most.
+fn newest_first(images: &[Image]) -> Vec<&Image> {
+    let content: Vec<&Image> = images.iter().filter(|i| i.kind == Kind::Content).collect();
+    let by_id: HashMap<&str, &Image> = content.iter().map(|i| (i.id.as_str(), *i)).collect();
+    // How many ancestors each has in the listing; a walk stops at an id it has seen, since
+    // returning to earlier content gives an image an id it had before.
+    let depth = |image: &Image| {
+        let mut seen = HashSet::new();
+        let mut at = image;
+        while seen.insert(at.id.as_str()) {
+            match at.parent.as_deref().and_then(|p| by_id.get(p)) {
+                Some(parent) => at = parent,
+                None => break,
+            }
+        }
+        seen.len()
+    };
+    let mut ordered: Vec<(&Image, usize)> = content.into_iter().map(|i| (i, depth(i))).collect();
+    ordered.sort_by(|(a, da), (b, db)| {
+        b.created
+            .cmp(&a.created)
+            .then(db.cmp(da))
+            .then(a.id.cmp(&b.id))
+    });
+    ordered.into_iter().map(|(image, _)| image).collect()
+}
+
+/// The server's modpack history (see the module): its content images, newest first. A
+/// manifest that can't be read is left out, with a warning. Reads the image store, so call
+/// it on a blocking thread.
+pub fn history(
+    store: &Store,
+    uuid: &InstanceUuid,
+    update: Option<super::updates::AvailableUpdate>,
+) -> ModpackHistory {
+    let mut history = ModpackHistory {
+        entries: Vec::new(),
+        blame: BTreeMap::new(),
+        update,
+    };
+    if !ImageService::accepts(uuid) {
+        return history;
+    }
+    let listing = match store.list_manifests(uuid.as_ref()) {
+        Ok(listing) => listing,
+        Err(e) => {
+            warn!("Could not list the content images of {uuid}: {e}");
+            return history;
+        }
+    };
+    for (id, why) in &listing.unreadable {
+        warn!("Leaving the image {id} of {uuid} out of its history: {why}");
+    }
+    let images = newest_first(&listing.images);
+    let current_id = crate::images::state::load(store.root(), uuid).current;
+    let current = current_id
+        .as_deref()
+        .and_then(|id| images.iter().position(|image| image.id == id));
+    let index: HashMap<&str, usize> = images
+        .iter()
+        .enumerate()
+        .map(|(i, image)| (image.id.as_str(), i))
+        .collect();
+    let files: Vec<BTreeMap<&str, &Entry>> = images
+        .iter()
+        .map(|image| restorable_entries(image, true))
+        .collect();
+    let empty = BTreeMap::new();
+    let current_files = current.map_or(&empty, |c| &files[c]);
+    let mut available: HashMap<(&str, u64), bool> = HashMap::new();
+    for (i, image) in images.iter().enumerate() {
+        // The image it was recorded after; one pruned since stands for the next older.
+        let older = image
+            .parent
+            .as_ref()
+            .map(|parent| {
+                index
+                    .get(parent.as_str())
+                    .copied()
+                    .filter(|&o| o != i)
+                    .unwrap_or(i + 1)
+            })
+            .filter(|&o| o < images.len());
+        let changes = match older {
+            Some(o) => change_infos(&files[i], &files[o]),
+            None => Vec::new(),
+        };
+        let missing = files[i]
+            .values()
+            .filter(|entry| {
+                let needed = current_files
+                    .get(entry.path.as_str())
+                    .is_none_or(|have| have.sha256 != entry.sha256);
+                needed
+                    && !*available
+                        .entry((entry.sha256.as_str(), entry.size))
+                        .or_insert_with(|| store.object_complete(&entry.sha256, entry.size))
+                    && download_of(entry, entry.path.as_str()).is_none()
+            })
+            .count();
+        history.entries.push(HistoryEntryInfo {
+            id: image.id.clone(),
+            time: image.created.saturating_mul(1000),
+            label: image.label.clone().unwrap_or_default(),
+            game_version: image.game.minecraft.clone(),
+            loader: loader_of(&image.game),
+            loader_version: image.game.loader_version.clone(),
+            changes,
+            file_count: files[i].len() as u32,
+            current: Some(i) == current,
+            missing: missing as u32,
+        });
+    }
+    if let Some(c) = current {
+        for (path, entry) in &files[c] {
+            let mut came_with = c;
+            while came_with + 1 < images.len()
+                && has_file(&files[came_with + 1], path, &entry.sha256)
+            {
+                came_with += 1;
+            }
+            history
+                .blame
+                .insert(enabled_name(path), images[came_with].id.clone());
+        }
+    }
+    history
+}
+
+// ---- restoring ----
+
+/// What a restore goes back to: the parts of its content image the restore needs beyond
+/// the files.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RestoreTarget {
+    pub id: String,
+    pub label: Option<String>,
+    pub base: Option<Base>,
+    pub game: Game,
+}
+
+/// A restore, worked out before anything changes.
+#[derive(Debug, Clone)]
+pub struct RestorePlan {
+    pub target: RestoreTarget,
+    /// The changes, by disk path (a change's `path` and `target` are the same).
+    pub plan: FilePlan,
+    /// Where each added or replaced file's bytes come from, by disk path.
+    pub sources: BTreeMap<String, FileSource>,
+    /// Files the restore must write that Lodestone can't get, by disk path.
+    pub missing: Vec<String>,
+    /// Paths where the restore would write a file but something else is in the way (a
+    /// folder, a link), which it never moves.
+    pub blocked: Vec<String>,
+    /// The bytes it downloads.
+    pub download_size: u64,
+    /// How many files the image has that a restore puts back.
+    pub file_count: u32,
+}
+
+fn not_in_history() -> Error {
+    Error {
+        kind: ErrorKind::NotFound,
+        source: eyre!("That version is no longer in the server's history"),
+    }
+}
 
 /// Whether `id` can be an image id (64 lowercase hex), before it is used in a path.
-fn is_image_id(id: &str) -> bool {
+pub fn is_image_id(id: &str) -> bool {
     id.len() == 64 && id.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
 }
 
-/// The files of history entries' content images, read from the image store. Remembers what
-/// it read, so asking about every entry of a history reads each manifest once and hashes
-/// each object at most once. Blocking.
-pub struct ImageLookup {
-    store: Arc<Store>,
-    instance: String,
-    /// Whether images are kept for the instance at all.
-    kept: bool,
-    manifests: RefCell<HashMap<String, Option<Arc<HashMap<String, Entry>>>>>,
-    sha1s: RefCell<HashMap<String, Option<String>>>,
-}
-
-impl ImageLookup {
-    pub fn new(store: Arc<Store>, uuid: &InstanceUuid) -> ImageLookup {
-        ImageLookup {
-            store,
-            instance: uuid.as_ref().to_string(),
-            kept: ImageService::accepts(uuid),
-            manifests: Default::default(),
-            sha1s: Default::default(),
+/// Plans restoring the content image `target` on the server in `root` whose current content
+/// image is `current`: every content file a restore puts back ([`restorable`]) becomes as
+/// the target has it. A file the target has that the current image doesn't, or with other
+/// contents, is added or replaced from the image store (or downloaded again from Modrinth
+/// when the store lost it); a file the current image has that the target doesn't is
+/// removed. Files neither image lists (left out by the backup policy's excludes, withheld,
+/// or not content at all) are never touched. Reads manifests and looks at the server's
+/// files, so call it on a blocking thread.
+#[allow(clippy::too_many_arguments)]
+pub fn plan_restore(
+    store: &Store,
+    uuid: &InstanceUuid,
+    root: &Path,
+    layout: &DiskLayout,
+    current: &str,
+    target: &str,
+    allow_scripts: bool,
+) -> Result<RestorePlan, Error> {
+    if !is_image_id(target) || !ImageService::accepts(uuid) {
+        return Err(not_in_history());
+    }
+    let target_image = store
+        .load_manifest(uuid.as_ref(), target)
+        .map_err(|_| not_in_history())?;
+    if target_image.kind != Kind::Content {
+        return Err(not_in_history());
+    }
+    let current_image = store
+        .load_manifest(uuid.as_ref(), current)
+        .map_err(|e| eyre!("Could not read the server's current content: {e}"))?;
+    let on_disk = |image: &Image| -> BTreeMap<String, Entry> {
+        restorable_entries(image, allow_scripts)
+            .into_values()
+            .filter_map(|entry| Some((layout.to_disk(&entry.path).ok()?, entry.clone())))
+            .filter(|(disk, _)| super::update::record_path(disk).is_some())
+            .collect()
+    };
+    let wanted = on_disk(&target_image);
+    let have = on_disk(&current_image);
+    let file_count = wanted.len() as u32;
+    let mut plan = RestorePlan {
+        target: RestoreTarget {
+            id: target_image.id.clone(),
+            label: target_image.label.clone(),
+            base: target_image.base.clone(),
+            game: target_image.game.clone(),
+        },
+        plan: FilePlan::default(),
+        sources: BTreeMap::new(),
+        missing: Vec::new(),
+        blocked: Vec::new(),
+        download_size: 0,
+        file_count,
+    };
+    // What is at a path now: a regular file, nothing, or something a restore never moves.
+    enum There {
+        File,
+        Nothing,
+        Other,
+    }
+    let there = |disk: &str| match std::fs::symlink_metadata(root.join(disk)) {
+        Ok(meta) if meta.is_file() => There::File,
+        Ok(_) => There::Other,
+        Err(_) => There::Nothing,
+    };
+    let change = |path: &str, action| FileChange {
+        path: path.to_string(),
+        target: path.to_string(),
+        action,
+    };
+    for disk in have.keys() {
+        if !wanted.contains_key(disk) && matches!(there(disk), There::File) {
+            plan.plan.changes.push(change(disk, FileAction::Remove));
         }
     }
-
-    /// The entries of image `id`, by path; `None` when it can't be read.
-    fn entries(&self, id: &str) -> Option<Arc<HashMap<String, Entry>>> {
-        if let Some(cached) = self.manifests.borrow().get(id) {
-            return cached.clone();
+    for (disk, entry) in &wanted {
+        if have.get(disk).is_some_and(|c| c.sha256 == entry.sha256) {
+            continue;
         }
-        let entries = if self.kept && is_image_id(id) {
-            match self.store.load_manifest(&self.instance, id) {
-                Ok(image) => Some(Arc::new(
-                    image
-                        .entries
-                        .into_iter()
-                        .map(|e| (e.path.to_string(), e))
-                        .collect(),
-                )),
-                Err(e) => {
-                    warn!(
-                        "Could not read the content image {id} of {}: {e}",
-                        self.instance
-                    );
-                    None
-                }
+        let action = match there(disk) {
+            There::File => FileAction::Replace,
+            There::Nothing => FileAction::Add,
+            There::Other => {
+                plan.blocked.push(disk.clone());
+                continue;
             }
+        };
+        let source = if store.object_complete(&entry.sha256, entry.size) {
+            FileSource::Image(ImageFile {
+                sha256: entry.sha256.clone(),
+                size: entry.size,
+            })
+        } else if let Some(download) = download_of(entry, disk) {
+            plan.download_size += download.size;
+            FileSource::Download(download)
         } else {
-            None
-        };
-        self.manifests
-            .borrow_mut()
-            .insert(id.to_string(), entries.clone());
-        entries
-    }
-
-    /// The SHA-1 of the object for `entry`, read and checked by the store.
-    fn sha1_of(&self, entry: &Entry) -> Option<String> {
-        if let Some(sha1) = &entry.sha1 {
-            return Some(sha1.to_ascii_lowercase());
-        }
-        if let Some(cached) = self.sha1s.borrow().get(&entry.sha256) {
-            return cached.clone();
-        }
-        struct Hashing(sha1::Sha1);
-        impl std::io::Write for Hashing {
-            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-                self.0.update(bytes);
-                Ok(bytes.len())
-            }
-            fn flush(&mut self) -> std::io::Result<()> {
-                Ok(())
-            }
-        }
-        let mut hashing = Hashing(sha1::Sha1::new());
-        let sha1 = self
-            .store
-            .read_object(&entry.sha256, entry.size, &mut hashing, NEVER)
-            .ok()
-            .map(|()| {
-                hashing
-                    .0
-                    .finalize()
-                    .iter()
-                    .map(|b| format!("{b:02x}"))
-                    .collect::<String>()
-            });
-        self.sha1s
-            .borrow_mut()
-            .insert(entry.sha256.clone(), sha1.clone());
-        sha1
-    }
-
-    /// The object of the file `entry` had at `path` (a pack path; a mod may be in the image
-    /// under its disabled name), when the entry's image has it with this `sha1` and the
-    /// store has all of it.
-    pub fn file(&self, entry: &HistoryEntry, path: &str, sha1: &str) -> Option<ImageFile> {
-        let entries = self.entries(entry.image.as_deref()?)?;
-        let mut candidates = vec![path.to_string()];
-        if path.to_ascii_lowercase().ends_with(".jar") {
-            candidates.push(disabled_name(path));
-        }
-        candidates.iter().find_map(|candidate| {
-            let found = entries.get(candidate)?;
-            if !self.store.object_complete(&found.sha256, found.size) {
-                return None;
-            }
-            self.sha1_of(found)
-                .filter(|have| have.eq_ignore_ascii_case(sha1))
-                .map(|_| ImageFile {
-                    sha256: found.sha256.clone(),
-                    size: found.size,
-                })
-        })
-    }
-}
-
-impl EntryFiles for ImageLookup {
-    fn can_get_back(&self, entry: &HistoryEntry, path: &str, sha1: &str) -> bool {
-        self.file(entry, path, sha1).is_some()
-    }
-}
-
-/// Gives each file a restore of `entry` must write (an add or a replace in `plan`) that has
-/// neither a stored copy nor a download the copy its content image has, when that is the
-/// same file ([`ImageLookup`]). Reads the image store, so call it on a blocking thread.
-pub fn fill_from_image(
-    lookup: &ImageLookup,
-    entry: &HistoryEntry,
-    plan: &FilePlan,
-    files: &mut BTreeMap<String, PackFile>,
-) {
-    if entry.image.is_none() {
-        return;
-    }
-    for change in plan
-        .changes
-        .iter()
-        .filter(|c| c.action != FileAction::Remove)
-    {
-        let Some(file) = files.get_mut(&change.path) else {
+            plan.missing.push(disk.clone());
             continue;
         };
-        if file.stored.is_some() || file.download.is_some() {
-            continue;
-        }
-        file.image = lookup.file(entry, &change.path, &file.sha1);
+        plan.sources.insert(disk.clone(), source);
+        plan.plan.changes.push(change(disk, action));
     }
+    Ok(plan)
 }
 
-/// The SHA-512 of the file `image` stands for, read and checked by `store`: what a restore
-/// asks Modrinth about before it puts a jar back for a user who can't write global files.
-/// Blocking.
+/// The server software an image's game ran, for a restore that installs it again. `None`
+/// for a server without a mod loader, or a loader version the image doesn't say.
+pub fn flavour_of_game(game: &Game) -> Option<Flavour> {
+    let version = game.loader_version.clone()?;
+    Some(match game.loader {
+        Loader::Fabric => Flavour::Fabric {
+            loader_version: Some(FabricLoaderVersion::new(version)),
+            installer_version: None,
+        },
+        Loader::Forge => Flavour::Forge {
+            build_version: Some(ForgeBuildVersion::new(version)),
+        },
+        Loader::NeoForge => Flavour::NeoForge {
+            build_version: Some(NeoForgeBuildVersion::new(version)),
+        },
+        _ => return None,
+    })
+}
+
+/// The SHA-512 of the file `image` stands for, read and checked by `store` (never what a
+/// manifest says about it): what a restore asks Modrinth about before it puts a jar back
+/// for a user who can't write global files. Blocking.
 pub fn image_sha512(store: &Store, image: &ImageFile) -> Option<String> {
     struct Hashing(sha2::Sha512);
     impl std::io::Write for Hashing {
@@ -551,78 +739,52 @@ pub fn image_sha512(store: &Store, image: &ImageFile) -> Option<String> {
     )
 }
 
-/// The base a history entry's content image had, for a restore whose pack Lodestone no
-/// longer has. Blocking.
-pub fn image_base(store: &Store, uuid: &InstanceUuid, entry: &HistoryEntry) -> Option<Base> {
-    let id = entry.image.as_deref().filter(|id| is_image_id(id))?;
-    if !ImageService::accepts(uuid) {
-        return None;
-    }
-    store.load_manifest(uuid.as_ref(), id).ok()?.base
+// ---- retention during a restore ----
+
+/// The images restores in progress go back to, by server.
+fn restoring() -> &'static StdMutex<Vec<(InstanceUuid, String)>> {
+    static RESTORING: OnceLock<StdMutex<Vec<(InstanceUuid, String)>>> = OnceLock::new();
+    RESTORING.get_or_init(Default::default)
 }
 
-// ---- retention ----
+/// While it lives, pruning keeps the image a restore goes back to ([`RestoreRefs`]).
+pub struct Restoring(InstanceUuid, String);
 
-/// Servers being created, which the core doesn't list yet, by uuid: where their history is.
-fn creating_roots() -> &'static StdMutex<HashMap<InstanceUuid, PathBuf>> {
-    static CREATING: OnceLock<StdMutex<HashMap<InstanceUuid, PathBuf>>> = OnceLock::new();
-    CREATING.get_or_init(Default::default)
-}
-
-/// While it lives, [`LineageRefs`] finds the history of a server being created at its
-/// folder. See [`creating`].
-pub struct Creating(InstanceUuid);
-
-impl Drop for Creating {
+impl Drop for Restoring {
     fn drop(&mut self) {
-        creating_roots()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .remove(&self.0);
+        let mut restoring = restoring().lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(i) = restoring
+            .iter()
+            .position(|(uuid, id)| *uuid == self.0 && *id == self.1)
+        {
+            restoring.swap_remove(i);
+        }
     }
 }
 
-/// Notes that the server `uuid` is being created in `root`, until the guard is dropped.
-pub fn creating(uuid: &InstanceUuid, root: &Path) -> Creating {
-    creating_roots()
+/// Keeps the image `id` of `uuid` until the guard is dropped: the record before a restore
+/// ([`before_change`]) may make it the 31st newest, which pruning would delete right before
+/// the restore reads it.
+pub fn keep_while_restoring(uuid: &InstanceUuid, id: &str) -> Restoring {
+    restoring()
         .lock()
         .unwrap_or_else(|e| e.into_inner())
-        .insert(uuid.clone(), root.to_path_buf());
-    Creating(uuid.clone())
+        .push((uuid.clone(), id.to_string()));
+    Restoring(uuid.clone(), id.to_string())
 }
 
-/// The images each server's modpack history names, for the image service's pruning
-/// ([`ImageRefs`]): every entry's image, read from `history.json`. A history that can't be
-/// read, or a server the core doesn't know, is an error, so pruning deletes nothing rather
-/// than an image the history may still name.
-pub struct LineageRefs {
-    instances: Arc<DashMap<InstanceUuid, GameInstance>>,
-}
-
-impl LineageRefs {
-    pub fn new(instances: Arc<DashMap<InstanceUuid, GameInstance>>) -> LineageRefs {
-        LineageRefs { instances }
-    }
-}
+/// The images restores in progress go back to, for the image service's pruning.
+pub struct RestoreRefs;
 
 #[async_trait]
-impl ImageRefs for LineageRefs {
+impl ImageRefs for RestoreRefs {
     async fn refs(&self, uuid: &InstanceUuid) -> Result<HashSet<String>, Error> {
-        let instance = self.instances.get(uuid).map(|i| i.value().clone());
-        let root = match instance {
-            Some(GameInstance::MinecraftInstance(instance)) => instance.path().await,
-            None => creating_roots()
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .get(uuid)
-                .cloned()
-                .ok_or_else(|| color_eyre::eyre::eyre!("There is no server {uuid}"))?,
-        };
-        let history = History::load_checked(&root).await?;
-        Ok(history
-            .entries
-            .into_iter()
-            .filter_map(|entry| entry.image)
+        Ok(restoring()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .filter(|(of, _)| of == uuid)
+            .map(|(_, id)| id.clone())
             .collect())
     }
 }

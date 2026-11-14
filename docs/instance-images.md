@@ -309,8 +309,7 @@ view(image, side, rules) = entries with env[side] ≠ unsupported that the side 
   `owner_mark` in `env_from` with `env.client` not `unsupported`. The server view carries
   every config.
 - The client view never carries Lodestone's own files (top-level `.lodestone*`: a server's
-  modpack record and history are its bookkeeping, and images from a server can't write
-  Lodestone's files) or a server's own state that a client never uses: `plugins/`,
+  own bookkeeping, and images from a server can't write Lodestone's files) or a server's own state that a client never uses: `plugins/`,
   `bukkit.yml`, `spigot.yml`, `commands.yml`, `help.yml`, `permissions.yml`, `paper.yml`,
   `purpur.yml`, `pufferfish.yml`, Paper's `.console_history` (commands the admin typed)
   and `version_history.json`, `usercache.json`, `usernamecache.json`, Forge's and
@@ -403,7 +402,7 @@ Content-addressed, shared by every instance on one machine:
 <root>/images/<instance>/stat-cache.json            the backups' (data) stat cache
 <root>/images/<instance>/stat-cache.<name>.json     other named stat caches (the core's "content")
 <root>/images/<instance>/content-state.json         the core: current content image and baseline
-<root>/images/<instance>/pack.json                  the core: the pack a server is built on
+<root>/images/<instance>/pack.json                  the core: the pack a server is built on, and its files
 <root>/images/<instance>/backups.json               the core: the server's backups, each naming its data image
 <root>/images/<instance>/backup-policy.json         the core: the backups' schedule, retention and excludes
 <root>/images/<instance>/restore-journal.json       the core: a restore's swap in progress
@@ -579,8 +578,9 @@ rewrites at startup) don't make content images; snapshots and backups capture th
 
 ## Retention
 
-- Content images: the lineage is kept like modpack history (newest 30, plus every image a
-  data image links to). Manifests only; objects are shared.
+- Content images are the lineage, which is also the modpack history: the newest 30, the
+  current one, and every image a data image links to are kept. Manifests only; objects are
+  shared.
 - Data images: the core's backup rules (keep last N, hourly, daily, weekly buckets;
   manual and pinned never deleted; safety images before a restore kept 30 days), never
   the content lineage's. The Launcher offers the same, per instance.
@@ -792,8 +792,8 @@ of M2 adds its own subsection.
   check fire.
 - **Retention.** Under the instance's lock: keep every data and full image (backups: the
   backup rules delete them, never pruning) and the `content` each links to, every image a
-  registered `ImageRefs` source names (the modpack history), the current pointer, and the
-  newest 30 content images by `created`; delete the other readable content manifests, keep
+  registered `ImageRefs` source names (a modpack restore in progress keeps the image it goes
+  back to), the current pointer, and the newest 30 content images by `created`; delete the other readable content manifests, keep
   unreadable ones, and delete nothing if a source fails. Pruning that deleted something
   asks for a collection.
 - **Deleting a server** deletes `images/<uuid>/` (`ImageService::delete_instance`); its
@@ -921,49 +921,73 @@ of M2 adds its own subsection.
 - **API.** The routes and shapes stay; `RestoreScope` gains `world_and_mods`; `skipped_count` is
   the image's withheld files; `new_bytes` is what the previous backup didn't have as it is now.
 
-#### Lineage: modpack history as content images (`core/src/modpack/lineage.rs`)
+#### Lineage: modpack history is the content-image lineage (`core/src/modpack/lineage.rs`)
 
-- **`history.json` stays the lineage's bookkeeping.** It keeps what an image doesn't model
-  (each entry's kind, origin, changes, kept files, changelog and how to get files back), and
-  `record.json` stays the update engine's record for its three-way merge. Each entry gains an
-  optional `image`, the id of its content image, left out when there is none. Both files
-  live in the server folder, so a backup restores them consistently with the files; a
-  separate index in `images/` would go out of step after a backup restore. No history kind
-  is added: Mods-tab images are lineage only, never entries. (Being reworked: M2 makes the
-  history the lineage of content images alone, without `history.json` beside them.)
-- **Writes.** An install, update or restore records one content image of the whole server
-  (the recorder's, see the foundation) only after it succeeded: after the record is saved and
-  the server software is installed. Before it, the update records anything queued (so the
-  current image is the content as it was), and that current image becomes a new baseline
-  entry's `image`. The operation (`OpKind::Modpack`) holds the content gate from before
-  staging until the record. Labels: "Installed <pack> <version>", "Updated <pack> to
-  <version>", "Restored <pack> to <version>". A failed operation records nothing and links
-  nothing; a record that fails is logged and the entry is kept without an image, never failing
-  the operation.
+- **No history file.** A server's history is its content images, all of them: a modpack
+  install, update or restore, a Mods-tab change, an edit through the Files API, a change
+  found before a start. There is no `history.json`, no `record.json` and no store of copies
+  in `.lodestone_modpack/objects/`. What is kept is what the content images' retention keeps
+  (the newest 30, the current one, every one a backup links to). A restore in progress keeps
+  the image it goes back to (`RestoreRefs`, an `ImageRefs` source), since the record before
+  it could make that image the 31st.
+- **The pack's files are `pack.json`.** What an update compares the server against (each
+  file the pack wrote, by disk path, with its SHA-1; a download's SHA-512, size and CDN URL)
+  is `images/<uuid>/pack.json`, the file the recorder reads for the base, the sources and
+  `env`. A file without a SHA-512 is one of the pack's overrides, and a download's Modrinth
+  project comes from its CDN URL. It lives outside the server folder, so a user who can only
+  write the server's files can't edit what an update removes. A mod is listed under its
+  disabled name too (for `env`); the update's record leaves those names out. With no
+  `pack.json`, or one without files, an update falls back to the files of the origin's pack
+  version on Modrinth, as before.
 - **`pack.json` from the pack.** The base is `modrinth_pack` with the SHA-512 of the
-  `.mrpack` the operation used (hashed by the core) when the pack is on Modrinth; an uploaded
-  pack is no base. Each file the pack wrote is listed by disk path with its SHA-1, its
-  download's SHA-512, size and CDN URL, and its `env`: an index file's `env` as written
-  (unknown when it has none); an `overrides/` file required on both sides; a
-  `server-overrides/` file unsupported on clients and required on servers; an `overrides/`
-  file that `client-overrides/` replaces for clients unsupported on clients (they get another
-  file). A mod is listed under its disabled name too, so a pack mod disabled in the Mods tab
-  keeps the pack's `env`. A restore uses the restored version's `.mrpack` (from the
-  downloaded packs, else downloaded again, waiting at most 60 s); without it, the base the
-  restored entry's image had (when it is the same version), with `env` unknown.
-- **Restoring.** Entries with and without an image restore through the same engine (plan,
-  stage, journaled place), so the three-way merge and kept files behave as before. A
-  file the restore must write that neither the history's store nor a download has is read
-  from the entry's image: the image's entry at that path (or the mod's disabled name), whose
-  SHA-1 (the entry's, or the object's, read and hashed) equals the history's, and whose
-  object the store has whole. Staging reads it through the store (every byte checked against
-  the SHA-256) and checks the copy's SHA-1 again. A restore by a user without
-  `WriteGlobalFile` hashes such a jar's SHA-512 from the store for the Modrinth check, as it
-  does stored copies. The History API's `missing` counts these files as ones Lodestone has.
-- **History API.** `GET /instance/{uuid}/modpack/history` keeps its shape; each entry gains
-  an optional `image` (left out when none). Entries, newest first, are every entry of
-  `history.json`, with or without an image (entries written before the server recorded
-  images have none).
-- **Retention.** The history is an `ImageRefs` source: every entry's `image`. A history
-  that can't be read, or a server the core doesn't list, fails the source, so pruning deletes
-  nothing; a server being created is found at its folder until the core lists it.
+  `.mrpack` the operation used (hashed by the core) when the pack is on Modrinth; an
+  uploaded pack is no base. Each file's `env`: an index file's as written (unknown when it
+  has none); an `overrides/` file required on both sides; a `server-overrides/` file
+  unsupported on clients and required on servers; an `overrides/` file that
+  `client-overrides/` replaces for clients unsupported on clients (they get another file).
+- **Writes.** An install records "Installed <pack> <version>" once its files and
+  `pack.json` are written. An update or restore holds the server stopped and its mods lock,
+  puts back an update that was interrupted, and records the content as it is (what is
+  queued, else "Changed outside Lodestone" when it differs; a server without an image gets
+  its first), so every file the change takes off the server is in an image. Then it plans,
+  begins its operation (`OpKind::Modpack`), stages every new file, writes the journal, places
+  the files, installs the server software when the Minecraft or loader version changes,
+  commits the journal, writes `pack.json` and the server's modpack origin, removes the
+  journal, and records "Updated <pack> to <version>" or "Restored “<label>”" (the label of
+  the image it went back to). A failure before the commit puts the files back and records
+  nothing.
+- **The journal** (`.lodestone_modpack/update.json`) lists each change with the SHA-1 of the
+  staged file it places, and whether the change committed. At the next start, an
+  uncommitted change is rolled back (a file is removed only when it is the one the change
+  placed); a committed one keeps its files. A crash between the commit and `pack.json`
+  leaves the old `pack.json` and origin: the next update then takes the files this one
+  changed for the user's and leaves them, never deleting one.
+- **Restoring an entry** puts back the image's files a restore may change: content except
+  the server software (`libraries/`, `versions/`, top-level jars, `run.sh`, `run.bat`,
+  `user_jvm_args.txt`), `server.properties`, `eula.txt`, `ops.json` and `whitelist.json`
+  (settings and admin lists Lodestone and the server's commands manage: an older image must
+  not bring back an op removed since), and scripts unless the requester may add them (as for
+  a pack). It is planned by disk path from the current image (just recorded) to the target:
+  a file that differs or is missing is replaced or added from the image store (which checks
+  every byte against its SHA-256), or downloaded again when the store lost it and the entry
+  is a Modrinth file with its SHA-1 and SHA-512; a file only the current image has is
+  removed. Files neither image lists (left out by excludes, withheld, not content) are never
+  touched, and a folder or link where a file goes stops the restore. Collections are held
+  off while files are copied out of the store. When the target's game differs, its loader
+  version is installed (Fabric, Forge, NeoForge; other server software can't be restored).
+  A target on another pack base makes that version the origin (its name from Modrinth, else
+  the old name with the new ids) and its files the `pack.json`, read from its `.mrpack` when
+  Lodestone can get it and its SHA-512 is the base's, else a `pack.json` with the base and
+  no files. A target without a base keeps the origin. A user without `WriteGlobalFile` can
+  restore a protected jar only when Modrinth knows the SHA-512 of the store's bytes.
+- **History API.** `GET /instance/{uuid}/modpack/history` lists the content images newest
+  first (by `created`; images of the same second by lineage, an image before its parent).
+  An entry is `id` (the image id, which `UpdateSource::History.entry_id` names), `time`,
+  `label`, `game_version`, `loader`, `loader_version`, `changes` (the files a restore puts
+  back that changed from its parent, or the next older image when the parent is gone; a
+  removed and an added file of one Modrinth project or with the same contents are one
+  `updated`), `file_count`, `current` and `missing` (files a restore would write that the
+  store lost and that can't be downloaded). `blame` names, for each file a restore puts back
+  in the current image (a mod by its enabled name), the oldest image of the newest run that
+  had it. Backups are no entries. The dashboard, the Tauri Host (which serves the
+  dashboard) and the GPUI Host were changed with it.

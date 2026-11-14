@@ -20,10 +20,8 @@ use crate::auth::user::UserAction;
 use crate::error::{Error, ErrorKind};
 use crate::events::Event;
 use crate::implementations::minecraft::{validate_new_instance_name, SetupConfig};
-use crate::modpack::history::{entry_as_is, History, HistoryKind};
 use crate::modpack::lineage;
 use crate::modpack::store::StoredPack;
-use crate::modpack::update::record_of;
 use crate::modpack::{
     describe_skipped, install_pack_contents, read_pack_async, server_flavour, write_port,
     ModpackInfo, ModpackOrigin, MAX_PACK_FILE_BYTES,
@@ -303,12 +301,6 @@ async fn create_modpack_instance(
     let api = state.mods.modrinth.clone();
     let event_broadcaster = state.event_broadcaster.clone();
     let game_version = pack.info.game_version.clone();
-    let changelog = match &stored.version_id {
-        Some(version_id) => {
-            crate::modpack::modrinth_changelog(state.mods.modrinth.as_ref(), version_id).await
-        }
-        None => None,
-    };
     let state_for_setup = state.clone();
     let post_setup: PostSetupStep = Box::new(move |root, event_id, uuid| {
         Box::pin(async move {
@@ -330,8 +322,9 @@ async fn create_modpack_instance(
             )
             .await?;
             write_port(&root, port).await?;
-            // the server's first content image, on the pack as its base
-            let image = lineage::record_install(
+            // the pack's files, and the server's first content image on the pack as its
+            // base: the first entry of its history
+            lineage::record_install(
                 &state,
                 &uuid,
                 &root,
@@ -343,22 +336,6 @@ async fn create_modpack_instance(
             )
             .await;
             drop(stored);
-            // the first entry of the history, which later updates can go back to
-            let mut history = History::default();
-            history.remember_downloads(&report.files);
-            let mut entry = entry_as_is(
-                HistoryKind::Install,
-                origin,
-                game_version,
-                flavour,
-                &record_of(&report.files),
-            );
-            entry.changelog = changelog;
-            entry.image = image;
-            history.push(&root, entry);
-            if let Err(e) = history.save(&root).await {
-                tracing::warn!("Could not start the modpack history: {e}");
-            }
             Ok(describe_skipped(&report.skipped))
         })
     });

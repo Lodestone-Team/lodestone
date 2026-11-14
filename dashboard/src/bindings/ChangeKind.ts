@@ -2,6 +2,7 @@
 
 /**
  * A change as the dashboard shows it. A removed and an added file of the same Modrinth
- * project are one `updated` change, from `old_path` to `path`.
+ * project, or with the same contents (a mod enabled or disabled), are one `updated`
+ * change, from `old_path` to `path`.
  */
 export type ChangeKind = 'added' | 'updated' | 'replaced' | 'removed';

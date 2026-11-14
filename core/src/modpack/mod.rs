@@ -6,8 +6,8 @@
 //! checks are in [`lodestone_minecraft::mrpack`]; the zip crate's own `extract` is never
 //! used.
 
-pub mod history;
 pub mod lineage;
+pub mod pack_info;
 pub mod store;
 pub mod update;
 pub mod updates;
@@ -92,11 +92,6 @@ pub fn modrinth_cdn_url(url: Option<&str>) -> Option<String> {
         && parsed.username().is_empty()
         && parsed.password().is_none();
     ok.then(|| parsed.to_string())
-}
-
-/// The changelog of the Modrinth version `version_id`, if it has one.
-pub async fn modrinth_changelog(api: &dyn ModrinthApi, version_id: &str) -> Option<String> {
-    api.version(version_id).await.ok()?.changelog
 }
 
 impl ModpackOrigin {
@@ -588,13 +583,14 @@ pub struct PackInstallReport {
     pub downloaded: usize,
     pub extracted: usize,
     pub skipped: Vec<SkippedPath>,
-    /// The pack's files, as recorded.
+    /// The pack's files, for its `pack.json` ([`pack_info`]).
     pub files: std::collections::BTreeMap<String, update::PackFile>,
 }
 
 /// Puts the server files of a checked pack into the instance folder `root`: downloads
 /// `files[]` (at most [`PARALLEL_DOWNLOADS`] at a time), then copies `overrides/` and
-/// `server-overrides/`, and records them in [`update::RECORD_FILE`]. `progress` gets a message and the progress made.
+/// `server-overrides/`. Returns the pack's files, which the caller keeps in `pack.json`
+/// with the server's first content image. `progress` gets a message and the progress made.
 pub async fn install_pack_contents(
     api: &dyn ModrinthApi,
     pack: &Pack,
@@ -628,14 +624,13 @@ pub async fn install_pack_contents(
             .map_err(|e| eyre!("The modpack task failed: {e}"))??
     };
     progress("Copied modpack overrides".to_string(), 1.0);
-    // the record lets the server be updated to another version of the pack later
+    // what lets the server be updated to another version of the pack later
     let files = {
         let (pack, pack_path) = (pack.clone(), pack_path.to_path_buf());
         tokio::task::spawn_blocking(move || update::pack_files(&pack, &pack_path, allow_scripts))
             .await
             .map_err(|e| eyre!("The modpack task failed: {e}"))??
     };
-    update::record_of(&files).save(root).await?;
     Ok(PackInstallReport {
         downloaded: total,
         extracted,

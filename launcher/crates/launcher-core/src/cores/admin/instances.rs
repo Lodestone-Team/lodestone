@@ -245,9 +245,10 @@ pub enum ModpackSource {
     Upload {
         upload_id: String,
     },
-    /// An entry of a server's modpack history, to go back to (updates only).
+    /// An entry of a server's history (a content image, by id), to go back to (updates
+    /// only).
     History {
-        entry_id: u32,
+        entry_id: String,
     },
 }
 

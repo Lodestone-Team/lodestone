@@ -1,33 +1,31 @@
-//! The modpack lineage on temporary server folders and image stores: updates and restores
-//! through the HTTP handlers with a fake Modrinth. No server is started and nothing is
-//! downloaded from the network.
+//! The modpack history as content images, on temporary server folders and image stores:
+//! installs, updates and restores through the HTTP handlers with a fake Modrinth, and the
+//! restore planner on hand-made images. No server is started and nothing is downloaded
+//! from the network.
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 
 use axum::extract::{Path as AxumPath, State};
 use axum::Json;
-use lodestone_image::{Base, Env, EnvFrom, EnvValue, Image, Kind, Source};
+use lodestone_image::{Base, CanonicalPath, Env, EnvFrom, EnvValue, Image, Kind, Source};
 use serde_json::json;
 
 use super::*;
 use crate::auth::user::User;
 use crate::handlers::modpack_update::{
-    modpack_history, update_modpack, ModpackUpdateRequest, UpdateSource,
+    modpack_history, plan_update, update_modpack, ModpackUpdateRequest, UpdateSource,
 };
 use crate::handlers::util::AuthedUser;
-use crate::implementations::minecraft::{FabricLoaderVersion, MinecraftInstance};
-use crate::modpack::history::{object_path, ChangeKind, HISTORY_FILE};
+use crate::images::layout::server_layout;
+use crate::implementations::minecraft::MinecraftInstance;
 use crate::modpack::tests::{file_entry, index, pack, Entry as ZipEntry, TestPack};
-use crate::modpack::update::{pack_files, PackRecord};
+use crate::modpack::update::{
+    begin_update, commit_update, place_files, recover_interrupted, stage_files, JOURNAL_FILE,
+};
 use crate::modpack::{install_pack_contents, read_pack};
 use crate::modrinth::fake::{sha1_hex, sha512_hex, FakeModrinth, FakeVersion};
-
-const UUID: &str = "INSTANCE_aaaaaaaa-2222-3333-4444-555555555555";
-
-fn uuid() -> InstanceUuid {
-    InstanceUuid::from(UUID.to_string())
-}
+use crate::prelude::GameInstance;
 
 fn write(root: &Path, relative: &str, bytes: &[u8]) {
     let path = root.join(relative);
@@ -46,40 +44,428 @@ fn fabric() -> Flavour {
     }
 }
 
-/// An image service on a temporary store, and a server folder beside it.
-struct Setup {
+fn origin(version: &str) -> ModpackOrigin {
+    ModpackOrigin {
+        project_id: "pack".into(),
+        version_id: format!("v{version}"),
+        name: "Test Pack".into(),
+        version_number: Some(version.into()),
+        icon_url: None,
+    }
+}
+
+#[test]
+fn labels() {
+    assert_eq!(update_label(&origin("2")), "Updated Test Pack to 2");
+    assert_eq!(install_label(&origin("1")), "Installed Test Pack 1");
+    let mut unnumbered = origin("1");
+    unnumbered.version_number = None;
+    assert_eq!(update_label(&unnumbered), "Updated Test Pack");
+    assert_eq!(
+        restore_label(Some("Added JEI")),
+        "Restored \u{201c}Added JEI\u{201d}"
+    );
+    assert_eq!(restore_label(Some("  ")), "Restored an earlier version");
+    assert_eq!(restore_label(None), "Restored an earlier version");
+}
+
+#[test]
+fn what_a_restore_changes() {
+    for path in [
+        "mods/a.jar",
+        "mods/a.jar.disabled",
+        "config/a.toml",
+        "kubejs/startup_scripts/a.js",
+        "plugins/x.jar",
+        "bukkit.yml",
+    ] {
+        assert!(restorable(path, true), "{path}");
+    }
+    for path in [
+        "server.properties",
+        "Server.Properties",
+        "ops.json",
+        "whitelist.json",
+        "eula.txt",
+        "run.sh",
+        "user_jvm_args.txt",
+        "server.jar",
+        "fabric-server-launch.jar",
+        "libraries/net/x.jar",
+        "versions/1.20.1/server.jar",
+        ".lodestone_config",
+        "mods/.lodestone_client_mods.json",
+    ] {
+        assert!(!restorable(path, true), "{path}");
+    }
+    // scripts only for whom a pack may write them
+    assert!(restorable("kubejs/server_scripts/start.js", true));
+    assert!(!restorable("kubejs/server_scripts/start.js", false));
+}
+
+// ---- the restore planner on hand-made images ----
+
+/// A store and a server folder, with images made by hand.
+struct Planner {
     _dir: tempfile::TempDir,
     root: PathBuf,
-    images: Arc<ImageService>,
+    store: Arc<Store>,
+    uuid: InstanceUuid,
 }
 
-fn setup() -> Setup {
+impl Planner {
+    fn new() -> Planner {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("server");
+        std::fs::create_dir_all(&root).unwrap();
+        let store = Arc::new(Store::new(
+            dir.path().join("backups"),
+            lodestone_image::store::Encoding::Zstd,
+        ));
+        Planner {
+            _dir: dir,
+            root,
+            store,
+            uuid: InstanceUuid::from("INSTANCE_aaaaaaaa-2222-3333-4444-555555555555".to_string()),
+        }
+    }
+
+    /// Saves a content image of `files` (path, bytes), recorded at `created` after
+    /// `parent`.
+    fn image(
+        &self,
+        files: &[(&str, &[u8])],
+        created: i64,
+        label: &str,
+        parent: Option<&Image>,
+    ) -> Image {
+        let mut image = Image::new(
+            Kind::Content,
+            crate::images::layout::game_of("1.20.1", &fabric()),
+        );
+        for (path, bytes) in files {
+            let stored = self.store.put_bytes(bytes).unwrap();
+            image.entries.push(lodestone_image::Entry::new(
+                CanonicalPath::new(*path).unwrap(),
+                stored.size,
+                stored.sha256,
+                Source::Object {},
+            ));
+        }
+        image.created = created;
+        image.label = Some(label.to_string());
+        image.normalize();
+        image.seal();
+        image.parent = parent.map(|p| p.id.clone());
+        self.store
+            .save_manifest(self.uuid.as_ref(), &image)
+            .unwrap();
+        image
+    }
+
+    fn plan(&self, current: &str, target: &str, allow_scripts: bool) -> Result<RestorePlan, Error> {
+        let (layout, _) = server_layout(&self.root, "world", &fabric()).unwrap();
+        plan_restore(
+            &self.store,
+            &self.uuid,
+            &self.root,
+            &layout,
+            current,
+            target,
+            allow_scripts,
+        )
+    }
+}
+
+fn actions(plan: &RestorePlan) -> Vec<(String, FileAction)> {
+    let mut actions: Vec<(String, FileAction)> = plan
+        .plan
+        .changes
+        .iter()
+        .map(|c| (c.target.clone(), c.action))
+        .collect();
+    actions.sort_by(|a, b| a.0.cmp(&b.0));
+    actions
+}
+
+#[test]
+fn a_restore_puts_back_mods_and_configs_only() {
+    let p = Planner::new();
+    let old = p.image(
+        &[
+            ("mods/a.jar", b"a1"),
+            ("mods/gone.jar", b"gone"),
+            ("config/a.toml", b"old config"),
+            ("kubejs/server_scripts/start.js", b"echo old"),
+            ("server.properties", b"motd=old"),
+            ("ops.json", b"[\"removed op\"]"),
+            ("libraries/lib.jar", b"old lib"),
+            ("server.jar", b"old server"),
+        ],
+        1,
+        "Installed Test Pack 1",
+        None,
+    );
+    let now: &[(&str, &[u8])] = &[
+        ("mods/a.jar", b"a2"),
+        ("mods/new.jar", b"new"),
+        ("config/a.toml", b"old config"),
+        ("kubejs/server_scripts/start.js", b"echo new"),
+        ("server.properties", b"motd=new"),
+        ("ops.json", b"[]"),
+        ("libraries/lib.jar", b"new lib"),
+        ("server.jar", b"new server"),
+    ];
+    let current = p.image(now, 2, "Updated Test Pack to 2", Some(&old));
+    for (path, bytes) in now {
+        write(&p.root, path, bytes);
+    }
+    // a file no image has (left out by the backup policy, say) is never touched
+    write(&p.root, "config/excluded.toml", b"mine");
+
+    let plan = p.plan(&current.id, &old.id, false).unwrap();
+    assert_eq!(
+        actions(&plan),
+        [
+            ("mods/a.jar".to_string(), FileAction::Replace),
+            ("mods/gone.jar".to_string(), FileAction::Add),
+            ("mods/new.jar".to_string(), FileAction::Remove),
+        ]
+    );
+    assert!(plan.missing.is_empty() && plan.blocked.is_empty());
+    assert_eq!(plan.target.id, old.id);
+    assert_eq!(plan.target.label.as_deref(), Some("Installed Test Pack 1"));
+    // mods and configs; not the script (without the right to), the settings, the admin
+    // lists or the server software
+    assert_eq!(plan.file_count, 3);
+    assert!(matches!(
+        plan.sources["mods/gone.jar"],
+        FileSource::Image(ImageFile { size: 4, .. })
+    ));
+
+    // with the right to write scripts, a script goes back too
+    let plan = p.plan(&current.id, &old.id, true).unwrap();
+    assert!(actions(&plan).contains(&(
+        "kubejs/server_scripts/start.js".to_string(),
+        FileAction::Replace
+    )));
+
+    // a file that is already gone isn't removed; one that is there already is replaced
+    std::fs::remove_file(p.root.join("mods/new.jar")).unwrap();
+    write(&p.root, "mods/gone.jar", b"something else");
+    let plan = p.plan(&current.id, &old.id, false).unwrap();
+    assert_eq!(
+        actions(&plan),
+        [
+            ("mods/a.jar".to_string(), FileAction::Replace),
+            ("mods/gone.jar".to_string(), FileAction::Replace),
+        ]
+    );
+
+    // a folder where a file goes is never moved
+    std::fs::remove_file(p.root.join("mods/gone.jar")).unwrap();
+    std::fs::create_dir_all(p.root.join("mods/gone.jar/inside")).unwrap();
+    let plan = p.plan(&current.id, &old.id, false).unwrap();
+    assert_eq!(plan.blocked, ["mods/gone.jar"]);
+    assert!(!actions(&plan)
+        .iter()
+        .any(|(path, _)| path == "mods/gone.jar"));
+}
+
+#[test]
+fn a_restore_needs_the_files_or_their_downloads() {
+    let p = Planner::new();
+    let old = p.image(&[("mods/a.jar", b"a1")], 1, "old", None);
+    let current = p.image(&[], 2, "now", Some(&old));
+    // the store lost the object
+    let object = p
+        .store
+        .root()
+        .join("objects")
+        .join(&old.entries[0].sha256[..2])
+        .join(&old.entries[0].sha256);
+    let mut permissions = std::fs::metadata(&object).unwrap().permissions();
+    #[allow(clippy::permissions_set_readonly_false)]
+    permissions.set_readonly(false);
+    std::fs::set_permissions(&object, permissions).unwrap();
+    std::fs::remove_file(&object).unwrap();
+    let plan = p.plan(&current.id, &old.id, false).unwrap();
+    assert_eq!(plan.missing, ["mods/a.jar"]);
+    assert!(plan.plan.changes.is_empty());
+    let history = history(&p.store, &p.uuid, None);
+    let entry = history.entries.iter().find(|e| e.id == old.id).unwrap();
+    assert_eq!(entry.missing, 1);
+
+    // a Modrinth file with its hashes is downloaded again
+    let mut image = old.clone();
+    image.entries[0].source = Source::Modrinth {
+        project: "p".into(),
+        version: "v".into(),
+        url: "https://cdn.modrinth.com/data/p/versions/v/a.jar".into(),
+    };
+    image.entries[0].sha1 = Some(sha1_hex(b"a1"));
+    image.entries[0].sha512 = Some(sha512_hex(b"a1"));
+    image.created = 3;
+    image.seal();
+    p.store.save_manifest(p.uuid.as_ref(), &image).unwrap();
+    let plan = p.plan(&current.id, &image.id, false).unwrap();
+    assert!(plan.missing.is_empty());
+    assert!(matches!(&plan.sources["mods/a.jar"], FileSource::Download(d) if d.size == 2));
+    assert_eq!(plan.download_size, 2);
+}
+
+#[test]
+fn only_content_images_in_the_history_restore() {
+    let p = Planner::new();
+    let current = p.image(&[("mods/a.jar", b"a")], 1, "now", None);
+    let mut data = Image::new(Kind::Data, current.game.clone());
+    data.content = Some(current.id.clone());
+    data.seal();
+    p.store.save_manifest(p.uuid.as_ref(), &data).unwrap();
+    for target in [data.id.as_str(), &"0".repeat(64), "../../etc", ""] {
+        let error = p.plan(&current.id, target, false).unwrap_err();
+        assert!(matches!(error.kind, ErrorKind::NotFound), "{target}");
+    }
+}
+
+#[test]
+fn the_history_lists_content_images_newest_first() {
+    let p = Planner::new();
+    let first = p.image(
+        &[
+            ("mods/a-1.jar", b"a1"),
+            ("mods/keep.jar", b"keep"),
+            ("config/x.toml", b"x1"),
+        ],
+        1,
+        "Installed Test Pack 1",
+        None,
+    );
+    let mut second = Image::new(Kind::Content, first.game.clone());
+    second.entries = first.entries.clone();
+    // the mod disabled: same contents, another name
+    for entry in &mut second.entries {
+        if entry.path.as_str() == "mods/a-1.jar" {
+            entry.path = CanonicalPath::new("mods/a-1.jar.disabled").unwrap();
+        }
+    }
+    second.created = 2;
+    second.label = Some("Disabled a-1.jar".into());
+    second.parent = Some(first.id.clone());
+    second.normalize();
+    second.seal();
+    p.store.save_manifest(p.uuid.as_ref(), &second).unwrap();
+    let third = p.image(
+        &[
+            ("mods/a-2.jar", b"a2"),
+            ("mods/keep.jar", b"keep"),
+            ("config/x.toml", b"x2"),
+            ("server.properties", b"motd=x"),
+        ],
+        3,
+        "Updated Test Pack to 2",
+        Some(&second),
+    );
+    // backups are no entries of their own
+    let mut data = Image::new(Kind::Data, first.game.clone());
+    data.content = Some(first.id.clone());
+    data.created = 4;
+    data.seal();
+    p.store.save_manifest(p.uuid.as_ref(), &data).unwrap();
+    crate::images::state::save(
+        p.store.root(),
+        &p.uuid,
+        &crate::images::state::ContentState {
+            current: Some(third.id.clone()),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+
+    let history = history(&p.store, &p.uuid, None);
+    let ids: Vec<&str> = history.entries.iter().map(|e| e.id.as_str()).collect();
+    assert_eq!(ids, [&third.id, &second.id, &first.id]);
+    let labels: Vec<&str> = history.entries.iter().map(|e| e.label.as_str()).collect();
+    assert_eq!(
+        labels,
+        [
+            "Updated Test Pack to 2",
+            "Disabled a-1.jar",
+            "Installed Test Pack 1"
+        ]
+    );
+    assert!(history.entries[0].current);
+    assert!(!history.entries[1].current);
+    assert_eq!(history.entries[0].time, 3000);
+    assert_eq!(history.entries[0].loader, "fabric");
+    assert_eq!(
+        history.entries[0].loader_version.as_deref(),
+        Some("0.15.11")
+    );
+    // server.properties isn't what a restore puts back
+    assert_eq!(history.entries[0].file_count, 3);
+
+    // the first image changed nothing that came before it
+    assert!(history.entries[2].changes.is_empty());
+    // disabling a mod is an update of its name
+    assert_eq!(
+        history.entries[1].changes,
+        [ChangeInfo {
+            kind: ChangeKind::Updated,
+            path: "mods/a-1.jar.disabled".into(),
+            old_path: Some("mods/a-1.jar".into()),
+            project_id: None,
+        }]
+    );
+    // the update, from the image it was recorded after
+    let kinds: Vec<(ChangeKind, &str)> = history.entries[0]
+        .changes
+        .iter()
+        .map(|c| (c.kind, c.path.as_str()))
+        .collect();
+    assert_eq!(
+        kinds,
+        [
+            (ChangeKind::Added, "mods/a-2.jar"),
+            (ChangeKind::Replaced, "config/x.toml"),
+            (ChangeKind::Removed, "mods/a-1.jar.disabled"),
+        ]
+    );
+
+    // each current file came with the oldest image of the newest run that had it
+    assert_eq!(history.blame["mods/keep.jar"], first.id);
+    assert_eq!(history.blame["mods/a-2.jar"], third.id);
+    assert_eq!(history.blame["config/x.toml"], third.id);
+    assert!(!history.blame.contains_key("server.properties"));
+
+    // a manifest that can't be read is left out
+    let damaged = p
+        .store
+        .manifest_path(p.uuid.as_ref(), &"1".repeat(64))
+        .unwrap();
+    std::fs::write(damaged, b"{").unwrap();
+    assert_eq!(history_len(&p), 3);
+    // a server the store can't name has none
+    assert!(
+        super::history(&p.store, &InstanceUuid::from("DOCKER-x".to_string()), None)
+            .entries
+            .is_empty()
+    );
+}
+
+fn history_len(p: &Planner) -> usize {
+    history(&p.store, &p.uuid, None).entries.len()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn retention_keeps_what_a_restore_goes_back_to() {
     let dir = tempfile::tempdir().unwrap();
-    let root = dir.path().join("server");
-    std::fs::create_dir_all(&root).unwrap();
     let images = Arc::new(ImageService::new(dir.path().join("backups")));
-    Setup {
-        _dir: dir,
-        root,
-        images,
-    }
-}
-
-impl Setup {
-    fn manifests(&self) -> Vec<Image> {
-        self.images.store().list_manifests(UUID).unwrap().images
-    }
-}
-
-#[tokio::test]
-async fn retention_keeps_the_images_the_history_names() {
-    let s = setup();
-    s.images
-        .register_refs(Arc::new(LineageRefs::new(Arc::new(DashMap::new()))));
-    let _creating = creating(&uuid(), &s.root);
-    let store = s.images.store();
+    images.register_refs(Arc::new(RestoreRefs));
+    let uuid = InstanceUuid::from("INSTANCE_bbbbbbbb-2222-3333-4444-555555555555".to_string());
+    let store = images.store();
     let mut ids = Vec::new();
-    for n in 0..40 {
+    for n in 0..35 {
         let mut image = Image::new(
             Kind::Content,
             lodestone_image::Game {
@@ -90,81 +476,123 @@ async fn retention_keeps_the_images_the_history_names() {
         );
         image.created = 1_000 + n;
         image.seal();
-        store.save_manifest(UUID, &image).unwrap();
+        store.save_manifest(uuid.as_ref(), &image).unwrap();
         ids.push(image.id);
     }
-    // The history names the oldest image.
-    let mut history = History::default();
-    let mut entry = crate::modpack::history::entry_as_is(
-        HistoryKind::Install,
-        origin("1"),
-        "1.20.1".into(),
-        fabric(),
-        &PackRecord::default(),
-    );
-    entry.image = Some(ids[0].clone());
-    history.push(&s.root, entry);
-    history.save(&s.root).await.unwrap();
-
-    let deleted = s.images.prune(&uuid()).await.unwrap();
-    assert_eq!(deleted, 9);
-    let kept: Vec<String> = s.manifests().into_iter().map(|i| i.id).collect();
-    assert!(kept.contains(&ids[0]), "the history's image is kept");
+    let restoring = keep_while_restoring(&uuid, &ids[0]);
+    // another server's restore keeps nothing here
+    let _other = keep_while_restoring(&InstanceUuid::from("INSTANCE_other".to_string()), &ids[1]);
+    assert_eq!(images.prune(&uuid).await.unwrap(), 4);
+    let kept: Vec<String> = store
+        .list_manifests(uuid.as_ref())
+        .unwrap()
+        .images
+        .into_iter()
+        .map(|i| i.id)
+        .collect();
+    assert!(kept.contains(&ids[0]));
     assert!(!kept.contains(&ids[1]));
-    assert!(kept.contains(&ids[39]));
-
-    // A history that can't be read keeps everything.
-    write(&s.root, HISTORY_FILE, b"{damaged");
-    assert_eq!(s.images.prune(&uuid()).await.unwrap(), 0);
+    drop(restoring);
+    assert_eq!(images.prune(&uuid).await.unwrap(), 1);
+    assert!(store.load_manifest(uuid.as_ref(), &ids[0]).is_err());
 }
 
-#[test]
-fn entries_without_images_are_written_as_before() {
-    let entry = crate::modpack::history::entry_as_is(
-        HistoryKind::Install,
-        origin("1"),
-        "1.20.1".into(),
-        fabric(),
-        &PackRecord::default(),
+/// A restore the core stopped in the middle of is undone at the next start, and one that
+/// committed keeps its files: the journal works the same for files from the image store.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_interrupted_restore_is_undone() {
+    let p = Planner::new();
+    let old = p.image(
+        &[("mods/a.jar", b"a1"), ("config/c.toml", b"c1")],
+        1,
+        "old",
+        None,
     );
-    let json = serde_json::to_value(&entry).unwrap();
-    assert!(json.get("image").is_none());
-    let mut linked = entry;
-    linked.image = Some("a".repeat(64));
-    let json = serde_json::to_vec(&linked).unwrap();
-    assert!(String::from_utf8_lossy(&json).contains(&"a".repeat(64)));
-}
-
-#[test]
-fn labels() {
-    assert_eq!(
-        label(&HistoryKind::Update, &origin("2")),
-        "Updated Test Pack to 2"
-    );
-    assert_eq!(
-        label(&HistoryKind::Restore { to: 1 }, &origin("1")),
-        "Restored Test Pack to 1"
-    );
-    assert_eq!(
-        label(&HistoryKind::Install, &origin("1")),
-        "Installed Test Pack 1"
-    );
-    let mut unnumbered = origin("1");
-    unnumbered.version_number = None;
-    assert_eq!(
-        label(&HistoryKind::Update, &unnumbered),
-        "Updated Test Pack"
-    );
-}
-
-fn origin(version: &str) -> ModpackOrigin {
-    ModpackOrigin {
-        project_id: "pack".into(),
-        version_id: format!("v{version}"),
-        name: "Test Pack".into(),
-        version_number: Some(version.into()),
-        icon_url: None,
+    let now: &[(&str, &[u8])] = &[("mods/a.jar", b"a2"), ("mods/new.jar", b"new")];
+    let current = p.image(now, 2, "now", Some(&old));
+    for (path, bytes) in now {
+        write(&p.root, path, bytes);
     }
+    let plan = p.plan(&current.id, &old.id, false).unwrap();
+    let api = FakeModrinth::default();
+    for commit in [false, true] {
+        stage_files(
+            &api,
+            None,
+            &plan.sources,
+            &plan.plan,
+            &p.root,
+            false,
+            Some(p.store.clone()),
+            &|_| {},
+        )
+        .await
+        .unwrap();
+        begin_update(&p.root, &plan.plan).unwrap();
+        place_files(&p.root, &plan.plan).unwrap();
+        assert_eq!(read(&p.root, "mods/a.jar").unwrap(), b"a1");
+        assert_eq!(read(&p.root, "config/c.toml").unwrap(), b"c1");
+        assert!(read(&p.root, "mods/new.jar").is_none());
+        if commit {
+            commit_update(&p.root).unwrap();
+        }
+        // the core stops here
+        assert!(recover_interrupted(&p.root));
+        assert!(!p.root.join(JOURNAL_FILE).exists());
+        if commit {
+            assert_eq!(read(&p.root, "mods/a.jar").unwrap(), b"a1");
+            assert!(read(&p.root, "mods/new.jar").is_none());
+        } else {
+            assert_eq!(read(&p.root, "mods/a.jar").unwrap(), b"a2");
+            assert_eq!(read(&p.root, "mods/new.jar").unwrap(), b"new");
+            assert!(read(&p.root, "config/c.toml").is_none());
+        }
+    }
+}
+
+/// Staging copies out of the image store only what checks out: a damaged object fails the
+/// restore before anything moves, and leaves no half-written file.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_damaged_object_stops_the_restore_before_it_moves_anything() {
+    let p = Planner::new();
+    let old = p.image(&[("mods/a.jar", b"a1")], 1, "old", None);
+    let current = p.image(&[], 2, "now", Some(&old));
+    let plan = p.plan(&current.id, &old.id, false).unwrap();
+    // the plan saw the object, then a bit of it rotted
+    let sha256 = &old.entries[0].sha256;
+    let object = p
+        .store
+        .root()
+        .join("objects")
+        .join(&sha256[..2])
+        .join(sha256);
+    let mut bytes = std::fs::read(&object).unwrap();
+    let last = bytes.len() - 1;
+    bytes[last] ^= 0xff;
+    let mut permissions = std::fs::metadata(&object).unwrap().permissions();
+    #[allow(clippy::permissions_set_readonly_false)]
+    permissions.set_readonly(false);
+    std::fs::set_permissions(&object, permissions).unwrap();
+    std::fs::write(&object, bytes).unwrap();
+    let api = FakeModrinth::default();
+    assert!(stage_files(
+        &api,
+        None,
+        &plan.sources,
+        &plan.plan,
+        &p.root,
+        false,
+        Some(p.store.clone()),
+        &|_| {},
+    )
+    .await
+    .is_err());
+    assert!(read(&p.root, "mods/a.jar").is_none());
+    assert!(read(
+        &p.root,
+        &format!("{}/mods/a.jar", crate::modpack::update::STAGING_DIR)
+    )
+    .is_none());
 }
 
 // ---- through the handlers ----
@@ -238,15 +666,15 @@ fn test_pack(version: u8, fake: &FakeModrinth) -> TestPack {
     )
 }
 
-/// A core with a fake Modrinth and one stopped Fabric server made from version 1 of the test
-/// pack by a core from before images (its history has no image links).
+/// A core with a fake Modrinth and one stopped Fabric server made from version 1 of the
+/// test pack, as `create_modpack` makes it: its files, `pack.json` and first image.
 struct Core {
     _dir: tempfile::TempDir,
     state: crate::AppState,
-    fake: Arc<FakeModrinth>,
     uuid: InstanceUuid,
     root: PathBuf,
-    _packs: Vec<TestPack>,
+    packs: Vec<TestPack>,
+    title: String,
 }
 
 fn owner() -> AuthedUser {
@@ -282,39 +710,20 @@ impl Core {
             state.mods.packs.insert(temp, info, Some(id), None);
             packs.push(test_pack);
         }
-        let project_title = crate::modrinth::ModrinthApi::project(fake.as_ref(), "pack")
+        let title = crate::modrinth::ModrinthApi::project(fake.as_ref(), "pack")
             .await
             .unwrap()
             .title;
-        let origin = |version: u8| ModpackOrigin {
+        let origin = ModpackOrigin {
             project_id: "pack".into(),
-            version_id: format!("v{version}"),
-            name: project_title.clone(),
-            version_number: Some(format!("v{version}-number")),
+            version_id: "v1".into(),
+            name: title.clone(),
+            version_number: Some("v1-number".into()),
             icon_url: None,
         };
 
         let root = dir.path().join("instance");
         std::fs::create_dir_all(&root).unwrap();
-        // version 1 as a core from before images installed it
-        let v1 = read_pack(&packs[0].path, false).unwrap();
-        let report =
-            install_pack_contents(fake.as_ref(), &v1, &packs[0].path, &root, false, &|_, _| {})
-                .await
-                .unwrap();
-        let mut history = History::default();
-        history.remember_downloads(&report.files);
-        history.push(
-            &root,
-            crate::modpack::history::entry_as_is(
-                HistoryKind::Install,
-                origin(1),
-                "1.20.1".into(),
-                fabric(),
-                &crate::modpack::update::record_of(&report.files),
-            ),
-        );
-        history.save(&root).await.unwrap();
         std::fs::write(
             root.join(".lodestone_minecraft_config.json"),
             json!({
@@ -323,13 +732,30 @@ impl Core {
                 "description": "", "cmd_args": [], "java_cmd": root.join("no-java-here"),
                 "port": 25599, "min_ram": 1024, "max_ram": 2048, "auto_start": false,
                 "restart_on_crash": false, "backup_period": null, "jre_major_version": 17,
-                "has_started": false, "modpack": origin(1),
+                "has_started": false, "modpack": origin,
             })
             .to_string(),
         )
         .unwrap();
         write(&root, "server.properties", b"server-port=25599\n");
+        let v1 = read_pack(&packs[0].path, false).unwrap();
+        let report =
+            install_pack_contents(fake.as_ref(), &v1, &packs[0].path, &root, false, &|_, _| {})
+                .await
+                .unwrap();
         let uuid = InstanceUuid::default();
+        record_install(
+            &state,
+            &uuid,
+            &root,
+            &origin,
+            &packs[0].path,
+            &report.files,
+            "1.20.1",
+            &fabric(),
+        )
+        .await
+        .expect("the install records an image");
         let instance = MinecraftInstance::restore(
             root.clone(),
             crate::types::DotLodestoneConfig::new(
@@ -344,16 +770,14 @@ impl Core {
         state
             .instances
             .insert(uuid.clone(), GameInstance::MinecraftInstance(instance));
-        state
-            .images()
-            .register_refs(Arc::new(LineageRefs::new(state.instances.clone())));
+        state.images().register_refs(Arc::new(RestoreRefs));
         Core {
             _dir: dir,
             state,
-            fake,
             uuid,
             root,
-            _packs: packs,
+            packs,
+            title,
         }
     }
 
@@ -368,7 +792,14 @@ impl Core {
         .map(|_| ())
     }
 
-    async fn history(&self) -> crate::modpack::history::ModpackHistory {
+    async fn restore(&self, id: &str) -> Result<(), Error> {
+        self.change(UpdateSource::History {
+            entry_id: id.to_string(),
+        })
+        .await
+    }
+
+    async fn history(&self) -> ModpackHistory {
         modpack_history(
             State(self.state.clone()),
             AxumPath(self.uuid.clone()),
@@ -379,21 +810,47 @@ impl Core {
         .0
     }
 
-    fn images(&self) -> Vec<Image> {
-        self.state
-            .images()
-            .store()
-            .list_manifests(self.uuid.as_ref())
-            .unwrap()
-            .images
-    }
-
     fn image(&self, id: &str) -> Image {
         self.state
             .images()
             .store()
             .load_manifest(self.uuid.as_ref(), id)
             .unwrap()
+    }
+
+    async fn current(&self) -> String {
+        self.state
+            .images()
+            .current_content(&self.uuid)
+            .await
+            .expect("a current image")
+    }
+
+    fn pack_json(&self) -> crate::images::base::BaseInfo {
+        crate::images::base::load_base(self.state.images().root(), &self.uuid).unwrap()
+    }
+
+    async fn origin(&self) -> ModpackOrigin {
+        let instance = self
+            .state
+            .instances
+            .get(&self.uuid)
+            .unwrap()
+            .value()
+            .clone();
+        let GameInstance::MinecraftInstance(instance) = instance;
+        instance.modpack_origin().await.unwrap()
+    }
+
+    /// A Mods-tab-like change: an operation that writes a file and succeeds.
+    async fn content_change(&self, path: &str, bytes: &[u8], label: &str) -> String {
+        let images = self.state.images();
+        let op = images.begin(&self.uuid, OpKind::Mods, label).await;
+        write(&self.root, path, bytes);
+        let ctx = crate::images::context_of(&self.state, &self.uuid)
+            .await
+            .unwrap();
+        op.succeed_and_record(ctx).await.unwrap().unwrap().id
     }
 }
 
@@ -406,41 +863,49 @@ fn entry<'a>(image: &'a Image, path: &str) -> &'a lodestone_image::Entry {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn updates_and_restores_record_the_lineage() {
+async fn installs_updates_and_restores_are_the_history() {
     let core = Core::new().await;
-    let title = crate::modrinth::ModrinthApi::project(core.fake.as_ref(), "pack")
-        .await
-        .unwrap()
-        .title;
+    let title = core.title.clone();
 
-    // ---- an update records one image of the whole server, on the pack ----
+    // ---- the install is the first entry, on the pack ----
+    let installed = core.current().await;
+    let history = core.history().await;
+    assert_eq!(history.entries.len(), 1);
+    assert_eq!(history.entries[0].id, installed);
+    assert_eq!(
+        history.entries[0].label,
+        format!("Installed {title} v1-number")
+    );
+    assert!(history.entries[0].current);
+    let record = crate::modpack::pack_info::record_of_base(&core.pack_json());
+    assert!(record.files.contains_key("mods/a-1.jar"));
+    assert!(record.files["config/pack.toml"].from_overrides);
+    assert!(!core.root.join(".lodestone_modpack").exists());
+
+    // ---- a Mods-tab change is an entry too ----
+    let added = core
+        .content_change("mods/extra.jar", b"extra", "Added extra.jar")
+        .await;
+    let history = core.history().await;
+    assert_eq!(history.entries.len(), 2);
+    assert_eq!(history.entries[0].id, added);
+    assert_eq!(history.entries[0].changes.len(), 1);
+    assert_eq!(history.entries[0].changes[0].kind, ChangeKind::Added);
+
+    // ---- an update records one image of the whole server, on the new pack ----
     core.change(UpdateSource::Modrinth {
         version_id: "v2".into(),
     })
     .await
     .unwrap();
-    let history = History::load(&core.root).await;
-    assert_eq!(history.entries.len(), 2);
-    // The install was written before this server recorded images.
-    assert!(history.entries[0].image.is_none());
-    let updated = history.entries[1].image.clone().expect("recorded");
-    let current = core.state.images().current_content(&core.uuid).await;
-    assert_eq!(current.as_deref(), Some(updated.as_str()));
-    let labels: Vec<String> = core
-        .images()
-        .iter()
-        .filter_map(|i| i.label.clone())
-        .collect();
-    assert_eq!(
-        labels
-            .iter()
-            .filter(|l| l.starts_with("Updated"))
-            .collect::<Vec<_>>(),
-        [&format!("Updated {title} to v2-number")]
-    );
-
+    let updated = core.current().await;
     let image = core.image(&updated);
-    let pack_sha512 = sha512_hex(&std::fs::read(&core._packs[1].path).unwrap());
+    assert_eq!(
+        image.label.as_deref(),
+        Some(format!("Updated {title} to v2-number").as_str())
+    );
+    assert_eq!(image.parent.as_deref(), Some(added.as_str()));
+    let pack_sha512 = sha512_hex(&std::fs::read(&core.packs[1].path).unwrap());
     assert_eq!(
         image.base,
         Some(Base::ModrinthPack {
@@ -453,177 +918,205 @@ async fn updates_and_restores_record_the_lineage() {
     assert_eq!(config.source, Source::Base {});
     assert_eq!(config.env, Env::new(EnvValue::Required, EnvValue::Required));
     assert_eq!(config.env_from, [EnvFrom::BasePack]);
-    let server_only = entry(&image, "config/server-only.toml");
-    assert_eq!(server_only.source, Source::Base {});
-    assert_eq!(server_only.env.client, EnvValue::Unsupported);
+    assert_eq!(
+        entry(&image, "config/server-only.toml").env.client,
+        EnvValue::Unsupported
+    );
     let new = entry(&image, "mods/new.jar");
     assert!(matches!(&new.source, Source::Modrinth { project, .. } if project == "n"));
     assert_eq!(new.env, Env::new(EnvValue::Unsupported, EnvValue::Required));
-    // The server's own files are in the image too.
-    assert!(image
-        .entries
+    // pack.json now names version 2's files; the user's own mod is no pack file
+    let record = crate::modpack::pack_info::record_of_base(&core.pack_json());
+    assert!(record.files.contains_key("mods/new.jar"));
+    assert!(!record.files.contains_key("mods/a-1.jar"));
+    assert!(!record.files.contains_key("mods/extra.jar"));
+    assert_eq!(read(&core.root, "mods/extra.jar").unwrap(), b"extra");
+    assert_eq!(core.origin().await.version_id, "v2");
+    let history = core.history().await;
+    assert_eq!(history.entries.len(), 3);
+    let changes: Vec<(ChangeKind, &str)> = history.entries[0]
+        .changes
         .iter()
-        .any(|e| e.path.as_str() == "server.properties"));
+        .map(|c| (c.kind, c.path.as_str()))
+        .collect();
+    assert!(changes.contains(&(ChangeKind::Updated, "mods/a-2.jar")));
+    assert!(changes.contains(&(ChangeKind::Removed, "mods/dropped.jar")));
+    assert!(changes.contains(&(ChangeKind::Replaced, "config/pack.toml")));
+    assert_eq!(history.blame["mods/keep.jar"], installed);
+    assert_eq!(history.blame["mods/new.jar"], updated);
 
-    // ---- a failed update records nothing and links nothing ----
-    let before = History::load(&core.root).await;
-    let images_before = core.images().len();
+    // ---- a failed update records nothing and changes nothing ----
     assert!(core
         .change(UpdateSource::Modrinth {
             version_id: "v3".into(),
         })
         .await
         .is_err());
-    assert_eq!(History::load(&core.root).await, before);
-    assert_eq!(core.images().len(), images_before);
-    assert_eq!(
-        core.state.images().current_content(&core.uuid).await,
-        current
-    );
+    assert_eq!(core.history().await.entries.len(), 3);
+    assert_eq!(core.current().await, updated);
+    assert_eq!(read(&core.root, "mods/new.jar").unwrap(), b"new");
+    assert!(!core.root.join(JOURNAL_FILE).exists());
 
-    // ---- restoring an entry without an image ----
-    core.change(UpdateSource::History { entry_id: 1 })
-        .await
-        .unwrap();
+    // ---- what changed outside Lodestone is recorded before a restore ----
+    write(&core.root, "config/outside.toml", b"by hand");
+    write(
+        &core.root,
+        "server.properties",
+        b"server-port=25599\nmotd=later\n",
+    );
+    let plan = plan_update(
+        State(core.state.clone()),
+        AxumPath(core.uuid.clone()),
+        owner(),
+        Json(ModpackUpdateRequest {
+            source: UpdateSource::History {
+                entry_id: installed.clone(),
+            },
+        }),
+    )
+    .await
+    .unwrap()
+    .0;
+    assert_eq!(plan.target.unsupported_reason, None);
+    assert_eq!(plan.target.name, format!("Installed {title} v1-number"));
+    assert!(!plan.reinstalls_server);
+    assert!(plan.removed.contains(&"mods/new.jar".to_string()));
+    // planning records nothing
+    assert_eq!(core.history().await.entries.len(), 3);
+
+    core.restore(&installed).await.unwrap();
     assert_eq!(read(&core.root, "config/pack.toml").unwrap(), b"v1");
     assert_eq!(read(&core.root, "mods/a-1.jar").unwrap(), b"a1");
+    assert_eq!(read(&core.root, "mods/dropped.jar").unwrap(), b"dropped");
     assert!(read(&core.root, "mods/new.jar").is_none());
-    let history = History::load(&core.root).await;
-    let restored = history.latest().unwrap();
-    assert_eq!(restored.kind, HistoryKind::Restore { to: 1 });
-    let restored_image = core.image(restored.image.as_deref().unwrap());
+    assert!(read(&core.root, "mods/extra.jar").is_none());
+    assert!(read(&core.root, "config/outside.toml").is_none());
+    // the server's own settings stay as they are
     assert_eq!(
-        restored_image.label.as_deref(),
-        Some(format!("Restored {title} to v1-number").as_str())
+        read(&core.root, "server.properties").unwrap(),
+        b"server-port=25599\nmotd=later\n"
     );
-    // The restored version's pack is the base again, with its env.
+    let history = core.history().await;
+    let labels: Vec<&str> = history.entries.iter().map(|e| e.label.as_str()).collect();
+    assert_eq!(
+        labels[..2],
+        [
+            format!("Restored \u{201c}Installed {title} v1-number\u{201d}").as_str(),
+            "Changed outside Lodestone",
+        ]
+    );
+    let outside = history.entries[1].id.clone();
+    let restored = core.image(&history.entries[0].id);
+    assert_eq!(restored.parent.as_deref(), Some(outside.as_str()));
+    // the restored version's pack is the base again, with its files
     assert!(matches!(
-        &restored_image.base,
+        &restored.base,
         Some(Base::ModrinthPack { version, .. }) if version == "v1"
     ));
-    assert_eq!(restored_image.parent.as_deref(), Some(updated.as_str()));
+    assert_eq!(entry(&restored, "config/pack.toml").source, Source::Base {});
+    let record = crate::modpack::pack_info::record_of_base(&core.pack_json());
+    assert!(record.files.contains_key("mods/a-1.jar"));
+    assert_eq!(core.origin().await.version_id, "v1");
 
-    // ---- restoring a new entry, with a file only its image still has ----
-    std::fs::remove_file(object_path(&core.root, &sha1_hex(b"v2")).unwrap()).unwrap();
-    let api = core.history().await;
-    let update_info = api.entries.iter().find(|e| e.id == 2).unwrap();
-    assert_eq!(update_info.missing, 0, "the image has version 2's configs");
-    assert_eq!(update_info.image.as_deref(), Some(updated.as_str()));
-    // Without the image store the history alone couldn't.
-    assert!(
-        History::load(&core.root)
-            .await
-            .info(&core.root, None)
-            .entries
-            .iter()
-            .find(|e| e.id == 2)
-            .unwrap()
-            .missing
-            > 0
-    );
-    core.change(UpdateSource::History { entry_id: 2 })
-        .await
-        .unwrap();
-    assert_eq!(read(&core.root, "config/pack.toml").unwrap(), b"v2");
+    // ---- restoring the image from before the restore undoes it ----
+    core.restore(&outside).await.unwrap();
+    assert_eq!(read(&core.root, "config/outside.toml").unwrap(), b"by hand");
     assert_eq!(read(&core.root, "mods/new.jar").unwrap(), b"new");
-    // Back at version 2's files: version 2's image again.
-    let history = History::load(&core.root).await;
+    assert_eq!(read(&core.root, "mods/extra.jar").unwrap(), b"extra");
+    assert_eq!(core.origin().await.version_id, "v2");
+    // back at the same contents: the same image again, as the current one
+    assert_eq!(core.current().await, outside);
+
+    // ---- the current entry can't be restored, nor one that's gone ----
+    let error = core.restore(&outside).await.unwrap_err();
+    assert!(matches!(error.kind, ErrorKind::BadRequest));
+    let error = core.restore(&"0".repeat(64)).await.unwrap_err();
+    assert!(matches!(error.kind, ErrorKind::NotFound));
+
+    // ---- the History API's shape ----
+    let json = serde_json::to_value(core.history().await).unwrap();
+    let mut keys: Vec<&String> = json.as_object().unwrap().keys().collect();
+    keys.sort();
+    assert_eq!(keys, ["blame", "entries", "update"]);
+    let mut keys: Vec<&String> = json["entries"][0].as_object().unwrap().keys().collect();
+    keys.sort();
     assert_eq!(
-        history.latest().unwrap().image.as_deref(),
-        Some(updated.as_str())
+        keys,
+        [
+            "changes",
+            "current",
+            "file_count",
+            "game_version",
+            "id",
+            "label",
+            "loader",
+            "loader_version",
+            "missing",
+            "time"
+        ]
     );
-
-    // ---- the History API keeps its shape, newest first, old and new entries ----
-    let api = core.history().await;
-    let ids: Vec<u32> = api.entries.iter().map(|e| e.id).collect();
-    assert_eq!(ids, [4, 3, 2, 1]);
-    assert!(api.entries.iter().all(|e| e.image.is_some() == (e.id != 1)));
-    assert!(api.entries[0].current);
-    assert!(api.entries[1]
-        .changes
-        .iter()
-        .any(|c| c.kind == ChangeKind::Updated));
-    let json = serde_json::to_value(&api).unwrap();
-    for key in [
-        "id",
-        "time",
-        "kind",
-        "name",
-        "version_number",
-        "game_version",
-        "loader",
-        "loader_version",
-        "changes",
-        "kept",
-        "file_count",
-        "current",
-        "missing",
-        "changelog",
-    ] {
-        assert!(json["entries"][0].get(key).is_some(), "{key}");
-    }
-
-    // ---- retention keeps what the history names ----
-    assert_eq!(core.state.images().prune(&core.uuid).await.unwrap(), 0);
-    let kept: Vec<String> = core.images().into_iter().map(|i| i.id).collect();
-    for image in history.entries.iter().filter_map(|e| e.image.as_ref()) {
-        assert!(kept.contains(image));
-    }
 }
 
+/// A restore and a Mods-tab change at the same time: the change waits for the restore's
+/// operation to end or goes first, each is recorded once, and no manifest is damaged.
 #[tokio::test(flavor = "multi_thread")]
-async fn base_info_reads_the_packs_env() {
-    let fake = FakeModrinth::default();
-    let v2 = test_pack(2, &fake);
-    let files = pack_files(&read_pack(&v2.path, false).unwrap(), &v2.path, false).unwrap();
-    let info = base_info(&origin("2"), Some(&v2.path), &files, None);
-    assert!(matches!(info.base, Some(Base::ModrinthPack { .. })));
-    let new = &info.files["mods/new.jar"];
-    assert_eq!(
-        new.env,
-        Some(Env::new(EnvValue::Unsupported, EnvValue::Required))
-    );
-    assert!(new.modrinth_url.as_deref().unwrap().starts_with(CDN));
-    // a disabled pack mod keeps what the pack says
-    assert_eq!(info.files["mods/new.jar.disabled"], *new);
-    assert_eq!(info.files["mods/keep.jar"].env, Some(Env::UNKNOWN));
-    assert_eq!(
-        info.files["config/server-only.toml"].env,
-        Some(Env::new(EnvValue::Unsupported, EnvValue::Required))
-    );
-    assert_eq!(
-        info.files["config/pack.toml"].env,
-        Some(Env::new(EnvValue::Required, EnvValue::Required))
-    );
-    // An uploaded pack is no base; without the pack nothing is known of its env.
-    let mut uploaded = origin("2");
-    uploaded.project_id.clear();
-    uploaded.version_id.clear();
-    let info = base_info(&uploaded, None, &files, None);
-    assert_eq!(info.base, None);
-    assert_eq!(info.files["mods/new.jar"].env, None);
-    // A restored entry's base stands in for a pack Lodestone no longer has, if it is
-    // the same version.
-    let base = Base::ModrinthPack {
-        project: "pack".into(),
-        version: "v2".into(),
-        sha512: "1".repeat(128),
+async fn a_restore_and_a_content_change_at_once() {
+    let core = Arc::new(Core::new().await);
+    let installed = core.current().await;
+    core.change(UpdateSource::Modrinth {
+        version_id: "v2".into(),
+    })
+    .await
+    .unwrap();
+    let restore = {
+        let core = core.clone();
+        let installed = installed.clone();
+        tokio::spawn(async move { core.restore(&installed).await })
     };
-    assert_eq!(
-        base_info(&origin("2"), None, &files, Some(base.clone())).base,
-        Some(base.clone())
-    );
-    assert_eq!(base_info(&origin("1"), None, &files, Some(base)).base, None);
+    let change = {
+        let core = core.clone();
+        tokio::spawn(async move {
+            core.content_change("config/meanwhile.toml", b"meanwhile", "Edited meanwhile")
+                .await
+        })
+    };
+    restore.await.unwrap().unwrap();
+    change.await.unwrap();
+    // a collection now finds every manifest readable and keeps what they name
+    let images = core.state.images().clone();
+    tokio::task::spawn_blocking(move || images.collect_blocking())
+        .await
+        .unwrap()
+        .unwrap();
+    let history = core.history().await;
+    assert!(history
+        .entries
+        .iter()
+        .any(|e| e.label == "Edited meanwhile"));
+    assert!(history
+        .entries
+        .iter()
+        .any(|e| e.label.starts_with("Restored")));
+    // whichever went first, the current image is what is on disk: no change was lost
+    let ctx = crate::images::context_of(&core.state, &core.uuid)
+        .await
+        .unwrap();
+    let recorded = core
+        .state
+        .images()
+        .record_now(ctx, OpKind::Outside, "check".into())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(!recorded.changed);
+    // every entry can still be restored: the store kept their files
+    assert!(history.entries.iter().all(|e| e.missing == 0));
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_new_server_records_its_first_image() {
     let dir = tempfile::tempdir().unwrap();
     let state = crate::test_util::test_app_state(dir.path(), Default::default()).await;
-    // what pruning reads while the server isn't listed yet
-    state
-        .images()
-        .register_refs(Arc::new(LineageRefs::new(state.instances.clone())));
     let fake = FakeModrinth::default();
     let v2 = test_pack(2, &fake);
     let pack = read_pack(&v2.path, false).unwrap();
@@ -664,9 +1157,9 @@ async fn a_new_server_records_its_first_image() {
         Env::new(EnvValue::Unsupported, EnvValue::Required)
     );
     assert_eq!(manifest.parent, None);
-    // The guard that let pruning find the history is gone again.
-    assert!(LineageRefs::new(state.instances.clone())
-        .refs(&uuid)
-        .await
-        .is_err());
+    let info = crate::images::base::load_base(state.images().root(), &uuid).unwrap();
+    assert_eq!(
+        info.files["mods/new.jar.disabled"], info.files["mods/new.jar"],
+        "a disabled pack mod keeps what the pack says"
+    );
 }

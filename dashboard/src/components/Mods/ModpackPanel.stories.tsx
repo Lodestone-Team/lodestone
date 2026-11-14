@@ -39,20 +39,15 @@ const instance: InstanceInfo = {
 const history: ModpackHistory = {
   entries: [
     {
-      id: 3,
+      id: 'c'.repeat(64),
       time: now - 2 * hour,
-      kind: { type: 'update' },
-      name: 'Fabulously Optimized',
-      version_number: '6.4.0',
+      label: 'Updated Fabulously Optimized to 6.4.0',
       game_version: '1.21.4',
       loader: 'fabric',
       loader_version: '0.16.10',
       current: true,
       file_count: 64,
       missing: 0,
-      kept: ['config/sodium-options.json'],
-      changelog:
-        '## 6.4.0\n\n- Updated **Sodium** to 0.6.9\n- Added Entity Culling\n- Removed Starlight, which Sodium no longer needs',
       changes: [
         {
           kind: 'added',
@@ -87,19 +82,15 @@ const history: ModpackHistory = {
       ],
     },
     {
-      id: 2,
+      id: 'b'.repeat(64),
       time: now - 9 * day,
-      kind: { type: 'update' },
-      name: 'Fabulously Optimized',
-      version_number: '6.3.1',
+      label: 'Added Starlight; Updated Sodium',
       game_version: '1.21.4',
       loader: 'fabric',
       loader_version: '0.16.9',
       current: false,
       file_count: 63,
       missing: 0,
-      kept: [],
-      changelog: null,
       changes: [
         {
           kind: 'updated',
@@ -116,24 +107,19 @@ const history: ModpackHistory = {
       ],
     },
     {
-      id: 1,
+      id: 'a'.repeat(64),
       time: now - 30 * day,
-      kind: { type: 'install' },
-      name: 'Fabulously Optimized',
-      version_number: '6.2.0',
+      label: 'Installed Fabulously Optimized 6.2.0',
       game_version: '1.21.3',
       loader: 'fabric',
       loader_version: '0.16.7',
       current: false,
       file_count: 61,
       missing: 2,
-      kept: [],
-      changelog: null,
       changes: [],
     },
   ],
   blame: {},
-  stored_bytes: 48_213,
   update: {
     version_id: 'fo-650',
     version_number: '6.5.0',
@@ -180,9 +166,9 @@ export const Closed: Story = {
   },
 };
 
-/** A server made before histories: nothing recorded yet. */
+/** Nothing recorded yet. */
 export const NoHistory: Story = {
   args: {
-    history: { entries: [], blame: {}, stored_bytes: 0, update: null },
+    history: { entries: [], blame: {}, update: null },
   },
 };

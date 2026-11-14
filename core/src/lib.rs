@@ -1472,10 +1472,8 @@ pub async fn run_with(
         instances: shared_state.instances.clone(),
         backups: backups.clone(),
     }));
-    // ImageRefs: backups, lineage
-    images.register_refs(Arc::new(crate::modpack::lineage::LineageRefs::new(
-        shared_state.instances.clone(),
-    )));
+    // ImageRefs: the images restores in progress go back to
+    images.register_refs(Arc::new(crate::modpack::lineage::RestoreRefs));
     images::set_global(images.clone());
     // temporary files a crash left, and the first content image of each stopped server
     {
