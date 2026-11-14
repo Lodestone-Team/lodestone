@@ -74,6 +74,11 @@ pub enum HostEvent {
     /// Starting (or restarting) the instance failed: its Minecraft EULA may not be
     /// accepted (`pages::eula_prompt` asks).
     StartFailed(String),
+    /// Work on an instance's files that outlives its Files tab (a paste, delete, upload
+    /// or download) finished: the tab, if it is open again, lists the folder again.
+    FilesChanged(String),
+    /// An instance's "Update all" finished: its Mods tab lists the mods again.
+    ModsChanged(String),
 }
 
 pub struct HostState {
@@ -102,9 +107,12 @@ pub struct HostState {
     /// The window's toasts, which the shell draws over the page (see [`Self::toast`]).
     pub toasts: Entity<Toasts>,
     _stream: Option<LiveStream>,
-    /// File operations a page shows its own toast for, by instance and when they
-    /// started: the core's "Installed 1 file(s)" event for them isn't toasted again.
-    own_file_toasts: Vec<(String, std::time::Instant)>,
+    /// File operations a page shows its own toast for: the core's "Installed 1
+    /// file(s)" event for them isn't toasted again.
+    own_file_toasts: OwnFileToasts,
+    /// The instances whose mods "Update all" is updating. The batch outlives the Mods
+    /// tab (switching tabs rebuilds it), so this is kept here, where a new tab sees it.
+    mod_updates: std::collections::HashSet<String>,
     /// Made-up servers kept in the list across reloads, for the development
     /// screenshots' `--fake-instance` (a page that reloads the list keeps its server).
     #[cfg(feature = "screenshot")]
@@ -131,7 +139,8 @@ impl HostState {
             share_start: false,
             page_scroll: gpui::ScrollHandle::new(),
             friends: None,
-            own_file_toasts: Vec::new(),
+            own_file_toasts: OwnFileToasts::default(),
+            mod_updates: Default::default(),
             #[cfg(feature = "screenshot")]
             fake_instances: Vec::new(),
             _tasks: Vec::new(),
@@ -209,35 +218,43 @@ impl HostState {
         cx.notify();
     }
 
-    /// Shows a toast at the bottom right of the window: `Toast::success(…)`,
-    /// `Toast::error(…)`, with a key to replace an earlier one, or an action button.
     /// A page is about to start a file operation on `instance` and shows its own toast
-    /// for the result, so the core's event for it shouldn't make a second one.
-    pub fn expect_own_file_toast(&mut self, instance: &str) {
-        self.own_file_toasts
-            .push((instance.to_string(), std::time::Instant::now()));
+    /// for the result, so the core's event for it shouldn't make a second one. The
+    /// claim can be released when the operation fails without the core's event.
+    pub fn expect_own_file_toast(&mut self, instance: &str) -> OwnToastClaim {
+        self.own_file_toasts.expect(instance)
     }
 
     /// Whether the core's file-operation event for `instance` belongs to an operation
     /// a page toasts itself (and forgets it). Claims older than a minute lapse, for
     /// operations that failed before the core sent its event.
     pub fn take_own_file_toast(&mut self, instance: &str) -> bool {
-        const LAPSE: std::time::Duration = std::time::Duration::from_secs(60);
-        self.own_file_toasts
-            .retain(|(_, started)| started.elapsed() < LAPSE);
-        match self
-            .own_file_toasts
-            .iter()
-            .position(|(id, _)| id == instance)
-        {
-            Some(index) => {
-                self.own_file_toasts.remove(index);
-                true
-            }
-            None => false,
+        self.own_file_toasts.take(instance)
+    }
+
+    /// Gives up a claim whose operation failed, if its event hasn't taken it, so it
+    /// doesn't hide the toast of another operation's event.
+    pub fn release_own_file_toast(&mut self, claim: OwnToastClaim) {
+        self.own_file_toasts.release(claim);
+    }
+
+    /// Whether "Update all" is updating the instance's mods.
+    pub fn updating_mods(&self, instance: &str) -> bool {
+        self.mod_updates.contains(instance)
+    }
+
+    /// Marks the instance's "Update all" as started (true) or finished; false when it
+    /// was already in that state.
+    pub fn set_updating_mods(&mut self, instance: &str, updating: bool) -> bool {
+        if updating {
+            self.mod_updates.insert(instance.to_string())
+        } else {
+            self.mod_updates.remove(instance)
         }
     }
 
+    /// Shows a toast at the bottom right of the window: `Toast::success(…)`,
+    /// `Toast::error(…)`, with a key to replace an earlier one, or an action button.
     pub fn toast(&mut self, toast: Toast, cx: &mut Context<Self>) {
         self.toasts.update(cx, |toasts, cx| {
             toasts.push(toast, cx);
@@ -543,9 +560,76 @@ pub fn connection_after_probe(answer: Result<(), CoreError>, reason: String) -> 
     }
 }
 
+/// A claim on the core's next file-operation event for an instance (see
+/// [`HostState::expect_own_file_toast`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct OwnToastClaim(u64);
+
+/// The claims on the core's file-operation events, by instance, oldest first, with
+/// when each was made.
+#[derive(Default)]
+struct OwnFileToasts {
+    next: u64,
+    claims: Vec<(OwnToastClaim, String, std::time::Instant)>,
+}
+
+impl OwnFileToasts {
+    /// How long a claim waits for its event.
+    const LAPSE: std::time::Duration = std::time::Duration::from_secs(60);
+
+    fn expect(&mut self, instance: &str) -> OwnToastClaim {
+        let claim = OwnToastClaim(self.next);
+        self.next += 1;
+        self.claims
+            .push((claim, instance.to_string(), std::time::Instant::now()));
+        claim
+    }
+
+    fn take(&mut self, instance: &str) -> bool {
+        self.claims
+            .retain(|(_, _, made)| made.elapsed() < Self::LAPSE);
+        match self.claims.iter().position(|(_, id, _)| id == instance) {
+            Some(index) => {
+                self.claims.remove(index);
+                true
+            }
+            None => false,
+        }
+    }
+
+    fn release(&mut self, claim: OwnToastClaim) {
+        self.claims.retain(|(c, _, _)| *c != claim);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_failed_operation_gives_up_its_claim_on_the_cores_toast() {
+        let mut claims = OwnFileToasts::default();
+        // "Update all" claims each update's event just before it starts
+        let first = claims.expect("smp");
+        // the first update failed before the core said anything
+        claims.release(first);
+        // so the event of something else on that server is toasted as usual
+        assert!(!claims.take("smp"));
+
+        // an update whose event came: its claim is taken, and releasing it after does
+        // nothing to a later claim
+        let second = claims.expect("smp");
+        assert!(claims.take("smp"));
+        let third = claims.expect("smp");
+        claims.release(second);
+        assert!(claims.take("smp"));
+        claims.release(third);
+        assert!(!claims.take("smp"));
+        // claims are per server
+        claims.expect("creative");
+        assert!(!claims.take("smp"));
+        assert!(claims.take("creative"));
+    }
 
     #[test]
     fn a_failed_stream_is_degraded_only_while_the_core_answers() {
