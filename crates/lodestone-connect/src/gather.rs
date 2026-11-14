@@ -192,7 +192,11 @@ pub(crate) fn addresses(
 /// Asks the router to forward `port` to `local_ip`. `None` if it can't, or if its
 /// forwarding wouldn't help (it's behind another NAT). Blocking.
 pub(crate) fn forward(port: u16, local_ip: Ipv4Addr) -> Option<portmap::Mapping> {
-    match portmap::map(port, local_ip) {
+    // Whatever answers the UPnP search on the network gets parsed here: should a bug
+    // in that parsing panic, it costs only the forwarding, not the whole share or join.
+    let mapped = std::panic::catch_unwind(|| portmap::map(port, local_ip))
+        .unwrap_or_else(|_| Err("asking the router panicked".into()));
+    match mapped {
         Ok(found) => {
             let behind_another_nat = match found.external.ip() {
                 IpAddr::V4(ip) => portmap::is_private(ip),
