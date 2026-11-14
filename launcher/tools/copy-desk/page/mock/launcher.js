@@ -367,7 +367,7 @@
       addAccount: () => toast(null, sh("AddAccountFirst"), "warn"),
       ready: () => toast(sv("ReadyTitle", { name: "Survival SMP" }), sv("ReadyBody", { version: "1.20.1", loader: "Fabric 0.16.14" }), "ok"),
       shareReady: () => toast(im("ShareCodeReady", { name: "Survival 1.20.1" }), imp("ShareCodeInstalled", { count: 14 }), "ok"),
-      copied: () => toast(im("CopyReady", { name: "Survival 1.20.1 (26.3 Fabric)" }), [im("ModpackReadyMessage", { version: "26.3", loader: "Fabric 0.16.14" }), " ", imp("CopyModsLeftBehind", { count: 2, names: "Xaero's Minimap, homemade-tweaks" })], "ok"),
+      copied: () => toast(im("CopyReady", { name: "Survival 1.20.1 (26.3 Fabric)" }), [im("ModpackReadyMessage", { version: "26.3", loader: "Fabric 0.16.14" }), " ", imp("CopyModsLeftBehind", { count: 2, names: "Xaero's Minimap, homemade-tweaks" }), " ", imp("CopyDependenciesMissing", { count: 1, names: "Cloth Config" })], "ok"),
       verified: () => toast(im("GameFilesVerified"), im("EveryFileIntact", { summary: "Checked 4,091 game files in 45 ms." }), "ok"),
       copiedKey: () => toast(sv("OwnerKeyCopied", { name: "Peter's Lodestone Core" }), sv("OwnerKeyCopiedHint"), "ok"),
       copiedInvite: () => toast(sv("InviteLinkCopied", { name: "Survival SMP" }), sv("InviteLinkCopiedHint"), "ok"),
@@ -1116,15 +1116,16 @@
     const mods = st === "reading" ? h("span.lx-muted", spinner(), " ", is("CopyReading")) :
       st === "checking" ? h("span.lx-muted", spinner(), " ", isp("CopyCheckingMods", { count: 9 })) :
         st === "offline" ? h("span.lx-muted", is("CopyModsOffline")) :
-          st === "failed" ? h("span", { style: { color: "#ff8a8a" } }, is("CopyModsFailed", { error: "rate limited" })) :
+          st === "failed" ? h("div", h("div", { style: { color: "#ff8a8a" } }, is("CopyModsFailed", { error: "rate limited" })), h("div.lx-muted", h("a", cm("TryAgain")), " ", is("CopyOrUncheckMods"))) :
             st === "noMods" ? h("span.lx-muted", is("CopyNoMods")) :
               loader === "vanilla" ? h("span.lx-muted", is("CopyModsVanilla")) :
-                h("div.lx-muted", h("div", isp("CopyModsFound", { found: 6, count: 9, target })), h("div", is("CopyModsNoBuild", { target, names: "Xaero's Minimap, Iris" })), h("div", is("CopyModsNotOnModrinth", { names: "homemade-tweaks" })));
+                h("div.lx-muted", h("div", isp("CopyModsFound", { found: 6, count: 9, target })), h("div", is("CopyModsNoBuild", { target, names: "Xaero's Minimap, Iris" })), h("div", is("CopyModsNotOnModrinth", { names: "homemade-tweaks" })), h("div", is("CopyModsUnchecked", { names: "Mystery Mod" })));
     const body = [h("p.lx-muted", is("CopyFrom", { name: "Survival 1.20.1", version: "1.20.1 \u00b7 Fabric 0.16.14" })),
       h("div.lx-form", h("span.lx-muted", is("Name")), field(null, tx("Survival 1.20.1 (" + target + ")")),
         h("span.lx-muted", tx("Minecraft")), select(h("span", h("b", tx(version)), " ", h("span.lx-muted", is("KindRelease"))))),
       h("div.lx-flabel", is("ModLoader")), loaderCards(loader, (k) => ctx.open("copyAs", Object.assign({}, ctx.dparams, { loader: k }))),
       loader !== "vanilla" ? h("div.lx-form", h("span.lx-muted", is("LoaderVersion")), h("div", select(h("span", tx("0.16.14"), " ", badge(is("Recommended"), "green"))))) : null,
+      st === "same" ? h("p.lx-muted", is("CopySameTarget")) : null,
       h("div.lx-flabel", is("CopyWhat")),
       h("div.lx-scard", worlds, check(is("CopyPacks"), true), check(is("CopyMods"), loader !== "vanilla" && st !== "noMods"), under(mods))];
     return dialog(ctx, is("CopyAsTitle"), body, [pbtn(is("CopyAsStart"), () => { ctx.close(); ctx.set("toast", "copied") }), btn(cm("Cancel"), { on: () => ctx.close() })], { wide: true });
@@ -1259,6 +1260,7 @@
     deleteInstance: (ctx) => confirmDlg(ctx, sh("DeleteNamed", { name: "All the mods" }), [h("p", sh("DeleteInstanceBody", { trash: "the Trash" })), ctx.state.game === "playing" ? note(im("StopBeforeDeleting"), "warn") : null], cm("MoveToTrash"), { danger: true }),
     deleteWorld: (ctx) => confirmDlg(ctx, sh("DeleteNamed", { name: "Survival Island" }), [h("p", sh("DeleteWorldBody", { trash: "the Trash" })), h("p.lx-muted", cm("TheTrash"))], cm("MoveToTrash"), { danger: true }),
     replaceWorld: (ctx) => confirmDlg(ctx, sh("ReplaceWorldTitle", { name: "Survival Island" }), h("p", sh("ReplaceWorldBody", { name: "Survival Island", when: "today, 03:04" })), sh("BackUpAndReplace"), { danger: true }),
+    mainOffer: (ctx) => dialog(ctx, sh("MainOfferTitle", { name: "Survival 1.20.1" }), [h("p", sh("MainOfferBody")), h("p.lx-muted", sh("MainChangeLater"))], [pbtn(sh("MakeItMain"), () => { ctx.close(); ctx.set("toast", "synced") }), btn(cm("NotNow"), { on: () => ctx.close() })], { narrow: true }),
     mainSwitch: (ctx) => dialog(ctx, sh("MainOfferTitle", { name: "All the mods" }), [h("p", sh("MainSwitchBody", { current: "Survival 1.20.1", name: "All the mods" })), h("p.lx-muted", sh("MainChangeLater")), h("p.lx-muted", is("IsMainInstance"), " \u00b7 ", is("SharingMain"), " \u00b7 ", is("SharingOff"), " \u00b7 ", is("SharingNoMain"))],
       [pbtn(sh("MakeNameMain", { name: "All the mods" }), () => ctx.close()), btn(cm("Cancel"), { on: () => ctx.close() })], { narrow: true }),
     unsaved: (ctx) => dialog(ctx, sh("SaveChangesTitle"), [h("p", ctx.state.unsavedWhere === "defaults" ? sh("UnsavedDefaultsBody") : ctx.state.unsavedWhere === "this" ? sh("UnsavedThisInstanceBody") : sh("UnsavedInstanceBody", { name: "All the mods" }))],
@@ -1554,7 +1556,7 @@
     importState: ST("Import dialog", "list looking none progress"),
     host: ST("Host on a core dialog", "form errors progress done"),
     advisory: ST("Mods advisory", "new update offline"),
-    copyAs: ST("Copy with another version or loader", "newer older vanilla reading checking offline failed noMods"),
+    copyAs: ST("Copy with another version or loader", "newer same older vanilla reading checking offline failed noMods"),
     unsavedWhere: ST("Unsaved changes dialog", "instance this defaults"),
     bg: ST("Background picker", "image slideshow"),
     storage: ST("Settings \u203a Storage", "counted counting error gameRunning freed"),

@@ -145,14 +145,27 @@ impl Instances {
         self.snapshot_tasks.insert(id.to_string(), task);
     }
 
-    /// Saves settings a revert put back, and reads the instance again.
+    /// Saves settings a revert put back, and reads the instance again. When the revert
+    /// moved the Minecraft version or loader back (with the mods), the Settings tab
+    /// hears of it, as after a modpack update.
     pub fn apply_reverted_settings(
         &mut self,
         instance: launcher_core::instances::Instance,
         cx: &mut Context<Self>,
     ) -> Result<(), String> {
+        let loader_moved = self.store.get(&instance.id).is_ok_and(|before| {
+            (&before.game_version, before.loader, &before.loader_version)
+                != (
+                    &instance.game_version,
+                    instance.loader,
+                    &instance.loader_version,
+                )
+        });
         self.store.save(&instance).map_err(|err| err.to_string())?;
         self.reload(cx);
+        if loader_moved {
+            cx.emit(super::InstancesEvent::LoaderChanged(instance.id.clone()));
+        }
         Ok(())
     }
 }

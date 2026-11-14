@@ -258,6 +258,13 @@ pub fn text(message: M) -> &'static str {
         M::CopyModsFailed => "Impossible de vérifier les mods\u{a0}: {error}",
         M::CopyModsNoBuild => "Pas de build pour {target}, donc ceux-ci restent\u{a0}: {names}.",
         M::CopyModsNotOnModrinth => "Absents de Modrinth, donc ceux-ci restent\u{a0}: {names}.",
+        M::CopyModsUnchecked => {
+            "Impossible de vérifier ceux-ci sur Modrinth, donc ils restent\u{a0}: {names}."
+        }
+        M::CopyOrUncheckMods => "ou décochez Mods pour copier sans eux.",
+        M::CopySameTarget => {
+            "Choisissez une autre version de Minecraft ou un autre chargeur. Dupliquer, dans Maintenance, copie l’instance telle quelle."
+        }
         M::CopyAsStart => "Faire la copie",
         M::HostOnCore => "Héberger sur Lodestone",
         M::HostHint => "Crée un serveur avec les mods de cette instance.",

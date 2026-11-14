@@ -1409,7 +1409,7 @@ impl LauncherShell {
     ///   "Starting" with nothing to answer.
     ///
     /// The Rosetta question itself waits for any open dialog, which may have clean-up
-    /// to do when it closes (a loader change to undo, a downloaded modpack to discard).
+    /// to do when it closes (a downloaded modpack to discard).
     fn open_modal(&mut self, modal: Modal, cx: &mut Context<Self>) {
         let current = self.modal.current();
         let searching = match current {

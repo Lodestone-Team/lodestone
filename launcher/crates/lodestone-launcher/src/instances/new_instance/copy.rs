@@ -1,10 +1,12 @@
 //! "Copy with another version or loader": the New instance dialog's form for a new
 //! instance made from an existing one, which stays as it is. The Minecraft version and
-//! loader pickers are the dialog's own; under them, what to take along: the worlds
-//! (only to the same or a newer version, and with a word that the game upgrades them
-//! for good), the resource packs, shaders and options, and the mods, as each one's
-//! build for the new version and loader, looked up on Modrinth as the choice changes.
-//! The work is `Instances::copy_as`'s, a job in the sidebar.
+//! loader pickers are the dialog's own, and the copy needs another version or loader
+//! than the instance's (Duplicate copies it as it is). Under them, what to take along:
+//! the worlds (checked for the same version; to a newer one only when asked, with a
+//! word that the game upgrades them for good; never to an older one), the resource
+//! packs, shaders and options, and the mods, as each one's build for the new version
+//! and loader, looked up on Modrinth as the choice changes. A lookup that fails can be
+//! tried again. The work is `Instances::copy_as`'s, a job in the sidebar.
 
 use std::time::Duration;
 
@@ -20,7 +22,7 @@ use launcher_core::{
 use super::NewInstanceDialog;
 use crate::theme::px;
 use crate::{
-    components::{Checkbox, Icon, LoadingDots},
+    components::{Checkbox, Icon, LoadingDots, a11y::Accessible, settings::link},
     i18n::{InstanceSettingsMsg as M, InstanceSettingsPlural as P, format, t, tr, trn},
     instances::content::Load,
     theme::{self, colors, leading, radius, text, weights},
@@ -42,6 +44,13 @@ pub(super) struct CopyForm {
     /// The mods' builds for the version and loader chosen last: `None` inside when
     /// Modrinth can't be reached.
     lookup: Option<Lookup>,
+    /// Whether the worlds were checked or unchecked by hand, and for which rule: a
+    /// choice made for one rule doesn't carry to another (checked for the same version,
+    /// it doesn't upgrade them for a newer one unasked). Without one, worlds go only to
+    /// the same version.
+    worlds_choice: Option<(WorldsRule, bool)>,
+    /// Where the dialog's body is scrolled, in a window too short for it.
+    pub scroll: gpui::ScrollHandle,
     _contents_task: Option<Task<()>>,
     _lookup_task: Option<Task<()>>,
 }
@@ -53,6 +62,8 @@ impl CopyForm {
             options: CopyAsOptions::default(),
             contents: Load::NotLoaded,
             lookup: None,
+            worlds_choice: None,
+            scroll: gpui::ScrollHandle::new(),
             _contents_task: None,
             _lookup_task: None,
         }
@@ -105,12 +116,52 @@ impl NewInstanceDialog {
         Some((version, Loader::from_kind(self.loader.read(cx).kind())))
     }
 
+    /// Whether the version and loader chosen are the instance's own, which a copy
+    /// can't have.
+    fn copy_same_target(&self, cx: &gpui::App) -> bool {
+        match (self.form(), self.copy_target(cx)) {
+            (Some(form), Some((version, loader))) => {
+                version == form.source.game_version && loader == form.source.loader
+            }
+            _ => false,
+        }
+    }
+
+    /// Whether the worlds go, for `rule`: as checked by hand for it, else only for the
+    /// same version.
+    fn copy_worlds_wanted(&self, rule: WorldsRule) -> bool {
+        match self.form().and_then(|form| form.worlds_choice) {
+            Some((at, on)) if at == rule => on,
+            _ => rule == WorldsRule::Same,
+        }
+    }
+
+    /// "Try again" after the instance or its mods couldn't be read or looked up.
+    fn retry_copy_lookup(&mut self, cx: &mut Context<Self>) {
+        if let Some(form) = self.form_mut() {
+            let unchecked = matches!(
+                &form.contents,
+                Load::Ready(contents) if contents.lookup_error.is_some()
+            );
+            if unchecked || matches!(form.contents, Load::Failed(_)) {
+                form.contents = Load::NotLoaded;
+            }
+            form.lookup = None;
+        }
+        self.read_copy_contents(cx);
+        self.look_up_mods(cx);
+        cx.notify();
+    }
+
     /// Looks the mods up for the version and loader chosen, after a moment, unless they
     /// are known already (or not wanted).
     fn look_up_mods(&mut self, cx: &mut Context<Self>) {
         let Some(target) = self.copy_target(cx) else {
             return;
         };
+        if self.copy_same_target(cx) {
+            return;
+        }
         let Some(form) = self.form() else {
             return;
         };
@@ -162,8 +213,10 @@ impl NewInstanceDialog {
         cx: &mut Context<Self>,
     ) {
         let target = self.copy_target(cx);
+        let rule = self.copy_worlds_rule(cx);
         if let Some(form) = self.form_mut() {
             form.options = options;
+            form.worlds_choice = Some((rule, options.worlds));
             if let (Load::Ready(contents), Some(target)) = (&form.contents, target) {
                 let resolved = ResolvedMods::sort(&contents.mods, build);
                 form.lookup = Some((target, Load::Ready(Some(resolved))));
@@ -203,12 +256,15 @@ impl NewInstanceDialog {
         }
     }
 
-    /// Whether the copy can start: the instance has been read, and its mods (when they
-    /// go) have been looked up.
+    /// Whether the copy can start: another version or loader is chosen, the instance
+    /// has been read, and its mods (when they go) have been looked up.
     pub(super) fn copy_ready(&self, cx: &gpui::App) -> bool {
         let (Some(form), Some((_, loader))) = (self.form(), self.copy_target(cx)) else {
             return false;
         };
+        if self.copy_same_target(cx) {
+            return false;
+        }
         let Load::Ready(contents) = &form.contents else {
             return false;
         };
@@ -221,8 +277,12 @@ impl NewInstanceDialog {
         let Some((version, loader_now)) = self.copy_target(cx) else {
             return Err(t(M::ChooseGameVersion).into());
         };
+        if self.copy_same_target(cx) {
+            return Err(t(M::CopySameTarget).into());
+        }
         let loader = self.loader.read(cx).choice()?;
         let rule = self.copy_worlds_rule(cx);
+        let worlds = self.copy_worlds_wanted(rule);
         let resolved = self.copy_resolved(cx).flatten().cloned();
         let Some(form) = self.form() else {
             return Ok(());
@@ -234,7 +294,10 @@ impl NewInstanceDialog {
             contents,
             &version,
             loader_now,
-            form.options,
+            CopyAsOptions {
+                worlds,
+                ..form.options
+            },
             rule,
             resolved.as_ref(),
         );
@@ -270,11 +333,19 @@ impl NewInstanceDialog {
         )
     }
 
+    /// "Choose another Minecraft version or loader", while they are the instance's own.
+    pub(super) fn copy_hint(&self, cx: &gpui::App) -> Option<AnyElement> {
+        self.copy_same_target(cx)
+            .then(|| note(t(M::CopySameTarget).into()))
+    }
+
     /// What to take along: worlds, packs and options, mods.
     pub(super) fn copy_options(&mut self, cx: &mut Context<Self>) -> Option<AnyElement> {
         self.read_copy_contents(cx);
         self.look_up_mods(cx);
+        let same_target = self.copy_same_target(cx);
         let rule = self.copy_worlds_rule(cx);
+        let worlds_wanted = self.copy_worlds_wanted(rule);
         let resolved = self.copy_resolved(cx).map(|found| found.cloned());
         let (version, loader) = self.copy_target(cx).unwrap_or_default();
         let form = self.form()?;
@@ -309,7 +380,7 @@ impl NewInstanceDialog {
             _ if contents.is_some() && worlds == 0 => Some(note(t(M::CopyNoWorlds).into())),
             WorldsRule::Older => Some(note(t(M::CopyWorldsOlder).into())),
             WorldsRule::Unknown => Some(note(tr!(M::CopyWorldsUnknown, version = version).into())),
-            WorldsRule::Newer if options.worlds => Some(warning(tr!(
+            WorldsRule::Newer if worlds_wanted => Some(warning(tr!(
                 M::CopyWorldsUpgraded,
                 version = version,
                 name = source.name
@@ -319,7 +390,7 @@ impl NewInstanceDialog {
         let worlds_row = option_row(
             Checkbox::new(
                 "copy-worlds",
-                options.worlds && worlds_allowed,
+                worlds_wanted && worlds_allowed,
                 if worlds > 0 {
                     trn!(P::CopyWorldsCount, worlds)
                 } else {
@@ -327,7 +398,18 @@ impl NewInstanceDialog {
                 },
             )
             .disabled(!worlds_allowed)
-            .on_change(set(|o, v| o.worlds = v)),
+            .on_change({
+                let entity = cx.entity();
+                move |value: &bool, _: &mut gpui::Window, cx: &mut gpui::App| {
+                    let value = *value;
+                    entity.update(cx, |this, cx| {
+                        if let Some(form) = this.form_mut() {
+                            form.worlds_choice = Some((rule, value));
+                        }
+                        cx.notify();
+                    });
+                }
+            }),
             worlds_note,
         );
 
@@ -338,17 +420,50 @@ impl NewInstanceDialog {
         );
 
         // Mods: each one's build for the new version and loader.
-        let has_mods = contents.is_some_and(|c| !c.mods.is_empty() || !c.other_mods.is_empty());
+        let has_mods = contents.is_some_and(|c| {
+            !c.mods.is_empty() || !c.other_mods.is_empty() || !c.unchecked.is_empty()
+        });
         let mods_possible = loader != Loader::None && has_mods;
-        let mods_note: Option<AnyElement> = match contents {
-            None => Some(match &form.contents {
-                Load::Failed(err) => error_note(tr!(M::CopyModsFailed, error = err)),
-                _ => loading(t(M::CopyReading).into()),
-            }),
-            Some(_) if !has_mods => Some(note(t(M::CopyNoMods).into())),
-            Some(_) if loader == Loader::None => Some(note(t(M::CopyModsVanilla).into())),
-            Some(_) if !options.mods => None,
-            Some(contents) => Some(mods_status(contents, resolved, &form.lookup, &target_label)),
+        let lookup_failed = match (&form.contents, &form.lookup) {
+            (Load::Failed(err), _) | (_, Some((_, Load::Failed(err)))) => Some(err.clone()),
+            _ => None,
+        };
+        let unchecked = contents.is_some_and(|c| c.lookup_error.is_some());
+        let retry = |cx: &mut Context<Self>| {
+            div()
+                .flex()
+                .flex_row()
+                .flex_wrap()
+                .items_baseline()
+                .gap_1()
+                .text_size(theme::text_size(text::SMALL))
+                .line_height(theme::line_height(text::SMALL, leading::NORMAL))
+                .text_color(crate::theme::ink::muted())
+                .child(
+                    link("copy-mods-retry", t(crate::i18n::CommonMsg::TryAgain))
+                        .on_press(cx.listener(|this, _, _, cx| this.retry_copy_lookup(cx))),
+                )
+                .child(t(M::CopyOrUncheckMods))
+                .into_any_element()
+        };
+        let failed_note = |err: &SharedString, cx: &mut Context<Self>| {
+            column(vec![
+                error_note(tr!(M::CopyModsFailed, error = err)),
+                retry(cx),
+            ])
+        };
+        let mods_note: Option<AnyElement> = match (contents, &lookup_failed) {
+            (None, Some(err)) => Some(failed_note(err, cx)),
+            (None, None) => Some(loading(t(M::CopyReading).into())),
+            (Some(_), _) if !has_mods => Some(note(t(M::CopyNoMods).into())),
+            (Some(_), _) if loader == Loader::None => Some(note(t(M::CopyModsVanilla).into())),
+            (Some(_), _) if !options.mods || same_target => None,
+            (Some(_), Some(err)) => Some(failed_note(err, cx)),
+            (Some(contents), None) => Some(column(
+                std::iter::once(mods_status(contents, resolved, &target_label))
+                    .chain(unchecked.then(|| retry(cx)))
+                    .collect(),
+            )),
         };
         let mods_row = option_row(
             Checkbox::new("copy-mods", options.mods && mods_possible, t(M::CopyMods))
@@ -386,16 +501,22 @@ impl NewInstanceDialog {
     }
 }
 
+/// Notes one under another.
+fn column(children: Vec<AnyElement>) -> AnyElement {
+    div()
+        .flex()
+        .flex_col()
+        .gap_1()
+        .children(children)
+        .into_any_element()
+}
+
 /// What the mod lookup found, or what it is doing.
 fn mods_status(
     contents: &Contents,
     resolved: Option<Option<ResolvedMods>>,
-    lookup: &Option<Lookup>,
     target: &str,
 ) -> AnyElement {
-    if let Some((_, Load::Failed(err))) = lookup {
-        return error_note(tr!(M::CopyModsFailed, error = err));
-    }
     let not_on_modrinth = (!contents.other_mods.is_empty()).then(|| {
         tr!(
             M::CopyModsNotOnModrinth,
@@ -410,7 +531,13 @@ fn mods_status(
         }
         Some(Some(resolved)) => resolved,
     };
-    let total = contents.mods.len() + contents.other_mods.len();
+    let unchecked = (!contents.unchecked.is_empty()).then(|| {
+        tr!(
+            M::CopyModsUnchecked,
+            names = format::list(&contents.unchecked)
+        )
+    });
+    let total = contents.mods.len() + contents.other_mods.len() + contents.unchecked.len();
     let mut lines: Vec<AnyElement> = vec![
         div()
             .child(trn!(
@@ -434,6 +561,9 @@ fn mods_status(
         );
     }
     if let Some(line) = not_on_modrinth {
+        lines.push(div().child(line).into_any_element());
+    }
+    if let Some(line) = unchecked {
         lines.push(div().child(line).into_any_element());
     }
     div()

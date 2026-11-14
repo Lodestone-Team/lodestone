@@ -5,8 +5,9 @@
 //! copy with another version or loader, host, delete).
 //!
 //! The Minecraft version and the mod loader are shown, not changed: they are fixed once
-//! the instance is made (a modpack update or a linked server's pack may still move them).
-//! Only the loader's version can be picked here. "Copy with another version or
+//! the instance is made. A modpack update or a linked server's pack may still move them,
+//! and reverting a snapshot's mods puts back the version and loader they were for (the
+//! snapshot's settings alone keep them). Only the loader's version can be picked here. "Copy with another version or
 //! loader…" makes a new instance instead.
 //!
 //! Changes to the settings are kept until Save, on the bar that appears with them;
@@ -273,12 +274,11 @@ fn form_values(instance: &Instance) -> Instance {
 }
 
 /// `current` with the settings this form changes ([`InstanceSettings::read_fields`])
-/// taken from `form`.
+/// taken from `form`. The loader itself isn't one: only its version changes here.
 fn form_onto(form: &Instance, current: &Instance) -> Instance {
     Instance {
         name: form.name.clone(),
         group: form.group.clone(),
-        loader: form.loader,
         loader_version: form.loader_version.clone(),
         java_override: form.java_override.clone(),
         memory: form.memory,
@@ -768,10 +768,13 @@ impl InstanceSettings {
         };
         // The loader's version changes only when one was picked here, and not while
         // the versions load (or can't): the recommended version picked when the list
-        // loads isn't a change. The loader itself never changes here.
+        // loads isn't a change. The loader itself never changes here, and a picker
+        // left on another Minecraft version (one a server sync or a pack update moved
+        // meanwhile) offers builds for that version, which aren't taken.
         let picker = self.loader.read(cx);
         if let (true, Ok(Some(loader))) = (picker.touched(), picker.choice())
             && Loader::from_kind(Some(loader.kind)) == instance.loader
+            && picker.game_version() == Some(instance.game_version.as_str())
         {
             instance.loader_version = Some(loader.version);
         }
@@ -3051,19 +3054,11 @@ mod tests {
         let saved = form_onto(&asked, &now);
         // the form's settings, as confirmed
         assert_eq!(
-            (
-                &saved.name,
-                &saved.group,
-                saved.loader,
-                &saved.loader_version
-            ),
-            (
-                &asked.name,
-                &asked.group,
-                asked.loader,
-                &asked.loader_version
-            )
+            (&saved.name, &saved.group, &saved.loader_version),
+            (&asked.name, &asked.group, &asked.loader_version)
         );
+        // the loader isn't the form's: it never changes here
+        assert_eq!(saved.loader, now.loader);
         assert_eq!(
             (
                 &saved.java_override,
@@ -3285,5 +3280,69 @@ mod tab_tests {
         assert_eq!(saved.game_version, "1.20.1");
         assert_eq!(saved.play_time, played.play_time);
         assert_eq!(saved.last_played, Some(1_700_000_000));
+    }
+    /// A linked server's sync (or a pack update) moves the instance to another Minecraft
+    /// version while its Settings tab has an unsaved loader version: the tab follows the
+    /// new version, and Save never writes a build for the old one.
+    #[test]
+    fn a_loader_version_for_another_minecraft_version_is_never_saved() {
+        use launcher_core::game::loaders::{LoaderChoice, LoaderKind};
+        let mut cx = TestAppContext::single();
+        let (shell, instances, id, cx) = setup(&mut cx);
+        let store = instances.read_with(cx, |instances, _| instances.store());
+        let mut forge = store.get(&id).unwrap();
+        forge.game_version = "1.20.1".into();
+        forge.loader = Loader::Forge;
+        forge.loader_version = Some("47.4.0".into());
+        store.save(&forge).unwrap();
+        instances.update(cx, |instances, cx| {
+            instances.reload(cx);
+            cx.emit(InstancesEvent::LoaderChanged(id.clone()));
+        });
+        cx.run_until_parked();
+        let view = tab(&shell, cx);
+        // an unsaved pick of another Forge build for 1.20.1
+        view.update(cx, |view, cx| {
+            view.loader.update(cx, |picker, cx| {
+                picker.restore_choice(
+                    Some(LoaderChoice {
+                        kind: LoaderKind::Forge,
+                        version: "47.3.0".into(),
+                    }),
+                    true,
+                    cx,
+                )
+            });
+            assert!(view.has_changes(cx));
+        });
+        // the server moved to 1.21.1 with Forge 52.1.0
+        let mut synced = store.get(&id).unwrap();
+        synced.game_version = "1.21.1".into();
+        synced.loader_version = Some("52.1.0".into());
+        store.save(&synced).unwrap();
+        instances.update(cx, |instances, cx| instances.reload(cx));
+        cx.run_until_parked();
+        // before the tab hears of it, a stale pick isn't taken
+        view.read_with(cx, |view, cx| {
+            let saved = view.read_fields(&synced, cx).unwrap();
+            assert_eq!(saved.loader_version.as_deref(), Some("52.1.0"));
+        });
+        // and once it does (the stale pick was its only change, so the tab is made
+        // again), the picker shows the new version's build
+        instances.update(cx, |_, cx| {
+            cx.emit(InstancesEvent::LoaderChanged(id.clone()))
+        });
+        cx.run_until_parked();
+        let view = tab(&shell, cx);
+        view.read_with(cx, |view, cx| {
+            let picker = view.loader.read(cx);
+            assert_eq!(picker.game_version(), Some("1.21.1"));
+            assert!(!picker.touched());
+            let saved = view.read_fields(&synced, cx).unwrap();
+            assert_eq!(
+                (saved.game_version.as_str(), saved.loader_version.as_deref()),
+                ("1.21.1", Some("52.1.0"))
+            );
+        });
     }
 }

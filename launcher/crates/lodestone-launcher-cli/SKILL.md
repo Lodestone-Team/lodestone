@@ -153,7 +153,9 @@ The user also sees each connected program (this CLI says
   version don't load on another, worlds lose modded blocks, and an older version can't
   open a newer world. To move to another version or loader, `instances copy-as` makes a
   new instance (the original stays as it is). Only the loader's own version can change
-  (`instances loader-version`).
+  (`instances loader-version`). The user never moves them in place; only a modpack update,
+  a linked server's sync, or `snapshots revert` with the mods (which puts back the version
+  and loader those mods were for) does.
 
 ## Commands
 
@@ -185,15 +187,22 @@ lodestone-launcher-cli instances delete Survival --yes
 ```
 
 `copy-as` makes a new instance for another Minecraft version or loader (`--version`,
-`--loader`, `--loader-version`, `--name`; each defaults to the instance's own). It takes
-the resource packs, shaders and options.txt (`--no-packs` leaves them out), and each mod
+`--loader`, `--loader-version`, `--name`; each defaults to the instance's own, but the
+Minecraft version or the loader must differ: for the same ones use `instances duplicate`,
+or `instances loader-version` for another loader build). It takes the server list
+(servers.dat), the resource packs, shaders and options.txt (`--no-packs` leaves those
+out), and each mod
 Modrinth knows as that project's build for the new version and loader, with any required
 mods (`--no-mods` leaves them out). Mods with no such build, and mods not on Modrinth,
-stay behind. Worlds go only with `--worlds`, and only to the same or a newer version:
+stay behind. `config/` doesn't go (the new builds' settings can differ). Worlds go only
+with `--worlds` (the window's dialog starts with them checked for the same Minecraft
+version, but the API never copies them unasked), and only to the same or a newer version:
 the game upgrades them when it opens them and they can't go back (the originals stay).
 When mods stay behind or worlds are upgraded it needs `--yes`, and the refusal's
 `data.plan` lists what goes (`mods`, `worlds`, `resource_packs`) and what stays
-(`no_build`, `not_on_modrinth`). The job's result has the new `instance`.
+(`no_build`, `not_on_modrinth`, and `unchecked`: mods whose Modrinth lookup failed, so
+it isn't known whether they are on Modrinth; try again later). The job's result has the
+new `instance`.
 
 A share code holds the Minecraft version, the loader and its version, and exact Modrinth
 versions. There are two kinds:

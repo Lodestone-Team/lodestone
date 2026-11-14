@@ -11,11 +11,13 @@
 //!   ([`worlds_rule`]);
 //! - resource packs, shader packs and `options.txt` (its pack ids named as the new
 //!   version names them), with the shader pack in use;
+//! - the server list (`servers.dat`), always: it isn't tied to a version;
 //! - mods Modrinth knows (from `content.json`, after a lookup by SHA-1), as each
 //!   project's build for the new version and loader ([`resolve_mods`]), installed fresh
 //!   through the usual Modrinth path (hashes checked) with any required mods they need
 //!   now. A mod that was off stays off. Mods with no such build, and mods Modrinth
-//!   doesn't know, stay behind.
+//!   doesn't know (or that couldn't be checked), stay behind, unless another mod
+//!   requires them. `config/` stays: the new builds' settings can differ.
 //!
 //! The settings that aren't tied to the version (memory, arguments, window, group,
 //! icon, background) come along; play time, the modpack and a linked server don't. The
@@ -46,6 +48,9 @@ use crate::{
 
 /// How many projects are looked up on Modrinth at once.
 const PARALLEL_LOOKUPS: usize = 6;
+
+/// The game's list of multiplayer servers, which goes into every copy.
+const SERVERS_FILE: &str = "servers.dat";
 
 /// What goes into the copy.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -145,8 +150,14 @@ pub struct Contents {
     pub shader: Option<String>,
     /// Its mods Modrinth knows, one per project.
     pub mods: Vec<SourceMod>,
-    /// The names of its other mods: added by hand, from CurseForge, or not checked yet.
+    /// The names of its other mods, which Modrinth doesn't know: added by hand, or from
+    /// CurseForge.
     pub other_mods: Vec<String>,
+    /// The names of the mods that couldn't be looked up on Modrinth (it failed, or it
+    /// can't be reached): they may be on it.
+    pub unchecked: Vec<String>,
+    /// Why the lookup failed, if it did.
+    pub lookup_error: Option<String>,
 }
 
 /// The worlds in the game folder: folders in `saves/` with a `level.dat`, sorted.
@@ -171,11 +182,13 @@ pub async fn contents(
     api: Option<&Modrinth>,
     dirs: &InstanceDirs,
 ) -> Result<Contents, ContentError> {
-    let (files, provenance, _) = listing::refresh(api, dirs, ContentKind::Mod).await?;
+    let (files, provenance, lookup_error) = listing::refresh(api, dirs, ContentKind::Mod).await?;
     let mut mods: Vec<SourceMod> = Vec::new();
     let mut other_mods = Vec::new();
+    let mut unchecked = Vec::new();
     for file in files.iter().filter(|f| !f.is_dir) {
-        let source = provenance.current(file).and_then(|e| e.modrinth.as_ref());
+        let entry = provenance.current(file);
+        let source = entry.and_then(|e| e.modrinth.as_ref());
         match source {
             Some(source) => match mods.iter_mut().find(|m| m.project_id == source.project_id) {
                 Some(known) => known.enabled |= file.enabled_by_name(),
@@ -190,7 +203,8 @@ pub async fn contents(
                     enabled: file.enabled_by_name(),
                 }),
             },
-            None => other_mods.push(file.display_name()),
+            None if entry.is_some_and(|e| e.looked_up) => other_mods.push(file.display_name()),
+            None => unchecked.push(file.display_name()),
         }
     }
     let names = |kind: ContentKind| -> Result<Vec<String>, ContentError> {
@@ -207,6 +221,8 @@ pub async fn contents(
         shader: listing::shader_state(dirs)?.selection.pack,
         mods,
         other_mods,
+        unchecked,
+        lookup_error,
     })
 }
 
@@ -300,15 +316,18 @@ pub struct CopyPlan {
     pub no_build: Vec<SourceMod>,
     /// Mods Modrinth doesn't know: they stay behind.
     pub not_on_modrinth: Vec<String>,
+    /// Mods that couldn't be looked up on Modrinth: they stay behind.
+    pub unchecked: Vec<String>,
 }
 
 impl CopyPlan {
-    /// The mods that stay behind, by name.
+    /// The mods that stay behind (unless another mod requires them), by name.
     pub fn left_behind(&self) -> Vec<String> {
         self.no_build
             .iter()
             .map(|m| m.title.clone())
             .chain(self.not_on_modrinth.iter().cloned())
+            .chain(self.unchecked.iter().cloned())
             .collect()
     }
 
@@ -316,8 +335,7 @@ impl CopyPlan {
     /// are upgraded, or mods that stay behind.
     pub fn needs_confirmation(&self) -> bool {
         (!self.worlds.is_empty() && self.worlds_rule == WorldsRule::Newer)
-            || !self.no_build.is_empty()
-            || !self.not_on_modrinth.is_empty()
+            || !self.left_behind().is_empty()
     }
 }
 
@@ -333,7 +351,7 @@ pub fn plan(
     resolved: Option<&ResolvedMods>,
 ) -> CopyPlan {
     let packs = options.packs;
-    let (mods, no_build, not_on_modrinth) = if options.mods {
+    let (mods, no_build, not_on_modrinth, unchecked) = if options.mods {
         let resolved = resolved.cloned().unwrap_or_else(|| ResolvedMods {
             found: Vec::new(),
             missing: contents.mods.clone(),
@@ -342,9 +360,10 @@ pub fn plan(
             resolved.found,
             resolved.missing,
             contents.other_mods.clone(),
+            contents.unchecked.clone(),
         )
     } else {
-        (Vec::new(), Vec::new(), Vec::new())
+        (Vec::new(), Vec::new(), Vec::new(), Vec::new())
     };
     CopyPlan {
         game_version: game_version.to_string(),
@@ -370,6 +389,7 @@ pub fn plan(
         mods,
         no_build,
         not_on_modrinth,
+        unchecked,
     }
 }
 
@@ -457,12 +477,19 @@ pub struct CopyOutcome {
     pub instance: Instance,
     /// Titles of the mods installed, required mods included.
     pub installed: Vec<String>,
-    /// What couldn't be installed: a title (or project id) and why.
-    pub skipped: Vec<(String, String)>,
+    /// The instance's own mods that aren't in the copy, by name: no build, not on
+    /// Modrinth (or not checked), or not installed. One that another mod required, and
+    /// so was installed anyway, isn't here.
+    pub left_behind: Vec<String>,
+    /// Mods the copied ones require that couldn't be installed: a title (or project id)
+    /// and why.
+    pub missing_dependencies: Vec<(String, String)>,
 }
 
 /// Makes the copy of `source` that `request` describes, as a new instance in `store`.
-/// `api` is needed when mods go.
+/// `api` is needed when mods go. `files_read` is called once nothing more is read from
+/// the original (its worlds, packs and options are copied; the mods come from Modrinth),
+/// so the caller can let the original be played again.
 #[allow(clippy::too_many_arguments)]
 pub async fn execute(
     store: &InstanceStore,
@@ -472,10 +499,11 @@ pub async fn execute(
     request: &CopyAsRequest,
     progress: &InstallProgress,
     cancel: &CancelToken,
+    files_read: impl FnOnce(),
 ) -> Result<CopyOutcome, CopyAsError> {
     let staging = store.new_staging()?;
     let result = build(
-        store, api, downloader, source, request, progress, cancel, &staging,
+        store, api, downloader, source, request, progress, cancel, &staging, files_read,
     )
     .await;
     if result.is_err() {
@@ -494,6 +522,7 @@ async fn build(
     progress: &InstallProgress,
     cancel: &CancelToken,
     staging: &Path,
+    files_read: impl FnOnce(),
 ) -> Result<CopyOutcome, CopyAsError> {
     let plan = &request.plan;
     let from = InstanceDirs::new(store.dir(&source.id));
@@ -535,9 +564,13 @@ async fn build(
         }
         if plan.options {
             copy_entry(&from.game.join(options::FILE), &to.game.join(options::FILE))?;
-            options::carry_packs(&to.game, &source.game_version, &plan.game_version)
-                .map_err(|err| ContentError::Invalid(err.to_string()))?;
+            // A file it can't rewrite still goes as it is: the game reads what it can.
+            let _ = options::carry_packs(&to.game, &source.game_version, &plan.game_version);
         }
+    }
+    let servers = from.game.join(SERVERS_FILE);
+    if servers.is_file() {
+        copy_entry(&servers, &to.game.join(SERVERS_FILE))?;
     }
     // The instance's own icon and Play backgrounds, which its settings refer to.
     for name in [ICON_FILE, BACKGROUND_FILE, SLIDESHOW_DIR] {
@@ -546,11 +579,14 @@ async fn build(
             copy_entry(&path, &to.instance.join(name))?;
         }
     }
+    // Nothing more is read from the original.
+    files_read();
     check()?;
 
     let target = Target::new(plan.game_version.clone(), plan.loader);
     let mut installed = Vec::new();
-    let mut skipped = Vec::new();
+    let mut skipped: Vec<(String, String)> = Vec::new();
+    let mut not_installed: Vec<String> = Vec::new();
     if !plan.mods.is_empty() {
         let api = api.ok_or_else(|| {
             ContentError::Invalid("Modrinth isn't available to download the mods.".into())
@@ -570,6 +606,14 @@ async fn build(
             .await
             .map_err(CopyAsError::from_content)?;
         check()?;
+        // What the plan couldn't find or fit. Installing skips more only for a file
+        // already there, which in this new folder another mod of the copy put there.
+        skipped = install_plan
+            .skipped
+            .iter()
+            .map(|s| (s.project.clone(), s.reason.clone()))
+            .collect();
+        let planned = install_plan.skipped.len();
         let outcome = install::execute(
             api,
             downloader,
@@ -585,24 +629,25 @@ async fn build(
             .installed
             .into_iter()
             .map(|(title, _)| title)
-            .collect();
-        skipped = outcome
-            .skipped
-            .into_iter()
-            .map(|s| (s.project, s.reason))
+            .chain(outcome.skipped.into_iter().skip(planned).map(|s| s.project))
             .collect();
         // What was off stays off.
         let provenance = Provenance::load(&to.instance);
         let mut by_project = provenance.by_project(ContentKind::Mod);
-        for (source_mod, _) in plan.mods.iter().filter(|(m, _)| !m.enabled) {
-            for name in by_project
-                .remove(&source_mod.project_id)
-                .unwrap_or_default()
-            {
-                files::set_mod_enabled(&to, &name, false)?;
+        for (source_mod, _) in &plan.mods {
+            match by_project.remove(&source_mod.project_id) {
+                Some(names) if !source_mod.enabled => {
+                    for name in names {
+                        files::set_mod_enabled(&to, &name, false)?;
+                    }
+                }
+                Some(_) => {}
+                None => not_installed.push(source_mod.title.clone()),
             }
         }
     }
+    let (left_behind, missing_dependencies) =
+        sort_left_behind(plan, &installed, not_installed, skipped);
     if let Some(shader) = &plan.shader
         && plan.shader_packs.contains(shader)
         && let Some(loader) = listing::shader_state(&to)?.loader
@@ -626,8 +671,42 @@ async fn build(
     Ok(CopyOutcome {
         instance,
         installed,
-        skipped,
+        left_behind,
+        missing_dependencies,
     })
+}
+
+/// The instance's own mods that aren't in the copy, and the required mods that couldn't
+/// be installed. A mod the plan left behind that another mod pulled in anyway, by the
+/// same name, is in the copy; a mod that couldn't be installed is one of the instance's
+/// own when it has its name, and a missing dependency otherwise.
+fn sort_left_behind(
+    plan: &CopyPlan,
+    installed: &[String],
+    not_installed: Vec<String>,
+    skipped: Vec<(String, String)>,
+) -> (Vec<String>, Vec<(String, String)>) {
+    let same = |a: &str, b: &str| a.trim().eq_ignore_ascii_case(b.trim());
+    let is_installed = |name: &str| installed.iter().any(|i| same(i, name));
+    let own = |name: &str| plan.mods.iter().any(|(m, _)| same(&m.title, name));
+    let mut left_behind: Vec<String> = Vec::new();
+    for name in plan.left_behind().into_iter().chain(not_installed) {
+        if !is_installed(&name) && !left_behind.iter().any(|l| same(l, &name)) {
+            left_behind.push(name);
+        }
+    }
+    let mut missing = Vec::new();
+    for (name, reason) in skipped {
+        if is_installed(&name) || left_behind.iter().any(|l| same(l, &name)) {
+            continue;
+        }
+        if own(&name) {
+            left_behind.push(name);
+        } else {
+            missing.push((name, reason));
+        }
+    }
+    (left_behind, missing)
 }
 
 /// Copies the file or folder `from` to `to` (folders whole, skipping symbolic links).
@@ -684,6 +763,8 @@ mod tests {
             shader: Some("BSL.zip".into()),
             mods: vec![source_mod("sodium", true), source_mod("iris", false)],
             other_mods: vec!["Homemade".into()],
+            unchecked: Vec::new(),
+            lookup_error: None,
         }
     }
 
@@ -821,6 +902,67 @@ mod tests {
         assert_eq!(same.worlds.len(), 2);
         assert_eq!(same.mods.len(), 2);
         assert!(!same.needs_confirmation());
+    }
+
+    #[test]
+    fn mods_that_couldnt_be_checked_stay_behind_and_are_asked_about() {
+        let mut contents = contents();
+        contents.other_mods.clear();
+        contents.unchecked = vec!["Mystery".into()];
+        let found = ResolvedMods::sort(&contents.mods, |m| Some(version(&m.project_id)));
+        let plan = plan(
+            &contents,
+            "1.21.1",
+            Loader::Fabric,
+            CopyAsOptions::default(),
+            WorldsRule::Same,
+            Some(&found),
+        );
+        assert_eq!(plan.unchecked, ["Mystery"]);
+        assert_eq!(plan.left_behind(), ["Mystery"]);
+        assert!(plan.needs_confirmation());
+    }
+
+    #[test]
+    fn a_mod_another_one_pulled_in_isnt_left_behind() {
+        let mut contents = contents();
+        contents.other_mods = vec!["Fabric API".into(), "Homemade".into()];
+        let resolved = ResolvedMods::sort(&contents.mods, |m| {
+            (m.project_id == "sodium").then(|| version("sodium"))
+        });
+        let plan = plan(
+            &contents,
+            "1.21.1",
+            Loader::Fabric,
+            CopyAsOptions::default(),
+            WorldsRule::Newer,
+            Some(&resolved),
+        );
+        // Sodium was installed and required Fabric API (from CurseForge in the
+        // original), which came along; one dependency couldn't be found
+        let installed = vec!["sodium title".to_string(), "Fabric API".to_string()];
+        let skipped = vec![
+            ("Lib".to_string(), "Not found on Modrinth".to_string()),
+            ("fabric api".to_string(), "Not found".to_string()),
+        ];
+        let (behind, missing) = sort_left_behind(&plan, &installed, Vec::new(), skipped);
+        assert_eq!(behind, ["iris title", "Homemade"]);
+        assert_eq!(
+            missing,
+            [("Lib".to_string(), "Not found on Modrinth".to_string())]
+        );
+        // one of its own mods that couldn't be installed stays behind, once
+        let (behind, missing) = sort_left_behind(
+            &plan,
+            &[],
+            vec!["sodium title".into()],
+            vec![("sodium title".into(), "Incompatible".into())],
+        );
+        assert_eq!(
+            behind,
+            ["iris title", "Fabric API", "Homemade", "sodium title"]
+        );
+        assert!(missing.is_empty());
     }
 
     #[test]

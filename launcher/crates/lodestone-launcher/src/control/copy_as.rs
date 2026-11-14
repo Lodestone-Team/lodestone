@@ -200,6 +200,7 @@ pub fn plan_json(
         })).collect::<Vec<_>>(),
         "no_build": plan.no_build.iter().map(|m| json!({ "title": m.title, "project": m.project_id, "file": m.file_name })).collect::<Vec<_>>(),
         "not_on_modrinth": plan.not_on_modrinth,
+        "unchecked": plan.unchecked,
     })
 }
 
@@ -216,13 +217,25 @@ fn worlds_refusal(rule: WorldsRule, from: &str, to: &str) -> Option<String> {
     }
 }
 
+/// Why a copy to the instance's own Minecraft version and loader is refused, if it is:
+/// that is a lossy duplicate (no `config/`, mods re-resolved to their newest builds).
+fn same_target(source: &Instance, version: &str, loader: Loader) -> Option<String> {
+    (source.game_version == version && source.loader == loader).then(|| {
+        format!(
+            "{} already is Minecraft {version} {}. Choose another --version or --loader; `instances duplicate` copies an instance as it is, and `instances loader-version` changes the loader's version.",
+            source.name,
+            loader.label()
+        )
+    })
+}
+
 /// What the user should hear before a copy that leaves something behind.
 fn confirmation_message(plan: &CopyPlan) -> String {
     let mut parts = Vec::new();
-    let behind = plan.no_build.len() + plan.not_on_modrinth.len();
+    let behind = plan.left_behind().len();
     if behind > 0 {
         parts.push(format!(
-            "leaves {behind} mod(s) behind (no build for Minecraft {} {}, or not on Modrinth)",
+            "leaves {behind} mod(s) behind unless another mod requires them (no build for Minecraft {} {}, not on Modrinth, or couldn't be checked)",
             plan.game_version,
             plan.loader.label()
         ));
@@ -305,6 +318,9 @@ pub fn copy_as(call: Call, cx: &mut App) -> Reply {
             }
         };
         let to_loader = Loader::from_kind(kind);
+        if let Some(refusal) = same_target(&source, &version, to_loader) {
+            return Err(api_error(codes::INVALID_PARAMS, refusal));
+        }
         let ids: Vec<&str> = manifest.versions.iter().map(|v| v.id.as_str()).collect();
         let rule = copy_as::worlds_rule(&source.game_version, &version, &ids);
         if params.worlds
@@ -376,7 +392,11 @@ pub fn copy_as(call: Call, cx: &mut App) -> Reply {
                     Some(n) if n.is_failure() => Err(api_error(codes::FAILED, format!("{}: {}", n.title, n.message))),
                     Some(n) => Ok(cx.update(|cx| {
                         let instances = watch.instances.read(cx);
-                        let copy = instances.selected().cloned();
+                        // this job's copy, not whichever instance is selected now
+                        let copy = instances
+                            .copy_made_by(import)
+                            .and_then(|id| instances.list().iter().find(|i| i.id == id))
+                            .cloned();
                         json!({
                             "instance": copy.map(|i| instance_json(&i, instances, watch.servers.read(cx))),
                             "title": n.title,
@@ -467,6 +487,23 @@ mod tests {
         assert!(worlds_refusal(WorldsRule::Unknown, "1.21.1", "24w14a").is_some());
         assert_eq!(worlds_refusal(WorldsRule::Newer, "1.20.1", "1.21.1"), None);
         assert_eq!(worlds_refusal(WorldsRule::Same, "1.21.1", "1.21.1"), None);
+    }
+
+    #[test]
+    fn a_copy_needs_another_version_or_loader() {
+        let source = Instance {
+            name: "Survival".into(),
+            game_version: "1.21.1".into(),
+            loader: Loader::Fabric,
+            loader_version: Some("0.16.10".into()),
+            ..Instance::default()
+        };
+        let refusal = same_target(&source, "1.21.1", Loader::Fabric).unwrap();
+        assert!(refusal.contains("instances duplicate"), "{refusal}");
+        assert!(refusal.contains("instances loader-version"), "{refusal}");
+        assert_eq!(same_target(&source, "1.21.4", Loader::Fabric), None);
+        assert_eq!(same_target(&source, "1.21.1", Loader::Quilt), None);
+        assert_eq!(same_target(&source, "1.21.1", Loader::None), None);
     }
 
     #[test]

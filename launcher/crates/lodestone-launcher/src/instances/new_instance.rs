@@ -955,10 +955,19 @@ impl NewInstanceDialog {
         let entity = cx.entity();
         let intro = self.copy_intro();
         let form = self.version_form(cx).into_any_element();
+        let hint = self.copy_hint(cx);
         let options = self.copy_options(cx);
         let ready = self.copy_ready(cx);
+        let scroll = self
+            .copy
+            .as_ref()
+            .map(|form| form.scroll.clone())
+            .unwrap_or_default();
+        // The form and its choices are taller than a small window: the body scrolls,
+        // and "Make the copy" stays in view.
         Dialog::new("copy-instance", t(M::CopyAsTitle), self.focus.clone())
             .width(px(820.))
+            .scroll_body(scroll)
             .on_close({
                 let entity = entity.clone();
                 move |_, cx| entity.update(cx, |_, cx| cx.emit(NewInstanceDismissed))
@@ -971,6 +980,7 @@ impl NewInstanceDialog {
                     .text_size(theme::text_size(text::MEDIUM))
                     .children(intro)
                     .child(form)
+                    .children(hint)
                     .children(options)
                     .when_some(self.error.clone(), |this, error| {
                         this.child(

@@ -1015,8 +1015,11 @@ fn a_copy_for_another_version_takes_the_mods_with_a_build_for_it() {
         "resourcePacks:[\"vanilla\",\"file/Faithful.zip\"]\n",
     )
     .unwrap();
+    fs::write(dirs.game.join("servers.dat"), b"servers").unwrap();
 
     let contents = block_on(copy_as::contents(Some(&api), &dirs)).unwrap();
+    assert!(contents.unchecked.is_empty());
+    assert_eq!(contents.lookup_error, None);
     assert_eq!(contents.worlds, ["New World"]);
     assert_eq!(contents.resource_packs, ["Faithful.zip"]);
     assert!(contents.options);
@@ -1062,6 +1065,7 @@ fn a_copy_for_another_version_takes_the_mods_with_a_build_for_it() {
         Some(&resolved),
     );
     assert!(plan.needs_confirmation());
+    let read_done = std::cell::Cell::new(false);
     let outcome = block_on(copy_as::execute(
         &store,
         Some(&api),
@@ -1074,8 +1078,13 @@ fn a_copy_for_another_version_takes_the_mods_with_a_build_for_it() {
         },
         &InstallProgress::default(),
         &CancelToken::new(),
+        || read_done.set(true),
     ))
     .unwrap();
+    assert!(read_done.get(), "the original's files were read");
+    // Iris has no build, and the mod added by hand isn't on Modrinth
+    assert_eq!(outcome.left_behind, ["iris title", "homemade"]);
+    assert!(outcome.missing_dependencies.is_empty());
     let copy = outcome.instance;
     assert_eq!(copy.name, "Survival (1.21.1 Fabric)");
     assert_ne!(copy.id, source.id);
@@ -1095,6 +1104,10 @@ fn a_copy_for_another_version_takes_the_mods_with_a_build_for_it() {
         ["Faithful.zip"]
     );
     assert!(copy_dirs.game.join("options.txt").is_file());
+    assert_eq!(
+        fs::read(copy_dirs.game.join("servers.dat")).unwrap(),
+        b"servers"
+    );
     // the original is as it was
     let original = store.get(&source.id).unwrap();
     assert_eq!(
@@ -1127,6 +1140,7 @@ fn a_copy_for_another_version_takes_the_mods_with_a_build_for_it() {
         },
         &InstallProgress::default(),
         &cancel,
+        || {},
     ));
     assert!(matches!(cancelled, Err(copy_as::CopyAsError::Cancelled)));
     assert_eq!(names(store.root()).len(), 2, "{:?}", names(store.root()));

@@ -55,6 +55,12 @@ impl Instances {
         }))
     }
 
+    /// The instance a finished copy job made, by the job's id (the one
+    /// [`Self::copy_as`] returned), for the control API's reply.
+    pub fn copy_made_by(&self, job_id: u64) -> Option<&str> {
+        self.copies.get(&job_id).map(String::as_str)
+    }
+
     /// Whether worlds can go from Minecraft `from` to `to`, placed by the version list
     /// once it has loaded.
     pub fn worlds_rule(&self, from: &str, to: &str) -> WorldsRule {
@@ -102,9 +108,9 @@ impl Instances {
                 request.plan.loader,
             )
         });
-        let left_behind = request.plan.left_behind();
-        // the original's files stay as they are while they are read: Play waits, and it
-        // can't be deleted
+        // the original's files stay as they are while they are read (Play and Delete
+        // are refused meanwhile); the mods then come from Modrinth, so the mark goes
+        // once the worlds, packs and options are copied
         let busy = self.mark_files_busy(id);
         let work = {
             let store = self.store.clone();
@@ -113,7 +119,7 @@ impl Instances {
             let progress = progress.clone();
             let cancel = cancel.clone();
             cx.background_spawn(async move {
-                let result = copy_as::execute(
+                copy_as::execute(
                     &store,
                     api.as_deref(),
                     &downloader,
@@ -121,10 +127,9 @@ impl Instances {
                     &request,
                     &progress,
                     &cancel,
+                    move || drop(busy),
                 )
-                .await;
-                drop(busy);
-                result
+                .await
             })
         };
         let task = cx.spawn(async move |this, cx| {
@@ -135,26 +140,41 @@ impl Instances {
                     Ok(outcome) => {
                         let copy = outcome.instance;
                         this.selected = Some(copy.id.clone());
+                        this.copies.insert(job_id, copy.id.clone());
                         this.reload(cx);
-                        let ready = tr!(
+                        let mut message = tr!(
                             M::ModpackReadyMessage,
                             version = copy.game_version,
                             loader = super::loader_label(&copy),
                         );
-                        let mut behind = left_behind;
-                        behind.extend(outcome.skipped.into_iter().map(|(title, _)| title));
-                        let message = match behind.len() {
-                            0 => ready,
-                            count => tr!(
+                        let behind = &outcome.left_behind;
+                        if !behind.is_empty() {
+                            message = tr!(
                                 M::TwoSentences,
-                                first = ready,
+                                first = message,
                                 second = trn!(
                                     P::CopyModsLeftBehind,
-                                    count,
-                                    names = crate::i18n::format::list(&behind)
+                                    behind.len(),
+                                    names = crate::i18n::format::list(behind)
                                 )
-                            ),
-                        };
+                            );
+                        }
+                        let missing: Vec<String> = outcome
+                            .missing_dependencies
+                            .iter()
+                            .map(|(title, _)| title.clone())
+                            .collect();
+                        if !missing.is_empty() {
+                            message = tr!(
+                                M::TwoSentences,
+                                first = message,
+                                second = trn!(
+                                    P::CopyDependenciesMissing,
+                                    missing.len(),
+                                    names = crate::i18n::format::list(&missing)
+                                )
+                            );
+                        }
                         cx.emit(InstancesEvent::Notice {
                             title: tr!(M::CopyReady, name = copy.name).into(),
                             message: message.into(),

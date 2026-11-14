@@ -272,6 +272,7 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::WorldsBackedUp => ["已先備份 {count} 個世界。"; 2],
         P::DownloadingFiles => ["正在下載 {count} 個檔案"; 2],
         P::CopyModsLeftBehind => ["{count} 個模組未複製：{names}。"; 2],
+        P::CopyDependenciesMissing => ["{count} 個所需的前置模組無法安裝：{names}。"; 2],
         P::FinderModsLeft => ["還有 {count} 個模組待檢查"; 2],
         P::FinderModsOff => ["已停用 {count} 個模組"; 2],
         P::FinderTriesLeft => ["大約還需 {count} 次嘗試"; 2],

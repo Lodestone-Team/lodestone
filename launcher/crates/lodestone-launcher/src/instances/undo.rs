@@ -271,19 +271,26 @@ pub(crate) fn put_back(from: &Instance, to: &mut Instance, fields: &[Field]) {
     }
 }
 
-/// Which of `fields` can still be put back from `snapshot` onto `current`. A loader
-/// version is made for one loader and game version: once a modpack update or a linked
-/// server's pack moved the instance to another (which records no step), the old one
-/// would no longer start it, so that part of the step is gone. Undo never changes the
-/// loader itself.
-fn still_apply(snapshot: &Instance, current: &Instance, fields: &[Field]) -> Vec<Field> {
+/// Which of `fields` can still be put back from `snapshot` onto `current`, where the
+/// step left the instance as `left`. A loader version is made for one loader and game
+/// version: once a modpack update or a linked server's pack moved the instance to
+/// another, or set another loader version (none of which records a step), putting the
+/// old one back would undo what the pack or the server needs, so that part of the step
+/// is gone. Undo never changes the loader itself.
+fn still_apply(
+    snapshot: &Instance,
+    left: &Instance,
+    current: &Instance,
+    fields: &[Field],
+) -> Vec<Field> {
     fields
         .iter()
         .copied()
         .filter(|field| {
             *field != Field::LoaderVersion
                 || (snapshot.game_version == current.game_version
-                    && snapshot.loader == current.loader)
+                    && snapshot.loader == current.loader
+                    && left.loader_version == current.loader_version)
         })
         .collect()
 }
@@ -461,18 +468,28 @@ impl Instances {
             {
                 let entity = entity.clone();
                 let fields = fields.clone();
-                move |cx| entity.update(cx, |this, cx| this.restore_instance(&before, &fields, cx))
+                let (before, after) = (before.clone(), after.clone());
+                move |cx| {
+                    entity.update(cx, |this, cx| {
+                        this.restore_instance(&before, &after, &fields, cx)
+                    })
+                }
             },
-            move |cx| entity.update(cx, |this, cx| this.restore_instance(&after, &fields, cx)),
+            move |cx| {
+                entity.update(cx, |this, cx| {
+                    this.restore_instance(&after, &before, &fields, cx)
+                })
+            },
         );
         undo::record(step, cx);
     }
 
-    /// Puts the settings `fields` of an instance back as `snapshot` has them. The rest
-    /// of its record stays as it is now.
+    /// Puts the settings `fields` of an instance back as `snapshot` has them, where the
+    /// step left them as `left`. The rest of its record stays as it is now.
     fn restore_instance(
         &mut self,
         snapshot: &InstanceSnapshot,
+        left: &InstanceSnapshot,
         fields: &[Field],
         cx: &mut Context<Self>,
     ) -> Result<(), UndoError> {
@@ -481,7 +498,7 @@ impl Instances {
         if !same_instance(&snapshot.instance, &instance) {
             return Err(UndoError::Gone);
         }
-        let fields = still_apply(&snapshot.instance, &instance, fields);
+        let fields = still_apply(&snapshot.instance, &left.instance, &instance, fields);
         if fields.is_empty() {
             return Err(UndoError::Gone);
         }
@@ -772,13 +789,15 @@ mod step_tests {
             i.loader_version = Some("0.16.9".into());
         };
         // the loader's version changed (a step), then a modpack update moved the
-        // instance to another loader, or another game version (no steps)
-        let moves: [fn(&mut Instance); 2] = [
+        // instance to another loader, another game version, or another loader version
+        // (no steps)
+        let moves: [fn(&mut Instance); 3] = [
             |i| {
                 i.loader = Loader::Quilt;
                 i.loader_version = Some("0.27.1".into());
             },
             |i| i.game_version = "1.21.4".into(),
+            |i| i.loader_version = Some("0.16.15".into()),
         ];
         for moved in moves {
             change(&instances, &id, false, fabric, cx);

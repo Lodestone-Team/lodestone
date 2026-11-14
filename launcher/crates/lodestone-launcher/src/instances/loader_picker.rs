@@ -194,6 +194,11 @@ impl LoaderPicker {
     pub fn kind(&self) -> Option<LoaderKind> {
         self.kind
     }
+
+    /// The Minecraft version whose loader builds it offers.
+    pub fn game_version(&self) -> Option<&str> {
+        self.game_version.as_deref()
+    }
 }
 
 fn version_row(index: usize, version: &LoaderVersion, selected: bool) -> gpui::Stateful<gpui::Div> {

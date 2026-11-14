@@ -132,6 +132,7 @@ pub const SCENES: &[&str] = &[
     "content-cf-project",
     "copy-as",
     "copy-as-older",
+    "copy-as-same",
     "instance-settings-game",
     "instance-settings-maintenance",
     "new-instance-modpack",
@@ -1226,7 +1227,7 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
             let view = shell.content().clone();
             view.update(cx, |view, cx| content::apply(scene, view, cx));
         }
-        "copy-as" | "copy-as-older" => copy_as(scene, shell, cx),
+        "copy-as" | "copy-as-older" | "copy-as-same" => copy_as(scene, shell, cx),
         // the Minecraft version and loader as they are, the loader's version to pick,
         // and the way to a copy with others
         // (in a tall window, from the top), and the Maintenance section
@@ -2188,6 +2189,11 @@ fn copy_as(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherShel
         return;
     };
     dialog.update(cx, |dialog, cx| {
+        // the instance's own version and loader, as the dialog opens: it asks for others
+        if scene == "copy-as-same" {
+            dialog.preview_copy_contents(contents, cx);
+            return;
+        }
         dialog.preview_version(version, cx);
         dialog.preview_copy_contents(contents, cx);
         if older {

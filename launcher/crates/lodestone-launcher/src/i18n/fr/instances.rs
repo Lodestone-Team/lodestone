@@ -340,6 +340,10 @@ pub fn plural(message: P) -> [&'static str; 2] {
             "{count}\u{a0}mod n’a pas été copié\u{a0}: {names}.",
             "{count}\u{a0}mods n’ont pas été copiés\u{a0}: {names}.",
         ],
+        P::CopyDependenciesMissing => [
+            "{count}\u{a0}mod dont ils ont besoin n’a pas pu être installé\u{a0}: {names}.",
+            "{count}\u{a0}mods dont ils ont besoin n’ont pas pu être installés\u{a0}: {names}.",
+        ],
         P::FinderModsLeft => [
             "{count} mod reste à vérifier",
             "{count} mods restent à vérifier",

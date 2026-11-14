@@ -421,8 +421,9 @@ pub enum InstancesEvent {
         about: About,
     },
     /// The instance's loader or Minecraft version was changed outside its Settings tab:
-    /// by a modpack update, or to match its linked server's pack. The user never
-    /// changes them; a copy with another version or loader is a new instance.
+    /// by a modpack update, to match its linked server's pack, or by reverting a
+    /// snapshot's mods. The user never changes them in place; a copy with another
+    /// version or loader is a new instance.
     LoaderChanged(String),
     /// A `.lodesnap` file was dropped or picked: offer to make an instance from it.
     ImportSnapshot(std::path::PathBuf),
@@ -549,6 +550,9 @@ pub struct Instances {
     /// Modpacks being made into instances.
     imports: Vec<modpacks::ImportJob>,
     next_import: u64,
+    /// The instance each finished "Copy with another version or loader" job made, by
+    /// job id.
+    copies: HashMap<u64, String>,
     /// Files of an imported CurseForge pack the user downloads from curseforge.com, by
     /// instance; the Content tab takes them when it shows that instance.
     /// Each instance's snapshots, newest first, once read (see snapshots.rs).
@@ -680,6 +684,7 @@ impl Instances {
             content_downloader,
             imports: Vec::new(),
             next_import: 0,
+            copies: HashMap::new(),
             pending_downloads: HashMap::new(),
             snapshot_rows: HashMap::new(),
             snapshot_tasks: HashMap::new(),

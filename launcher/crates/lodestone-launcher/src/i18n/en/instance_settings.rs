@@ -286,6 +286,12 @@ crate::i18n::messages! {
         CopyModsNoBuild = "No build for {target}, so these stay behind: {names}.",
         /// {names} is a list of mods.
         CopyModsNotOnModrinth = "Not on Modrinth, so these stay behind: {names}.",
+        /// {names} is a list of mods whose Modrinth lookup failed.
+        CopyModsUnchecked = "Couldn't check these on Modrinth, so they stay behind: {names}.",
+        /// After "Try again", when the mods couldn't be checked.
+        CopyOrUncheckMods = "or uncheck Mods to copy without them.",
+        /// While the version and loader chosen are the instance's own.
+        CopySameTarget = "Choose another Minecraft version or loader. Duplicate, in Maintenance, copies the instance as it is.",
         /// Starts the copy.
         CopyAsStart = "Make the copy",
         HostOnCore = "Host on Lodestone",

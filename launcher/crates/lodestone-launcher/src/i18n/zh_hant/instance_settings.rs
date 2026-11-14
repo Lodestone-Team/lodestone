@@ -237,6 +237,11 @@ pub fn text(message: M) -> &'static str {
         M::CopyModsFailed => "無法檢查模組：{error}",
         M::CopyModsNoBuild => "沒有適用於 {target} 的組建，以下模組不會複製：{names}。",
         M::CopyModsNotOnModrinth => "不在 Modrinth 上，以下模組不會複製：{names}。",
+        M::CopyModsUnchecked => "無法在 Modrinth 上檢查以下模組，因此不會複製：{names}。",
+        M::CopyOrUncheckMods => "或取消勾選「模組」，不帶模組複製。",
+        M::CopySameTarget => {
+            "請選擇其他 Minecraft 版本或載入器。若要原樣複製此實例，請使用「維護」中的「製作副本」。"
+        }
         M::CopyAsStart => "製作副本",
         M::HostOnCore => "在 Lodestone 上架設",
         M::HostHint => "用此實例的模組建立伺服器。",

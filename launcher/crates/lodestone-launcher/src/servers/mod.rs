@@ -74,7 +74,7 @@ use crate::{
     accounts::Accounts,
     components::DialogSlot,
     i18n::{CommonMsg, ServersMsg as M, ServersPlural as P, format, t, tr, trn},
-    instances::Instances,
+    instances::{Instances, InstancesEvent},
 };
 use add_dialog::{AddRequest, AddServerDialog, AddServerEvent};
 
@@ -2371,18 +2371,35 @@ impl Servers {
                     Ok(()) => {
                         // the loader and Minecraft version follow the server's pack
                         let plan = &pending.plan;
-                        let saved = this.instances.update(cx, |instances, cx| {
-                            let mut instance = instances
-                                .store()
-                                .get(&pending.instance_id)
-                                .map_err(|e| e.to_string())?;
-                            instance.game_version = plan.game_version.clone();
-                            instance.loader =
-                                Loader::from_kind(plan.loader.as_ref().map(|l| l.kind));
-                            instance.loader_version =
-                                plan.loader.as_ref().map(|l| l.version.clone());
-                            instances.save(&instance, cx)
-                        });
+                        let saved: Result<(), String> =
+                            this.instances.update(cx, |instances, cx| {
+                                let mut instance = instances
+                                    .store()
+                                    .get(&pending.instance_id)
+                                    .map_err(|e| e.to_string())?;
+                                let before = (
+                                    instance.game_version.clone(),
+                                    instance.loader,
+                                    instance.loader_version.clone(),
+                                );
+                                instance.game_version = plan.game_version.clone();
+                                instance.loader =
+                                    Loader::from_kind(plan.loader.as_ref().map(|l| l.kind));
+                                instance.loader_version =
+                                    plan.loader.as_ref().map(|l| l.version.clone());
+                                instances.save(&instance, cx)?;
+                                // its Settings tab shows the loader it was built with
+                                if before
+                                    != (
+                                        instance.game_version.clone(),
+                                        instance.loader,
+                                        instance.loader_version.clone(),
+                                    )
+                                {
+                                    cx.emit(InstancesEvent::LoaderChanged(instance.id.clone()));
+                                }
+                                Ok(())
+                            });
                         match saved {
                             Ok(()) => {
                                 this.join(&pending.core, &pending.server, &pending.instance_id, cx)

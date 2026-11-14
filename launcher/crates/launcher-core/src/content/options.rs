@@ -342,8 +342,9 @@ pub fn change_packs(
 
 /// Rewrites the pack ids of the `options.txt` in `game_dir`, written by Minecraft `from`,
 /// as Minecraft `to` names them (`file/<name>` from 1.13, bare `<name>` before), for a
-/// copy of the file in an instance of another version. Other ids and lines are kept; a
-/// missing file is left missing.
+/// copy of the file in an instance of another version. Other ids and lines are kept, and
+/// so is a pack line that can't be read (hand-edited, say); a missing file is left
+/// missing.
 pub fn carry_packs(game_dir: &Path, from: &str, to: &str) -> Result<(), OptionsError> {
     let path = game_dir.join(FILE);
     if uses_file_prefix(from) == uses_file_prefix(to) || !path.is_file() {
@@ -351,7 +352,7 @@ pub fn carry_packs(game_dir: &Path, from: &str, to: &str) -> Result<(), OptionsE
     }
     let mut file = OptionsFile::read(&path)?;
     for key in [PACKS_KEY, INCOMPATIBLE_KEY] {
-        if let Some(ids) = file.list(key)? {
+        if let Ok(Some(ids)) = file.list(key) {
             let carried: Vec<String> = ids
                 .iter()
                 .map(|id| pack_name(id, from).map_or_else(|| id.clone(), |name| pack_id(&name, to)))
@@ -729,5 +730,16 @@ mod tests {
         carry_packs(dir.path(), "1.12.2", "1.8.9").unwrap();
         assert_eq!(fs::read(&path).unwrap(), before);
         carry_packs(&dir.path().join("none"), "1.12.2", "1.21.1").unwrap();
+        // a line that can't be read stays as it is, and the other is carried
+        fs::write(
+            &path,
+            "resourcePacks:[\"vanilla\",\"Faith\nincompatibleResourcePacks:[\"Faithful.zip\"]\n",
+        )
+        .unwrap();
+        carry_packs(dir.path(), "1.12.2", "1.21.1").unwrap();
+        assert_eq!(
+            fs::read_to_string(&path).unwrap(),
+            "resourcePacks:[\"vanilla\",\"Faith\nincompatibleResourcePacks:[\"file/Faithful.zip\"]\n"
+        );
     }
 }

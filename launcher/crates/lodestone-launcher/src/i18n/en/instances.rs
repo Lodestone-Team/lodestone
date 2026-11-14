@@ -330,6 +330,8 @@ crate::i18n::messages! {
         DownloadingFiles = ("Downloading {count} file", "Downloading {count} files"),
         /// After a copy's "ready" message; {names} is a list of mods.
         CopyModsLeftBehind = ("{count} mod stayed behind: {names}.", "{count} mods stayed behind: {names}."),
+        /// Mods the copied mods require that couldn't be installed.
+        CopyDependenciesMissing = ("{count} mod they need couldn't be installed: {names}.", "{count} mods they need couldn't be installed: {names}."),
         /// The mod finder's progress.
         FinderModsLeft = ("{count} mod left to check", "{count} mods left to check"),
         FinderModsOff = ("{count} mod turned off", "{count} mods turned off"),
