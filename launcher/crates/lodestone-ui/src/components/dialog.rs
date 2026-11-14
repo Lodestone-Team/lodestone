@@ -183,7 +183,8 @@ impl Dialog {
     }
 
     /// What closing does, by Escape, a click on the backdrop or the ×. Without it the
-    /// dialog has no × and doesn't close on its own.
+    /// dialog has no × and doesn't close on its own, and Escape does nothing (it doesn't
+    /// reach a dialog under it either).
     pub fn on_close(mut self, handler: impl Fn(&mut Window, &mut App) + 'static) -> Self {
         self.on_close = Some(Rc::new(handler));
         self
@@ -210,7 +211,13 @@ impl RenderOnce for Dialog {
         if !focus::in_closing(&focus_handle, window) {
             DIALOG_OPEN.set(true);
         }
-        let on_dismiss = self.on_close.clone();
+        // Escape stops here even without `on_close`: a dialog drawn over another (in a
+        // `window_layer`) keeps it as its parent for actions, so the Escape would close
+        // that one instead (the Settings under a new API key, which is then lost).
+        let on_dismiss: CloseHandler = match &self.on_close {
+            Some(on_close) => on_close.clone(),
+            None => Rc::new(|_, _| {}),
+        };
         let close = self.on_close.clone().map(close_button);
         let on_backdrop = self.on_close.filter(|_| self.backdrop_closes);
         let reduce_motion = prefers_reduced_motion();
@@ -310,7 +317,7 @@ impl RenderOnce for Dialog {
             .id(self.id.clone())
             .accessible(Role::Dialog, child_id(&self.id, "dialog"), name)
             .key_context("Dialog");
-        focus::trap(root, &focus_handle, on_dismiss)
+        focus::trap(root, &focus_handle, Some(on_dismiss))
             .absolute()
             .inset_0()
             // The backdrop covers the window: it follows the window's own corners.
@@ -703,6 +710,58 @@ mod tests {
         });
         cx.run_until_parked();
         assert!(!content_hidden(), "shown while the dialog fades out");
+    }
+
+    /// A dialog that closes on Escape, with one over it that has no `on_close` (the
+    /// Host's new API key, over the Settings), drawn in a `window_layer` as a page's
+    /// dialogs are.
+    struct Stacked {
+        outer: FocusHandle,
+        inner: FocusHandle,
+        closed: Rc<Cell<usize>>,
+    }
+
+    impl Render for Stacked {
+        fn render(&mut self, window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+            let closed = self.closed.clone();
+            let inner = Dialog::new("inner", "Inner", self.inner.clone())
+                .keep_open_on_backdrop()
+                .footer(Button::new("done", "Done"))
+                .into_any_element();
+            let outer = Dialog::new("outer", "Outer", self.outer.clone())
+                .on_close(move |_, _| closed.set(closed.get() + 1))
+                .child(
+                    div()
+                        .child("Body")
+                        .children(crate::components::window_layer(window, vec![inner])),
+                );
+            div().relative().size_full().child(outer)
+        }
+    }
+
+    /// LS-32: Escape in a dialog without `on_close` doesn't close the one under it.
+    #[test]
+    fn escape_in_a_dialog_without_on_close_stops_there() {
+        let mut cx = TestAppContext::single();
+        cx.update(crate::components::init);
+        let (view, cx) = cx.add_window_view(|_, cx| Stacked {
+            outer: cx.focus_handle(),
+            inner: cx.focus_handle(),
+            closed: Rc::new(Cell::new(0)),
+        });
+        cx.run_until_parked();
+        let inner = view.read_with(cx, |this, _| this.inner.clone());
+        cx.update(|window, cx| inner.focus(window, cx));
+        cx.run_until_parked();
+        assert!(cx.update(|window, cx| inner.contains_focused(window, cx)));
+
+        cx.simulate_keystrokes("escape");
+        cx.run_until_parked();
+        assert_eq!(
+            view.read_with(cx, |this, _| this.closed.get()),
+            0,
+            "the dialog under it stays open"
+        );
     }
 
     /// A dialog in a slot that closes it on Escape, the × and the backdrop.

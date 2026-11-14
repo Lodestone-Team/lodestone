@@ -87,6 +87,12 @@ pub struct ProfilePage {
 }
 
 impl ProfilePage {
+    /// The signed-in user's API keys: for tests.
+    #[cfg(test)]
+    pub fn api_keys(&self) -> &Entity<ApiKeysSection> {
+        &self.api_keys
+    }
+
     pub fn new(
         state: Entity<HostState>,
         search: Entity<SettingsSearch>,
