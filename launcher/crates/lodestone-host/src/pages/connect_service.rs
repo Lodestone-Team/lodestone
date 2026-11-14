@@ -148,7 +148,8 @@ impl ConnectServiceSetting {
         self.input
             .update(cx, |input, cx| input.set_text(text.unwrap_or_default(), cx));
         if restart {
-            cx.dispatch_action(&crate::RestartCore);
+            // after this click or key is handled (LS-200)
+            crate::dispatch_later(crate::RestartCore, cx);
         }
         cx.notify();
     }
@@ -311,6 +312,43 @@ mod tests {
         if let Some(result) = save_asks("Running", "Stopped") {
             assert_eq!(result, (true, false), "asks, and saves nothing yet");
         }
+    }
+
+    /// LS-200: "Save and restart core", pressed in the window, restarts the core. The
+    /// click is handled while the window is being updated, so the action is dispatched
+    /// afterwards, and its handler (as `main.rs` registers it) updates the window
+    /// afterwards too: called at once, either one fails and nothing restarts.
+    #[test]
+    fn saving_in_the_window_restarts_the_core() {
+        use std::{cell::Cell, rc::Rc};
+
+        if !restarts_core() {
+            return;
+        }
+        let mut cx = TestAppContext::single();
+        cx.update(|cx| {
+            lodestone_ui::components::init(cx);
+            crate::prefs::Prefs::init_for_tests(cx);
+        });
+        let window = cx.add_window(|_, cx| ConnectServiceSetting::new(cx));
+        let restarts = Rc::new(Cell::new(0));
+        cx.update(|cx| {
+            let restarts = restarts.clone();
+            cx.on_action(move |_: &crate::RestartCore, cx| {
+                let restarts = restarts.clone();
+                crate::update_later(window, move |_, _| restarts.set(restarts.get() + 1), cx);
+            });
+        });
+        window
+            .update(&mut cx, |_, window, _| window.activate_window())
+            .unwrap();
+        cx.run_until_parked();
+        // as the button's click does: inside the window's update
+        window
+            .update(&mut cx, |row, _, cx| row.save(Some(Service::default()), cx))
+            .unwrap();
+        cx.run_until_parked();
+        assert_eq!(restarts.get(), 1, "the core restarted once");
     }
 
     /// LS-11: the shown core's running servers don't ask: the restart doesn't touch them.

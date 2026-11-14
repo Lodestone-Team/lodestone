@@ -35,7 +35,7 @@ use crate::auth::user::UserAction;
 use crate::error::{Error, ErrorKind};
 use crate::events::{CausedBy, Event};
 use crate::implementations::minecraft::{Flavour, MinecraftInstance};
-use crate::modpack::history::{entry_as_is, entry_for, History, HistoryKind, ModpackHistory};
+use crate::modpack::history::{entry_for, History, HistoryKind, ModpackHistory};
 use crate::modpack::store::StoredPack;
 use crate::modpack::update::{
     begin_update, end_update, keep_unwritten_scripts, other_copies, pack_files, place_files,
@@ -248,12 +248,19 @@ async fn prepare(
                 kind: ErrorKind::NotFound,
                 source: eyre!("That version is no longer in the server's modpack history"),
             })?;
-            let new_files = Arc::new(
-                history
-                    .files_of(&root, *entry_id, allow_scripts)
-                    .unwrap_or_default(),
-            );
-            let plan = plan_against(state, &root, &before, &new_files, allow_scripts).await?;
+            let mut files = history
+                .files_of(&root, *entry_id, allow_scripts)
+                .unwrap_or_default();
+            // the user's own files that later versions replaced go back too, as theirs
+            let theirs = history.user_files_after(&root, *entry_id, allow_scripts);
+            for (path, file) in &theirs {
+                files.entry(path.clone()).or_insert_with(|| file.clone());
+            }
+            let new_files = Arc::new(files);
+            let mut plan = plan_against(state, &root, &before, &new_files, allow_scripts).await?;
+            for path in theirs.keys() {
+                plan.record.files.remove(path);
+            }
             // files to put back that Lodestone can't get
             let missing: Vec<&str> = plan
                 .changes
@@ -268,6 +275,10 @@ async fn prepare(
                 .collect();
             let unsupported_reason = if history.latest().is_some_and(|l| l.id == *entry_id) {
                 Some("The server is already at this version".to_string())
+            } else if entry.files_unknown() {
+                Some(
+                    "Lodestone doesn't know which files the server had at this version".to_string(),
+                )
             } else if missing.is_empty() {
                 None
             } else {
@@ -544,18 +555,13 @@ pub(super) async fn plan_update(
 async fn record_history(prepared: &Prepared, root: &std::path::Path) -> Result<(), Error> {
     let mut history = prepared.history.clone();
     let before = &prepared.before;
-    if history.entries.is_empty() {
-        if let Some(origin) = &before.origin {
-            let baseline = entry_as_is(
-                HistoryKind::Baseline,
-                origin.clone(),
-                before.game_version.clone(),
-                before.flavour.clone(),
-                &before.record,
-            );
-            history.entries.push(baseline);
-            history.entries[0].id = 1;
-        }
+    if let Some(origin) = &before.origin {
+        history.begin_with_baseline(
+            origin,
+            &before.game_version,
+            &before.flavour,
+            &before.record,
+        );
     }
     if let Some(files) = &before.pack_files {
         history.remember_downloads(files);

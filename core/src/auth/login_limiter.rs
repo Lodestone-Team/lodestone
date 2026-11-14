@@ -147,23 +147,27 @@ impl LoginRateLimiter {
         Ok(())
     }
 
-    /// Drops expired entries. If the table is still full, drops the oldest entry, which is
-    /// the one closest to expiring anyway.
+    /// Drops expired entries. If the table is still full, drops the oldest entry that
+    /// isn't locked out (dropping a locked-out one would let its username guess again),
+    /// or the oldest of all when every entry is locked out.
     fn make_room(&self, entries: &mut HashMap<u64, FailureWindow>, now: Instant) {
         entries.retain(|_, entry| !entry.expired(now, self.window));
         if entries.len() >= self.max_entries {
-            if let Some(oldest) = entries
-                .iter()
-                .min_by_key(|(_, entry)| entry.started)
-                .map(|(key, _)| *key)
-            {
+            let oldest = |locked_too: bool| {
+                entries
+                    .iter()
+                    .filter(|(_, entry)| locked_too || entry.failures < self.max_failures)
+                    .min_by_key(|(_, entry)| entry.started)
+                    .map(|(key, _)| *key)
+            };
+            if let Some(oldest) = oldest(false).or_else(|| oldest(true)) {
                 entries.remove(&oldest);
             }
         }
     }
 
     #[cfg(test)]
-    fn len(&self) -> usize {
+    pub(crate) fn len(&self) -> usize {
         self.entries().len()
     }
 }
@@ -257,6 +261,25 @@ mod tests {
             .begin_attempt_at("late", start + Duration::from_secs(120))
             .unwrap();
         assert_eq!(limiter.len(), 1);
+    }
+
+    #[test]
+    fn a_full_table_keeps_locked_out_usernames() {
+        let limiter = LoginRateLimiter::with_limits(2, Duration::from_secs(60), 3);
+        let start = Instant::now();
+        // the victim's username is locked out first, so its entry is the oldest
+        limiter.begin_attempt_at("victim", start).unwrap();
+        limiter.begin_attempt_at("victim", start).unwrap();
+        assert!(is_limited(limiter.begin_attempt_at("victim", start)));
+        // a flood of other names fills the table over and over
+        for i in 0..100 {
+            limiter
+                .begin_attempt_at(&format!("flood{i}"), start + Duration::from_millis(i + 1))
+                .unwrap();
+        }
+        assert_eq!(limiter.len(), 3);
+        let now = start + Duration::from_secs(1);
+        assert!(is_limited(limiter.begin_attempt_at("victim", now)));
     }
 
     #[test]

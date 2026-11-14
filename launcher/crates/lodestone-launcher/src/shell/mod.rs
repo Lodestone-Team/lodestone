@@ -429,11 +429,21 @@ impl LauncherShell {
                         cx,
                     );
                 }
-                InstancesEvent::LoaderChanged(_) => {
-                    // The Settings tab shows the loader it was built with; build it again.
-                    this.settings = None;
-                    this.sync_settings(cx);
-                    cx.notify();
+                InstancesEvent::LoaderChanged(id) => {
+                    // The Settings tab shows the loader it was built with; build it again,
+                    // unless that would lose unsaved changes. Another instance's tab
+                    // stays as it is.
+                    if let Some((view, _)) = &this.settings
+                        && view.read(cx).instance_id() == id
+                    {
+                        if view.read(cx).has_changes(cx) {
+                            view.update(cx, |view, cx| view.loader_changed(cx));
+                        } else {
+                            this.settings = None;
+                            this.sync_settings(cx);
+                        }
+                        cx.notify();
+                    }
                 }
                 InstancesEvent::OfferMain(id) => this.offer_main(id.clone(), cx),
                 InstancesEvent::ConfirmMain { id, current } => {

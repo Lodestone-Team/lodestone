@@ -197,6 +197,7 @@ pub(crate) mod test_util {
             safe_mode: global_settings.safe_mode_flag(),
             code_execution,
             login_limiter: Default::default(),
+            key_login_limiter: Default::default(),
             tls_info: Arc::new(crate::tls::TlsInfo {
                 mode: crate::tls::TlsMode::None,
                 fingerprint_sha256: None,
@@ -314,6 +315,10 @@ pub struct AppState {
     code_execution: global_settings::CodeExecutionSwitch,
     /// Failed logins per username, see [`auth::login_limiter::LoginRateLimiter`].
     login_limiter: Arc<auth::login_limiter::LoginRateLimiter>,
+    /// Failed API key sign-ins per client address and key id. A table of their own:
+    /// unknown key ids cost nothing to try, so in the usernames' table a flood of them
+    /// could push a locked-out username out.
+    key_login_limiter: Arc<auth::login_limiter::LoginRateLimiter>,
     /// The web server's certificate, reported by `/info`. Fixed at startup.
     tls_info: Arc<tls::TlsInfo>,
     /// The Modrinth client, stored modpacks and mod change tracking.
@@ -1393,6 +1398,7 @@ pub async fn run_with(
         safe_mode: global_settings.safe_mode_flag(),
         code_execution,
         login_limiter: Arc::new(auth::login_limiter::LoginRateLimiter::default()),
+        key_login_limiter: Arc::new(auth::login_limiter::LoginRateLimiter::default()),
         tls_info: Arc::new(tls_setup.info.clone()),
         mods: Arc::new(mods::ModsState::new(
             Arc::new(modrinth::ModrinthClient::new()),

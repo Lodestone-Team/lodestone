@@ -87,6 +87,9 @@ pub fn text(message: M) -> &'static str {
         }
         M::SavedNextStart => "Enregistré. Le changement s’applique au prochain démarrage du jeu.",
         M::CouldntTurnModsOff => "Impossible de désactiver les mods\u{a0}: {error}",
+        M::GameVersionChangedMeanwhile => {
+            "La version de Minecraft a changé entre-temps. Choisissez à nouveau le chargeur, puis enregistrez."
+        }
 
         M::Vanilla => "Vanilla",
         M::ModLoader => "Chargeur de mods",

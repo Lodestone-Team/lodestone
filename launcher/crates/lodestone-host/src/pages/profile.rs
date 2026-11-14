@@ -176,13 +176,14 @@ impl ProfilePage {
     fn change_password(&mut self, cx: &mut Context<Self>) {
         let state = self.state.clone();
         let uid = state.read(cx).me.uid.clone();
+        let owner = state.read(cx).me.is_owner;
         let set_up = account_dialogs::needs_owner_account(state.read(cx));
         let (dialog, subscription) = account_dialogs::open(
             move |cx| {
                 if set_up {
                     AccountDialog::owner_account(state, cx)
                 } else {
-                    AccountDialog::change_password(state, uid, cx)
+                    AccountDialog::change_password(state, uid, owner, cx)
                 }
             },
             |this: &mut Self, dialog, event, cx| {

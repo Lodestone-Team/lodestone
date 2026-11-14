@@ -1,6 +1,7 @@
 //! The Installed view (`InstalledMods.tsx`, `ClientPackPanel.tsx`): the modpack panel
-//! (see [`super::modpack`]), the client modpack of a Fabric server, the toolbar (update all, check for updates, upload), and a row
-//! per mod with its update, Modrinth link, switch and delete.
+//! (see [`super::modpack`]), the client modpack of a Fabric server (a big one folded to
+//! its first few mods), the toolbar (update all, check for updates, upload), and a row
+//! per mod with its update, Modrinth link, switch and delete, 20 to a page.
 
 use std::path::PathBuf;
 
@@ -8,6 +9,8 @@ use gpui::{
     AnyElement, AppContext as _, Context, ExternalPaths, IntoElement, ParentElement,
     PathPromptOptions, SharedString, Styled, div, img, prelude::*,
 };
+#[cfg(feature = "screenshot")]
+use launcher_core::cores::admin::mods::InstalledModList;
 use launcher_core::cores::admin::mods::{
     ClientRequirement, InstalledMod, InstalledModLoader, ModInstallRequest, ModInstallResult,
     modrinth_project_url,
@@ -25,8 +28,28 @@ use lodestone_ui::{
 use super::{ModsPage, Prompt, Target, muted};
 use crate::{
     i18n::{InstanceMsg as M, InstancePlural as P, t, tr, trn},
+    pages::pager,
     state::HostEvent,
 };
+
+/// The client pack's mods shown while it is folded: about three rows of chips at the
+/// tab's width (a chip with a name and a version is 150 to 250 px wide).
+const PACK_CHIPS_FOLDED: usize = 12;
+/// The client pack folds only above this many mods, so that "Show all" always shows a
+/// row or more that was hidden.
+const PACK_FOLDS_ABOVE: usize = 16;
+
+/// How many of the client pack's `count` mods it shows, and whether it has the
+/// control that shows them all (`open`) or folds them again.
+pub(super) fn pack_chips(count: usize, open: bool) -> (usize, bool) {
+    if count <= PACK_FOLDS_ABOVE {
+        (count, false)
+    } else if open {
+        (count, true)
+    } else {
+        (PACK_CHIPS_FOLDED, true)
+    }
+}
 
 /// A project's icon from Modrinth's CDN, or a cube.
 pub(super) fn mod_icon(url: Option<&str>, size: f32, cx: &mut Context<ModsPage>) -> AnyElement {
@@ -313,6 +336,16 @@ impl ModsPage {
         .detach();
     }
 
+    /// Shows another page of the installed list, from its top.
+    fn set_installed_page(&mut self, page: usize, cx: &mut Context<Self>) {
+        self.installed_page = page;
+        self.state
+            .read(cx)
+            .page_scroll
+            .set_offset(gpui::Point::default());
+        cx.notify();
+    }
+
     fn check_for_updates(&mut self, cx: &mut Context<Self>) {
         self.check_updates = true;
         self.reload(cx);
@@ -558,8 +591,41 @@ impl ModsPage {
             .collect();
         let included_jars = needed.iter().filter(|m| m.modrinth.is_none()).count();
         let count = list.client_required_count;
+        // a big pack shows its first few mods, until "Show all"
+        let (shown, folds) = pack_chips(needed.len(), self.pack_open);
+        let fold = folds.then(|| {
+            let open = self.pack_open;
+            div()
+                .id("client-pack-fold")
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap(px(4.))
+                .cursor_pointer()
+                .text_size(text::SMALL)
+                .text_color(colors::BLUE_200)
+                .hover(|style| style.underline())
+                .child(
+                    if open {
+                        Icon::ChevronDown
+                    } else {
+                        Icon::ChevronRight
+                    }
+                    .render(px(8.), colors::BLUE_200),
+                )
+                .child(if open {
+                    t(M::ModsPackShowFewer).to_string()
+                } else {
+                    trn!(P::ModsPackShowAll, needed.len())
+                })
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.pack_open = !this.pack_open;
+                    cx.notify();
+                }))
+        });
         let chips: Vec<AnyElement> = needed
             .iter()
+            .take(shown)
             .enumerate()
             .map(|(index, m)| {
                 let chip = div()
@@ -646,6 +712,7 @@ impl ModsPage {
                         .gap(px(8.))
                         .children(chips),
                 )
+                .children(fold)
                 .child(div().text_size(text::SMALL).text_color(ink::muted()).child(
                     if included_jars > 0 {
                         trn!(P::ModsImportHintJars, included_jars)
@@ -949,13 +1016,31 @@ impl ModsPage {
                     }))
                     .into_any_element()
             } else {
-                let mods = list.mods.clone();
-                card(
-                    mods.iter()
-                        .enumerate()
-                        .map(|(index, m)| self.mod_row(index, m, target, cx)),
-                )
-                .into_any_element()
+                // a page of the mods, and the pager under it when there are more
+                let len = list.mods.len();
+                let page = pager::clamp(self.installed_page, len);
+                let range = pager::range(page, len);
+                let first = range.start;
+                let mods = list.mods[range].to_vec();
+                let rows: Vec<AnyElement> = mods
+                    .iter()
+                    .enumerate()
+                    .map(|(index, m)| self.mod_row(first + index, m, target, cx))
+                    .collect();
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(8.))
+                    .child(card(rows))
+                    .when(pager::paged(len), |this| {
+                        this.child(pager::pager(
+                            page,
+                            pager::page_count(len),
+                            |this: &mut Self, page, cx| this.set_installed_page(page, cx),
+                            cx,
+                        ))
+                    })
+                    .into_any_element()
             }
         } else {
             card([div()
@@ -996,5 +1081,104 @@ impl ModsPage {
                 }))
             })
             .into_any_element()
+    }
+}
+
+impl ModsPage {
+    /// Sample mods on the Installed view, for the development screenshots' `--mods
+    /// <scene>`: `many` (158 mods on 8 pages, 40 of them in the folded client pack),
+    /// `last` (their last page), `pack` (the client pack unfolded) or `few` (a handful,
+    /// with no pager and no fold); with `-end` (`many-end`), scrolled to the bottom.
+    #[cfg(feature = "screenshot")]
+    pub fn demo_installed(&mut self, scene: &str, cx: &mut Context<Self>) {
+        let (scene, end) = match scene.strip_suffix("-end") {
+            Some(scene) => (scene, true),
+            None => (scene, false),
+        };
+        const NAMES: [&str; 20] = [
+            "Sodium",
+            "Lithium",
+            "Fabric API",
+            "Mod Menu",
+            "Iris Shaders",
+            "Entity Culling",
+            "FerriteCore",
+            "Krypton",
+            "Indium",
+            "Cloth Config API",
+            "Xaero's Minimap",
+            "Jade",
+            "AppleSkin",
+            "Continuity",
+            "Lambda Dynamic Lights",
+            "Better Mount HUD",
+            "ImmediatelyFast",
+            "Zoomify",
+            "Clumps",
+            "Ksyxis",
+        ];
+        let (count, needed) = if scene == "few" { (6, 3) } else { (158, 40) };
+        let mods: Vec<serde_json::Value> = (0..count)
+            .map(|index| {
+                let base = NAMES[index % NAMES.len()];
+                let name = match index / NAMES.len() {
+                    0 => base.to_string(),
+                    n => format!("{base} Addon {n}"),
+                };
+                let slug = name.to_lowercase().replace([' ', '\''], "-");
+                let version = format!("{}.{}.{}", 1 + index % 4, index % 10, index % 7);
+                // every fourth not on Modrinth, and a few with an update
+                let modrinth = (index % 4 != 3).then(|| {
+                    serde_json::json!({
+                        "project_id": format!("p{index}"), "version_id": format!("v{index}"),
+                        "slug": slug, "title": name, "icon_url": null,
+                        "version_number": version,
+                        "update": (index % 9 == 1).then(|| serde_json::json!({
+                            "version_id": format!("u{index}"),
+                            "version_number": format!("{}.{}.{}", 2 + index % 4, 0, 1),
+                        })),
+                        "client_side": "required", "server_side": "required",
+                    })
+                });
+                serde_json::json!({
+                    "file_name": format!("{slug}-{version}.jar"),
+                    "enabled": index % 13 != 5,
+                    "size": 200_000 + index * 37_000,
+                    "metadata": { "name": name, "version": version, "authors": [] },
+                    "modrinth": modrinth,
+                    "client_requirement": if index % 13 == 5 || index * needed / count
+                        != (index + 1) * needed / count { "required" } else { "optional" },
+                    "required_by": [],
+                })
+            })
+            .collect();
+        let mut list: InstalledModList = serde_json::from_value(serde_json::json!({
+            "kind": "mod", "loader": "fabric", "game_version": "1.21.4",
+            "directory": "mods", "loader_version": "0.16.10", "mods": mods,
+        }))
+        .expect("the sample mods read");
+        list.client_required_count = list
+            .mods
+            .iter()
+            .filter(|m| m.enabled && m.client_requirement == ClientRequirement::Required)
+            .count() as u32;
+        // fetches still under way are for a server the core doesn't have
+        self.list_serial += 1;
+        self.history_serial += 1;
+        self.modpack_check = super::modpack::ModpackCheck::Newest;
+        self.modpack_history = None;
+        self.list = Some(list);
+        self.list_error = None;
+        self.loading = false;
+        self.pack_open = scene == "pack";
+        let last = pager::page_count(count) - 1;
+        self.set_installed_page(if scene == "last" { last } else { 0 }, cx);
+        if end {
+            // the page clamps it to the bottom when it's laid out
+            self.state
+                .read(cx)
+                .page_scroll
+                .set_offset(gpui::point(px(0.), px(-100_000.)));
+        }
     }
 }

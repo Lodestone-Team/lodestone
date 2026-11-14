@@ -285,6 +285,11 @@ fn backups_restore_as_a_copy_and_over_the_world() {
         &backup.path,
         RestoreMode::Replace,
         |path| {
+            // under a name the person knows, not a hidden one
+            assert_eq!(
+                path,
+                worlds::saves_dir(&dirs).join(format!("World (replaced {today})"))
+            );
             trashed.push(fs::read(path.join("region/r.0.0.mca")).unwrap());
             fs::remove_dir_all(path).map_err(|e| e.to_string())
         },
