@@ -42,6 +42,7 @@ use super::{
         Load, RemoteIcon,
         view::{badge, card, list_box, muted, pills, row_base, small, small_rich},
     },
+    jobs::{BusyFiles, Parked},
 };
 use crate::components::{
     KeyboardFocus,
@@ -172,6 +173,8 @@ pub struct Job {
     pub cancel: CancelToken,
     _task: Task<()>,
     _ticker: Task<()>,
+    /// Play waits while the job runs.
+    _busy: BusyFiles,
 }
 
 enum Thumb {
@@ -203,7 +206,13 @@ pub struct WorldsView {
     datapacks_task: Option<Task<()>>,
     /// The world being renamed, with its name field.
     renaming: Option<(String, Entity<TextInput>)>,
+    /// The shown instance's job.
     pub job: Option<Job>,
+    /// The jobs of instances not shown, which go on meanwhile: a backup or restore
+    /// can't stop part-way, and a second job mustn't start on the same world.
+    parked: Parked<Job>,
+    /// How jobs went that finished while their instance wasn't shown, by instance.
+    finished: HashMap<String, (SharedString, bool, Section)>,
     /// The last result, whether it is an error, and the section it is about. It is
     /// only shown in that section.
     pub message: Option<(SharedString, bool, Section)>,
@@ -277,6 +286,8 @@ impl WorldsView {
             datapacks_task: None,
             renaming: None,
             job: None,
+            parked: Parked::default(),
+            finished: HashMap::new(),
             message: None,
             screenshots: Load::NotLoaded,
             thumbs: HashMap::new(),
@@ -298,6 +309,12 @@ impl WorldsView {
     fn sync(&mut self, cx: &mut Context<Self>) {
         let (selected, active) = {
             let instances = self.instances.read(cx);
+            // how a job went goes with its instance, not to a new one given its id
+            if !self.finished.is_empty() {
+                let list = instances.list();
+                self.finished
+                    .retain(|id, _| list.iter().any(|instance| &instance.id == id));
+            }
             let selected = instances.selected().map(|i| i.id.clone());
             let active = selected
                 .as_deref()
@@ -305,7 +322,10 @@ impl WorldsView {
             (selected, active)
         };
         if selected != self.instance_id {
-            self.instance_id = selected;
+            let from = std::mem::replace(&mut self.instance_id, selected);
+            // a job goes on, and is the tab's again when its instance is
+            self.parked
+                .switch(&mut self.job, from.as_deref(), self.instance_id.as_deref());
             self.worlds = Load::NotLoaded;
             self.screenshots = Load::NotLoaded;
             self.icons.clear();
@@ -318,8 +338,10 @@ impl WorldsView {
             self.thumbs.clear();
             self.expanded = None;
             self.renaming = None;
-            self.job = None;
-            self.message = None;
+            self.message = self
+                .instance_id
+                .as_ref()
+                .and_then(|id| self.finished.remove(id));
             self.viewing = None;
             self.large = None;
             self.confirm_delete_shot = None;
@@ -462,6 +484,7 @@ impl WorldsView {
         let Some((id, dirs)) = self.dirs(cx) else {
             return;
         };
+        let busy = self.instances.read(cx).mark_files_busy(&id);
         let progress = Arc::new(Progress::default());
         let cancel = CancelToken::new();
         let task = {
@@ -469,18 +492,25 @@ impl WorldsView {
             cx.spawn(async move |this, cx| {
                 let result = work.await;
                 this.update(cx, |this, cx| {
-                    this.job = None;
-                    if this.instance_id.as_deref() != Some(id.as_str()) {
+                    let Some((_, shown)) =
+                        this.parked
+                            .finish(&mut this.job, this.instance_id.as_deref(), &id)
+                    else {
                         return;
-                    }
+                    };
                     // The jobs are all about worlds, whichever section is open now.
-                    this.message = Some(match result {
+                    let message = match result {
                         Ok(message) => (message.into(), false, Section::Worlds),
                         Err(WorldError::Cancelled) => {
                             (t(M::Cancelled).into(), false, Section::Worlds)
                         }
                         Err(err) => (err.to_string().into(), true, Section::Worlds),
-                    });
+                    };
+                    if !shown {
+                        this.finished.insert(id, message);
+                        return;
+                    }
+                    this.message = Some(message);
                     cx.notify();
                     this.reload(cx);
                 })
@@ -504,6 +534,7 @@ impl WorldsView {
             cancel,
             _task: task,
             _ticker: ticker,
+            _busy: busy,
         });
         cx.notify();
     }
@@ -2664,5 +2695,127 @@ impl Render for WorldsView {
             )
             .children(viewer)
             .text_size(theme::text_size(text::MEDIUM))
+    }
+}
+
+/// The tab's jobs across a change of the selected instance, with the sample instances
+/// of the offscreen screenshots.
+#[cfg(all(test, feature = "screenshot"))]
+mod job_tests {
+    use futures::channel::oneshot;
+    use gpui::TestAppContext;
+
+    use super::*;
+
+    struct Setup {
+        instances: Entity<Instances>,
+        view: Entity<WorldsView>,
+        a: String,
+        b: String,
+    }
+
+    fn setup(cx: &mut TestAppContext) -> Setup {
+        let instances = cx.update(|cx| {
+            let accounts = crate::preview::accounts("signed-out", cx);
+            crate::preview::instances("worlds", &accounts, cx)
+        });
+        let (a, b) = instances.read_with(cx, |instances, _| {
+            (
+                instances.list()[0].id.clone(),
+                instances.list()[1].id.clone(),
+            )
+        });
+        instances.update(cx, |instances, cx| instances.select(&a, cx));
+        let view = cx.new(|cx| WorldsView::new(instances.clone(), cx));
+        cx.run_until_parked();
+        Setup {
+            instances,
+            view,
+            a,
+            b,
+        }
+    }
+
+    /// Starts a job on the shown instance that runs until `oneshot` is sent.
+    fn start(view: &Entity<WorldsView>, cx: &mut TestAppContext) -> oneshot::Sender<()> {
+        let (done, wait) = oneshot::channel::<()>();
+        view.update(cx, |view, cx| {
+            view.run_async(
+                JobLabel::SavingPackList,
+                move |_, _, _| async move {
+                    wait.await.ok();
+                    Ok("Restored".to_string())
+                },
+                cx,
+            )
+        });
+        done
+    }
+
+    fn select(s: &Setup, id: &str, cx: &mut TestAppContext) {
+        s.instances
+            .update(cx, |instances, cx| instances.select(id, cx));
+        cx.run_until_parked();
+    }
+
+    fn busy(s: &Setup, id: &str, cx: &mut TestAppContext) -> bool {
+        s.instances
+            .read_with(cx, |instances, _| instances.files_busy(id))
+    }
+
+    #[test]
+    fn a_job_goes_on_and_is_the_tabs_again_on_its_instance() {
+        let mut cx = TestAppContext::single();
+        let s = setup(&mut cx);
+        let done = start(&s.view, &mut cx);
+        assert!(s.view.read_with(&cx, |view, _| view.job.is_some()));
+        assert!(busy(&s, &s.a, &mut cx), "Play waits for it (LS-48)");
+
+        // LS-49: another instance is shown, and the job goes on
+        select(&s, &s.b, &mut cx);
+        assert!(s.view.read_with(&cx, |view, _| view.job.is_none()));
+        assert!(busy(&s, &s.a, &mut cx));
+        assert!(!busy(&s, &s.b, &mut cx));
+
+        // back on its instance it is the tab's job again: a second one waits
+        select(&s, &s.a, &mut cx);
+        assert!(s.view.read_with(&cx, |view, _| view.job.is_some()));
+        let second = s.view.update(&mut cx, |view, cx| view.can_change(cx));
+        assert!(!second, "a second job on the same worlds waits");
+
+        done.send(()).unwrap();
+        cx.run_until_parked();
+        s.view.read_with(&cx, |view, _| {
+            assert!(view.job.is_none());
+            let (message, error, _) = view.message.clone().expect("how it went");
+            assert_eq!((message.as_ref(), error), ("Restored", false));
+        });
+        assert!(!busy(&s, &s.a, &mut cx));
+    }
+
+    #[test]
+    fn a_job_that_finished_meanwhile_says_how_it_went() {
+        let mut cx = TestAppContext::single();
+        let s = setup(&mut cx);
+        let done = start(&s.view, &mut cx);
+        select(&s, &s.b, &mut cx);
+        // the other instance has a job of its own meanwhile, which stays the tab's
+        let other = start(&s.view, &mut cx);
+        done.send(()).unwrap();
+        cx.run_until_parked();
+        assert!(!busy(&s, &s.a, &mut cx));
+        s.view.read_with(&cx, |view, _| {
+            assert!(view.job.is_some(), "the shown instance's job runs on");
+            assert!(view.message.is_none(), "said on its own instance");
+        });
+        select(&s, &s.a, &mut cx);
+        s.view.read_with(&cx, |view, _| {
+            assert!(view.job.is_none());
+            let (message, _, _) = view.message.clone().expect("how it went");
+            assert_eq!(message.as_ref(), "Restored");
+        });
+        other.send(()).unwrap();
+        cx.run_until_parked();
+        assert!(!busy(&s, &s.b, &mut cx));
     }
 }
