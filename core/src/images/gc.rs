@@ -36,6 +36,9 @@ pub(crate) struct GcState {
     pub(super) pending: AtomicBool,
     /// When pruning last asked for a collection.
     last_for_pruning: Mutex<Option<Instant>>,
+    /// How many collections were asked for, for tests of who asks.
+    #[cfg(test)]
+    pub(crate) requests: std::sync::atomic::AtomicUsize,
 }
 
 impl ImageService {
@@ -44,6 +47,12 @@ impl ImageService {
     #[cfg(test)]
     pub fn collect_blocking(&self) -> Result<GcReport, Error> {
         collect(&self.store, &GcOptions::default())
+    }
+
+    /// How many collections were asked for.
+    #[cfg(test)]
+    pub(crate) fn gc_requests(&self) -> usize {
+        self.gc.requests.load(Ordering::SeqCst)
     }
 
     /// [`Self::request_gc`] for pruning, at most every [`PRUNE_GC_INTERVAL`]: what a
@@ -68,6 +77,8 @@ impl ImageService {
     /// ends. Does nothing outside a tokio runtime.
     pub fn request_gc(&self) {
         let state = self.gc.clone();
+        #[cfg(test)]
+        state.requests.fetch_add(1, Ordering::SeqCst);
         state.pending.store(true, Ordering::SeqCst);
         if state.running.swap(true, Ordering::SeqCst) {
             return;

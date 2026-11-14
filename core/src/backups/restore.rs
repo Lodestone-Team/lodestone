@@ -622,6 +622,12 @@ pub fn pin_config_json(text: &str, pin: &Pin) -> Result<String, Error> {
 }
 
 /// `server.properties` with `server-port` set to `port`; every other line stays as it is.
+/// Only the key as written plainly is replaced: one spelled with escapes (`server\-port`)
+/// or split by a line continuation is left as it is. When the plain key isn't there the
+/// pinned line is appended, and the game reads the file with Java's `Properties`, where the
+/// last occurrence wins, so the pin holds; only an odd spelling after a plain one would
+/// still win. Minecraft never writes such spellings, and it isn't a privilege matter:
+/// whoever restores can write any port into the file through the Files API.
 pub fn pin_server_port(text: &[u8], port: u32) -> Vec<u8> {
     let mut out = Vec::with_capacity(text.len() + 20);
     let mut found = false;

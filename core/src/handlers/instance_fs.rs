@@ -130,9 +130,7 @@ const RESTORE_FOLDER_PREFIX: &str = ".lodestone-restore";
 /// Whether `name` (one path part) names a restore's folder ([`RESTORE_FOLDER_PREFIX`]),
 /// compared the way Windows and macOS resolve names.
 fn names_restore_folder(name: &str) -> bool {
-    name.trim_end_matches(['.', ' '])
-        .to_lowercase()
-        .starts_with(RESTORE_FOLDER_PREFIX)
+    crate::util::fold_name(name.trim_end_matches(['.', ' '])).starts_with(RESTORE_FOLDER_PREFIX)
 }
 
 /// Whether `name` (one path part) may be the Windows 8.3 short name of a restore's folder:
@@ -2252,6 +2250,28 @@ mod tests {
 
     fn dir(name: &str) -> bool {
         is_protected(FsPath::new(name), true)
+    }
+
+    #[test]
+    fn a_restores_folders_are_named_however_the_disk_folds_them() {
+        for name in [
+            ".lodestone-restore-staging-0123456789abcdef",
+            ".LODESTONE-RESTORE-old-0123456789abcdef",
+            ".lodestone-restore-x. .",
+            // `ſ` folds to `s` on disks that ignore case
+            ".lode\u{17F}tone-restore-x",
+        ] {
+            assert!(names_restore_folder(name), "{name}");
+            assert!(refuse_restore_folders(FsPath::new(name)).is_err(), "{name}");
+        }
+        for name in [
+            "lodestone-restore",
+            ".lodestone",
+            ".lodestone-restor",
+            "world",
+        ] {
+            assert!(!names_restore_folder(name), "{name}");
+        }
     }
 
     #[test]

@@ -60,6 +60,9 @@ pub const CONTENT_STAT_CACHE: &str = "content";
 pub const INITIAL_LABEL: &str = "Content when Lodestone began recording";
 /// The label of an image the before-start check records.
 pub const OUTSIDE_LABEL: &str = "Changed outside Lodestone";
+/// The label of an image the before-start check records when no content file changed but
+/// the backup policy's excludes did (the image's `excludes` are part of its id).
+pub const EXCLUDES_LABEL: &str = "Changed the backup excludes";
 
 /// What a record did.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -72,10 +75,20 @@ pub struct Recorded {
     pub changed: bool,
 }
 
+/// A label waiting to be recorded.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Queued {
+    pub(crate) label: String,
+    /// Whether a job queued it ([`ImageService::begin_job`]). A job holds no gate, so a
+    /// record of another operation can take in its finished files before it succeeds;
+    /// its own record then finds nothing changed and adds its label to that image.
+    pub(crate) job: bool,
+}
+
 /// Labels waiting to be recorded, and when they came.
 #[derive(Debug, Default)]
 pub(crate) struct Pending {
-    labels: Vec<String>,
+    labels: Vec<Queued>,
     first: Option<Instant>,
     last: Option<Instant>,
     /// Whether a task is waiting to record them.
@@ -83,9 +96,9 @@ pub(crate) struct Pending {
 }
 
 impl Pending {
-    pub(crate) fn push(&mut self, label: String, now: Instant) {
+    pub(crate) fn push(&mut self, label: String, job: bool, now: Instant) {
         if !label.is_empty() {
-            self.labels.push(label);
+            self.labels.push(Queued { label, job });
         }
         self.first.get_or_insert(now);
         self.last = Some(now);
@@ -107,14 +120,14 @@ impl Pending {
     }
 
     /// Takes the queued labels.
-    pub(crate) fn take(&mut self) -> Vec<String> {
+    pub(crate) fn take(&mut self) -> Vec<Queued> {
         self.first = None;
         self.last = None;
         std::mem::take(&mut self.labels)
     }
 
     /// Puts labels a failed record took back in front, due at once on the next try.
-    pub(crate) fn restore(&mut self, mut labels: Vec<String>, now: Instant) {
+    pub(crate) fn restore(&mut self, mut labels: Vec<Queued>, now: Instant) {
         labels.append(&mut self.labels);
         self.labels = labels;
         self.first.get_or_insert(now);
@@ -151,7 +164,8 @@ impl Operation {
     /// the merge window.
     pub fn succeed(mut self) {
         if let Some(service) = self.service.take() {
-            service.queue(&self.uuid, std::mem::take(&mut self.label), true);
+            let job = self.gate.is_none();
+            service.queue(&self.uuid, std::mem::take(&mut self.label), job, true);
         }
     }
 
@@ -171,7 +185,8 @@ impl Operation {
         let Some(service) = self.service.take() else {
             return Ok(None);
         };
-        service.queue(&self.uuid, std::mem::take(&mut self.label), false);
+        let job = self.gate.is_none();
+        service.queue(&self.uuid, std::mem::take(&mut self.label), job, false);
         // The record takes the gate alone: let go of this operation's share first.
         drop(self.gate.take());
         service.record(ctx, None, None).await
@@ -243,13 +258,14 @@ impl ImageService {
         }
     }
 
-    /// Queues a label; with `spawn`, makes sure a task records it when it is due.
-    fn queue(self: &Arc<Self>, uuid: &InstanceUuid, label: String, spawn: bool) {
+    /// Queues a label (`job`: from a job); with `spawn`, makes sure a task records it when
+    /// it is due.
+    fn queue(self: &Arc<Self>, uuid: &InstanceUuid, label: String, job: bool, spawn: bool) {
         let slot = self.slot(uuid);
         let now = self.clock.now();
         let start = {
             let mut pending = slot.pending.lock().unwrap_or_else(|e| e.into_inner());
-            pending.push(label, now);
+            pending.push(label, job, now);
             let start = spawn && !pending.worker && tokio::runtime::Handle::try_current().is_ok();
             if start {
                 pending.worker = true;
@@ -394,7 +410,7 @@ impl ImageService {
             .unwrap_or_else(|e| e.into_inner())
             .take();
         if labels.is_empty() {
-            labels.extend(fallback);
+            labels.extend(fallback.map(|label| Queued { label, job: false }));
         }
         match self.record_locked(&ctx, &labels, threads).await {
             Ok(recorded) => Ok(recorded),
@@ -411,7 +427,7 @@ impl ImageService {
     async fn record_locked(
         &self,
         ctx: &InstanceContext,
-        labels: &[String],
+        labels: &[Queued],
         threads: usize,
     ) -> Result<Recorded, Error> {
         let threads = if ctx.running { 1 } else { threads };
@@ -424,7 +440,8 @@ impl ImageService {
             ))
         })
         .await?;
-        let label = join_labels(labels);
+        let texts: Vec<String> = labels.iter().map(|q| q.label.clone()).collect();
+        let label = join_labels(&texts);
         let mut retried = false;
         loop {
             let built = self
@@ -441,6 +458,7 @@ impl ImageService {
                 recorded: image.created,
                 baseline,
                 scope_rules: SCOPE_RULES,
+                excludes: image.excludes.clone(),
                 running_since: state.running_since,
                 modrinth: hints,
             };
@@ -457,6 +475,7 @@ impl ImageService {
                 // Nothing changed: keep the image's time, take the baseline again.
                 next.recorded = state.recorded;
                 self.save_state(ctx, next, snapshot).await?;
+                self.add_job_labels(ctx, &image.id, labels).await;
                 return Ok(Recorded {
                     id: image.id,
                     parent: image.parent,
@@ -524,6 +543,48 @@ impl ImageService {
             Ok(())
         })
         .await
+    }
+
+    /// A record that found nothing changed, with labels jobs queued: another operation's
+    /// record took in the jobs' finished files before they succeeded, so the current image
+    /// `id` holds what they did. Their labels are added to its label (the label isn't part
+    /// of the id, so the manifest is saved again under the same id), rather than lost. A
+    /// failure is only logged: the files are recorded either way. Called with the instance's
+    /// lock held.
+    async fn add_job_labels(&self, ctx: &InstanceContext, id: &str, labels: &[Queued]) {
+        let jobs: Vec<String> = labels
+            .iter()
+            .filter(|q| q.job)
+            .map(|q| q.label.clone())
+            .collect();
+        if jobs.is_empty() {
+            return;
+        }
+        let store = self.store();
+        let uuid = ctx.uuid.clone();
+        let id = id.to_string();
+        let saved = blocking(move || {
+            let mut image = store
+                .load_manifest(uuid.as_ref(), &id)
+                .map_err(|e| color_eyre::eyre::eyre!("{e}"))?;
+            let texts: Vec<String> = image.label.iter().cloned().chain(jobs).collect();
+            let label = join_labels(&texts);
+            if label == image.label {
+                return Ok(());
+            }
+            image.label = label;
+            store
+                .save_manifest(uuid.as_ref(), &image)
+                .map(|_| ())
+                .map_err(|e| Error::from(color_eyre::eyre::eyre!("{e}")))
+        })
+        .await;
+        if let Err(e) = saved {
+            warn!(
+                "Failed to add what finished to the content image of {}: {}",
+                ctx.uuid, e.source
+            );
+        }
     }
 
     /// Snapshots the server's content and builds its image, sealed.
@@ -614,13 +675,17 @@ struct Built {
     hints: BTreeMap<String, ModrinthHint>,
 }
 
-/// The server's disk layout and canonical excludes, for its content: blocking.
+/// The server's disk layout and canonical excludes, for its content: blocking. The
+/// excludes are sorted and without duplicates, as an image keeps them, so they compare
+/// equal to the ones a record saved with its baseline.
 pub(crate) fn content_scope(ctx: &InstanceContext) -> Result<(DiskLayout, Vec<String>), Error> {
     let (layout, _) = server_layout(&ctx.root, &ctx.level_name, &ctx.flavour)?;
-    let excludes = match &layout {
+    let mut excludes = match &layout {
         DiskLayout::Server(server) => canonical_excludes(&ctx.policy_exclude, server).canonical,
         DiskLayout::Client => Vec::new(),
     };
+    excludes.sort();
+    excludes.dedup();
     Ok((layout, excludes))
 }
 
@@ -874,9 +939,9 @@ mod tests {
         let start = Instant::now();
         let mut pending = Pending::default();
         assert_eq!(pending.deadline(), None);
-        pending.push("a".into(), start);
+        pending.push("a".into(), false, start);
         assert_eq!(pending.deadline(), Some(start + MERGE_WINDOW));
-        pending.push("b".into(), start + Duration::from_secs(2));
+        pending.push("b".into(), true, start + Duration::from_secs(2));
         assert_eq!(
             pending.deadline(),
             Some(start + Duration::from_secs(2) + MERGE_WINDOW)
@@ -886,14 +951,25 @@ mod tests {
         // However busy, the first label waits at most MAX_DEFER.
         let mut busy = Pending::default();
         for second in 0..40 {
-            busy.push(format!("{second}"), start + Duration::from_secs(second));
+            busy.push(
+                format!("{second}"),
+                false,
+                start + Duration::from_secs(second),
+            );
         }
         assert_eq!(busy.deadline(), Some(start + MAX_DEFER));
         assert_eq!(busy.take().len(), 40);
         assert!(busy.is_empty());
         // Labels a failed record took go back in front.
-        busy.push("later".into(), start);
-        busy.restore(vec!["first".into()], start);
-        assert_eq!(busy.take(), vec!["first".to_string(), "later".to_string()]);
+        let queued = |label: &str, job| Queued {
+            label: label.into(),
+            job,
+        };
+        busy.push("later".into(), true, start);
+        busy.restore(vec![queued("first", false)], start);
+        assert_eq!(
+            busy.take(),
+            vec![queued("first", false), queued("later", true)]
+        );
     }
 }

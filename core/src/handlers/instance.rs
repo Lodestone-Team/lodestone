@@ -238,22 +238,8 @@ pub(super) async fn spawn_minecraft_instance_creation(
                 Ok::<_, Error>((instance, message))
             }
             .await;
-            let minecraft_instance = match created {
-                Ok((v, message)) => {
-                    let message = match message {
-                        Some(extra) => format!("Server created successfully. {extra}"),
-                        None => "Server created successfully".to_string(),
-                    };
-                    event_broadcaster.send(Event::new_progression_event_end(
-                        event_id,
-                        true,
-                        Some(&message),
-                        Some(ProgressionEndValue::InstanceCreation(
-                            v.get_instance_info().await,
-                        )),
-                    ));
-                    v
-                }
+            let (minecraft_instance, message) = match created {
+                Ok(created) => created,
                 Err(e) => {
                     event_broadcaster.send(Event::new_progression_event_end(
                         event_id,
@@ -297,30 +283,41 @@ pub(super) async fn spawn_minecraft_instance_creation(
                 // the instance is still usable by the owner and admins
                 error!("Failed to update permissions: {:?}", e);
             }
+            // before the server is listed, so nothing starts or changes it first
+            record_created(&state, &uuid, &minecraft_instance).await;
+            let info = minecraft_instance.get_instance_info().await;
             state
                 .instances
                 .insert(uuid.clone(), minecraft_instance.into());
-            record_created(&state, &uuid).await;
+            let message = match message {
+                Some(extra) => format!("Server created successfully. {extra}"),
+                None => "Server created successfully".to_string(),
+            };
+            event_broadcaster.send(Event::new_progression_event_end(
+                event_id,
+                true,
+                Some(&message),
+                Some(ProgressionEndValue::InstanceCreation(info)),
+            ));
         }
     });
     Ok(instance_uuid)
 }
 
-/// The first content image of a server just created: "Created <name>", unless its setup
-/// already recorded one (a modpack's "Installed <pack>"). A failure is only logged: its
-/// first content image is then recorded when it stops, or at the next startup (see
-/// `ImageService::server_stopped` and `startup_sweep`).
-async fn record_created(state: &AppState, uuid: &InstanceUuid) {
+/// The first content image of a server just created, before it is listed: "Created
+/// <name>", unless its setup already recorded one (a modpack's "Installed <pack>"). A
+/// failure is only logged: its first content image is then recorded when it stops, or at
+/// the next startup (see `ImageService::server_stopped` and `startup_sweep`).
+async fn record_created(
+    state: &AppState,
+    uuid: &InstanceUuid,
+    instance: &minecraft::MinecraftInstance,
+) {
     if state.images.current_content(uuid).await.is_some() {
         return;
     }
-    let Some(ctx) = crate::images::context_of(state, uuid).await else {
-        return;
-    };
-    let name = match state.instances.get(uuid).map(|i| i.value().clone()) {
-        Some(instance) => instance.name().await,
-        None => return,
-    };
+    let ctx = crate::images::context_with_policy(state.images.root(), instance).await;
+    let name = instance.name().await;
     if let Err(e) = state
         .images
         .record_now(ctx, format!("Created {name}"))

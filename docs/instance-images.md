@@ -751,7 +751,7 @@ of M2 adds its own subsection.
   players" marks become each jar's `owner_mark`) and world files. Names match ignoring ASCII
   case. Not `eula.txt`: accepting the EULA is server state, not a content choice, and
   accepting it through the API is no operation. The rules have a version (`SCOPE_RULES`,
-  2); a baseline taken under other rules is taken again rather than compared.
+  1); a baseline taken under other rules is taken again rather than compared.
 - **Snapshots can be narrowed** (shared crate): `SnapshotOptions::filter` decides per file or
   folder (`Candidate`: disk path, canonical path when there is one, folder or not) what the
   snapshot takes at all; what it turns down is skipped silently and is not written into
@@ -775,7 +775,10 @@ of M2 adds its own subsection.
   upload streams into temporary files first, and a long job (a copy, an unzip, a zip, a
   Mods-tab install, which asks Modrinth and downloads) is begun with
   `ImageService::begin_job`, which holds no gate (a record meanwhile may take its
-  files half written; the record of its own label, after it succeeded, takes them whole). A
+  files half written; the record of its own label, after it succeeded, takes them whole; when
+  a record of another operation took them in whole before the job succeeded, the job's record
+  finds nothing changed and adds the job's label to that image, saving its manifest again
+  under the same id, so "Added JEI" isn't lost). A
   modpack update or restore begins with `ImageService::begin_exclusive`, which waits for
   every Files API operation (not the jobs, which hold no gate) and keeps new ones out, so
   none lands between its last check of the files and their placement; placing a new file
@@ -812,10 +815,16 @@ of M2 adds its own subsection.
   small files are written through `.incoming-<16 hex>.tmp`, which the store's sweep deletes
   after a crash.
 - **The check before a start.** It records what is queued, then compares each content
-  file's size and modification time with the baseline (no file is read) and records
-  "Changed outside Lodestone" when they differ. It waits at most 10 s for the last stop's
+  file's size and modification time with the baseline (no file is read), under the canonical
+  excludes the baseline was taken under (kept with it in `content-state.json`), and records
+  "Changed outside Lodestone" when they differ; when they don't but the backup policy's
+  excludes changed since (which changes what an image holds, and its id), it records
+  "Changed the backup excludes". It waits at most 10 s for the last stop's
   content work and then at most 10 s for an operation in progress, and never fails a
-  start. When a server stops, the baseline is taken again
+  start; but a record that already has the gate when that wait ends (a merged record that
+  began just before) runs to its end first, since noting the start takes the instance's lock
+  the record holds, and a record is never cut short. When a server stops, the baseline is
+  taken again, under the same excludes,
   without an image, so what the server wrote while it ran joins the next image an operation
   records; a core that died while its server ran (`running_since` still set) does the same
   at its next start. A server with no content image gets "Content when Lodestone began
@@ -886,8 +895,9 @@ of M2 adds its own subsection.
     never recorded. A Minecraft version change records at once after it succeeded ("Changed
     Minecraft version to X"), outside the operation: `change_version` holds the server's version
     lock, which a start takes before the content gate.
-  - A new server (created, or imported): "Created <name>" once it is registered, unless its
-    setup recorded an image already (a modpack's install).
+  - A new server (created, or imported): "Created <name>" once it is set up and before it is
+    listed (and before its creation's end event), so nothing starts or changes it first,
+    unless its setup recorded an image already (a modpack's install).
 - **Merged labels stay each operation's.** What succeeds within the merge window is one image
   labelled with each operation's label in order ("Edited a; Edited b"), cut at the label limit,
   rather than a count: the history then says what happened.
@@ -962,7 +972,8 @@ of M2 adds its own subsection.
   before the record leaves a data image no record names: the next retention or delete lists
   it as a backup (see above). Deleting is the mirror image: the image (when no other record
   names it), then the record, then pruning the content images nothing links to, then a
-  collection. A crash between the two leaves a record whose image is gone, which the next
+  collection, only when an image went (retention runs after every backup and usually deletes
+  nothing, and a collection reads every manifest of every server). A crash between the two leaves a record whose image is gone, which the next
   retention or delete drops, so a deleted backup never comes back; a backup whose image
   couldn't be deleted keeps its record. Retention picks what to delete from the records
   read under that lock.
@@ -970,6 +981,13 @@ of M2 adds its own subsection.
   it relies on objects nothing has claimed: a backup from its snapshot to its save, a restore
   while it reads the image (its backup may be deleted meanwhile), a download while it zips. A
   collection waits for it rather than the job retrying.
+- **Shutdown.** Once the core's servers have stopped, it waits up to 6 s
+  (`ImageService::settle`) for each one's stop work (the baseline taken again,
+  `running_since` cleared) and records what is still queued in the merge window, since the
+  process exits right after: otherwise the next start would take the server for one that
+  died while running and fold a change made while Lodestone was down into the baseline,
+  instead of recording "Changed outside Lodestone". A record still running at the limit is
+  cut off like a crash.
 - **Restore.** A restore makes the files a backup would take now match the image, and leaves
   everything else as it is: what images never record, what the current policy excludes and
   what the backup itself left out (its `excludes`: it has no copy to put back), links, files

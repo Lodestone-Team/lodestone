@@ -1094,7 +1094,9 @@ impl BackupService {
     /// instance's image lock, so a backup pinned meanwhile is never picked from an older
     /// list, and reconciled with the images first, [`reconcile_records`]): each of their
     /// images no other record names, then their records, then prunes the content images
-    /// nothing links to and asks for a collection. A backup whose image couldn't be deleted
+    /// nothing links to and, when an image went, asks for a collection (retention runs
+    /// after every backup, and most runs delete nothing; a collection reads every manifest
+    /// of every server). A backup whose image couldn't be deleted
     /// keeps its record and is listed as before. Returns the ids it deleted, and the first
     /// failure.
     async fn delete_backups(
@@ -1102,7 +1104,7 @@ impl BackupService {
         uuid: &InstanceUuid,
         select: impl FnOnce(&Records) -> HashSet<String> + Send + 'static,
     ) -> Result<(Vec<String>, Option<Error>), Error> {
-        let deleted = {
+        let (deleted, failure, removed) = {
             let _lock = self.images.instance_lock(uuid).await;
             let store = self.store.clone();
             let images = self.image_store();
@@ -1115,18 +1117,26 @@ impl BackupService {
                 let ids = select(&records);
                 let mut deleted = HashSet::new();
                 let mut failure = None;
+                // whether an image went, which leaves objects for a collection
+                let mut removed = false;
                 for record in records.backups.iter().filter(|b| ids.contains(&b.id)) {
                     let shared = records
                         .backups
                         .iter()
                         .any(|b| b.image == record.image && !ids.contains(&b.id));
                     if !shared {
-                        if let Err(e) = images.delete_manifest(uuid.as_ref(), &record.image) {
-                            warn!("Failed to delete the image {} of {uuid}: {e}", record.image);
-                            failure.get_or_insert_with(|| {
-                                Error::from(eyre!("Failed to delete the backup {}: {e}", record.id))
-                            });
-                            continue;
+                        match images.delete_manifest(uuid.as_ref(), &record.image) {
+                            Ok(gone) => removed |= gone,
+                            Err(e) => {
+                                warn!("Failed to delete the image {} of {uuid}: {e}", record.image);
+                                failure.get_or_insert_with(|| {
+                                    Error::from(eyre!(
+                                        "Failed to delete the backup {}: {e}",
+                                        record.id
+                                    ))
+                                });
+                                continue;
+                            }
                         }
                     }
                     deleted.insert(record.id.clone());
@@ -1135,16 +1145,21 @@ impl BackupService {
                 if reconciled || !deleted.is_empty() {
                     store.save_records(&uuid, &records)?;
                 }
-                Ok((deleted.into_iter().collect::<Vec<_>>(), failure))
+                Ok((deleted.into_iter().collect::<Vec<_>>(), failure, removed))
             })
             .await?
         };
-        match self.images.prune(uuid).await {
-            Ok(_) => {}
-            Err(e) => warn!("Failed to prune the images of {uuid}: {}", e.source),
+        let pruned = match self.images.prune(uuid).await {
+            Ok(pruned) => pruned,
+            Err(e) => {
+                warn!("Failed to prune the images of {uuid}: {}", e.source);
+                0
+            }
+        };
+        if removed || pruned > 0 {
+            self.images.request_gc();
         }
-        self.images.request_gc();
-        Ok(deleted)
+        Ok((deleted, failure))
     }
 
     /// `DELETE /instance/{uuid}/backups/{id}`: removes the backup; its files go at the next

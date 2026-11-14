@@ -3,7 +3,10 @@
 //! Content can change outside Lodestone (a mod dropped in over SFTP, a config edited by
 //! hand). Before a server starts, [`ImageService::before_start`] records what is queued and
 //! then compares the content files' sizes and modification times with the baseline the last
-//! record left, reading no file; when they differ it records "Changed outside Lodestone".
+//! record left, reading no file, under the excludes the baseline was taken under; when they
+//! differ it records "Changed outside Lodestone". When they don't but the backup policy's
+//! excludes changed since (which changes what an image holds, and its id), it records
+//! "Changed the backup excludes".
 //! The check waits at most [`GATE_WAIT`] for an operation or record in progress and never
 //! fails the start: the caller logs what it returns.
 //!
@@ -29,7 +32,7 @@ use tracing::{info, warn};
 use crate::error::Error;
 use crate::types::InstanceUuid;
 
-use super::recorder::{content_scope, Recorded, INITIAL_LABEL, OUTSIDE_LABEL};
+use super::recorder::{content_scope, Recorded, EXCLUDES_LABEL, INITIAL_LABEL, OUTSIDE_LABEL};
 use super::scope::{content_filter, SCOPE_RULES};
 use super::state::{self, ContentState};
 use super::{blocking, ImageService, InstanceContext, Slot};
@@ -108,21 +111,39 @@ impl ImageService {
             }
             return Ok(None);
         }
+        let Some(label) = self.changed_since_baseline(&ctx, &state).await? else {
+            return Ok(None);
+        };
+        info!("The content of {} changed: {label}", ctx.uuid);
+        self.record_held(&slot, ctx, Some(label.to_string()), 0)
+            .await
+            .map(Some)
+    }
+
+    /// What changed since the baseline `state` keeps, as the label of the image to record:
+    /// [`OUTSIDE_LABEL`] when a content file did (compared under the excludes the baseline
+    /// was taken under, so a policy change alone isn't taken for one), else
+    /// [`EXCLUDES_LABEL`] when the policy's excludes did; `None` when nothing did.
+    async fn changed_since_baseline(
+        &self,
+        ctx: &InstanceContext,
+        state: &ContentState,
+    ) -> Result<Option<&'static str>, Error> {
         let store = self.store();
         let check = ctx.clone();
         let baseline = state.baseline.clone();
-        let changed = blocking(move || {
+        let before = state.excludes.clone();
+        blocking(move || {
             let (layout, excludes) = content_scope(&check)?;
-            quick_changed(&store, &check.root, &layout, &excludes, &baseline)
+            if quick_changed(&store, &check.root, &layout, &before, &baseline)? {
+                Ok(Some(OUTSIDE_LABEL))
+            } else if excludes != before {
+                Ok(Some(EXCLUDES_LABEL))
+            } else {
+                Ok(None)
+            }
         })
-        .await?;
-        if !changed {
-            return Ok(None);
-        }
-        info!("The content of {} changed outside Lodestone", ctx.uuid);
-        self.record_held(&slot, ctx, Some(OUTSIDE_LABEL.to_string()), 0)
-            .await
-            .map(Some)
+        .await
     }
 
     /// Before a modpack update or restore changes the content of the stopped server `ctx`:
@@ -158,18 +179,9 @@ impl ImageService {
         let label = if state.current.is_none() {
             INITIAL_LABEL
         } else if state.has_baseline() {
-            let store = self.store();
-            let check = ctx.clone();
-            let baseline = state.baseline.clone();
-            let outside = blocking(move || {
-                let (layout, excludes) = content_scope(&check)?;
-                quick_changed(&store, &check.root, &layout, &excludes, &baseline)
-            })
-            .await?;
-            if outside {
-                OUTSIDE_LABEL
-            } else {
-                label
+            match self.changed_since_baseline(&ctx, &state).await? {
+                Some(changed) => changed,
+                None => label,
             }
         } else {
             label
@@ -286,7 +298,9 @@ impl ImageService {
         self.refresh_baseline(&ctx, state).await
     }
 
-    /// Takes the baseline again (and forgets `running_since`), recording nothing.
+    /// Takes the baseline again (and forgets `running_since`), recording nothing. Under the
+    /// excludes it was taken under, which are the current image's: a policy whose excludes
+    /// changed meanwhile is still noticed before the next start.
     async fn refresh_baseline(
         &self,
         ctx: &InstanceContext,
@@ -294,8 +308,9 @@ impl ImageService {
     ) -> Result<(), Error> {
         let store = self.store();
         let check = ctx.clone();
+        let excludes = state.excludes.clone();
         let baseline = blocking(move || {
-            let (layout, excludes) = content_scope(&check)?;
+            let (layout, _) = content_scope(&check)?;
             stat_content(&store, &check.root, &layout, &excludes)
         })
         .await?;

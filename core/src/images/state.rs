@@ -8,6 +8,9 @@
 //! - `baseline` is each content file's size and modification time as of the last record
 //!   (or the last time a stopped server's files were absorbed): the before-start check
 //!   compares the folder against it without reading any file.
+//! - `excludes` are the canonical excludes (the backup policy's, translated) the baseline
+//!   was taken under: files they leave out aren't in it, so the check compares under them,
+//!   and a policy whose excludes changed since is a change of its own.
 //! - `running_since` is set while the server runs, so a core that died while it ran knows
 //!   at its next start that the baseline is stale (the server rewrote configs) and takes
 //!   it again without recording.
@@ -49,6 +52,9 @@ pub struct ContentState {
     /// baseline is retaken rather than trusted.
     #[serde(default)]
     pub scope_rules: u32,
+    /// The canonical excludes the baseline was taken under.
+    #[serde(default)]
+    pub excludes: Vec<String>,
     /// Unix seconds since the server last started, while it runs.
     #[serde(default)]
     pub running_since: Option<i64>,

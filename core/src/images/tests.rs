@@ -491,6 +491,152 @@ async fn the_quick_check_sees_changes_and_absorbs_what_a_server_writes() {
 }
 
 #[tokio::test]
+async fn new_backup_excludes_are_their_own_change_not_one_outside_lodestone() {
+    let s = setup();
+    fabric_server(&s.root);
+    write(&s.root, "config/dynmap/a.txt", b"map");
+    let ctx = context(&s.root, fabric());
+    s.images
+        .record_now(ctx.clone(), "one".into())
+        .await
+        .unwrap();
+    assert_eq!(s.images.before_start(ctx.clone()).await.unwrap(), None);
+
+    // The policy now leaves config/dynmap/ out; the server ran and stopped meanwhile, which
+    // takes the baseline again, under the excludes of the current image.
+    let excluding = InstanceContext {
+        policy_exclude: vec!["config/dynmap/".into()],
+        ..ctx.clone()
+    };
+    s.images.server_stopped(excluding.clone()).await.unwrap();
+    let recorded = s
+        .images
+        .before_start(excluding.clone())
+        .await
+        .unwrap()
+        .unwrap();
+    let image = s
+        .manifests()
+        .into_iter()
+        .find(|i| i.id == recorded.id)
+        .unwrap();
+    assert_eq!(image.label.as_deref(), Some(recorder::EXCLUDES_LABEL));
+    assert!(!paths(&image).contains(&"config/dynmap/a.txt"));
+    assert_eq!(s.state().excludes, image.excludes);
+    assert_eq!(
+        s.images.before_start(excluding.clone()).await.unwrap(),
+        None
+    );
+
+    // A file changed by hand as well is a change outside Lodestone.
+    write(&s.root, "mods/by-hand.jar", b"sftp");
+    let recorded = s.images.before_start(ctx).await.unwrap().unwrap();
+    let image = s
+        .manifests()
+        .into_iter()
+        .find(|i| i.id == recorded.id)
+        .unwrap();
+    assert_eq!(image.label.as_deref(), Some(recorder::OUTSIDE_LABEL));
+}
+
+#[tokio::test]
+async fn a_job_whose_files_another_record_took_adds_its_label_to_that_image() {
+    let s = setup_with(ManualClock::new());
+    fabric_server(&s.root);
+    let ctx = context(&s.root, fabric());
+    s.images
+        .record_now(ctx.clone(), "one".into())
+        .await
+        .unwrap();
+
+    // An install (a job, holding no gate) has placed its jar but not yet succeeded when a
+    // record of an edit runs and takes the jar in.
+    let install = s.images.begin_job(&uuid(), "Added JEI");
+    write(&s.root, "mods/jei.jar", b"jei");
+    write(&s.root, "config/a.toml", b"a = 2");
+    s.images
+        .begin(&uuid(), "Edited config/a.toml")
+        .await
+        .succeed();
+    let edit = s.images.flush(ctx.clone()).await.unwrap().unwrap();
+    assert!(edit.changed);
+
+    // The install's own record finds nothing changed and labels that image instead.
+    install.succeed();
+    let again = s.images.flush(ctx.clone()).await.unwrap().unwrap();
+    assert!(!again.changed);
+    assert_eq!(again.id, edit.id);
+    let label = |id: &str| {
+        s.manifests()
+            .into_iter()
+            .find(|i| i.id == id)
+            .unwrap()
+            .label
+    };
+    assert_eq!(
+        label(&edit.id).as_deref(),
+        Some("Edited config/a.toml; Added JEI")
+    );
+    s.images.store().load_manifest(UUID, &edit.id).unwrap();
+
+    // An operation that holds the gate and changed nothing labels nothing.
+    s.images.begin(&uuid(), "Saved nothing").await.succeed();
+    s.images.flush(ctx).await.unwrap();
+    assert_eq!(
+        label(&edit.id).as_deref(),
+        Some("Edited config/a.toml; Added JEI")
+    );
+}
+
+#[tokio::test]
+async fn the_shutdown_waits_for_stop_work_and_records_what_is_queued() {
+    // The clock never moves, so the merge window never closes on its own.
+    let s = setup_with(ManualClock::new());
+    fabric_server(&s.root);
+    let ctx = context(&s.root, fabric());
+    s.images.set_instances(fixed(&ctx));
+    s.images
+        .record_now(ctx.clone(), "one".into())
+        .await
+        .unwrap();
+
+    // The server ran and is stopping: its stop's work runs in the background, late.
+    assert!(s.images.server_started(&uuid()).await);
+    write(&s.root, "config/a.toml", b"rewritten while running");
+    let pending = s.images.begin_stop(&uuid());
+    let (images, stop_ctx) = (s.images.clone(), ctx.clone());
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        images.server_stopped(stop_ctx).await.unwrap();
+        drop(pending);
+    });
+    // An edit made just before the shutdown waits in the merge window.
+    write(&s.root, "mods/b.jar", b"b");
+    s.images.begin(&uuid(), "Added B").await.succeed();
+
+    s.images
+        .clone()
+        .settle(vec![uuid()], Duration::from_secs(10))
+        .await;
+    assert_eq!(s.state().running_since, None);
+    let current = s.state().current.unwrap();
+    let image = s.manifests().into_iter().find(|i| i.id == current).unwrap();
+    assert_eq!(image.label.as_deref(), Some("Added B"));
+    assert!(paths(&image).contains(&"mods/b.jar"));
+
+    // A change made while Lodestone was down is recorded before the next start, not
+    // folded into the baseline.
+    write(&s.root, "mods/by-hand.jar", b"sftp");
+    let recorded = s.images.before_start(ctx).await.unwrap().unwrap();
+    let newest = s
+        .manifests()
+        .into_iter()
+        .find(|i| i.id == recorded.id)
+        .unwrap();
+    assert_eq!(newest.label.as_deref(), Some(recorder::OUTSIDE_LABEL));
+}
+
+#[tokio::test]
 async fn a_server_without_an_image_gets_its_first_when_it_stops_or_at_startup() {
     let s = setup();
     fabric_server(&s.root);

@@ -390,6 +390,21 @@ async fn retention_deletes_backups_and_the_images_only_they_name() {
         scheduled_since_full: 0,
     };
     service.store.save_records(&uuid(), &records).unwrap();
+    let requests = || service.images.gc_requests();
+    // Retention that keeps every backup deletes nothing and asks for no collection.
+    service
+        .set_policy(
+            &uuid(),
+            BackupPolicy {
+                keep_last: 10,
+                ..BackupPolicy::default()
+            },
+        )
+        .await
+        .unwrap();
+    service.apply_retention(&uuid(), Some("s7")).await;
+    assert_eq!(service.records(&uuid()).await.unwrap().backups.len(), 8);
+    assert_eq!(requests(), 0);
     service
         .set_policy(
             &uuid(),
@@ -413,6 +428,7 @@ async fn retention_deletes_backups_and_the_images_only_they_name() {
         .map(|b| b.id)
         .collect();
     assert_eq!(kept, ["s7"]);
+    assert_eq!(requests(), 1);
     let images = service.image_store();
     assert!(!images
         .manifest_path(uuid().as_ref(), &old.id)

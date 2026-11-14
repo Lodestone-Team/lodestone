@@ -887,12 +887,12 @@ async fn settings_and_the_resource_pack_record_but_local_settings_dont() {
 #[tokio::test]
 async fn a_new_server_gets_its_first_image_once() {
     let core = core(Kind::Fabric).await;
-    super::record_created(&core.state, &core.uuid).await;
+    super::record_created(&core.state, &core.uuid, &core.instance()).await;
     let image = core.current().await;
     assert_eq!(image.label.as_deref(), Some("Created Test SMP"));
     // a setup that recorded already (a modpack's install) keeps its image
     write(&core.root, "config/later.toml", b"x");
-    super::record_created(&core.state, &core.uuid).await;
+    super::record_created(&core.state, &core.uuid, &core.instance()).await;
     assert_eq!(core.manifests().len(), 1);
 }
 

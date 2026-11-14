@@ -692,6 +692,12 @@ async fn kill_servers(instances: &DashMap<InstanceUuid, GameInstance>, states: &
 /// in dashboard/src-tauri), and core/docker-compose.yml gives Docker a minute.
 const SHUTDOWN_STOP_TIMEOUT: Duration = Duration::from_secs(45);
 
+/// How long the core waits on shutdown, once its servers stopped, for their content work
+/// ([`images::ImageService::settle`]). With the 5 s backups get, [`SHUTDOWN_STOP_TIMEOUT`]
+/// and the 2 s a killed server gets to show as stopped, this stays under the 60 s the
+/// Hosts wait for the core.
+const SHUTDOWN_SETTLE_TIMEOUT: Duration = Duration::from_secs(6);
+
 /// Stops every server for the core's shutdown, all at once, and returns when they have
 /// stopped. A running server is asked to stop, which saves its world, and is killed if it
 /// has not stopped `timeout` from now; a server still starting is killed at once.
@@ -1779,6 +1785,16 @@ pub async fn run_with(
                 // Servers refuse to start once the shutdown has begun, so this should find
                 // none; but one that got past that would run on without the core: kill it.
                 kill_servers(&shared_state.instances, &[State::Starting, State::Running]).await;
+                // Each stop takes its content baseline again in the background, and edits
+                // may still be queued to record; the process exits right after this future.
+                let uuids = snapshot_instances(&shared_state.instances)
+                    .into_iter()
+                    .map(|(uuid, _)| uuid)
+                    .collect();
+                shared_state
+                    .images
+                    .settle(uuids, SHUTDOWN_SETTLE_TIMEOUT)
+                    .await;
                 // only now: servers may use temporary files until they stop
                 let tmp = path_to_tmp();
                 if tokio::fs::try_exists(tmp).await.unwrap_or(true) {
