@@ -618,9 +618,7 @@ mod tests {
         // scoped keys can't rename their own user, the owner here
         for key in [&empty, &launcher] {
             for name in ["", "x"] {
-                let (status, reply) = core
-                    .call(Method::PUT, &path, key, Some(json!(name)))
-                    .await;
+                let (status, reply) = core.call(Method::PUT, &path, key, Some(json!(name))).await;
                 assert_eq!(status, StatusCode::FORBIDDEN, "{reply}");
                 assert_eq!(message(&reply), api_key::FULL_KEY_REQUIRED_MESSAGE);
             }
