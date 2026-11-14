@@ -122,6 +122,11 @@ impl Instances {
         if self.is_active(id) {
             return Task::ready(Err(t(M::StopBeforeDeleting).into()));
         }
+        // a tab's job (an install, a restore) goes on writing into the folder after it
+        // went to the Trash, and would make it again, without its instance.json
+        if self.files_busy(id) {
+            return Task::ready(Err(t(M::FilesBusy).into()));
+        }
         let store = self.store.clone();
         let gone = id.to_string();
         let forget = id.to_string();

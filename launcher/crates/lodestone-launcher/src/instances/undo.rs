@@ -276,6 +276,18 @@ pub(crate) fn put_back(from: &Instance, to: &mut Instance, fields: &[Field]) {
     }
 }
 
+/// Which of `fields` can still be put back from `snapshot` onto `current`. A loader
+/// version is made for one game version: once a modpack update moved the instance to
+/// another (which records no step), the old loader would no longer start it, so that
+/// part of the step is gone.
+fn still_apply(snapshot: &Instance, current: &Instance, fields: &[Field]) -> Vec<Field> {
+    fields
+        .iter()
+        .copied()
+        .filter(|field| *field != Field::Loader || snapshot.game_version == current.game_version)
+        .collect()
+}
+
 /// Whether `current` is the instance `snapshot` was taken of. Its id is its folder's
 /// name, which a new instance gets again once the old one is in the Trash; the time it
 /// was created tells them apart (and stays when it is put back from the Trash).
@@ -469,6 +481,11 @@ impl Instances {
         if !same_instance(&snapshot.instance, &instance) {
             return Err(UndoError::Gone);
         }
+        let fields = still_apply(&snapshot.instance, &instance, fields);
+        if fields.is_empty() {
+            return Err(UndoError::Gone);
+        }
+        let fields = fields.as_slice();
         put_back(&snapshot.instance, &mut instance, fields);
         for (image, field) in [
             (&snapshot.icon, Field::Icon),
@@ -663,5 +680,115 @@ mod tests {
         values.apply(&mut settings);
         assert_eq!(settings.zoom, 1.0);
         assert!(settings.collapsed_groups.contains("Friends"));
+    }
+}
+
+/// Undoing a recorded step of an instance, with the sample instances of the offscreen
+/// screenshots.
+#[cfg(all(test, feature = "screenshot"))]
+mod step_tests {
+    use gpui::TestAppContext;
+    use launcher_core::instances::Loader;
+
+    use super::*;
+    use crate::undo::Outcome;
+
+    fn setup(cx: &mut TestAppContext) -> (Entity<Instances>, String) {
+        let instances = cx.update(|cx| {
+            let accounts = crate::preview::accounts("signed-out", cx);
+            crate::preview::instances("worlds", &accounts, cx)
+        });
+        let id = instances.read_with(cx, |instances, _| instances.list()[0].id.clone());
+        (instances, id)
+    }
+
+    /// Changes the instance's record with `change`: as a recorded step when `step`,
+    /// else as the Content tab or a modpack update do, with no step.
+    fn change(
+        instances: &Entity<Instances>,
+        id: &str,
+        step: bool,
+        change: impl FnOnce(&mut Instance),
+        cx: &mut TestAppContext,
+    ) {
+        instances.update(cx, |this, cx| {
+            let save = |this: &mut Instances| {
+                let mut instance = this.store.get(id).map_err(|err| err.to_string())?;
+                change(&mut instance);
+                this.store.save(&instance).map_err(|err| err.to_string())
+            };
+            if step {
+                this.undoable(id, cx, |this, _| save(this)).unwrap();
+            } else {
+                save(this).unwrap();
+            }
+        });
+    }
+
+    fn record(instances: &Entity<Instances>, id: &str, cx: &mut TestAppContext) -> Instance {
+        instances.read_with(cx, |this, _| this.store.get(id).unwrap())
+    }
+
+    #[gpui::test]
+    fn undo_puts_back_only_the_steps_setting(cx: &mut TestAppContext) {
+        // LS-20: renamed (a step), then the loader switched with no step
+        let (instances, id) = setup(cx);
+        let name = record(&instances, &id, cx).name;
+        change(&instances, &id, true, |i| i.name = "Renamed".into(), cx);
+        change(
+            &instances,
+            &id,
+            false,
+            |i| {
+                i.loader = Loader::Quilt;
+                i.loader_version = Some("0.27.1".into());
+            },
+            cx,
+        );
+        let outcome = cx.update(undo::undo);
+        assert!(matches!(outcome, Outcome::Undid(_)));
+        let now = record(&instances, &id, cx);
+        assert_eq!(now.name, name);
+        assert_eq!(now.loader, Loader::Quilt);
+        assert_eq!(now.loader_version.as_deref(), Some("0.27.1"));
+    }
+
+    #[gpui::test]
+    fn undo_leaves_a_new_instance_with_the_same_id_alone(cx: &mut TestAppContext) {
+        // LS-21: the instance went, and a new one was made in its folder
+        let (instances, id) = setup(cx);
+        change(&instances, &id, true, |i| i.name = "Renamed".into(), cx);
+        change(&instances, &id, false, |i| i.created += 100, cx);
+        let outcome = cx.update(undo::undo);
+        assert!(matches!(outcome, Outcome::Nothing));
+        assert_eq!(record(&instances, &id, cx).name, "Renamed");
+    }
+
+    #[gpui::test]
+    fn a_loader_for_another_game_version_isnt_put_back(cx: &mut TestAppContext) {
+        // the loader changed (a step), then a modpack update moved the game version
+        let (instances, id) = setup(cx);
+        change(
+            &instances,
+            &id,
+            true,
+            |i| {
+                i.loader = Loader::Quilt;
+                i.loader_version = Some("0.27.1".into());
+            },
+            cx,
+        );
+        change(
+            &instances,
+            &id,
+            false,
+            |i| i.game_version = "1.21.4".into(),
+            cx,
+        );
+        let outcome = cx.update(undo::undo);
+        assert!(matches!(outcome, Outcome::Nothing));
+        let now = record(&instances, &id, cx);
+        assert_eq!(now.loader, Loader::Quilt);
+        assert_eq!(now.game_version, "1.21.4");
     }
 }

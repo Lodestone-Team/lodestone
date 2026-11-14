@@ -457,6 +457,12 @@ impl ContentView {
     fn sync(&mut self, cx: &mut Context<Self>) {
         let (selected, loader, active, prerelease, revision) = {
             let instances = self.instances.read(cx);
+            // how an install went goes with its instance, not to a new one given its id
+            if !self.finished.is_empty() {
+                let list = instances.list();
+                self.finished
+                    .retain(|id, _| list.iter().any(|instance| &instance.id == id));
+            }
             let revision = instances
                 .selected()
                 .map_or(0, |i| instances.content_revision(&i.id));
@@ -509,6 +515,9 @@ impl ContentView {
                     self.reload(kind, cx);
                 }
             }
+            if self.was_active && !active {
+                self.resume_finished(cx);
+            }
         }
         self.was_active = active;
         // Files an imported CurseForge pack left for the user to download.
@@ -551,7 +560,8 @@ impl ContentView {
     }
 
     /// Says how the shown instance's install went if it finished while another was
-    /// shown, and starts the CurseForge half of its "Update all".
+    /// shown, and starts the CurseForge half of its "Update all" (when its game, if
+    /// started meanwhile, has stopped).
     fn resume_finished(&mut self, cx: &mut Context<Self>) {
         let Some(finished) = self
             .instance_id
@@ -561,7 +571,18 @@ impl ContentView {
             return;
         };
         if !finished.queued_cf.is_empty() {
-            self.cf_install(finished.queued_cf, cx);
+            let idle = self.job.is_none();
+            self.message = None;
+            self.cf_install(finished.queued_cf.clone(), cx);
+            // refused with a reason (the game was started meanwhile): the reason stays
+            // shown, and the updates and how the rest went wait for the game to stop
+            if !(idle && self.job.is_some())
+                && self.message.is_some()
+                && let Some(id) = self.instance_id.clone()
+            {
+                self.finished.insert(id, finished);
+                return;
+            }
         }
         if let Some((message, error)) = finished.message {
             self.set_message(message, error, cx);
@@ -2206,5 +2227,118 @@ mod blocked_tests {
             Some(vec![2]),
             "the file not added yet"
         );
+    }
+}
+
+/// How an install went that finished while another instance was shown, with the
+/// sample instances of the offscreen screenshots (kept off the network).
+#[cfg(all(test, feature = "screenshot"))]
+mod finished_tests {
+    use gpui::TestAppContext;
+
+    use super::curseforge::tests::planned;
+    use super::*;
+    use crate::instances::RunState;
+
+    struct Setup {
+        cx: TestAppContext,
+        instances: Entity<Instances>,
+        view: Entity<ContentView>,
+        a: String,
+        b: String,
+    }
+
+    fn setup() -> Setup {
+        let mut cx = TestAppContext::single();
+        let instances = cx.update(|cx| {
+            let accounts = crate::preview::accounts("signed-out", cx);
+            crate::preview::instances("worlds", &accounts, cx)
+        });
+        let (a, b) = instances.update(&mut cx, |instances, cx| {
+            instances.preview_offline();
+            let (a, b) = (
+                instances.list()[0].id.clone(),
+                instances.list()[1].id.clone(),
+            );
+            instances.select(&b, cx);
+            (a, b)
+        });
+        let view = cx.new(|cx| ContentView::new(instances.clone(), cx));
+        cx.run_until_parked();
+        Setup {
+            cx,
+            instances,
+            view,
+            a,
+            b,
+        }
+    }
+
+    /// "Update all" of `id` finished its Modrinth half while it wasn't shown.
+    fn finished_update_all(s: &mut Setup, id: &str) {
+        let request = CfInstallRequest {
+            kind: ContentKind::Mod,
+            file: planned(1).file,
+            project: None,
+            install_dependencies: true,
+            force: false,
+        };
+        s.view.update(&mut s.cx, |view, _| {
+            view.keep_finished(id, Some(("Updated".into(), false)), vec![request])
+        });
+    }
+
+    fn message(s: &mut Setup) -> Option<(SharedString, bool)> {
+        s.view.read_with(&s.cx, |view, _| view.message.clone())
+    }
+
+    #[test]
+    fn a_refused_curseforge_half_waits_for_the_game_to_stop() {
+        let mut s = setup();
+        let a = s.a.clone();
+        finished_update_all(&mut s, &a);
+        // the game of the instance was started meanwhile
+        s.instances.update(&mut s.cx, |instances, cx| {
+            instances.runs.entry(a.clone()).or_default().state = RunState::Preparing {
+                progress: Arc::default(),
+                cancel: CancelToken::new(),
+            };
+            instances.select(&a, cx);
+        });
+        s.cx.run_until_parked();
+        assert_eq!(message(&mut s), Some((t(M::StopGameFirst).into(), true)));
+        let kept = s
+            .view
+            .read_with(&s.cx, |view, _| view.finished.contains_key(&a));
+        assert!(kept, "the CurseForge updates wait");
+
+        s.instances.update(&mut s.cx, |instances, cx| {
+            instances.runs.entry(a.clone()).or_default().state = RunState::Idle;
+            cx.notify();
+        });
+        s.cx.run_until_parked();
+        // offline, so the CurseForge half can't start: how the rest went is said
+        assert_eq!(message(&mut s), Some(("Updated".into(), false)));
+    }
+
+    #[test]
+    fn how_it_went_goes_with_its_instance() {
+        let mut s = setup();
+        let a = s.a.clone();
+        let b = s.b.clone();
+        s.instances
+            .update(&mut s.cx, |instances, cx| instances.select(&a, cx));
+        s.cx.run_until_parked();
+        finished_update_all(&mut s, &b);
+        // the instance is deleted, and a new one may get its id
+        s.instances.update(&mut s.cx, |instances, cx| {
+            instances.list.retain(|instance| instance.id != b);
+            cx.notify();
+        });
+        s.cx.run_until_parked();
+        let kept = s
+            .view
+            .read_with(&s.cx, |view, _| view.finished.contains_key(&b));
+        assert!(!kept);
     }
 }

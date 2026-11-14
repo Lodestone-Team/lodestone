@@ -309,6 +309,12 @@ impl WorldsView {
     fn sync(&mut self, cx: &mut Context<Self>) {
         let (selected, active) = {
             let instances = self.instances.read(cx);
+            // how a job went goes with its instance, not to a new one given its id
+            if !self.finished.is_empty() {
+                let list = instances.list();
+                self.finished
+                    .retain(|id, _| list.iter().any(|instance| &instance.id == id));
+            }
             let selected = instances.selected().map(|i| i.id.clone());
             let active = selected
                 .as_deref()

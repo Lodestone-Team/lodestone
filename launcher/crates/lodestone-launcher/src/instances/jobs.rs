@@ -168,9 +168,9 @@ mod tests {
     }
 }
 
-/// Play in the launcher, with the sample instances of the offscreen screenshots,
-/// signed out: a Play that goes ahead stops at "add an account first", having started
-/// the instance's log, and nothing is downloaded or started.
+/// Play and Delete while a tab's job runs, with the sample instances of the offscreen
+/// screenshots, signed out: a Play that goes ahead stops at "add an account first",
+/// having started the instance's log, and nothing is downloaded or started.
 #[cfg(all(test, feature = "screenshot"))]
 mod play_tests {
     use gpui::TestAppContext;
@@ -202,5 +202,26 @@ mod play_tests {
         instances.update(&mut cx, |instances, cx| instances.play(&id, cx));
         cx.run_until_parked();
         assert!(played(&instances, &mut cx), "then it plays");
+    }
+
+    #[test]
+    fn an_instance_isnt_deleted_under_a_tab_job() {
+        let mut cx = TestAppContext::single();
+        let instances = cx.update(|cx| {
+            let accounts = crate::preview::accounts("signed-out", cx);
+            crate::preview::instances("worlds", &accounts, cx)
+        });
+        cx.run_until_parked();
+        let id = instances.read_with(&cx, |instances, _| instances.list()[0].id.clone());
+        // a CurseForge install would go on writing into the folder in the Trash
+        let _busy = instances.read_with(&cx, |instances, _| instances.mark_files_busy(&id));
+        let deleted = instances.update(&mut cx, |instances, cx| instances.delete(&id, cx));
+        assert!(futures::executor::block_on(deleted).is_err());
+        cx.run_until_parked();
+        let listed = instances.read_with(&cx, |instances, _| {
+            instances.list().iter().any(|instance| instance.id == id)
+        });
+        assert!(listed);
+        assert!(instances.read_with(&cx, |instances, _| instances.store().dir(&id).exists()));
     }
 }
