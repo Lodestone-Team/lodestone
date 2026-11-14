@@ -1,5 +1,5 @@
 //! Version and download lookups for Minecraft servers (Mojang, Fabric, Forge, NeoForge,
-//! Paper, Adoptium).
+//! Paper, and Java from Adoptium and Azul).
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, LazyLock};
@@ -244,29 +244,382 @@ pub async fn get_jre_major_version(version: &str) -> Result<u64, Error> {
     Ok(jre_major_version(&mojang_version_info(version).await?))
 }
 
-/// The Adoptium download URL of the JRE for a Java major version on this machine.
-pub fn jre_download_url(major_java_version: u64) -> String {
-    let os = if std::env::consts::OS == "macos" {
-        "mac"
-    } else {
-        std::env::consts::OS
-    };
-    let arch = if std::env::consts::ARCH == "x86_64" {
-        "x64"
-    } else {
-        std::env::consts::ARCH
-    };
+/// The operating system and processor a JRE is for, as Rust names them
+/// (`std::env::consts::OS` and `ARCH`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct JrePlatform {
+    pub os: &'static str,
+    pub arch: &'static str,
+}
+
+impl JrePlatform {
+    /// This computer.
+    pub fn current() -> Self {
+        Self {
+            os: std::env::consts::OS,
+            arch: std::env::consts::ARCH,
+        }
+    }
+
+    /// Whether a JRE for this computer has to be looked for vendor by vendor: on Apple
+    /// silicon Macs and Windows on ARM, Temurin has no build of some Java versions that
+    /// Minecraft needs (8 and 16 on both; 17 and 25 on Windows too). The x64 builds would run
+    /// there, emulated (Rosetta, Windows' x64 emulation), but Lodestone never runs servers
+    /// that way: they are slower, and the emulation can be missing or turned off.
+    /// Everywhere else Temurin has every Java version Minecraft uses.
+    fn needs_native_lookup(self) -> bool {
+        self.arch == "aarch64" && matches!(self.os, "macos" | "windows")
+    }
+
+    /// The name Adoptium gives the operating system.
+    fn adoptium_os(self) -> &'static str {
+        if self.os == "macos" {
+            "mac"
+        } else {
+            self.os
+        }
+    }
+
+    /// The name Adoptium gives the processor.
+    fn adoptium_arch(self) -> &'static str {
+        if self.arch == "x86_64" {
+            "x64"
+        } else {
+            self.arch
+        }
+    }
+
+    /// The archive type the JRE comes in, which `unzip_file_async` can unpack.
+    fn archive_type(self) -> &'static str {
+        if self.os == "windows" {
+            "zip"
+        } else {
+            "tar.gz"
+        }
+    }
+
+    /// How a person would name this computer, for messages.
+    fn description(self) -> String {
+        let os = match self.os {
+            "macos" => "macOS",
+            "windows" => "Windows",
+            "linux" => "Linux",
+            other => other,
+        };
+        let arch = match (self.os, self.arch) {
+            ("macos", "aarch64") => "Apple silicon",
+            (_, "aarch64") => "ARM",
+            (_, other) => other,
+        };
+        format!("{os} on {arch}")
+    }
+}
+
+/// Who builds a JRE that Lodestone downloads.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum JreVendor {
+    /// Eclipse Temurin, from Adoptium: Lodestone's usual Java.
+    Temurin,
+    /// Azul Zulu, which has native builds that Temurin lacks, such as Java 8 for Apple
+    /// silicon.
+    Zulu,
+}
+
+impl std::fmt::Display for JreVendor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            JreVendor::Temurin => "Eclipse Temurin",
+            JreVendor::Zulu => "Azul Zulu",
+        })
+    }
+}
+
+/// The kind of Java package. A JDK is a JRE with the developer tools added; it runs servers
+/// the same way, so it is used when a vendor has no JRE for this computer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum JavaPackage {
+    Jre,
+    Jdk,
+}
+
+impl JavaPackage {
+    fn name(self) -> &'static str {
+        match self {
+            JavaPackage::Jre => "jre",
+            JavaPackage::Jdk => "jdk",
+        }
+    }
+}
+
+/// A Java runtime archive to download.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct JreDownload {
+    pub url: String,
+    /// The SHA-256 of the archive (in hex) that the vendor publishes, which the download
+    /// must match. None only for the direct Temurin download Lodestone has always used.
+    pub sha256: Option<String>,
+    pub vendor: JreVendor,
+}
+
+/// The Adoptium URL that downloads Temurin's newest JRE of a Java major version for
+/// `platform` (it redirects to the archive).
+fn temurin_binary_url(major_java_version: u64, platform: JrePlatform) -> String {
     format!(
-        "https://api.adoptium.net/v3/binary/latest/{major_java_version}/ga/{os}/{arch}/jre/hotspot/normal/eclipse"
+        "https://api.adoptium.net/v3/binary/latest/{major_java_version}/ga/{}/{}/jre/hotspot/normal/eclipse",
+        platform.adoptium_os(),
+        platform.adoptium_arch()
     )
 }
 
-/// The JRE download URL and Java major version for a Minecraft version.
-pub async fn get_jre_url(version: &str) -> Result<(String, u64), Error> {
-    let major = get_jre_major_version(version)
+/// The vendors and packages to look in, in order, for a JRE on a computer that
+/// [needs a native lookup](JrePlatform::needs_native_lookup). Each lookup is for the exact
+/// Java major version the Minecraft version needs and for this computer's own processor,
+/// never for x64: Minecraft and its loaders are only known to work on the Java version
+/// Mojang names (Forge for 1.16.5 and older, for one, doesn't start on newer Java).
+pub(crate) const NATIVE_JRE_SOURCES: [(JreVendor, JavaPackage); 4] = [
+    (JreVendor::Temurin, JavaPackage::Jre),
+    (JreVendor::Zulu, JavaPackage::Jre),
+    (JreVendor::Temurin, JavaPackage::Jdk),
+    (JreVendor::Zulu, JavaPackage::Jdk),
+];
+
+/// The Adoptium API's newest Temurin build of a Java major version for `platform`.
+fn temurin_assets_url(major: u64, platform: JrePlatform, package: JavaPackage) -> String {
+    format!(
+        "https://api.adoptium.net/v3/assets/latest/{major}/hotspot?architecture={}&image_type={}&os={}&vendor=eclipse",
+        platform.adoptium_arch(),
+        package.name(),
+        platform.adoptium_os()
+    )
+}
+
+#[derive(Deserialize)]
+struct AdoptiumAsset {
+    binary: AdoptiumBinary,
+    version: AdoptiumVersion,
+}
+
+#[derive(Deserialize)]
+struct AdoptiumBinary {
+    architecture: String,
+    os: String,
+    image_type: String,
+    #[serde(default)]
+    heap_size: String,
+    package: AdoptiumPackage,
+}
+
+#[derive(Deserialize)]
+struct AdoptiumPackage {
+    link: String,
+    name: String,
+    #[serde(default)]
+    checksum: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct AdoptiumVersion {
+    major: u64,
+}
+
+/// Whether `sha256` looks like a SHA-256 in hex.
+fn is_sha256(sha256: &str) -> bool {
+    sha256.len() == 64 && sha256.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
+/// Picks Temurin's build from the Adoptium API's answer, checking that it is the build
+/// asked for, comes from Adoptium's releases on GitHub and has a checksum.
+fn pick_temurin(
+    assets: &[AdoptiumAsset],
+    major: u64,
+    platform: JrePlatform,
+    package: JavaPackage,
+) -> Option<JreDownload> {
+    assets
+        .iter()
+        .filter(|a| {
+            a.version.major == major
+                && a.binary.architecture == platform.adoptium_arch()
+                && a.binary.os == platform.adoptium_os()
+                && a.binary.image_type == package.name()
+                && (a.binary.heap_size.is_empty() || a.binary.heap_size == "normal")
+                && a.binary
+                    .package
+                    .link
+                    .starts_with("https://github.com/adoptium/")
+                && a.binary
+                    .package
+                    .name
+                    .ends_with(&format!(".{}", platform.archive_type()))
+                && a.binary.package.checksum.as_deref().is_some_and(is_sha256)
+        })
+        .map(|a| JreDownload {
+            url: a.binary.package.link.clone(),
+            sha256: a.binary.package.checksum.clone(),
+            vendor: JreVendor::Temurin,
+        })
+        .next()
+}
+
+/// Azul's metadata API's newest Zulu builds of a Java major version for `platform` (it
+/// names operating systems as Rust does).
+fn zulu_packages_url(major: u64, platform: JrePlatform, package: JavaPackage) -> String {
+    format!(
+        "https://api.azul.com/metadata/v1/zulu/packages/?java_version={major}&os={}&arch={}&archive_type={}&java_package_type={}&javafx_bundled=false&crac_supported=false&release_status=ga&availability_types=CA&latest=true&include_fields=sha256_hash&page_size=20",
+        platform.os,
+        platform.arch,
+        platform.archive_type(),
+        package.name()
+    )
+}
+
+#[derive(Deserialize)]
+struct ZuluPackage {
+    name: String,
+    download_url: String,
+    java_version: Vec<u64>,
+    #[serde(default)]
+    distro_version: Vec<u64>,
+    #[serde(default)]
+    sha256_hash: Option<String>,
+}
+
+/// Picks the newest Zulu build from Azul's answer, checking that it is the Java version
+/// asked for, for this processor, from Azul's own CDN and with a checksum.
+fn pick_zulu(
+    packages: &[ZuluPackage],
+    major: u64,
+    platform: JrePlatform,
+    package: JavaPackage,
+) -> Option<JreDownload> {
+    // Azul names its files ...-jre8.0.512-macosx_aarch64.tar.gz or ...-win_aarch64.zip
+    let os_tag = match platform.os {
+        "macos" => "macosx",
+        "windows" => "win",
+        other => other,
+    };
+    let suffix = format!("-{os_tag}_{}.{}", platform.arch, platform.archive_type());
+    let kind = format!("-{}{major}", package.name());
+    packages
+        .iter()
+        .filter(|p| {
+            p.java_version.first() == Some(&major)
+                && p.name.ends_with(&suffix)
+                && p.name.contains(&kind)
+                && p.download_url.starts_with("https://cdn.azul.com/zulu/bin/")
+                && p.download_url.ends_with(&format!("/{}", p.name))
+                && p.sha256_hash.as_deref().is_some_and(is_sha256)
+        })
+        .max_by(|a, b| {
+            (&a.java_version, &a.distro_version).cmp(&(&b.java_version, &b.distro_version))
+        })
+        .map(|p| JreDownload {
+            url: p.download_url.clone(),
+            sha256: p.sha256_hash.clone(),
+            vendor: JreVendor::Zulu,
+        })
+}
+
+/// The error when no vendor has a Java `major` made for this computer's processor.
+fn no_native_jre(major: u64, platform: JrePlatform) -> Error {
+    let sources = NATIVE_JRE_SOURCES
+        .iter()
+        .map(|(vendor, _)| vendor.to_string())
+        .fold(Vec::<String>::new(), |mut names, name| {
+            if !names.contains(&name) {
+                names.push(name);
+            }
+            names
+        })
+        .join(" nor ");
+    Error {
+        kind: ErrorKind::UnsupportedOperation,
+        source: eyre!(
+            "This Minecraft version needs Java {major}, and no Java {major} is made for this \
+             computer ({}): neither {sources} publishes one. Lodestone doesn't run servers \
+             on Java made for other processors (under emulation), so this version can't run \
+             on this computer.",
+            platform.description()
+        ),
+    }
+}
+
+/// A list of Java builds from a vendor's API, where "not found" means there are none (the
+/// APIs answer an empty list, but Adoptium has answered 404 for a version with no builds).
+/// Any other failure is an error, so that an outage isn't taken for "no Java for this
+/// computer".
+async fn get_build_list<T: serde::de::DeserializeOwned>(
+    url: &str,
+    what: &str,
+) -> Result<Vec<T>, Error> {
+    let response = api_get(url)
+        .send()
         .await
-        .with_context(|| format!("Could not find the Java version for Minecraft {version}"))?;
-    Ok((jre_download_url(major), major))
+        .with_context(|| format!("Failed to get {what}: the request to {url} failed"))?;
+    if response.status() == reqwest::StatusCode::NOT_FOUND {
+        return Ok(Vec::new());
+    }
+    Ok(response
+        .error_for_status()
+        .with_context(|| format!("Failed to get {what}"))?
+        .json()
+        .await
+        .with_context(|| format!("Failed to get {what}: unexpected response from {url}"))?)
+}
+
+/// Finds the JRE to download for a Java major version on this computer, before anything is
+/// downloaded: always a build for this computer's own processor, of exactly that Java
+/// version. Fails with an error saying why if there is none.
+pub async fn find_jre_download(major: u64) -> Result<JreDownload, Error> {
+    let platform = JrePlatform::current();
+    select_jre(major, platform, |vendor, package| async move {
+        Ok(match vendor {
+            JreVendor::Temurin => {
+                let assets: Vec<AdoptiumAsset> = get_build_list(
+                    &temurin_assets_url(major, platform, package),
+                    &format!("the Temurin Java {major} builds"),
+                )
+                .await?;
+                pick_temurin(&assets, major, platform, package)
+            }
+            JreVendor::Zulu => {
+                let packages: Vec<ZuluPackage> = get_build_list(
+                    &zulu_packages_url(major, platform, package),
+                    &format!("the Azul Zulu Java {major} builds"),
+                )
+                .await?;
+                pick_zulu(&packages, major, platform, package)
+            }
+        })
+    })
+    .await
+}
+
+/// [`find_jre_download`] for `platform`, with `lookup` asking a vendor for its build of
+/// `major` in a kind of package for `platform`. Most computers get Temurin's build from
+/// Adoptium's download link, without a lookup, as they always have.
+async fn select_jre<F, Fut>(
+    major: u64,
+    platform: JrePlatform,
+    mut lookup: F,
+) -> Result<JreDownload, Error>
+where
+    F: FnMut(JreVendor, JavaPackage) -> Fut,
+    Fut: std::future::Future<Output = Result<Option<JreDownload>, Error>>,
+{
+    if !platform.needs_native_lookup() {
+        return Ok(JreDownload {
+            url: temurin_binary_url(major, platform),
+            sha256: None,
+            vendor: JreVendor::Temurin,
+        });
+    }
+    for (vendor, package) in NATIVE_JRE_SOURCES {
+        if let Some(download) = lookup(vendor, package).await? {
+            return Ok(download);
+        }
+    }
+    Err(no_native_jre(major, platform))
 }
 
 // ---- players ----
@@ -310,6 +663,266 @@ mod tests {
     use crate::minecraft::{
         FabricInstallerVersion, FabricLoaderVersion, Flavour, ForgeBuildVersion, PaperBuildVersion,
     };
+
+    const MAC_ARM: JrePlatform = JrePlatform {
+        os: "macos",
+        arch: "aarch64",
+    };
+    const WINDOWS_ARM: JrePlatform = JrePlatform {
+        os: "windows",
+        arch: "aarch64",
+    };
+    const SHA: &str = "54758f5d72e8832c4862ec7d9b53be24616048db42ca325cdf7d29a20bb63132";
+
+    /// Native Java builds that Temurin and Zulu published for Apple silicon and Windows on
+    /// ARM (November 2026), as `(platform, vendor, package, major)`.
+    const CATALOG: &[(JrePlatform, JreVendor, JavaPackage, u64)] = {
+        use JavaPackage::*;
+        use JreVendor::*;
+        &[
+            (MAC_ARM, Temurin, Jre, 11),
+            (MAC_ARM, Temurin, Jre, 17),
+            (MAC_ARM, Temurin, Jre, 21),
+            (MAC_ARM, Temurin, Jre, 25),
+            (MAC_ARM, Zulu, Jre, 8),
+            (MAC_ARM, Zulu, Jre, 16),
+            (MAC_ARM, Zulu, Jre, 17),
+            (MAC_ARM, Zulu, Jre, 21),
+            (MAC_ARM, Zulu, Jre, 25),
+            (WINDOWS_ARM, Temurin, Jre, 21),
+            (WINDOWS_ARM, Zulu, Jre, 16),
+            (WINDOWS_ARM, Zulu, Jre, 21),
+            (WINDOWS_ARM, Zulu, Jre, 25),
+            (WINDOWS_ARM, Zulu, Jdk, 16),
+            (WINDOWS_ARM, Zulu, Jdk, 17),
+        ]
+    };
+
+    /// [`select_jre`] with the vendors' answers taken from [`CATALOG`], and the lookups it
+    /// made.
+    async fn select_from_catalog(
+        major: u64,
+        platform: JrePlatform,
+    ) -> (Result<JreDownload, Error>, Vec<(JreVendor, JavaPackage)>) {
+        let asked = std::sync::Mutex::new(Vec::new());
+        let result = select_jre(major, platform, |vendor, package| {
+            asked.lock().unwrap().push((vendor, package));
+            let found = CATALOG.contains(&(platform, vendor, package, major));
+            async move {
+                Ok(found.then(|| JreDownload {
+                    url: format!("{vendor} {} {major} {}", package.name(), platform.arch),
+                    sha256: Some(SHA.to_string()),
+                    vendor,
+                }))
+            }
+        })
+        .await;
+        (result, asked.into_inner().unwrap())
+    }
+
+    #[tokio::test]
+    async fn other_computers_get_temurin_without_a_lookup() {
+        for (platform, url) in [
+            (
+                JrePlatform {
+                    os: "linux",
+                    arch: "x86_64",
+                },
+                "https://api.adoptium.net/v3/binary/latest/8/ga/linux/x64/jre/hotspot/normal/eclipse",
+            ),
+            (
+                JrePlatform {
+                    os: "linux",
+                    arch: "aarch64",
+                },
+                "https://api.adoptium.net/v3/binary/latest/8/ga/linux/aarch64/jre/hotspot/normal/eclipse",
+            ),
+            (
+                JrePlatform {
+                    os: "macos",
+                    arch: "x86_64",
+                },
+                "https://api.adoptium.net/v3/binary/latest/8/ga/mac/x64/jre/hotspot/normal/eclipse",
+            ),
+            (
+                JrePlatform {
+                    os: "windows",
+                    arch: "x86_64",
+                },
+                "https://api.adoptium.net/v3/binary/latest/8/ga/windows/x64/jre/hotspot/normal/eclipse",
+            ),
+        ] {
+            let (download, asked) = select_from_catalog(8, platform).await;
+            assert_eq!(
+                download.unwrap(),
+                JreDownload {
+                    url: url.to_string(),
+                    sha256: None,
+                    vendor: JreVendor::Temurin,
+                }
+            );
+            assert!(asked.is_empty(), "{platform:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn arm_computers_get_native_java_of_the_version_needed() {
+        use JavaPackage::*;
+        use JreVendor::*;
+        for (platform, major, vendor, package) in [
+            // Temurin has no Java 8 or 16 for Apple silicon; Zulu does
+            (MAC_ARM, 8, Zulu, Jre),
+            (MAC_ARM, 16, Zulu, Jre),
+            (MAC_ARM, 17, Temurin, Jre),
+            (MAC_ARM, 21, Temurin, Jre),
+            (MAC_ARM, 25, Temurin, Jre),
+            (WINDOWS_ARM, 16, Zulu, Jre),
+            // nobody has a Java 17 JRE for Windows on ARM, but Zulu has the JDK
+            (WINDOWS_ARM, 17, Zulu, Jdk),
+            (WINDOWS_ARM, 21, Temurin, Jre),
+            (WINDOWS_ARM, 25, Zulu, Jre),
+        ] {
+            let (download, _) = select_from_catalog(major, platform).await;
+            let download = download.unwrap();
+            assert_eq!(
+                download.url,
+                format!("{vendor} {} {major} aarch64", package.name()),
+                "Java {major} on {platform:?}"
+            );
+            assert_eq!(download.vendor, vendor);
+        }
+    }
+
+    #[tokio::test]
+    async fn no_native_java_is_an_error_not_emulation() {
+        // No vendor makes Java 8 for Windows on ARM. Every vendor is asked, for this
+        // computer's processor only, and the answer is an error, not an x64 build.
+        let (download, asked) = select_from_catalog(8, WINDOWS_ARM).await;
+        assert_eq!(asked, NATIVE_JRE_SOURCES.to_vec());
+        let error = download.unwrap_err();
+        assert!(matches!(error.kind, ErrorKind::UnsupportedOperation));
+        let message = error.source.to_string();
+        assert!(message.contains("needs Java 8"), "{message}");
+        assert!(message.contains("Windows on ARM"), "{message}");
+        assert!(
+            message.contains("Eclipse Temurin nor Azul Zulu"),
+            "{message}"
+        );
+
+        let (download, _) = select_from_catalog(12, MAC_ARM).await;
+        let message = download.unwrap_err().source.to_string();
+        assert!(message.contains("macOS on Apple silicon"), "{message}");
+    }
+
+    #[tokio::test]
+    async fn a_failed_lookup_is_not_taken_for_no_java() {
+        let error = select_jre(8, MAC_ARM, |_, _| async {
+            Err::<Option<JreDownload>, _>(eyre!("connection reset").into())
+        })
+        .await
+        .unwrap_err();
+        assert!(error.source.to_string().contains("connection reset"));
+    }
+
+    #[test]
+    fn temurin_builds_are_checked() {
+        let asset = |arch: &str, link: &str, name: &str, checksum: Option<&str>| {
+            serde_json::json!({
+                "binary": {
+                    "architecture": arch, "os": "mac", "image_type": "jre",
+                    "heap_size": "normal",
+                    "package": { "link": link, "name": name, "checksum": checksum },
+                },
+                "version": { "major": 17 },
+            })
+        };
+        let good_link = "https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.21%2B9/OpenJDK17U-jre_aarch64_mac_hotspot_17.0.21_9.tar.gz";
+        let name = "OpenJDK17U-jre_aarch64_mac_hotspot_17.0.21_9.tar.gz";
+        let pick = |assets: Vec<serde_json::Value>| {
+            let assets: Vec<AdoptiumAsset> =
+                serde_json::from_value(serde_json::Value::Array(assets)).unwrap();
+            pick_temurin(&assets, 17, MAC_ARM, JavaPackage::Jre)
+        };
+        assert_eq!(
+            pick(vec![
+                asset("x64", good_link, name, Some(SHA)),
+                asset("aarch64", "https://example.com/jre.tar.gz", name, Some(SHA)),
+                asset("aarch64", good_link, name, None),
+                asset("aarch64", good_link, name, Some("not a checksum")),
+                asset("aarch64", good_link, name, Some(SHA)),
+            ]),
+            Some(JreDownload {
+                url: good_link.to_string(),
+                sha256: Some(SHA.to_string()),
+                vendor: JreVendor::Temurin,
+            })
+        );
+        assert_eq!(pick(vec![asset("x64", good_link, name, Some(SHA))]), None);
+        assert_eq!(pick(Vec::new()), None);
+    }
+
+    #[test]
+    fn zulu_builds_are_checked_and_the_newest_is_picked() {
+        let package = |name: &str, url_base: &str, version: &[u64], sha: Option<&str>| {
+            serde_json::json!({
+                "name": name,
+                "download_url": format!("{url_base}{name}"),
+                "java_version": version,
+                "distro_version": [version[0], version[2], 0, 0],
+                "sha256_hash": sha,
+            })
+        };
+        let cdn = "https://cdn.azul.com/zulu/bin/";
+        let newest = "zulu8.98.0.111-ca-jre8.0.512-macosx_aarch64.tar.gz";
+        let older = "zulu8.94.0.17-ca-jre8.0.492-macosx_aarch64.tar.gz";
+        let packages: Vec<ZuluPackage> = serde_json::from_value(serde_json::json!([
+            package(older, cdn, &[8, 0, 492], Some(SHA)),
+            package(newest, cdn, &[8, 0, 512], Some(SHA)),
+            // newer, but each fails a check
+            package(
+                "zulu8.99.0.1-ca-jre8.0.600-macosx_x64.tar.gz",
+                cdn,
+                &[8, 0, 600],
+                Some(SHA)
+            ),
+            package(
+                "zulu8.99.0.1-ca-jre8.0.600-macosx_aarch64.tar.gz",
+                "https://mirror.example.com/",
+                &[8, 0, 600],
+                Some(SHA)
+            ),
+            package(
+                "zulu8.99.0.2-ca-jre8.0.601-macosx_aarch64.tar.gz",
+                cdn,
+                &[8, 0, 601],
+                None
+            ),
+            package(
+                "zulu8.99.0.3-ca-jdk8.0.602-macosx_aarch64.tar.gz",
+                cdn,
+                &[8, 0, 602],
+                Some(SHA)
+            ),
+            package(
+                "zulu11.99.0.3-ca-jre11.0.40-macosx_aarch64.tar.gz",
+                cdn,
+                &[11, 0, 40],
+                Some(SHA)
+            ),
+        ]))
+        .unwrap();
+        assert_eq!(
+            pick_zulu(&packages, 8, MAC_ARM, JavaPackage::Jre),
+            Some(JreDownload {
+                url: format!("{cdn}{newest}"),
+                sha256: Some(SHA.to_string()),
+                vendor: JreVendor::Zulu,
+            })
+        );
+        // a macOS build is no build for Windows
+        assert_eq!(pick_zulu(&packages, 8, WINDOWS_ARM, JavaPackage::Jre), None);
+        assert_eq!(pick_zulu(&packages, 17, MAC_ARM, JavaPackage::Jre), None);
+    }
 
     #[tokio::test]
     async fn fabric_jar_url_with_known_versions() {
@@ -358,6 +971,42 @@ mod tests {
 
     // Contract checks against the live APIs: they only check that the services still
     // answer the way the code expects. Run them with `cargo test -- --ignored`.
+
+    #[tokio::test]
+    #[ignore = "network: Adoptium and Azul still answer the Java lookups for ARM computers"]
+    async fn network_native_jre_contract() {
+        let find = |major, platform| {
+            select_jre(major, platform, move |vendor, package| async move {
+                Ok(match vendor {
+                    JreVendor::Temurin => {
+                        let assets: Vec<AdoptiumAsset> = get_build_list(
+                            &temurin_assets_url(major, platform, package),
+                            "Temurin builds",
+                        )
+                        .await?;
+                        pick_temurin(&assets, major, platform, package)
+                    }
+                    JreVendor::Zulu => {
+                        let packages: Vec<ZuluPackage> = get_build_list(
+                            &zulu_packages_url(major, platform, package),
+                            "Zulu builds",
+                        )
+                        .await?;
+                        pick_zulu(&packages, major, platform, package)
+                    }
+                })
+            })
+        };
+        let mac8 = find(8, MAC_ARM).await.unwrap();
+        assert_eq!(mac8.vendor, JreVendor::Zulu);
+        assert!(mac8.url.contains("macosx_aarch64"), "{}", mac8.url);
+        let mac21 = find(21, MAC_ARM).await.unwrap();
+        assert_eq!(mac21.vendor, JreVendor::Temurin);
+        assert!(mac21.url.contains("aarch64_mac"), "{}", mac21.url);
+        let windows21 = find(21, WINDOWS_ARM).await.unwrap();
+        assert!(windows21.url.contains("aarch64"), "{}", windows21.url);
+        assert!(find(8, WINDOWS_ARM).await.is_err());
+    }
 
     #[tokio::test]
     #[ignore = "network: Mojang's version manifest and version details still have the fields we read"]
