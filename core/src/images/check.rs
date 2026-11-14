@@ -179,8 +179,36 @@ impl ImageService {
             .map(Some)
     }
 
-    /// The server started: its files may now change on their own until it stops.
-    pub async fn server_started(&self, uuid: &InstanceUuid) {
+    /// The server is about to start: its files may change on their own from now until it
+    /// stops. Call it before the server's state leaves Stopped, so the stop of a run that
+    /// ends at once ([`Self::server_stopped`]) always comes after it and clears it. Returns
+    /// whether this set `running_since` (it wasn't set already), for
+    /// [`Self::start_refused`].
+    pub async fn server_started(&self, uuid: &InstanceUuid) -> bool {
+        if !Self::accepts(uuid) {
+            return false;
+        }
+        let _lock = self.instance_lock(uuid).await;
+        let root = self.root.clone();
+        let id = uuid.clone();
+        let saved = blocking(move || {
+            let mut current = state::load(&root, &id);
+            if current.running_since.is_some() {
+                return Ok(false);
+            }
+            current.running_since = Some(chrono::Utc::now().timestamp());
+            state::save(&root, &id, &current).map(|()| true)
+        })
+        .await;
+        saved.unwrap_or_else(|e| {
+            warn!("Failed to note that {uuid} started: {}", e.source);
+            false
+        })
+    }
+
+    /// The start [`Self::server_started`] noted (it returned true) was refused before the
+    /// state left Stopped: nothing ran, so `running_since` goes and the baseline stays.
+    pub async fn start_refused(&self, uuid: &InstanceUuid) {
         if !Self::accepts(uuid) {
             return;
         }
@@ -189,12 +217,14 @@ impl ImageService {
         let id = uuid.clone();
         let saved = blocking(move || {
             let mut current = state::load(&root, &id);
-            current.running_since = Some(chrono::Utc::now().timestamp());
+            if current.running_since.take().is_none() {
+                return Ok(());
+            }
             state::save(&root, &id, &current)
         })
         .await;
         if let Err(e) = saved {
-            warn!("Failed to note that {uuid} started: {}", e.source);
+            warn!("Failed to note that {uuid} didn't start: {}", e.source);
         }
     }
 

@@ -199,7 +199,13 @@ async fn install_mod(
 
     let lock = state.mods.lock_for(&uuid);
     let _guard = lock.lock().await;
-    let op = begin_change(&state, &uuid).await;
+    // An install asks Modrinth about every jar and downloads each file it adds, which
+    // takes as long as the network does: it holds no content gate, so it never holds up
+    // the server's records, or the Files API operations waiting behind one. The mods lock
+    // keeps other Mods-tab changes out, and downloads land under temporary names that are
+    // never content, so a record meanwhile sees at worst a jar added before the older
+    // version went; the record of the install's own label takes the finished state.
+    let op = state.images.begin_job(&uuid, String::new());
     let (start, event_id) = Event::new_progression_event_start(
         format!("Installing {}", project.title),
         None,
@@ -284,10 +290,7 @@ async fn upload_mods(
         let raw_name = field.file_name().unwrap_or_default().to_string();
         let name = safe_jar_name(&raw_name)
             .ok_or_else(|| bad_request(format!("{raw_name:?} is not a .jar file")))?;
-        let temp = tempfile::Builder::new()
-            .prefix(".lodestone-upload-")
-            .suffix(".tmp")
-            .tempfile_in(&folder.dir)
+        let temp = crate::util::fs::temp_file_in(&folder.dir, ".lodestone-upload-", ".tmp")
             .context("Failed to create a temporary file")?
             .into_temp_path();
         let mut file = tokio::fs::OpenOptions::new()

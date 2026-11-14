@@ -111,12 +111,7 @@ pub async fn record_install(
     };
     let images = state.images();
     super::pack_info::save(images, uuid, info).await;
-    let exclude = state
-        .backups
-        .policy(uuid)
-        .await
-        .map(|policy| policy.exclude)
-        .unwrap_or_default();
+    let exclude = crate::images::policy_excludes(images.root(), uuid).await;
     let ctx = new_server_context(
         uuid.clone(),
         root.to_path_buf(),
@@ -565,6 +560,19 @@ fn not_in_history() -> Error {
     Error {
         kind: ErrorKind::NotFound,
         source: eyre!("That version is no longer in the server's history"),
+    }
+}
+
+/// Fails as [`plan_restore`] would when `target` is no content image of the server, from
+/// its header alone: so a restore that will be refused for that is refused before it
+/// records anything. Blocking.
+pub fn check_in_history(store: &Store, uuid: &InstanceUuid, target: &str) -> Result<(), Error> {
+    if !lodestone_image::hex::is_sha256(target) || !ImageService::accepts(uuid) {
+        return Err(not_in_history());
+    }
+    match store.load_header(uuid.as_ref(), target) {
+        Ok(header) if header.kind == Kind::Content => Ok(()),
+        _ => Err(not_in_history()),
     }
 }
 

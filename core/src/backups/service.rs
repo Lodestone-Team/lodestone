@@ -562,10 +562,9 @@ fn stored_size(store: &ImageStore, sha256: &str, size: u64) -> u64 {
 /// because the list doesn't name it. The record is a manual backup (retention never deletes
 /// those) named by the image's label, at the image's time, with no server name (whoever
 /// needs one takes the server's current name), with its world as the level when it has
-/// exactly one. Returns whether it
-/// changed anything; the caller saves the records. A manifest that can't be read is left as
-/// it is, and nothing changes when the images can't be listed. Blocking; the caller holds
-/// the instance's lock.
+/// exactly one. Returns whether it changed anything; the caller saves the records. A
+/// manifest that can't be read is left as it is, and nothing changes when the images can't
+/// be listed. Blocking; the caller holds the instance's lock.
 fn reconcile_records(store: &ImageStore, uuid: &InstanceUuid, records: &mut Records) -> bool {
     let Ok(ids) = store.manifest_ids(uuid.as_ref()) else {
         return false;
@@ -2016,7 +2015,7 @@ impl BackupService {
                 job,
             )
             .await;
-        let (safety_id, operation, software) = match swapped {
+        let (safety_id, operation) = match swapped {
             Ok(swapped) => swapped,
             Err(failure) => {
                 let start_again = start_again_after(
@@ -2045,21 +2044,6 @@ impl BackupService {
                 });
             }
         };
-        // A "world and its mods" restore leaves the server's settings file: what it says
-        // about the software and content (the Minecraft version, the server software and its
-        // loader version, the Java it runs on, the modpack origin) comes from the backup's
-        // copy, since the restore put back the backup's server software and mods. Without it
-        // a Forge server restored from an older build would start the newer build's
-        // libraries, which are gone. Before the settings are read again.
-        if let Some(settings) = software {
-            let root = instance.path().await;
-            if let Err(e) = blocking(move || restore::adopt_software(&root, &settings)).await {
-                warn!(
-                    "Failed to take the server software of {uuid} from the backup's settings: {}",
-                    e.source
-                );
-            }
-        }
         if let Err(e) = instance.reload_from_disk().await {
             return Err(err(
                 ErrorKind::Internal,
@@ -2105,9 +2089,8 @@ impl BackupService {
     }
 
     /// [`Self::restore_locked`] from the stopped server to the swap. Returns the safety
-    /// backup's id, the content operation the restore holds when it changed content (to
-    /// succeed once the server's settings are read again), and for a world and mods restore
-    /// the backup's settings, whose server software the server takes on.
+    /// backup's id and the content operation the restore holds when it changed content (to
+    /// succeed once the server's settings are read again).
     #[allow(clippy::too_many_arguments)]
     async fn swap_in(
         self: &Arc<Self>,
@@ -2121,8 +2104,7 @@ impl BackupService {
         check: Option<DiffCheck>,
         was_running: bool,
         job: &Job,
-    ) -> Result<(Option<String>, Option<Operation>, Option<serde_json::Value>), RestoreFailure>
-    {
+    ) -> Result<(Option<String>, Option<Operation>), RestoreFailure> {
         let uuid = instance.uuid().await;
         let root = instance.path().await;
         if was_running {
@@ -2146,7 +2128,14 @@ impl BackupService {
         let plan = self
             .plan(instance, backup, request.scope, policy_exclude)
             .await?;
-        // read while the hold keeps the backup's objects: it may be deleted meanwhile
+        // A "world and its mods" restore leaves the server's settings file: what it says
+        // about the software and content (the Minecraft version, the server software and its
+        // loader version, the Java it runs on, the modpack origin) comes from the backup's
+        // copy, since the restore puts back the backup's server software and mods. Without it
+        // a Forge server restored from an older build would start the newer build's
+        // libraries, which are gone. The swap takes it on as it finishes (and a recovery
+        // that finds the swap done does). Read while the hold keeps the backup's objects: it
+        // may be deleted meanwhile.
         let software = if request.scope == RestoreScope::WorldAndMods {
             let (store, backup) = (self.image_store(), backup.clone());
             match blocking(move || backup_settings(&store, &backup)).await {
@@ -2230,7 +2219,7 @@ impl BackupService {
             java_cmd: Some(config.java_cmd),
             cmd_args: Some(config.cmd_args),
         };
-        let staged = {
+        let mut staged = {
             let store = self.image_store();
             let root = root.clone();
             let phase = job.phase(safety_share, 90.0 - safety_share);
@@ -2264,12 +2253,15 @@ impl BackupService {
             return Err(cancelled().into());
         }
 
+        if let Some(software) = software {
+            staged.take_on_software(software);
+        }
         // from here on the restore isn't cancellable: it is short, and half a swap is worse
         job.report(90.0, Some("Putting the files in place"));
         let journal = self.store.journal_path(&uuid)?;
         let joined = tokio::task::spawn_blocking(move || staged.swap(&journal)).await;
         match swap_outcome(joined) {
-            Ok(()) => Ok((safety_id, operation, software)),
+            Ok(()) => Ok((safety_id, operation)),
             Err(SwapOutcome::RolledBack(e)) => Err(RestoreFailure::Unchanged(e)),
             Err(SwapOutcome::Broken(e)) => {
                 error!("The restore of {uuid} could not be undone: {}", e.source);

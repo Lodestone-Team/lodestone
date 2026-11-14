@@ -56,8 +56,9 @@ pub fn cancelled() -> Error {
 // ---------------------------------------------------------------------------------------
 // Names and ids
 
-/// Backup ids: `YYYYMMDD-HHMMSS-xxxx` when made here; any `[A-Za-z0-9-]{1,64}` is
-/// accepted. They are only ever looked up in `backups.json`, never used as file names.
+/// Backup ids: the core makes `YYYYMMDD-HHMMSS-xxxx` ([`new_backup_id`]); the check is
+/// only `[A-Za-z0-9-]{1,64}`, since an id is only ever looked up in `backups.json` (or in a
+/// URL), never used as a file name, so its exact shape guards nothing.
 pub fn valid_backup_id(id: &str) -> bool {
     (1..=64).contains(&id.len()) && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
 }
@@ -160,29 +161,26 @@ impl Store {
         self.root.join("images")
     }
 
-    /// `images/<uuid>/`. A uuid images can't name (Docker containers, or a uuid from a URL
-    /// that isn't one of the core's) is a bad request: it never reaches the disk.
+    /// `images/<uuid>/` ([`crate::images::instance_dir`]): a uuid images aren't kept for is
+    /// a bad request and never reaches the disk.
     pub fn instance_dir(&self, uuid: &InstanceUuid) -> Result<PathBuf, Error> {
-        if !ImageService::accepts(uuid) {
-            return Err(err(ErrorKind::BadRequest, "Invalid server id"));
-        }
-        Ok(self.images_dir().join(uuid.as_ref()))
+        crate::images::instance_dir(&self.root, uuid)
     }
 
     pub fn records_path(&self, uuid: &InstanceUuid) -> Result<PathBuf, Error> {
-        Ok(self.instance_dir(uuid)?.join(RECORDS_FILE))
+        crate::images::instance_file(&self.root, uuid, RECORDS_FILE)
     }
 
     pub fn policy_path(&self, uuid: &InstanceUuid) -> Result<PathBuf, Error> {
-        Ok(self.instance_dir(uuid)?.join(POLICY_FILE))
+        crate::images::instance_file(&self.root, uuid, POLICY_FILE)
     }
 
     pub fn journal_path(&self, uuid: &InstanceUuid) -> Result<PathBuf, Error> {
-        Ok(self.instance_dir(uuid)?.join(JOURNAL_FILE))
+        crate::images::instance_file(&self.root, uuid, JOURNAL_FILE)
     }
 
     pub fn marker_path(&self, uuid: &InstanceUuid) -> Result<PathBuf, Error> {
-        Ok(self.instance_dir(uuid)?.join(MARKER_FILE))
+        crate::images::instance_file(&self.root, uuid, MARKER_FILE)
     }
 
     /// The server's backups; none when it has no `backups.json`. A file that can't be read

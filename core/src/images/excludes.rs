@@ -223,7 +223,7 @@ fn is_split_name(part: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::backups::pattern::Matcher;
+    use crate::backups::pattern::reference::Matcher;
     use lodestone_image::store::excludes::Excludes;
     use lodestone_image::DiskLayout;
 

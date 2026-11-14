@@ -196,10 +196,7 @@ pub(super) fn record_path(path: &str) -> Option<PathBuf> {
     let names: Vec<String> = relative
         .components()
         .map(|c| {
-            c.as_os_str()
-                .to_string_lossy()
-                .trim_end_matches(['.', ' '])
-                .to_lowercase()
+            crate::util::fold_name(c.as_os_str().to_string_lossy().trim_end_matches(['.', ' ']))
         })
         .collect();
     let looks_like_short_name = |name: &str| {
@@ -724,7 +721,11 @@ struct Moves {
 }
 
 impl Moves {
-    /// Puts the server's files back as they were.
+    /// Puts the server's files back as they were. A file is put back without replacing
+    /// anything: what appeared at its path meanwhile (a copy or unzip job, which no
+    /// operation keeps out) stays, and the old copy is kept, as is any that can't be put
+    /// back, in an `interrupted-*` folder ([`keep_leftover_snapshot`]) rather than deleted
+    /// with the snapshot.
     fn undo(&self, root: &Path) {
         let snapshot = root.join(SNAPSHOT_DIR);
         for target in self.placed.iter().rev() {
@@ -733,10 +734,14 @@ impl Moves {
             }
         }
         for target in self.saved.iter().rev() {
-            if let Err(e) = move_file(root, &snapshot.join(target), &root.join(target)) {
-                warn!("Could not put back {target} while undoing a modpack update: {e}");
+            if let Err(e) = place_file(root, &snapshot.join(target), &root.join(target)) {
+                warn!(
+                    "Could not put back {target} while undoing a modpack update, so the old copy is kept: {}",
+                    e.source
+                );
             }
         }
+        keep_leftover_snapshot(root);
     }
 }
 

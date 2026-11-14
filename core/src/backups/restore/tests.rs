@@ -541,6 +541,68 @@ fn a_restore_leaves_what_the_backup_excluded() {
     assert_eq!(read(root, "dynmap/tiles/1.png").unwrap(), "tile 2");
 }
 
+/// The modpack updater's journal describes the files on disk when it was written: a
+/// backup never takes it, so restoring a backup taken in the middle of an update can't
+/// have the updater's recovery remove the restored files at the next start. What an
+/// interrupted update set aside, and the other files of `.lodestone_modpack/`, are kept.
+#[test]
+fn a_backup_never_brings_back_the_modpack_journal() {
+    let env = env();
+    let root = &env.root;
+    base_server(root);
+    write(
+        root,
+        ".lodestone_modpack/update.json",
+        b"{\"committed\":false}",
+    );
+    write(
+        root,
+        ".lodestone_modpack/interrupted-1/mods/a.jar",
+        b"set aside",
+    );
+    write(
+        root,
+        "mods/.lodestone-download-0123.tmp",
+        b"half a download",
+    );
+    let (image, level) = env.backup(Flavour::Vanilla, &[]);
+    let recorded: Vec<&str> = image.entries.iter().map(|e| e.path.as_str()).collect();
+    assert!(!recorded.contains(&".lodestone_modpack/update.json"));
+    assert!(!recorded.contains(&"mods/.lodestone-download-0123.tmp"));
+    assert!(recorded.contains(&".lodestone_modpack/interrupted-1/mods/a.jar"));
+
+    // the update finished and removed its journal and what it set aside
+    fs::remove_file(root.join(".lodestone_modpack/update.json")).unwrap();
+    fs::remove_dir_all(root.join(".lodestone_modpack/interrupted-1")).unwrap();
+    fs::remove_file(root.join("mods/.lodestone-download-0123.tmp")).unwrap();
+    let ctx = env.ctx(Flavour::Vanilla, &[]);
+    env.restore(
+        &everything(&image, level.as_deref()),
+        RestoreScope::Everything,
+        &ctx,
+        &Pin::default(),
+    );
+    assert_eq!(read(root, ".lodestone_modpack/update.json"), None);
+    assert_eq!(read(root, "mods/.lodestone-download-0123.tmp"), None);
+    assert_eq!(
+        read(root, ".lodestone_modpack/interrupted-1/mods/a.jar").as_deref(),
+        Some("set aside")
+    );
+
+    // and a journal there now stays as it is
+    write(root, ".lodestone_modpack/update.json", b"the journal now");
+    env.restore(
+        &everything(&image, level.as_deref()),
+        RestoreScope::Everything,
+        &ctx,
+        &Pin::default(),
+    );
+    assert_eq!(
+        read(root, ".lodestone_modpack/update.json").as_deref(),
+        Some("the journal now")
+    );
+}
+
 /// A "world and its mods" restore takes the server software's settings from the backup's
 /// copy of the settings file, since it puts back the backup's server software, and leaves
 /// the rest of the settings.
@@ -899,6 +961,7 @@ fn recovery_when_done_keeps_the_restore() {
                 had_old: true,
                 had_new: true,
             }],
+            software: None,
         },
     )
     .unwrap();
@@ -906,6 +969,51 @@ fn recovery_when_done_keeps_the_restore() {
     assert_eq!(recovery.repaired, vec![uuid()]);
     assert_eq!(snapshot(&env.root), after);
     assert!(!staging.exists());
+}
+
+/// A swap asked to take on the backup's server software does so as it finishes, and a
+/// recovery that finds the swap done does it then: the settings never name other software
+/// than the disk has.
+#[test]
+fn the_backups_software_is_taken_on_with_the_swap_or_at_recovery() {
+    let now = br#"{"name":"Now","port":25570,"version":"1.21","jre_major_version":21,"max_ram":8}"#;
+    let backup = serde_json::json!({"name": "Then", "version": "1.20.1", "jre_major_version": 17});
+    let settings = |root: &Path| -> serde_json::Value {
+        serde_json::from_str(&read(root, CONFIG_FILE).unwrap()).unwrap()
+    };
+
+    // with the swap (of everything here, so the rest of the settings are the backup's)
+    let swapping = env();
+    let (mut staged, _) = staged_restore(&swapping);
+    staged.take_on_software(backup.clone());
+    staged.swap(&swapping.journal()).unwrap();
+    let swapped = settings(&swapping.root);
+    assert_eq!(swapped["version"], "1.20.1");
+    assert_eq!(swapped["jre_major_version"], 17);
+    assert_eq!(swapped["name"], "Old name");
+    assert!(!swapping.journal().exists());
+
+    // or by the recovery, when the core died after the journal said "done"
+    let env = env();
+    write(&env.root, CONFIG_FILE, now);
+    write_journal(
+        &env.journal(),
+        &Journal {
+            phase: Phase::Done,
+            staging: "0123456789abcdef".to_string(),
+            old: "fedcba9876543210".to_string(),
+            entries: Vec::new(),
+            software: Some(backup),
+        },
+    )
+    .unwrap();
+    assert_eq!(env.recover().repaired, vec![uuid()]);
+    let recovered = settings(&env.root);
+    assert_eq!(recovered["version"], "1.20.1");
+    assert_eq!(recovered["jre_major_version"], 17);
+    assert_eq!(recovered["name"], "Now");
+    assert_eq!(recovered["max_ram"], 8);
+    assert!(!env.journal().exists());
 }
 
 #[test]
@@ -951,6 +1059,7 @@ fn recovery_refuses_a_tampered_journal() {
             staging: "../../stores".to_string(),
             old: "0123456789abcdef".to_string(),
             entries: vec![],
+            software: None,
         },
         Journal {
             phase: Phase::MovingNew,
@@ -961,6 +1070,7 @@ fn recovery_refuses_a_tampered_journal() {
                 had_old: true,
                 had_new: false,
             }],
+            software: None,
         },
     ] {
         write_journal(&env.journal(), &journal).unwrap();
@@ -1072,6 +1182,7 @@ fn a_journal_that_cant_be_carried_out_keeps_the_restore_folders() {
         staging: "../../stores".to_string(),
         old: "0123456789abcdef".to_string(),
         entries: vec![],
+        software: None,
     })
     .unwrap();
     // damaged
@@ -1152,6 +1263,7 @@ fn a_journal_of_a_server_not_found_stays_when_a_folder_cant_be_read() {
             staging: "0123456789abcdef".to_string(),
             old: "0123456789abcdef".to_string(),
             entries: vec![],
+            software: None,
         },
     )
     .unwrap();
@@ -1221,6 +1333,7 @@ fn a_finished_restore_with_a_stale_journal_is_kept() {
                 had_new: false,
             }))
             .collect(),
+        software: None,
     };
     staged.swap(&env.journal()).unwrap();
     let after = snapshot(&env.root);

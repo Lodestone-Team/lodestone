@@ -148,12 +148,12 @@ impl PathPolicy for InstancePathPolicy {
     fn skip_reason(&self, relative: &Path, components: &[&str], is_dir: bool) -> Option<String> {
         if components
             .iter()
-            .any(|c| c.to_lowercase().starts_with(".lodestone"))
+            .any(|c| crate::util::fold_name(c).starts_with(".lodestone"))
         {
             return Some("Lodestone's own files cannot be replaced".into());
         }
         if components.len() == 1
-            && PROTECTED_ROOT_FILES.contains(&components[0].to_lowercase().as_str())
+            && PROTECTED_ROOT_FILES.contains(&crate::util::fold_name(components[0]).as_str())
         {
             return Some("this file cannot come from a modpack".into());
         }

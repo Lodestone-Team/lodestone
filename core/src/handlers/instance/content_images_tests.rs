@@ -1110,3 +1110,69 @@ async fn concurrent_operations_and_records_lose_nothing() {
     }
     assert!(!core.pending());
 }
+
+/// A Mods-tab install downloads for as long as the network takes, so it holds no content
+/// gate: a record that comes due meanwhile, and the Files API changes behind it, never
+/// wait for the download.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_slow_install_holds_up_no_record_or_files_api_change() {
+    let core = Arc::new(core(Kind::Fabric).await);
+    core.record_initial().await;
+    core.modrinth
+        .add(FakeVersion::new("slow", "s1", "slow.jar"));
+    let stall = core.modrinth.stall_downloads();
+    let install = {
+        let core = core.clone();
+        tokio::spawn(async move {
+            core.call(
+                Method::POST,
+                &format!("/instance/{}/mods/install", core.uuid),
+                &core.owner,
+                Some(json!({"version_id": "s1"})),
+            )
+            .await
+        })
+    };
+    wait_until("the install is downloading", || async {
+        !core.modrinth.downloaded.lock().unwrap().is_empty()
+    })
+    .await;
+
+    // a label is queued and its record comes due while the download hangs
+    assert_eq!(
+        core.write_file("config/base.toml", &core.owner, "a = 4")
+            .await,
+        StatusCode::OK
+    );
+    let recorded = tokio::time::timeout(std::time::Duration::from_secs(10), core.flush())
+        .await
+        .expect("the record doesn't wait for the install");
+    assert!(recorded.is_some_and(|r| r.changed));
+    assert_eq!(
+        core.current().await.label.as_deref(),
+        Some("Edited config/base.toml")
+    );
+    // and a Files API change goes through at once
+    let edit = tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        core.write_file("config/other.toml", &core.owner, "b = 4"),
+    )
+    .await
+    .expect("the change doesn't wait for the install");
+    assert_eq!(edit, StatusCode::OK);
+
+    // the install finishes and is recorded with its own label, whole
+    stall.add_permits(1);
+    let (status, body) = install.await.unwrap();
+    assert_eq!(status, StatusCode::OK, "{body}");
+    core.flush().await;
+    let image = core.current().await;
+    assert!(paths(&image).contains(&"mods/slow.jar"));
+    assert!(paths(&image).contains(&"config/other.toml"));
+    assert!(image
+        .label
+        .as_deref()
+        .is_some_and(|label| label.contains("Added Title of slow")));
+    assert!(!paths(&image).iter().any(|p| p.contains(".lodestone")));
+    assert!(!core.pending());
+}

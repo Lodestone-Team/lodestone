@@ -9,7 +9,9 @@
 //! - the content image each of those links to (`content`);
 //! - the image a modpack restore in progress goes back to
 //!   ([`ImageService::keep_while_restoring`]);
-//! - the instance's current content image;
+//! - the instance's current content image, and its parent (the image recorded before a
+//!   modpack restore holds the only copy of what the restore took off, even when a clock
+//!   that went back ranks it among older images);
 //! - the newest [`KEEP_CONTENT`] content images ([`newest_content_first`], the order the
 //!   modpack history lists them in).
 //!
@@ -169,6 +171,14 @@ impl ImageService {
             }
             let current = super::state::load(&root, &id).current;
             keep.extend(current.clone());
+            // And its parent, whatever the clocks said: the image recorded right before a
+            // modpack restore holds the only copy of what the restore took off.
+            keep.extend(
+                current
+                    .as_deref()
+                    .and_then(|current| listing.content.iter().find(|i| i.id == current))
+                    .and_then(|image| image.parent.clone()),
+            );
             // Backups, and the content they ran with.
             for (image, content) in &listing.links {
                 keep.insert(image.clone());

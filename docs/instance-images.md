@@ -20,9 +20,11 @@ must be kept, so each old format's code and data go when its milestone lands.
 
 Decisions this builds on:
 
-- An instance's **game version and loader type are fixed** when it is made. Only the
-  loader version can change in place, and changes a modpack update or a linked server
-  brings in. "Copy with another version or loader" makes a new instance.
+- A Launcher instance's **game version and loader type are fixed** when it is made. Only
+  the loader version can change in place, and changes a modpack update or a linked server
+  brings in. "Copy with another version or loader" makes a new instance. The core keeps
+  its existing in-place Minecraft version change until it is retired; it records a content
+  image like any other change ("Changed Minecraft version to X").
 - On ARM, Java is chosen natively, never emulated silently (see the Launcher's
   `game/runtime.rs`); images never carry Java paths.
 
@@ -288,12 +290,15 @@ The mapping is a two-way function per side and per server flavour, tested both w
 (including Windows names and names that differ only in letter case).
 
 Always left out: logs, crash reports, caches, `natives`, `session.lock`, Lodestone's own
-working files (`.lodestone-restore*`, uploads in flight, staging), and `.lodestone_config`
-(a server's identity). Precisely: the top-level folders `logs`, `crash-reports`, `cache`,
-`.cache`, `natives`, `.fabric`, `.mixin.out`, `debug` and `.lodestone-snapshot`;
-`session.lock`, `.lodestone-restore*` and `.lodestone-upload-*` at any depth;
-`.lodestone_modpack/{staging,snapshot}/`; the top-level file `.lodestone_config`. A
-manifest with an entry there is invalid.
+working files (restore folders, uploads and downloads in flight, staging, the modpack
+updater's journal), and `.lodestone_config` (a server's identity). Precisely: the top-level
+folders `logs`, `crash-reports`, `cache`, `.cache`, `natives`, `.fabric`, `.mixin.out` and
+`debug`; `session.lock` and any name starting with `.lodestone-` at any depth (Lodestone's
+working names; its lasting files are named `.lodestone_…`); `.lodestone_modpack/update.json`
+and `.lodestone_modpack/{staging,snapshot}/`; the top-level file `.lodestone_config`. A
+manifest with an entry there is invalid, and a restore leaves these files as they are. The
+modpack updater's journal describes the files on disk when it was written: put back over
+other files by a restore, it would have the updater's recovery remove the wrong ones.
 
 ## Views
 
@@ -507,8 +512,9 @@ Content-addressed, shared by every instance on one machine:
   touch it (and a list's chunks) when it is older than 10 minutes, so a snapshot running
   at the same time never loses what it is about to name, and a save after a snapshot longer
   than the hour of grace fails rather than name what was collected. The store's own writers
-  need no lock: GC renames a file it found old to a temporary name, reads its
-  time again and deletes it only if it is still old, putting back one touched meanwhile;
+  need no lock: GC renames a file it found old aside (`<name>.collecting-<16 hex>`, which
+  keeps its name so the sweep at the next start puts back one a crash left there), reads
+  its time again and deletes it only if it is still old, putting back one touched meanwhile;
   a claim touches, then checks the file is still there, and fails (so the manifest isn't
   saved) when GC took it, and so does a touch that doesn't land (a file another user owns).
   The grace is never under 20 minutes, twice the touch interval, or GC could take a file a
@@ -587,7 +593,7 @@ restore" when nothing changed outside Lodestone).
 ## Retention
 
 - Content images are the lineage, which is also the modpack history: the newest 30, the
-  current one, and every image a data image links to are kept. Manifests only; objects are
+  current one and its parent, and every image a data image links to are kept. Manifests only; objects are
   shared.
 - Data images: the core's backup rules (keep last N, hourly, daily, weekly buckets;
   manual and pinned never deleted; safety images before a restore kept 30 days), never
@@ -729,8 +735,8 @@ of M2 adds its own subsection.
 - **One store, one collector.** The core's image store is the backup folder, zstd encoded,
   owned by `ImageService`. Its collector is the store's own GC: `ImageService::request_gc`
   runs one in the background (one at a time; a request while one runs makes it run once
-  more when it ends), and `ImageService::collect_blocking` runs one and waits. No lock of
-  the core's is taken around it: the store's writers claim what they rely on, and a caller
+  more when it ends); `ImageService::request_gc_after_pruning` does the same once pruning
+  deleted images. No lock of the core's is taken around it: the store's writers claim what they rely on, and a caller
   that relies on objects without claiming them holds the store's collection lock shared
   (`Store::hold_off_collection`).
 - **What content is.** Content is an allowlist (`images/scope.rs`), since data is "worlds and
@@ -766,8 +772,9 @@ of M2 adds its own subsection.
   instance's content gate shared while it changes files; a record holds it alone, so it
   never reads a half-written file (tokio's fair lock makes new operations wait for a waiting
   record). So no operation holds the gate across work whose length a client controls: an
-  upload streams into temporary files first, and a long job (a copy, an unzip, a zip) is
-  begun with `ImageService::begin_job`, which holds no gate (a record meanwhile may take its
+  upload streams into temporary files first, and a long job (a copy, an unzip, a zip, a
+  Mods-tab install, which asks Modrinth and downloads) is begun with
+  `ImageService::begin_job`, which holds no gate (a record meanwhile may take its
   files half written; the record of its own label, after it succeeded, takes them whole). A
   modpack update or restore begins with `ImageService::begin_exclusive`, which waits for
   every Files API operation (not the jobs, which hold no gate) and keeps new ones out, so
@@ -806,8 +813,9 @@ of M2 adds its own subsection.
   after a crash.
 - **The check before a start.** It records what is queued, then compares each content
   file's size and modification time with the baseline (no file is read) and records
-  "Changed outside Lodestone" when they differ. It waits at most 10 s for an operation in
-  progress and never fails a start. When a server stops, the baseline is taken again
+  "Changed outside Lodestone" when they differ. It waits at most 10 s for the last stop's
+  content work and then at most 10 s for an operation in progress, and never fails a
+  start. When a server stops, the baseline is taken again
   without an image, so what the server wrote while it ran joins the next image an operation
   records; a core that died while its server ran (`running_since` still set) does the same
   at its next start. A server with no content image gets "Content when Lodestone began
@@ -817,7 +825,10 @@ of M2 adds its own subsection.
 - **Retention.** Under the instance's lock: keep every data and full image (backups: the
   backup rules delete them, never pruning) and the `content` each links to, the image a
   modpack restore in progress goes back to (`ImageService::keep_while_restoring`), the
-  current pointer, and the newest 30 content images; delete the other content manifests.
+  current pointer and its parent (the image recorded before a modpack restore, which holds
+  the only copy of what the restore took off, even when a clock that went back ranks it
+  among older images), and the newest 30 content images; delete the other content
+  manifests.
   While any manifest can't be read, delete nothing: it may be a backup linking to anything.
   It reads manifest headers, not whole manifests (a data image lists every file of the
   server, and pruning follows every record), and a data image's link is part of its id, so
@@ -855,7 +866,8 @@ of M2 adds its own subsection.
     job ends with success and holding no gate while it runs (`begin_job`). An upload writes
     each file under a temporary name (`.lodestone-upload-<random>.tmp`, which no image
     records, deleted when the request ends or is dropped, and at startup when a crash left
-    one over an hour old) and begins its operation only to move them into place once the
+    one over an hour old; created with the mode a plain create gives, so the placed file
+    reads like any other) and begins its operation only to move them into place once the
     whole upload arrived, never replacing anything at a name (a dangling link included): a
     taken name gets the next free one (`name_1.ext`), and an upload that fails to place a
     file removes the ones it placed. A request records only when one of its paths, mapped through the server's
@@ -976,8 +988,9 @@ of M2 adds its own subsection.
   when the server's flavour splits worlds). The swap replaces whole top-level names and moves
   back what it keeps; a top-level file in the way of what the restore places, that no backup
   would take (so the safety backup has no copy), refuses the restore. The permission check
-  compares by disk path, and runs again on the stopped server when the plan changed since the
-  request was checked. Everything and `world_and_mods` are content operations: they hold the
+  compares by disk path with the Files API's rule for a server's files (protected files and
+  Lodestone's own `.lodestone*` files need WriteGlobalFile, a restore as new too), and runs
+  again on the stopped server when the plan changed since the request was checked. Everything and `world_and_mods` are content operations: they hold the
   content gate from before the safety backup to the swap, and record "Restored backup “…”"
   after the server's settings are read again; a world restore doesn't touch content. Files
   API changes are refused while a restore runs (a job begun before it isn't stopped). The journal is
@@ -992,7 +1005,10 @@ of M2 adds its own subsection.
   `world_and_mods` leaves them but takes `version`, `flavour`, `jre_major_version` and
   `modpack` from the backup's copy of them (read while collections are held off, since the
   backup may be deleted during the restore), since it put back the backup's server software
-  (`libraries/`, `versions/`, the top-level jars). Without this, a Forge server restored to an
+  (`libraries/`, `versions/`, the top-level jars). The restore journal carries those
+  settings: the swap takes them on once the journal says it is done, and a recovery that
+  finds a done journal takes them on then, so the settings never name other software than
+  the disk has. Without this, a Forge server restored to an
   older build would start the newer build's libraries, which are gone, and an update after
   restoring an older pack version's mods would compare them against the newer version's
   files.
@@ -1011,7 +1027,7 @@ of M2 adds its own subsection.
   install, update or restore, a Mods-tab change, an edit through the Files API, a change
   found before a start. There is no `history.json`, no `record.json` and no store of copies
   in `.lodestone_modpack/objects/`. What is kept is what the content images' retention keeps
-  (the newest 30, the current one, every one a backup links to). A restore in progress keeps
+  (the newest 30, the current one and its parent, every one a backup links to). A restore in progress keeps
   the image it goes back to (`ImageService::keep_while_restoring`), since the record before
   it could make that image the 31st.
 - **The pack's files are `pack.json`.** What an update compares the server against (each
@@ -1039,11 +1055,14 @@ of M2 adds its own subsection.
   that couldn't be read before; nothing when the content is the current image; a server
   without an image gets its first), so every file the change takes off the server is in an
   image; a restore is refused when that record fails, an update goes on (it compares the
-  files themselves). Then it plans, each change keeping what it found at its path (nothing
+  files themselves). A restore of a version that isn't in the history is refused before
+  this record; a change refused after it (a target the server can't run, a file the user
+  may not replace) leaves that image, which holds what was on disk. Then it plans, each change keeping what it found at its path (nothing
   where it adds a file; the SHA-1 of a file an update replaces or removes, the SHA-512 of
   another copy of a mod it removes, the SHA-256 the current image gives a file a restore
   replaces or removes), stages every new file (downloads too), begins its operation alone
-  (`ImageService::begin_exclusive`: no Files API operation runs until it is recorded),
+  (`ImageService::begin_exclusive`: no Files API operation runs until it is recorded, the
+  copy, unzip and zip jobs aside, which hold no gate; the mods lock keeps the Mods tab out),
   checks that every path is still as planned (refused as a conflict otherwise, so a file
   uploaded or edited while it staged is never lost), writes the journal, places the files
   (never replacing a file that appeared after the check), installs the server software

@@ -6,6 +6,8 @@ use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream};
 use std::sync::LazyLock;
 use std::time::Duration;
 
+pub mod disk;
+
 use rand::distr::Alphanumeric;
 use rand::RngExt;
 use std::path::{Path, PathBuf};
@@ -826,7 +828,18 @@ pub fn scoped_join_win_safe<R: AsRef<Path>, U: AsRef<Path>>(
     }
     Ok(ret)
 }
-pub mod disk;
+
+/// Folds a file name the way a disk that ignores letter case might (Unicode lower case of
+/// the upper case), for checks that guard names: `ſ` folds to `s`, as NTFS upper-cases it
+/// to `S`, so `.lodeſtone_config` is `.lodestone_config`. Over-folding (`ß` meets `ss`) is
+/// the safe side for a guard.
+pub fn fold_name(name: &str) -> String {
+    if name.is_ascii() {
+        name.to_ascii_lowercase()
+    } else {
+        name.to_uppercase().to_lowercase()
+    }
+}
 
 /// 16 random hex digits, for temporary and restore folder names.
 pub fn random_suffix() -> String {
@@ -931,6 +944,26 @@ pub mod fs {
             kind: ErrorKind::BadRequest,
             source: eyre!("{} is not a UTF-8 text file", path.display()),
         })
+    }
+
+    /// Creates a temporary file in `dir` named `<prefix>…<suffix>`, for a file that is put
+    /// in place under its real name once it is whole. Unlike tempfile's default (owner
+    /// only), it has the mode a plain file create gives (0o666 less the umask), so the file
+    /// put in place can be read like any other file in the server folder (by an SFTP
+    /// account in the group, say). Blocking.
+    pub fn temp_file_in(
+        dir: &Path,
+        prefix: &str,
+        suffix: &str,
+    ) -> std::io::Result<tempfile::NamedTempFile> {
+        let mut builder = tempfile::Builder::new();
+        builder.prefix(prefix).suffix(suffix);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            builder.permissions(std::fs::Permissions::from_mode(0o666));
+        }
+        builder.tempfile_in(dir)
     }
 
     /// Moves the file `from` to `to`, never replacing what is at `to`: fails with
@@ -1042,6 +1075,35 @@ mod tests {
 
     // Every test gets its own temporary folder instead of the global `path_to_tmp()`, which
     // is shared by all tests in the process and races when they run in parallel.
+
+    /// A file put in place from a temporary one has the mode a plain create gives, not
+    /// tempfile's owner-only 0o600.
+    #[cfg(unix)]
+    #[test]
+    fn temporary_files_get_the_mode_of_a_plain_create() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let plain = dir.path().join("plain");
+        std::fs::File::create(&plain).unwrap();
+        let temp = super::fs::temp_file_in(dir.path(), ".lodestone-upload-", ".tmp").unwrap();
+        let mode = |path: &Path| std::fs::metadata(path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode(temp.path()), mode(&plain));
+        let name = temp
+            .path()
+            .file_name()
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_string();
+        assert!(name.starts_with(".lodestone-upload-") && name.ends_with(".tmp"));
+    }
+
+    #[test]
+    fn names_fold_the_way_a_case_insensitive_disk_might() {
+        assert_eq!(super::fold_name(".LODESTONE_Config"), ".lodestone_config");
+        assert_eq!(super::fold_name(".lodeſtone_config"), ".lodestone_config");
+        assert_eq!(super::fold_name("Straße"), "strasse");
+    }
 
     fn read(path: impl AsRef<Path>) -> String {
         std::fs::read_to_string(path).unwrap().trim().to_string()

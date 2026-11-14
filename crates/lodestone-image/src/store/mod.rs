@@ -1266,8 +1266,24 @@ impl Store {
     }
 
     /// Deletes temporary files older than `max_age` (left by a crash) in `objects/`,
-    /// `lists/`, `chunks/` and every instance's folder. Returns how many.
+    /// `lists/`, `chunks/` and every instance's folder, and puts back files a collection
+    /// set aside when it stopped half way (a crash between its two renames; what nothing
+    /// uses goes at the next collection). Returns how many temporary files it deleted.
+    /// Waits for a collection that is running, whose set-aside files are its own.
     pub fn sweep_temp(&self, max_age: Duration) -> u64 {
+        match self.hold_off_collection() {
+            Ok(_hold) => self.sweep_temp_held(max_age),
+            // without the lock, only what no collection can be using
+            Err(_) => self.sweep_dirs(max_age, false),
+        }
+    }
+
+    /// [`Self::sweep_temp`] for a caller that holds collections off or is the collection.
+    pub(crate) fn sweep_temp_held(&self, max_age: Duration) -> u64 {
+        self.sweep_dirs(max_age, true)
+    }
+
+    fn sweep_dirs(&self, max_age: Duration, put_back: bool) -> u64 {
         let mut dirs = Vec::new();
         let tops = Area::ALL
             .iter()
@@ -1291,7 +1307,17 @@ impl Store {
                 continue;
             };
             for entry in entries.flatten() {
-                if !entry.file_name().to_str().is_some_and(fsx::is_temp_name) {
+                let file_name = entry.file_name();
+                let Some(name) = file_name.to_str() else {
+                    continue;
+                };
+                if let Some(original) = fsx::aside_original(name) {
+                    if put_back {
+                        put_back_aside(&entry.path(), &dir.join(original));
+                    }
+                    continue;
+                }
+                if !fsx::is_temp_name(name) {
                     continue;
                 }
                 let old = entry
@@ -1305,6 +1331,17 @@ impl Store {
             }
         }
         removed
+    }
+}
+
+/// Puts back the file a collection set aside at `aside` under its own name `original`, or
+/// deletes it when a file of that name is there again (written since, with the same bytes,
+/// since a store file's name is its hash).
+fn put_back_aside(aside: &Path, original: &Path) {
+    if fs::symlink_metadata(original).is_ok() {
+        let _ = fsx::remove_file_forced(aside);
+    } else {
+        let _ = fs::rename(aside, original);
     }
 }
 

@@ -859,10 +859,21 @@ impl MinecraftInstance {
             }
             // Subscribe first, so a server that exits right away can't be missed.
             let rx = block.then(|| self.event_broadcaster.subscribe());
-            let generation = self.begin_start(&cause_by).await?;
-            if let Some(images) = &images {
-                images.server_started(&self.uuid).await;
-            }
+            // Before the state leaves Stopped: the stop of a run that ends at once must
+            // come after this, or it would leave the server noted as running.
+            let noted = match &images {
+                Some(images) => images.server_started(&self.uuid).await,
+                None => false,
+            };
+            let generation = match self.begin_start(&cause_by).await {
+                Ok(generation) => generation,
+                Err(e) => {
+                    if let (Some(images), true) = (&images, noted) {
+                        images.start_refused(&self.uuid).await;
+                    }
+                    return Err(e);
+                }
+            };
             drop(version_guard);
             // Again, now that the state says Starting: the shutdown, once begun, either sees
             // this server starting (and kills it), or began first and is refused here.

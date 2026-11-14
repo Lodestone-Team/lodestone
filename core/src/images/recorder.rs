@@ -126,14 +126,13 @@ impl Pending {
     }
 }
 
-/// How an operation holds the instance's content gate.
+/// How an operation holds the instance's content gate: the guards are only held, never
+/// read.
 enum Gate {
     /// Beside other operations ([`ImageService::begin`]).
-    #[allow(dead_code)]
-    Shared(OwnedRwLockReadGuard<()>),
+    Shared(#[allow(dead_code)] OwnedRwLockReadGuard<()>),
     /// Alone ([`ImageService::begin_exclusive`]).
-    #[allow(dead_code)]
-    Alone(OwnedRwLockWriteGuard<()>),
+    Alone(#[allow(dead_code)] OwnedRwLockWriteGuard<()>),
 }
 
 /// A content-changing action in progress (see the module). Holds the instance's content
@@ -220,8 +219,9 @@ impl ImageService {
     }
 
     /// [`Self::begin`] for an operation that must have the content to itself: no other
-    /// operation (a Files API change) runs while it does. A modpack update or restore,
-    /// which checks the files it replaces are as planned right before it moves them.
+    /// operation (a Files API change) runs while it does, though a job
+    /// ([`Self::begin_job`]) holds no gate and may. A modpack update or restore, which
+    /// checks the files it replaces are as planned right before it moves them.
     pub async fn begin_exclusive(
         self: &Arc<Self>,
         uuid: &InstanceUuid,

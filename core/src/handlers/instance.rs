@@ -307,8 +307,9 @@ pub(super) async fn spawn_minecraft_instance_creation(
 }
 
 /// The first content image of a server just created: "Created <name>", unless its setup
-/// already recorded one (a modpack's "Installed <pack>"). A failure is only logged: the
-/// check before the first start records the content then.
+/// already recorded one (a modpack's "Installed <pack>"). A failure is only logged: its
+/// first content image is then recorded when it stops, or at the next startup (see
+/// `ImageService::server_stopped` and `startup_sweep`).
 async fn record_created(state: &AppState, uuid: &InstanceUuid) {
     if state.images.current_content(uuid).await.is_some() {
         return;

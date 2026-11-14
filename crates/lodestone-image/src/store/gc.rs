@@ -256,7 +256,7 @@ impl Store {
             }
         }
 
-        report.temp_removed = self.sweep_temp(options.temp_max_age);
+        report.temp_removed = self.sweep_temp_held(options.temp_max_age);
         let sweep = Sweep { started, options };
         self.sweep(Area::Objects, &sweep, &mut report, |sha256, new| {
             if sizes.contains_key(sha256) {
@@ -480,14 +480,12 @@ enum Verdict {
 }
 
 /// Deletes the unused, old file at `path`, unless something claims it meanwhile (see the
-/// module): renames it away, reads its time again from the renamed file, and puts it back
+/// module): renames it aside, reads its time again from the renamed file, and puts it back
 /// if it was touched since it was found old. Returns the bytes freed, or `None` when it was
-/// put back.
+/// put back. The aside name keeps the file's own ([`fsx::aside_path`]): should the process
+/// die between the renames, the next sweep puts it back ([`Store::sweep_temp`]).
 fn collect(path: &Path, sweep: &Sweep) -> io::Result<Option<u64>> {
-    let dir = path
-        .parent()
-        .ok_or_else(|| io::Error::other("a store file without a folder"))?;
-    let aside = fsx::temp_path(dir);
+    let aside = fsx::aside_path(path)?;
     fsx::rename_with_retry(path, &aside)?;
     let meta = match fs::symlink_metadata(&aside) {
         Ok(meta) => meta,
@@ -506,7 +504,7 @@ fn collect(path: &Path, sweep: &Sweep) -> io::Result<Option<u64>> {
         }
         return Ok(None);
     }
-    // Should this fail, the file is a temporary one now, swept within the hour.
+    // Should this fail, the next sweep puts it back, and a later collection deletes it.
     let _ = fsx::remove_file_forced(&aside);
     Ok(Some(meta.len()))
 }

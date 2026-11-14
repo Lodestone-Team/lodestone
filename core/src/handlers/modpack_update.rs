@@ -861,8 +861,11 @@ async fn apply(
     }
     // Staging wrote only Lodestone's own folder. From here to the record the change has the
     // server's content to itself: no Files API operation runs between the check that every
-    // file it changes is as planned (nothing new where it adds one) and their placement.
-    // Dropped on failure, which records nothing.
+    // file it changes is as planned (nothing new where it adds one) and their placement,
+    // and the mods lock keeps the Mods tab out. The copy and unzip jobs hold no gate, so one
+    // may still write meanwhile: placing, and undoing a placement, never replaces a file,
+    // so such a write fails the change rather than being lost. Dropped on failure, which
+    // records nothing.
     let op = images.begin_exclusive(&uuid, prepared.change.label()).await;
     progress("Replacing the server's files".to_string());
     {
@@ -960,12 +963,16 @@ pub(crate) async fn update_modpack(
     }
     let restoring = match &request.source {
         UpdateSource::History { entry_id } => {
+            // refused before anything is recorded, when the version isn't in the history
+            let (store, id, entry) = (state.images().store(), uuid.clone(), entry_id.clone());
+            spawn_blocking(move || lineage::check_in_history(&store, &id, &entry)).await?;
             Some(state.images().keep_while_restoring(&uuid, entry_id))
         }
         _ => None,
     };
     // the content as it is now, so the change is planned from it and what it takes off the
-    // server is in an image
+    // server is in an image. A change refused after this (a target the server can't run,
+    // a file the user may not replace) leaves that image: it holds what was on disk.
     if let Some(ctx) = crate::images::context_of(&state, &uuid).await {
         if let Err(e) = lineage::before_change(state.images(), ctx, restoring.is_some()).await {
             if restoring.is_some() {

@@ -1322,3 +1322,18 @@ async fn the_record_before_an_update_names_what_the_server_wrote() {
         .collect();
     assert_eq!(before.len(), 1, "{before:?}");
 }
+
+/// A restore of a version that isn't in the history is refused before anything is
+/// recorded, though the content changed since the last image.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_restore_of_a_version_not_in_the_history_records_nothing() {
+    let core = Core::new().await;
+    let installed = core.current().await;
+    write(&core.root, "config/outside.toml", b"by hand");
+    for entry in ["a".repeat(64), "not an id".to_string()] {
+        let e = core.restore(&entry).await.unwrap_err();
+        assert!(matches!(e.kind, ErrorKind::NotFound), "{}", e.source);
+    }
+    assert_eq!(core.current().await, installed);
+    assert_eq!(core.history().await.entries.len(), 1);
+}

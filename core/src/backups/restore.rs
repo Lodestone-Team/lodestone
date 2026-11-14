@@ -815,6 +815,9 @@ pub struct Staged {
     /// Paths inside the owned ones that the restore never touches (see the module), moved
     /// from the old entries into the new ones.
     carried: Vec<String>,
+    /// The backup's settings whose server software the server takes on once the swap is
+    /// done ([`Self::take_on_software`]).
+    software: Option<serde_json::Value>,
     rename_budget: Duration,
     #[cfg(test)]
     faults: Faults,
@@ -892,6 +895,7 @@ pub fn stage(
             old: random_suffix(),
             owned,
             carried,
+            software: None,
             rename_budget: SWAP_RENAME_BUDGET,
             #[cfg(test)]
             faults: Faults::default(),
@@ -979,6 +983,15 @@ enum MoveError {
 }
 
 impl Staged {
+    /// Has the server take on the server software in `backup` (the backup's copy of the
+    /// settings file; [`adopt_software`]) as the swap finishes: a "world and its mods"
+    /// restore puts back the backup's software but leaves the settings file. The journal
+    /// carries it, so a recovery that finds the swap done takes it on too, and the settings
+    /// never name other software than the disk has.
+    pub fn take_on_software(&mut self, backup: serde_json::Value) {
+        self.software = Some(backup);
+    }
+
     fn staging_dir(&self) -> PathBuf {
         self.server_root
             .join(format!("{STAGING_PREFIX}{}", self.staging))
@@ -1014,6 +1027,7 @@ impl Staged {
                     had_new: exists(&join_rel(&self.staging_dir(), path)),
                 }))
                 .collect(),
+            software: self.software.clone(),
         };
         if let Err(e) = write_journal(journal_path, &journal) {
             self.discard();
@@ -1038,8 +1052,9 @@ impl Staged {
         }
     }
 
-    /// Marks the swap done and deletes the journal. Fails only when the journal is left
-    /// saying the swap is under way.
+    /// Marks the swap done, takes on the backup's server software when asked to, and
+    /// deletes the journal. Fails only when the journal is left saying the swap is under
+    /// way.
     fn finish(&self, journal_path: &Path, journal: &Journal) -> Result<(), Error> {
         let done = Journal {
             phase: Phase::Done,
@@ -1052,11 +1067,20 @@ impl Staged {
         } else {
             written
         };
+        if written.is_ok() {
+            // a crash from here on leaves the journal saying "done", and the next start
+            // takes the software on then
+            take_on_software(&self.server_root, journal);
+        }
         self.remove_journal(journal_path);
         match written {
             Err(error) if !journal_gone(journal_path) => Err(error),
-            // a journal left saying "done" only makes the next start delete the work folders
-            _ => Ok(()),
+            Err(_) => {
+                take_on_software(&self.server_root, journal);
+                Ok(())
+            }
+            // a journal left saying "done" only makes the next start finish the restore
+            Ok(()) => Ok(()),
         }
     }
 
@@ -1218,6 +1242,24 @@ pub struct Journal {
     /// The 16 hex digits of `.lodestone-restore-old-<16>`.
     pub old: String,
     pub entries: Vec<JournalEntry>,
+    /// The backup's settings whose server software the server takes on once the swap is
+    /// done ([`Staged::take_on_software`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub software: Option<serde_json::Value>,
+}
+
+/// Takes on the server software the journal names, if any ([`adopt_software`]). A failure
+/// is logged: the files are restored either way.
+fn take_on_software(server_root: &Path, journal: &Journal) {
+    if let Some(software) = &journal.software {
+        if let Err(e) = adopt_software(server_root, software) {
+            warn!(
+                "Failed to take the server software of {} from the backup's settings: {}",
+                server_root.display(),
+                e.source
+            );
+        }
+    }
 }
 
 fn valid_suffix(suffix: &str) -> bool {
@@ -1487,6 +1529,7 @@ fn recover_with(store: &Store, instances_dir: &Path, budget: Duration) -> Recove
             Ok(()) => {
                 if journal.phase == Phase::Done {
                     info!("Finishing the restore of {uuid}");
+                    take_on_software(root, &journal);
                 } else {
                     warn!("Undid the interrupted restore of {uuid}");
                 }

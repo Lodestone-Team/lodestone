@@ -19,7 +19,8 @@
 //!   `eula.txt`: accepting the EULA is server state, not a content choice.
 //!
 //! Never content: Lodestone's own files (any name starting with `.lodestone`, at any depth:
-//! the modpack record and history, the instance's local settings, the "For players" marks,
+//! the modpack update's working files in `.lodestone_modpack/`, the instance's local
+//! settings, the "For players" marks,
 //! which a content image carries as each file's `owner_mark` instead) and world files.
 //!
 //! Names match ignoring ASCII letter case, as Windows and macOS's default disks do; the
@@ -31,7 +32,7 @@ use lodestone_image::CanonicalPath;
 
 /// The version of these rules. A baseline taken under other rules is out of date (see
 /// [`super::state::ContentState::scope_rules`]).
-pub const SCOPE_RULES: u32 = 2;
+pub const SCOPE_RULES: u32 = 1;
 
 /// Folders whose every file is content.
 const CONTENT_FOLDERS: [&str; 6] = [

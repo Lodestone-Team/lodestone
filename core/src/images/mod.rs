@@ -111,27 +111,29 @@ pub async fn context_of(state: &crate::AppState, uuid: &InstanceUuid) -> Option<
     .await
 }
 
-/// The context of `instance` as images see it now, with its backup policy's excludes, read
-/// from the store at `store_root` (none when the policy can't be read, which is logged).
-/// The one place the policy's excludes reach images from.
+/// The excludes of the backup policy of `uuid`, read from the store at `store_root` (none
+/// when the policy can't be read, which is logged). The one place the policy's excludes
+/// reach images from.
+pub async fn policy_excludes(store_root: &Path, uuid: &InstanceUuid) -> Vec<String> {
+    let store = crate::backups::store::Store::new(store_root.to_path_buf());
+    let id = uuid.clone();
+    match blocking(move || store.load_policy(&id)).await {
+        Ok(policy) => policy.exclude,
+        Err(e) => {
+            warn!("Failed to read the backup policy of {uuid}: {}", e.source);
+            Vec::new()
+        }
+    }
+}
+
+/// The context of `instance` as images see it now, with its backup policy's excludes
+/// ([`policy_excludes`]).
 pub async fn context_with_policy(
     store_root: &Path,
     instance: &crate::implementations::minecraft::MinecraftInstance,
 ) -> InstanceContext {
     use crate::traits::t_configurable::TConfigurable;
-    let store = crate::backups::store::Store::new(store_root.to_path_buf());
-    let uuid = instance.uuid().await;
-    let exclude = match blocking(move || store.load_policy(&uuid)).await {
-        Ok(policy) => policy.exclude,
-        Err(e) => {
-            warn!(
-                "Failed to read the backup policy of {}: {}",
-                instance.uuid().await,
-                e.source
-            );
-            Vec::new()
-        }
-    };
+    let exclude = policy_excludes(store_root, &instance.uuid().await).await;
     InstanceContext::of(instance, exclude).await
 }
 
@@ -398,21 +400,27 @@ fn remove_tree(dir: &Path) -> std::io::Result<()> {
     }
 }
 
-/// The path of the core's file `file` in the image folder of `uuid` under the store's root.
-/// Checks the id as the store does (`Store::instance_dir`), so no id from a request can lead
-/// out of the store.
-pub(crate) fn instance_file(
-    store_root: &Path,
-    uuid: &InstanceUuid,
-    file: &str,
-) -> Result<PathBuf, Error> {
-    if !lodestone_image::store::valid_instance_id(uuid.as_ref()) {
+/// The image folder of `uuid` under the store's root, `images/<uuid>/`, which holds the
+/// core's own files of the server beside its manifests. A uuid images aren't kept for
+/// ([`ImageService::accepts`]: a Docker container, or a uuid from a URL that isn't one the
+/// store can name) is a bad request, so no id from a request can lead out of the store.
+pub(crate) fn instance_dir(store_root: &Path, uuid: &InstanceUuid) -> Result<PathBuf, Error> {
+    if !ImageService::accepts(uuid) {
         return Err(Error {
             kind: crate::error::ErrorKind::BadRequest,
             source: color_eyre::eyre::eyre!("Invalid server id"),
         });
     }
-    Ok(store_root.join("images").join(uuid.as_ref()).join(file))
+    Ok(store_root.join("images").join(uuid.as_ref()))
+}
+
+/// The path of the core's file `file` in the image folder of `uuid` ([`instance_dir`]).
+pub(crate) fn instance_file(
+    store_root: &Path,
+    uuid: &InstanceUuid,
+    file: &str,
+) -> Result<PathBuf, Error> {
+    Ok(instance_dir(store_root, uuid)?.join(file))
 }
 
 /// Replaces the small file at `path` (in an instance's image folder) crash-safely: written

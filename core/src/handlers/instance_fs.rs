@@ -93,7 +93,7 @@ pub(crate) fn is_protected(path: &FsPath, is_dir: bool) -> bool {
     let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
         return true;
     };
-    let name = name.trim_end_matches(['.', ' ']).to_lowercase();
+    let name = crate::util::fold_name(name.trim_end_matches(['.', ' ']));
     if name.is_empty() || name.contains(':') || looks_like_short_name(&name) {
         return true;
     }
@@ -139,7 +139,7 @@ fn names_restore_folder(name: &str) -> bool {
 /// `LODEST~1` (its first 6 letters, without the leading dot), or `LO1F2A~1` (its first 2
 /// and a hash) once there are many alike.
 pub(crate) fn may_be_restore_folder_short_name(name: &str) -> bool {
-    let name = name.trim_end_matches(['.', ' ']).to_lowercase();
+    let name = crate::util::fold_name(name.trim_end_matches(['.', ' ']));
     name.starts_with("lo") && looks_like_short_name(&name)
 }
 
@@ -413,16 +413,16 @@ fn looks_like_short_name(name: &str) -> bool {
 /// `.lodestone_modpack`), compared the way Windows and macOS resolve names. A Windows 8.3
 /// short name that may be one of them (`LODEST~1`) counts too.
 fn names_lodestone_entry(name: &str) -> bool {
-    let trimmed = name.trim_end_matches(['.', ' ']).to_lowercase();
+    let trimmed = crate::util::fold_name(name.trim_end_matches(['.', ' ']));
     trimmed.starts_with(".lodestone") || may_be_restore_folder_short_name(&trimmed)
 }
 
 /// [`is_protected`] for `path` in the instance folder `root`, which also protects
 /// Lodestone's own files there: everything at or below a name starting with `.lodestone`.
-/// Lodestone trusts what it wrote there: the modpack's record says which files an update
-/// may remove, and its history which files a restore downloads and puts back. Someone who
-/// could edit them could have a restore put any jar into `mods/`. A path outside `root`
-/// is protected.
+/// Lodestone trusts what it wrote there: the modpack updater's journal says which files
+/// its recovery removes and puts back at the next start, and the "For players" marks
+/// which mods players download. Someone who could edit the journal could have the
+/// recovery delete any file. A path outside `root` is protected.
 pub(crate) fn is_instance_protected(root: &FsPath, path: &FsPath, is_dir: bool) -> bool {
     if is_protected(path, is_dir) {
         return true;
@@ -1558,10 +1558,7 @@ async fn upload_instance_file(
             let temp = {
                 let dir = path_to_dir.clone();
                 tokio::task::spawn_blocking(move || {
-                    tempfile::Builder::new()
-                        .prefix(UPLOAD_TEMP_PREFIX)
-                        .suffix(".tmp")
-                        .tempfile_in(&dir)
+                    crate::util::fs::temp_file_in(&dir, UPLOAD_TEMP_PREFIX, ".tmp")
                         .map(|file| file.into_temp_path())
                 })
                 .await
@@ -2684,6 +2681,9 @@ mod tests {
         assert!(file("START.SH"));
         assert!(file("USER_JVM_ARGS.TXT"));
         assert!(file(".LODESTONE_MINECRAFT_CONFIG.JSON"));
+        // NTFS upper-cases the long s to S: this name opens the real settings file there
+        assert!(file(".lodeſtone_minecraft_config.json"));
+        assert!(file("uſer_jvm_args.txt"));
         assert!(dir("MODS"));
         assert!(dir("Mods"));
     }
@@ -2839,14 +2839,16 @@ mod tests {
         }
     }
 
-    /// The modpack's record and history decide what an update removes and what a restore
-    /// downloads, so only users who can write protected files may change them (LS-02).
+    /// The modpack updater's journal decides what its recovery removes, so only users who
+    /// can write protected files may change Lodestone's own files (LS-02).
     #[test]
     fn lodestones_own_files_are_protected() {
         let root = FsPath::new("/home/me/.lodestone/instances/a");
         for path in [
             ".lodestone_modpack/notes.json",
             ".lodestone_modpack/update.json",
+            ".lodeſtone_modpack/update.json",
+            "mods/.LODEſTONE_client_mods.json",
             ".lodestone_modpack/objects/ab/abcdef",
             ".Lodestone_Modpack./notes.json",
             "LODEST~1/notes.json",

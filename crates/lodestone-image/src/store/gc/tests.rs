@@ -309,6 +309,52 @@ fn only_the_stores_temp_files_are_swept() {
     assert!(others.iter().all(|path| path.exists()));
 }
 
+/// A collection that stopped between setting a file aside and deciding about it (the
+/// process died) loses nothing: the next sweep puts the file back under its own name, or
+/// deletes the aside copy when the file was written again meanwhile.
+#[test]
+fn a_file_a_collection_set_aside_comes_back() {
+    let (_dir, store) = store(Encoding::Raw);
+    let image = stored_image(
+        &store,
+        &[("mods/a.jar", b"claimed"), ("mods/b.jar", b"again")],
+    );
+    store.save_manifest("one", &image).unwrap();
+    let path_of = |bytes: &[u8]| store.object_path(&sha256_hex(bytes)).unwrap();
+    let (claimed, again) = (path_of(b"claimed"), path_of(b"again"));
+    let claimed_aside = crate::store::fsx::aside_path(&claimed).unwrap();
+    fs::rename(&claimed, &claimed_aside).unwrap();
+    let again_aside = crate::store::fsx::aside_path(&again).unwrap();
+    fs::copy(&again, &again_aside).unwrap();
+    for path in [&claimed_aside, &again_aside] {
+        age(path, 25 * 3600);
+    }
+    assert_eq!(store.sweep_temp(TEMP_MAX_AGE), 0);
+    assert!(claimed.exists() && again.exists());
+    assert!(!claimed_aside.exists() && !again_aside.exists());
+    for entry in &image.entries {
+        assert!(
+            store.has_object(&entry.sha256, entry.size),
+            "{}",
+            entry.path
+        );
+    }
+    // a name that only looks like one is left alone
+    let folder = claimed.parent().unwrap();
+    let odd = folder.join("x.collecting-nothex");
+    fs::write(&odd, b"odd").unwrap();
+    store.sweep_temp(TEMP_MAX_AGE);
+    assert!(odd.exists());
+    assert_eq!(
+        crate::store::fsx::aside_original("abc.collecting-0123456789abcdef"),
+        Some("abc")
+    );
+    assert_eq!(
+        crate::store::fsx::aside_original(".collecting-0123456789abcdef"),
+        None
+    );
+}
+
 /// An image that names a large file's object with the wrong size, as a manifest received
 /// from elsewhere may (any size validates, and a Modrinth or CurseForge entry needs no
 /// object of its own).

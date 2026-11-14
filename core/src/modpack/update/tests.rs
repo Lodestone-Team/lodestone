@@ -839,3 +839,37 @@ fn changes_since_the_plan_refuse_the_placement() {
     assert_eq!(std::fs::read(root.join("mods/a.jar")).unwrap(), b"a1");
     assert_eq!(std::fs::read(root.join("mods/gone.jar")).unwrap(), b"gone");
 }
+
+/// Undoing a placement never replaces a file that appeared where an old one goes back (a
+/// copy or unzip job, which no operation keeps out): that file stays, and the old copy is
+/// kept in an `interrupted-*` folder rather than deleted with the snapshot.
+#[test]
+fn undoing_never_replaces_what_appeared_meanwhile() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    write(root, &format!("{SNAPSHOT_DIR}/mods/a.jar"), b"a1");
+    write(root, &format!("{SNAPSHOT_DIR}/mods/b.jar"), b"b1");
+    write(root, "mods/a.jar", b"written by a job meanwhile");
+    Moves {
+        saved: vec!["mods/a.jar".into(), "mods/b.jar".into()],
+        placed: Vec::new(),
+    }
+    .undo(root);
+    assert_eq!(
+        read_file(root, "mods/a.jar").as_deref(),
+        Some(&b"written by a job meanwhile"[..])
+    );
+    assert_eq!(read_file(root, "mods/b.jar").as_deref(), Some(&b"b1"[..]));
+    assert!(!root.join(SNAPSHOT_DIR).exists());
+    let kept: Vec<PathBuf> = std::fs::read_dir(root.join(MODPACK_DIR))
+        .unwrap()
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.file_name()
+                .is_some_and(|name| name.to_string_lossy().starts_with("interrupted-"))
+        })
+        .collect();
+    assert_eq!(kept.len(), 1, "{kept:?}");
+    assert_eq!(std::fs::read(kept[0].join("mods/a.jar")).unwrap(), b"a1");
+}

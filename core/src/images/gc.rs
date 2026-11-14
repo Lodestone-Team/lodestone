@@ -12,7 +12,7 @@
 //! rely on (a record that loses an object to a collection fails to save and records again),
 //! and the store holds its own collection lock while it collects, which a caller that
 //! relies on objects without claiming them takes shared (`Store::hold_off_collection`); a
-//! thread holding that must not call [`ImageService::collect_blocking`].
+//! thread holding that must not start a collection and wait for it.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};

@@ -46,7 +46,7 @@ use crate::AppState;
 
 use super::global_fs::{register_download, DownloadScope};
 use super::instance::sanitize_instance_dir_name;
-use super::instance_fs::is_protected;
+use super::instance_fs::{is_instance_protected, is_protected};
 use super::util::{get_instance, is_code_path, require_code_write, AuthedUser};
 
 /// `POST /instance/{uuid}/backups`.
@@ -213,21 +213,29 @@ async fn put_policy(
     Ok(Json(state.backups.set_policy(&uuid, policy).await?))
 }
 
+/// Whether a user without `WriteGlobalFile` may not have a restore add, change or remove
+/// `path` (relative to the server folder): the file API's rule for a server's files,
+/// Lodestone's own `.lodestone*` files included.
+fn restore_protected(path: &str, is_dir: bool) -> bool {
+    is_instance_protected(FsPath::new(""), FsPath::new(path), is_dir)
+}
+
 /// The rule for what an in-place restore changes: like the file API, adding, changing or
-/// removing protected files and folders (jars, the mods folder, the config) needs
-/// `WriteGlobalFile`, and adding or changing scripts needs the owner with code execution on.
+/// removing protected files and folders (jars, the mods folder, the config, Lodestone's
+/// own files) needs `WriteGlobalFile`, and adding or changing scripts needs the owner with
+/// code execution on.
 fn check_restore_diff(state: &AppState, user: &User, diff: &RestoreDiff) -> Result<(), Error> {
     let touches_protected = diff
         .added
         .iter()
         .chain(&diff.changed)
         .chain(&diff.removed)
-        .any(|path| is_protected(FsPath::new(path), false))
+        .any(|path| restore_protected(path, false))
         || diff
             .created_dirs
             .iter()
             .chain(&diff.removed_dirs)
-            .any(|path| is_protected(FsPath::new(path), true));
+            .any(|path| restore_protected(path, true));
     if touches_protected && can_write_global_files(state, user).is_err() {
         return Err(denied(
             "Restoring this backup changes protected files (such as .jar files or the mods folder), which needs permission to change global files",
@@ -328,7 +336,7 @@ async fn restore_as_new(
     // what the new server gets, the requester could otherwise only put there with these
     let protected = files.iter().any(|file| {
         let path = FsPath::new(&file.disk);
-        is_protected(path, false)
+        restore_protected(&file.disk, false)
             || path
                 .ancestors()
                 .skip(1)

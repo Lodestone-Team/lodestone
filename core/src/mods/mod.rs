@@ -616,10 +616,7 @@ where
     let copy = {
         let (dir, path, name) = (folder.dir.clone(), path.clone(), file_name.to_string());
         tokio::task::spawn_blocking(move || -> Result<(tempfile::TempPath, String), Error> {
-            let copy = tempfile::Builder::new()
-                .prefix(".lodestone-enable-")
-                .suffix(".tmp")
-                .tempfile_in(&dir)
+            let copy = crate::util::fs::temp_file_in(&dir, ".lodestone-enable-", ".tmp")
                 .map_err(|e| file_error(e, "enable", &name))?;
             let (mut to, copy) = copy.into_parts();
             let mut from =

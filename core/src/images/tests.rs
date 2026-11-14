@@ -458,9 +458,16 @@ async fn the_quick_check_sees_changes_and_absorbs_what_a_server_writes() {
     assert!(changed(&store));
     write(&s.root, "config/a.toml", b"a = 1");
 
+    // A start refused before the state left Stopped leaves nothing noted, and a second
+    // note of a run already noted isn't the start's to take back.
+    assert!(s.images.server_started(&uuid()).await);
+    assert!(!s.images.server_started(&uuid()).await);
+    s.images.start_refused(&uuid()).await;
+    assert_eq!(s.state().running_since, None);
+
     // What a running server writes joins the baseline when it stops, without an image.
     let before = s.manifests().len();
-    s.images.server_started(&uuid()).await;
+    assert!(s.images.server_started(&uuid()).await);
     assert!(s.state().running_since.is_some());
     write(&s.root, "config/a.toml", b"a = 2 # rewritten by the mod");
     s.images.server_stopped(ctx.clone()).await.unwrap();
@@ -651,6 +658,41 @@ async fn prune_keeps_backups_and_what_is_named_linked_current_and_newest() {
     let kept: HashSet<String> = s.manifests().into_iter().map(|i| i.id).collect();
     assert!(!kept.contains(&extra.id));
     assert!(!kept.contains(&images[1].id));
+}
+
+/// The current image's parent is kept whatever the clocks said: after a clock that ran
+/// ahead went back, the image recorded before a modpack restore ranks below 30 images
+/// dated in the future, and it holds the only copy of what the restore took off.
+#[tokio::test]
+async fn prune_keeps_the_current_images_parent_after_the_clock_went_back() {
+    let s = setup();
+    let store = s.images.store();
+    // recorded while the clock was a day ahead
+    for n in 0..KEEP_CONTENT as i64 {
+        let mut image = content_image(n);
+        image.created = 100_000 + n;
+        image.seal();
+        store.save_manifest(UUID, &image).unwrap();
+    }
+    let before = content_image(1000);
+    store.save_manifest(UUID, &before).unwrap();
+    let mut restored = content_image(1001);
+    restored.parent = Some(before.id.clone());
+    restored.seal();
+    store.save_manifest(UUID, &restored).unwrap();
+    state::save(
+        s.images.root(),
+        &uuid(),
+        &state::ContentState {
+            current: Some(restored.id.clone()),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(s.images.prune(&uuid()).await.unwrap(), 0);
+    let kept: HashSet<String> = s.manifests().into_iter().map(|i| i.id).collect();
+    assert!(kept.contains(&before.id));
+    assert!(kept.contains(&restored.id));
 }
 
 /// Images recorded in the same second are ordered by lineage, and the current image comes

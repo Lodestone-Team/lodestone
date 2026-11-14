@@ -406,7 +406,7 @@ pub(crate) mod tests {
             entry("saves/world/level.dat", EnvInputs::default()),
             entry("saves/world/DIM-1/region/r.0.0.mca", EnvInputs::default()),
             // The server's own: never to players.
-            entry(".lodestone_modpack/update.json", EnvInputs::default()),
+            entry(".lodestone_modpack/notified.json", EnvInputs::default()),
             entry("plugins/x.jar", EnvInputs::default()),
             entry("usercache.json", EnvInputs::default()),
         ];
@@ -449,7 +449,7 @@ pub(crate) mod tests {
         assert_eq!(
             paths(&server),
             [
-                ".lodestone_modpack/update.json",
+                ".lodestone_modpack/notified.json",
                 "config/jei/jei-client.ini",
                 "config/ledger.toml",
                 "defaultconfigs/server.toml",
@@ -792,7 +792,7 @@ pub(crate) mod tests {
             "shaderpacks/s.zip",
             "screenshots/1.png",
             "saves/loose.txt",
-            ".lodestone_modpack/update.json",
+            ".lodestone_modpack/notified.json",
             ".lodestone_modpack/notes.json",
             "plugins/p.jar",
             "Plugins/q.jar",
