@@ -189,13 +189,20 @@ impl User {
     /// full keys pass: for account details a full key may change (the username) but a
     /// scoped key, which only has the permissions it lists, must not.
     pub fn require_session_or_full_key(&self) -> Result<(), Error> {
-        if matches!(self.auth_source, AuthSource::ApiKey { full: false, .. }) {
+        if !self.acts_as_whole_account() {
             return Err(Error {
                 kind: ErrorKind::PermissionDenied,
                 source: eyre!(api_key::FULL_KEY_REQUIRED_MESSAGE),
             });
         }
         Ok(())
+    }
+
+    /// Whether the request may act as the whole account: a session or a full key. A
+    /// custom or launcher key has only the permissions it lists, so what its user did
+    /// elsewhere (their own events, say) is none of its business.
+    fn acts_as_whole_account(&self) -> bool {
+        !matches!(self.auth_source, AuthSource::ApiKey { full: false, .. })
     }
 
     /// Whether this request's API key has expired since it authenticated. Always `false`
@@ -447,7 +454,10 @@ impl User {
             }
             // the user's own account changing (permissions, username, keys), so their
             // dashboard and Host can follow it; everything else about users is for managers
-            EventInner::UserEvent(_event) => self.can_perform_action(&UserAction::ManageUser),
+            EventInner::UserEvent(event) => {
+                (event.user_id == self.uid && self.acts_as_whole_account())
+                    || self.can_perform_action(&UserAction::ManageUser)
+            }
             EventInner::FSEvent(_) => self.can_perform_action(&UserAction::ManageUser),
             EventInner::ProgressionEvent(progression_event) => {
                 self.can_view_progression_event(progression_event, caused_by)
@@ -459,7 +469,9 @@ impl User {
     /// Progression events can name files and carry full instance info, so only show them to
     /// the user who started the operation, to users who can view the instance it is about,
     /// and to owners and admins. A backup's or restore's progress is about the server's
-    /// files, so it needs `ReadInstanceFile` rather than `ViewInstance`.
+    /// files, so it needs `ReadInstanceFile` rather than `ViewInstance`. A custom or
+    /// launcher key isn't the user who started it: it sees only what its own permissions
+    /// allow, whoever started the operation.
     fn can_view_progression_event(
         &self,
         progression_event: &ProgressionEvent,
@@ -469,7 +481,7 @@ impl User {
             return true;
         }
         if let CausedBy::User { user_id, .. } = caused_by {
-            if *user_id == self.uid {
+            if *user_id == self.uid && self.acts_as_whole_account() {
                 return true;
             }
         }
@@ -1882,6 +1894,93 @@ mod permission_tests {
         );
         assert!(stranger.can_view_event(&no_instance));
         assert!(!viewer.can_view_event(&no_instance));
+    }
+
+    /// `user` acting through an API key, full or scoped (custom or launcher).
+    fn through_key(mut user: User, full: bool) -> User {
+        user.auth_source = AuthSource::ApiKey {
+            id: "id".to_string(),
+            name: "key".to_string(),
+            expires_at: None,
+            full,
+        };
+        user
+    }
+
+    #[test]
+    fn a_scoped_key_sees_only_the_progress_its_permissions_allow() {
+        let a = uuid("a");
+        let b = uuid("b");
+        let member = user(
+            false,
+            false,
+            UserPermission {
+                can_view_instance: [a.clone()].into(),
+                can_read_instance_file: [a.clone()].into(),
+                ..Default::default()
+            },
+        );
+        let by_member = CausedBy::User {
+            user_id: member.uid.clone(),
+            user_name: member.username.clone(),
+        };
+        // the member backed up B, which their key scoped to A can't see
+        let scoped = through_key(member.clone(), false);
+        let full = through_key(member.clone(), true);
+        let (backup_b, _) = Event::new_progression_event_start(
+            "backup",
+            None,
+            Some(ProgressionStartValue::Backup {
+                instance_uuid: b.clone(),
+            }),
+            by_member.clone(),
+        );
+        assert!(member.can_view_event(&backup_b));
+        assert!(full.can_view_event(&backup_b));
+        assert!(!scoped.can_view_event(&backup_b));
+        // the key still sees A's progress through its permissions
+        let (backup_a, _) = Event::new_progression_event_start(
+            "backup",
+            None,
+            Some(ProgressionStartValue::Backup {
+                instance_uuid: a.clone(),
+            }),
+            by_member.clone(),
+        );
+        assert!(scoped.can_view_event(&backup_a));
+        // and nothing about other instances' creation, even with the full InstanceInfo
+        let (no_instance, _) = Event::new_progression_event_start("x", None, None, by_member);
+        assert!(member.can_view_event(&no_instance));
+        assert!(!scoped.can_view_event(&no_instance));
+    }
+
+    #[test]
+    fn users_see_their_own_account_change() {
+        let member = user(false, false, UserPermission::default());
+        let other = user(false, false, UserPermission::default());
+        let owner = user(true, false, UserPermission::default());
+        let changed = |user: &User| {
+            EventInner::UserEvent(UserEvent {
+                user_id: user.uid.clone(),
+                user_event_inner: UserEventInner::PermissionChanged {
+                    new_permissions: Box::default(),
+                },
+            })
+        };
+        let by_owner = CausedBy::User {
+            user_id: owner.uid.clone(),
+            user_name: owner.username.clone(),
+        };
+        assert!(member.can_view_event_parts(&changed(&member), &by_owner));
+        assert!(
+            through_key(member.clone(), true).can_view_event_parts(&changed(&member), &by_owner)
+        );
+        assert!(
+            !through_key(member.clone(), false).can_view_event_parts(&changed(&member), &by_owner)
+        );
+        // other users' changes stay for those who manage users
+        assert!(!member.can_view_event_parts(&changed(&other), &by_owner));
+        assert!(owner.can_view_event_parts(&changed(&other), &by_owner));
     }
 
     #[test]
