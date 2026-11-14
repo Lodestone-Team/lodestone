@@ -1124,8 +1124,12 @@ impl Store {
     }
 
     /// The current files' hashes, as a backup would record them, without storing anything:
-    /// for a restore's permission check when it takes no safety backup. Files that can't be
-    /// read are left out.
+    /// for a restore's permission check when it takes no safety backup.
+    ///
+    /// A file that can't be read is listed with an empty hash, which matches no backup's
+    /// copy. The restore replaces or deletes it all the same, so the check must see it as
+    /// changed or removed: left out, an unreadable `.jar` would be deleted without the
+    /// permission that protected files need.
     pub fn hash_current(
         &self,
         request: ScanRequest,
@@ -1139,11 +1143,19 @@ impl Store {
         let mut files = scan.cached;
         for file in scan.to_read {
             let absolute = join_rel(&scan.server_root, &file.path);
-            if let ReadOutcome::Done(entry) = self.read_file(&absolute, false, cancel)? {
-                files.push(FileEntry {
+            match self.read_file(&absolute, false, cancel)? {
+                ReadOutcome::Done(entry) => files.push(FileEntry {
                     path: file.path,
                     ..entry
-                });
+                }),
+                ReadOutcome::Vanished => {}
+                ReadOutcome::Failed(_) => files.push(FileEntry {
+                    path: file.path,
+                    size: file.size,
+                    sha256: String::new(),
+                    modified_ns: file.modified_ns,
+                    executable: file.executable,
+                }),
             }
         }
         files.sort_by(|a, b| a.path.cmp(&b.path));
@@ -3088,6 +3100,40 @@ pub(crate) mod tests {
         assert!(store.scan(request, &|| true).is_err());
         let scan = store.scan(request, NO_CANCEL).unwrap();
         assert!(store.copy(&scan, &mut |_, _| {}, &|| true).is_err());
+    }
+
+    /// A file that can't be read is still listed, with a hash no backup has, so a restore's
+    /// permission check sees it as changed or removed.
+    #[cfg(unix)]
+    #[test]
+    fn hash_current_lists_unreadable_files() {
+        use std::os::unix::fs::PermissionsExt;
+        if unsafe { libc::geteuid() } == 0 {
+            // root reads everything
+            return;
+        }
+        let (_dir, store, root) = setup();
+        write(&root, "a.txt", b"a");
+        write(&root, "plugins/locked.jar", b"jar");
+        let locked = root.join("plugins/locked.jar");
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+        let files = store
+            .hash_current(
+                ScanRequest {
+                    server_root: &root,
+                    uuid: &uuid(),
+                    kind: BackupKind::Manual,
+                    exclude: &Matcher::default(),
+                },
+                NO_CANCEL,
+            )
+            .unwrap();
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o644)).unwrap();
+        let paths: Vec<(&str, bool)> = files
+            .iter()
+            .map(|f| (f.path.as_str(), f.sha256.is_empty()))
+            .collect();
+        assert_eq!(paths, vec![("a.txt", false), ("plugins/locked.jar", true)]);
     }
 
     #[test]

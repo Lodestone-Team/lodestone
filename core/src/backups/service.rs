@@ -46,7 +46,7 @@ use crate::AppState;
 
 use super::live::{with_saving_off, InstanceLines, Limits, LiveServer};
 use super::pattern::Matcher;
-use super::restore::{self, Pin, RestoreDiff, SwapError};
+use super::restore::{self, Pin, RestoreDiff, RestorePlan, SwapError};
 use super::retention::{self, LastAttempt, RetentionItem};
 use super::store::{
     cancelled, check_backup_name, checked_level_name, err, free_space, new_backup_id,
@@ -54,7 +54,7 @@ use super::store::{
 };
 use super::types::{
     BackupInfo, BackupKind, BackupList, BackupPolicy, BackupUsage, FileEntry, JobKind, Manifest,
-    RestoreRequest, RestoreScope, RunningJob,
+    RestoreRequest, RestoreScope, RunningJob, SkipReason, MAX_NAME_LEN,
 };
 
 /// At most one manual backup per server in this time.
@@ -331,7 +331,8 @@ struct CopyWork {
     uuid: InstanceUuid,
     kind: BackupKind,
     exclude: Matcher,
-    /// Write nothing when nothing changed (scheduled backups and unnamed manual ones).
+    /// Write nothing when nothing changed (scheduled backups and unnamed manual ones; see
+    /// [`CopyWork::skips_unchanged`]).
     skip_unchanged: bool,
     meta: BackupMeta,
     phase: Phase,
@@ -372,6 +373,18 @@ impl CopyWork {
         Ok(self)
     }
 
+    /// Whether to write nothing because nothing changed since `previous`, the newest backup.
+    ///
+    /// An unnamed manual backup is skipped only when `previous` is one retention never
+    /// deletes (manual or pinned). Otherwise the state the person asked to keep would live
+    /// only in, say, a scheduled backup that cleanup deletes hours later; a manual backup is
+    /// written instead, which costs just its manifest since the files are already stored.
+    fn skips_unchanged(&self, previous: &Manifest) -> bool {
+        self.skip_unchanged
+            && (self.kind != BackupKind::Manual
+                || retention::never_deleted(previous.kind, previous.pinned))
+    }
+
     /// Walk 5 %, copy 90 % (the manifest write is the last 5 %).
     fn run(mut self, quiesced: bool, cancel: &dyn Fn() -> bool) -> Result<Copied, Error> {
         let started = Instant::now();
@@ -386,14 +399,17 @@ impl CopyWork {
             self.prefetched.as_ref(),
             cancel,
         )?;
-        let unchanged = |scan: &Scan| {
-            scan.previous.as_ref().map(|previous| Copied::Unchanged {
-                id: previous.id.clone(),
-                scheduled_since_full: scan.scheduled_since_full_after(false),
-            })
+        let unchanged = |work: &CopyWork, scan: &Scan| {
+            scan.previous
+                .as_ref()
+                .filter(|previous| work.skips_unchanged(previous))
+                .map(|previous| Copied::Unchanged {
+                    id: previous.id.clone(),
+                    scheduled_since_full: scan.scheduled_since_full_after(false),
+                })
         };
-        if self.skip_unchanged && !scan.maybe_changed() {
-            if let Some(unchanged) = unchanged(&scan) {
+        if !scan.maybe_changed() {
+            if let Some(unchanged) = unchanged(&self, &scan) {
                 return Ok(unchanged);
             }
         }
@@ -413,8 +429,8 @@ impl CopyWork {
             },
             cancel,
         )?;
-        if self.skip_unchanged && copied.unchanged_since(scan.previous.as_ref()) {
-            if let Some(unchanged) = unchanged(&scan) {
+        if copied.unchanged_since(scan.previous.as_ref()) {
+            if let Some(unchanged) = unchanged(&self, &scan) {
                 return Ok(unchanged);
             }
         }
@@ -535,6 +551,39 @@ fn start_again_after(
     shutting_down: bool,
 ) -> bool {
     matches!(failure, RestoreFailure::Unchanged(_)) && was_running && start_after && !shutting_down
+}
+
+/// The name of the safety backup a restore of `manifest` takes first: "Before restoring
+/// “…”" with the backup's name, or its date when it has none. The name is shortened to fit
+/// [`MAX_NAME_LEN`], since the wrapper adds 19 characters to a name that may already be that
+/// long, and restoring a safety backup nests them; a name that didn't fit would only be
+/// refused after every file was copied.
+fn safety_backup_name(manifest: &Manifest) -> String {
+    let label = manifest.name.clone().unwrap_or_else(|| {
+        chrono::DateTime::from_timestamp(manifest.created, 0)
+            .map(|t| t.format("%Y-%m-%d %H:%M UTC").to_string())
+            .unwrap_or_else(|| manifest.id.clone())
+    });
+    let wrap = |label: &str| format!("Before restoring “{label}”");
+    let room = MAX_NAME_LEN - wrap("").chars().count();
+    if label.chars().count() <= room {
+        return wrap(&label);
+    }
+    let cut: String = label.chars().take(room - 1).collect();
+    wrap(&format!("{}…", cut.trim_end()))
+}
+
+/// The files a restore with `plan` replaces that its safety backup `safety` couldn't read,
+/// so has no copy of as they are now (at most an older one, carried over). The restore
+/// would delete them for good, so it is refused instead.
+fn not_in_safety_backup<'a>(plan: &RestorePlan, safety: &'a Manifest) -> Vec<&'a str> {
+    safety
+        .skipped
+        .iter()
+        .filter(|s| matches!(s.reason, SkipReason::Unreadable | SkipReason::KeptChanging))
+        .filter(|s| plan.owns(&s.path))
+        .map(|s| s.path.as_str())
+        .collect()
 }
 
 /// Server backups: the store, its locks, the running jobs and the scheduler's state.
@@ -1731,11 +1780,6 @@ impl BackupService {
 
         let safety_share = if request.safety_backup { 40.0 } else { 0.0 };
         let safety = if request.safety_backup {
-            let label = manifest.name.clone().unwrap_or_else(|| {
-                chrono::DateTime::from_timestamp(manifest.created, 0)
-                    .map(|t| t.format("%Y-%m-%d %H:%M UTC").to_string())
-                    .unwrap_or_else(|| manifest.id.clone())
-            });
             job.report(0.0, Some("Backing up the server as it is now"));
             let created = self
                 .create_locked(
@@ -1743,12 +1787,28 @@ impl BackupService {
                     guards,
                     instance,
                     BackupKind::BeforeRestore,
-                    Some(format!("Before restoring “{label}”")),
+                    Some(safety_backup_name(&manifest)),
                     // the check below compares against these files, under this exclude
                     Some(exclude.clone()),
                     job.phase(0.0, safety_share),
                 )
                 .await?;
+            if let Some(safety) = &created.manifest {
+                let missing = not_in_safety_backup(&plan, safety);
+                if let Some(first) = missing.first() {
+                    let others = match missing.len() - 1 {
+                        0 => String::new(),
+                        1 => " and 1 other file".to_string(),
+                        n => format!(" and {n} other files"),
+                    };
+                    return Err(conflict(format!(
+                        "Couldn't back up {first}{others}, which the restore would replace, \
+                         so it couldn't be undone. Check that Lodestone can read them, or \
+                         restore without the safety backup"
+                    ))
+                    .into());
+                }
+            }
             created.manifest
         } else {
             None
@@ -2087,7 +2147,120 @@ impl BackupService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::backups::store::tests::{age, backup, meta, setup, uuid, write, NO_CANCEL};
     use crate::test_util::wait_until;
+
+    /// Runs an unnamed backup of `root` the way [`BackupService::create_locked`] does,
+    /// without a server, and saves its manifest when it made one.
+    fn copy(store: &Store, root: &Path, id: &str, kind: BackupKind) -> Copied {
+        let (broadcaster, _) = EventBroadcaster::new(8);
+        let job = Job::new(
+            broadcaster,
+            JobKind::Backup,
+            "Backing up".to_string(),
+            ProgressionStartValue::Backup {
+                instance_uuid: uuid(),
+            },
+            CausedBy::System,
+        );
+        let work = CopyWork {
+            store: store.clone(),
+            root: root.to_path_buf(),
+            uuid: uuid(),
+            kind,
+            exclude: Matcher::new(&[]),
+            skip_unchanged: true,
+            meta: meta(id, kind),
+            phase: job.phase(0.0, 100.0),
+            prefetched: None,
+        };
+        let copied = work.run(true, NO_CANCEL).unwrap();
+        if let Copied::Finished { manifest, .. } = &copied {
+            store.save_manifest(manifest).unwrap();
+        }
+        copied
+    }
+
+    fn unchanged_id(copied: &Copied) -> Option<&str> {
+        match copied {
+            Copied::Unchanged { id, .. } => Some(id),
+            Copied::Finished { .. } => None,
+        }
+    }
+
+    /// "Back up now" (an unnamed manual backup) with nothing changed since a scheduled
+    /// backup still makes a manual one, so retention can't delete the only copy of what the
+    /// person asked to keep. After a manual or pinned backup, it is skipped as before.
+    #[test]
+    fn an_unnamed_manual_backup_is_skipped_only_after_one_that_is_kept() {
+        let (_dir, store, root) = setup();
+        write(&root, "world/level.dat", b"level");
+        age(&root, "world/level.dat");
+        let first = copy(&store, &root, "20260101-000000-aaaa", BackupKind::Scheduled);
+        assert!(unchanged_id(&first).is_none());
+
+        // nothing changed, but the newest backup is a scheduled one cleanup may delete
+        let manual = copy(&store, &root, "20260101-000100-bbbb", BackupKind::Manual);
+        assert!(unchanged_id(&manual).is_none());
+        let Copied::Finished { manifest, .. } = &manual else {
+            unreachable!()
+        };
+        assert_eq!(manifest.kind, BackupKind::Manual);
+
+        // now the newest backup is manual: nothing more to keep
+        let again = copy(&store, &root, "20260101-000200-cccc", BackupKind::Manual);
+        assert_eq!(unchanged_id(&again), Some("20260101-000100-bbbb"));
+        // and scheduled backups skip whatever the newest backup is
+        let scheduled = copy(&store, &root, "20260101-000300-dddd", BackupKind::Scheduled);
+        assert_eq!(unchanged_id(&scheduled), Some("20260101-000100-bbbb"));
+
+        // a pinned scheduled backup is kept too
+        write(&root, "world/level.dat", b"level 2");
+        age(&root, "world/level.dat");
+        let mut pinned = backup(
+            &store,
+            &root,
+            "20260101-000400-eeee",
+            BackupKind::Scheduled,
+            &Matcher::new(&[]),
+        );
+        pinned.pinned = true;
+        store.save_manifest(&pinned).unwrap();
+        let after_pinned = copy(&store, &root, "20260101-000500-ffff", BackupKind::Manual);
+        assert_eq!(unchanged_id(&after_pinned), Some("20260101-000400-eeee"));
+    }
+
+    /// Restoring a safety backup nests the names; each one still fits, and a short name is
+    /// kept whole.
+    #[test]
+    fn safety_backup_names_fit() {
+        let (_dir, store, root) = setup();
+        write(&root, "world/level.dat", b"level");
+        let mut manifest = backup(
+            &store,
+            &root,
+            "20260101-000000-aaaa",
+            BackupKind::Manual,
+            &Matcher::new(&[]),
+        );
+        manifest.created = 1_767_225_600;
+        assert_eq!(
+            safety_backup_name(&manifest),
+            "Before restoring “2026-01-01 00:00 UTC”"
+        );
+        for _ in 0..10 {
+            let name = safety_backup_name(&manifest);
+            assert!(name.chars().count() <= MAX_NAME_LEN, "{name}");
+            assert_eq!(check_backup_name(&name), Ok(Some(name.clone())));
+            manifest.name = Some(name);
+        }
+        let name = manifest.name.unwrap();
+        assert!(
+            name.starts_with("Before restoring “Before restoring “"),
+            "{name}"
+        );
+        assert!(name.ends_with("…”"), "{name}");
+    }
 
     fn service(dir: &Path) -> Arc<BackupService> {
         Arc::new(BackupService::new(
