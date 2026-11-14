@@ -26,7 +26,7 @@ use std::io::Write;
 
 use serde::Serialize;
 use serde_json::Value;
-use sha2::{Digest, Sha256};
+use crate::sha256::Sha256;
 
 use crate::hex::lower_hex;
 use crate::manifest::{Entry, Image, Withheld, ENTRY_FIELDS, IMAGE_FIELDS};

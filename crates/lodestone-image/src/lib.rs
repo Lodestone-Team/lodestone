@@ -40,6 +40,7 @@ pub mod legacy;
 pub mod manifest;
 pub mod paths;
 pub mod settings;
+mod sha256;
 pub mod store;
 mod strings;
 pub mod view;

@@ -67,7 +67,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime};
 
-use sha2::{Digest, Sha256};
+use crate::sha256::Sha256;
 
 use crate::hex::{is_sha256, sha256_hex};
 use crate::identity::IdentityError;

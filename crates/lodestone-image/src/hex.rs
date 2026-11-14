@@ -1,6 +1,6 @@
 //! Hashes as lowercase hex, the way manifests, Modrinth and `.mrpack` indexes write them.
 
-use sha2::{Digest, Sha256};
+use crate::sha256::Sha256;
 
 /// The SHA-256 of `bytes`, as 64 lowercase hex characters.
 pub fn sha256_hex(bytes: &[u8]) -> String {

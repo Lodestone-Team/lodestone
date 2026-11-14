@@ -23,7 +23,7 @@ use std::fs::{self, File};
 use std::io::{self, BufWriter, Read};
 use std::path::{Path, PathBuf};
 
-use sha2::{Digest, Sha256};
+use crate::sha256::Sha256;
 
 use crate::layout::{join_disk, DiskLayout};
 use crate::manifest::{Entry, Image};

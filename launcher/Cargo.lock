@@ -3249,9 +3249,9 @@ name = "lodestone_image"
 version = "0.5.1"
 dependencies = [
  "flate2",
+ "ring",
  "serde",
  "serde_json",
- "sha2",
  "thiserror 2.0.17",
  "walkdir",
  "zip",
