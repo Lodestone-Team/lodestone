@@ -218,6 +218,38 @@ pub(crate) fn forward(port: u16, local_ip: Ipv4Addr) -> Option<portmap::Mapping>
     }
 }
 
+/// The router's forwarding of `port` once a host collected its addresses again: renews
+/// `old`, or asks for it again when renewing fails or this computer is on another network
+/// now (`lan_v4` is its address on the local network now, `was_lan_v4` before). Asks
+/// afresh, with `portmap`, only when the network changed: a router that refused once
+/// refuses again. Blocking.
+#[cfg(feature = "host")]
+pub(crate) fn reforward(
+    old: Option<portmap::Mapping>,
+    port: u16,
+    lan_v4: Option<Ipv4Addr>,
+    was_lan_v4: Option<Ipv4Addr>,
+    portmap: bool,
+) -> Option<portmap::Mapping> {
+    match (old, lan_v4) {
+        (Some(old), Some(lan)) if old.local_ip() == lan => match old.renew() {
+            Ok(()) => Some(old),
+            Err(err) => {
+                tracing::debug!("couldn't renew the router's forwarding: {err}");
+                old.remove();
+                forward(port, lan)
+            }
+        },
+        // on another network now
+        (Some(old), lan) => {
+            old.remove();
+            lan.and_then(|lan| forward(port, lan))
+        }
+        (None, Some(lan)) if portmap && lan_v4 != was_lan_v4 => forward(port, lan),
+        (None, _) => None,
+    }
+}
+
 /// [`gather`] on a blocking thread.
 pub async fn gather_async(options: GatherOptions) -> Result<Gathered> {
     tokio::task::spawn_blocking(move || gather(options))

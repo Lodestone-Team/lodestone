@@ -6,7 +6,7 @@
 //!
 //! The gate also takes the answers to STUN requests sent from the socket
 //! ([`Gate::mapped_address`]), so the host can learn its public address again while QUIC
-//! owns the socket.
+//! owns the socket. The invite host uses it for that alone, letting everyone in.
 
 use std::{
     collections::HashMap,
