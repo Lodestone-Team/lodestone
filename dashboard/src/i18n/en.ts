@@ -1342,6 +1342,8 @@ export const en = {
   /** the placeholder of the folder name field */
   'files.createFolder.placeholder': 'Untitled folder',
   'files.createFolder.submit': 'Create folder',
+  /** New file or New folder with the name of something already in the folder */
+  'files.nameTaken': '{name} already exists in this folder',
   /** the new name of a file or folder */
   'files.rename.label': 'Name your file',
   'files.rename.submit': 'Rename file',

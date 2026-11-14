@@ -1,6 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query';
 import Button from 'components/Atoms/Button';
 import InputField from 'components/Atoms/Form/InputField';
+import { isNameTaken } from 'data/FileSystem';
 import { InstanceContext } from 'data/InstanceContext';
 import { Form, Formik, FormikHelpers } from 'formik';
 import { useContext } from 'react';
@@ -37,6 +38,22 @@ export default function CreateFolderForm({
         actions: FormikHelpers<{ name: string }>
       ) => {
         actions.setSubmitting(true);
+        // something of that name is already there: say so, like New file does
+        if (
+          await isNameTaken(
+            queryClient,
+            instance.uuid,
+            path,
+            values.name,
+            directorySeparator
+          )
+        ) {
+          actions.setErrors({
+            name: t('files.nameTaken', { name: values.name }),
+          });
+          actions.setSubmitting(false);
+          return;
+        }
         const error = await createInstanceDirectory(
           instance.uuid,
           path,

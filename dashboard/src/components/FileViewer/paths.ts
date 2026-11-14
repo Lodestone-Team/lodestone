@@ -5,3 +5,25 @@
 export const getDirectorySeparator = (instancePath: string) =>
   // assume only linux paths contain /
   instancePath.includes('/') ? '/' : '\\';
+
+/**
+ * Whether the core's file system ignores case in names: Windows does, and so
+ * does macOS by default. `os` is the core's `/info` os (Rust's
+ * `std::env::consts::OS`); when it isn't known yet, a Windows-style separator
+ * is the best guess.
+ */
+export const coreIgnoresCase = (os: string | undefined, separator: string) =>
+  os ? os === 'windows' || os === 'macos' : separator === '\\';
+
+/**
+ * Whether a folder already has an entry called `name`. New file and New folder
+ * refuse such a name: creating a file over an existing one empties it.
+ */
+export const nameTaken = (
+  entries: readonly { name: string }[],
+  name: string,
+  ignoreCase: boolean
+) => {
+  const fold = (s: string) => (ignoreCase ? s.toLowerCase() : s);
+  return entries.some((entry) => fold(entry.name) === fold(name));
+};
