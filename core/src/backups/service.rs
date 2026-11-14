@@ -643,6 +643,12 @@ impl BackupService {
         &self.store
     }
 
+    /// The store lock: jobs share it, garbage collection takes it alone. The image store
+    /// in the same folder shares it (`images::ImageService`).
+    pub fn store_lock(&self) -> Arc<RwLock<()>> {
+        self.store_lock.clone()
+    }
+
     /// Resolves once a server's schedule was saved since the last call (or is, if none
     /// was): the scheduler waits on this while no server has scheduled backups on.
     pub async fn schedule_changed(&self) {

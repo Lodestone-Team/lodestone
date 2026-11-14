@@ -1,0 +1,790 @@
+//! Recording content images: one per operation, written only after it succeeded.
+//!
+//! A Lodestone action that changes a server's content wraps its work in an [`Operation`]
+//! ([`ImageService::begin`]): it holds the instance's content gate shared, so no record
+//! reads its files halfway. [`Operation::succeed`] queues its label; dropping it without
+//! succeeding records nothing (a failed operation's leftovers are found by the check before
+//! the next start). Queued labels are recorded together once nothing more has succeeded
+//! for [`MERGE_WINDOW`], or at the latest [`MAX_DEFER`] after the first: a job (Update all)
+//! and changes made within a few seconds of it are one image, labelled with what each did.
+//! The modpack code, which needs the image's id, records at once
+//! ([`Operation::succeed_and_record`]), and so do a backup, a start and a modpack operation
+//! that must see the content as it is ([`ImageService::flush`]).
+//!
+//! A record takes the gate alone and then the instance's lock, snapshots the server's
+//! content ([`super::scope`], the policy's excludes as canonical patterns, the "content"
+//! stat cache so only changed files are read, one thread while the server runs), builds
+//! the image (base, sources and `env` from what is known: [`super::base`],
+//! [`super::env`]), and seals it. The same contents give the same id: then nothing is
+//! written but the baseline. Otherwise the manifest is saved (the store makes its objects
+//! durable first, then writes it to a temporary file and renames it), then the pointer
+//! and baseline ([`super::state`]), then the stat cache, then old manifests are pruned. A
+//! failure before the manifest is saved writes nothing and keeps the labels queued for the
+//! next try; a crash after it leaves the old pointer, which the next record moves.
+//!
+//! A collection running at the same time can take an object the snapshot was about to
+//! name; saving then fails as missing (the store never names what it lost), and the record
+//! is taken again once.
+
+use std::collections::{BTreeMap, HashMap};
+use std::path::Path;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+
+use lodestone_image::manifest::{App, MAX_TEXT_LEN};
+use lodestone_image::store::snapshot::{self, Snapshot, SnapshotOptions};
+use lodestone_image::store::{Store, StoreError};
+use lodestone_image::{DiskLayout, Entry, Image, Kind, Producer, Source};
+use sha1::Digest;
+use tokio::sync::OwnedRwLockReadGuard;
+use tracing::warn;
+
+use crate::error::Error;
+use crate::types::InstanceUuid;
+
+use super::base::{BaseFile, BaseInfo};
+use super::env::{self, JarFacts, ModrinthHint};
+use super::excludes::canonical_excludes;
+use super::layout::{game_of, server_layout, server_settings, InstanceContext};
+use super::scope::{content_filter, SCOPE_RULES};
+use super::state::ContentState;
+use super::{blocking, ImageService, Slot};
+
+/// Successes this close together are one image.
+pub const MERGE_WINDOW: Duration = Duration::from_secs(3);
+/// Queued labels are recorded at the latest this long after the first, however busy.
+pub const MAX_DEFER: Duration = Duration::from_secs(30);
+/// The stat cache content records keep, apart from the backups' ("data").
+pub const CONTENT_STAT_CACHE: &str = "content";
+/// The label of the first image of a server.
+pub const INITIAL_LABEL: &str = "Content when Lodestone began recording";
+/// The label of an image the before-start check records.
+pub const OUTSIDE_LABEL: &str = "Changed outside Lodestone";
+
+/// What kind of operation changed the content.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum OpKind {
+    /// The Mods tab: install, update, upload, enable, disable, remove.
+    Mods,
+    /// A "For players" mark.
+    ClientMark,
+    /// The Files API in content folders.
+    Files,
+    /// A modpack install, update or restore.
+    Modpack,
+    /// A backup restored in place.
+    Restore,
+    /// A loader version change.
+    VersionChange,
+    /// Server settings that rewrite `server.properties`.
+    Settings,
+    /// A new server.
+    Created,
+    /// Found by the check before a start.
+    Outside,
+    /// The first image of a server that had none.
+    Initial,
+}
+
+/// What a record did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Recorded {
+    /// The instance's current content image now.
+    pub id: String,
+    /// The image it was recorded after, if any.
+    pub parent: Option<String>,
+    /// Whether a new image was written (false: the content was what `id` already had).
+    pub changed: bool,
+}
+
+/// Labels waiting to be recorded, and when they came.
+#[derive(Debug, Default)]
+pub(crate) struct Pending {
+    labels: Vec<String>,
+    first: Option<Instant>,
+    last: Option<Instant>,
+    /// Whether a task is waiting to record them.
+    pub(crate) worker: bool,
+}
+
+impl Pending {
+    pub(crate) fn push(&mut self, label: String, now: Instant) {
+        if !label.is_empty() {
+            self.labels.push(label);
+        }
+        self.first.get_or_insert(now);
+        self.last = Some(now);
+    }
+
+    /// When the queued labels are due: [`MERGE_WINDOW`] after the last, or [`MAX_DEFER`]
+    /// after the first, whichever is sooner. `None` when nothing is queued.
+    pub(crate) fn deadline(&self) -> Option<Instant> {
+        let (first, last) = (self.first?, self.last?);
+        Some((last + MERGE_WINDOW).min(first + MAX_DEFER))
+    }
+
+    pub(crate) fn is_due(&self, now: Instant) -> bool {
+        self.deadline().is_some_and(|deadline| now >= deadline)
+    }
+
+    pub(crate) fn is_empty(&self) -> bool {
+        self.first.is_none()
+    }
+
+    /// Takes the queued labels.
+    pub(crate) fn take(&mut self) -> Vec<String> {
+        self.first = None;
+        self.last = None;
+        std::mem::take(&mut self.labels)
+    }
+
+    /// Puts labels a failed record took back in front, due at once on the next try.
+    pub(crate) fn restore(&mut self, mut labels: Vec<String>, now: Instant) {
+        labels.append(&mut self.labels);
+        self.labels = labels;
+        self.first.get_or_insert(now);
+        self.last.get_or_insert(now);
+    }
+
+    pub(crate) fn clear(&mut self) {
+        self.take();
+    }
+}
+
+/// A content-changing action in progress (see the module). Holds the instance's content
+/// gate shared until it ends. Never begin a second operation on the same instance while
+/// holding one: a record waiting between them would wait for both.
+#[must_use = "an operation records nothing unless it succeeds"]
+pub struct Operation {
+    service: Option<Arc<ImageService>>,
+    uuid: InstanceUuid,
+    kind: OpKind,
+    label: String,
+    gate: Option<OwnedRwLockReadGuard<()>>,
+}
+
+impl Operation {
+    pub fn kind(&self) -> OpKind {
+        self.kind
+    }
+
+    /// The operation succeeded: its label is recorded with whatever else succeeds within
+    /// the merge window.
+    pub fn succeed(mut self) {
+        if let Some(service) = self.service.take() {
+            service.queue(&self.uuid, std::mem::take(&mut self.label), true);
+        }
+    }
+
+    /// The operation succeeded: records now (with anything queued) and returns the image.
+    /// For callers that need the id, such as the modpack history.
+    pub async fn succeed_and_record(
+        mut self,
+        ctx: InstanceContext,
+    ) -> Result<Option<Recorded>, Error> {
+        let Some(service) = self.service.take() else {
+            return Ok(None);
+        };
+        service.queue(&self.uuid, std::mem::take(&mut self.label), false);
+        // The record takes the gate alone: let go of this operation's share first.
+        drop(self.gate.take());
+        service
+            .record(ctx, None, threads_for(&OpKind::Modpack))
+            .await
+    }
+}
+
+/// Threads a record of this kind hashes on: the default, but one for a server's first image
+/// (taken at startup, in the background).
+fn threads_for(kind: &OpKind) -> usize {
+    match kind {
+        OpKind::Initial => 1,
+        _ => 0,
+    }
+}
+
+impl ImageService {
+    /// Starts an operation on the instance's content; waits only while a record of it is
+    /// running. For an instance images aren't kept for, the operation does nothing.
+    pub async fn begin(
+        self: &Arc<Self>,
+        uuid: &InstanceUuid,
+        kind: OpKind,
+        label: impl Into<String>,
+    ) -> Operation {
+        let label = label.into();
+        if !Self::accepts(uuid) {
+            return Operation {
+                service: None,
+                uuid: uuid.clone(),
+                kind,
+                label,
+                gate: None,
+            };
+        }
+        let gate = self.slot(uuid).gate.clone().read_owned().await;
+        Operation {
+            service: Some(self.clone()),
+            uuid: uuid.clone(),
+            kind,
+            label,
+            gate: Some(gate),
+        }
+    }
+
+    /// Queues a label; with `spawn`, makes sure a task records it when it is due.
+    fn queue(self: &Arc<Self>, uuid: &InstanceUuid, label: String, spawn: bool) {
+        let slot = self.slot(uuid);
+        let now = self.clock.now();
+        let start = {
+            let mut pending = slot.pending.lock().unwrap_or_else(|e| e.into_inner());
+            pending.push(label, now);
+            let start = spawn && !pending.worker && tokio::runtime::Handle::try_current().is_ok();
+            if start {
+                pending.worker = true;
+            }
+            start
+        };
+        if start {
+            self.spawn_worker(uuid.clone(), slot);
+        }
+    }
+
+    /// Records the instance's queued labels when they are due, until none are queued.
+    fn spawn_worker(self: &Arc<Self>, uuid: InstanceUuid, slot: Arc<Slot>) {
+        let this = self.clone();
+        tokio::spawn(async move {
+            loop {
+                let deadline = {
+                    let mut pending = slot.pending.lock().unwrap_or_else(|e| e.into_inner());
+                    match pending.deadline() {
+                        Some(deadline) => deadline,
+                        None => {
+                            pending.worker = false;
+                            return;
+                        }
+                    }
+                };
+                this.clock.sleep_until(deadline).await;
+                let due = slot
+                    .pending
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .is_due(this.clock.now());
+                if !due {
+                    continue;
+                }
+                let Some(ctx) = this.context(&uuid).await else {
+                    // The server is gone.
+                    let mut pending = slot.pending.lock().unwrap_or_else(|e| e.into_inner());
+                    pending.clear();
+                    pending.worker = false;
+                    return;
+                };
+                if let Err(e) = this.flush(ctx).await {
+                    // The labels stay queued for the next operation, flush or start.
+                    warn!("Failed to record the content of {uuid}: {}", e.source);
+                    slot.pending
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .worker = false;
+                    return;
+                }
+            }
+        });
+    }
+
+    /// Records what is queued for the instance now, if anything (before a backup, a start
+    /// or a modpack operation).
+    pub async fn flush(self: &Arc<Self>, ctx: InstanceContext) -> Result<Option<Recorded>, Error> {
+        if !Self::accepts(&ctx.uuid) {
+            return Ok(None);
+        }
+        let empty = self
+            .slot(&ctx.uuid)
+            .pending
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .is_empty();
+        if empty {
+            return Ok(None);
+        }
+        self.record(ctx, None, 0).await
+    }
+
+    /// Records the instance's content now, labelled `label` (with anything queued).
+    pub async fn record_now(
+        self: &Arc<Self>,
+        ctx: InstanceContext,
+        kind: OpKind,
+        label: String,
+    ) -> Result<Option<Recorded>, Error> {
+        if !Self::accepts(&ctx.uuid) {
+            return Ok(None);
+        }
+        self.record(ctx, Some(label), threads_for(&kind)).await
+    }
+
+    /// Takes the gate alone and records (see the module). `fallback` labels the image when
+    /// nothing is queued.
+    pub(crate) async fn record(
+        self: &Arc<Self>,
+        ctx: InstanceContext,
+        fallback: Option<String>,
+        threads: usize,
+    ) -> Result<Option<Recorded>, Error> {
+        let slot = self.slot(&ctx.uuid);
+        let _gate = slot.gate.clone().write_owned().await;
+        let _lock = slot.lock.clone().lock_owned().await;
+        self.record_held(&slot, ctx, fallback, threads)
+            .await
+            .map(Some)
+    }
+
+    /// [`Self::record`] for a caller holding the gate alone and the instance's lock.
+    pub(crate) async fn record_held(
+        &self,
+        slot: &Slot,
+        ctx: InstanceContext,
+        fallback: Option<String>,
+        threads: usize,
+    ) -> Result<Recorded, Error> {
+        let mut labels = slot
+            .pending
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take();
+        if labels.is_empty() {
+            labels.extend(fallback);
+        }
+        match self.record_locked(&ctx, &labels, threads).await {
+            Ok(recorded) => Ok(recorded),
+            Err(e) => {
+                slot.pending
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .restore(labels, self.clock.now());
+                Err(e)
+            }
+        }
+    }
+
+    async fn record_locked(
+        &self,
+        ctx: &InstanceContext,
+        labels: &[String],
+        threads: usize,
+    ) -> Result<Recorded, Error> {
+        let threads = if ctx.running { 1 } else { threads };
+        let root = self.root.clone();
+        let uuid = ctx.uuid.clone();
+        let (state, base) = blocking(move || {
+            Ok((
+                super::state::load(&root, &uuid),
+                super::base::load_base(&root, &uuid),
+            ))
+        })
+        .await?;
+        let label = join_labels(labels);
+        let mut retried = false;
+        loop {
+            let built = self
+                .build(ctx, &state, base.as_ref(), label.clone(), threads)
+                .await?;
+            let Built {
+                image,
+                snapshot,
+                baseline,
+                hints,
+            } = built;
+            let mut next = ContentState {
+                current: Some(image.id.clone()),
+                recorded: image.created,
+                baseline,
+                scope_rules: SCOPE_RULES,
+                running_since: state.running_since,
+                modrinth: hints,
+            };
+            let store = self.store();
+            let id = ctx.uuid.clone();
+            let image_id = image.id.clone();
+            let have = blocking(move || {
+                Ok(store
+                    .manifest_path(id.as_ref(), &image_id)
+                    .is_ok_and(|path| path.is_file()))
+            })
+            .await?;
+            if have && state.current.as_deref() == Some(image.id.as_str()) {
+                // Nothing changed: keep the image's time, take the baseline again.
+                next.recorded = state.recorded;
+                self.save_state(ctx, next, snapshot).await?;
+                return Ok(Recorded {
+                    id: image.id,
+                    parent: image.parent,
+                    changed: false,
+                });
+            }
+            let store = self.store();
+            let id = ctx.uuid.clone();
+            let to_save = image.clone();
+            let saved =
+                blocking(move || Ok(store.save_manifest(id.as_ref(), &to_save).map(|_| ())))
+                    .await?;
+            match saved {
+                Ok(()) => {}
+                Err(StoreError::Missing(sha256)) if !retried => {
+                    // A collection took an object the snapshot relied on: take it again.
+                    warn!(
+                        "An object of the content of {} was collected while it was recorded ({sha256}); recording again",
+                        ctx.uuid
+                    );
+                    retried = true;
+                    continue;
+                }
+                Err(e) => {
+                    return Err(Error::from(color_eyre::eyre::eyre!(
+                        "Failed to save the content image of {}: {e}",
+                        ctx.uuid
+                    )))
+                }
+            }
+            self.save_state(ctx, next, snapshot).await?;
+            let pruned = self.prune_locked(&ctx.uuid).await.unwrap_or_else(|e| {
+                warn!("Failed to prune the images of {}: {}", ctx.uuid, e.source);
+                0
+            });
+            if pruned > 0 {
+                self.request_gc();
+            }
+            return Ok(Recorded {
+                id: image.id,
+                parent: image.parent,
+                changed: true,
+            });
+        }
+    }
+
+    /// Saves the pointer and baseline, then the content stat cache.
+    async fn save_state(
+        &self,
+        ctx: &InstanceContext,
+        next: ContentState,
+        snapshot: Snapshot,
+    ) -> Result<(), Error> {
+        let root = self.root.clone();
+        let store = self.store();
+        let uuid = ctx.uuid.clone();
+        blocking(move || {
+            super::state::save(&root, &uuid, &next)?;
+            if let Err(e) =
+                store.save_stat_cache_named(uuid.as_ref(), CONTENT_STAT_CACHE, &snapshot.cache)
+            {
+                // Only slower next time.
+                warn!("Failed to save the content stat cache of {uuid}: {e}");
+            }
+            Ok(())
+        })
+        .await
+    }
+
+    /// Snapshots the server's content and builds its image, sealed.
+    async fn build(
+        &self,
+        ctx: &InstanceContext,
+        state: &ContentState,
+        base: Option<&BaseInfo>,
+        label: Option<String>,
+        threads: usize,
+    ) -> Result<Built, Error> {
+        let (layout, excludes, snapshot, baseline) =
+            take_snapshot(self.store(), ctx.clone(), threads).await?;
+        let jar_paths: Vec<String> = snapshot
+            .entries
+            .iter()
+            .map(|e| e.path.to_string())
+            .collect();
+        let facts = env::jar_facts(ctx, &jar_paths).await;
+        let pack_files = match base {
+            Some(base) => matching_base_files(ctx, &layout, &snapshot.entries, base).await?,
+            None => HashMap::new(),
+        };
+        let has_pack = base.and_then(|b| b.base.as_ref()).is_some();
+        let mut hints = BTreeMap::new();
+        let mut entries = Vec::with_capacity(snapshot.entries.len());
+        for entry in &snapshot.entries {
+            let path = entry.path.to_string();
+            let fact = facts.get(&path);
+            let hint = fact.and_then(|f| f.sha512.as_ref()).and_then(|sha512| {
+                self.modrinth_hint(sha512)
+                    .or_else(|| state.modrinth.get(sha512).cloned())
+                    .map(|hint| (sha512.clone(), hint))
+            });
+            let pack_file = pack_files.get(&path);
+            entries.push(describe(
+                entry.clone(),
+                fact,
+                pack_file,
+                has_pack,
+                hint.as_ref().map(|(_, h)| h),
+            ));
+            if let Some((sha512, hint)) = hint {
+                hints.insert(sha512, hint);
+            }
+        }
+
+        let mut image = Image::new(Kind::Content, game_of(&ctx.game_version, &ctx.flavour));
+        snapshot.fill(&mut image);
+        image.entries = entries;
+        image.settings = server_settings(&ctx.flavour);
+        image.base = base.and_then(|b| b.base.clone());
+        image.excludes = excludes;
+        image.created = chrono::Utc::now().timestamp();
+        image.producer = Producer {
+            app: App::Core,
+            version: env!("CARGO_PKG_VERSION").to_string(),
+        };
+        image.label = label;
+        image.normalize();
+        image.seal();
+        image.parent = state.current.clone().filter(|current| *current != image.id);
+        image
+            .validate()
+            .map_err(|e| color_eyre::eyre::eyre!("The content image isn't valid: {e}"))?;
+        if !snapshot.too_long.is_empty() {
+            warn!(
+                "{} content files of {} have paths too long to record",
+                snapshot.too_long.len(),
+                ctx.uuid
+            );
+        }
+        Ok(Built {
+            image,
+            snapshot,
+            baseline,
+            hints,
+        })
+    }
+}
+
+struct Built {
+    image: Image,
+    snapshot: Snapshot,
+    baseline: BTreeMap<String, (u64, i64)>,
+    hints: BTreeMap<String, ModrinthHint>,
+}
+
+/// The server's disk layout and canonical excludes, for its content: blocking.
+pub(crate) fn content_scope(ctx: &InstanceContext) -> Result<(DiskLayout, Vec<String>), Error> {
+    let (layout, _) = server_layout(&ctx.root, &ctx.level_name, &ctx.flavour)?;
+    let excludes = match &layout {
+        DiskLayout::Server(server) => canonical_excludes(&ctx.policy_exclude, server).canonical,
+        DiskLayout::Client => Vec::new(),
+    };
+    Ok((layout, excludes))
+}
+
+/// Walks and stores the server's content files (see the module). Also returns the baseline:
+/// every content file the walk found, with the size and time it found, including those the
+/// snapshot then couldn't read, so the check before a start compares like with like.
+async fn take_snapshot(
+    store: Arc<Store>,
+    ctx: InstanceContext,
+    threads: usize,
+) -> Result<
+    (
+        DiskLayout,
+        Vec<String>,
+        Snapshot,
+        BTreeMap<String, (u64, i64)>,
+    ),
+    Error,
+> {
+    blocking(move || {
+        let (layout, excludes) = content_scope(&ctx)?;
+        let cache = store.load_stat_cache_named(ctx.uuid.as_ref(), CONTENT_STAT_CACHE);
+        let options = SnapshotOptions {
+            excludes: &excludes,
+            cache: Some(&cache),
+            threads,
+            filter: Some(&content_filter),
+            ..SnapshotOptions::default()
+        };
+        let plan = snapshot::plan(&store, &ctx.root, &layout, &options)
+            .map_err(|e| color_eyre::eyre::eyre!("Failed to read the server's content: {e}"))?;
+        crate::backups::store::require_free_space(
+            store.root(),
+            plan.bytes_to_read(),
+            "to record the server's content",
+        )?;
+        let baseline = plan
+            .cached
+            .iter()
+            .map(|(file, _)| file)
+            .chain(plan.to_read.iter())
+            .map(|file| (file.disk.clone(), (file.size, file.modified_ns)))
+            .collect();
+        let snapshot = snapshot::run(&store, plan, &options, &|_, _| {})
+            .map_err(|e| color_eyre::eyre::eyre!("Failed to record the server's content: {e}"))?;
+        Ok((layout, excludes, snapshot, baseline))
+    })
+    .await
+}
+
+/// The pack files among `entries` that still have the pack's bytes, by canonical path:
+/// matched by SHA-256 when `pack.json` has it, else by size and SHA-1 (read from disk).
+async fn matching_base_files(
+    ctx: &InstanceContext,
+    layout: &DiskLayout,
+    entries: &[Entry],
+    base: &BaseInfo,
+) -> Result<HashMap<String, BaseFile>, Error> {
+    let candidates: Vec<(String, String, Entry, BaseFile)> = entries
+        .iter()
+        .filter_map(|entry| {
+            let disk = layout.to_disk(&entry.path).ok()?;
+            let file = base.files.get(&disk)?;
+            Some((entry.path.to_string(), disk, entry.clone(), file.clone()))
+        })
+        .collect();
+    let root = ctx.root.clone();
+    blocking(move || {
+        let mut matched = HashMap::new();
+        for (path, disk, entry, file) in candidates {
+            let same = match &file.sha256 {
+                Some(sha256) => *sha256 == entry.sha256,
+                None => {
+                    file.size.is_none_or(|size| size == entry.size)
+                        && sha1_of(&lodestone_image::layout::join_disk(&root, &disk))
+                            .is_some_and(|sha1| sha1 == file.sha1)
+                }
+            };
+            if same {
+                matched.insert(path, file);
+            }
+        }
+        Ok(matched)
+    })
+    .await
+}
+
+fn sha1_of(path: &Path) -> Option<String> {
+    let mut file = std::fs::File::open(path).ok()?;
+    let mut hasher = sha1::Sha1::new();
+    std::io::copy(&mut file, &mut hasher).ok()?;
+    Some(
+        hasher
+            .finalize()
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect(),
+    )
+}
+
+/// An entry with its source and `env` from what is known of the file.
+fn describe(
+    mut entry: Entry,
+    facts: Option<&JarFacts>,
+    pack_file: Option<&BaseFile>,
+    has_pack: bool,
+    hint: Option<&ModrinthHint>,
+) -> Entry {
+    let sha512 = facts.and_then(|f| f.sha512.clone());
+    let pack_download = pack_file.and_then(|file| {
+        let source = Source::modrinth_from_url(file.modrinth_url.as_deref()?)?;
+        let sha512 = file.sha512.clone().filter(|s| env::is_sha512(s))?;
+        Some((source, sha512))
+    });
+    let hinted_download = hint.and_then(|hint| {
+        let source = Source::modrinth_from_url(hint.url.as_deref()?)?;
+        Some((source, sha512.clone()?))
+    });
+    if let Some((source, sha512)) = pack_download.or(hinted_download) {
+        entry.source = source;
+        entry.sha512 = Some(sha512);
+        entry.sha1 = pack_file
+            .map(|f| f.sha1.clone())
+            .filter(|sha1| sha1.len() == 40 && sha1.bytes().all(|b| b.is_ascii_hexdigit()))
+            .map(|sha1| sha1.to_ascii_lowercase());
+    } else if pack_file.is_some() && has_pack {
+        entry.source = Source::Base {};
+    } else {
+        entry.source = Source::Object {};
+    }
+    let inputs = env::inputs(facts, pack_file.and_then(|f| f.env), hint);
+    let (resolved, from) = lodestone_image::env::resolve(&inputs);
+    entry.env = resolved;
+    entry.env_from = from;
+    entry
+}
+
+/// The image's label: each operation's, in order, without repeats in a row, joined with
+/// "; " and cut to what an image may hold.
+pub(crate) fn join_labels(labels: &[String]) -> Option<String> {
+    let mut parts: Vec<String> = Vec::new();
+    for label in labels {
+        let clean: String = label
+            .chars()
+            .map(|c| if c.is_control() { ' ' } else { c })
+            .collect();
+        let clean = clean.trim().to_string();
+        if !clean.is_empty() && parts.last() != Some(&clean) {
+            parts.push(clean);
+        }
+    }
+    if parts.is_empty() {
+        return None;
+    }
+    let joined = parts.join("; ");
+    if joined.chars().count() <= MAX_TEXT_LEN {
+        return Some(joined);
+    }
+    let mut cut: String = joined.chars().take(MAX_TEXT_LEN - 1).collect();
+    cut.push('…');
+    Some(cut)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn labels_join_and_fit() {
+        assert_eq!(join_labels(&[]), None);
+        assert_eq!(
+            join_labels(&["Added JEI".into(), "Added JEI".into(), "Removed X\n".into()]),
+            Some("Added JEI; Removed X".into())
+        );
+        let long: Vec<String> = (0..500).map(|n| format!("Updated mod {n}")).collect();
+        let joined = join_labels(&long).unwrap();
+        assert_eq!(joined.chars().count(), MAX_TEXT_LEN);
+        assert!(joined.ends_with('…'));
+    }
+
+    #[test]
+    fn pending_merges_within_the_window_and_caps() {
+        let start = Instant::now();
+        let mut pending = Pending::default();
+        assert_eq!(pending.deadline(), None);
+        pending.push("a".into(), start);
+        assert_eq!(pending.deadline(), Some(start + MERGE_WINDOW));
+        pending.push("b".into(), start + Duration::from_secs(2));
+        assert_eq!(
+            pending.deadline(),
+            Some(start + Duration::from_secs(2) + MERGE_WINDOW)
+        );
+        assert!(!pending.is_due(start + Duration::from_secs(4)));
+        assert!(pending.is_due(start + Duration::from_secs(5)));
+        // However busy, the first label waits at most MAX_DEFER.
+        let mut busy = Pending::default();
+        for second in 0..40 {
+            busy.push(format!("{second}"), start + Duration::from_secs(second));
+        }
+        assert_eq!(busy.deadline(), Some(start + MAX_DEFER));
+        assert_eq!(busy.take().len(), 40);
+        assert!(busy.is_empty());
+        // Labels a failed record took go back in front.
+        busy.push("later".into(), start);
+        busy.restore(vec!["first".into()], start);
+        assert_eq!(busy.take(), vec!["first".to_string(), "later".to_string()]);
+    }
+}

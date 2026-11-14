@@ -206,6 +206,21 @@ pub enum Source {
     Object {},
 }
 
+impl Source {
+    /// The `modrinth` source of a file downloaded from `url`, when it is a Modrinth CDN
+    /// file URL (`https://cdn.modrinth.com/data/<project>/versions/<version>/<file>`):
+    /// project and version come from the URL. `None` for anything else, which callers
+    /// record as an `object`. The entry still needs the file's `sha512`.
+    pub fn modrinth_from_url(url: &str) -> Option<Source> {
+        let (project, version) = crate::legacy::core_modpack::modrinth_cdn_ids(url)?;
+        Some(Source::Modrinth {
+            project: project.to_string(),
+            version: version.to_string(),
+            url: url.to_string(),
+        })
+    }
+}
+
 /// One file of an image. Read by hand, so unknown fields are kept within a budget
 /// ([`ENTRY_UNKNOWN`]) instead of being buffered.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -1252,5 +1267,27 @@ pub(crate) mod tests {
         .unwrap();
         assert_eq!(parsed.mode, 0o644);
         assert_eq!(parsed.env, Env::UNKNOWN);
+    }
+
+    #[test]
+    fn modrinth_sources_come_from_cdn_urls() {
+        let url = "https://cdn.modrinth.com/data/AANobbMI/versions/u1OtTp2l/sodium.jar";
+        assert_eq!(
+            Source::modrinth_from_url(url),
+            Some(Source::Modrinth {
+                project: "AANobbMI".into(),
+                version: "u1OtTp2l".into(),
+                url: url.into(),
+            })
+        );
+        for other in [
+            "https://cdn.modrinth.com/data/AANobbMI/versions/u1OtTp2l/",
+            "https://example.com/data/a/versions/b/x.jar",
+            "http://cdn.modrinth.com/data/a/versions/b/x.jar",
+            "https://cdn.modrinth.com/data/a/versions/b/x\ny.jar",
+            "",
+        ] {
+            assert_eq!(Source::modrinth_from_url(other), None, "{other:?}");
+        }
     }
 }

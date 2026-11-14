@@ -398,7 +398,10 @@ Content-addressed, shared by every instance on one machine:
 <root>/lists/ab/<sha256>          chunk lists of large files, by the file's SHA-256
 <root>/chunks/ab/<sha256>         chunks of large files
 <root>/images/<instance>/<id>.json
-<root>/images/<instance>/stat-cache.json
+<root>/images/<instance>/stat-cache.json            the backups' (data) stat cache
+<root>/images/<instance>/stat-cache.<name>.json     other named stat caches (the core's "content")
+<root>/images/<instance>/content-state.json         the core: current content image and baseline
+<root>/images/<instance>/pack.json                  the core: the pack a server is built on
 <root>/{objects,lists,chunks,images/<instance>}/.incoming-<16 hex>.tmp    writes in flight
 ```
 
@@ -467,7 +470,11 @@ Content-addressed, shared by every instance on one machine:
 - A stat cache (path, size, mtime, older than scan start minus 2 s) skips rehashing
   unchanged files, as backups already do; the Launcher gains it too. It is kept per
   instance next to its manifests, keyed by the path relative to the folder walked, and is
-  only an optimization: a missing or odd one hashes everything again.
+  only an optimization: a missing or odd one hashes everything again. Snapshots that walk
+  different parts of a folder keep one each (`Store::load_stat_cache_named`: `data` is
+  `stat-cache.json`, any other name of 1 to 32 of `a-z 0-9 -` is
+  `stat-cache.<name>.json`), so a content snapshot never replaces the backups' cache and
+  makes the next backup hash every world again.
 - A manifest is a file named `<id>.json` in its instance's folder (instance ids are 1 to
   100 of `A-Z a-z 0-9 - _`, not a Windows device name); other files there aren't
   manifests. Loading one checks its contents hash to the id in its name. Callers must use
@@ -889,3 +896,103 @@ Per format:
    sessions optional; restore with linked content.
 6. Moving images between computers (Host to Host, Launcher to Host, Host to Launcher,
    Launcher to Launcher) and a full-image option in the UI.
+
+### M2 decisions
+
+Decisions milestone 2 made where this document left the core's behaviour open. Each part
+of M2 adds its own subsection.
+
+#### Foundation: the core's images service (`core/src/images/`)
+
+- **One store, one collector.** The core's image store is the backup folder, zstd encoded
+  (`ImageService`, sharing the backups' `store_lock`). `ImageService::collect_blocking` is
+  the folder's only collector: `Store::gc_with_older_formats` with a reader of
+  `servers/<id>/*.json` (skipping `.images/`, `policy.json`, `restore-journal.json` and
+  files not ending in `.json`). It reads a manifest with a missing schema, 0 or 1 as
+  leniently as the old collector did (`files[].sha256`), so whatever that kept is kept; a
+  schema-2 file there is a backup record, and the reader keeps the SHA-256 of each item of
+  its `unmapped` and `carried` lists (each an object with at least `sha256`), the objects
+  saving its image never claims. Anything else (unreadable, not a JSON object, another
+  schema) refuses the collection. The caller holds `store_lock` exclusively around the call;
+  the reader takes no lock. Until the backups part calls it, the old collector refuses as
+  soon as the guard exists (it then frees no space, and logs that it refused).
+- **What content is.** Content is an allowlist (`images/scope.rs`), since data is "worlds and
+  everything else": everything in `mods/`, `config/`, `defaultconfigs/`, `kubejs/`,
+  `libraries/` and `versions/`; `plugins/*.jar` and `*.jar.disabled` and the config files
+  (`yml`, `yaml`, `toml`, `json`, `json5`, `properties`, `conf`, `cfg`, `txt`) directly in a
+  plugin's folder (deeper plugin folders hold what plugins write while the game runs); the
+  top-level `*.jar`, `server.properties`, `eula.txt`, `ops.json`, `whitelist.json`, `run.sh`,
+  `run.bat`, `user_jvm_args.txt`, `bukkit.yml`, `spigot.yml`, `paper.yml`, `purpur.yml`,
+  `pufferfish.yml`, `commands.yml`, `help.yml` and `permissions.yml`. Never content: any name
+  starting with `.lodestone` at any depth (folded, like every guarding name; the "For
+  players" marks become each jar's `owner_mark`) and world files. Names match ignoring ASCII
+  case. The rules have a version (`SCOPE_RULES`); a baseline taken under other rules is
+  taken again rather than compared.
+- **Snapshots can be narrowed and report what they can't map** (shared crate):
+  `SnapshotOptions::filter` decides per file or folder (`Candidate`: disk path, canonical
+  path when there is one, folder or not) what the snapshot takes at all; what it turns down
+  is skipped silently and is not written into `excludes`. `Snapshot::unmapped` lists the
+  regular files withheld as `bad_name` (a name no canonical path has, or a file the layout
+  can't place back: a vanilla `DIM-1` in a Paper level, a server folder named `saves`,
+  `options.txt` or `resourcepacks/` on a server, a world named like `mods`), with disk path,
+  size, time and mode, including the files inside a folder withheld once for its name, so a
+  backup can still keep what schema-1 backups kept.
+- **One way to find a server's worlds.** `ServerLayout::discover` (the level, then each
+  top-level folder with a `level.dat` that keeps the layout valid; an unused level name when
+  `level-name` can't be a world) is what the core's records and the schema-1 reader use.
+- **Backup excludes as image excludes.** A policy's server-disk patterns are translated to
+  canonical ones (`images/excludes.rs`): non-world paths as they are, `<world>/x` to
+  `saves/<world>/x`, a Paper level's `<level>_nether/DIM-1/x` to `saves/<level>/DIM-1/x` and
+  its other files to `saves/<level>/.bukkit_nether/x` (`_the_end` likewise), a root glob
+  that matches worlds also as `saves/<world>/…`. A translation may leave out less than the
+  policy did, never more: a pattern with no safe form (one that could match `saves`, or the
+  split level's own folder, whose canonical folder also holds the Nether and the End) is left
+  out of the image's excludes, and matching becomes case-sensitive. Tested over every pattern
+  shape against the backups' own matcher.
+- **Content images in the core.** An operation (`ImageService::begin`) holds the
+  instance's content gate shared while it changes files; a record holds it alone, so it
+  never reads a half-written file (tokio's fair lock makes new operations wait for a waiting
+  record). Successes are merged until 3 s pass without one, or 30 s after the first at the
+  latest; a failed operation (dropped without `succeed`) records nothing. A record snapshots
+  the content scope with the policy's translated excludes (written into the image's
+  `excludes`) and the `content` stat cache, on one thread while the server runs; the image's
+  game is the server's (Paper and Spigot: `vanilla`), its settings only the flavour for now,
+  and its `parent` the current image. Recording the same contents again writes no manifest.
+  Every file is listed as an entry, the pack's too, with explicit sources as the converted
+  records have: `modrinth` for a pack download whose bytes are the pack's (or a file whose
+  SHA-512 Lodestone matched to a Modrinth CDN file while installing or listing mods), `base`
+  for another unchanged pack file, `object` otherwise. The image's `base` is the pack in
+  `pack.json` (written by the modpack code), or none (not `loader`) when there is none, since
+  the core can't tell a plain server from a pack server whose pack wasn't recorded yet.
+- **`env` without the network.** The inputs are the owner's mark (marked for players:
+  client `required`; left out of the client pack: client `unsupported`), the pack index's
+  `env` from `pack.json` for files that still have the pack's bytes, what Modrinth said
+  about the file's version when Lodestone fetched it anyway (kept with the content state by
+  SHA-512, so ids don't change across restarts), and the jar's `fabric.mod.json`. Nothing is
+  fetched while recording; an unknown input stays unknown.
+- **Order of writes.** Manifest (the store flushes what it names, then temp file and
+  rename), then `content-state.json` (pointer and baseline), then the content stat cache,
+  then pruning. A crash in between leaves the old pointer; the next record finds the same id
+  and moves it. A pointer whose manifest went missing is saved again. A save that fails as
+  missing (a collection took an object the snapshot relied on) is recorded again once. The
+  small files are written through `.incoming-<16 hex>.tmp`, which the store's sweep deletes
+  after a crash.
+- **The check before a start.** It records what is queued, then compares each content
+  file's size and modification time with the baseline (no file is read) and records
+  "Changed outside Lodestone" when they differ. It waits at most 10 s for an operation in
+  progress and never fails a start. When a server stops, the baseline is taken again
+  without an image, so what the server wrote while it ran joins the next image an operation
+  records; a core that died while its server ran (`running_since` still set) does the same
+  at its next start. A server with no content image gets "Content when Lodestone began
+  recording": at startup when it is stopped (one at a time, one thread), else when it stops.
+  The baseline is what the walk found, so a file that can't be read doesn't make every
+  check fire.
+- **Retention.** Under the instance's lock: keep every image a registered `ImageRefs`
+  source names (the backups' records, the modpack history), the current pointer, the
+  `content` of each kept data image, and the newest 30 content images by `created`; delete
+  the other readable manifests, keep unreadable ones, and delete nothing if a source fails.
+  A data image no source names is deleted (its backup was). Pruning that deleted something
+  asks for a collection.
+- **Deleting a server** deletes `images/<uuid>/` (`ImageService::delete_instance`); its
+  objects go at the next collection.
+

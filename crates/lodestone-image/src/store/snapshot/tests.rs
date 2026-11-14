@@ -625,9 +625,11 @@ fn a_path_too_long_to_withhold_is_reported_instead() {
     // and Linux can't make one, so the walk's withholding is fed one directly.
     let mut withheld = Vec::new();
     let mut too_long = Vec::new();
+    let mut unmapped = Vec::new();
     let mut withholding = super::Withholding {
         withheld: &mut withheld,
         too_long: &mut too_long,
+        unmapped: &mut unmapped,
     };
     let long = vec!["文".repeat(85); 17].join("/");
     assert!(long.len() > crate::paths::MAX_PATH_BYTES);
@@ -638,6 +640,108 @@ fn a_path_too_long_to_withhold_is_reported_instead() {
     // An image with what was withheld stays valid.
     let mut image = Image::new(Kind::Data, crate::manifest::tests::fabric());
     image.withheld = withheld;
+    image.seal();
+    image.validate().unwrap();
+}
+
+#[test]
+fn a_filter_narrows_the_snapshot_quietly() {
+    let (dir, store) = store(Encoding::Raw);
+    let root = dir.path().join("server");
+    write(&root, "server.properties", b"level-name=world");
+    write(&root, "mods/a.jar", b"mod");
+    write(&root, "mods/bad:name.jar", b"bad");
+    write(&root, "config/a.toml", b"config");
+    write(&root, "world/level.dat", b"overworld");
+    write(&root, "world/DIM-1/region/r.0.0.mca", b"stale");
+    write(&root, "world_nether/DIM-1/region/r.0.0.mca", b"nether");
+    write(&root, "world_nether/level.dat", b"nether level");
+    write(&root, "saves/oops.txt", b"x");
+    let layout = DiskLayout::Server(ServerLayout::new("world", [], true).unwrap());
+    let offered = Mutex::new(Vec::new());
+    let filter = |candidate: &Candidate| {
+        if let Ok(mut offered) = offered.lock() {
+            offered.push((candidate.disk.to_string(), candidate.is_dir));
+        }
+        let top = candidate.disk.split('/').next().unwrap_or("");
+        matches!(top, "mods" | "config" | "server.properties")
+    };
+    let options = SnapshotOptions {
+        filter: Some(&filter),
+        ..SnapshotOptions::default()
+    };
+    let snapshot = snapshot(&store, &root, &layout, &options).unwrap();
+    assert_eq!(
+        paths(&snapshot),
+        vec!["config/a.toml", "mods/a.jar", "server.properties"]
+    );
+    // Only what the filter takes is withheld or unmapped.
+    assert_eq!(withheld(&snapshot), vec![("mods/bad:name.jar", "bad_name")]);
+    assert_eq!(
+        snapshot
+            .unmapped
+            .iter()
+            .map(|f| f.disk.as_str())
+            .collect::<Vec<_>>(),
+        vec!["mods/bad:name.jar"]
+    );
+    // Folders turned down aren't walked.
+    let offered = offered.into_inner().unwrap();
+    assert!(offered.contains(&("world".to_string(), true)));
+    assert!(!offered.iter().any(|(disk, _)| disk.starts_with("world/")));
+    assert!(!offered
+        .iter()
+        .any(|(disk, _)| disk.starts_with("world_nether/")));
+}
+
+#[test]
+fn files_the_layout_cant_name_are_reported_as_unmapped() {
+    let (dir, store) = store(Encoding::Raw);
+    let root = dir.path().join("server");
+    write(&root, "server.properties", b"level-name=world");
+    write(&root, "world/level.dat", b"overworld");
+    // A vanilla dimension left in a split level, a folder named saves, client-only files
+    // on a server, a name no canonical path has, and a folder withheld for its name.
+    write(&root, "world/DIM-1/region/r.0.0.mca", b"stale");
+    write(&root, "saves/oops.txt", b"x");
+    write(&root, "options.txt", b"fov:90");
+    write(&root, "resourcepacks/pack.zip", b"zip");
+    write(&root, "notes?.txt", b"q");
+    write(&root, "aux/inner/deep.txt", b"aux");
+    write(&root, "logs/latest.log", b"log");
+    let layout = DiskLayout::Server(ServerLayout::new("world", [], true).unwrap());
+    let snapshot = snapshot(&store, &root, &layout, &SnapshotOptions::default()).unwrap();
+    assert_eq!(
+        paths(&snapshot),
+        vec!["saves/world/level.dat", "server.properties"]
+    );
+    let unmapped: Vec<(&str, u64)> = snapshot
+        .unmapped
+        .iter()
+        .map(|f| (f.disk.as_str(), f.size))
+        .collect();
+    assert_eq!(
+        unmapped,
+        vec![
+            ("aux/inner/deep.txt", 3),
+            ("notes?.txt", 1),
+            ("options.txt", 6),
+            ("resourcepacks/pack.zip", 3),
+            ("saves/oops.txt", 1),
+            ("world/DIM-1/region/r.0.0.mca", 5),
+        ]
+    );
+    for file in &snapshot.unmapped {
+        assert!(file.modified_ns > 0);
+        assert!(file.mode & 0o400 != 0);
+    }
+    // The folder withheld for its name is one withheld record.
+    let withheld = withheld(&snapshot);
+    assert!(withheld.contains(&("aux", "bad_name")), "{withheld:?}");
+    assert!(!withheld.iter().any(|(path, _)| path.starts_with("aux/")));
+    // The image stays valid.
+    let mut image = Image::new(Kind::Data, fabric());
+    snapshot.fill(&mut image);
     image.seal();
     image.validate().unwrap();
 }

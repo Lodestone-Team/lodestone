@@ -30,7 +30,7 @@ use crate::hex::is_sha256;
 use crate::layout::{DiskLayout, ServerLayout};
 use crate::manifest::{App, Game, Image, Kind, Loader, Producer, Source, Withheld, WithheldReason};
 use crate::manifest::{Entry, World};
-use crate::paths::{same_name, MAX_PATH_BYTES};
+use crate::paths::MAX_PATH_BYTES;
 use crate::settings::{ServerFlavour, ServerSettings, Settings};
 use crate::store::StatCache;
 
@@ -579,72 +579,39 @@ fn skip_reason_back(reason: &WithheldReason) -> Option<SkipReason> {
 }
 
 /// The server's disk layout as the backup shows it, and whether the level is a world
-/// images can name. The worlds are the level and every other top-level folder with a
-/// `level.dat` (not the split level's own `_nether` and `_the_end` folders). When the level
-/// can't be a world (no `level_name`, or one like `worlds/survival`), the layout gets a level
-/// no file is in, so every file keeps its disk path.
+/// images can name ([`ServerLayout::discover`], from the backup's top-level names and the
+/// top-level folders it has a `level.dat` in).
 fn server_layout(
     manifest: &Manifest,
     flavour: &ServerFlavour,
 ) -> Result<(ServerLayout, bool), LegacyError> {
-    let split = flavour.splits_worlds();
-    let tops: BTreeSet<&str> = manifest
+    let tops: BTreeSet<String> = manifest
         .files
         .iter()
         .filter_map(|f| f.path.split('/').next())
+        .map(str::to_string)
         .collect();
-    let real_level = manifest
-        .level_name
-        .clone()
-        .filter(|level| ServerLayout::new(level.clone(), [], split).is_ok());
-    let level_is_world = real_level.is_some();
-    let level = real_level.unwrap_or_else(|| unused_level(&tops));
-    let candidates: BTreeSet<&str> = manifest
+    let with_level_dat: BTreeSet<String> = manifest
         .files
         .iter()
         .filter_map(|f| f.path.strip_suffix("/level.dat"))
-        .filter(|folder| !folder.contains('/') && *folder != level)
+        .filter(|folder| !folder.contains('/'))
+        .map(str::to_string)
         .collect();
-    // One at a time, each only if the layout still holds with it: one folder that can't be
-    // a world (`mods/level.dat`), or one whose name differs only in letter case from a
-    // world already taken (`survival` beside `Survival`, possible on Linux), doesn't keep
-    // the others from being worlds or fail the whole conversion; its files become layout
-    // conflicts, withheld as `bad_name`.
-    let mut others: Vec<String> = Vec::new();
-    for world in candidates {
-        let mut with = others.clone();
-        with.push(world.to_string());
-        if ServerLayout::new(level.clone(), with.iter().cloned(), split).is_ok() {
-            others = with;
-        }
-    }
-    let layout = ServerLayout::new(level, others, split)
-        .map_err(|e| LegacyError::Invalid(format!("its worlds: {e}")))?;
-    Ok((layout, level_is_world))
-}
-
-/// A level name that no top-level file or folder has, nor its split folders, compared
-/// ignoring letter case as the layout compares world names (a backup's `World/` is in a
-/// level named `world` on most disks).
-fn unused_level(tops: &BTreeSet<&str>) -> String {
-    let taken = |name: &str| tops.iter().any(|top| same_name(top, name));
-    let free = |name: &str| {
-        !taken(name) && !taken(&format!("{name}_nether")) && !taken(&format!("{name}_the_end"))
-    };
-    if free("world") {
-        return "world".to_string();
-    }
-    // There are fewer top-level names than numbers to try, so this ends.
-    (1u64..)
-        .map(|n| format!("world{n}"))
-        .find(|name| free(name))
-        .unwrap_or_else(|| "world".to_string())
+    ServerLayout::discover(
+        manifest.level_name.as_deref(),
+        &tops,
+        &with_level_dat,
+        flavour.splits_worlds(),
+    )
+    .map_err(|e| LegacyError::Invalid(format!("its worlds: {e}")))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::legacy::TestRng;
+    use crate::paths::same_name;
     use crate::store::statcache::RACY_NS;
 
     fn hash(n: usize) -> String {

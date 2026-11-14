@@ -9,6 +9,8 @@
 //!   chunks/ab/<sha256>               the chunks of large files (see `cdc`, `chunklist`)
 //!   images/<instance>/<id>.json      one manifest per image
 //!   images/<instance>/stat-cache.json   what the last snapshot read (`statcache`)
+//!   images/<instance>/stat-cache.<name>.json   the same for snapshots of another part
+//!                                    of the folder ([`Store::load_stat_cache_named`])
 //!   images/collection.lock           held by GC, and by older formats' writers (`gc`)
 //!   objects/.incoming-<16 hex>.tmp   writes in flight (also in lists/, chunks/ and
 //!                                    images/…/), swept once an hour old
@@ -104,6 +106,23 @@ const CLAIM_STILL_GOOD: Duration = Duration::from_secs(300);
 /// Recent claims remembered at most; past this, saving claims everything again.
 const MAX_REMEMBERED_CLAIMS: usize = 2_000_000;
 const STAT_CACHE_FILE: &str = "stat-cache.json";
+/// The stat cache [`Store::load_stat_cache`] and [`Store::save_stat_cache`] use.
+pub const DATA_STAT_CACHE: &str = "data";
+
+/// The file of the stat cache called `name` in an instance's folder: `stat-cache.json` for
+/// [`DATA_STAT_CACHE`], `stat-cache.<name>.json` for any other name of 1 to 32 lowercase
+/// letters, digits and `-`. `None` for other names. None of them is a manifest's name
+/// (`<sha256>.json`).
+pub fn stat_cache_file(name: &str) -> Option<String> {
+    if name == DATA_STAT_CACHE {
+        return Some(STAT_CACHE_FILE.to_string());
+    }
+    let valid = (1..=32).contains(&name.len())
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-');
+    valid.then(|| format!("stat-cache.{name}.json"))
+}
 
 /// A claimed object: its SHA-256 as bytes (half a hex string's size) and its size.
 type ClaimKey = ([u8; 32], u64);
@@ -1152,18 +1171,45 @@ impl Store {
     /// The instance's stat cache; empty when there is none or it can't be read (then every
     /// file is hashed again, which is only slower).
     pub fn load_stat_cache(&self, instance: &str) -> StatCache {
-        self.instance_dir(instance)
-            .ok()
-            .and_then(|dir| read_capped(&dir.join(STAT_CACHE_FILE), MAX_MANIFEST_BYTES).ok())
-            .and_then(|bytes| StatCache::from_json(&bytes))
-            .unwrap_or_default()
+        self.load_stat_cache_named(instance, DATA_STAT_CACHE)
     }
 
     /// Saves the instance's stat cache, replacing the last one.
     pub fn save_stat_cache(&self, instance: &str, cache: &StatCache) -> Result<(), StoreError> {
+        self.save_stat_cache_named(instance, DATA_STAT_CACHE, cache)
+    }
+
+    /// One of the instance's named stat caches ([`stat_cache_file`]); empty when there is
+    /// none, it can't be read or the name isn't one.
+    ///
+    /// An instance whose snapshots cover different parts of its folder keeps a cache per
+    /// part: the core's content images walk only mods and configs, and a cache they saved
+    /// over the backups' one would make the next backup hash every world again.
+    pub fn load_stat_cache_named(&self, instance: &str, name: &str) -> StatCache {
+        let Some(file) = stat_cache_file(name) else {
+            return StatCache::default();
+        };
+        self.instance_dir(instance)
+            .ok()
+            .and_then(|dir| read_capped(&dir.join(file), MAX_MANIFEST_BYTES).ok())
+            .and_then(|bytes| StatCache::from_json(&bytes))
+            .unwrap_or_default()
+    }
+
+    /// Saves one of the instance's named stat caches, replacing the last one of that name.
+    pub fn save_stat_cache_named(
+        &self,
+        instance: &str,
+        name: &str,
+        cache: &StatCache,
+    ) -> Result<(), StoreError> {
+        let file = stat_cache_file(name).ok_or_else(|| StoreError::Io {
+            what: format!("{name:?} isn't a stat cache name"),
+            source: io::Error::from(io::ErrorKind::InvalidInput),
+        })?;
         let dir = self.instance_dir(instance)?;
         fs::create_dir_all(&dir).map_err(io_err("Failed to create the image folder"))?;
-        write_atomic(&dir, &dir.join(STAT_CACHE_FILE), &cache.to_json())
+        write_atomic(&dir, &dir.join(file), &cache.to_json())
     }
 
     /// Deletes temporary files older than `max_age` (left by a crash) in `objects/`,

@@ -43,6 +43,9 @@ lodestone_minecraft = { path = "../crates/lodestone-minecraft", features = ["ts-
 lodestone_connect = { path = "../crates/lodestone-connect", features = ["host"] }
 # Debug traces (local, owner only), shared with the launcher.
 lodestone_trace = { path = "../crates/lodestone-trace" }
+# Instance images (docs/instance-images.md): content images, and the store backups share.
+# The core stores zstd objects, as its backups always have.
+lodestone_image = { path = "../crates/lodestone-image", features = ["zstd"] }
 rand = "0.10.3"
 rcon = { version = "0.6.0", features = ["rt-tokio"] }
 reqwest = { version = "0.13.5", features = ["stream", "json"] }

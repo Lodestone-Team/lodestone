@@ -24,6 +24,19 @@
 //! Snapshotting is two steps so a caller can check free space between them: [`plan`] walks
 //! the folder and takes what it can from the stat cache, and [`run`] hashes and stores the
 //! rest on several threads.
+//!
+//! Two things are for callers that keep more than an image can hold:
+//!
+//! - [`SnapshotOptions::filter`] narrows a snapshot to part of the folder (the core's
+//!   content images take only mods, configs and the server's own files): what it turns
+//!   down is skipped without a word, like what is never recorded, and isn't written into
+//!   the image's `excludes`, since it is the kind of image, not something left out.
+//! - [`Snapshot::unmapped`] lists the regular files withheld as `bad_name` (a name no
+//!   canonical path has, or a file the layout can't place back as itself, such as a vanilla
+//!   `DIM-1` left in a Paper level or `options.txt` on a server), with their disk paths.
+//!   An image can't name them, but a backup must still keep them: the core's schema-1
+//!   backups did, and a restore of everything would otherwise delete them. The files inside
+//!   a folder withheld for its name are listed too, though the folder is withheld once.
 
 use std::collections::BTreeSet;
 use std::fs;
@@ -57,6 +70,42 @@ pub struct SnapshotOptions<'a> {
     /// as `kept_changing`.
     pub tries: usize,
     pub cancel: Cancel<'a>,
+    /// Which paths the snapshot takes at all; `None` takes everything. What it turns down
+    /// is skipped silently (not withheld, not in `excludes`, not in
+    /// [`Snapshot::unmapped`]); a folder turned down is not walked. See [`Candidate`].
+    pub filter: Option<Filter<'a>>,
+}
+
+/// A file or folder the walk offers to [`SnapshotOptions::filter`].
+#[derive(Debug, Clone, Copy)]
+pub struct Candidate<'p> {
+    /// Relative to the walked folder, `/`-separated (lossy for a name that isn't UTF-8).
+    pub disk: &'p str,
+    /// A file's canonical path; a folder's when every file in it maps into that one
+    /// canonical folder. `None` for a name or place the layout can't map, and for a folder
+    /// whose files map to several canonical folders (a Paper level's `world_nether/`
+    /// holds `saves/world/DIM-1/…` and `saves/world/.bukkit_nether/…`). The client's game
+    /// folder itself is never offered.
+    pub path: Option<&'p CanonicalPath>,
+    pub is_dir: bool,
+}
+
+/// See [`SnapshotOptions::filter`]. Returning false for a folder skips everything in it,
+/// so a filter must turn a folder down only when it would turn down all it holds.
+pub type Filter<'a> = &'a (dyn Fn(&Candidate) -> bool + Sync);
+
+/// A regular file withheld as `bad_name` because no canonical path names it or the layout
+/// can't place it back as itself (see the module): for a caller that stores it apart from
+/// the image.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnmappedFile {
+    /// Relative to the walked folder, `/`-separated.
+    pub disk: String,
+    pub size: u64,
+    /// Unix nanoseconds.
+    pub modified_ns: i64,
+    /// The permission bits an entry would record ([`crate::Entry::mode`]).
+    pub mode: u32,
 }
 
 /// The most threads a snapshot uses when [`SnapshotOptions::threads`] is 0.
@@ -70,6 +119,7 @@ impl Default for SnapshotOptions<'_> {
             threads: 0,
             tries: 3,
             cancel: NEVER,
+            filter: None,
         }
     }
 }
@@ -109,6 +159,8 @@ pub struct Plan {
     /// Paths that would be withheld but are longer than the withheld list may show, as
     /// found relative to the game folder.
     pub too_long: Vec<String>,
+    /// Regular files withheld because the layout can't name them ([`UnmappedFile`]).
+    pub unmapped: Vec<UnmappedFile>,
 }
 
 impl Plan {
@@ -130,6 +182,9 @@ pub struct Snapshot {
     /// Files that couldn't be taken and whose paths are too long for the withheld list
     /// ([`MAX_PATH_BYTES`]), as found relative to the game folder: for the caller to show.
     pub too_long: Vec<String>,
+    /// Regular files withheld because the layout can't name them, sorted by disk path:
+    /// for a caller that keeps them apart from the image ([`UnmappedFile`]).
+    pub unmapped: Vec<UnmappedFile>,
     pub cache: StatCache,
     /// The worlds the entries are in.
     pub worlds: BTreeSet<String>,
@@ -193,17 +248,20 @@ pub fn plan(
         to_read: Vec::new(),
         withheld: Vec::new(),
         too_long: Vec::new(),
+        unmapped: Vec::new(),
     };
     let found = walk(
         root,
         layout,
         &excludes,
-        options.cancel,
+        options,
         &mut Withholding {
             withheld: &mut plan.withheld,
             too_long: &mut plan.too_long,
+            unmapped: &mut plan.unmapped,
         },
     )?;
+    plan.unmapped.sort_by(|a, b| a.disk.cmp(&b.disk));
     // Claims older than a save may trust are forgotten here too, not only when a manifest
     // is saved, so the map doesn't keep the last snapshot's until the next save.
     store.forget_old_claims();
@@ -340,6 +398,7 @@ pub fn run(
         entries: Vec::with_capacity(plan.cached.len() + plan.to_read.len()),
         withheld: plan.withheld,
         too_long: plan.too_long,
+        unmapped: plan.unmapped,
         cache: StatCache::new(plan.scan_started_ns),
         worlds: BTreeSet::new(),
         files_read: 0,
@@ -441,6 +500,7 @@ fn as_found(layout: &DiskLayout, disk: &str) -> String {
 struct Withholding<'w> {
     withheld: &'w mut Vec<Withheld>,
     too_long: &'w mut Vec<String>,
+    unmapped: &'w mut Vec<UnmappedFile>,
 }
 
 impl Withholding<'_> {
@@ -461,13 +521,22 @@ fn walk(
     root: &Path,
     layout: &DiskLayout,
     excludes: &Excludes,
-    cancel: Cancel,
+    options: &SnapshotOptions,
     withholding: &mut Withholding,
 ) -> Result<Vec<FoundFile>, SnapshotError> {
+    let cancel = options.cancel;
+    let wants = |disk: &str, path: Option<&CanonicalPath>, is_dir: bool| {
+        options
+            .filter
+            .is_none_or(|filter| filter(&Candidate { disk, path, is_dir }))
+    };
     let mut files = Vec::new();
-    let mut withhold = |path: String, reason: WithheldReason| withholding.withhold(path, reason);
     // Walked depth first, so each check reuses the steps for the folders it is in.
     let mut excludes = excludes.cursor();
+    let want_folder = !excludes.is_empty() || options.filter.is_some();
+    // The depth of a folder withheld for its name while the walk is inside it: its files
+    // are listed as unmapped, nothing in it is withheld on its own.
+    let mut bad_folder: Option<usize> = None;
     let mut entries = walkdir::WalkDir::new(root)
         .follow_root_links(true)
         .follow_links(false)
@@ -478,13 +547,29 @@ fn walk(
         if cancel() {
             return Err(SnapshotError::Cancelled);
         }
+        if let (Some(depth), Ok(entry)) = (bad_folder, &entry) {
+            if entry.depth() > depth {
+                inside_bad_folder(root, entry, &mut entries, &wants, withholding);
+                continue;
+            }
+            bad_folder = None;
+        }
         let entry = match entry {
             Ok(entry) => entry,
             Err(e) => {
+                if bad_folder.is_some_and(|depth| e.depth() > depth) {
+                    continue;
+                }
                 // A folder that can't be listed: what is in it is unknown.
                 if let Some(disk) = e.path().and_then(|p| relative(root, p)) {
-                    if recorded_folder(layout, &disk, &mut excludes) != Folder::Skip {
-                        withhold(as_found(layout, &disk), WithheldReason::Unreadable);
+                    let wanted = match recorded_folder(layout, &disk, &mut excludes, want_folder) {
+                        Folder::Skip => false,
+                        Folder::Root => true,
+                        Folder::Descend(folder) => wants(&disk, folder.as_ref(), true),
+                        Folder::BadName => wants(&disk, None, true),
+                    };
+                    if wanted {
+                        withholding.withhold(as_found(layout, &disk), WithheldReason::Unreadable);
                     }
                 }
                 continue;
@@ -499,10 +584,11 @@ fn walk(
                 .unwrap_or(entry.path())
                 .to_string_lossy()
                 .replace('\\', "/");
-            if lossy.split('/').next() == Some(CLIENT_GAME_FOLDER)
-                || matches!(layout, DiskLayout::Server(_))
+            if (lossy.split('/').next() == Some(CLIENT_GAME_FOLDER)
+                || matches!(layout, DiskLayout::Server(_)))
+                && wants(&lossy, None, file_type.is_dir())
             {
-                withhold(as_found(layout, &lossy), WithheldReason::BadName);
+                withholding.withhold(as_found(layout, &lossy), WithheldReason::BadName);
             }
             if file_type.is_dir() {
                 entries.skip_current_dir();
@@ -510,12 +596,21 @@ fn walk(
             continue;
         };
         if file_type.is_dir() {
-            match recorded_folder(layout, &disk, &mut excludes) {
-                Folder::Descend => {}
+            match recorded_folder(layout, &disk, &mut excludes, want_folder) {
+                Folder::Root => {}
+                Folder::Descend(folder) => {
+                    if !wants(&disk, folder.as_ref(), true) {
+                        entries.skip_current_dir();
+                    }
+                }
                 Folder::Skip => entries.skip_current_dir(),
                 Folder::BadName => {
-                    withhold(as_found(layout, &disk), WithheldReason::BadName);
-                    entries.skip_current_dir();
+                    if wants(&disk, None, true) {
+                        withholding.withhold(as_found(layout, &disk), WithheldReason::BadName);
+                        bad_folder = Some(entry.depth());
+                    } else {
+                        entries.skip_current_dir();
+                    }
                 }
             }
             continue;
@@ -524,15 +619,20 @@ fn walk(
             Ok(Some(path)) => path,
             Ok(None) => continue,
             Err(_) => {
-                withhold(as_found(layout, &disk), WithheldReason::BadName);
+                if wants(&disk, None, false) {
+                    withholding.withhold(as_found(layout, &disk), WithheldReason::BadName);
+                    if let Some(file) = unmapped_file(entry.path(), &disk) {
+                        withholding.unmapped.push(file);
+                    }
+                }
                 continue;
             }
         };
-        if excludes.excludes(path.as_str(), false) {
+        if excludes.excludes(path.as_str(), false) || !wants(&disk, Some(&path), false) {
             continue;
         }
         if file_type.is_symlink() {
-            withhold(path.to_string(), WithheldReason::Symlink);
+            withholding.withhold(path.to_string(), WithheldReason::Symlink);
             continue;
         }
         // The listing can be stale for open files on Windows; ask the file itself.
@@ -540,16 +640,16 @@ fn walk(
             Ok(meta) => meta,
             Err(e) if e.kind() == io::ErrorKind::NotFound => continue,
             Err(_) => {
-                withhold(path.to_string(), WithheldReason::Unreadable);
+                withholding.withhold(path.to_string(), WithheldReason::Unreadable);
                 continue;
             }
         };
         if meta.file_type().is_symlink() {
-            withhold(path.to_string(), WithheldReason::Symlink);
+            withholding.withhold(path.to_string(), WithheldReason::Symlink);
             continue;
         }
         if !meta.is_file() {
-            withhold(path.to_string(), WithheldReason::Unreadable);
+            withholding.withhold(path.to_string(), WithheldReason::Unreadable);
             continue;
         }
         files.push(FoundFile {
@@ -563,9 +663,54 @@ fn walk(
     Ok(files)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// An entry inside a folder withheld for its name: its regular files are listed as
+/// unmapped (the folder itself is the one withheld record), and folders the filter turns
+/// down are skipped.
+fn inside_bad_folder(
+    root: &Path,
+    entry: &walkdir::DirEntry,
+    entries: &mut walkdir::IntoIter,
+    wants: &dyn Fn(&str, Option<&CanonicalPath>, bool) -> bool,
+    withholding: &mut Withholding,
+) {
+    let is_dir = entry.file_type().is_dir();
+    let Some(disk) = relative(root, entry.path()) else {
+        if is_dir {
+            entries.skip_current_dir();
+        }
+        return;
+    };
+    if !wants(&disk, None, is_dir) {
+        if is_dir {
+            entries.skip_current_dir();
+        }
+        return;
+    }
+    if !is_dir {
+        if let Some(file) = unmapped_file(entry.path(), &disk) {
+            withholding.unmapped.push(file);
+        }
+    }
+}
+
+/// `disk` as an unmapped file, if it is a regular file (not a link, fifo or device).
+fn unmapped_file(absolute: &Path, disk: &str) -> Option<UnmappedFile> {
+    let meta = fs::symlink_metadata(absolute).ok()?;
+    meta.is_file().then(|| UnmappedFile {
+        disk: disk.to_string(),
+        size: meta.len(),
+        modified_ns: fsx::modified_ns(&meta),
+        mode: fsx::mode_of(&meta),
+    })
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum Folder {
-    Descend,
+    /// A client's game folder: the image's root.
+    Root,
+    /// Walk it. With the one canonical folder all its files map into, when the walk needs
+    /// it (for the excludes or a filter) and there is one.
+    Descend(Option<CanonicalPath>),
     /// Nothing in it is recorded (never recorded, outside a client's game folder, or
     /// excluded).
     Skip,
@@ -583,17 +728,24 @@ enum Folder {
 /// and its other files (`saves/world/.bukkit_nether/…`). So the probe asks for a plain
 /// file and for files under `DIM-1/` and `DIM1/`, and descends unless all three land in
 /// the same folder; each file is then checked against the excludes on its own.
-fn recorded_folder(layout: &DiskLayout, disk: &str, excludes: &mut ExcludeCursor) -> Folder {
+/// `want_folder` says whether to find that folder at all (only the excludes and a filter
+/// need it).
+fn recorded_folder(
+    layout: &DiskLayout,
+    disk: &str,
+    excludes: &mut ExcludeCursor,
+    want_folder: bool,
+) -> Folder {
     match layout.from_disk(&format!("{disk}/x")) {
         Ok(None) => Folder::Skip,
         Ok(Some(probe)) => {
-            if excludes.is_empty() {
-                return Folder::Descend;
-            }
             let Some(folder) = probe.as_str().strip_suffix("/x") else {
                 // The game folder itself: the image's root.
-                return Folder::Descend;
+                return Folder::Root;
             };
+            if !want_folder {
+                return Folder::Descend(None);
+            }
             let same_folder = |inside: &str| {
                 layout
                     .from_disk(&format!("{disk}/{inside}/x"))
@@ -603,10 +755,13 @@ fn recorded_folder(layout: &DiskLayout, disk: &str, excludes: &mut ExcludeCursor
                         p.as_str().strip_suffix(&format!("/{inside}/x")) == Some(folder)
                     })
             };
-            if same_folder("DIM-1") && same_folder("DIM1") && excludes.excludes(folder, true) {
+            if !(same_folder("DIM-1") && same_folder("DIM1")) {
+                return Folder::Descend(None);
+            }
+            if !excludes.is_empty() && excludes.excludes(folder, true) {
                 Folder::Skip
             } else {
-                Folder::Descend
+                Folder::Descend(CanonicalPath::new(folder).ok())
             }
         }
         Err(_) => {
@@ -616,7 +771,7 @@ fn recorded_folder(layout: &DiskLayout, disk: &str, excludes: &mut ExcludeCursor
             } else {
                 // A layout conflict or a side's file: each file in it is withheld on its
                 // own, since some may map.
-                Folder::Descend
+                Folder::Descend(None)
             }
         }
     }

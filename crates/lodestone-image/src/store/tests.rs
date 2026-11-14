@@ -880,6 +880,35 @@ fn stat_caches_persist_per_instance() {
     assert!(store.list_manifests("a").unwrap().unreadable.is_empty());
 }
 
+#[test]
+fn named_stat_caches_are_kept_apart() {
+    let (_dir, store) = store(Encoding::Raw);
+    let mut data = StatCache::new(1);
+    data.insert("world/level.dat".into(), 3, 1, sha256_hex(b"world"));
+    let mut content = StatCache::new(2);
+    content.insert("mods/a.jar".into(), 3, 1, sha256_hex(b"mod"));
+    store.save_stat_cache("a", &data).unwrap();
+    store
+        .save_stat_cache_named("a", "content", &content)
+        .unwrap();
+    // Saving one never replaces the other.
+    assert_eq!(store.load_stat_cache("a"), data);
+    assert_eq!(store.load_stat_cache_named("a", DATA_STAT_CACHE), data);
+    assert_eq!(store.load_stat_cache_named("a", "content"), content);
+    let dir = store.instance_dir("a").unwrap();
+    assert!(dir.join("stat-cache.content.json").is_file());
+    assert!(dir.join(STAT_CACHE_FILE).is_file());
+    // Names that could reach another file aren't names.
+    for bad in ["", "../x", "Content", "a.b", "a/b", &"x".repeat(33)] {
+        assert_eq!(stat_cache_file(bad), None, "{bad:?}");
+        assert_eq!(store.load_stat_cache_named("a", bad), StatCache::default());
+        assert!(store.save_stat_cache_named("a", bad, &content).is_err());
+    }
+    // Neither is a manifest.
+    let listing = store.list_manifests("a").unwrap();
+    assert!(listing.images.is_empty() && listing.unreadable.is_empty());
+}
+
 /// How fast a large new file goes into the store, flushes and all: run by hand
 /// (`cargo test --release -p lodestone_image store_throughput -- --ignored --nocapture`)
 /// to see that durability stays batched (one full flush per manifest, not per chunk).

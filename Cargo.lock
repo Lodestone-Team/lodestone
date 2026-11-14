@@ -3141,6 +3141,7 @@ dependencies = [
  "libc",
  "local-ip-address",
  "lodestone_connect",
+ "lodestone_image",
  "lodestone_minecraft",
  "lodestone_trace",
  "rand 0.10.3",

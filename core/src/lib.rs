@@ -98,6 +98,7 @@ mod event_broadcaster;
 mod events;
 pub mod global_settings;
 mod handlers;
+pub mod images;
 pub mod implementations;
 mod listen;
 pub mod local_claim;
@@ -173,13 +174,18 @@ pub(crate) mod test_util {
         );
         let code_execution = global_settings.code_execution_switch();
         let remote_access = global_settings.remote_access();
+        // each test core its own store, so parallel tests never share one
+        let backups = Arc::new(crate::backups::BackupService::new(
+            dir.join("backups"),
+            dir.join("instances"),
+        ));
         crate::AppState {
             remote_access,
-            // each test core its own store, so parallel tests never share one
-            backups: Arc::new(crate::backups::BackupService::new(
+            images: Arc::new(crate::images::ImageService::new(
                 dir.join("backups"),
-                dir.join("instances"),
+                backups.store_lock(),
             )),
+            backups,
             instances: Arc::new(dashmap::DashMap::new()),
             users_manager: Arc::new(RwLock::new(users_manager)),
             events_buffer: Arc::new(Mutex::new(ringbuffer::AllocRingBuffer::new(512))),
@@ -340,9 +346,16 @@ pub struct AppState {
     remote_access: Arc<remote_access::RemoteAccess>,
     /// Server backups: the store, its locks and the running backups and restores.
     backups: Arc<backups::BackupService>,
+    /// Instance images: content images, and the collector of the backup folder they share.
+    images: Arc<images::ImageService>,
 }
 
 impl AppState {
+    /// Instance images: content images and the collector of the backup folder.
+    pub fn images(&self) -> &Arc<images::ImageService> {
+        &self.images
+    }
+
     /// Whether safe mode is on. Unlike `global_settings.lock().await.safe_mode()`, this
     /// takes no lock.
     pub fn safe_mode(&self) -> bool {
@@ -1355,6 +1368,11 @@ pub async fn run_with(
             error!("Backup recovery failed: {e}");
         }
     }
+    // Images share the backup folder, its objects and its store lock.
+    let images = Arc::new(images::ImageService::new(
+        path_to_backups(),
+        backups.store_lock(),
+    ));
 
     let instances = restore_instances(&path_to_instances, tx.clone(), code_execution.clone())
         .await
@@ -1374,6 +1392,7 @@ pub async fn run_with(
     local_claims.clean_up().await;
     let shared_state = AppState {
         backups: backups.clone(),
+        images: images.clone(),
         remote_access: remote_access.clone(),
         local_claims: Arc::new(local_claims),
         connect: Arc::new(connect::ConnectShares::new(
@@ -1451,6 +1470,28 @@ pub async fn run_with(
     tokio::spawn(crate::modpack::updates::watch(shared_state.clone()));
     // scheduled backups; ends when the backup service is cancelled at shutdown
     tokio::spawn(backups::scheduler::run(shared_state.clone()));
+
+    // Instance images: where merged records find their servers, the collection pruning
+    // asks for, and what keeps images (each part of the core that names images registers
+    // its source here).
+    images.set_instances(Arc::new(images::AppInstances {
+        instances: shared_state.instances.clone(),
+        backups: backups.clone(),
+    }));
+    {
+        let backups = backups.clone();
+        images.set_gc_requester(Arc::new(move || backups.request_gc()));
+    }
+    // ImageRefs: backups, lineage
+    images::set_global(images.clone());
+    // temporary files a crash left, and the first content image of each stopped server
+    {
+        let uuids: Vec<InstanceUuid> = snapshot_instances(&shared_state.instances)
+            .into_iter()
+            .map(|(uuid, _)| uuid)
+            .collect();
+        tokio::spawn(images.clone().startup_sweep(uuids));
+    }
 
     // Asked to stop while starting: start no server only to stop it again. The shutdown
     // below runs as soon as the caller runs the core.
