@@ -4,13 +4,14 @@
 //!
 //! It is saved in the Host's settings ([`Prefs`]) and reaches the core as
 //! `LODESTONE_CONNECT_SERVICE` ([`crate::core_process::CoreConfig::env`]), which the
-//! core reads when it starts. So saving a change restarts the core, which stops its
-//! servers: with servers running, the row asks first, as Restart to update does. The
+//! core reads when it starts. So saving a change restarts this computer's core, which
+//! stops its servers: with servers running on it, the row asks first, as Restart to
+//! update does ([`crate::local_core`], whichever core the shell shows). The
 //! Host's own environment variable wins over the setting, which the row says.
 
 use gpui::{
     AnyElement, Context, Entity, FocusHandle, IntoElement, KeyDownEvent, ParentElement, Render,
-    SharedString, Styled, Window, div, prelude::*,
+    SharedString, Styled, Task, Window, div, prelude::*,
 };
 use launcher_core::cores::connect_service::{self, DEFAULT_SERVICE, Service, SettingError, Source};
 use lodestone_ui::{
@@ -23,11 +24,9 @@ use lodestone_ui::{
     theme::{Color, colors, ink, leading, px, text},
 };
 
-use super::updates::running_servers;
 use crate::{
     i18n::{CommonMsg, CoreMsg as M, CorePlural, t, tr, trn},
     prefs::Prefs,
-    state::HostState,
 };
 
 /// What a setting's error says, for people.
@@ -57,14 +56,24 @@ pub fn offered(cx: &gpui::App) -> bool {
 }
 
 pub struct ConnectServiceSetting {
-    state: Entity<HostState>,
     input: Entity<TextInput>,
-    /// "Restart the core?", with the service to save, while servers run.
-    confirm: DialogSlot<Self, (FocusHandle, Option<Service>)>,
+    /// "Restart the core?", with the service to save, while servers run on this
+    /// computer's core: with their count when it was asked for, `None` when it isn't
+    /// known.
+    confirm: DialogSlot<Self, Confirm>,
+    /// Counting this computer's core's servers, before saving (replaced by the next).
+    asking: Option<Task<()>>,
+}
+
+/// What "Restart the core?" holds.
+struct Confirm {
+    focus: FocusHandle,
+    service: Option<Service>,
+    running: Option<usize>,
 }
 
 impl ConnectServiceSetting {
-    pub fn new(state: Entity<HostState>, cx: &mut Context<Self>) -> Self {
+    pub fn new(cx: &mut Context<Self>) -> Self {
         let saved = connect_service::setting().map(|s| s.base_url());
         let input = cx.new(|cx| {
             TextInput::new(cx)
@@ -75,9 +84,9 @@ impl ConnectServiceSetting {
         });
         cx.observe(&input, |_, _, cx| cx.notify()).detach();
         Self {
-            state,
             input,
             confirm: DialogSlot::new(|this: &mut Self| &mut this.confirm),
+            asking: None,
         }
     }
 
@@ -102,12 +111,30 @@ impl ConnectServiceSetting {
         if service == connect_service::setting() {
             return;
         }
-        if restarts_core() && running_servers(self.state.read(cx)) > 0 {
-            let focus = cx.focus_handle();
-            self.confirm.open((focus, service), cx);
-        } else {
-            self.save(service, cx);
+        if !restarts_core() {
+            return self.save(service, cx);
         }
+        // the core restarted is this computer's, whichever the shell shows
+        let running = crate::local_core::running_servers(cx);
+        self.asking = Some(cx.spawn(async move |this, cx| {
+            let running = running.await;
+            this.update(cx, |this, cx| {
+                if crate::local_core::asks(running) {
+                    let focus = cx.focus_handle();
+                    this.confirm.open(
+                        Confirm {
+                            focus,
+                            service,
+                            running,
+                        },
+                        cx,
+                    );
+                } else {
+                    this.save(service, cx);
+                }
+            })
+            .ok();
+        }));
     }
 
     /// Saves `service` and restarts the core with it (unless the environment variable
@@ -131,44 +158,49 @@ impl ConnectServiceSetting {
         self.input.update(cx, |input, cx| input.set_text(text, cx));
     }
 
-    fn confirm_dialog(
-        &self,
-        (focus, service): &(FocusHandle, Option<Service>),
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
-        let running = running_servers(self.state.read(cx));
-        let service = service.clone();
-        Dialog::new("restart-core-dialog", t(M::RestartCoreTitle), focus.clone())
-            .on_close({
-                let close = cx.listener(|this, _: &(), _, cx| {
+    fn confirm_dialog(&self, confirm: &Confirm, cx: &mut Context<Self>) -> AnyElement {
+        // live while the shell shows this computer's core
+        let running = crate::local_core::running_now(cx).or(confirm.running);
+        let service = confirm.service.clone();
+        Dialog::new(
+            "restart-core-dialog",
+            t(M::RestartCoreTitle),
+            confirm.focus.clone(),
+        )
+        .on_close({
+            let close = cx.listener(|this, _: &(), _, cx| {
+                this.confirm.close(cx);
+            });
+            move |window, cx| close(&(), window, cx)
+        })
+        .child(
+            div()
+                .text_size(text::MEDIUM)
+                .line_height(lodestone_ui::theme::line_height(
+                    text::MEDIUM,
+                    leading::NORMAL,
+                ))
+                .text_color(ink::secondary())
+                // without the count (this computer's core didn't answer), the title
+                // and "Stop servers and restart" say it
+                .when_some(running, |this, running| {
+                    this.child(trn!(CorePlural::ServersRunning, running))
+                        .child(t(M::RestartCoreBody))
+                }),
+        )
+        .footer(
+            Button::new("restart-core-confirm", t(M::RestartUpdateConfirm))
+                .variant(ButtonVariant::Primary)
+                .on_click(cx.listener(move |this, _, _, cx| this.save(service.clone(), cx))),
+        )
+        .footer(
+            Button::new("restart-core-cancel", t(CommonMsg::Cancel))
+                .variant(ButtonVariant::Secondary)
+                .on_click(cx.listener(|this, _, _, cx| {
                     this.confirm.close(cx);
-                });
-                move |window, cx| close(&(), window, cx)
-            })
-            .child(
-                div()
-                    .text_size(text::MEDIUM)
-                    .line_height(lodestone_ui::theme::line_height(
-                        text::MEDIUM,
-                        leading::NORMAL,
-                    ))
-                    .text_color(ink::secondary())
-                    .child(trn!(CorePlural::ServersRunning, running))
-                    .child(t(M::RestartCoreBody)),
-            )
-            .footer(
-                Button::new("restart-core-confirm", t(M::RestartUpdateConfirm))
-                    .variant(ButtonVariant::Primary)
-                    .on_click(cx.listener(move |this, _, _, cx| this.save(service.clone(), cx))),
-            )
-            .footer(
-                Button::new("restart-core-cancel", t(CommonMsg::Cancel))
-                    .variant(ButtonVariant::Secondary)
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.confirm.close(cx);
-                    })),
-            )
-            .into_any_element()
+                })),
+        )
+        .into_any_element()
     }
 }
 

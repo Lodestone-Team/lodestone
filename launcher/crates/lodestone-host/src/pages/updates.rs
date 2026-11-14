@@ -2,14 +2,14 @@
 //! Settings › General › Updates ([`crate::updater`]). The dashboard has no such page;
 //! the Tauri Host asked in a system dialog (§8.7).
 //!
-//! Restarting to update stops the core, and so its servers. With servers running, the
-//! page asks first.
+//! Restarting to update stops this computer's core, and so its servers. With servers
+//! running on it, the page asks first ([`crate::local_core`]: whichever core the shell
+//! shows).
 
 use gpui::{
     AnyElement, AppContext as _, Context, Entity, FocusHandle, IntoElement, ParentElement, Render,
-    Styled, Subscription, Window, div,
+    Styled, Subscription, Task, Window, div, prelude::FluentBuilder as _,
 };
-use launcher_core::cores::admin::InstanceState;
 use lodestone_ui::{
     components::{
         Button, ButtonVariant, Dialog, DialogSlot, Toggle,
@@ -30,29 +30,16 @@ use crate::{
 pub struct UpdatesPage {
     pub state: Entity<HostState>,
     updater: Option<Entity<Updater>>,
-    /// "Restart to update?", while servers run.
-    confirm: DialogSlot<Self, FocusHandle>,
+    /// "Restart to update?", while servers run on this computer's core: with their
+    /// count when it was asked for, `None` when it isn't known.
+    confirm: DialogSlot<Self, (FocusHandle, Option<usize>)>,
+    /// Counting this computer's core's servers, after Restart (replaced by the next).
+    asking: Option<Task<()>>,
     /// Developer › "Connect service (relay)".
     connect_service: Entity<super::connect_service::ConnectServiceSetting>,
     /// The Settings' search field: the page shows the settings that match it.
     search: Entity<SettingsSearch>,
     _subscriptions: Vec<Subscription>,
-}
-
-/// How many of the core's servers are running (or starting or stopping): a restart
-/// stops them.
-pub fn running_servers(state: &HostState) -> usize {
-    state
-        .instances
-        .iter()
-        .flatten()
-        .filter(|instance| {
-            matches!(
-                instance.state,
-                InstanceState::Running | InstanceState::Starting | InstanceState::Stopping
-            )
-        })
-        .count()
 }
 
 impl UpdatesPage {
@@ -67,14 +54,12 @@ impl UpdatesPage {
             .map(|updater| cx.observe(updater, |_, _, cx| cx.notify()))
             .collect();
         subscriptions.push(cx.observe(&search, |_, _, cx| cx.notify()));
-        let connect_service = {
-            let state = state.clone();
-            cx.new(|cx| super::connect_service::ConnectServiceSetting::new(state, cx))
-        };
+        let connect_service = cx.new(super::connect_service::ConnectServiceSetting::new);
         Self {
             state,
             updater,
             confirm: DialogSlot::new(|this: &mut Self| &mut this.confirm),
+            asking: None,
             connect_service,
             search,
             _subscriptions: subscriptions,
@@ -86,14 +71,22 @@ impl UpdatesPage {
         &self.connect_service
     }
 
-    /// "Restart": asks first when servers run, which the restart stops.
+    /// "Restart": asks first when servers run on this computer's core, which the
+    /// restart stops (or when that isn't known). The shell may show another core.
     fn ask_restart(&mut self, cx: &mut Context<Self>) {
-        if running_servers(self.state.read(cx)) == 0 {
-            self.restart(cx);
-        } else {
-            let focus = cx.focus_handle();
-            self.confirm.open(focus, cx);
-        }
+        let running = crate::local_core::running_servers(cx);
+        self.asking = Some(cx.spawn(async move |this, cx| {
+            let running = running.await;
+            this.update(cx, |this, cx| {
+                if crate::local_core::asks(running) {
+                    let focus = cx.focus_handle();
+                    this.confirm.open((focus, running), cx);
+                } else {
+                    this.restart(cx);
+                }
+            })
+            .ok();
+        }));
     }
 
     /// Quits into the downloaded build: the core stops (its servers first), the build
@@ -110,8 +103,13 @@ impl UpdatesPage {
         }
     }
 
-    fn confirm_dialog(&self, focus: &FocusHandle, cx: &mut Context<Self>) -> AnyElement {
-        let running = running_servers(self.state.read(cx));
+    fn confirm_dialog(
+        &self,
+        (focus, asked): &(FocusHandle, Option<usize>),
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        // live while the shell shows this computer's core
+        let running = crate::local_core::running_now(cx).or(*asked);
         Dialog::new(
             "restart-update-dialog",
             t(CoreMsg::RestartUpdateTitle),
@@ -131,8 +129,12 @@ impl UpdatesPage {
                     leading::NORMAL,
                 ))
                 .text_color(ink::secondary())
-                .child(trn!(CorePlural::ServersRunning, running))
-                .child(t(CoreMsg::RestartUpdateBody)),
+                // without the count (this computer's core didn't answer), the title and
+                // "Stop servers and restart" say it
+                .when_some(running, |this, running| {
+                    this.child(trn!(CorePlural::ServersRunning, running))
+                        .child(t(CoreMsg::RestartUpdateBody))
+                }),
         )
         .footer(
             Button::new("restart-update-confirm", t(CoreMsg::RestartUpdateConfirm))
