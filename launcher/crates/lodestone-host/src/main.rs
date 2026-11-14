@@ -27,6 +27,10 @@ fn main() {
     if !screenshot && !single_instance::acquire(show_tx) {
         return;
     }
+    // an older Host's sign-in entry, rewritten the way this one writes it
+    if !screenshot {
+        lodestone_host::login_item::refresh();
+    }
     let app = gpui_platform::application().with_assets(Assets);
     // a click on the Dock icon brings the window back
     app.on_reopen(|cx| cx.dispatch_action(&ShowWindow));
