@@ -219,12 +219,23 @@ async fn client_pack(
         };
     }
     let built = build_pack(state, &folder, &name, loader_version.as_deref()).await;
-    let pack = match &built {
-        Ok(pack) => CachedPack::Built(pack.clone()),
-        Err(e) => CachedPack::Failed(e.kind.clone(), e.source.to_string()),
-    };
-    *slot = Some(PackSlot { fingerprint, pack });
+    *slot = cached_outcome(&built).map(|pack| PackSlot { fingerprint, pack });
     built
+}
+
+/// What to keep of a build for later requests with the same mods folder: the pack, or a
+/// failure that building again would only repeat (such as a server whose players need no
+/// mods). `None` for a failure that may pass: Modrinth unreachable or rate limited (which
+/// is `External`), or a file that couldn't be read or written (`Internal`). The next
+/// request then tries again, as the message tells people to.
+fn cached_outcome(built: &Result<std::sync::Arc<BuiltPack>, Error>) -> Option<CachedPack> {
+    match built {
+        Ok(pack) => Some(CachedPack::Built(pack.clone())),
+        Err(e) => match e.kind {
+            ErrorKind::External | ErrorKind::Internal | ErrorKind::TooManyRequests => None,
+            _ => Some(CachedPack::Failed(e.kind.clone(), e.source.to_string())),
+        },
+    }
 }
 
 async fn build_pack(
