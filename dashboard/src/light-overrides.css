@@ -41,9 +41,6 @@
   :where([data-theme='light']) .outline-gray-faded\/30 {
     @apply outline-line-strong;
   }
-  :where([data-theme='light']) .outline-white\/50 {
-    @apply outline-line-hover;
-  }
   :where([data-theme='light']) .text-blue-faded\/25 {
     @apply text-ink-faint;
   }
@@ -106,6 +103,9 @@
   }
   :where([data-theme='light']) .hover\:border-gray-faded\/50 {
     @apply hover:border-line-strong;
+  }
+  :where([data-theme='light']) .hover\:outline-white\/30 {
+    @apply hover:outline-line-strong;
   }
   :where([data-theme='light']) .hover\:outline-white\/50 {
     @apply hover:outline-line-hover;

@@ -4,5 +4,6 @@ export type HandlerGameType =
   | 'MinecraftJavaVanilla'
   | 'MinecraftFabric'
   | 'MinecraftForge'
+  | 'MinecraftNeoForge'
   | 'MinecraftPaper'
   | 'MinecraftBedrock';

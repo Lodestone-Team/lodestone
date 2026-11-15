@@ -4,14 +4,19 @@
 //! [`open`] connects to the host of an invite on a thread of its own, with a small
 //! Tokio runtime, and forwards two local ports into the tunnel:
 //!
-//! - the game port, which Minecraft joins as `127.0.0.1:<port>`;
+//! - the game port, which Minecraft joins as `127.0.0.1:<port>`. A friend's server keeps
+//!   the same one from session to session ([`GamePort`]), so an entry in Minecraft's
+//!   server list keeps working;
 //! - the info port, where a [`CoreClient`](super::CoreClient) at `http://127.0.0.1:<port>`
 //!   reads the shared server's details and its client pack, as from a core whose
-//!   servers are listed publicly.
+//!   servers are listed publicly. It is a new free port each time.
+//!
+//! Both listen on 127.0.0.1 only.
 //!
 //! The [`Tunnel`] keeps both open until it is dropped, or until the host goes away.
 
 use std::{
+    future::Future,
     net::{Ipv4Addr, SocketAddr},
     sync::{
         Arc,
@@ -27,8 +32,12 @@ use futures::{
 };
 pub use lodestone_connect::{ConnectionKind, Invite, SharedServer};
 use lodestone_connect::{
-    StreamKind,
-    join::{self, JoinOptions},
+    Service, StreamKind,
+    friend::{
+        crypto::PersonKey,
+        join::{FriendCore, FriendJoined, join_friend},
+    },
+    join::{self, JoinOptions, Joined},
 };
 use url::Url;
 
@@ -65,6 +74,108 @@ impl Progress {
     pub fn preview_reading(&self) {
         self.set(Stage::ReadingInfo);
     }
+}
+
+/// Which local port the game port is.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum GamePort {
+    /// Any free port: for "Check", which closes the tunnel at once.
+    #[default]
+    Any,
+    /// The port saved for this server. When something else has it, a free port this
+    /// time.
+    Saved(u16),
+    /// A first join: the first of these that is free, else any free port.
+    Choose(Vec<u16>),
+}
+
+impl GamePort {
+    /// The ports to try, in order, before any free port.
+    pub fn ports(&self) -> &[u16] {
+        match self {
+            GamePort::Any => &[],
+            GamePort::Saved(port) => std::slice::from_ref(port),
+            GamePort::Choose(ports) => ports,
+        }
+    }
+}
+
+/// How long [`answers`] waits for a connection on this computer.
+const PROBE_TIMEOUT: Duration = Duration::from_millis(500);
+
+/// Whether a program listens on `127.0.0.1:port`: another program, or this server's
+/// tunnel open in another launcher. Binding 127.0.0.1 can succeed next to a program
+/// that listens on all addresses, so binding alone doesn't tell.
+async fn answers(port: u16) -> bool {
+    let connect = probe(SocketAddr::from((Ipv4Addr::LOCALHOST, port)));
+    // no answer in time counts as taken, to be safe
+    !matches!(
+        tokio::time::timeout(PROBE_TIMEOUT, connect).await,
+        Ok(Err(_))
+    )
+}
+
+/// Connects to `at` on this computer, failing at once where nothing listens. Windows
+/// sends a refused connection's SYN again for about two seconds before it fails,
+/// longer than [`PROBE_TIMEOUT`], so every free port looked taken there; this socket
+/// sends it once.
+async fn probe(at: SocketAddr) -> std::io::Result<tokio::net::TcpStream> {
+    let socket = tokio::net::TcpSocket::new_v4()?;
+    #[cfg(windows)]
+    send_syn_once(&socket);
+    socket.connect(at).await
+}
+
+/// No SYN retransmissions on `socket` (`SIO_TCP_INITIAL_RTO`, Windows 8 and later).
+/// Best effort: if Windows refuses it, the probe only takes longer.
+#[cfg(windows)]
+fn send_syn_once(socket: &tokio::net::TcpSocket) {
+    use std::os::windows::io::AsRawSocket;
+    use windows_sys::Win32::Networking::WinSock::{
+        SIO_TCP_INITIAL_RTO, SOCKET, TCP_INITIAL_RTO_NO_SYN_RETRANSMISSIONS,
+        TCP_INITIAL_RTO_PARAMETERS, WSAIoctl,
+    };
+    let parameters = TCP_INITIAL_RTO_PARAMETERS {
+        // TCP_INITIAL_RTO_UNSPECIFIED_RTT: the system's own
+        Rtt: u16::MAX,
+        // The header's ((UCHAR)-2), which windows-sys gives as a u16.
+        MaxSynRetransmissions: TCP_INITIAL_RTO_NO_SYN_RETRANSMISSIONS as u8,
+    };
+    let mut returned = 0u32;
+    // SAFETY: the socket is open for the call, and the input is a live
+    // TCP_INITIAL_RTO_PARAMETERS of the size given; there is no output buffer and no
+    // overlapped I/O.
+    unsafe {
+        WSAIoctl(
+            socket.as_raw_socket() as SOCKET,
+            SIO_TCP_INITIAL_RTO,
+            std::ptr::from_ref(&parameters).cast(),
+            std::mem::size_of::<TCP_INITIAL_RTO_PARAMETERS>() as u32,
+            std::ptr::null_mut(),
+            0,
+            &mut returned,
+            std::ptr::null_mut(),
+            None,
+        );
+    }
+}
+
+/// Binds the game port with `bind`: the first port of `wanted` nothing listens on and
+/// that binds, else any free port (port 0).
+async fn bind_game<T, E, F, Fut>(wanted: &GamePort, mut bind: F) -> Result<T, E>
+where
+    F: FnMut(SocketAddr) -> Fut,
+    Fut: Future<Output = Result<T, E>>,
+{
+    for &port in wanted.ports() {
+        if port == 0 || answers(port).await {
+            continue;
+        }
+        if let Ok(bound) = bind(SocketAddr::from((Ipv4Addr::LOCALHOST, port))).await {
+            return Ok(bound);
+        }
+    }
+    bind(SocketAddr::from((Ipv4Addr::LOCALHOST, 0))).await
 }
 
 /// Why joining failed, as the window explains it.
@@ -146,9 +257,54 @@ struct Opened {
 /// How long closing may take before the thread gives up on a clean goodbye.
 const CLOSE_TIMEOUT: Duration = Duration::from_secs(3);
 
+/// What a tunnel goes to: a server shared with an invite link, or one shared with this
+/// person on a friend's core.
+enum Target {
+    Invite(Invite),
+    Friend {
+        service: Service,
+        /// The person key, as PKCS#8 (it's rebuilt on the tunnel's thread).
+        me: Vec<u8>,
+        core: FriendCore,
+        instance: String,
+    },
+}
+
 /// Connects to the host of `invite` (2 to 10 seconds), reads the shared server's
-/// details and opens the two local ports. `progress` follows along.
-pub async fn open(invite: Invite, progress: Progress) -> Result<Tunnel, JoinError> {
+/// details and opens the two local ports, the game port as `game_port` says.
+/// `progress` follows along.
+pub async fn open(
+    invite: Invite,
+    game_port: GamePort,
+    progress: Progress,
+) -> Result<Tunnel, JoinError> {
+    open_target(Target::Invite(invite), game_port, progress).await
+}
+
+/// Connects to a friend's `core` as `me` and opens the two local ports for `instance`,
+/// one of the servers it shares with this person, the game port as `game_port` says.
+pub async fn open_friend(
+    service: Service,
+    me: &PersonKey,
+    core: FriendCore,
+    instance: String,
+    game_port: GamePort,
+    progress: Progress,
+) -> Result<Tunnel, JoinError> {
+    let target = Target::Friend {
+        service,
+        me: me.pkcs8().to_vec(),
+        core,
+        instance,
+    };
+    open_target(target, game_port, progress).await
+}
+
+async fn open_target(
+    target: Target,
+    game_port: GamePort,
+    progress: Progress,
+) -> Result<Tunnel, JoinError> {
     let (ready_tx, ready_rx) = oneshot::channel::<Result<Opened, JoinError>>();
     let (stop_tx, stop_rx) = oneshot::channel::<()>();
     let (ended_tx, ended_rx) = oneshot::channel::<String>();
@@ -170,7 +326,8 @@ pub async fn open(invite: Invite, progress: Progress) -> Result<Tunnel, JoinErro
                 }
             };
             runtime.block_on(run(
-                invite,
+                target,
+                game_port,
                 progress,
                 ready_tx,
                 stop_rx,
@@ -195,9 +352,105 @@ pub async fn open(invite: Invite, progress: Progress) -> Result<Tunnel, JoinErro
     })
 }
 
+/// Either kind of tunnel, for [`run`].
+enum AnyJoined {
+    Invite(Joined),
+    Friend(FriendJoined, String),
+}
+
+impl AnyJoined {
+    async fn open(target: Target) -> Result<Self, lodestone_connect::Error> {
+        Ok(match target {
+            Target::Invite(invite) => {
+                AnyJoined::Invite(join::join(&invite, JoinOptions::default()).await?)
+            }
+            Target::Friend {
+                service,
+                me,
+                core,
+                instance,
+            } => {
+                let me = PersonKey::from_pkcs8(&me)?;
+                AnyJoined::Friend(
+                    join_friend(&service, &me, &core, JoinOptions::default()).await?,
+                    instance,
+                )
+            }
+        })
+    }
+
+    async fn server(&self) -> Result<SharedServer, lodestone_connect::Error> {
+        match self {
+            AnyJoined::Invite(joined) => joined.server_info().await,
+            AnyJoined::Friend(joined, instance) => joined
+                .servers()
+                .await?
+                .into_iter()
+                .find(|server| &server.instance_uuid == instance)
+                .ok_or_else(|| {
+                    lodestone_connect::Error::Other(
+                        "Your friend doesn't share that server with you any more.".into(),
+                    )
+                }),
+        }
+    }
+
+    async fn forward(
+        &self,
+        game: bool,
+        listen: SocketAddr,
+    ) -> Result<join::Forward, lodestone_connect::Error> {
+        match self {
+            AnyJoined::Invite(joined) => {
+                let kind = if game {
+                    StreamKind::Game
+                } else {
+                    StreamKind::Info
+                };
+                joined.forward(kind, listen).await
+            }
+            AnyJoined::Friend(joined, instance) => {
+                joined
+                    .forward(game.then_some(instance.as_str()), listen)
+                    .await
+            }
+        }
+    }
+
+    fn kind(&self) -> ConnectionKind {
+        match self {
+            AnyJoined::Invite(joined) => joined.kind(),
+            AnyJoined::Friend(joined, _) => joined.kind(),
+        }
+    }
+
+    fn rtt(&self) -> Duration {
+        match self {
+            AnyJoined::Invite(joined) => joined.rtt(),
+            AnyJoined::Friend(joined, _) => joined.rtt(),
+        }
+    }
+
+    async fn closed(&self) -> String {
+        match self {
+            AnyJoined::Invite(joined) => joined.closed().await,
+            AnyJoined::Friend(joined, _) => joined.closed().await,
+        }
+    }
+
+    async fn close(self) {
+        match self {
+            AnyJoined::Invite(joined) => joined.close().await,
+            AnyJoined::Friend(joined, _) => joined.close().await,
+        }
+    }
+}
+
 /// The tunnel's thread: joins, forwards the ports, then waits for the end.
+#[allow(clippy::too_many_arguments)]
 async fn run(
-    invite: Invite,
+    target: Target,
+    game_port: GamePort,
     progress: Progress,
     ready: oneshot::Sender<Result<Opened, JoinError>>,
     stop: oneshot::Receiver<()>,
@@ -206,7 +459,7 @@ async fn run(
     closed: Arc<AtomicBool>,
 ) {
     progress.set(Stage::Connecting);
-    let joined = match join::join(&invite, JoinOptions::default()).await {
+    let joined = match AnyJoined::open(target).await {
         Ok(joined) => joined,
         Err(err) => {
             let _ = ready.send(Err(err.into()));
@@ -216,9 +469,9 @@ async fn run(
     progress.set(Stage::ReadingInfo);
     let local = SocketAddr::from((Ipv4Addr::LOCALHOST, 0));
     let opened = async {
-        let server = joined.server_info().await?;
-        let game = joined.forward(StreamKind::Game, local).await?;
-        let info = joined.forward(StreamKind::Info, local).await?;
+        let server = joined.server().await?;
+        let game = bind_game(&game_port, |at| joined.forward(true, at)).await?;
+        let info = joined.forward(false, local).await?;
         Ok::<_, lodestone_connect::Error>((server, game, info))
     }
     .await;
@@ -276,6 +529,11 @@ impl Tunnel {
         }
     }
 
+    /// The game port this tunnel listens on.
+    pub fn game_port(&self) -> u16 {
+        self.game.port()
+    }
+
     /// The address to point a [`CoreClient`](super::CoreClient) at, for the shared
     /// server's details and client pack.
     pub fn info_url(&self) -> Url {
@@ -322,6 +580,7 @@ pub fn server_instance(server: &SharedServer) -> ServerInstance {
         max_player_count: server.max_player_count,
         has_client_pack: Some(server.modpack),
         listed: false,
+        public_only: false,
     }
 }
 
@@ -354,6 +613,7 @@ mod tests {
             state: state.map(str::to_string),
             player_count: Some(2),
             max_player_count: Some(20),
+            online_mode: None,
         }
     }
 
@@ -376,6 +636,7 @@ mod tests {
         assert!(!plain.mods_hidden());
 
         assert_eq!(loader("Forge"), ServerLoader::Forge);
+        assert_eq!(loader("NeoForge"), ServerLoader::NeoForge);
         assert_eq!(loader("something"), ServerLoader::Other);
         assert_eq!(state("Stopped"), ServerState::Stopped);
         assert_eq!(state("nonsense"), ServerState::Unknown);
@@ -408,6 +669,88 @@ mod tests {
             JoinError::from(service(500, "internal")),
             JoinError::Failed(_)
         ));
+    }
+
+    fn block_on<T>(future: impl Future<Output = T>) -> T {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(future)
+    }
+
+    /// A port nothing listens on now.
+    fn free_port() -> u16 {
+        std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port()
+    }
+
+    /// Binds as the tunnel's forward does.
+    async fn listen(at: SocketAddr) -> std::io::Result<tokio::net::TcpListener> {
+        tokio::net::TcpListener::bind(at).await
+    }
+
+    fn port_of(listener: &tokio::net::TcpListener) -> u16 {
+        listener.local_addr().unwrap().port()
+    }
+
+    #[test]
+    fn the_game_port_binds_the_saved_port_or_falls_back() {
+        block_on(async {
+            // the saved port, when it is free
+            let saved = free_port();
+            let bound = bind_game(&GamePort::Saved(saved), listen).await.unwrap();
+            assert_eq!(port_of(&bound), saved);
+            assert!(bound.local_addr().unwrap().ip().is_loopback());
+
+            // taken (this server's tunnel open elsewhere): another port, this time
+            let again = bind_game(&GamePort::Saved(saved), listen).await.unwrap();
+            assert_ne!(port_of(&again), saved);
+            assert_ne!(port_of(&again), 0);
+            drop(bound);
+
+            // a program listening on every address also counts as taken, though
+            // 127.0.0.1 alone might bind next to it
+            let everywhere = std::net::TcpListener::bind((Ipv4Addr::UNSPECIFIED, 0)).unwrap();
+            let busy = everywhere.local_addr().unwrap().port();
+            let bound = bind_game(&GamePort::Saved(busy), listen).await.unwrap();
+            assert_ne!(port_of(&bound), busy);
+
+            // a first join takes the first free choice
+            let free = free_port();
+            let bound = bind_game(&GamePort::Choose(vec![busy, free]), listen)
+                .await
+                .unwrap();
+            assert_eq!(port_of(&bound), free);
+            // and any free port when none is
+            let none = bind_game(&GamePort::Choose(vec![busy, free]), listen)
+                .await
+                .unwrap();
+            assert!(![busy, free, 0].contains(&port_of(&none)));
+            // Check takes any free port
+            let any = bind_game(&GamePort::Any, listen).await.unwrap();
+            assert!(![busy, free, 0].contains(&port_of(&any)));
+        });
+    }
+
+    /// A free port is found free well within the probe's time, on Windows too.
+    #[test]
+    fn nothing_listening_answers_at_once() {
+        block_on(async {
+            let free = free_port();
+            let started = std::time::Instant::now();
+            assert!(!answers(free).await);
+            assert!(
+                started.elapsed() < PROBE_TIMEOUT,
+                "{:?} for a refused connection",
+                started.elapsed()
+            );
+            let listening = std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+            assert!(answers(listening.local_addr().unwrap().port()).await);
+        });
     }
 
     #[test]

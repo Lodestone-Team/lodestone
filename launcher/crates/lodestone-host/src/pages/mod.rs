@@ -12,16 +12,18 @@
 //! | Overview | [`overview`] | A |
 //! | Console | [`console`] | B |
 //! | Files | [`files`] | B |
+//! | Backups | [`backups`] | backups |
 //! | Settings (instance) | [`instance_settings`] | C |
 //! | Mods / Plugins | [`mods`] | C |
 //! | Event logs | [`event_logs`] | C |
-//! | Macros (needs Deno: out of scope) | [`macros`] | — |
 //! | Settings › General | [`core_settings`] | D |
 //! | Settings › Users | [`users`] | D |
 //! | Settings › Profile | [`profile`] | D |
 
 pub mod account_dialogs;
 pub mod api_keys;
+pub mod backups;
+pub mod connect_service;
 pub mod console;
 pub mod core_settings;
 pub mod cores;
@@ -29,12 +31,13 @@ pub mod create_instance;
 pub mod eula_prompt;
 pub mod event_logs;
 pub mod files;
+pub mod friend_sharing;
 pub mod home;
 pub mod instance_settings;
-pub mod macros;
 pub mod minecraft_links;
 pub mod mods;
 pub mod overview;
+pub mod pager;
 pub mod parts;
 pub mod permissions;
 pub mod profile;
@@ -46,7 +49,10 @@ use gpui::{
     AnyElement, AnyView, App, AppContext as _, Entity, IntoElement, ParentElement, Styled, div,
     prelude::FluentBuilder as _,
 };
-use lodestone_ui::theme::{ink, px, text};
+use lodestone_ui::{
+    components::settings::SettingsSearch,
+    theme::{ink, px, text},
+};
 
 use crate::{
     i18n::{ShellMsg, t},
@@ -77,8 +83,10 @@ pub fn open(route: &Route, state: Entity<HostState>, cx: &mut App) -> AnyView {
                     .new(|cx| console::ConsolePage::new(state, uuid, cx))
                     .into(),
                 InstanceTab::Files => cx.new(|cx| files::FilesPage::new(state, uuid, cx)).into(),
+                InstanceTab::Backups => cx
+                    .new(|cx| backups::BackupsPage::new(state, uuid, cx))
+                    .into(),
                 InstanceTab::Mods => cx.new(|cx| mods::ModsPage::new(state, uuid, cx)).into(),
-                InstanceTab::Macros => cx.new(|cx| macros::MacrosPage::new(state, uuid, cx)).into(),
                 InstanceTab::EventLogs => cx
                     .new(|cx| event_logs::EventLogsPage::new(state, uuid, cx))
                     .into(),
@@ -87,15 +95,25 @@ pub fn open(route: &Route, state: Entity<HostState>, cx: &mut App) -> AnyView {
     }
 }
 
-/// A page of the Settings dialog (`crate::shell::settings`).
-pub fn open_settings(page: SettingsPage, state: Entity<HostState>, cx: &mut App) -> AnyView {
+/// A page of the Settings dialog (`crate::shell::settings`), filtered by the dialog's
+/// `search`.
+pub fn open_settings(
+    page: SettingsPage,
+    state: Entity<HostState>,
+    search: Entity<SettingsSearch>,
+    cx: &mut App,
+) -> AnyView {
     match page {
         SettingsPage::General => cx
-            .new(|cx| core_settings::CoreSettingsPage::new(state, cx))
+            .new(|cx| core_settings::CoreSettingsPage::new(state, search, cx))
             .into(),
-        SettingsPage::Users => cx.new(|cx| users::UsersPage::new(state, cx)).into(),
-        SettingsPage::Profile => cx.new(|cx| profile::ProfilePage::new(state, cx)).into(),
-        SettingsPage::Updates => cx.new(|cx| updates::UpdatesPage::new(state, cx)).into(),
+        SettingsPage::Users => cx.new(|cx| users::UsersPage::new(state, search, cx)).into(),
+        SettingsPage::Profile => cx
+            .new(|cx| profile::ProfilePage::new(state, search, cx))
+            .into(),
+        SettingsPage::Updates => cx
+            .new(|cx| updates::UpdatesPage::new(state, search, cx))
+            .into(),
     }
 }
 
@@ -112,6 +130,84 @@ pub fn demo(view: &AnyView, cx: &mut App) {
     if let Ok(page) = view.clone().downcast::<overview::OverviewPage>() {
         page.update(cx, |page, cx| page.demo(cx));
     }
+    if let Ok(page) = view.clone().downcast::<mods::ModsPage>() {
+        page.update(cx, |page, cx| page.demo(cx));
+    }
+    if let Ok(page) = view.clone().downcast::<backups::BackupsPage>() {
+        page.update(cx, |page, cx| page.demo(cx));
+    }
+}
+
+/// Puts sample mods on the Mods tab's Installed view (development screenshots'
+/// `--mods many|last|pack|few[-end]`, with `--tab mods --fake-instance`).
+#[cfg(feature = "screenshot")]
+pub fn mods_demo(view: &AnyView, scene: &str, cx: &mut App) {
+    if let Ok(page) = view.clone().downcast::<mods::ModsPage>() {
+        page.update(cx, |page, cx| page.demo_installed(scene, cx));
+    }
+}
+
+/// Opens the Backups tab's export dialog for the first backup (development screenshots'
+/// `--backup-export options|running`, with `--tab backups --demo`).
+#[cfg(feature = "screenshot")]
+pub fn backup_export_demo(view: &AnyView, scene: &str, cx: &mut App) {
+    if let Ok(page) = view.clone().downcast::<backups::BackupsPage>() {
+        page.update(cx, |page, cx| page.export_for_screenshot(scene, cx));
+    }
+}
+
+/// Opens a dropdown, for the development screenshots' `--open-menu <name>`: on the
+/// Settings dialog's Profile page `language` or `theme`, on its Users page the
+/// first user's menu; on an instance's Settings tab `difficulty`, a sample
+/// Difficulty list.
+#[cfg(feature = "screenshot")]
+pub fn open_menu_for_screenshot(view: &AnyView, name: &str, cx: &mut App) {
+    if let Ok(page) = view.clone().downcast::<profile::ProfilePage>() {
+        page.update(cx, |page, cx| page.open_menu_for_screenshot(name, cx));
+    }
+    if let Ok(page) = view.clone().downcast::<users::UsersPage>() {
+        page.update(cx, |page, cx| page.open_menu_for_screenshot(cx));
+    }
+    if let Ok(page) = view
+        .clone()
+        .downcast::<instance_settings::InstanceSettingsPage>()
+    {
+        page.update(cx, |page, cx| page.difficulty_for_screenshot(cx));
+    }
+}
+
+/// Puts sample friends on the Settings tab's Friends section (development
+/// screenshots' `--friends none|loading|off|retired|shared|confirm|removed|renew|certificate|certificate-manual|error`, with `--tab settings`).
+#[cfg(feature = "screenshot")]
+pub fn friends_demo(view: &AnyView, scene: &str, cx: &mut App) {
+    // the Overview's "Share", with the same friends
+    if let Ok(page) = view.clone().downcast::<overview::OverviewPage>() {
+        let (state, uuid) = {
+            let page = page.read(cx);
+            (page.state.clone(), page.uuid.clone())
+        };
+        if let Some(sharing) = state.read(cx).friends.clone() {
+            sharing.update(cx, |sharing, cx| sharing.demo(scene, &uuid, cx));
+        }
+        page.update(cx, |page, cx| page.demo(cx));
+        return;
+    }
+    if let Ok(page) = view
+        .clone()
+        .downcast::<instance_settings::InstanceSettingsPage>()
+    {
+        let (state, uuid) = {
+            let page = page.read(cx);
+            (page.state.clone(), page.uuid.clone())
+        };
+        if let Some(sharing) = state.read(cx).friends.clone() {
+            sharing.update(cx, |sharing, cx| sharing.demo(scene, &uuid, cx));
+        }
+        page.update(cx, |page, cx| {
+            page.show_section = Some(crate::i18n::t(crate::i18n::InstanceMsg::FriendsTitle).into());
+            cx.notify();
+        });
+    }
 }
 
 /// Selects a few of the Console's lines (development screenshots' `--select-lines`,
@@ -121,6 +217,21 @@ pub fn select_for_screenshot(view: &AnyView, cx: &mut App) {
     if let Ok(page) = view.clone().downcast::<console::ConsolePage>() {
         page.update(cx, |page, cx| page.select_for_screenshot(cx));
     }
+}
+
+/// On Settings › General, flips "Allow access from other devices" as a user would, and
+/// with `owner` (a username and password) fills in and sends the owner account dialog
+/// it opens (development screenshots' `--share-core` and `--owner`). Whether the dialog
+/// was there.
+#[cfg(feature = "screenshot")]
+pub fn share_core_for_screenshot(
+    view: &AnyView,
+    owner: Option<(&str, &str)>,
+    cx: &mut App,
+) -> bool {
+    view.clone()
+        .downcast::<core_settings::CoreSettingsPage>()
+        .is_ok_and(|page| page.update(cx, |page, cx| page.share_core_for_screenshot(owner, cx)))
 }
 
 /// Opens the Files tab's find bar on `query` (development screenshots).

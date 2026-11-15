@@ -25,11 +25,10 @@ pub enum InstanceTab {
     Settings,
     Console,
     Files,
+    /// Backups of a Minecraft Java server (not in the dashboard).
+    Backups,
     /// "Mods" for Fabric and Forge, "Plugins" for Paper and Spigot.
     Mods,
-    /// Macros and tasks run on Deno, which the Host's core doesn't have: shown only for
-    /// a core with the `macros` capability (another core), as the dashboard does.
-    Macros,
     EventLogs,
 }
 
@@ -39,8 +38,8 @@ impl InstanceTab {
         InstanceTab::Settings,
         InstanceTab::Console,
         InstanceTab::Files,
+        InstanceTab::Backups,
         InstanceTab::Mods,
-        InstanceTab::Macros,
         InstanceTab::EventLogs,
     ];
 }
@@ -60,12 +59,14 @@ pub enum ModSupport {
     Plugins,
 }
 
-/// Mods for Fabric and Forge, plugins for Paper and Spigot (`utils/mods.ts`).
+/// Mods for Fabric, Forge and NeoForge, plugins for Paper and Spigot (`utils/mods.ts`).
 pub fn mod_support(instance: &InstanceInfo) -> Option<ModSupport> {
     use launcher_core::cores::admin::models::Game;
     match &instance.game_type {
         Game::MinecraftJava { variant } => match variant {
-            MinecraftVariant::Fabric | MinecraftVariant::Forge => Some(ModSupport::Mods),
+            MinecraftVariant::Fabric | MinecraftVariant::Forge | MinecraftVariant::NeoForge => {
+                Some(ModSupport::Mods)
+            }
             MinecraftVariant::Paper | MinecraftVariant::Spigot => Some(ModSupport::Plugins),
             _ => None,
         },
@@ -77,10 +78,16 @@ impl InstanceTab {
     /// Whether the sidebar lists the tab.
     pub fn visible(self, cx: &TabContext) -> bool {
         match self {
-            InstanceTab::Macros => cx.me.is_owner && cx.info.capabilities.macros,
             InstanceTab::Mods => {
                 mod_support(cx.instance).is_some()
                     && cx.me.may(InstancePermission::ReadFiles, &cx.instance.uuid)
+            }
+            // the core backs up Minecraft servers only; listing needs to read files
+            InstanceTab::Backups => {
+                matches!(
+                    cx.instance.game_type,
+                    launcher_core::cores::admin::models::Game::MinecraftJava { .. }
+                ) && cx.me.may(InstancePermission::ReadFiles, &cx.instance.uuid)
             }
             _ => true,
         }
@@ -131,11 +138,11 @@ mod tests {
             is_owner: true,
             is_admin: false,
             permissions: UserPermission::default(),
+            has_password: true,
         };
         let mut user = owner.clone();
         user.is_owner = false;
-        let mut info = FullCoreInfo::default();
-        info.capabilities.macros = false;
+        let info = FullCoreInfo::default();
         let fabric = instance(MinecraftVariant::Fabric);
         let vanilla = instance(MinecraftVariant::Vanilla);
         let cx = |me, instance, settings| TabContext {
@@ -150,10 +157,30 @@ mod tests {
             !InstanceTab::Mods.visible(&cx(&user, &fabric, None)),
             "needs to read files"
         );
-        assert!(
-            !InstanceTab::Macros.visible(&cx(&owner, &fabric, None)),
-            "no Deno"
-        );
         assert!(matches!(fabric.game_type, Game::MinecraftJava { .. }));
+        assert!(InstanceTab::Backups.visible(&cx(&owner, &vanilla, None)));
+        assert!(
+            !InstanceTab::Backups.visible(&cx(&user, &vanilla, None)),
+            "needs to read files"
+        );
+        let mut reader = user.clone();
+        reader.permissions.can_read_instance_file.push("i1".into());
+        assert!(InstanceTab::Backups.visible(&cx(&reader, &vanilla, None)));
+        let docker: InstanceInfo = serde_json::from_value(serde_json::json!({
+            "uuid": "DOCKER-abc", "name": "Box", "port": 0, "state": "Running",
+            "game_type": { "type": "Generic", "game_name": "x", "game_display_name": "x" },
+        }))
+        .unwrap();
+        assert!(
+            !InstanceTab::Backups.visible(&cx(&owner, &docker, None)),
+            "only Minecraft servers have backups"
+        );
+        assert_eq!(
+            InstanceTab::ALL
+                .iter()
+                .position(|t| *t == InstanceTab::Backups),
+            Some(4),
+            "after Files"
+        );
     }
 }

@@ -85,7 +85,7 @@ pub fn rows(
     allowed: Allowed,
     extra_hint: Option<&str>,
     on_change: OnChange,
-) -> Vec<AnyElement> {
+) -> Vec<SettingRow> {
     list.iter()
         .map(|&permission| {
             let (title, user, key) = messages(permission);
@@ -144,7 +144,7 @@ pub fn rows(
                             }))
                             .into_any_element()
                     };
-                    row.below(grid).into_any_element()
+                    row.below(grid)
                 }
                 None => {
                     let on_change = on_change.clone();
@@ -156,7 +156,6 @@ pub fn rows(
                                 on_change(permission, None, *value, window, cx)
                             }),
                     )
-                    .into_any_element()
                 }
             }
         })

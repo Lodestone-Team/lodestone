@@ -39,9 +39,14 @@ use serde::Serialize;
 use crate::{
     game::{
         assets::AssetIndex,
-        loaders::profile_id,
+        install::WITHOUT_WINDOW_ICONS,
+        libraries,
+        loaders::{self, profile_id},
+        platform::Platform,
         record::{InstallRecord, version_record_path},
+        runtime,
         version::{DEFAULT_RUNTIME, VersionJson},
+        zulu,
     },
     instances::Instance,
     paths::DataDir,
@@ -173,6 +178,51 @@ pub const LEFTOVER_AGE: Duration = Duration::from_secs(60 * 60);
 /// The prefix of the temporary files and folders imports make in `instances/`.
 const LEFTOVER_PREFIX: &str = ".lodestone-";
 
+/// The bytes free to this user on `dir`'s volume (quotas included), like `statvfs`'s
+/// `f_bavail`; `None` when it can't be asked. For the checks before copying into the
+/// data folder (images, data moves, copies of worlds, imports). One public function
+/// that picks the platform's way inside, so its visibility can't differ by platform.
+pub fn free_space(dir: &Path) -> Option<u64> {
+    platform_free_space(dir)
+}
+
+#[cfg(unix)]
+fn platform_free_space(dir: &Path) -> Option<u64> {
+    use std::os::unix::ffi::OsStrExt;
+    let path = std::ffi::CString::new(dir.as_os_str().as_bytes()).ok()?;
+    let mut stat: libc::statvfs = unsafe { std::mem::zeroed() };
+    // SAFETY: `path` is NUL-terminated and `stat` is a valid statvfs to fill.
+    if unsafe { libc::statvfs(path.as_ptr(), &mut stat) } != 0 {
+        return None;
+    }
+    #[allow(clippy::unnecessary_cast)]
+    Some(stat.f_bavail as u64 * stat.f_frsize as u64)
+}
+
+#[cfg(windows)]
+fn platform_free_space(dir: &Path) -> Option<u64> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
+    let path: Vec<u16> = dir.as_os_str().encode_wide().chain([0]).collect();
+    let mut available = 0u64;
+    // SAFETY: `path` is NUL-terminated; the call writes only the one counter it is
+    // given, and leaves the other two out.
+    let ok = unsafe {
+        GetDiskFreeSpaceExW(
+            path.as_ptr(),
+            &mut available,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+        )
+    };
+    (ok != 0).then_some(available)
+}
+
+#[cfg(not(any(unix, windows)))]
+fn platform_free_space(_: &Path) -> Option<u64> {
+    None
+}
+
 /// What the data directory takes.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
 pub struct Report {
@@ -184,8 +234,8 @@ pub struct Report {
     pub cache: u64,
     pub leftovers: Leftovers,
     pub logs: Logs,
-    /// Snapshots of instances.
-    pub snapshots: crate::snapshots::Usage,
+    /// The image store: content history and snapshots of every instance.
+    pub images: ImagesUsage,
     /// Settings, accounts and other small files, and anything else in the folder.
     pub other: u64,
 }
@@ -213,7 +263,7 @@ impl Report {
             + self.game_files.total()
             + self.cache
             + self.leftovers.bytes
-            + self.snapshots.bytes
+            + self.images.bytes
             + self.other
     }
 }
@@ -229,7 +279,8 @@ pub enum Clean {
     /// Logs and crash reports older than [`OLD_LOGS`].
     OldLogs,
     AllLogs,
-    /// Automatic snapshots, those of deleted instances, and shared snapshot files.
+    /// Snapshots the Launcher took on its own, and deleted instances' snapshots
+    /// ([`clean_snapshots`], through the image store).
     Snapshots,
 }
 
@@ -262,6 +313,68 @@ impl Clean {
     }
 }
 
+/// What the image store takes (`<data>/image-store/`), read without its locks from the
+/// snapshot lists and deleted instances' markers.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+pub struct ImagesUsage {
+    /// The store folder's size: every image's files, stored once.
+    pub bytes: u64,
+    /// Snapshots of every instance, deleted ones included.
+    pub snapshots: usize,
+    /// Of those, the ones Storage's clean-up deletes: those the Launcher took on its own
+    /// (not pinned), and every deleted instance's.
+    pub removable: usize,
+    /// Deleted instances whose snapshots are kept.
+    pub retired_instances: usize,
+}
+
+/// Counts the snapshots in the image store at `root` (see [`ImagesUsage`]); `bytes` is
+/// left to the caller. A retired folder of an instance in `instances` that came back (put
+/// back from the Trash, not yet taken back) counts as that instance's, as the clean-up
+/// treats it.
+fn images_usage(root: &Path, instances: &[Instance]) -> ImagesUsage {
+    use crate::images::snapshots::SnapshotKind;
+    #[derive(serde::Deserialize)]
+    struct Records {
+        #[serde(default)]
+        snapshots: Vec<Record>,
+    }
+    #[derive(serde::Deserialize)]
+    struct Record {
+        kind: SnapshotKind,
+        #[serde(default)]
+        pinned: bool,
+    }
+    let mut usage = ImagesUsage::default();
+    for entry in read_dir(&root.join("images")) {
+        let dir = entry.path();
+        let retired = dir.join(crate::images::retired::RETIRED_FILE).is_file() && {
+            let marker = crate::images::retired::read_marker(&dir);
+            let created = instances
+                .iter()
+                .find(|i| i.id == marker.former_id)
+                .map(|i| i.created);
+            !crate::images::retired::returns_to(&root.join("images"), &marker, created)
+        };
+        if retired {
+            usage.retired_instances += 1;
+        }
+        let path = dir.join(crate::images::snapshots::RECORDS_FILE);
+        let records = fs::metadata(&path)
+            .is_ok_and(|m| m.len() <= 16 << 20)
+            .then(|| fs::read(&path).ok())
+            .flatten()
+            .and_then(|bytes| serde_json::from_slice::<Records>(&bytes).ok());
+        for record in records.map(|r| r.snapshots).unwrap_or_default() {
+            usage.snapshots += 1;
+            if retired || (record.kind.removable() && !record.pinned) {
+                usage.removable += 1;
+            }
+        }
+    }
+    usage
+}
+
 /// What a cleanup did.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
 pub struct Cleaned {
@@ -272,6 +385,16 @@ pub struct Cleaned {
 /// Counts what the data directory takes. `instances` are the launcher's instances,
 /// whose folders are `instances/<id>`.
 pub fn scan(data: &DataDir, instances: &[Instance], cancel: &Cancel) -> Result<Report, DiskError> {
+    scan_on(data, instances, &Platform::current(), cancel)
+}
+
+/// [`scan`] on `machine`, whose processor decides which Java runtimes versions use.
+fn scan_on(
+    data: &DataDir,
+    instances: &[Instance],
+    machine: &Platform,
+    cancel: &Cancel,
+) -> Result<Report, DiskError> {
     let mut sizer = Sizer::new(cancel);
     let mut report = Report::default();
 
@@ -312,7 +435,7 @@ pub fn scan(data: &DataDir, instances: &[Instance], cancel: &Cancel) -> Result<R
         .sort_by(|a, b| b.total().cmp(&a.total()).then(a.name.cmp(&b.name)));
 
     // What the instances use.
-    let used = Used::find(data, instances);
+    let used = Used::find(data, instances, machine);
 
     // Java runtimes.
     // Files loose in the runtimes folder count as "other".
@@ -323,8 +446,25 @@ pub fn scan(data: &DataDir, instances: &[Instance], cancel: &Cancel) -> Result<R
             continue;
         }
         let component = entry.file_name().to_string_lossy().into_owned();
-        let bytes = sizer.size(&entry.path())?;
+        let mut bytes = sizer.size(&entry.path())?;
         let users = used.runtimes.get(&component);
+        // Zulu 8 keeps each build in a folder of its own and runs the newest: while it
+        // is in use, the older builds are listed apart, unused.
+        if users.is_some() && is_zulu(&component) {
+            for older in older_zulu_builds(&entry.path()) {
+                let older_bytes = sizer.size(&older)?;
+                bytes = bytes.saturating_sub(older_bytes);
+                report.runtimes.push(RuntimeUsage {
+                    component: format!(
+                        "{component}/{}",
+                        older.file_name().unwrap_or_default().to_string_lossy()
+                    ),
+                    bytes: older_bytes,
+                    java: Some(8),
+                    used_by: Vec::new(),
+                });
+            }
+        }
         report.runtimes.push(RuntimeUsage {
             java: users.and_then(|(java, _)| *java),
             used_by: users
@@ -345,9 +485,10 @@ pub fn scan(data: &DataDir, instances: &[Instance], cancel: &Cancel) -> Result<R
     report.game_files.unused = unused_game_files(data, &used, cancel)?;
 
     report.cache = sizer.size(&data.cache_dir())?;
-    let store = crate::snapshots::Store::new(data);
-    let ids: HashSet<&str> = instances.iter().map(|i| i.id.as_str()).collect();
-    report.snapshots = store.usage(&ids);
+    report.images = ImagesUsage {
+        bytes: sizer.size(&data.image_store_dir())?,
+        ..images_usage(&data.image_store_dir(), instances)
+    };
 
     // Everything else at the top of the data directory.
     let known: HashSet<PathBuf> = [
@@ -357,7 +498,7 @@ pub fn scan(data: &DataDir, instances: &[Instance], cancel: &Cancel) -> Result<R
         data.libraries_dir(),
         data.assets_dir(),
         data.cache_dir(),
-        store.root().to_path_buf(),
+        data.image_store_dir(),
     ]
     .into_iter()
     .collect();
@@ -371,6 +512,77 @@ pub fn scan(data: &DataDir, instances: &[Instance], cancel: &Cancel) -> Result<R
     Ok(report)
 }
 
+/// Settings › Storage's snapshot clean-up ([`Clean::Snapshots`]): deletes the snapshots the
+/// Launcher took on its own (not pinned) of the instances `live`, and every deleted
+/// instance's snapshots, then collects what nothing names. `bytes` is what the store's
+/// folder shrank by: files written within the last hour stay until a later collection
+/// (the store's grace).
+pub fn clean_snapshots(
+    data: &DataDir,
+    images: &crate::images::Images,
+    live: &[String],
+) -> Result<Cleaned, DiskError> {
+    let cancel = Cancel::new();
+    let measure = || {
+        Sizer::new(&cancel)
+            .size(&data.image_store_dir())
+            .unwrap_or(0)
+    };
+    let before = measure();
+    let cleaned = images.clean_up(live).map_err(|e| DiskError::Remove {
+        path: data.image_store_dir().display().to_string(),
+        reason: e.to_string(),
+    })?;
+    Ok(Cleaned {
+        bytes: before.saturating_sub(measure()),
+        files: cleaned.records + cleaned.retired,
+    })
+}
+
+/// Deletes the snapshot store of Launchers from before images (`<data>/snapshots/`, with
+/// `objects/` or `instances/` in it): nothing reads it any more, and its snapshots
+/// aren't converted. Returns whether it was there. For the background at startup.
+pub fn remove_old_snapshot_store(data: &DataDir) -> bool {
+    let old = data.root().join("snapshots");
+    let is_old = fs::symlink_metadata(&old).is_ok_and(|m| m.is_dir())
+        && (old.join("objects").is_dir() || old.join("instances").is_dir());
+    if !is_old {
+        return false;
+    }
+    match crate::images::remove_tree(&old) {
+        Ok(()) => {
+            crate::trace::emit(
+                "storage.old_snapshots",
+                || serde_json::json!({ "removed": old.display().to_string() }),
+            );
+            true
+        }
+        Err(e) => {
+            crate::trace::emit(
+                "storage.old_snapshots",
+                || serde_json::json!({ "path": old.display().to_string(), "warning": e.to_string() }),
+            );
+            false
+        }
+    }
+}
+
+/// Whether runtimes folder `component` holds Zulu 8 builds: `zulu-8`, or
+/// `zulu-8-before-8u321` ([`zulu::Zulu8`]).
+fn is_zulu(component: &str) -> bool {
+    component == zulu::COMPONENT || component == zulu::COMPONENT_BEFORE_8U321
+}
+
+/// The Zulu 8 builds in `<runtimes>/zulu-8` (or `zulu-8-before-8u321`) that games no
+/// longer use: all but the newest for each platform ([`zulu::older_builds`]).
+fn older_zulu_builds(component_dir: &Path) -> Vec<PathBuf> {
+    read_dir(component_dir)
+        .into_iter()
+        .filter(|entry| entry.path().is_dir())
+        .flat_map(|entry| zulu::older_builds(&entry.path()))
+        .collect()
+}
+
 /// Removes `what`. `instances` are all the instances, `running` the ids of those
 /// whose game is starting or running: their logs are kept, and callers refuse the
 /// other cleanups while any runs.
@@ -381,11 +593,26 @@ pub fn clean(
     what: Clean,
     cancel: &Cancel,
 ) -> Result<Cleaned, DiskError> {
+    clean_on(data, instances, running, what, &Platform::current(), cancel)
+}
+
+/// [`clean`] on `machine`, whose processor decides which Java runtimes versions use.
+fn clean_on(
+    data: &DataDir,
+    instances: &[Instance],
+    running: &[String],
+    what: Clean,
+    machine: &Platform,
+    cancel: &Cancel,
+) -> Result<Cleaned, DiskError> {
     let mut cleaned = Cleaned::default();
     match what {
         Clean::Snapshots => {
-            let ids: HashSet<&str> = instances.iter().map(|i| i.id.as_str()).collect();
-            cleaned.bytes = crate::snapshots::Store::new(data).clean_up(&ids);
+            // The image store's own locks keep its records whole: see clean_snapshots.
+            return Err(DiskError::Remove {
+                path: data.image_store_dir().display().to_string(),
+                reason: "snapshots are cleaned through the image store".into(),
+            });
         }
         Clean::Cache => {
             for entry in read_dir(&data.cache_dir()) {
@@ -403,16 +630,24 @@ pub fn clean(
             }
         }
         Clean::UnusedRuntimes => {
-            let used = Used::find(data, instances);
+            let used = Used::find(data, instances, machine);
             for entry in read_dir(&data.runtimes_dir()) {
                 let name = entry.file_name().to_string_lossy().into_owned();
-                if entry.path().is_dir() && !used.runtimes.contains_key(&name) {
+                if !entry.path().is_dir() {
+                    continue;
+                }
+                if !used.runtimes.contains_key(&name) {
                     remove(&entry.path(), &mut cleaned, cancel)?;
+                } else if is_zulu(&name) {
+                    // No game runs now (callers make sure), so no older build is open.
+                    for older in older_zulu_builds(&entry.path()) {
+                        remove(&older, &mut cleaned, cancel)?;
+                    }
                 }
             }
         }
         Clean::UnusedGameFiles => {
-            let used = Used::find(data, instances);
+            let used = Used::find(data, instances, machine);
             let plan = UnusedPlan::find(data, &used, cancel)?;
             for id in &plan.versions {
                 remove(&data.versions_dir().join(id), &mut cleaned, cancel)?;
@@ -458,14 +693,16 @@ struct Used {
     /// doesn't parse is missing here, and [`Used::complete`] is false.
     jsons: Vec<VersionJson>,
     asset_indexes: BTreeSet<String>,
-    /// By component: the Java major version and the versions that need it.
+    /// By runtimes folder (a component, `zulu-8` or `zulu-8-before-8u321`): the Java
+    /// major version and the versions that need it, as they run on this machine
+    /// ([`runtime::folder_for`], [`zulu::Zulu8`]).
     runtimes: BTreeMap<String, (Option<u32>, BTreeSet<String>)>,
     /// Every version in use was read, so libraries and assets can be judged.
     complete: bool,
 }
 
 impl Used {
-    fn find(data: &DataDir, instances: &[Instance]) -> Self {
+    fn find(data: &DataDir, instances: &[Instance], machine: &Platform) -> Self {
         let mut used = Used {
             complete: true,
             ..Default::default()
@@ -483,6 +720,10 @@ impl Used {
                 }
             }
         }
+        // The versions instances start: each one's runtime is judged with what it
+        // inherits, below.
+        let tops = queue.clone();
+        let mut loaded: BTreeMap<String, usize> = BTreeMap::new();
         while let Some(id) = queue.pop() {
             if !safe_name(&id) || !used.versions.insert(id.clone()) {
                 continue;
@@ -507,25 +748,61 @@ impl Used {
             if let Some(parent) = &json.inherits_from {
                 queue.push(parent.clone());
             }
-            // A loader profile's runtime and assets come from its parent.
+            // A loader profile's assets come from its parent.
             if json.inherits_from.is_none() {
                 used.asset_indexes.insert(json.assets_id().to_string());
-                let entry = used
-                    .runtimes
-                    .entry(json.runtime_component().to_string())
-                    .or_insert((None, BTreeSet::new()));
-                entry.0 = entry.0.or(Some(json.java_major()));
-                entry.1.insert(id.clone());
-            } else if let Some(java) = &json.java_version
-                && let Some(component) = &java.component
-            {
-                used.runtimes
-                    .entry(component.clone())
-                    .or_insert((Some(java.major_version), BTreeSet::new()))
-                    .1
-                    .insert(id.clone());
             }
+            loaded.insert(id.clone(), used.jsons.len());
             used.jsons.push(json);
+        }
+        // The runtime each started version uses: its own component, or the one it
+        // inherits, in the Java its libraries need on this machine. On Apple silicon
+        // that is not always the component's own folder: Java 8 versions that run
+        // natively use Zulu 8, Java 16 ones Mojang's arm64 Java 17.
+        for top in &tops {
+            let mut chain: Vec<(&str, &VersionJson)> = Vec::new();
+            let mut next = Some(top.as_str());
+            while let Some(id) = next {
+                let Some(json) = loaded.get(id).map(|&i| &used.jsons[i]) else {
+                    break;
+                };
+                if chain.len() > 8 || chain.iter().any(|(seen, _)| *seen == id) {
+                    break;
+                }
+                chain.push((id, json));
+                next = json.inherits_from.as_deref();
+            }
+            let Some(&(root_id, root)) = chain.last() else {
+                continue;
+            };
+            let (owner, component, major) = chain
+                .iter()
+                .find_map(|(id, json)| {
+                    let java = json.java_version.as_ref()?;
+                    Some((*id, java.component.clone()?, java.major_version))
+                })
+                .unwrap_or((
+                    root_id,
+                    root.runtime_component().to_string(),
+                    root.java_major(),
+                ));
+            let merged = chain[..chain.len() - 1]
+                .iter()
+                .rev()
+                .fold(root.clone(), |parent, (_, child)| {
+                    loaders::merge(child, &parent)
+                });
+            let java = machine.with_arch(libraries::java_arch(&merged, machine));
+            let (mut folder, major) = runtime::folder_for(&component, Some(major), &java);
+            if folder == zulu::COMPONENT {
+                folder = zulu::Zulu8::for_version(&merged).component();
+            }
+            let entry = used
+                .runtimes
+                .entry(folder.to_string())
+                .or_insert((None, BTreeSet::new()));
+            entry.0 = entry.0.or(major);
+            entry.1.insert(owner.to_string());
         }
         // Old versions without a `javaVersion` use the default runtime.
         if used.runtimes.is_empty() && !used.versions.is_empty() {
@@ -624,14 +901,19 @@ impl UnusedPlan {
                 }
             }
         }
-        // Indexes no version in use names, with their records.
+        // Indexes no version in use names, with their records. A version's copy
+        // without the window icons (1.13 to 1.18 on Apple silicon) goes with it.
         for entry in read_dir(&data.assets_dir().join("indexes")) {
             let name = entry.file_name().to_string_lossy().into_owned();
             let id = name
                 .strip_suffix(".install.json")
                 .or_else(|| name.strip_suffix(".json"));
+            let in_use = |id: &str| {
+                let id = id.strip_suffix(WITHOUT_WINDOW_ICONS).unwrap_or(id);
+                used.asset_indexes.contains(id)
+            };
             if let Some(id) = id
-                && !used.asset_indexes.contains(id)
+                && !in_use(id)
             {
                 plan.asset_files.push(entry.path());
             }
@@ -933,7 +1215,13 @@ fn prune_empty_dirs(dir: &Path) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{game::record::FileRecord, instances::Loader};
+    use crate::{
+        game::{
+            platform::{Arch, Os},
+            record::FileRecord,
+        },
+        instances::Loader,
+    };
 
     fn write(path: &Path, bytes: &[u8]) {
         fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -1109,6 +1397,10 @@ mod tests {
     #[test]
     fn removes_only_what_nothing_uses() {
         let (_tmp, data, instances) = fixture();
+        // The copies without window icons go with their version's index.
+        let used_hash = "aa".to_string() + &"1".repeat(38);
+        index(&data, "5-no-window-icons", &[&used_hash]);
+        index(&data, "1.8-no-window-icons", &[&used_hash]);
         let cleaned = clean(
             &data,
             &instances,
@@ -1144,6 +1436,17 @@ mod tests {
         assert!(!data.assets_dir().join("objects/bb").exists());
         assert!(data.assets_dir().join("indexes/5.json").exists());
         assert!(!data.assets_dir().join("indexes/1.8.json").exists());
+        assert!(
+            data.assets_dir()
+                .join("indexes/5-no-window-icons.json")
+                .exists()
+        );
+        assert!(
+            !data
+                .assets_dir()
+                .join("indexes/1.8-no-window-icons.json")
+                .exists()
+        );
         // nothing more to remove
         let again = scan(&data, &instances, &Cancel::new()).unwrap();
         assert_eq!(again.game_files.unused.total(), 0);
@@ -1271,6 +1574,126 @@ mod tests {
         );
     }
 
+    /// On Apple silicon, 1.16.5 runs in Zulu 8 and 1.17.1 in Mojang's arm64 Java 17
+    /// (`java-runtime-gamma`), not in the runtimes their files name; 1.12.2 runs in the
+    /// Intel Java 8 those name, and Forge 1.16.5-36.2.20 (ModLauncher 8.0) in a Zulu 8
+    /// before 8u321. Those are kept, and Zulu's older build goes. On an Intel Mac the
+    /// same versions use the runtimes their files name.
+    #[test]
+    fn apple_silicon_keeps_the_java_versions_really_run_in() {
+        let tmp = tempfile::tempdir().unwrap();
+        let data = DataDir::at(tmp.path());
+        let mut instances = Vec::new();
+        for id in ["1.12.2", "1.16.5", "1.17.1"] {
+            let path = format!("{}/testdata/versions/{id}.json", env!("CARGO_MANIFEST_DIR"));
+            let json: serde_json::Value = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
+            version(&data, id, json, &[]);
+            instances.push(instance(id, id, None));
+        }
+        version(
+            &data,
+            "1.16.5-forge-36.2.20",
+            serde_json::json!({
+                "id": "1.16.5-forge-36.2.20",
+                "mainClass": "cpw.mods.modlauncher.Launcher",
+                "inheritsFrom": "1.16.5",
+                "libraries": [{ "name": "cpw.mods:modlauncher:8.0.9" }],
+            }),
+            &[],
+        );
+        instances.push(instance(
+            "old-forge",
+            "1.16.5",
+            Some((Loader::Forge, "1.16.5-36.2.20")),
+        ));
+        let runtimes = data.runtimes_dir();
+        for folder in [
+            "jre-legacy/mac-os",
+            "java-runtime-alpha/mac-os",
+            "java-runtime-beta/mac-os",
+            "java-runtime-gamma/mac-os-arm64",
+        ] {
+            write(&runtimes.join(folder).join("java"), b"j");
+        }
+        let zulu = runtimes.join("zulu-8/mac-os-arm64");
+        for (build, size) in [
+            ("zulu8.94.0.17-ca-jre8.0.492-macosx_aarch64", 3),
+            ("zulu8.98.0.111-ca-jre8.0.512-macosx_aarch64", 5),
+        ] {
+            let java = zulu.join(build).join("zulu-8.jre/Contents/Home/bin/java");
+            write(&java, &vec![b'z'; size]);
+            crate::game::runtime::mark_installed(&zulu.join(build), &"0".repeat(64)).unwrap();
+        }
+        let before = runtimes.join("zulu-8-before-8u321/mac-os-arm64");
+        let old_build = before.join("zulu8.58.0.13-ca-jre8.0.312-macosx_aarch64");
+        write(&old_build.join("zulu-8.jre/Contents/Home/bin/java"), b"z");
+        crate::game::runtime::mark_installed(&old_build, &"0".repeat(64)).unwrap();
+        let arm64 = Platform::new(Os::MacOs, Arch::Arm64, "14.6.1");
+
+        let report = scan_on(&data, &instances, &arm64, &Cancel::new()).unwrap();
+        let row = |component: &str| {
+            report
+                .runtimes
+                .iter()
+                .find(|r| r.component == component)
+                .unwrap_or_else(|| panic!("{component}: {:#?}", report.runtimes))
+                .clone()
+        };
+        assert_eq!(row("zulu-8").used_by, ["1.16.5"]);
+        assert_eq!(row("zulu-8").java, Some(8));
+        // Listed under the version that names the Java, as other loaders are.
+        assert_eq!(row("zulu-8-before-8u321").used_by, ["1.16.5"]);
+        assert_eq!(row("zulu-8-before-8u321").java, Some(8));
+        assert_eq!(row("java-runtime-gamma").used_by, ["1.17.1"]);
+        assert_eq!(row("java-runtime-gamma").java, Some(17));
+        assert_eq!(row("jre-legacy").used_by, ["1.12.2"]);
+        assert!(row("java-runtime-alpha").unused());
+        assert!(row("java-runtime-beta").unused());
+        let older = row("zulu-8/zulu8.94.0.17-ca-jre8.0.492-macosx_aarch64");
+        assert!(older.unused());
+        assert_eq!(older.java, Some(8));
+
+        clean_on(
+            &data,
+            &instances,
+            &[],
+            Clean::UnusedRuntimes,
+            &arm64,
+            &Cancel::new(),
+        )
+        .unwrap();
+        assert!(
+            zulu.join("zulu8.98.0.111-ca-jre8.0.512-macosx_aarch64")
+                .exists()
+        );
+        assert!(
+            !zulu
+                .join("zulu8.94.0.17-ca-jre8.0.492-macosx_aarch64")
+                .exists()
+        );
+        assert!(old_build.exists());
+        assert!(runtimes.join("java-runtime-gamma").exists());
+        assert!(runtimes.join("jre-legacy").exists());
+        assert!(!runtimes.join("java-runtime-alpha").exists());
+        assert!(!runtimes.join("java-runtime-beta").exists());
+
+        // An Intel Mac runs them in the runtimes their files name: Zulu goes.
+        let intel = Platform::new(Os::MacOs, Arch::X86_64, "14.6.1");
+        let report = scan_on(&data, &instances, &intel, &Cancel::new()).unwrap();
+        let zulu_row = report
+            .runtimes
+            .iter()
+            .find(|r| r.component == "zulu-8")
+            .unwrap();
+        assert!(zulu_row.unused());
+        assert!(
+            report
+                .runtimes
+                .iter()
+                .any(|r| r.component == "java-runtime-gamma" && r.unused())
+        );
+    }
+
     #[test]
     fn a_cancelled_scan_stops() {
         let (_tmp, data, instances) = fixture();
@@ -1306,5 +1729,103 @@ mod tests {
         ] {
             assert_eq!(Clean::from_name(clean.name()), Some(clean));
         }
+    }
+
+    #[test]
+    fn the_image_store_is_counted_apart_with_its_snapshots() {
+        let (_tmp, data, mut instances) = fixture();
+        let mut back = instances[0].clone();
+        back.id = "fab2".into();
+        back.created = 1_700_000_123;
+        instances.push(back);
+        let before = scan(&data, &instances, &Cancel::new()).unwrap();
+        assert_eq!(before.images, ImagesUsage::default());
+        let images = data.image_store_dir().join("images");
+        let records = |kinds: &[(&str, bool)]| {
+            let snapshots: Vec<serde_json::Value> = kinds
+                .iter()
+                .map(|(kind, pinned)| serde_json::json!({ "kind": kind, "pinned": pinned }))
+                .collect();
+            serde_json::to_vec(&serde_json::json!({ "version": 1, "snapshots": snapshots }))
+                .unwrap()
+        };
+        // a live instance: manual, automatic, a pinned automatic one, a safety snapshot
+        write(
+            &images
+                .join("fab")
+                .join(crate::images::snapshots::RECORDS_FILE),
+            &records(&[
+                ("manual", false),
+                ("before_change", false),
+                ("after_play", true),
+                ("before_restore", false),
+                ("imported", false),
+            ]),
+        );
+        // a deleted instance's: all of them go with Storage's clean-up
+        let retired = images.join("_deleted_0123456789abcdef");
+        write(&retired.join(crate::images::retired::RETIRED_FILE), b"{}");
+        write(
+            &retired.join(crate::images::snapshots::RECORDS_FILE),
+            &records(&[("manual", true)]),
+        );
+        // the snapshots of a live instance put back from the Trash (its id and creation
+        // time, no images of its own yet): still its own, so only its automatic one goes
+        let came_back = images.join("_deleted_fedcba9876543210");
+        write(
+            &came_back.join(crate::images::retired::RETIRED_FILE),
+            serde_json::to_string(&serde_json::json!({
+                "former_id": "fab2",
+                "instance_created": instances[1].created,
+            }))
+            .unwrap()
+            .as_bytes(),
+        );
+        write(
+            &came_back.join(crate::images::snapshots::RECORDS_FILE),
+            &records(&[("manual", true), ("before_change", false)]),
+        );
+        // a list that can't be read counts nothing, and isn't an error
+        write(
+            &images
+                .join("other")
+                .join(crate::images::snapshots::RECORDS_FILE),
+            b"not a list",
+        );
+        write(
+            &data.image_store_dir().join("objects/ab/cdef"),
+            b"an object",
+        );
+        let report = scan(&data, &instances, &Cancel::new()).unwrap();
+        assert_eq!(
+            report.images,
+            ImagesUsage {
+                bytes: Sizer::new(&Cancel::new())
+                    .size(&data.image_store_dir())
+                    .unwrap(),
+                snapshots: 8,
+                removable: 4,
+                retired_instances: 1,
+            }
+        );
+        assert_eq!(report.other, before.other, "the store isn't other");
+        let total_on_disk = Sizer::new(&Cancel::new()).size(data.root()).unwrap();
+        assert_eq!(report.total(), total_on_disk);
+    }
+
+    #[test]
+    fn only_the_old_snapshot_store_is_removed() {
+        let tmp = tempfile::tempdir().unwrap();
+        let data = DataDir::at(tmp.path());
+        // a folder of that name that isn't the old store stays
+        write(&data.root().join("snapshots/notes.txt"), b"mine");
+        assert!(!remove_old_snapshot_store(&data));
+        assert!(data.root().join("snapshots/notes.txt").is_file());
+        for layout in ["objects/ab/cd", "instances/a/snapshot.json"] {
+            write(&data.root().join("snapshots").join(layout), b"old");
+            assert!(remove_old_snapshot_store(&data), "{layout}");
+            assert!(!data.root().join("snapshots").exists());
+        }
+        assert!(!remove_old_snapshot_store(&data), "nothing left");
     }
 }

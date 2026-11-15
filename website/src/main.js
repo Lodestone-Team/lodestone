@@ -1,7 +1,7 @@
 // lodestone.cc home page. Everything here is decoration on top of a page that
 // works without it: the star count, the iron filings behind the logo, the
-// tilt of the logo, the light on the cards, the Host card's chart and the CLI
-// card's typing.
+// logo switching between the launcher and Host, the light on the cards, the
+// Host card's chart, the CLI card's typing and the Connect section's join.
 
 const REPO = 'Lodestone-Team/lodestone';
 const CACHE_MS = 60 * 60 * 1000; // the unauthenticated API allows 60 calls an hour
@@ -84,7 +84,30 @@ function startField() {
     [154, 143, 245],
   ];
   const BANDS = BAND_COLORS.length;
-  const CLEAR_RADIUS = 84; // no filings under the logo
+  // While Host's mark shows, the strokes take its greens instead.
+  const HOST_COLORS = [
+    [46, 242, 154],
+    [42, 228, 158],
+    [38, 214, 162],
+    [34, 202, 165],
+    [31, 191, 168],
+  ];
+  // When the logo switches, the edge the strokes fade along morphs from one
+  // shape to the other over MORPH_MS.
+  const MORPH_MS = 700;
+  // ...and a light ripple runs out from the logo: a ring RIPPLE_WIDTH px wide
+  // moving RIPPLE_SPEED px a millisecond, fading out by RIPPLE_REACH px. As it
+  // passes, strokes swing by up to RIPPLE_SWING radians and brighten a little,
+  // then ease back into line.
+  const RIPPLE_SPEED = 0.75;
+  const RIPPLE_WIDTH = 46;
+  const RIPPLE_REACH = 820;
+  const RIPPLE_SWING = 0.55;
+  const RIPPLE_GLOW = 0.22;
+  // Filings run right up to the gem and fade out toward its edge: fully shown
+  // from GEM_FADE px out, gone at GEM_MARGIN px, following the hexagon.
+  const GEM_MARGIN = 3; // px between the gem's edge and the nearest stroke tip
+  const GEM_FADE = 40; // px from the gem's edge where strokes are fully shown
   const POINTER_REACH = 170; // px; the pointer's pull halves at about this distance
   const POINTER_SPREAD = 2 * (POINTER_REACH / 1.18) ** 2;
   const FADE_REACH = 90; // px; strokes are half faded at about this distance
@@ -96,6 +119,10 @@ function startField() {
   let spacing = 22;
   let filings = [];
   let center = { x: 0, y: 0 };
+  let gemScale = 1; // CSS px per unit of the logo's viewBox
+  let shapeMix = 0; // 0 = the gem's hexagon, 1 = Host's square
+  const morph = { from: 0, to: 0, start: -Infinity };
+  let rippleStart = -Infinity;
   const pointer = { x: 0, y: 0, tx: 0, ty: 0, strength: 0, target: 0 };
   let start = performance.now();
   let running = false;
@@ -116,23 +143,31 @@ function startField() {
       y: markBox.top + markBox.height / 2 - heroBox.top,
     };
 
+    // the logo's viewBox is 580 units wide
+    gemScale = mark.offsetWidth / 580;
+
     spacing = width < 600 ? 24 : 22;
     const old = filings;
     filings = [];
-    const cols = Math.ceil(width / spacing) + 1;
-    const rows = Math.ceil(height / spacing) + 1;
-    const ox = (width - (cols - 1) * spacing) / 2;
-    const oy = (height - (rows - 1) * spacing) / 2;
+    // line the grid up on the logo, so the fade around it looks the same on every side
+    const ox = center.x - Math.ceil(center.x / spacing) * spacing;
+    const oy = center.y - Math.ceil(center.y / spacing) * spacing;
+    const cols = Math.ceil((width - ox) / spacing) + 1;
+    const rows = Math.ceil((height - oy) / spacing) + 1;
     for (let j = 0; j < rows; j++) {
       for (let i = 0; i < cols; i++) {
         const x = ox + i * spacing;
         const y = oy + j * spacing;
         const d = Math.hypot(x - center.x, y - center.y);
-        if (d < CLEAR_RADIUS) continue;
         const prev = old[filings.length];
         filings.push({
           x,
           y,
+          clear: 0,
+          nx: 0,
+          ny: 0,
+          gemFade: 0,
+          dist: d,
           angle: prev ? prev.angle : Math.random() * Math.PI,
           // the ripple: strokes near the logo line up first
           delay: 250 + d * 0.9,
@@ -144,6 +179,62 @@ function startField() {
         });
       }
     }
+    fitShape();
+  }
+
+  // How each stroke sits against the logo: the room it has before it reaches
+  // the logo, which way is away from it, and how far it has faded near it.
+  function fitShape() {
+    for (const f of filings) {
+      const edge = markDistance(f.x, f.y);
+      // room for the stroke before it reaches the logo
+      f.clear = Math.max(0, edge - GEM_MARGIN);
+      // which way is away from the logo here
+      f.nx = markDistance(f.x + 0.5, f.y) - markDistance(f.x - 0.5, f.y);
+      f.ny = markDistance(f.x, f.y + 0.5) - markDistance(f.x, f.y - 0.5);
+      // 0 at the logo's edge, 1 from GEM_FADE out, eased so it fades quickly near it
+      const t = f.clear < 2 ? 0 : Math.min(1, edge / GEM_FADE);
+      f.gemFade = t * t * (3 - 2 * t);
+    }
+  }
+
+  // Distance in px to the edge of the logo that shows, or a blend of the two
+  // while it switches.
+  function markDistance(x, y) {
+    if (shapeMix <= 0) return gemDistance(x, y);
+    if (shapeMix >= 1) return hostDistance(x, y);
+    return gemDistance(x, y) * (1 - shapeMix) + hostDistance(x, y) * shapeMix;
+  }
+
+  // Distance in px from (x, y) to the edge of Host's mark: a square 400
+  // viewBox units across with corners rounded like its Ls (9.5 of its 70).
+  function hostDistance(x, y) {
+    const HALF = 200;
+    const ROUND = 54.3;
+    const qx = Math.abs(x - center.x) / gemScale - (HALF - ROUND);
+    const qy = Math.abs(y - center.y) / gemScale - (HALF - ROUND);
+    const outside = Math.hypot(Math.max(qx, 0), Math.max(qy, 0));
+    return (outside + Math.min(Math.max(qx, qy), 0) - ROUND) * gemScale;
+  }
+
+  // Distance in px from (x, y) to the gem's edge (negative inside): a hexagon
+  // with points at the top and bottom (flat sides 259.8 viewBox units from its
+  // middle, rounded corners), the same shape as the logo's path.
+  function gemDistance(x, y) {
+    const ROUND = 78;
+    const inner = 259.81 - ROUND;
+    // swap x and y so the flat sides are on top for the usual formula
+    let px = Math.abs(y - center.y) / gemScale;
+    let py = Math.abs(x - center.x) / gemScale;
+    const kx = -0.866025404;
+    const ky = 0.5;
+    const fold = 2 * Math.min(kx * px + ky * py, 0);
+    px -= fold * kx;
+    py -= fold * ky;
+    const lim = 0.577350269 * inner;
+    px -= Math.max(-lim, Math.min(lim, px));
+    py -= inner;
+    return (Math.hypot(px, py) * Math.sign(py) - ROUND) * gemScale;
   }
 
   // Field of a dipole with moment (mx, my) and strength k at (cx, cy), at (x, y).
@@ -180,6 +271,20 @@ function startField() {
     const py = center.y - pointer.y;
     const pl = Math.hypot(px, py) || 1;
 
+    // the logo switched: move the fade edge toward its shape
+    if (morph.start > -Infinity) {
+      const k = Math.min(1, (now - morph.start) / MORPH_MS);
+      const e = k * k * (3 - 2 * k);
+      shapeMix = morph.from + (morph.to - morph.from) * e;
+      fitShape();
+      if (k >= 1) morph.start = -Infinity;
+    }
+
+    // where the ripple's ring is now, and how strong it still is
+    const rippleR = (now - rippleStart) * RIPPLE_SPEED;
+    const rippleOn = rippleR >= 0 && rippleR < RIPPLE_REACH + RIPPLE_WIDTH * 2;
+    const rippleFade = rippleOn ? Math.max(0, 1 - rippleR / RIPPLE_REACH) : 0;
+
     for (const p of paths) p.length = 0;
 
     for (const f of filings) {
@@ -205,6 +310,14 @@ function startField() {
           target += halfTurn(Math.atan2(pb.y, pb.x) - target) * Math.min(1, near * 1.15);
         }
       }
+      // the ripple: a nudge to one side as the ring passes, which the stroke's
+      // easing turns into a smooth swing and settle
+      let wave = 0;
+      if (rippleOn) {
+        const off = (f.dist - rippleR) / RIPPLE_WIDTH;
+        wave = Math.exp(-off * off) * rippleFade;
+        target += wave * RIPPLE_SWING;
+      }
       const elapsed = now - start - f.delay;
       if (reducedMotion) {
         f.angle = target;
@@ -215,12 +328,19 @@ function startField() {
       const appear = reducedMotion ? 1 : Math.min(1, Math.max(0, elapsed / 600));
       if (appear <= 0) continue;
       const strength = Math.min(1, Math.pow(Math.hypot(b.x, b.y), 0.3) * 0.85);
-      const shown = Math.min(1, (strength * (1 - 0.97 * fade) + 0.42 * ring) * appear);
+      const shown = Math.min(
+        1,
+        (strength * (1 - 0.97 * fade) + 0.42 * ring + RIPPLE_GLOW * wave) * appear * f.gemFade
+      );
       if (shown < 0.05) continue;
       const level = Math.min(BUCKETS - 1, Math.floor(shown * BUCKETS));
-      const half = (spacing * (0.24 + 0.14 * strength)) / 1;
-      const cx = Math.cos(f.angle) * half;
-      const cy = Math.sin(f.angle) * half;
+      const ax = Math.cos(f.angle);
+      const ay = Math.sin(f.angle);
+      // shorten strokes that point at the gem so their tips never touch it
+      const toward = Math.abs(ax * f.nx + ay * f.ny);
+      const half = Math.min(spacing * (0.24 + 0.14 * strength), f.clear / Math.max(toward, 0.001));
+      const cx = ax * half;
+      const cy = ay * half;
       paths[f.band * BUCKETS + level].push(f.x - cx, f.y - cy, f.x + cx, f.y + cy);
     }
 
@@ -228,7 +348,11 @@ function startField() {
     ctx.lineCap = 'round';
     ctx.lineWidth = 1.5;
     for (let band = 0; band < BANDS; band++) {
-      const [hr, hg, hb] = BAND_COLORS[band];
+      const [gr, gg, gb] = BAND_COLORS[band];
+      const [sr, sg, sb] = HOST_COLORS[band];
+      const hr = gr + (sr - gr) * shapeMix;
+      const hg = gg + (sg - gg) * shapeMix;
+      const hb = gb + (sb - gb) * shapeMix;
       for (let i = 0; i < BUCKETS; i++) {
         const seg = paths[band * BUCKETS + i];
         if (!seg.length) continue;
@@ -259,6 +383,13 @@ function startField() {
       running = false;
     }
   }
+
+  mark.addEventListener('markswitch', (e) => {
+    morph.from = shapeMix;
+    morph.to = e.detail === 'host' ? 1 : 0;
+    morph.start = performance.now();
+    rippleStart = morph.start;
+  });
 
   layout();
   if (reducedMotion) {
@@ -297,19 +428,6 @@ function startField() {
     setRunning(visible && !document.hidden);
   }).observe(hero);
   document.addEventListener('visibilitychange', () => setRunning(visible && !document.hidden));
-}
-
-// The logo leans toward the pointer.
-function tiltMark() {
-  const mark = document.querySelector('[data-mark]');
-  if (!mark || reducedMotion || !finePointer) return;
-  window.addEventListener('pointermove', (e) => {
-    const box = mark.getBoundingClientRect();
-    const dx = (e.clientX - (box.left + box.width / 2)) / window.innerWidth;
-    const dy = (e.clientY - (box.top + box.height / 2)) / window.innerHeight;
-    mark.style.setProperty('--tilt-y', `${(dx * 24).toFixed(2)}deg`);
-    mark.style.setProperty('--tilt-x', `${(-dy * 24).toFixed(2)}deg`);
-  });
 }
 
 // A light follows the pointer over each card (see .card::before).
@@ -435,9 +553,66 @@ function typeTerminal() {
   }).observe(term);
 }
 
+// The Connect section's join: when it scrolls into view, the launcher's bar
+// fills once while it gets the server's mods. Without JavaScript, or with
+// reduced motion, it shows full.
+function playJoin() {
+  const link = document.querySelector('[data-link]');
+  if (!link || reducedMotion) return;
+  const bar = link.querySelector('[data-join-bar]');
+  bar.style.transform = 'scaleX(0)';
+
+  let started = false;
+  new IntersectionObserver(
+    ([entry]) => {
+      if (!entry.isIntersecting || started) return;
+      started = true;
+      bar.style.transition = 'transform 1.8s cubic-bezier(0.4, 0, 0.2, 1) 0.4s';
+      requestAnimationFrame(() => (bar.style.transform = 'scaleX(1)'));
+    },
+    { threshold: 0.6 },
+  ).observe(link);
+}
+
+// The hero's logo takes turns between the launcher's gem and Host's mark,
+// every few seconds while the hero is on screen. It holds still while the
+// pointer is on the logo or its name, and with reduced motion it stays on the
+// gem. Each switch tells the iron filings (startField) to follow the new shape.
+function switchMark() {
+  const mark = document.querySelector('[data-mark]');
+  const label = document.querySelector('[data-mark-label]');
+  if (!mark || !label || reducedMotion) return;
+  const EVERY_MS = 4500;
+  let held = false;
+  let onScreen = true;
+
+  function show(name) {
+    mark.dataset.show = name;
+    for (const a of label.querySelectorAll('a')) {
+      if (a.dataset.for === name) a.removeAttribute('tabindex');
+      else a.setAttribute('tabindex', '-1');
+    }
+    mark.dispatchEvent(new CustomEvent('markswitch', { detail: name }));
+  }
+
+  setInterval(() => {
+    if (held || !onScreen || document.hidden) return;
+    show(mark.dataset.show === 'launcher' ? 'host' : 'launcher');
+  }, EVERY_MS);
+
+  for (const el of [mark, label]) {
+    el.addEventListener('pointerenter', () => (held = true));
+    el.addEventListener('pointerleave', () => (held = false));
+  }
+  label.addEventListener('focusin', () => (held = true));
+  label.addEventListener('focusout', () => (held = false));
+  new IntersectionObserver(([entry]) => (onScreen = entry.isIntersecting)).observe(mark);
+}
+
 showStars();
 startField();
-tiltMark();
+switchMark();
 lightCards();
 chartHost();
 typeTerminal();
+playJoin();

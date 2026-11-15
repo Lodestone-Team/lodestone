@@ -1,11 +1,21 @@
-// Points the download button at Lodestone CLI for the visitor's platform and
-// shows the repo's star count. Both come from the GitHub API. The page works
+// Points the download button at the Lodestone Host app for the visitor's
+// platform (or Lodestone CLI, until the app is released for it) and shows the
+// repo's star count. Both come from the GitHub API. The page works
 // without them: the button falls back to the Windows build and the star count
 // stays hidden. Same code as the launcher page's (launcher/main.js) otherwise.
 
 const REPO = 'Lodestone-Team/lodestone';
 const CLI_REPO = 'Lodestone-Team/lodestone_cli';
 const RELEASE_PAGE = `https://github.com/${CLI_REPO}/releases/latest`;
+// The Host app: each version is a release of its own, tagged host-vX.Y.Z; betas
+// (host-vX.Y.Z-beta.N) are pre-releases and aren't offered here. Its installer
+// and disk image keep these names in every release (publish_release.py).
+const HOST_TAG_PREFIX = 'host-v';
+const HOST_FILES = { windows: 'LodestoneHostSetup.exe', macos: 'LodestoneHost.dmg' };
+const HOST_NOTES = { windows: 'Windows 10 and 11', macos: 'macOS' };
+// Host's releases without the launcher's: every Host release's notes name its
+// Windows installer (see RELEASE_PAGE in launcher/main.js).
+const HOST_RELEASE_PAGE = `https://github.com/${REPO}/releases?q=LodestoneHostSetup.exe&expanded=true`;
 const CACHE_MS = 60 * 60 * 1000; // the unauthenticated API allows 60 calls an hour
 
 const PLATFORMS = {
@@ -80,6 +90,21 @@ async function showStars() {
   }
 }
 
+// The newest published stable Host release with an app for this platform.
+// GitHub lists releases newest first. The launcher page reads the same list,
+// under the same cache key.
+async function hostApp(platform) {
+  const file = HOST_FILES[platform];
+  if (!file) return null;
+  const releases = await githubJson(`repos/${REPO}/releases?per_page=100`, 'lodestone:releases');
+  for (const release of releases || []) {
+    if (!release.tag_name.startsWith(HOST_TAG_PREFIX) || release.draft || release.prerelease) continue;
+    const asset = release.assets.find((a) => a.name === file);
+    if (asset) return { url: asset.browser_download_url };
+  }
+  return null;
+}
+
 // Lodestone CLI installs Host, keeps it updated and starts it. Its releases
 // (Lodestone-Team/lodestone_cli) carry one file per platform:
 // lodestone_cli_<os>_<arch>[.exe]. There's no Intel Mac build.
@@ -104,6 +129,19 @@ async function setUpDownload() {
     return;
   }
   label.textContent = `Download for ${PLATFORMS[platform].name}`;
+
+  // The Host app, once it's released for this platform.
+  try {
+    const app = await hostApp(platform);
+    if (app) {
+      button.href = app.url;
+      document.querySelector('[data-download-note]').textContent = HOST_NOTES[platform];
+      document.querySelector('[data-all-downloads]').href = HOST_RELEASE_PAGE;
+      return;
+    }
+  } catch (e) {
+    // Offline or rate limited: try Lodestone CLI's release below.
+  }
 
   let release;
   try {

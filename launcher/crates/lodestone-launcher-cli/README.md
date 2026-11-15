@@ -2,7 +2,9 @@
 
 Controls a running Lodestone Launcher from the command line: instances, the game and its
 log, mods and modpacks from Modrinth, worlds and backups, accounts, settings, imports,
-Lodestone cores and their servers, and friends' servers shared with an invite link. It
+Lodestone cores and their servers, friends' servers shared with an invite link, and the
+friend list (`friend-list`: name and safety code, friend links, answers, friends and the
+servers they share). It
 does what the launcher's window does, through the same code, and the window shows each
 change as it happens.
 
@@ -40,6 +42,14 @@ stdout, progress as JSON lines on stderr, and errors as
 Destructive commands (delete, remove, replace) need `--yes`; on a terminal without it,
 the CLI asks. Long commands wait with progress; `--no-wait` returns a job to follow with
 `jobs wait`.
+
+## Content history
+
+`content history <instance>` lists the instance's content images, newest first: the
+launcher records one after each change it makes to the instance's mods, packs, configs
+or loader version, and before a launch when they changed by hand. Each has its label,
+time, game, pack and file count. Labels are printed as recorded in JSON and with control
+characters written visibly in `--human` output (`docs/instance-images.md`).
 
 ## Debug traces
 

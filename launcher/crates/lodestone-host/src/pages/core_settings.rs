@@ -3,6 +3,11 @@
 //!
 //! Only the owner changes these; everyone else sees them read-only. Settings an older
 //! core doesn't have are hidden, as the dashboard does.
+//!
+//! "Allow access from other devices" is off for Lodestone Host's core until its owner
+//! shares it: turning it on (or anything else that only makes sense from other devices,
+//! such as the public listing) first asks for the owner account's username and password
+//! when the owner has none (`account_dialogs`).
 
 use gpui::{
     AnyElement, App, AppContext as _, Context, Entity, FocusHandle, IntoElement, KeyDownEvent,
@@ -18,17 +23,32 @@ use launcher_core::cores::admin::{
 use lodestone_ui::{
     components::{
         Button, ButtonVariant, Dialog, DialogSlot, TextInput, Toggle,
-        settings::{self, SettingRow},
+        settings::{self, SearchRow, SettingRow, SettingsSearch},
         window_layer,
     },
     theme::{colors, ink, text},
 };
 
-use super::parts::{self, Confirm, TextSetting, TextSettingEvent};
+use super::{
+    account_dialogs::{self, AccountDialog, AccountDialogEvent},
+    parts::{self, Confirm, TextSetting, TextSettingEvent},
+};
 use crate::{
     i18n::{CommonMsg, CoreMsg, t, tr},
     state::{HostEvent, HostState},
 };
+
+/// Whether turning `switch` on only makes sense from other devices, so an owner without
+/// a password sets one up first: remote access itself, the public listing (anyone who
+/// can reach the core sees it) and plain HTTP from the network.
+pub fn shares_the_core(switch: CoreSwitch) -> bool {
+    matches!(
+        switch,
+        CoreSwitch::AllowRemoteAccess
+            | CoreSwitch::ListInstancesPublicly
+            | CoreSwitch::AllowLanHttp
+    )
+}
 
 /// A switch that asks first.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -36,6 +56,7 @@ enum Asking {
     SafeModeOff,
     CodeExecutionOff,
     LanHttpOn,
+    RemoteAccessOff,
 }
 
 struct OpenPort {
@@ -47,6 +68,8 @@ struct OpenPort {
 
 pub struct CoreSettingsPage {
     pub state: Entity<HostState>,
+    /// The Settings' search field: the page shows the settings that match it.
+    search: Entity<SettingsSearch>,
     name: Entity<TextSetting>,
     domain: Entity<TextSetting>,
     /// The settings as the core sent them, to tell which an older core lacks.
@@ -58,11 +81,19 @@ pub struct CoreSettingsPage {
     switching: Option<CoreSwitch>,
     asking: DialogSlot<Self, (Asking, FocusHandle)>,
     open_port: DialogSlot<Self, OpenPort>,
+    /// The owner account to set up before the core is shared.
+    owner_account: DialogSlot<Self, Entity<AccountDialog>>,
+    /// The switch to flip once the owner account is set up.
+    after_owner_account: Option<(CoreSwitch, bool)>,
     _subscriptions: Vec<Subscription>,
 }
 
 impl CoreSettingsPage {
-    pub fn new(state: Entity<HostState>, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        state: Entity<HostState>,
+        search: Entity<SettingsSearch>,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let settings = state.read(cx).settings.clone().unwrap_or_default();
         let address = state
             .read(cx)
@@ -111,6 +142,7 @@ impl CoreSettingsPage {
                 this.save_domain(value.clone(), cx);
             }),
             cx.observe(&state, |this, state, cx| this.follow(&state, cx)),
+            cx.observe(&search, |_, _, cx| cx.notify()),
             cx.subscribe(&state, |this, _, event, cx| {
                 if matches!(event, HostEvent::InstancesReloaded) {
                     this.load(cx);
@@ -119,6 +151,7 @@ impl CoreSettingsPage {
         ];
         let mut this = Self {
             state,
+            search,
             name,
             domain,
             raw: None,
@@ -127,6 +160,8 @@ impl CoreSettingsPage {
             switching: None,
             asking: DialogSlot::new(|this: &mut Self| &mut this.asking),
             open_port: DialogSlot::new(|this: &mut Self| &mut this.open_port),
+            owner_account: DialogSlot::new(|this: &mut Self| &mut this.owner_account),
+            after_owner_account: None,
             _subscriptions: subscriptions,
         };
         this.follow(&this.state.clone(), cx);
@@ -229,12 +264,23 @@ impl CoreSettingsPage {
         );
     }
 
-    /// A switch was flipped: some ask first, as the dashboard does.
+    /// A switch was flipped: some ask first, as the dashboard does. Those that only make
+    /// sense from other devices ask for the owner account first, when there is none.
     fn flip(&mut self, switch: CoreSwitch, value: bool, cx: &mut Context<Self>) {
+        if value
+            && shares_the_core(switch)
+            && account_dialogs::needs_owner_account(self.state.read(cx))
+        {
+            // setting up the account turns remote access on by itself
+            let then = (switch != CoreSwitch::AllowRemoteAccess).then_some((switch, value));
+            self.open_owner_account(then, cx);
+            return;
+        }
         let ask = match (switch, value) {
             (CoreSwitch::SafeMode, false) => Some(Asking::SafeModeOff),
             (CoreSwitch::CodeExecution, false) => Some(Asking::CodeExecutionOff),
             (CoreSwitch::AllowLanHttp, true) => Some(Asking::LanHttpOn),
+            (CoreSwitch::AllowRemoteAccess, false) => Some(Asking::RemoteAccessOff),
             _ => None,
         };
         match ask {
@@ -244,6 +290,52 @@ impl CoreSettingsPage {
             }
             None => self.set_switch(switch, value, cx),
         }
+    }
+
+    /// Asks for the owner account's username and password, then flips `then`.
+    fn open_owner_account(&mut self, then: Option<(CoreSwitch, bool)>, cx: &mut Context<Self>) {
+        self.after_owner_account = then;
+        let state = self.state.clone();
+        let (dialog, subscription) = account_dialogs::open(
+            move |cx| AccountDialog::owner_account(state, cx),
+            |this: &mut Self, dialog, event, cx| {
+                if this.owner_account.current() != Some(dialog) {
+                    return;
+                }
+                this.owner_account.close(cx);
+                let then = this.after_owner_account.take();
+                if let (AccountDialogEvent::OwnerSetUp(_), Some((switch, value))) = (event, then) {
+                    this.flip(switch, value, cx);
+                }
+                cx.notify();
+            },
+            cx,
+        );
+        self._subscriptions.push(subscription);
+        self.owner_account.open(dialog, cx);
+    }
+
+    /// Flips "Allow access from other devices" on as a user would, and with `owner`
+    /// (a username and password) fills in and sends the owner account dialog it opens:
+    /// for the development screenshots (`--share-core`, `--owner`).
+    #[cfg(feature = "screenshot")]
+    pub fn share_core_for_screenshot(
+        &mut self,
+        owner: Option<(&str, &str)>,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if self.owner_account.current().is_none() {
+            self.flip(CoreSwitch::AllowRemoteAccess, true, cx);
+        }
+        let Some(dialog) = self.owner_account.current().cloned() else {
+            return false;
+        };
+        if let Some((username, password)) = owner {
+            dialog.update(cx, |dialog, cx| {
+                dialog.fill_and_submit(username, password, cx)
+            });
+        }
+        true
     }
 
     fn set_switch(&mut self, switch: CoreSwitch, value: bool, cx: &mut Context<Self>) {
@@ -387,31 +479,26 @@ impl CoreSettingsPage {
         hint: impl Into<SharedString>,
         owner: bool,
         cx: &mut Context<Self>,
-    ) -> AnyElement {
+    ) -> SettingRow {
         let settings = self.state.read(cx).settings.clone().unwrap_or_default();
         let locked = switch == CoreSwitch::CodeExecution && settings.code_execution_locked;
-        SettingRow::new(t(label))
-            .hint(hint)
-            .child(
-                Toggle::new(
-                    SharedString::from(format!("{switch:?}")),
-                    switch.get(&settings),
-                )
-                .label(t(label))
-                .disabled(!owner || locked || self.switching.is_some())
-                .on_change(
-                    cx.listener(move |this, value: &bool, _, cx| this.flip(switch, *value, cx)),
-                ),
+        SettingRow::new(t(label)).hint(hint).child(
+            Toggle::new(
+                SharedString::from(format!("{switch:?}")),
+                switch.get(&settings),
             )
-            .into_any_element()
+            .label(t(label))
+            .disabled(!owner || locked || self.switching.is_some())
+            .on_change(cx.listener(move |this, value: &bool, _, cx| this.flip(switch, *value, cx))),
+        )
     }
 
-    fn info_rows(&self, cx: &App) -> Vec<AnyElement> {
+    fn info_rows(&self, cx: &App) -> Vec<SettingRow> {
         let info = &self.state.read(cx).info;
         let row = |label: CoreMsg, value: String| {
             SettingRow::new(t(label))
+                .search_text(value.clone())
                 .child(settings::value(value, false))
-                .into_any_element()
         };
         let mut rows = vec![
             row(CoreMsg::InfoCoreVersion, info.version.clone()),
@@ -444,8 +531,7 @@ impl CoreSettingsPage {
         if let Some(fingerprint) = &info.tls.fingerprint_sha256 {
             rows.push(
                 SettingRow::new(t(CoreMsg::InfoFingerprint))
-                    .below(parts::mono(fingerprint.clone()))
-                    .into_any_element(),
+                    .below(parts::mono(fingerprint.clone())),
             );
         }
         rows
@@ -457,7 +543,6 @@ impl CoreSettingsPage {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let (asking, focus) = (*asking, focus.clone());
-        let macros = self.state.read(cx).info.capabilities.macros;
         let (switch, value, title, body, action, danger) = match asking {
             Asking::SafeModeOff => (
                 CoreSwitch::SafeMode,
@@ -471,11 +556,7 @@ impl CoreSettingsPage {
                 CoreSwitch::CodeExecution,
                 false,
                 CoreMsg::CodeExecutionOffTitle,
-                if macros {
-                    CoreMsg::CodeExecutionOffBody
-                } else {
-                    CoreMsg::CodeExecutionOffBodyJavaOnly
-                },
+                CoreMsg::CodeExecutionOffBody,
                 CoreMsg::TurnOff,
                 true,
             ),
@@ -486,6 +567,14 @@ impl CoreSettingsPage {
                 CoreMsg::LanHttpConfirmBody,
                 CoreMsg::LanHttpAllow,
                 true,
+            ),
+            Asking::RemoteAccessOff => (
+                CoreSwitch::AllowRemoteAccess,
+                false,
+                CoreMsg::RemoteAccessOffTitle,
+                CoreMsg::RemoteAccessOffBody,
+                CoreMsg::TurnOff,
+                false,
             ),
         };
         let this = cx.entity().downgrade();
@@ -560,13 +649,14 @@ impl Render for CoreSettingsPage {
         let state = self.state.read(cx);
         let owner = state.me.is_owner;
         let settings = state.settings.clone().unwrap_or_default();
-        let macros = state.info.capabilities.macros;
+        let query = self.search.read(cx).query();
         let mut sections: Vec<AnyElement> = Vec::new();
 
-        if !owner {
+        // notes about the page, not settings: left out of a search
+        if !owner && !query.is_active() {
             sections.push(parts::paragraph(t(CoreMsg::ReadOnly)));
         }
-        if settings.allow_lan_http {
+        if settings.allow_lan_http && !query.is_active() {
             sections.push(parts::warning(if owner {
                 tr!(CoreMsg::LanHttpWarningOwner, setting = t(CoreMsg::LanHttp))
             } else {
@@ -575,28 +665,75 @@ impl Render for CoreSettingsPage {
         }
 
         // Core
-        sections.push(
-            settings::section(t(CoreMsg::SectionCore), None)
-                .child(settings::card([
-                    self.name.clone().into_any_element(),
-                    self.domain.clone().into_any_element(),
-                ]))
-                .into_any_element(),
+        let mut core_rows = vec![
+            SearchRow::new(
+                self.name.clone(),
+                [t(CoreMsg::CoreName), &settings.core_name],
+            ),
+            SearchRow::new(
+                self.domain.clone(),
+                [
+                    t(CoreMsg::Domain),
+                    t(CoreMsg::DomainHint),
+                    t(CoreMsg::DomainKeywords),
+                    settings.domain.as_deref().unwrap_or(""),
+                ],
+            ),
+        ];
+        if owner && self.supports("allow_remote_access") {
+            core_rows.push(
+                self.switch_row(
+                    CoreSwitch::AllowRemoteAccess,
+                    CoreMsg::RemoteAccess,
+                    t(if settings.allow_remote_access {
+                        CoreMsg::RemoteAccessHintOn
+                    } else {
+                        CoreMsg::RemoteAccessHintOff
+                    }),
+                    owner,
+                    cx,
+                )
+                .keywords(t(CoreMsg::RemoteAccessKeywords))
+                .into(),
+            );
+        }
+        if self.supports("check_modpack_updates") {
+            core_rows.push(
+                self.switch_row(
+                    CoreSwitch::CheckModpackUpdates,
+                    CoreMsg::ModpackChecks,
+                    t(CoreMsg::ModpackChecksHint),
+                    owner,
+                    cx,
+                )
+                .keywords(t(CoreMsg::ModpackChecksKeywords))
+                .into(),
+            );
+        }
+        sections.extend(
+            query
+                .section(t(CoreMsg::SectionCore), None)
+                .card(core_rows)
+                .finish()
+                .map(IntoElement::into_any_element),
         );
 
         // Public servers
         if owner && self.supports("list_instances_publicly") {
             let switch_on = settings.list_instances_publicly;
-            let mut rows = vec![self.switch_row(
-                CoreSwitch::ListInstancesPublicly,
-                CoreMsg::ListPublicly,
-                t(CoreMsg::ListPubliclyHint),
-                owner,
-                cx,
-            )];
+            let mut rows: Vec<SearchRow> = vec![
+                self.switch_row(
+                    CoreSwitch::ListInstancesPublicly,
+                    CoreMsg::ListPublicly,
+                    t(CoreMsg::ListPubliclyHint),
+                    owner,
+                    cx,
+                )
+                .into(),
+            ];
             if let Some(overview) = &self.overview {
                 if overview.instances.is_empty() {
-                    rows.push(parts::empty_row(t(CoreMsg::NoJavaServers)));
+                    rows.push(parts::empty_row(t(CoreMsg::NoJavaServers)).into());
                 }
                 for instance in &overview.instances {
                     let uuid = instance.uuid.clone();
@@ -615,25 +752,29 @@ impl Render for CoreSettingsPage {
                                     .ok();
                             },
                         )
-                        .into_any_element(),
+                        .into(),
                     );
                 }
             }
-            sections.push(
-                settings::section(
-                    t(CoreMsg::SectionPublic),
-                    Some(t(CoreMsg::SectionPublicLead).into()),
-                )
-                .child(settings::card(rows))
-                .into_any_element(),
+            sections.extend(
+                query
+                    .section(
+                        t(CoreMsg::SectionPublic),
+                        Some(t(CoreMsg::SectionPublicLead).into()),
+                    )
+                    .card(rows)
+                    .finish()
+                    .map(IntoElement::into_any_element),
             );
         }
 
         // Information
-        sections.push(
-            settings::section(t(CoreMsg::SectionInfo), None)
-                .child(settings::card(self.info_rows(cx)))
-                .into_any_element(),
+        sections.extend(
+            query
+                .section(t(CoreMsg::SectionInfo), None)
+                .card(self.info_rows(cx))
+                .finish()
+                .map(IntoElement::into_any_element),
         );
 
         // Danger zone
@@ -645,15 +786,7 @@ impl Render for CoreSettingsPage {
             cx,
         )];
         if owner {
-            let mut hint = if macros {
-                t(CoreMsg::CodeExecutionHint).to_string()
-            } else {
-                format!(
-                    "{} {}",
-                    t(CoreMsg::CodeExecutionHintJavaOnly),
-                    t(CoreMsg::NoScripting)
-                )
-            };
+            let mut hint = t(CoreMsg::CodeExecutionHint).to_string();
             if settings.code_execution_locked {
                 hint = format!("{hint} {}", t(CoreMsg::CodeExecutionLocked));
             }
@@ -674,11 +807,23 @@ impl Render for CoreSettingsPage {
                 ));
             }
             if self.supports("allow_local_claim") {
+                // without a password, the claim is the only way to sign in: the core
+                // refuses to turn it off
+                let no_password = account_dialogs::needs_owner_account(self.state.read(cx));
+                let hint = if no_password {
+                    format!(
+                        "{} {}",
+                        t(CoreMsg::LocalClaimHint),
+                        t(CoreMsg::LocalClaimNeedsPassword)
+                    )
+                } else {
+                    t(CoreMsg::LocalClaimHint).to_string()
+                };
                 danger.push(self.switch_row(
                     CoreSwitch::AllowLocalClaim,
                     CoreMsg::LocalClaim,
-                    t(CoreMsg::LocalClaimHint),
-                    owner,
+                    hint,
+                    owner && !no_password,
                     cx,
                 ));
             }
@@ -690,22 +835,29 @@ impl Render for CoreSettingsPage {
                 } else {
                     t(CoreMsg::OpenPortNoPermission).to_string()
                 })
+                .keywords(t(CoreMsg::OpenPortKeywords))
                 .child(
                     Button::new("open-port", t(CoreMsg::OpenPortButton))
                         .variant(ButtonVariant::Danger)
                         .disabled(!owner)
                         .on_click(cx.listener(|this, _, _, cx| this.open_port_dialog(cx))),
+                ),
+        );
+        sections.extend(
+            query
+                .section(
+                    t(CoreMsg::SectionDanger),
+                    Some(t(CoreMsg::SectionDangerLead).into()),
                 )
-                .into_any_element(),
+                .card_with(danger, |card| {
+                    card.border_color(colors::RED_FADED.opacity(50))
+                })
+                .finish()
+                .map(IntoElement::into_any_element),
         );
-        sections.push(
-            settings::section(
-                t(CoreMsg::SectionDanger),
-                Some(t(CoreMsg::SectionDangerLead).into()),
-            )
-            .child(settings::card(danger).border_color(colors::RED_FADED.opacity(50)))
-            .into_any_element(),
-        );
+        if let Some(status) = query.status() {
+            sections.insert(0, status);
+        }
 
         let mut dialogs = self
             .asking
@@ -714,9 +866,28 @@ impl Render for CoreSettingsPage {
             self.open_port
                 .render(window, |dialog| Some(self.render_open_port(dialog, cx))),
         );
+        dialogs.extend(
+            self.owner_account
+                .render(window, |dialog| Some(dialog.clone().into_any_element())),
+        );
         parts::page(sections)
             .text_color(ink::text())
             .text_size(text::MEDIUM)
             .children(window_layer(window, dialogs))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_sharing_asks_for_the_owner_account() {
+        assert!(shares_the_core(CoreSwitch::AllowRemoteAccess));
+        assert!(shares_the_core(CoreSwitch::ListInstancesPublicly));
+        assert!(shares_the_core(CoreSwitch::AllowLanHttp));
+        assert!(!shares_the_core(CoreSwitch::SafeMode));
+        assert!(!shares_the_core(CoreSwitch::CodeExecution));
+        assert!(!shares_the_core(CoreSwitch::AllowLocalClaim));
     }
 }

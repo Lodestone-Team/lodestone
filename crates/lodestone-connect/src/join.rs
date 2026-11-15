@@ -130,7 +130,11 @@ pub async fn join(invite: &Invite, options: JoinOptions) -> Result<Joined> {
 
 /// Keeps answering along the chosen path for a while as QUIC takes over the socket, so
 /// the routers keep it open and a host still probing hears back.
-fn keep_open(socket: &UdpSocket, peer: SocketAddr, tag: [u8; 8]) -> Result<JoinHandle<()>> {
+pub(crate) fn keep_open(
+    socket: &UdpSocket,
+    peer: SocketAddr,
+    tag: [u8; 8],
+) -> Result<JoinHandle<()>> {
     let socket = socket.try_clone()?;
     Ok(tokio::spawn(async move {
         let until = tokio::time::Instant::now() + Duration::from_secs(30);
@@ -141,7 +145,7 @@ fn keep_open(socket: &UdpSocket, peer: SocketAddr, tag: [u8; 8]) -> Result<JoinH
     }))
 }
 
-async fn connect(
+pub(crate) async fn connect(
     endpoint: &quinn::Endpoint,
     path: SocketAddr,
     how_long: Duration,
@@ -222,39 +226,12 @@ impl Joined {
     /// client with `http://<local_addr>` as its address). Stops when the [`Forward`]
     /// is dropped or the tunnel closes.
     pub async fn forward(&self, kind: StreamKind, listen: SocketAddr) -> Result<Forward> {
-        let listener = tokio::net::TcpListener::bind(listen).await?;
-        let local_addr = listener.local_addr()?;
-        let connection = self.connection.clone();
-        let token = self.token;
-        let accepting = connection.clone();
-        let task = tokio::spawn(async move {
-            loop {
-                let Ok((mut tcp, _)) = listener.accept().await else {
-                    continue;
-                };
-                let connection = accepting.clone();
-                tokio::spawn(async move {
-                    let Ok((mut send, recv)) = connection.open_bi().await else {
-                        return;
-                    };
-                    if send.write_all(&tunnel::header(&token, kind)).await.is_err() {
-                        return;
-                    }
-                    let mut stream = tokio::io::join(recv, send);
-                    let _ = tokio::io::copy_bidirectional(&mut tcp, &mut stream).await;
-                });
-            }
-        });
-        // stop listening once the tunnel closes
-        let abort = task.abort_handle();
-        tokio::spawn(async move {
-            connection.closed().await;
-            abort.abort();
-        });
-        Ok(Forward {
-            local_addr,
-            task: Arc::new(task),
-        })
+        Forward::start(
+            self.connection.clone(),
+            tunnel::header(&self.token, kind).to_vec(),
+            listen,
+        )
+        .await
     }
 
     /// Waits until the tunnel closes; returns why, for people.
@@ -297,6 +274,48 @@ pub struct Forward {
 }
 
 impl Forward {
+    /// Listens on `listen` and passes each TCP connection to it through `connection` as
+    /// a stream starting with `header`, until dropped or the connection closes.
+    pub(crate) async fn start(
+        connection: quinn::Connection,
+        header: Vec<u8>,
+        listen: SocketAddr,
+    ) -> Result<Forward> {
+        let listener = tokio::net::TcpListener::bind(listen).await?;
+        let local_addr = listener.local_addr()?;
+        let accepting = connection.clone();
+        let header: Arc<[u8]> = header.into();
+        let task = tokio::spawn(async move {
+            loop {
+                let Ok((mut tcp, _)) = listener.accept().await else {
+                    continue;
+                };
+                let connection = accepting.clone();
+                let header = header.clone();
+                tokio::spawn(async move {
+                    let Ok((mut send, recv)) = connection.open_bi().await else {
+                        return;
+                    };
+                    if send.write_all(&header).await.is_err() {
+                        return;
+                    }
+                    let mut stream = tokio::io::join(recv, send);
+                    let _ = tokio::io::copy_bidirectional(&mut tcp, &mut stream).await;
+                });
+            }
+        });
+        // stop listening once the tunnel closes
+        let abort = task.abort_handle();
+        tokio::spawn(async move {
+            connection.closed().await;
+            abort.abort();
+        });
+        Ok(Forward {
+            local_addr,
+            task: Arc::new(task),
+        })
+    }
+
     /// Where to connect: Minecraft's server address, or the core client's base URL as
     /// `http://<local_addr>`.
     pub fn local_addr(&self) -> SocketAddr {

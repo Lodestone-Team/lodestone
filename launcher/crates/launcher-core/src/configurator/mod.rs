@@ -13,8 +13,9 @@
 //!   more memory), and one the user changed is theirs.
 //! - [`configure_options`], before the game starts, once its client jar is there: a new
 //!   `options.txt` with video settings for the computer, and the controls (mouse
-//!   sensitivity, key bindings) and language from the main instance, the last instance
-//!   played or the official launcher, when shared game settings don't cover them. Only
+//!   sensitivity, key bindings) and language from the main instance or else the game
+//!   played last, in Lodestone or in another launcher (the official one, Prism, the
+//!   Modrinth App…), when shared game settings don't cover them. Only
 //!   when the instance has no `options.txt` (a modpack's own is kept), and only once.
 //!
 //! Settings > Instance defaults > "Set up new instances automatically" turns it off.
@@ -363,6 +364,9 @@ pub enum ControlsSource {
     Instance(String),
     /// The official Minecraft Launcher's folder.
     MinecraftLauncher,
+    /// An instance of another launcher (Prism Launcher, the Modrinth App…), by the
+    /// launcher's name and the instance's.
+    OtherLauncher { launcher: String, instance: String },
 }
 
 /// A place to copy controls from: an `options.txt` and the game version it is for.
@@ -516,45 +520,117 @@ fn read_copyable(candidate: &Candidate) -> BTreeMap<String, String> {
         .collect()
 }
 
+/// A game folder outside Lodestone to copy controls from, and when it was last played
+/// (its `options.txt` last written), in seconds since the Unix epoch.
+#[derive(Clone, Debug)]
+pub struct Outside {
+    pub candidate: Candidate,
+    pub played: u64,
+}
+
+/// The game folders of this computer's other launchers that have an `options.txt`: the
+/// official launcher's folder and profiles, and the instances of Prism, MultiMC, the
+/// Modrinth App, CurseForge, ATLauncher and GDLauncher. Reads every launcher's
+/// instances, so it is for a background thread.
+pub fn outside_candidates() -> Vec<Outside> {
+    crate::import::Locations::current()
+        .map(|locations| outside_candidates_in(&locations))
+        .unwrap_or_default()
+}
+
+/// [`outside_candidates`] in `locations`.
+pub fn outside_candidates_in(locations: &crate::import::Locations) -> Vec<Outside> {
+    use crate::import::{Source, WantedVersion, detect};
+    let mut out: Vec<Outside> = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    let mut add = |candidate: Candidate| {
+        let Some(played) = played_at(&candidate.game_dir) else {
+            return;
+        };
+        let canonical = std::fs::canonicalize(&candidate.game_dir)
+            .unwrap_or_else(|_| candidate.game_dir.clone());
+        if seen.insert(canonical) {
+            out.push(Outside { candidate, played });
+        }
+    };
+    // The official launcher's folder, even without its profiles.
+    for (source, dir) in locations.candidates() {
+        if source == Source::Vanilla {
+            add(Candidate {
+                source: ControlsSource::MinecraftLauncher,
+                game_dir: dir,
+                game_version: String::new(),
+            });
+        }
+    }
+    for launcher in detect::detect(locations) {
+        for found in launcher.instances {
+            let source = match found.source {
+                Source::Vanilla => ControlsSource::MinecraftLauncher,
+                other => ControlsSource::OtherLauncher {
+                    launcher: other.label().to_string(),
+                    instance: found.name.clone(),
+                },
+            };
+            let game_version = match found.game_version {
+                WantedVersion::Exact(version) => version,
+                _ => String::new(),
+            };
+            add(Candidate {
+                source,
+                game_dir: found.game_dir,
+                game_version,
+            });
+        }
+    }
+    out
+}
+
+/// When the game in `game_dir` last wrote its options, which it does as it closes.
+fn played_at(game_dir: &Path) -> Option<u64> {
+    let modified = std::fs::metadata(game_dir.join(options::FILE))
+        .ok()?
+        .modified()
+        .ok()?;
+    modified
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()
+        .map(|d| d.as_secs())
+}
+
 /// The places to copy controls from, best first: the main instance for shared settings,
-/// then the other instances by when they were last played, then the official launcher.
-/// `instances` is every instance with its folder; `this` is the one being set up.
+/// then the game played most recently, in Lodestone or in another launcher (`outside`,
+/// from [`outside_candidates`]). `instances` is every instance with its folder; `this` is
+/// the one being set up.
 pub fn candidates(
     profile_preferred: Option<&str>,
     instances: &[(Instance, PathBuf)],
     this: &str,
+    outside: Vec<Outside>,
 ) -> Vec<Candidate> {
-    let mut played: Vec<&(Instance, PathBuf)> = instances
-        .iter()
-        .filter(|(i, _)| i.id != this && i.last_played.is_some())
-        .collect();
-    played.sort_by_key(|(i, _)| std::cmp::Reverse(i.last_played));
-    if let Some(main) = profile_preferred
-        && let Some(index) = played.iter().position(|(i, _)| i.id == main)
-    {
-        let main = played.remove(index);
-        played.insert(0, main);
-    }
-    let mut out: Vec<Candidate> = played
-        .into_iter()
-        .map(|(instance, dir)| Candidate {
+    let mut main: Option<Candidate> = None;
+    let mut played: Vec<(Candidate, u64)> = Vec::new();
+    for (instance, dir) in instances {
+        let Some(at) = instance.last_played.filter(|_| instance.id != this) else {
+            continue;
+        };
+        let candidate = Candidate {
             source: ControlsSource::Instance(instance.name.clone()),
             game_dir: dir.join("minecraft"),
             game_version: instance.game_version.clone(),
-        })
-        .collect();
-    if let Some(locations) = crate::import::detect::Locations::current() {
-        for (source, dir) in locations.candidates() {
-            if source == crate::import::Source::Vanilla && dir.join(options::FILE).is_file() {
-                out.push(Candidate {
-                    source: ControlsSource::MinecraftLauncher,
-                    game_dir: dir,
-                    game_version: String::new(),
-                });
-            }
+        };
+        if profile_preferred == Some(instance.id.as_str()) {
+            main = Some(candidate);
+        } else {
+            played.push((candidate, at));
         }
     }
-    out
+    played.extend(outside.into_iter().map(|o| (o.candidate, o.played)));
+    // Stable, so Lodestone's own instance wins a tie.
+    played.sort_by_key(|(_, at)| std::cmp::Reverse(*at));
+    main.into_iter()
+        .chain(played.into_iter().map(|(candidate, _)| candidate))
+        .collect()
 }
 
 #[cfg(test)]

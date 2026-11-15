@@ -1,7 +1,7 @@
 import { InstanceInfo } from 'bindings/InstanceInfo';
 import { useGlobalSettings } from './GlobalSettings';
 import { useUserInfo } from './UserInfo';
-import { t as translate, useT } from 'i18n';
+import { useT } from 'i18n';
 
 /** The message the core sends with a 403 when code execution is disabled. */
 export const CODE_EXECUTION_DISABLED_MESSAGE =
@@ -10,21 +10,15 @@ export const CODE_EXECUTION_DISABLED_MESSAGE =
 export const isCodeExecutionDisabledError = (message: string) =>
   message.includes(CODE_EXECUTION_DISABLED_MESSAGE);
 
-/** Why a user who isn't the owner can't control an atom server */
-export const ownerOnlyAtomMessage = () => translate('console.ownerOnlyAtom');
-
 /**
- * The core's code execution kill switch and whether the current user may use
- * code execution features (macros, atom instances, extensions, instance
- * scripts, custom Java commands). Docker instances are not one of them.
+ * The core's code execution kill switch, which now only guards custom Java
+ * commands (`java_cmd` / `cmd_args`), and whether the current user is the owner.
  *
  * - `enabled`: the switch is on. A missing field (still loading, or an older
  *   core without the switch) counts as on.
  * - `locked`: the server administrator forced the switch off.
- * - `canManage`: the user is the owner. Macros, extensions and atom
- *   instances are owner-only, whatever permissions a user has.
- * - `canRun`: `canManage` and `enabled`, i.e. the controls that run or
- *   change code can be used now.
+ * - `canManage`: the user is the owner.
+ * - `canRun`: `canManage` and `enabled`.
  */
 export const useCodeExecution = () => {
   const { data: user } = useUserInfo();
@@ -43,29 +37,6 @@ export const useCodeExecution = () => {
  */
 export const isDockerInstance = (instance: Pick<InstanceInfo, 'uuid'>) =>
   instance.uuid.startsWith('DOCKER-');
-
-/**
- * An atom instance: TypeScript from a URL that the core runs as a macro.
- * Docker instances also report a `Generic` game type, so they are told apart
- * by their UUID. An atom chooses the game type it reports; one that reports
- * another game is not detected here, and the core still enforces the rules.
- */
-export const isAtomInstance = (
-  instance: Pick<InstanceInfo, 'uuid' | 'game_type'>
-) => instance.game_type.type === 'Generic' && !isDockerInstance(instance);
-
-/**
- * Whether the current user may start, stop, configure, rename, delete or
- * send console input to this instance as far as the owner-only rule for
- * atom instances goes. Always true for other instances, including Docker
- * instances; their normal permissions still apply.
- */
-export const useCanControlInstance = (
-  instance: Pick<InstanceInfo, 'uuid' | 'game_type'> | null | undefined
-) => {
-  const { canManage } = useCodeExecution();
-  return !instance || !isAtomInstance(instance) || canManage;
-};
 
 // Settings that choose the program an instance runs and its arguments.
 export const COMMAND_LINE_SETTINGS = ['java_cmd', 'cmd_args'];

@@ -26,13 +26,17 @@ pub enum InstalledModKind {
     Plugin,
 }
 
-// The loader a jar is for. NeoForge mods count as Forge mods, and Quilt mods as Fabric mods.
+// The loader a jar is for, or a server runs. Quilt mods count as Fabric mods. A Forge
+// server and a NeoForge server read the same metadata files, but take different mods
+// from Modrinth.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS))]
 #[serde(rename_all = "snake_case")]
 pub enum InstalledModLoader {
     Fabric,
     Forge,
+    #[serde(rename = "neoforge")]
+    NeoForge,
     Paper,
     Spigot,
 }
@@ -42,6 +46,7 @@ impl InstalledModLoader {
         match self {
             InstalledModLoader::Fabric => "fabric",
             InstalledModLoader::Forge => "forge",
+            InstalledModLoader::NeoForge => "neoforge",
             InstalledModLoader::Paper => "paper",
             InstalledModLoader::Spigot => "spigot",
         }
@@ -49,7 +54,9 @@ impl InstalledModLoader {
 
     pub fn kind(&self) -> InstalledModKind {
         match self {
-            InstalledModLoader::Fabric | InstalledModLoader::Forge => InstalledModKind::Mod,
+            InstalledModLoader::Fabric
+            | InstalledModLoader::Forge
+            | InstalledModLoader::NeoForge => InstalledModKind::Mod,
             InstalledModLoader::Paper | InstalledModLoader::Spigot => InstalledModKind::Plugin,
         }
     }
@@ -78,6 +85,8 @@ pub fn metadata_files(loader: InstalledModLoader) -> &'static [&'static str] {
             "META-INF/neoforge.mods.toml",
             "mcmod.info",
         ],
+        // NeoForge 20.5 and later read neoforge.mods.toml; older ones mods.toml
+        InstalledModLoader::NeoForge => &["META-INF/neoforge.mods.toml", "META-INF/mods.toml"],
         InstalledModLoader::Paper => &["paper-plugin.yml", "plugin.yml"],
         InstalledModLoader::Spigot => &["plugin.yml"],
     }
@@ -125,7 +134,9 @@ pub fn jar_has_metadata(path: &Path, loader: InstalledModLoader) -> Result<bool,
         .any(|f| names.iter().any(|n| n == f)))
 }
 
-/// Where a mod says it runs, from `fabric.mod.json` `environment` or the Quilt equivalent.
+/// Where a mod says it runs: `fabric.mod.json` `environment`, the Quilt equivalent, or a
+/// Forge or NeoForge `mods.toml`'s `clientSideOnly` and `displayTest`
+/// ([`mods_toml_environment`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum JarEnvironment {
     /// Only on the client.
@@ -136,7 +147,8 @@ pub enum JarEnvironment {
 
 /// What Lodestone reads from a jar: the metadata shown to users, plus the environment and
 /// dependencies that decide whether players need the mod. Only Fabric and Quilt mods have
-/// the last two.
+/// dependencies here; Forge and NeoForge mods have an environment when their `mods.toml`
+/// says one ([`mods_toml_environment`]).
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct JarInfo {
     pub metadata: Option<ModFileMetadata>,
@@ -177,7 +189,11 @@ pub fn read_archive_info<R: Read + Seek>(
             "META-INF/mods.toml" | "META-INF/neoforge.mods.toml" => {
                 let manifest_version = read_entry(archive, "META-INF/MANIFEST.MF")
                     .and_then(|m| manifest_attribute(&m, "Implementation-Version"));
-                (parse_mods_toml(&text, manifest_version), None, Vec::new())
+                (
+                    parse_mods_toml(&text, manifest_version),
+                    mods_toml_environment(&text),
+                    Vec::new(),
+                )
             }
             "mcmod.info" => (parse_mcmod_info(&text), None, Vec::new()),
             _ => (Some(parse_plugin_yml(&text)), None, Vec::new()),
@@ -214,6 +230,37 @@ pub fn fabric_environment_and_depends(text: &str) -> (Option<JarEnvironment>, Ve
         environment,
         clean_list(parsed.depends.into_iter().map(|(id, _)| id)),
     )
+}
+
+/// Where a Forge or NeoForge mod says it runs, from its `mods.toml` (or
+/// `neoforge.mods.toml`):
+///
+/// - a top-level `clientSideOnly = true` is a client-only mod (Forge skips it on a
+///   dedicated server);
+/// - otherwise, when every `[[mods]]` entry has `displayTest = "IGNORE_SERVER_VERSION"`,
+///   the mod tells clients they may join without it: a server-side mod, which players
+///   don't need. A client-optional mod declares the same, and is taken for server-side
+///   too: most mods declaring it are server utilities, some of which crash a client that
+///   loads them, so missing an optional client feature is the safer mistake (an owner's
+///   "For players" mark, or Modrinth's sides, override it);
+/// - anything else (`MATCH_VERSION`, the default; `IGNORE_ALL_VERSION`, which says nothing
+///   about the server; `NONE`; entries that disagree; no entries; TOML that can't be read)
+///   is no answer.
+///
+/// Values are compared ignoring ASCII case and surrounding spaces, as Forge reads them.
+pub fn mods_toml_environment(text: &str) -> Option<JarEnvironment> {
+    let table: toml::Table = toml::from_str(text).ok()?;
+    if table.get("clientSideOnly").and_then(|v| v.as_bool()) == Some(true) {
+        return Some(JarEnvironment::Client);
+    }
+    let mods = table.get("mods")?.as_array()?;
+    let server_only = !mods.is_empty()
+        && mods.iter().all(|m| {
+            m.get("displayTest")
+                .and_then(|v| v.as_str())
+                .is_some_and(|v| v.trim().eq_ignore_ascii_case("IGNORE_SERVER_VERSION"))
+        });
+    server_only.then_some(JarEnvironment::Server)
 }
 
 /// `minecraft.environment` and the `quilt_loader.depends` ids of a `quilt.mod.json`.
@@ -881,16 +928,97 @@ Item viewer
         assert_eq!(environment, Some(JarEnvironment::Server));
         assert_eq!(depends, vec!["quilt_loader", "qsl"]);
 
-        // other loaders have neither
+        // a Forge mod that says nothing about its sides has neither
         let forge = dir.path().join("f.jar");
         make_zip(&forge, &[("META-INF/mods.toml", "[[mods]]\nmodId=\"f\"\n")]);
         let info = read_jar_info(&forge, InstalledModLoader::Forge);
         assert!(info.metadata.is_some());
         assert_eq!(info.environment, None);
         assert!(info.depends.is_empty());
+
+        // one that says it is server-side has an environment, NeoForge's file too
+        let server = dir.path().join("s.jar");
+        make_zip(
+            &server,
+            &[(
+                "META-INF/neoforge.mods.toml",
+                "[[mods]]\nmodId=\"s\"\ndisplayTest=\"IGNORE_SERVER_VERSION\"\n",
+            )],
+        );
+        let info = read_jar_info(&server, InstalledModLoader::NeoForge);
+        assert!(info.metadata.is_some());
+        assert_eq!(info.environment, Some(JarEnvironment::Server));
+        let client = dir.path().join("c.jar");
+        make_zip(
+            &client,
+            &[(
+                "META-INF/mods.toml",
+                "clientSideOnly=true\n[[mods]]\nmodId=\"c\"\n",
+            )],
+        );
+        assert_eq!(
+            read_jar_info(&client, InstalledModLoader::Forge).environment,
+            Some(JarEnvironment::Client)
+        );
     }
 
     #[cfg(feature = "zip")]
+    #[test]
+    fn mods_toml_sides() {
+        let with = |display: &str| {
+            mods_toml_environment(&format!(
+                "[[mods]]\nmodId=\"a\"\ndisplayTest=\"{display}\"\n"
+            ))
+        };
+        assert_eq!(with("IGNORE_SERVER_VERSION"), Some(JarEnvironment::Server));
+        assert_eq!(
+            with(" ignore_server_version "),
+            Some(JarEnvironment::Server)
+        );
+        assert_eq!(with("IGNORE_ALL_VERSION"), None);
+        assert_eq!(with("MATCH_VERSION"), None);
+        assert_eq!(with("NONE"), None);
+        assert_eq!(with("SOMETHING_NEW"), None);
+        // no displayTest is MATCH_VERSION, Forge's default
+        assert_eq!(mods_toml_environment("[[mods]]\nmodId=\"a\"\n"), None);
+        // clientSideOnly wins over displayTest
+        assert_eq!(
+            mods_toml_environment(
+                "clientSideOnly=true\n[[mods]]\nmodId=\"a\"\ndisplayTest=\"IGNORE_SERVER_VERSION\"\n"
+            ),
+            Some(JarEnvironment::Client)
+        );
+        assert_eq!(
+            mods_toml_environment("clientSideOnly=false\n[[mods]]\nmodId=\"a\"\n"),
+            None
+        );
+        // a string is not a boolean
+        assert_eq!(
+            mods_toml_environment("clientSideOnly=\"true\"\n[[mods]]\nmodId=\"a\"\n"),
+            None
+        );
+        // mods that disagree say nothing
+        assert_eq!(
+            mods_toml_environment(
+                "[[mods]]\nmodId=\"a\"\ndisplayTest=\"IGNORE_SERVER_VERSION\"\n[[mods]]\nmodId=\"b\"\n"
+            ),
+            None
+        );
+        // every mod server-side
+        assert_eq!(
+            mods_toml_environment(
+                "[[mods]]\nmodId=\"a\"\ndisplayTest=\"IGNORE_SERVER_VERSION\"\n[[mods]]\nmodId=\"b\"\ndisplayTest=\"IGNORE_SERVER_VERSION\"\n"
+            ),
+            Some(JarEnvironment::Server)
+        );
+        // no mods, broken TOML, odd shapes
+        assert_eq!(mods_toml_environment("modLoader=\"javafml\"\n"), None);
+        assert_eq!(mods_toml_environment("mods=[]\n"), None);
+        assert_eq!(mods_toml_environment("mods=\"x\"\n"), None);
+        assert_eq!(mods_toml_environment("[[mods]\nmodId="), None);
+        assert_eq!(mods_toml_environment("[[mods]]\ndisplayTest=3\n"), None);
+    }
+
     #[test]
     fn plugin_yml() {
         let yml = "# comment\nname: LuckPerms\nversion: '5.4.102'\nmain: me.lucko.Main\ndescription: \"A permissions plugin\"\nauthor: Luck\nauthors: [Alice, \"Bob\"]\ncommands:\n  lp:\n    description: nested, ignored\n    name: nested\n";

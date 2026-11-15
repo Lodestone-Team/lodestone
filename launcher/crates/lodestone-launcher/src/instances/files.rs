@@ -29,6 +29,9 @@ pub enum FileOp {
     Image,
 }
 
+/// Removes an instance's folder in place of the Trash ([`Instances::delete_with`]).
+pub(crate) type RemoveFolder = fn(&Path) -> Result<(), String>;
+
 impl Instances {
     /// Goes up each time the list changes, for those that read something for each
     /// instance and want to know when to read again.
@@ -103,10 +106,21 @@ impl Instances {
     ) -> Task<Result<Instance, String>> {
         let store = self.store.clone();
         let source = id.to_string();
+        let images = self.images();
+        let label = launcher_core::images::labels::copied(
+            self.list
+                .iter()
+                .find(|instance| instance.id == id)
+                .map_or(id, |instance| instance.name.as_str()),
+        );
         self.file_work(
             id,
             FileOp::Duplicate,
-            move || store.duplicate(&source).map_err(|err| err.to_string()),
+            move || {
+                let copy = store.duplicate(&source).map_err(|err| err.to_string())?;
+                super::record_created_later(&images, &copy.id, &label);
+                Ok(copy)
+            },
             |this, result, cx| {
                 let copy = result?;
                 this.selected = Some(copy.id.clone());
@@ -119,16 +133,44 @@ impl Instances {
 
     /// Moves the instance to the Trash, in the background.
     pub fn delete(&mut self, id: &str, cx: &mut Context<Self>) -> Task<Result<(), String>> {
+        self.delete_with(id, None, cx)
+    }
+
+    /// [`Self::delete`], with `remove` removing the folder instead of the Trash: tests pass
+    /// one that doesn't touch the user's Trash.
+    pub(crate) fn delete_with(
+        &mut self,
+        id: &str,
+        remove: Option<RemoveFolder>,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<(), String>> {
         if self.is_active(id) {
             return Task::ready(Err(t(M::StopBeforeDeleting).into()));
         }
+        // a tab's job (an install, a restore) goes on writing into the folder after it
+        // went to the Trash, and would make it again, without its instance.json
+        if self.files_busy(id) {
+            return Task::ready(Err(t(M::FilesBusy).into()));
+        }
         let store = self.store.clone();
+        let images = self.images();
         let gone = id.to_string();
         let forget = id.to_string();
         self.file_work(
             id,
             FileOp::Delete,
-            move || store.delete(&gone).map_err(|err| err.to_string()),
+            move || {
+                match remove {
+                    Some(remove) => store.delete_with(&gone, remove),
+                    None => store.delete(&gone),
+                }
+                .map_err(|err| err.to_string())?;
+                // Its id goes to the next instance of the same name: its history mustn't.
+                if let Err(err) = images.delete_instance(&gone) {
+                    log::warn!("Couldn't delete the images of {gone}: {err}");
+                }
+                Ok(())
+            },
             move |this, result, cx| {
                 result?;
                 this.runs.remove(&forget);
@@ -294,7 +336,7 @@ impl Instances {
 }
 
 /// The task that waits for a result sent on `rx`.
-fn answer<R: 'static>(
+pub(super) fn answer<R: 'static>(
     rx: oneshot::Receiver<Result<R, String>>,
     cx: &mut Context<Instances>,
 ) -> Task<Result<R, String>> {

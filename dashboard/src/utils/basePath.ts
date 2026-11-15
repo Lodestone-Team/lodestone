@@ -14,11 +14,13 @@ export function asset(path: string): string {
   return BASE_PATH + path;
 }
 
-/** window.location.pathname without the base path, as react-router sees it. */
-export function stripBasePath(pathname: string): string {
-  if (!BASE_PATH) return pathname;
-  if (pathname === BASE_PATH) return '/';
-  if (pathname.startsWith(BASE_PATH + '/'))
-    return pathname.slice(BASE_PATH.length);
+/**
+ * window.location.pathname without the base path, as react-router sees it.
+ * `base` is only passed by tests.
+ */
+export function stripBasePath(pathname: string, base = BASE_PATH): string {
+  if (!base) return pathname;
+  if (pathname === base) return '/';
+  if (pathname.startsWith(base + '/')) return pathname.slice(base.length);
   return pathname;
 }

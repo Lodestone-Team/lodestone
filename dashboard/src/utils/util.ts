@@ -155,7 +155,10 @@ export function errorToString(error: unknown): string {
       if (typeof data === 'string' && data.startsWith('`Authorization`')) {
         return t('common.invalidToken');
       }
-      if (isClientErrorBody(data)) return new ClientError(data).toString();
+      if (isClientErrorBody(data)) {
+        if (data.kind === 'LocalOnly') return t('common.localOnly');
+        return new ClientError(data).toString();
+      }
       return `${error.code}: ${error.response.statusText}`;
     }
     if (error.code === 'ERR_NETWORK') return t('common.networkError');
@@ -166,6 +169,19 @@ export function errorToString(error: unknown): string {
   // if it's string
   if (typeof error === 'string') return error;
   return t('common.unknownError');
+}
+
+/**
+ * Whether the core refused the request because it only allows apps on its own
+ * computer (Lodestone Host's core before its owner shares it).
+ */
+export function isLocalOnlyError(error: unknown): boolean {
+  if (error instanceof ApiError) return error.kind === 'LocalOnly';
+  if (isAxiosError<unknown>(error) && error.response) {
+    const data = parseErrorBody(error.response.data);
+    return isClientErrorBody(data) && data.kind === 'LocalOnly';
+  }
+  return false;
 }
 
 /**

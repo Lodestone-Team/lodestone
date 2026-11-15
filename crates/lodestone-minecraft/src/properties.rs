@@ -3,7 +3,9 @@
 //! The reader follows `java.util.Properties::load`:
 //! - leading whitespace is skipped, and lines that start with `#` or `!` are comments;
 //! - the key ends at the first unescaped `=`, `:` or whitespace;
-//! - a line that ends with an odd number of `\` continues on the next line;
+//! - a line that ends with an odd number of `\` continues on the next line, and a line
+//!   that starts with `#` or `!` while the logical line is still empty (after a line
+//!   holding only `\`) is a comment that ends with its own line;
 //! - `\t`, `\n`, `\r`, `\f`, `\uXXXX` and `\<any char>` escapes are decoded.
 //!
 //! The document keeps every line as it was read. Writing it back only changes the lines of
@@ -223,6 +225,7 @@ impl PropertiesDocument {
             let mut raw_parts = vec![first];
             let mut logical = String::new();
             let mut current = trimmed;
+            let mut comment = false;
             loop {
                 if ends_with_continuation(current) && i < physical.len() {
                     logical.push_str(&current[..current.len() - 1]);
@@ -230,12 +233,25 @@ impl PropertiesDocument {
                     raw_parts.push(next);
                     i += 1;
                     current = next.trim_start_matches(is_whitespace);
+                    // Java looks for a comment wherever the logical line is still empty,
+                    // after a line holding only `\` too: the comment ends with its own
+                    // line, whatever backslash it ends with, and the next line is a new
+                    // setting.
+                    if logical.is_empty() && (current.starts_with('#') || current.starts_with('!'))
+                    {
+                        comment = true;
+                        break;
+                    }
                 } else {
                     logical.push_str(current);
                     break;
                 }
             }
             let raw = raw_parts.join("\n");
+            if comment {
+                lines.push(Line::Raw(raw));
+                continue;
+            }
 
             let (raw_key, raw_value) = split_key_value(&logical);
             let parsed = unescape(raw_key).and_then(|key| Ok((key, unescape(raw_value)?)));
@@ -412,6 +428,28 @@ mod tests {
         // an even number of backslashes is an escaped backslash, not a continuation
         let doc = parse("path=C:\\\\\nnext=1\n");
         assert_eq!(doc.get("path"), Some("C:\\"));
+        assert_eq!(doc.get("next"), Some("1"));
+    }
+
+    /// Java reads `#` or `!` as a comment wherever the logical line is still empty, so a
+    /// comment after a line holding only `\\` ends with its own line, even when it ends
+    /// with a backslash, and the next line is a setting of its own.
+    #[test]
+    fn a_comment_after_an_empty_continuation_ends_with_its_line() {
+        for text in [
+            "\\\n#c\\\nrcon.password=x\n",
+            "\\\n  ! keep\\\nrcon.password=x\n",
+            "enable-rcon=true\n\\\n# old: see C:\\\nrcon.password=x\nnext=1\n",
+        ] {
+            let (doc, warnings) = PropertiesDocument::parse(text);
+            assert!(warnings.is_empty(), "{text:?}: {warnings:?}");
+            assert_eq!(doc.get("rcon.password"), Some("x"), "{text:?}");
+            assert!(!doc.contains_key("#") && !doc.contains_key("!"), "{text:?}");
+            assert_eq!(doc.to_text(), text);
+        }
+        // a `#` inside a logical line that already holds text is part of its value
+        let doc = parse("motd=a\\\n#b\nnext=1\n");
+        assert_eq!(doc.get("motd"), Some("a#b"));
         assert_eq!(doc.get("next"), Some("1"));
     }
 

@@ -53,6 +53,8 @@ crate::i18n::messages! {
         NewInstance = "New instance…",
         ImportInstances = "Import instances…",
         Servers = "Lodestone Host",
+        /// The sidebar link to the Friends page.
+        Friends = "Friends",
         /// Under the sidebar and the Settings pages.
         AppVersion = "Lodestone Launcher v{version}",
         /// A row's tooltip: {when} is "Played 2 hours ago", {time} "2 h 5 min".
@@ -66,10 +68,13 @@ crate::i18n::messages! {
         Vanilla = "Vanilla",
         /// The automatic sidebar group of instances imported from other launchers.
         GroupImported = "Imported",
+        /// The automatic sidebar group of instances linked to a server: on a Lodestone
+        /// host, or a friend's shared server. It comes first.
+        GroupServers = "Servers",
 
         // The Play tab.
         NoInstanceSelected = "No instance selected",
-        NoInstanceSelectedHint = "Create an instance to choose a Minecraft version and loader.",
+        NoInstanceSelectedHint = "Select an instance in the sidebar to get started.",
         MinecraftVersion = "Minecraft {version}",
         /// {loader} is the loader with its version: "Fabric 0.16.14".
         MinecraftWith = "Minecraft {version} with {loader}",
@@ -82,34 +87,40 @@ crate::i18n::messages! {
         WorldsPlaceholder = "Worlds appear here once you have an instance.",
         SettingsPlaceholder = "Settings appear here once you have an instance.",
         LogsPlaceholder = "Logs appear here once you have an instance.",
-        /// Under the instance's name: {server} is a server, {core} a Lodestone Core.
+        /// Under the instance's name: {server} is a server, {core} a host.
         LinkedTo = "Linked to {server} on {core}",
-        LinkedToRemoved = "Linked to {server} on {core} (that core was removed from the Lodestone Host page)",
+        LinkedToRemoved = "Linked to {server} on {core} (that host was removed from the Lodestone Host page)",
+        /// Under the instance's name, on an Apple silicon Mac, for a version that runs
+        /// in an Intel Java (Minecraft 1.13.2 and older).
+        RunsUnderRosetta = "Runs under Rosetta 2: Mojang made no Apple silicon build of some libraries this version needs. Slower to start, then plays normally.",
+        /// The same, for an instance with an Intel Java chosen in its Settings.
+        RunsUnderRosettaOverride = "Runs under Rosetta 2: the Java chosen in Settings is an Intel Java. Slower to start, then plays normally.",
         NoInstances = "No instances",
         /// Under PLAY, for an instance made for a server.
         AndJoin = "and join {server}",
         PlayWithoutJoining = "Play without joining",
+        /// Under a greyed-out PLAY, for an instance made for a friend's server that
+        /// isn't running. {server} is the server's name.
+        ServerStoppedCaption = "{server} is stopped",
+        ServerStartingCaption = "{server} is starting",
+        /// After "Linked to {server} on {core}": whether that server runs now.
+        ServerOnline = "Online",
+        ServerStarting = "Starting",
+        ServerStopped = "Stopped",
+        ServerUnreachable = "Can't reach it",
+        ServerChecking = "Checking…",
+        /// The Play button over an instance's icon in the sidebar, for assistive technology.
+        PlayNamed = "Play {name}",
 
         // Dialogs over the window.
         /// The title of a dialog that deletes an instance or a world.
         DeleteNamed = "Delete {name}?",
         DeleteWorldBody = "The world's folder moves to {trash}, so you can put it back from there. Its backups stay.",
-        DeleteInstanceBody = "The instance's folder, with its worlds, mods and settings, moves to {trash}. You can put it back from there.",
+        DeleteInstanceBody = "The instance's folder, with its worlds, mods and settings, moves to {trash}. You can put it back from there. Its snapshots are kept until you remove them in Settings › Storage, and come back with it.",
         ReplaceWorldTitle = "Replace {name} with this backup?",
         /// {when} is when the backup was made: "today, 14:05".
-        ReplaceWorldBody = "{name} goes back to how it was {when}. Everything since is lost from the world, but it is backed up first and the current folder goes to {trash}.",
+        ReplaceWorldBody = "{name} goes back to how it was {when}. A snapshot of the world as it is now is taken first and kept for 30 days.",
         BackUpAndReplace = "Back up and replace",
-        /// {loader} is a mod loader's name.
-        SwitchToLoader = "Switch to {loader}?",
-        SwitchToVanilla = "Switch to vanilla?",
-        ModsWontLoadOn = "These enabled mods are made for another loader and won't load on {loader}:",
-        ModsWontLoadVanilla = "Vanilla Minecraft loads no mods, so these enabled mods won't load:",
-        /// What a mod is made for: "Forge mod".
-        ModMadeFor = "{loader} mod",
-        TurningOffRenames = "Turning them off renames them to .disabled, so you can turn them back on in Content.",
-        WorldsAtRisk = "Worlds that used blocks or items from these mods can lose them. Back up your worlds first.",
-        TurnOffAndSave = "Turn them off and save",
-        SaveAndKeep = "Save and keep them",
         RemoveAccountTitle = "Remove {name}?",
         RemoveAccountBody = "Lodestone Launcher forgets this account and deletes its saved sign-in from your {keychain}. You can add it again later.",
         RemoveAccount = "Remove account",
@@ -124,7 +135,7 @@ crate::i18n::messages! {
         /// The likely causes of a crash.
         CauseWrongJava = "Wrong Java version. This Minecraft version (or a mod) needs a different Java. Clear the Java override in Settings to use the Java Mojang provides.",
         CauseOutOfMemory = "Out of memory. Raise the maximum memory in Settings, or close other apps.",
-        CauseNatives = "Native libraries are missing or are for the wrong processor. On Apple Silicon, versions before 1.19 run in an Intel Java under Rosetta 2; check that Rosetta is installed and that the Java override isn't an arm64 Java.",
+        CauseNatives = "Native libraries are missing or are for the wrong processor. On Apple silicon, versions before 1.14 run in an Intel Java under Rosetta 2 and later ones in an Apple silicon Java; check that Rosetta is installed and that a Java override is made for the same processor.",
         CauseJvmOptions = "Java refused one of the settings. Check the JVM arguments and memory in Settings.",
         CauseGraphics = if cfg!(target_os = "macos") {
             "The game couldn't set up its window or OpenGL. Update macOS, or try without a custom window size or fullscreen."
@@ -160,8 +171,7 @@ crate::i18n::messages! {
         ReplacedOwnFiles = "Your files the pack now provides ({count})",
         KeptFiles = "Kept as you changed them ({count})",
         WrittenFiles = "Configs and other files written ({count})",
-        ModpackUpdateSafety = "Your own mods, worlds and changed configs aren't touched. Every file that is replaced or removed is saved in the instance's backups folder first.",
-        BackUpEveryWorld = "Back up every world first",
+        ModpackUpdateSafety = "Your own mods, worlds and changed configs aren't touched. A snapshot of the instance is taken first, and every file that is replaced or removed is saved in the instance's backups folder.",
 
         // Unsaved settings.
         SaveChangesTitle = "Save your changes?",
@@ -183,17 +193,16 @@ crate::i18n::messages! {
         NoAccount = "No account",
         ManageAccounts = "Manage accounts",
         GroupAutomatically = "Group instances automatically",
-        GroupAutomaticallyHint = "Sorts ungrouped instances by loader.",
+        GroupAutomaticallyHint = "Sorts ungrouped instances by server or loader.",
         /// Settings > Instance defaults: a toggle, on by default.
         AutoConfigure = "Set up new instances automatically",
-        AutoConfigureHint = "Before a new instance's first game, chooses its memory, Java arguments and video settings for this computer and its mods, and copies your mouse sensitivity and key bindings when shared settings don't. Anything you change yourself is kept.",
+        AutoConfigureHint = "Let Lodestone set things such as RAM, mouse sensitivity and other in-game settings automatically.",
         /// Settings > General: what the launcher does once a game's window opens.
         WhenAGameStarts = "When a game starts",
         AfterLaunchStay = "Stay open",
         AfterLaunchMinimize = "Minimize",
         AfterLaunchQuit = "Quit",
         AfterLaunchStayHint = "The launcher stays open beside the game.",
-        AfterLaunchMinimizeHint = "The launcher minimizes once the game's window opens, and comes back when the game closes.",
         AfterLaunchQuitHint = "The launcher quits once the game's window opens. The game keeps running, but its log, crash report and play time aren't recorded.",
         OfflineAccount = "Offline account",
         MicrosoftAccount = "Microsoft account",
@@ -232,7 +241,7 @@ crate::i18n::messages! {
         /// The placeholder of a shared value being edited.
         Value = "Value",
         SyncFrom = "Main instance",
-        SyncFromHint = "Settings you change in-game in your main instance are copied to your other instances when they start.",
+        SyncFromHint = "Settings you change in the main instance are copied to your other instances automatically.",
         SyncFromNoneHint = "Without a main instance, the shared settings change only here.",
         /// The offer to make a new instance the main one; also asked before another
         /// instance takes over as main.
@@ -245,7 +254,7 @@ crate::i18n::messages! {
         /// Settings > Developer.
         FirstTimeSetupSection = "First-time setup",
         ResetFirstTimeSetup = "Reset first-time setup",
-        ResetFirstTimeSetupHint = "The next new instance is offered as your main instance again, and keeping the narrator off is offered at the next start. This clears your main instance; the shared values stay.",
+        ResetFirstTimeSetupHint = "The next new instance is offered as your main instance again, keeping the narrator off is offered at the next start, and the Lodestone Host page offers Lodestone Host again. This clears your main instance; the shared values stay.",
         FirstTimeSetupReset = "First-time setup is reset. Create an instance to see it.",
         StartFromInstance = "Start from an instance",
         CopyFromInstance = "Copy from instance…",
@@ -261,7 +270,7 @@ crate::i18n::messages! {
         /// A section of Shared game settings: where the values come from.
         Source = "Source",
         WhatsShared = "What's shared",
-        WhatsSharedLead = "Categories that are off stay per instance.",
+        WhatsSharedLead = "Turn off each category you don't want to share.",
         CategoryControls = "Controls",
         CategoryVideo = "Video",
         CategorySound = "Sound",
@@ -299,6 +308,38 @@ crate::i18n::messages! {
         /// Shown wherever an offline account appears.
         OfflineNote = "Offline – single-player and offline-mode servers only",
 
+        // "Change Minecraft skin", from the account menu: the player's skin in the game (not the launcher's own look, Settings > Skin), its arm width and cape.
+        ChangePlayerSkin = "Change skin…",
+        /// {name} is the account's Minecraft username.
+        PlayerSkinDialogTitle = "{name}’s skin",
+        PlayerSkinLoading = "Asking Minecraft what you’re wearing",
+        PlayerSkinLoadFailed = "Couldn’t load your skin: {error}",
+        PlayerSkinSection = "Skin",
+        PlayerSkinChooseFile = "Choose a file…",
+        PlayerSkinUseDefault = "Use the default skin",
+        PlayerSkinFileHint = "A skin is a 64×64 PNG image.",
+        PlayerSkinFileChosen = "{name} will be your skin when you save.",
+        PlayerSkinDefaultChosen = "You’ll have the default skin when you save.",
+        PlayerSkinDefault = "Default skin",
+        PlayerSkinPreview = "Your character, wearing the skin",
+        PlayerSkinDragHint = "Drag to turn",
+        /// The width of the player model's arms.
+        PlayerSkinModel = "Arms",
+        PlayerSkinModelClassic = "Wide",
+        PlayerSkinModelSlim = "Slim",
+        PlayerSkinCape = "Cape",
+        PlayerSkinNoCape = "None",
+        PlayerSkinNoCapes = "This account has no capes.",
+        PlayerSkinFileRefused = "{name} can’t be used: {error}",
+        PlayerSkinFileTooLarge = "the file is larger than 1 MB",
+        PlayerSkinFileNotPng = "it isn’t a PNG image",
+        PlayerSkinFileWrongSize = "it is {width}×{height}, and a skin is 64×64",
+        PlayerSkinNetworkError = "Couldn’t reach the Minecraft services: {error}",
+        PlayerSkinRateLimited = "The Minecraft services are busy. Try again in a minute.",
+        PlayerSkinSignedOut = "Your sign-in has expired. Sign in again, then change the skin.",
+        PlayerSkinRefusedBecause = "Minecraft didn’t accept the change: {reason}",
+        PlayerSkinRefused = "Minecraft didn’t accept the change (error {status}).",
+
         // "Add offline account".
         OfflineDialogBody = "For development and testing. The account has no Microsoft sign-in, and its UUID is the one offline-mode servers give this name.",
         Username = "Username",
@@ -335,6 +376,27 @@ crate::i18n::messages! {
         TurnOffOnly = "Turn off only",
         /// Settings > Developer: the section of "Sign in as the Minecraft Launcher".
         SignInSection = "Microsoft sign-in",
+        /// Settings > Developer: the toggle for offline accounts.
+        OfflineAccountsSetting = "Offline accounts",
+        /// {add} is "Add offline account".
+        OfflineAccountsSettingHint = "Shows “{add}” in the account menu. For testing only.",
+        /// The hint while offline accounts are on whatever the setting says.
+        OfflineAccountsAlwaysOn = "Always on in debug builds and with LODESTONE_LAUNCHER_OFFLINE=1.",
+        /// Settings > Developer: the section of the Lodestone Connect service setting.
+        ConnectSection = "Lodestone Connect",
+        /// Settings > Developer: the Lodestone Connect introduction service to use.
+        ConnectService = "Connect service (relay)",
+        ConnectServiceHint = "For testing. The friend list uses this service. Invite links always use the service they name.",
+        /// Under the setting, and next to Friends' servers, while the service in use isn't
+        /// connect.lodestone.cc: {service} is its address, "connect-dev.lodestone.cc".
+        ConnectServiceInUse = "Dev relay: {service}",
+        /// While the environment variable {var} overrides the setting; {service} is its URL.
+        ConnectServiceEnv = "{var} is set, so the launcher uses {service}. The setting applies once it is unset.",
+        /// Errors for a typed service URL.
+        ConnectServiceScheme = "Start the address with https://.",
+        ConnectServiceInsecure = "Use https://. Only a service on this computer (127.0.0.1 or localhost) can use http://.",
+        ConnectServiceExtra = "Type only the address, without a path, query or user name.",
+        ConnectServiceAddress = "That isn't a valid address.",
         /// Settings > Developer: what lodestone-launcher-cli may do.
         /// Settings > Developer > Coding agents.
         CodingAgentsSection = "Coding agents",
@@ -344,7 +406,7 @@ crate::i18n::messages! {
         AgentPromptHint = "Paste this into your agent. It installs lodestone-launcher-cli, reads the skills, checks the connection and starts debugging with you.",
         CopyPrompt = "Copy prompt",
         CommandLineSection = "Command line",
-        CommandLineLead = "lodestone-launcher-cli and other programs you run reach the launcher through a socket in its data folder. Only your user account can connect. These settings change only here, never from the command line.",
+        CommandLineLead = "lodestone-launcher-cli and other programs you run reach the launcher through a socket in its data folder. Only your user account can connect.",
         AllowCli = "Allow command-line connections",
         AllowCliHint = "Off, the socket is closed and connected programs are dropped.",
         /// What command-line programs may do.
@@ -432,7 +494,6 @@ crate::i18n::messages! {
         // Signing in with Microsoft.
         SignInWithMicrosoft = "Sign in with Microsoft",
         LauncherIdentityNote = "Developer option: signing in as the Minecraft Launcher, not as Lodestone Launcher. Microsoft's pages may show Minecraft's name instead of Lodestone's.",
-        UseLinkInstead = "Use a sign-in link instead",
         UseCodeInstead = "Use a code instead",
         SignInCodeBody = "Sign in with the Microsoft account you play Minecraft: Java Edition with. You'll get a code to enter on Microsoft's website.",
         SignInBrowserBody = "Sign in with the Microsoft account you play Minecraft: Java Edition with. Your browser opens to finish signing in.",
@@ -455,9 +516,6 @@ crate::i18n::messages! {
         StopSigningInBody = "Microsoft is still waiting for the code you copied. If you stop now, entering it won't sign you in.",
         StopSigningIn = "Stop signing in",
         KeepWaiting = "Keep waiting",
-        LinkInstructions = "Sign in in the browser window that opened. Microsoft then shows a page saying it is not normally shown. Copy the full address from the browser's address bar and paste it only into this launcher.",
-        /// {url} is the start of the address to paste.
-        LinkStartsWith = "It starts with {url}",
         SigningInToMinecraft = "Signing in to Minecraft…",
         ExpectedUntilApproved = "This is expected until Mojang approves the app. Nothing is wrong with your account.",
 
@@ -539,9 +597,9 @@ crate::i18n::messages! {
         UpdateAutomaticallyHint = "Downloads new builds from GitHub in the background.",
         /// Settings > General > Updates: update to beta builds too.
         BetaBuilds = "Beta builds",
-        BetaBuildsHint = "Get new features before everyone else. Beta builds can have bugs. Turning this off keeps your build until a stable one is newer.",
+        BetaBuildsHint = "Beta builds can have bugs.",
         DeveloperBuilds = "Developer builds",
-        DeveloperBuildsHint = "For Lodestone's developers: updates to builds of work in progress, which may not work. Turning this off keeps your build until a release is newer.",
+        DeveloperBuildsHint = "For Lodestone's developers: updates to dev builds, which can have bugs.",
         /// The running build: the number of commits it was built from.
         BuildNumber = "Build {build}",
         /// {commit} is the first seven characters of the commit.
@@ -607,6 +665,11 @@ crate::i18n::messages! {
         /// The top bar's notice, beside its Restart button.
         UpdateReadyBadge = "Update ready",
         UpdateAvailableBadge = "Update available",
+        /// Beside the top bar's logo in a development build (`cargo build`).
+        DevBadge = "DEV",
+        /// The top bar's arrows: the page shown before, and back again.
+        GoBack = "Back",
+        GoForward = "Forward",
 
         // Shared components.
         /// Under a Modrinth description that is cut short.
@@ -730,7 +793,6 @@ crate::i18n::messages! {
         /// The pop-out window for editing a skin.
         SkinEditorTitle = "Skin editor",
         SkinPopOut = "Pop out editor",
-        SkinEditorLead = "Edit every surface, font and banner in the editor. Changes show in the window as you make them, and Undo takes them back.",
         /// Each placeholder is a number.
         SkinSummary = "{surfaces} surfaces painted · {fonts} fonts · {banners} banners",
         SkinSurfaces = "Surfaces",
@@ -794,11 +856,38 @@ crate::i18n::messages! {
         StorageCleanLeftoversTitle = "Remove unfinished downloads?",
         StorageCleanLeftoversBody = "This frees {size}. These are files of modpack downloads and imports that didn't finish.",
         StorageSnapshots = "Snapshots",
-        StorageSnapshotsHint = "{count} snapshots · {size} can be freed",
-        StorageCleanSnapshotsTitle = "Remove automatic snapshots?",
-        StorageCleanSnapshotsBody = "This frees {size}. It removes the snapshots taken before going back, those of deleted instances, and files made to share.",
+        StorageCleanSnapshotsTitle = "Remove the Launcher's own snapshots?",
         StorageOther = "Settings and other files",
         StorageCacheAndLogs = "Cache and logs",
+        /// Settings > Storage: the section with the data folder's path.
+        StorageDataFolder = "Data folder",
+        StorageDataFolderHint = "Where Lodestone stores your instances and worlds, accounts, settings and game files.",
+        StorageMoveEllipsis = "Move…",
+        /// Moves the data folder back to the default folder.
+        StorageMoveBackEllipsis = "Move back…",
+        /// The folder dialog's button when choosing where to move the data folder.
+        StorageMoveHere = "Move here",
+        StorageMoveCantUse = "Can't move the data there: {error}",
+        StorageMoveStopGame = "Stop the game before moving the data folder.",
+        StorageMoveTitle = "Move your data?",
+        StorageMoveBody = "Everything in the data folder moves to {to}: your instances and worlds, accounts, settings and game files. The launcher restarts when it's done.",
+        StorageMoveBackTitle = "Move your data back?",
+        StorageMoveBackBody = "Everything moves back to the default folder, {to}. The launcher restarts when it's done.",
+        StorageMoveSize = "It's {size}.",
+        StorageMoveConfirm = "Move and restart",
+        StorageMoving = "Moving your data…",
+        StorageMovingTo = "To {to}",
+        StorageMovingPreparing = "Getting ready…",
+        StorageMovingProgress = "{done} of {total}",
+        StorageMovingNote = "Cancel leaves it where it was.",
+        StorageMoveFailedTitle = "Couldn't move your data",
+        StorageMoveFailedBody = "Your data is still in {from}. {error}",
+        StorageMoveRestartFailed = "Your data moved. Quit the launcher and open it again to use the new folder.",
+        /// At start, when the moved data folder isn't there.
+        DataFolderMissingTitle = "Can't find your data folder",
+        DataFolderMissingBody = "Your instances and worlds are in {path}, which isn't there. If it's on a drive that isn't connected, connect it and try again. The default folder starts with nothing in it, and your data stays where it is.",
+        DataFolderUseDefault = "Use the default folder",
+        DataFolderQuit = "Quit",
         StorageLogs = "Logs and crash reports",
         StorageOldLogs = "{size} older than 30 days",
         StorageVersions = "Versions",
@@ -837,6 +926,15 @@ crate::i18n::messages! {
         StorageDeleteOldLogsBody = "This frees {size}. Logs and crash reports older than 30 days are deleted for good.",
         StorageDeleteAllLogsTitle = "Delete all logs?",
         StorageDeleteAllLogsBody = "This frees {size}. Every log and crash report is deleted for good, except a running game's.",
+        /// Words a search of the settings finds Zoom by, besides its name; never
+        /// shown.
+        ZoomKeywords = "scale size bigger smaller text",
+        /// Words a search of the settings finds "When a game starts" by, besides its name; never
+        /// shown.
+        WhenAGameStartsKeywords = "after launch minimize hide close quit",
+        ModpackUpdateNoSnapshot = "No snapshot could be taken first, so nothing has changed. You can update without one, or fix the problem and try again.\n{error}",
+        UpdateWithoutSnapshot = "Update without a snapshot",
+        ReplaceWorldModsNote = "Only the world goes back; the instance's mods stay as they are. To put back the mods it ran with too, restore the snapshot from Settings › Snapshots.",
     }
 
     pub enum ShellPlural {
@@ -858,5 +956,9 @@ crate::i18n::messages! {
         DiscordMobsKilled = ("{count} mob killed", "{count} mobs killed"),
         DiscordBlocksMined = ("{count} block mined", "{count} blocks mined"),
         DiscordMods = ("{count} mod", "{count} mods"),
+        /// {count} is how many snapshots there are, {removable} how many the clean-up removes.
+        StorageSnapshotsHint = ("{count} snapshot and each instance's content history · {removable} can be removed", "{count} snapshots and each instance's content history · {removable} can be removed"),
+        /// {count} is how many snapshots go.
+        StorageCleanSnapshotsBody = ("This removes {count} snapshot: the ones the Launcher took on its own, and every snapshot of deleted instances, pinned ones too. Your instances' own and pinned snapshots stay. Files from the last hour are freed at the next clean-up.", "This removes {count} snapshots: the ones the Launcher took on its own, and every snapshot of deleted instances, pinned ones too. Your instances' own and pinned snapshots stay. Files from the last hour are freed at the next clean-up."),
     }
 }

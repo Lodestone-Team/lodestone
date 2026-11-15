@@ -81,7 +81,9 @@ export default function InstancePlayerList() {
       {updatedPlayerList && updatedPlayerList.length > 0 ? (
         <PlayerListCard>
           {updatedPlayerList.map((player) => {
-            // Only Minecraft players have a uuid (GenericPlayer has an id)
+            // Only Minecraft players have a uuid. Older cores can also send
+            // other kinds (atom servers' GenericPlayer, with an id instead):
+            // show those by name.
             const playerUuid =
               player.type === 'MinecraftPlayer' ? player.uuid : undefined;
             const linkedUser = linkedUserOf(linked, {
@@ -89,7 +91,7 @@ export default function InstancePlayerList() {
               uuid: playerUuid,
             });
             return (
-              <PlayerListItem key={playerUuid}>
+              <PlayerListItem key={playerUuid ?? player.name}>
                 <img
                   src={`${mcHeadURL}${playerUuid}/${avatarDimension}.png`}
                   alt={t('server.players.avatarAlt', { name: player.name })}

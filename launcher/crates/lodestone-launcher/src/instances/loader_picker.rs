@@ -1,8 +1,8 @@
 //! Choosing a mod loader and its version for a Minecraft version, newest first, with
-//! the recommended one picked. An instance's Settings tab shows it in its compact
-//! form: two settings rows, the loaders as one segmented control and the version in
-//! a dropdown. "New instance" draws the loaders as cards itself and shows only the
-//! version dropdown.
+//! the recommended one picked. "New instance" (and its copy form) draws the loaders as
+//! cards itself and shows only the version dropdown. An instance's Settings tab shows
+//! it in its compact form: two settings rows, the loader as it is (an instance's loader
+//! never changes) and its version in a dropdown.
 
 use crate::theme::px;
 use gpui::{
@@ -13,13 +13,13 @@ use launcher_core::game::loaders::{LoaderChoice, LoaderKind, LoaderVersion};
 
 use super::{Instances, LoaderVersions};
 use crate::components::{
-    ArrowGroup, KeyboardFocus,
-    a11y::{Accessible, Role, Toggled},
+    KeyboardFocus,
+    a11y::{Accessible, Role},
 };
 use crate::{
     components::{
-        LoadingDots,
-        settings::{SettingRow, popover, popover_panel, select_button, tag},
+        Dropdown, LoadingDots,
+        settings::{SettingRow, popover_panel, select_button, tag, value},
     },
     i18n::{InstanceSettingsMsg as M, t, tr},
     theme::{self, colors, radius, text, weights},
@@ -32,17 +32,26 @@ pub struct LoaderPicker {
     /// The chosen loader version's id.
     selected: Option<String>,
     scroll: UniformListScrollHandle,
-    /// Two settings rows (the instance's Settings tab), instead of only the version
-    /// dropdown (the New instance dialog, which draws the loaders itself).
+    /// Two settings rows (the instance's Settings tab: its loader, and the version to
+    /// pick), instead of only the version dropdown (the New instance dialog, which draws
+    /// the loaders itself).
     compact: bool,
     /// The version list is open.
     open: bool,
     /// A loader or a version was picked since the choice was last set.
     touched: bool,
+    /// The compact form's hint under the loader: why it doesn't change here.
+    fixed_hint: M,
     _observe: Subscription,
 }
 
 impl LoaderPicker {
+    /// Opens the list of versions, for the `new-instance-loader-versions` scene.
+    pub fn preview_open(&mut self, cx: &mut Context<Self>) {
+        self.open = true;
+        cx.notify();
+    }
+
     pub fn new(
         instances: Entity<Instances>,
         game_version: Option<String>,
@@ -62,16 +71,28 @@ impl LoaderPicker {
             compact: false,
             open: false,
             touched: false,
+            fixed_hint: M::GameVersionHint,
             _observe: observe,
         };
         this.load(cx);
         this
     }
 
-    /// The form for an instance's Settings tab: two settings rows.
+    /// The form for an instance's Settings tab: two settings rows, the loader shown as
+    /// it is.
     pub fn compact(mut self) -> Self {
         self.compact = true;
         self
+    }
+
+    pub fn fixed_hint(&self) -> M {
+        self.fixed_hint
+    }
+
+    /// The hint under the loader in the compact form: set when the instance was made,
+    /// or following its modpack or linked server.
+    pub fn set_fixed_hint(&mut self, hint: M) {
+        self.fixed_hint = hint;
     }
 
     /// Shows `choice`, as the instance has it saved.
@@ -186,6 +207,11 @@ impl LoaderPicker {
     pub fn kind(&self) -> Option<LoaderKind> {
         self.kind
     }
+
+    /// The Minecraft version whose loader builds it offers.
+    pub fn game_version(&self) -> Option<&str> {
+        self.game_version.as_deref()
+    }
 }
 
 fn version_row(index: usize, version: &LoaderVersion, selected: bool) -> gpui::Stateful<gpui::Div> {
@@ -237,57 +263,6 @@ fn version_row(index: usize, version: &LoaderVersion, selected: bool) -> gpui::S
 }
 
 impl LoaderPicker {
-    /// The loaders as one segmented control.
-    fn segmented(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
-        let options = loader_options();
-        ArrowGroup::new("loader-segments")
-            .group_role(Role::RadioGroup)
-            .flex()
-            .flex_row()
-            .p(px(2.))
-            .gap(px(2.))
-            .rounded(radius::LG)
-            .border_1()
-            .border_color(colors::GRAY_700)
-            .bg(colors::GRAY_900)
-            .children(options.enumerate().map(|(index, (label, kind))| {
-                let selected = self.kind == kind;
-                div()
-                    .id(("loader-segment", index))
-                    .accessible(
-                        Role::RadioButton,
-                        format!(
-                            "loader-{}",
-                            kind.map_or("vanilla".to_string(), |kind| kind.label().to_lowercase())
-                        ),
-                        label,
-                    )
-                    .aria_toggled(if selected {
-                        Toggled::True
-                    } else {
-                        Toggled::False
-                    })
-                    .keyboard_focus()
-                    .px_2p5()
-                    .py_1()
-                    .rounded(radius::MD)
-                    .cursor_pointer()
-                    .font_weight(weights::BOLD.into())
-                    .text_size(theme::text_size(text::SMALL))
-                    .map(|this| {
-                        if selected {
-                            this.bg(colors::GRAY_700)
-                                .text_color(crate::theme::ink::text())
-                        } else {
-                            this.text_color(crate::theme::ink::secondary())
-                                .hover(|style| style.text_color(crate::theme::ink::text()))
-                        }
-                    })
-                    .child(label)
-                    .on_press(cx.listener(move |this, _, _, cx| this.set_kind(kind, cx)))
-            }))
-    }
-
     /// The chosen version in a dropdown, or what the list is doing.
     fn version_control(&self, kind: LoaderKind, game: &str, cx: &mut Context<Self>) -> AnyElement {
         let note = |text_: String, color: theme::Color| {
@@ -315,7 +290,10 @@ impl LoaderPicker {
                 return note(tr!(M::CouldntLoadVersions, error = error), colors::RED_200);
             }
             LoaderVersions::Ready(list) if list.is_empty() => {
-                return note(tr!(M::NoVersionsFor, game = game), colors::GRAY_500);
+                return note(
+                    tr!(M::NoVersionsFor, game = game),
+                    crate::theme::ink::muted(),
+                );
             }
             LoaderVersions::Ready(list) => list,
         };
@@ -359,78 +337,58 @@ impl LoaderPicker {
         // In the dialog's form the dropdown lines up on the left; in the Settings
         // rows, on the right.
         let form = !self.compact;
-        div()
-            .flex()
-            .flex_col()
-            .map(|this| {
-                if form {
-                    this.items_start()
-                } else {
-                    this.items_end()
-                }
-            })
-            .child(
-                select_button("loader-version-select", label)
-                    .aria_label(t(M::LoaderVersion))
-                    .aria_value(chosen_text)
-                    .expandable(self.open, toggle)
-                    .when(form, |this| this.w(px(300.)).justify_between())
-                    .on_press(cx.listener(|this, _, _, cx| {
-                        this.open = !this.open;
-                        cx.notify();
-                    })),
-            )
-            .when(self.open, |this| {
-                let close = cx.listener(|this, _: &(), _, cx| {
-                    this.open = false;
+        Dropdown::new(
+            select_button("loader-version-select", label)
+                .aria_label(t(M::LoaderVersion))
+                .aria_value(chosen_text)
+                .expandable(self.open, toggle)
+                .when(form, |this| this.w(px(300.)).justify_between())
+                .on_press(cx.listener(|this, _, _, cx| {
+                    this.open = !this.open;
                     cx.notify();
-                });
-                let popover = popover(
-                    "loader-version-popover",
-                    popover_panel("loader-version-list")
-                        .w(px(if form { 300. } else { 280. }))
-                        .h(px(panel_height))
-                        .on_mouse_down_out(cx.listener(|this, _, _, cx| {
-                            this.open = false;
-                            cx.notify();
-                        }))
-                        .child(
-                            uniform_list(
-                                "loader-versions",
-                                rows,
-                                cx.processor(move |this, range: std::ops::Range<usize>, _, cx| {
-                                    range
-                                        .filter_map(|index| list.get(index).map(|v| (index, v)))
-                                        .map(|(index, version)| {
-                                            let selected =
-                                                this.selected.as_deref() == Some(&version.id);
-                                            let id = version.id.clone();
-                                            version_row(index, version, selected).on_press(
-                                                cx.listener(move |this, _, _, cx| {
-                                                    this.selected = Some(id.clone());
-                                                    this.touched = true;
-                                                    this.open = false;
-                                                    cx.notify();
-                                                }),
-                                            )
-                                        })
-                                        .collect()
-                                }),
-                            )
-                            .track_scroll(&self.scroll)
-                            .size_full(),
-                        ),
-                    move |window, cx| close(&(), window, cx),
-                );
-                // In the form, in a box of its own under the button: the popover
-                // starts where its parent does.
-                if form {
-                    this.child(div().child(popover))
-                } else {
-                    this.child(popover)
-                }
-            })
-            .into_any_element()
+                })),
+        )
+        .when(!form, |this| this.align_end())
+        .when(self.open, |this| {
+            let close = cx.listener(|this, _: &(), _, cx| {
+                this.open = false;
+                cx.notify();
+            });
+            this.popover(
+                "loader-version-popover",
+                popover_panel("loader-version-list")
+                    .w(px(if form { 300. } else { 280. }))
+                    .h(px(panel_height))
+                    .child(
+                        uniform_list(
+                            "loader-versions",
+                            rows,
+                            cx.processor(move |this, range: std::ops::Range<usize>, _, cx| {
+                                range
+                                    .filter_map(|index| list.get(index).map(|v| (index, v)))
+                                    .map(|(index, version)| {
+                                        let selected =
+                                            this.selected.as_deref() == Some(&version.id);
+                                        let id = version.id.clone();
+                                        version_row(index, version, selected).on_press(cx.listener(
+                                            move |this, _, _, cx| {
+                                                this.selected = Some(id.clone());
+                                                this.touched = true;
+                                                this.open = false;
+                                                cx.notify();
+                                            },
+                                        ))
+                                    })
+                                    .collect()
+                            }),
+                        )
+                        .track_scroll(&self.scroll)
+                        .size_full(),
+                    ),
+                move |window, cx| close(&(), window, cx),
+            )
+        })
+        .into_any_element()
     }
 
     fn render_compact(&mut self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
@@ -441,7 +399,14 @@ impl LoaderPicker {
         div()
             .flex()
             .flex_col()
-            .child(SettingRow::new(t(M::ModLoader)).child(self.segmented(cx)))
+            .child(
+                SettingRow::new(t(M::ModLoader))
+                    .hint(t(self.fixed_hint))
+                    .child(value(
+                        self.kind.map_or(t(M::Vanilla), |kind| kind.label()),
+                        false,
+                    )),
+            )
             .when_some(version, |this, version| {
                 this.child(
                     div()
@@ -462,11 +427,6 @@ fn version_tag(version: &LoaderVersion) -> Option<(&'static str, theme::Color)> 
     } else {
         None
     }
-}
-
-/// "Vanilla" and the loaders, with their names.
-fn loader_options() -> impl Iterator<Item = (&'static str, Option<LoaderKind>)> {
-    std::iter::once((t(M::Vanilla), None)).chain(LoaderKind::ALL.map(|k| (k.label(), Some(k))))
 }
 
 impl Render for LoaderPicker {

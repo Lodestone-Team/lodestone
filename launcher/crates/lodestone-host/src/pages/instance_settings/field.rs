@@ -12,9 +12,9 @@ use launcher_core::cores::admin::instance_settings::{
 };
 use lodestone_ui::{
     components::{
-        Icon, IconButton, ListRow, LoadingDots, RichText, TextInput,
+        Dropdown, Icon, IconButton, ListRow, LoadingDots, RichText, TextInput,
         a11y::Accessible,
-        settings::{muted_link, popover, popover_panel, select_button},
+        settings::{muted_link, popover_panel, select_button},
     },
     theme::{colors, fonts, px, radius, text},
 };
@@ -334,11 +334,8 @@ pub fn enum_select(
         }
     });
     let page = cx.entity().downgrade();
-    div()
-        .flex()
-        .flex_col()
-        .items_end()
-        .child(button)
+    Dropdown::new(button)
+        .align_end()
         .when(open && enabled, |this| {
             let mut panel = popover_panel(sub(&id, "list"))
                 .min_w(px(200.))
@@ -355,13 +352,13 @@ pub fn enum_select(
                         })),
                 );
             }
-            this.child(popover(sub(&id, "menu"), panel, move |_, cx| {
+            this.popover(sub(&id, "menu"), panel, move |_, cx| {
                 page.update(cx, |this, cx| {
                     this.open_menu = None;
                     cx.notify();
                 })
                 .ok();
-            }))
+            })
         })
         .into_any_element()
 }

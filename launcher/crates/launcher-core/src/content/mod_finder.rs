@@ -137,6 +137,114 @@ impl Mods {
     }
 }
 
+/// A mod named in a prompt about the mods another needs, or that need it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LinkedMod {
+    /// Its file name as it is now (with `.disabled` for a mod that is off).
+    pub file_name: String,
+    pub name: String,
+}
+
+fn sorted(mut mods: Vec<LinkedMod>) -> Vec<LinkedMod> {
+    mods.sort_by(|a, b| {
+        a.name
+            .to_lowercase()
+            .cmp(&b.name.to_lowercase())
+            .then_with(|| a.file_name.cmp(&b.file_name))
+    });
+    mods
+}
+
+/// The enabled mods that couldn't load once `file_name` (an enabled mod's file name)
+/// is turned off: those that require an id only it gives, then those that need them,
+/// and so on, sorted by name. A mod that another enabled mod can stand in for (both
+/// give the id) is no one's only source, and ids no mod gives (`minecraft`, the
+/// loader's) don't count. Opens every enabled jar, so call it off the window's thread.
+pub fn dependents(dirs: &InstanceDirs, file_name: &str) -> Vec<LinkedMod> {
+    let file_name = enabled_name(file_name);
+    let enabled: Vec<String> = scan::scan(dirs, ContentKind::Mod)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|file| file.enabled_by_name() && !file.is_dir)
+        .map(|file| file.file_name)
+        .collect();
+    if !enabled.contains(&file_name) {
+        return Vec::new();
+    }
+    let mods = Mods::read(dirs, &enabled);
+    let off = mods.closure(&BTreeSet::from([file_name.clone()]));
+    sorted(
+        off.into_iter()
+            .filter(|file| *file != file_name)
+            .map(|file| LinkedMod {
+                name: mods.name(&file),
+                file_name: file,
+            })
+            .collect(),
+    )
+}
+
+/// The mods that are off and must be turned on too for `file_name` (a mod that is
+/// off, with or without `.disabled`) to load: for each id it requires that no enabled
+/// mod gives, a mod that is off and gives it, then what those require, and so on,
+/// sorted by name. Only what `file_name` leads to counts, not other enabled mods'
+/// missing ones. Ids no mod in the folder gives (`minecraft`, the loader's, a mod
+/// that isn't there) don't count; where several mods that are off give an id, the one
+/// first by file name is picked. Opens every jar, so call it off the window's thread.
+pub fn requirements(dirs: &InstanceDirs, file_name: &str) -> Vec<LinkedMod> {
+    let target = enabled_name(file_name);
+    let files: Vec<(String, bool)> = scan::scan(dirs, ContentKind::Mod)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|file| !file.is_dir)
+        .map(|file| (file.enabled_name(), file.enabled_by_name()))
+        .collect();
+    if !files.iter().any(|(name, on)| *name == target && !on) {
+        return Vec::new();
+    }
+    let mut names: Vec<String> = files.iter().map(|(name, _)| name.clone()).collect();
+    names.sort();
+    names.dedup();
+    let mods = Mods::read(dirs, &names);
+    let node = |file: &str| mods.nodes.iter().find(|n| n.file_name == file);
+    // The mods that will be on: those on now, the target, and what is added.
+    let mut on: BTreeSet<String> = files
+        .iter()
+        .filter(|(_, on)| *on)
+        .map(|(name, _)| name.clone())
+        .collect();
+    on.insert(target.clone());
+    let gives =
+        |file: &str, id: &str| node(file).is_some_and(|n| n.provides.iter().any(|p| p == id));
+    let mut added = Vec::new();
+    let mut queue = vec![target.clone()];
+    while let Some(file) = queue.pop() {
+        let Some(needs) = node(&file).map(|n| n.requires.clone()) else {
+            continue;
+        };
+        for id in needs {
+            if on.iter().any(|f| gives(f, &id)) {
+                continue;
+            }
+            // `names` is in file name order, so the first giver is picked.
+            if let Some(giver) = names.iter().find(|f| !on.contains(*f) && gives(f, &id)) {
+                on.insert(giver.clone());
+                added.push(giver.clone());
+                queue.push(giver.clone());
+            }
+        }
+    }
+    sorted(
+        added
+            .into_iter()
+            .map(|file| LinkedMod {
+                name: mods.name(&file),
+                file_name: disabled_name(&file),
+            })
+            .collect(),
+    )
+}
+
 /// The mod ids a jar gives and requires, from its metadata and its bundled jars'.
 fn read_ids(path: &std::path::Path) -> (Vec<String>, Vec<String>) {
     let Some(mut archive) = File::open(path)
@@ -374,6 +482,12 @@ impl Search {
 
 fn path(dirs: &InstanceDirs) -> PathBuf {
     dirs.instance.join(FILE_NAME)
+}
+
+/// Whether a search of the instance whose folder is `instance_dir` is saved: it has some
+/// of the mods turned off until it ends, so nothing else may change them meanwhile.
+pub fn is_saved(instance_dir: &std::path::Path) -> bool {
+    instance_dir.join(FILE_NAME).exists()
 }
 
 /// The instance's interrupted search, if it has one.

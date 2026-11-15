@@ -6,14 +6,21 @@ pub fn text(message: M) -> &'static str {
         M::KindResourcePacks => "資源包",
         M::KindShaders => "光影",
         M::Vanilla => "原版",
-        M::SearchInstalledOrModrinth => "搜尋已安裝內容，或在 Modrinth 上尋找更多",
+        M::ViewInstalled => "已安裝",
+        M::ViewModrinth => "Modrinth",
+        M::ViewCurseForge => "CurseForge",
+        M::SearchInstalled => "搜尋已安裝內容",
+        M::SearchModrinth => "搜尋 Modrinth",
+        M::SearchCurseForge => "搜尋 CurseForge",
+        M::LookingForMore => "想找點新內容？",
+        M::BrowseModrinth => "瀏覽 Modrinth",
+        M::BrowseCurseForge => "瀏覽 CurseForge",
+        M::BackToTop => "回到頂端",
+        M::AlreadyInstalled => "已安裝",
+        M::ShowInstalled => "顯示已安裝",
         M::InstalledCount => "已安裝 · {count}",
         M::EnabledCount => "已啟用 · {count} · 重疊時以最上面的包為準",
         M::AvailableCount => "可用 · {count}",
-        M::OnModrinthCount => "Modrinth 上 · {count}",
-        M::OnModrinth => "Modrinth 上",
-        M::OnCurseForgeCount => "CurseForge 上 · {count}",
-        M::OnCurseForge => "CurseForge 上",
         M::NoInstalledMatch => "已安裝 · {count} · 沒有符合的已安裝{kind}。",
         M::OnlyTarget => "僅限 {target}",
 
@@ -47,6 +54,9 @@ pub fn text(message: M) -> &'static str {
         M::AddToResourcePacks => "加入資源包",
         M::AddToShaders => "加入光影",
 
+        M::LinkIsDataPack => {
+            "此連結指向一個資料包。資料包屬於某個世界：請在「世界」分頁中，從該世界的資料包加入。"
+        }
         M::LinkNotInstallable => {
             "此連結指向「{kind}」類型的專案，Lodestone Launcher 目前還不支援安裝。"
         }
@@ -72,12 +82,6 @@ pub fn text(message: M) -> &'static str {
 
         M::ModsNeedLoader => "模組需要模組載入器",
         M::ShadersNeedLoader => "光影需要模組載入器",
-        M::VanillaSwitchMods => {
-            "此實例是原版 Minecraft。模組需要透過 {loader} 等模組載入器執行；切換會保留你的世界和設定，{loader} 會在你下次按下「開始遊戲」時安裝。"
-        }
-        M::VanillaSwitchShaders => {
-            "此實例是原版 Minecraft。光影需要透過 {loader} 等模組載入器執行；切換會保留你的世界和設定，{loader} 會在你下次按下「開始遊戲」時安裝。"
-        }
         M::VanillaNoLoaderMods => {
             "此實例是原版 Minecraft {version}。模組需要模組載入器，但 Lodestone Launcher 支援的載入器都無法在此版本上執行：Fabric 從 1.14 開始支援，Forge 也沒有適用於此版本的組建。新增一個較新版本的實例即可使用模組。"
         }
@@ -96,8 +100,14 @@ pub fn text(message: M) -> &'static str {
         M::VanillaCheckingShaders => {
             "此實例是原版 Minecraft。光影需要透過模組載入器執行；正在檢查哪個載入器能在 Minecraft {version} 上執行…"
         }
-        M::SwitchTo => "切換至 {loader}",
         M::NewFabricInstance => "新增 Fabric 實例…",
+        M::VanillaCopyMods => {
+            "此實例是原版 Minecraft。模組需要透過 {loader} 等模組載入器執行，而實例會保留建立時的載入器。使用 {loader} 的副本可以帶上你的世界和設定。"
+        }
+        M::VanillaCopyShaders => {
+            "此實例是原版 Minecraft。光影需要透過 {loader} 等模組載入器執行，而實例會保留建立時的載入器。使用 {loader} 的副本可以帶上你的世界和設定。"
+        }
+        M::CopyWith => "以 {loader} 複製…",
 
         M::ShaderModUsingPack => "{shader_mod} 正在使用 {pack}。",
         M::ShaderModUsingBuiltIn => "{shader_mod} 正在使用內建光影。",
@@ -128,10 +138,77 @@ pub fn text(message: M) -> &'static str {
         M::SortUpdated => "最近更新",
         M::SearchingModrinth => "正在搜尋 Modrinth",
         M::NothingMatches => "Modrinth 上沒有符合的結果。",
-        M::ModrinthPromptMods => "在上方搜尋，在 Modrinth 上尋找模組。",
-        M::ModrinthPromptResourcePacks => "在上方搜尋，在 Modrinth 上尋找資源包。",
-        M::ModrinthPromptShaderPacks => "在上方搜尋，在 Modrinth 上尋找光影包。",
-        M::ModrinthPromptTarget => "適用於 {target} 的結果會顯示在這裡。",
+        M::Filters => "篩選",
+        M::FiltersCount => "篩選 · {count}",
+        M::FilterCategories => "分類",
+        M::FilterFeatures => "功能",
+        M::FilterResolution => "解析度",
+        M::FilterPerformance => "效能影響",
+        M::FilterEnvironment => "安裝位置",
+        M::EnvAny => "不限",
+        M::EnvClientOnly => "僅用戶端",
+        M::EnvServerToo => "伺服器也需安裝",
+        M::FilterEnvironmentHint => {
+            "僅用戶端的模組可在任何伺服器上使用；其他模組也必須安裝在伺服器上。"
+        }
+        M::FilterOther => "其他",
+        M::FilterOpenSource => "僅開源",
+        M::ClearFilters => "清除篩選",
+        M::FiltersModrinthOnly => "這些篩選僅適用於 Modrinth 的結果。",
+        M::CatAdventure => "冒險",
+        M::CatCursed => "詛咒",
+        M::CatDecoration => "裝飾",
+        M::CatEconomy => "經濟",
+        M::CatEquipment => "裝備",
+        M::CatFood => "食物",
+        M::CatGameMechanics => "遊戲機制",
+        M::CatLibrary => "前置函式庫",
+        M::CatMagic => "魔法",
+        M::CatManagement => "管理",
+        M::CatMinigame => "小遊戲",
+        M::CatMobs => "生物",
+        M::CatOptimization => "最佳化",
+        M::CatSocial => "社交",
+        M::CatStorage => "儲存",
+        M::CatTechnology => "科技",
+        M::CatTransportation => "交通",
+        M::CatUtility => "實用",
+        M::CatWorldGen => "世界生成",
+        M::CatCombat => "戰鬥",
+        M::CatModded => "模組",
+        M::CatRealistic => "寫實",
+        M::CatSimplistic => "簡約",
+        M::CatThemed => "主題",
+        M::CatTweaks => "微調",
+        M::CatVanillaLike => "原版風格",
+        M::CatAudio => "音訊",
+        M::CatBlocks => "方塊",
+        M::CatCoreShaders => "核心著色器",
+        M::CatEntities => "實體",
+        M::CatEnvironment => "環境",
+        M::CatFonts => "字型",
+        M::CatGui => "介面",
+        M::CatItems => "物品",
+        M::CatLocale => "語言",
+        M::CatModels => "模型",
+        M::CatResolutionLow => "8x 以下",
+        M::CatResolutionHigh => "512x 以上",
+        M::CatCartoon => "卡通",
+        M::CatFantasy => "奇幻",
+        M::CatSemiRealistic => "半寫實",
+        M::CatAtmosphere => "大氣",
+        M::CatBloom => "泛光",
+        M::CatColoredLighting => "彩色光照",
+        M::CatFoliage => "植被",
+        M::CatPathTracing => "路徑追蹤",
+        M::CatPbr => "PBR",
+        M::CatReflections => "反射",
+        M::CatShadows => "陰影",
+        M::CatPotato => "馬鈴薯",
+        M::CatLow => "低",
+        M::CatMedium => "中",
+        M::CatHigh => "高",
+        M::CatScreenshot => "截圖",
         M::NothingOnCurseForge => "CurseForge 上沒有符合的結果。",
         M::PageOf => "第 {page} 頁，共 {pages} 頁",
         M::ByAuthor => "作者：{author}",
@@ -145,6 +222,14 @@ pub fn text(message: M) -> &'static str {
         M::ViewOnModrinth => "在 Modrinth 上檢視",
         M::Versions => "版本",
         M::Description => "簡介",
+        M::Gallery => "圖庫",
+        M::ProjectPage => "專案頁面",
+        M::Files => "檔案",
+        M::ClosePage => "關閉頁面",
+        M::ShowPageOf => "顯示 {name} 的頁面",
+        M::LoadingDescription => "正在載入簡介",
+        M::NoDescription => "此專案沒有簡介。",
+        M::RestOnCurseForge => "其餘說明請在 CurseForge 上查看。",
         M::LoadingVersions => "正在載入版本",
         M::ShowAllVersions => "顯示適用於其他載入器和 Minecraft 版本的版本",
         M::AlsoInstallDependencies => "一併安裝必要的相依項目",
@@ -184,6 +269,21 @@ pub fn text(message: M) -> &'static str {
         M::WatchFolderPrompt => "監視此資料夾",
         M::CouldntAddDownload => "無法加入 {name}：{error}",
         M::AddedDownloads => "已加入 {names}。",
+        M::DisableModTitle => "要關閉 {name} 嗎？",
+        M::DisableModOnlyWarning => {
+            "如果只關閉 {name}，在它們也關閉或重新開啟 {name} 之前，遊戲將無法啟動。"
+        }
+        M::DisableModAll => "全部關閉",
+        M::DisableModOnly => "僅關閉 {name}",
+        M::EnableModTitle => "要開啟 {name} 嗎？",
+        M::EnableModOnlyWarning => {
+            "如果只開啟 {name}，在它們也開啟或再次關閉 {name} 之前，遊戲將無法啟動。"
+        }
+        M::EnableModAll => "全部開啟",
+        M::EnableModOnly => "僅開啟 {name}",
+
+        M::AddModpackContent => "加入模組包",
+        M::NoSnapshotFirst => "未能先拍攝快照，請在遊玩前到「設定 › 快照」中拍攝一個。\n{error}",
     }
 }
 
@@ -192,6 +292,8 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::Downloads => ["{count} 次下載"; 2],
         P::Follows => ["{count} 人追蹤"; 2],
         P::Followers => ["{count} 位追蹤者"; 2],
+        P::Needs => ["{name} 需要以下 {count} 個已關閉的模組："; 2],
+        P::NeededBy => ["以下 {count} 個模組需要 {name}，沒有它將無法載入："; 2],
         P::MoreVersions => ["Modrinth 上還有 {count} 個版本。"; 2],
     }
 }

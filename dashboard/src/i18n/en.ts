@@ -27,7 +27,6 @@
 //   upload / download
 //   mod / modpack
 //   resource pack
-//   macro
 //   player / world
 //   port / address
 //   memory (RAM)
@@ -275,22 +274,13 @@ export const en = {
   'shell.event.playersJoinedAndLeft':
     '{joined} Joined {name} and {left} Left {name}',
   /** {player} said {message} (a chat message) on the server {name} */
+  'shell.event.modpackUpdate': '{pack} {version} is out for {name}',
   'shell.event.playerMessage': '{player} said {message} on {name}',
   /** {name} is the name of an API key */
   'shell.event.apiKeyCreated': 'API key “{name}” created',
   'shell.event.apiKeyRevoked': 'API key “{name}” revoked',
-  /** {pid} is a macro's process id, {server} a server's id or "Core" */
-  'shell.event.macroStarted': 'Macro {pid} started on {server}',
-  'shell.event.macroDetached': 'Macro {pid} detached on {server}',
-  /** {status} is a technical exit status, e.g. "Success" */
-  'shell.event.macroStopped':
-    'Macro {pid} stopped on {server} with status {status}',
   /** {error} is an error message */
   'shell.event.loadFailed': 'Failed to load notifications: {error}',
-
-  // SystemInfo
-  'shell.noScripting':
-    'This core was built without scripting support (Deno), so macros aren’t available.',
 
   // UserMenu: the account menu at the bottom of the sidebar
   /** shown instead of a user name when nobody is signed in */
@@ -347,6 +337,11 @@ export const en = {
   'shell.login.passwordRequired': 'Password is required',
   'shell.login.changeCore': 'Change Core',
   'shell.login.signIn': 'Sign in',
+  'common.localOnly':
+    'This core only allows apps on its own computer. Open Lodestone Host on that computer to manage it, or set up an owner account there (Settings › General › Allow access from other devices) to use the dashboard.',
+  'shell.localOnly.title': 'This core only allows its own computer',
+  'shell.login.localOnly':
+    'This core only allows apps on this computer. Open Lodestone Host to manage it, or set an owner password there (Settings › General › Allow access from other devices) to use the dashboard.',
 
   // CoreConnect: adding a core
   'shell.login.withApiKey': 'Sign in with an API key',
@@ -480,6 +475,9 @@ export const en = {
     'Domain cannot be longer than {max} characters',
   'settings.core.domain.tooltip':
     'This is your public IP if you are port-forwarded. If not, leave this as is.',
+  'settings.core.modpackChecks.label': 'Check for modpack updates',
+  'settings.core.modpackChecks.hint':
+    'Every few hours, look on Modrinth for newer versions of the modpacks servers were made from, and say when one is out. Check for an update on a server’s Mods tab still works when this is off.',
   'settings.core.listPublicly.label': 'List servers publicly',
   'settings.core.listPublicly.hint':
     'Anyone who can reach this core sees the servers you make public below.',
@@ -496,17 +494,11 @@ export const en = {
   /** the confirm button of the "Turn off safe mode / code execution?" dialogs */
   'settings.core.turnOff': 'Turn off',
   'settings.core.codeExecution.label': 'Code execution',
-  'settings.core.codeExecution.hint':
-    'Macros, atom servers, extensions, server scripts and custom Java commands.',
-  /** the same hint on a core without scripting (Deno) */
-  'settings.core.codeExecution.hintJavaOnly': 'Custom Java commands.',
+  'settings.core.codeExecution.hint': 'Custom Java commands.',
   'settings.core.codeExecution.locked':
     'Locked by this core’s administrator (LODESTONE_DISABLE_CODE_EXECUTION or --disable-code-execution).',
   'settings.core.codeExecution.offTitle': 'Turn off code execution?',
   'settings.core.codeExecution.offBody':
-    'Running macros and atom servers will be stopped. Macros, atom servers, extensions, server scripts and custom Java commands will not run on this core until you turn code execution back on. Nothing is started again automatically.',
-  /** the same dialog on a core without scripting (Deno) */
-  'settings.core.codeExecution.offBodyJavaOnly':
     'Custom Java commands will not run on this core until you turn code execution back on. Nothing is started again automatically.',
   'settings.core.lanHttp.label': 'Allow LAN access over plain HTTP',
   'settings.core.lanHttp.hint':
@@ -564,9 +556,6 @@ export const en = {
   'settings.users.unsafePermissions': 'Unsafe permissions',
   'settings.users.unsafePermissionsLead':
     'Turn off safe mode to grant these to non-owners.',
-  'settings.users.ownerOnly': 'Macros, extensions and atom servers',
-  'settings.users.ownerOnlyHint':
-    'Owner only. Docker servers use the normal permissions.',
 
   // Permissions: the title, and what it allows a user or an API key
   'settings.permission.can_create_instance.title': 'Create Servers',
@@ -762,9 +751,6 @@ export const en = {
   'settings.apiKeys.unsafe': 'Unsafe Settings',
   'settings.apiKeys.unsafeSafeMode':
     'Safe mode is on, so the core refuses these to keys with custom access until safe mode is turned off in core settings.',
-  'settings.apiKeys.ownerOnly': 'Macros, Extensions and Atom Servers',
-  'settings.apiKeys.ownerOnlyHint':
-    'Only full-access keys can use macros, extensions and atom servers.',
   // The new key dialog, shown once
   'settings.apiKeys.newTitle': 'API key "{name}" created',
   'settings.apiKeys.newCopyNow':
@@ -785,7 +771,6 @@ export const en = {
   'server.tab.console': 'Console',
   'server.tab.files': 'Files',
   'server.tab.mods': 'Mods',
-  'server.tab.macros': 'Macros',
   'server.tab.logs': 'Event Logs',
 
   // InstanceTabs
@@ -888,11 +873,11 @@ export const en = {
   'server.settingField.unknownType': 'Submission Error: Unknown value type.',
 
   // PublicListingSetting: what a server shows without signing in
-  'server.share.title': 'Share with friends',
-  'server.share.lead': 'Friends join from Lodestone Launcher with a link',
+  'server.share.title': 'Share',
+  'server.share.lead': 'People with the link join from Lodestone Launcher',
   'server.share.off':
-    'Send friends a link. They open it in Lodestone Launcher, and their game connects straight to this computer. No port forwarding needed.',
-  'server.share.start': 'Share with friends',
+    'Send a link to anyone you want to play with. They open it in Lodestone Launcher, and their game connects straight to this computer. No port forwarding needed.',
+  'server.share.start': 'Share',
   'server.share.state.starting': 'Starting…',
   'server.share.state.sharing': 'Sharing',
   'server.share.state.reconnecting': 'Reconnecting…',
@@ -902,20 +887,20 @@ export const en = {
   'server.share.copied': 'Copied the invite link',
   'server.share.copyFailed': "Couldn't copy. Select the link and copy it.",
   'server.share.preparing': 'Getting the link…',
-  'server.share.howFriendsJoin':
-    'Anyone with the link can join this server while it runs. Friends without Lodestone Launcher get a download link.',
+  'server.share.howToJoin':
+    'Anyone with the link can join this server while it runs. People without Lodestone Launcher get a download link.',
   'server.share.hardNetwork':
-    "This network's router makes direct connections hard. Some friends may not be able to join.",
+    "This network's router makes direct connections hard. Some people may not be able to join.",
   'server.share.connected': {
-    one: '{count} friend connected',
-    other: '{count} friends connected',
+    one: '{count} person connected',
+    other: '{count} people connected',
   },
   'server.share.joins': {
     one: '({count} join so far)',
     other: '({count} joins so far)',
   },
   /** {connection} is one of server.share.connection.*, {ms} the round trip time */
-  'server.share.friendLine': 'over {connection}, {ms} ms',
+  'server.share.peerLine': 'over {connection}, {ms} ms',
   'server.share.connection.same_computer': 'this computer',
   'server.share.connection.local_network': 'the local network',
   'server.share.connection.ipv6': 'IPv6',
@@ -923,7 +908,7 @@ export const en = {
   'server.share.stop': 'Stop sharing',
   'server.share.stopTitle': 'Stop sharing?',
   'server.share.stopBody':
-    'Friends who are playing are disconnected, and the link stops working. Sharing again makes a new link.',
+    'Everyone playing through the link is disconnected, and the link stops working. Sharing again makes a new link.',
   'server.publicListing.title': 'Sharing',
   'server.publicListing.lead': 'Who can find this server without signing in.',
   'server.publicListing.listedPublicly': 'Listed publicly',
@@ -979,12 +964,11 @@ export const en = {
   'server.action.kill': 'Kill',
   /** the tooltip of the power button */
   'server.card.power': 'Power',
-  'server.card.noScripting':
-    'This core was built without scripting support (Deno), so atom servers aren’t available.',
-  'server.card.codeExecutionDisabled':
-    'Code execution is disabled on this core',
-  /** copies the server's address */
+  /** copies the server's address (servers that can't be shared) */
   'server.card.copyIp': 'Copy IP',
+  /** opens the Overview's Share section */
+  'server.card.share': 'Share',
+  'server.card.shareHint': 'Share this server with a link',
   /** online players / maximum, e.g. "3/20 Online" */
   'server.card.online': '{players}/{max} Online',
 
@@ -1036,7 +1020,7 @@ export const en = {
   /** the core refused the sign-in; {message} is its reason */
   'server.api.loginError': 'Error: {message}',
 
-  // ===== Console and macros =====
+  // ===== Console =====
 
   // GameConsole: a server's console tab
   /** the page title, inside common.pageTitle */
@@ -1075,59 +1059,11 @@ export const en = {
   'console.line.linkedUser':
     'The Lodestone user who linked this Minecraft account',
 
-  // CodeExecution: owner-only features and the code execution switch
-  /** "atom" servers run TypeScript code; keep "atom" untranslated */
-  'console.ownerOnlyAtom': 'Only the owner can control atom servers',
-  /** the same, as a sentence (a setting's read-only hint) */
-  'console.ownerOnlyAtomSentence': 'Only the owner can control atom servers.',
+  // CodeExecution: the custom Java command settings and the code execution switch
   /** why the Java command / arguments settings can't be changed */
   'console.commandLine.readOnly':
     'Read-only while code execution is disabled on this core.',
   'console.commandLine.ownerOnly': 'Only the owner can change this setting.',
-
-  // Macros page
-  /** the page title, inside common.pageTitle */
-  'console.macros.pageTitle': 'Server Macros',
-  'console.macros.intro': 'All macros for your server',
-  'console.macros.ownerOnly':
-    'Macros are only available to the owner of this core.',
-  'console.macros.codeExecutionDisabledBanner':
-    'Code execution is disabled on this core. Macros can’t be run or configured until it is turned back on in Core Settings.',
-  'console.macros.codeExecutionDisabled':
-    'Code execution is disabled on this core',
-  /** tabs */
-  'console.macros.tab.macros': 'All Macros',
-  'console.macros.tab.tasks': 'Running Tasks',
-  'console.macros.tab.history': 'History',
-  /** table column headers, written in capitals */
-  'console.macros.column.name': 'MACRO NAME',
-  'console.macros.column.lastRun': 'LAST RUN',
-  'console.macros.column.created': 'CREATED',
-  'console.macros.column.finished': 'FINISHED',
-  'console.macros.column.pid': 'PROCESS ID',
-  /** a time in the table that isn't known (e.g. a macro that never ran) */
-  'console.macros.noTime': 'N/A',
-  /** row menu items */
-  'console.macros.run': 'Run Macro',
-  'console.macros.editConfig': 'Edit Config',
-  'console.macros.killTask': 'Kill Task',
-  /** the macro settings dialog */
-  'console.macros.configTitle': 'Macro Config',
-  'console.macros.configRequired': 'This macro requires additional config.',
-  /** toasts; {error} is the core's error message or console.macros.noServer */
-  'console.macros.noServer': 'No server selected',
-  'console.macros.loadFailed': 'Failed to load macros: {error}',
-  'console.macros.openConfigFailed': 'Error opening macro config: {error}',
-  'console.macros.runFailed': 'Error running macro: {error}',
-  'console.macros.killFailed': 'Failed to kill task: {error}',
-  'console.macros.saveConfigFailed': 'Failed to save macro config: {error}',
-  'console.macros.invalidState': 'Error: Invalid state',
-
-  // MacroCreateForm (not used yet)
-  'console.macros.create.name': 'Macro Name',
-  'console.macros.create.args': 'Arguments',
-  'console.macros.create.submit': 'Create Macro',
-  'console.macros.create.nameRequired': 'A macro name is required',
 
   // ===== Creating a server =====
 
@@ -1200,7 +1136,7 @@ export const en = {
   'create.gameType.new': 'New',
   'create.gameType.modpack': 'Modrinth modpack',
   'create.gameType.modpackDescription':
-    'Create a Fabric server from a Modrinth modpack',
+    'Create a Fabric, Forge or NeoForge server from a Modrinth modpack',
 
   // GameTypeMappings: games' titles and descriptions
   /** {name}: the game's name, as the core sends it */
@@ -1209,6 +1145,8 @@ export const en = {
     'Standard vanilla Minecraft server from Mojang.',
   'create.game.forgeDescription':
     'Modding framework that allows you to install mods and customize your Minecraft experience.',
+  'create.game.neoforgeDescription':
+    'Community fork of Forge with its own mods, for Minecraft 1.20.2 and later.',
   'create.game.fabricDescription':
     'Lightweight modding toolchain for Minecraft.',
   'create.game.paperDescription':
@@ -1227,7 +1165,7 @@ export const en = {
   // ModpackCreateForm: creating a server from a Modrinth modpack
   'create.modpack.sourceTitle': 'Select a modpack',
   'create.modpack.sourceDescription':
-    'Search Modrinth, paste a Modrinth link, or upload a .mrpack file. Only Fabric modpacks are supported.',
+    'Search Modrinth, paste a Modrinth link, or upload a .mrpack file. Fabric, Forge and NeoForge modpacks are supported.',
   'create.modpack.searchPlaceholder':
     'Search modpacks, or paste a Modrinth link',
   'create.modpack.onlyFabric': 'Only show Fabric modpacks',
@@ -1404,6 +1342,8 @@ export const en = {
   /** the placeholder of the folder name field */
   'files.createFolder.placeholder': 'Untitled folder',
   'files.createFolder.submit': 'Create folder',
+  /** New file or New folder with the name of something already in the folder */
+  'files.nameTaken': '{name} already exists in this folder',
   /** the new name of a file or folder */
   'files.rename.label': 'Name your file',
   'files.rename.submit': 'Rename file',
@@ -1459,6 +1399,23 @@ export const en = {
     'Modrinth doesn’t say whether players need it; check the mod’s page',
   'mods.clientRequirement.unknownNotOnModrinth':
     'Not on Modrinth; check the mod’s page',
+  /** with the "For players" box (Fabric servers) */
+  'mods.clientRequirement.unknownModrinthMark':
+    'Modrinth doesn’t say whether players need it. Check the mod’s page, and tick For players if they do.',
+  'mods.clientRequirement.unknownNotOnModrinthMark':
+    'Not on Modrinth. Check the mod’s page, and tick For players if players need it.',
+  /** a checkbox on a Fabric server's mod row: players download the mod too */
+  'mods.forPlayers.label': 'For players',
+  'mods.forPlayers.hint':
+    'Players get this mod, and the mods it needs, when they join. Tick it for mods players need that Lodestone can’t tell, such as ones you uploaded.',
+  'mods.forPlayers.already':
+    'Players get this mod already: Modrinth or the mod says they need it.',
+  'mods.forPlayers.optional':
+    'Modrinth says players can join without this mod, but on Fabric mods like it often stop them joining, so players get it. Untick it to leave it out.',
+  /** toasts after ticking or unticking the box; {name}: the mod's name */
+  'mods.forPlayers.marked': 'Players get {name} the next time they join',
+  'mods.forPlayers.unmarked': 'Players no longer get {name} when they join',
+  'mods.forPlayers.failed': 'Couldn’t change {name}: {error}',
   /** a Modrinth version's type, on a small label */
   'mods.versionType.release': 'release',
   'mods.versionType.beta': 'beta',
@@ -1546,6 +1503,62 @@ export const en = {
   'mods.installed.empty.plugin':
     'No plugins installed yet. Browse Modrinth or upload a .jar file.',
 
+  // ModpackPanel: a server's modpack, its updates and history
+  'mods.modpack.from': 'This server runs the modpack {pack}.',
+  'mods.modpack.check': 'Check for an update',
+  'mods.modpack.checkFailed': 'Couldn’t check for an update: {error}',
+  'mods.modpack.upToDate': 'It’s the newest version.',
+  'mods.modpack.whatsNew': 'What’s new',
+  'mods.modpack.out': '{version} is out',
+  'mods.modpack.updateTo': 'Update to {version}',
+  'mods.modpack.fromFile': 'Update from a file',
+  'mods.modpack.notMrpack': '{name} isn’t a .mrpack file.',
+  'mods.modpack.planFailed': 'Couldn’t prepare the update: {error}',
+  'mods.modpack.history': 'History',
+  'mods.modpack.historyFailed': 'Couldn’t load the modpack’s history: {error}',
+  'mods.modpack.historyEmpty':
+    'Nothing is recorded yet. Changes from now on can be undone.',
+  'mods.modpack.current': 'Current',
+  'mods.modpack.restore': 'Restore',
+  'mods.modpack.restoreMissing':
+    'Lodestone no longer has some of this version’s files.',
+  'mods.modpack.restoreTitle': 'Restore this version?',
+  'mods.modpack.updateTitle': 'Update the modpack?',
+  'mods.modpack.update': 'Update',
+  'mods.modpack.restored': 'Restored “{change}”.',
+  'mods.modpack.updated': 'Updated {pack} to {version}.',
+  'mods.modpack.restoreFailed': 'Couldn’t restore that version: {error}',
+  'mods.modpack.updateFailed': 'Couldn’t update the modpack: {error}',
+  'mods.modpack.since': 'since {date}',
+  'mods.modpack.sinceTooltip': 'This file is as it was after “{change}”.',
+  'mods.modpack.unknownVersion': 'unknown version',
+  'mods.modpack.dialog.intro': '{pack} goes from {from} to {to}.',
+  'mods.modpack.dialog.restoreIntro':
+    'The mods and configs go back to how they were after “{change}”.',
+  'mods.modpack.dialog.reinstall':
+    'The server moves to {software} and installs it again.',
+  'mods.modpack.dialog.kept': 'Files you changed stay as they are: {files}',
+  'mods.modpack.dialog.nothing': 'No files change.',
+  'mods.modpack.dialog.stop':
+    'Stop the server first: it can’t be updated while it runs.',
+  'mods.modpack.dialog.unsupported': 'This version can’t be used: {reason}',
+  'mods.modpack.added': {
+    one: '{count} file added',
+    other: '{count} files added',
+  },
+  'mods.modpack.replaced': {
+    one: '{count} file replaced',
+    other: '{count} files replaced',
+  },
+  'mods.modpack.removed': {
+    one: '{count} file removed',
+    other: '{count} files removed',
+  },
+  'mods.modpack.moreChanges': {
+    one: 'and {count} more',
+    other: 'and {count} more',
+  },
+
   // ClientPackPanel: the mods players need on a Fabric server
   /** {version}: the Fabric loader version, e.g. 0.16.5 */
   'mods.clientPack.loader': 'Fabric loader {version}',
@@ -1558,6 +1571,13 @@ export const en = {
     other: 'Players need {count} mods to join',
   },
   'mods.clientPack.download': 'Download client modpack (.mrpack)',
+  /** Under the first few of a big client pack's mods: shows them all */
+  'mods.clientPack.showAll': {
+    one: 'Show all {count} mod',
+    other: 'Show all {count} mods',
+  },
+  /** Folds the client pack's mods again, after mods.clientPack.showAll */
+  'mods.clientPack.showFewer': 'Show fewer',
   'mods.clientPack.downloadFailed':
     'Failed to download the client modpack: {error}',
   'mods.clientPack.importHint':

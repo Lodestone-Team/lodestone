@@ -9,11 +9,7 @@ import { useGlobalSettings } from 'data/GlobalSettings';
 import { useCodeExecution } from 'data/CodeExecution';
 import { GlobalSettingsData } from 'bindings/GlobalSettingsData';
 import { LodestoneContext } from 'data/LodestoneContext';
-import {
-  noScriptingMessage,
-  useCoreCapabilities,
-  useCoreInfo,
-} from 'data/SystemInfo';
+import { useCoreInfo } from 'data/SystemInfo';
 import { useUserInfo } from 'data/UserInfo';
 import { Form, Formik, FormikHelpers } from 'formik';
 import { MessageKey, useI18n } from 'i18n';
@@ -89,9 +85,6 @@ export const CoreSettings = () => {
   const allowLanHttp = globalSettings?.allow_lan_http === true;
   const { enabled: codeExecutionEnabled, locked: codeExecutionLocked } =
     useCodeExecution();
-  // without Deno, code execution only covers custom Java commands
-  const { macros: macrosAvailable, isPending: capabilitiesPending } =
-    useCoreCapabilities();
   // use a promise to track if safemode is successfully disabled
 
   const errorString = errorToString(error);
@@ -199,18 +192,13 @@ export const CoreSettings = () => {
     <ToggleBox
       label={t('settings.core.codeExecution.label')}
       value={codeExecutionEnabled}
-      isLoading={isLoading || capabilitiesPending}
+      isLoading={isLoading}
       error={errorString}
       disabled={!can_change_core_settings || codeExecutionLocked}
       canRead={userInfo !== undefined}
       description={
         <>
-          {macrosAvailable
-            ? t('settings.core.codeExecution.hint')
-            : t('settings.core.codeExecution.hintJavaOnly')}
-          {!macrosAvailable && (
-            <span className="block italic">{noScriptingMessage()}</span>
-          )}
+          {t('settings.core.codeExecution.hint')}
           {codeExecutionLocked && (
             <span className="block italic">
               {t('settings.core.codeExecution.locked')}
@@ -276,6 +264,33 @@ export const CoreSettings = () => {
           ['global_settings'],
           (old: GlobalSettingsData | undefined) =>
             old && { ...old, allow_local_claim: value }
+        );
+        notifySaved();
+      }}
+      optimistic={false}
+    />
+  );
+
+  const modpackChecksSupported =
+    typeof globalSettings?.check_modpack_updates === 'boolean';
+  const modpackChecksField = (
+    <ToggleBox
+      label={t('settings.core.modpackChecks.label')}
+      value={globalSettings?.check_modpack_updates === true}
+      isLoading={isLoading}
+      error={errorString}
+      disabled={!can_change_core_settings}
+      canRead={userInfo !== undefined}
+      description={t('settings.core.modpackChecks.hint')}
+      onChange={async (value) => {
+        await axiosPutSingleValue(
+          '/global_settings/check_modpack_updates',
+          value
+        );
+        queryClient.setQueryData(
+          ['global_settings'],
+          (old: GlobalSettingsData | undefined) =>
+            old && { ...old, check_modpack_updates: value }
         );
         notifySaved();
       }}
@@ -426,9 +441,7 @@ export const CoreSettings = () => {
       closeButtonText={t('common.cancel')}
       type={'danger'}
     >
-      {macrosAvailable
-        ? t('settings.core.codeExecution.offBody')
-        : t('settings.core.codeExecution.offBodyJavaOnly')}
+      {t('settings.core.codeExecution.offBody')}
     </ConfirmDialog>
   );
 
@@ -510,6 +523,7 @@ export const CoreSettings = () => {
           <SettingsCard>
             {nameField}
             {domainField}
+            {modpackChecksSupported && modpackChecksField}
           </SettingsCard>
         </SettingsSection>
         {can_change_core_settings && listPubliclySupported && (

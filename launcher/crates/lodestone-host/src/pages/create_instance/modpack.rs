@@ -113,6 +113,10 @@ pub fn first_free_port(used: &[u32]) -> u32 {
 /// A name, port, minimum and maximum RAM that passed the checks.
 pub type CheckedSettings = (String, u32, u32, u32);
 
+/// The characters the core refuses in a new server's name, checked here so the field says
+/// so before the request.
+pub use launcher_core::cores::admin::instances::NAME_FORBIDDEN;
+
 /// The settings step's checks (the dashboard's `settingsSchema`): the errors by field.
 pub fn check_settings(
     name: &str,
@@ -154,6 +158,8 @@ pub fn check_settings(
     let name = name.trim().to_string();
     if name.is_empty() {
         errors.push(("name", tr!(M::ValidationRequired, name = t(M::FieldName))));
+    } else if name.contains(NAME_FORBIDDEN) {
+        errors.push(("name", t(M::ValidationNameCharacters).to_string()));
     }
     let port = integer("port", M::FieldPort, port, 1, 65535, &mut errors);
     let min = integer(
@@ -197,7 +203,6 @@ impl ModpackFlow {
                 t(M::ModpackSearchPlaceholder),
                 cx,
             )
-            .with_loader_filter("fabric", t(M::ModpackOnlyFabric), cx)
         });
         let subscription = cx.subscribe(&search, |this, _, event, cx| match event {
             ModrinthSearchEvent::Picked(pick) => this.pick(pick.clone(), cx),
@@ -256,6 +261,15 @@ impl ModpackFlow {
     }
 
     /// Shows a project's versions.
+    /// For screenshots: opens the search's sort list.
+    #[cfg(feature = "screenshot")]
+    pub fn open_sort_for_screenshot(&mut self, cx: &mut Context<Self>) {
+        self.search.update(cx, |search, cx| {
+            search.sort_open = true;
+            cx.notify();
+        });
+    }
+
     fn open_project(&mut self, id: String, hit: Option<ModrinthSearchHit>, cx: &mut Context<Self>) {
         self.project_id = Some(id.clone());
         self.picked_hit = hit;
@@ -980,9 +994,10 @@ impl ModpackFlow {
             };
         let line = self.info.as_ref().map(|info| {
             format!(
-                "{} · Minecraft {} · Fabric {}",
+                "{} · Minecraft {} · {} {}",
                 info.name,
                 info.game_version,
+                launcher_core::cores::admin::mods::loader_title(&info.loader),
                 info.loader_version.clone().unwrap_or_default()
             )
         });
@@ -1188,5 +1203,9 @@ mod tests {
         let errors = check_settings("a", "70000", "2048", "1024").unwrap_err();
         let fields: Vec<_> = errors.iter().map(|(f, _)| *f).collect();
         assert_eq!(fields, ["port", "max_ram"]);
+        // what the core refuses in a name is said on the field
+        let errors = check_settings("Survival 14:10", "25565", "1", "1").unwrap_err();
+        let fields: Vec<_> = errors.iter().map(|(f, _)| *f).collect();
+        assert_eq!(fields, ["name"]);
     }
 }

@@ -9,12 +9,9 @@ use ts_rs::TS;
 use self::t_configurable::Game;
 use self::t_player::Player;
 use self::t_server::State;
-use self::{
-    t_configurable::TConfigurable, t_macro::TMacro, t_player::TPlayerManagement, t_server::TServer,
-};
+use self::{t_configurable::TConfigurable, t_player::TPlayerManagement, t_server::TServer};
 
 pub mod t_configurable;
-pub mod t_macro;
 pub mod t_player;
 pub mod t_server;
 
@@ -74,15 +71,13 @@ impl InstanceInfo {
         }
     }
 }
-#[cfg(feature = "deno")]
-use crate::generic::GenericInstance;
 use crate::minecraft::MinecraftInstance;
 use crate::modpack::ModpackOrigin;
 use crate::prelude::GameInstance;
 use crate::types::InstanceUuid;
 #[async_trait]
 #[enum_dispatch::enum_dispatch]
-pub trait TInstance: TConfigurable + TMacro + TPlayerManagement + TServer + Clone {
+pub trait TInstance: TConfigurable + TPlayerManagement + TServer + Clone {
     /// The details only some instance types have. None by default.
     async fn details(&self) -> InstanceDetails {
         InstanceDetails::default()

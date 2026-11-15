@@ -140,6 +140,24 @@ fn looks_like_link(text: &str) -> bool {
         .any(|scheme| text.starts_with(scheme))
 }
 
+/// A friend link argument: the link, or "-" for stdin's first line (keeps it out of
+/// the shell's history).
+fn friend_link(
+    link: &str,
+    read_stdin: &mut dyn FnMut() -> std::io::Result<String>,
+) -> Result<String, ErrorObject> {
+    if link != "-" {
+        return Ok(link.trim().to_string());
+    }
+    let line = read_stdin()
+        .map_err(|err| usage(format!("Couldn't read the friend link from stdin: {err}")))?;
+    let link = line.trim().to_string();
+    if link.is_empty() {
+        return Err(usage("The friend link on stdin is empty."));
+    }
+    Ok(link)
+}
+
 fn update_mods(update: bool, skip: bool) -> Value {
     match (update, skip) {
         (true, _) => json!(true),
@@ -273,6 +291,38 @@ pub fn plan(
             Instances::Duplicate(i) => {
                 call("instances.duplicate", vec![("instance", json!(i.instance))])
             }
+            Instances::CopyAs {
+                instance,
+                version,
+                loader,
+                loader_version,
+                name,
+                worlds,
+                no_packs,
+                no_mods,
+            } => long(
+                "instances.copy_as",
+                vec![
+                    ("instance", json!(instance)),
+                    ("version", json!(version)),
+                    ("loader", json!(loader)),
+                    ("loader_version", json!(loader_version)),
+                    ("name", json!(name)),
+                    ("worlds", json!(worlds)),
+                    ("packs", json!(!no_packs)),
+                    ("mods", json!(!no_mods)),
+                ],
+            ),
+            Instances::SetLoaderVersion {
+                instance,
+                loader_version,
+            } => call(
+                "instances.set_loader_version",
+                vec![
+                    ("instance", json!(instance)),
+                    ("loader_version", json!(loader_version)),
+                ],
+            ),
             Instances::Delete(i) => call("instances.delete", vec![("instance", json!(i.instance))]),
             Instances::Export { instance, path } => long(
                 "instances.export",
@@ -381,15 +431,23 @@ pub fn plan(
                 DeveloperSettings::Set {
                     sign_in_as_minecraft_launcher,
                     sign_out_accounts,
+                    connect_service,
                 } => call(
                     "settings.developer.set",
-                    vec![
+                    [
                         (
                             "sign_in_as_minecraft_launcher",
-                            json!(sign_in_as_minecraft_launcher),
+                            sign_in_as_minecraft_launcher.map(|on| json!(on)),
                         ),
-                        ("sign_out_accounts", json!(sign_out_accounts)),
-                    ],
+                        ("sign_out_accounts", sign_out_accounts.then(|| json!(true))),
+                        (
+                            "connect_service",
+                            connect_service.as_ref().map(|s| json!(s)),
+                        ),
+                    ]
+                    .into_iter()
+                    .filter_map(|(key, value)| Some((key, value?)))
+                    .collect(),
                 ),
             },
         },
@@ -448,6 +506,9 @@ pub fn plan(
                 "content.list",
                 vec![("instance", json!(instance)), ("kind", json!(kind))],
             ),
+            Content::History { instance } => {
+                call("content.history", vec![("instance", json!(instance))])
+            }
             Content::Search {
                 query,
                 instance,
@@ -530,20 +591,6 @@ pub fn plan(
                     ("kind", json!(kind)),
                 ],
             ),
-            Content::SwitchLoader {
-                instance,
-                loader,
-                loader_version,
-                disable_mismatched,
-            } => call(
-                "content.switch_loader",
-                vec![
-                    ("instance", json!(instance)),
-                    ("loader", json!(loader)),
-                    ("loader_version", json!(loader_version)),
-                    ("disable_mismatched", json!(disable_mismatched)),
-                ],
-            ),
         },
         Command::Modpacks(c) => match c {
             Modpacks::Search {
@@ -575,17 +622,28 @@ pub fn plan(
                 ],
             ),
             Modpacks::Check(i) => call("modpacks.check", vec![("instance", json!(i.instance))]),
-            Modpacks::Update {
-                instance,
-                version,
-                no_backup_worlds,
-            } => long(
+            Modpacks::Update { instance, version } => long(
                 "modpacks.update",
+                vec![("instance", json!(instance)), ("version", json!(version))],
+            ),
+            Modpacks::Add {
+                instance,
+                project,
+                file,
+                version,
+            } => long(
+                "modpacks.add",
                 vec![
                     ("instance", json!(instance)),
+                    ("project", json!(project)),
+                    ("file", path_value(file)?),
                     ("version", json!(version)),
-                    ("backup_worlds", json!(!no_backup_worlds)),
                 ],
+            ),
+            Modpacks::Added(i) => call("modpacks.added", vec![("instance", json!(i.instance))]),
+            Modpacks::Remove { instance, pack } => call(
+                "modpacks.remove",
+                vec![("instance", json!(instance)), ("pack", json!(pack))],
             ),
         },
         Command::Worlds(c) => match c {
@@ -594,36 +652,58 @@ pub fn plan(
             Worlds::Backup(w) => long("worlds.backup", world(w)),
             Worlds::Restore {
                 world: w,
-                backup,
+                snapshot,
                 replace,
             } => {
                 let mut pairs = world(w);
-                pairs.push(("backup", json!(backup)));
+                pairs.push(("snapshot", json!(snapshot)));
                 pairs.push(("mode", json!(if *replace { "replace" } else { "copy" })));
                 long("worlds.restore", pairs)
             }
             Worlds::Delete(w) => call("worlds.delete", world(w)),
-            Worlds::DeleteBackup { world: w, backup } => {
-                let mut pairs = world(w);
-                pairs.push(("backup", json!(backup)));
-                call("worlds.delete_backup", pairs)
-            }
-            Worlds::Download {
+            Worlds::Datapacks(w) => call("worlds.datapacks", world(w)),
+            Worlds::DatapackSearch {
                 instance,
-                server,
-                core,
-                username,
-                password: p,
-            } => long(
-                "worlds.download",
+                query,
+                limit,
+            } => call(
+                "worlds.datapack_search",
                 vec![
                     ("instance", json!(instance)),
-                    ("server", json!(server)),
-                    ("core", json!(core)),
-                    ("username", json!(username)),
-                    ("password", json!(password(p, read_stdin)?)),
+                    ("query", json!(query)),
+                    ("limit", json!(limit)),
                 ],
             ),
+            Worlds::DatapackAdd { world: w, path } => {
+                let mut pairs = world(w);
+                pairs.push(("path", json!(absolute(path)?)));
+                call("worlds.datapack_add", pairs)
+            }
+            Worlds::DatapackInstall {
+                world: w,
+                project,
+                version,
+            } => {
+                let mut pairs = world(w);
+                pairs.push(("project", json!(project)));
+                pairs.push(("version", json!(version)));
+                long("worlds.datapack_install", pairs)
+            }
+            Worlds::DatapackEnable { world: w, pack } => {
+                let mut pairs = world(w);
+                pairs.push(("pack", json!(pack)));
+                call("worlds.datapack_enable", pairs)
+            }
+            Worlds::DatapackDisable { world: w, pack } => {
+                let mut pairs = world(w);
+                pairs.push(("pack", json!(pack)));
+                call("worlds.datapack_disable", pairs)
+            }
+            Worlds::DatapackRemove { world: w, pack } => {
+                let mut pairs = world(w);
+                pairs.push(("pack", json!(pack)));
+                call("worlds.datapack_remove", pairs)
+            }
         },
         Command::Accounts(c) => match c {
             Accounts::List => call("accounts.list", vec![]),
@@ -741,13 +821,31 @@ pub fn plan(
                 password: p,
                 name,
                 max_ram,
+                send_worlds,
+                no_worlds,
+                world,
+                no_world,
+                port,
+                server_software,
+                preview,
                 accept_eula,
             } => {
-                // the EULA is checked before the password is read
-                let password = if *accept_eula {
-                    json!(password(p, read_stdin)?)
+                // the EULA is checked before the password is read, and a core this
+                // computer is the owner of needs none
+                let password = match username {
+                    Some(_) if *accept_eula || *preview => json!(password(p, read_stdin)?),
+                    Some(_) => json!(""),
+                    None if p.password_stdin => {
+                        return Err(usage("--password-stdin goes with --username."));
+                    }
+                    None => Value::Null,
+                };
+                let worlds = if *no_worlds {
+                    json!([])
+                } else if send_worlds.is_empty() {
+                    Value::Null
                 } else {
-                    json!("")
+                    json!(send_worlds)
                 };
                 long(
                     "servers.host",
@@ -758,17 +856,46 @@ pub fn plan(
                         ("password", password),
                         ("name", json!(name)),
                         ("max_ram", json!(max_ram)),
+                        ("worlds", worlds),
+                        ("world", json!(world)),
+                        ("no_world", json!(no_world)),
+                        ("port", json!(port)),
+                        ("server_software", json!(server_software)),
+                        ("preview", json!(preview)),
                         ("accept_eula", json!(accept_eula)),
                     ],
                 )
             }
-            Servers::ResourcePack {
+            Servers::DownloadWorld {
                 server: s,
-                instance,
+                username,
+                password: p,
+                backup,
+                new_backup,
+                name,
+                preview,
             } => {
+                let password = match username {
+                    Some(_) => json!(password(p, read_stdin)?),
+                    None if p.password_stdin => {
+                        return Err(usage("--password-stdin goes with --username."));
+                    }
+                    None => Value::Null,
+                };
+                let backup = if *new_backup {
+                    json!("new")
+                } else {
+                    json!(backup.as_deref().unwrap_or("newest"))
+                };
                 let mut pairs = server(s);
-                pairs.push(("instance", json!(instance)));
-                call("servers.resource_pack", pairs)
+                pairs.extend([
+                    ("username", json!(username)),
+                    ("password", password),
+                    ("backup", backup),
+                    ("name", json!(name)),
+                    ("preview", json!(preview)),
+                ]);
+                long("servers.download_world", pairs)
             }
         },
         Command::Friends(c) => match c {
@@ -808,6 +935,68 @@ pub fn plan(
             }
             Friends::Remove { friend } => call("friends.remove", vec![("friend", json!(friend))]),
         },
+        Command::FriendList(c) => match c {
+            FriendList::Me => call("friend_list.me", vec![]),
+            FriendList::SetName { name } => {
+                call("friend_list.set_name", vec![("name", json!(name))])
+            }
+            FriendList::MakeLink => call("friend_list.create_link", vec![]),
+            FriendList::Links => call("friend_list.links", vec![]),
+            FriendList::CancelLink { code } => {
+                call("friend_list.cancel_link", vec![("code", json!(code))])
+            }
+            FriendList::Preview { link } => call(
+                "friend_list.preview_link",
+                vec![("link", json!(friend_link(link, read_stdin)?))],
+            ),
+            FriendList::Answer { link, safety_code } => call(
+                "friend_list.answer_link",
+                vec![
+                    ("link", json!(friend_link(link, read_stdin)?)),
+                    ("safety_code", json!(safety_code)),
+                ],
+            ),
+            FriendList::Replies => call("friend_list.replies", vec![]),
+            FriendList::Accept { code, key } => call(
+                "friend_list.accept",
+                vec![("code", json!(code)), ("key", json!(key))],
+            ),
+            FriendList::List => call("friend_list.list", vec![]),
+            FriendList::Refresh => call("friend_list.refresh", vec![]),
+            FriendList::Verify { friend, undo } => call(
+                "friend_list.verify",
+                vec![("friend", json!(friend)), ("value", json!(!undo))],
+            ),
+            FriendList::Nickname {
+                friend,
+                nickname,
+                clear,
+            } => call(
+                "friend_list.nickname",
+                vec![
+                    ("friend", json!(friend)),
+                    (
+                        "nickname",
+                        if *clear { Value::Null } else { json!(nickname) },
+                    ),
+                ],
+            ),
+            FriendList::Hide { friend, undo } => call(
+                "friend_list.hide",
+                vec![("friend", json!(friend)), ("value", json!(!undo))],
+            ),
+            FriendList::Remove { friend } => {
+                call("friend_list.remove", vec![("friend", json!(friend))])
+            }
+            FriendList::Servers { friend, core } => call(
+                "friend_list.servers",
+                vec![("friend", json!(friend)), ("core", json!(core))],
+            ),
+            FriendList::Retire => call("friend_list.retire", vec![]),
+            FriendList::RetireCore { core } => {
+                call("friend_list.retire_core", vec![("core", json!(core))])
+            }
+        },
         Command::Prompts(c) => match c {
             Prompts::List => call("prompts.list", vec![]),
             Prompts::Answer {
@@ -844,46 +1033,59 @@ pub fn plan(
             ),
         },
         Command::Snapshots(c) => {
-            let parts = |p: &crate::cli::PartsArgs| {
-                vec![
-                    (
-                        "include",
-                        if p.include.is_empty() {
-                            Value::Null
-                        } else {
-                            json!(p.include)
-                        },
-                    ),
-                    (
-                        "worlds",
-                        if p.worlds.is_empty() {
-                            Value::Null
-                        } else {
-                            json!(p.worlds)
-                        },
-                    ),
-                ]
+            // "default" goes as it is: back to the Launcher's (a null would be left out).
+            let count = |value: &Option<String>| -> Result<Option<Value>, ErrorObject> {
+                match value.as_deref() {
+                    None => Ok(None),
+                    Some("default") => Ok(Some(json!("default"))),
+                    Some(n) => n
+                        .parse::<u32>()
+                        .map(|n| Some(json!(n)))
+                        .map_err(|_| usage(format!("{n:?} isn't a number or default"))),
+                }
             };
             match c {
-                Snapshots::List(i) => call("snapshots.list", vec![("instance", json!(i.instance))]),
+                Snapshots::List { instance, deleted } => {
+                    if *deleted {
+                        call("snapshots.list", vec![("deleted", json!(true))])
+                    } else {
+                        call("snapshots.list", vec![("instance", json!(instance))])
+                    }
+                }
                 Snapshots::Create {
                     instance,
                     name,
-                    parts: p,
+                    everything,
                 } => {
                     let mut pairs = vec![("instance", json!(instance)), ("name", json!(name))];
-                    pairs.extend(parts(p));
+                    if *everything {
+                        pairs.push(("everything", json!(true)));
+                    }
                     long("snapshots.create", pairs)
                 }
-                Snapshots::Revert {
+                Snapshots::Restore {
                     instance,
                     snapshot,
-                    parts: p,
+                    scope,
+                    worlds,
+                    name,
+                    preview,
                 } => {
-                    let mut pairs =
-                        vec![("instance", json!(instance)), ("snapshot", json!(snapshot))];
-                    pairs.extend(parts(p));
-                    long("snapshots.revert", pairs)
+                    let mut pairs = vec![
+                        ("instance", json!(instance)),
+                        ("snapshot", json!(snapshot)),
+                        ("scope", json!(scope)),
+                    ];
+                    if !worlds.is_empty() {
+                        pairs.push(("worlds", json!(worlds)));
+                    }
+                    pairs.push(("name", json!(name)));
+                    if *preview {
+                        pairs.push(("preview", json!(true)));
+                        call("snapshots.restore", pairs)
+                    } else {
+                        long("snapshots.restore", pairs)
+                    }
                 }
                 Snapshots::Export {
                     instance,
@@ -900,14 +1102,14 @@ pub fn plan(
                 Snapshots::Import {
                     path,
                     preview,
-                    parts: p,
+                    name,
                 } => {
                     let mut pairs = vec![("path", json!(absolute(path)?))];
                     if *preview {
                         pairs.push(("preview", json!(true)));
                         call("snapshots.import", pairs)
                     } else {
-                        pairs.extend(parts(p));
+                        pairs.push(("name", json!(name)));
                         long("snapshots.import", pairs)
                     }
                 }
@@ -915,6 +1117,47 @@ pub fn plan(
                     "snapshots.delete",
                     vec![("instance", json!(instance)), ("snapshot", json!(snapshot))],
                 ),
+                Snapshots::Pin { instance, snapshot } => call(
+                    "snapshots.pin",
+                    vec![
+                        ("instance", json!(instance)),
+                        ("snapshot", json!(snapshot)),
+                        ("pinned", json!(true)),
+                    ],
+                ),
+                Snapshots::Unpin { instance, snapshot } => call(
+                    "snapshots.pin",
+                    vec![
+                        ("instance", json!(instance)),
+                        ("snapshot", json!(snapshot)),
+                        ("pinned", json!(false)),
+                    ],
+                ),
+                Snapshots::Policy {
+                    instance,
+                    after_play,
+                    keep_last,
+                    keep_daily,
+                    keep_weekly,
+                } => {
+                    let mut pairs = vec![("instance", json!(instance))];
+                    match after_play.as_deref() {
+                        Some("on") => pairs.push(("after_play", json!(true))),
+                        Some("off") => pairs.push(("after_play", json!(false))),
+                        Some(_) => pairs.push(("after_play", json!("default"))),
+                        None => {}
+                    }
+                    for (key, value) in [
+                        ("keep_last", keep_last),
+                        ("keep_daily", keep_daily),
+                        ("keep_weekly", keep_weekly),
+                    ] {
+                        if let Some(value) = count(value)? {
+                            pairs.push((key, value));
+                        }
+                    }
+                    call("snapshots.policy", pairs)
+                }
             }
         }
         Command::Storage(c) => match c {
@@ -1042,6 +1285,50 @@ mod tests {
                 true
             )
         );
+        assert_eq!(
+            call_of(&[
+                "instances",
+                "copy-as",
+                "Survival",
+                "--version",
+                "1.21.1",
+                "--worlds"
+            ]),
+            (
+                "instances.copy_as",
+                json!({ "instance": "Survival", "version": "1.21.1", "worlds": true, "packs": true, "mods": true }),
+                true
+            )
+        );
+        let (_, params, _) = call_of(&[
+            "instances",
+            "copy-as",
+            "Survival",
+            "--loader",
+            "neoforge",
+            "--loader-version",
+            "21.1.77",
+            "--name",
+            "Survival NeoForge",
+            "--no-packs",
+            "--no-mods",
+        ]);
+        assert_eq!(
+            params,
+            json!({ "instance": "Survival", "loader": "neoforge", "loader_version": "21.1.77", "name": "Survival NeoForge", "worlds": false, "packs": false, "mods": false })
+        );
+        assert_eq!(
+            call_of(&["instances", "set-loader-version", "Survival", "0.16.14"]),
+            (
+                "instances.set_loader_version",
+                json!({ "instance": "Survival", "loader_version": "0.16.14" }),
+                false
+            )
+        );
+        assert_eq!(
+            call_of(&["instances", "set-loader-version", "Survival"]).1,
+            json!({ "instance": "Survival" })
+        );
         let (method, params, _) = call_of(&["instances", "group", "Survival", "--none"]);
         assert_eq!(method, "instances.set_group");
         assert_eq!(params, json!({ "instance": "Survival" }));
@@ -1074,37 +1361,61 @@ mod tests {
                 "S",
                 "--name",
                 "Before",
-                "--include",
-                "worlds",
-                "--world",
-                "New World"
+                "--everything"
             ]),
             (
                 "snapshots.create",
-                json!({ "instance": "S", "name": "Before", "include": ["worlds"], "worlds": ["New World"] }),
+                json!({ "instance": "S", "name": "Before", "everything": true }),
                 true
             )
         );
         assert_eq!(
-            call_of(&["snapshots", "revert", "S", "latest"]),
+            call_of(&["snapshots", "restore", "S", "latest", "--world", "W"]),
             (
-                "snapshots.revert",
-                json!({ "instance": "S", "snapshot": "latest" }),
+                "snapshots.restore",
+                json!({ "instance": "S", "snapshot": "latest", "scope": "worlds", "worlds": ["W"] }),
                 true
             )
         );
+        assert!(
+            !call_of(&["snapshots", "restore", "S", "latest", "--preview"]).2,
+            "a preview reads, so it is no long job"
+        );
         assert_eq!(
-            call_of(&["snapshots", "import", "/tmp/a.lodesnap", "--preview"]),
+            call_of(&["snapshots", "import", "/tmp/a.lodeimg", "--preview"]),
             (
                 "snapshots.import",
-                json!({ "path": abs("/tmp/a.lodesnap"), "preview": true }),
+                json!({ "path": abs("/tmp/a.lodeimg"), "preview": true }),
                 false
             )
+        );
+        assert_eq!(
+            call_of(&["snapshots", "unpin", "S", "x"]).1,
+            json!({ "instance": "S", "snapshot": "x", "pinned": false })
+        );
+        assert_eq!(
+            call_of(&[
+                "snapshots",
+                "policy",
+                "S",
+                "--after-play",
+                "default",
+                "--keep-last",
+                "10",
+                "--keep-weekly",
+                "default"
+            ])
+            .1,
+            json!({ "instance": "S", "after_play": "default", "keep_last": 10, "keep_weekly": "default" })
+        );
+        assert_eq!(
+            call_of(&["snapshots", "list", "--deleted"]).1,
+            json!({ "deleted": true })
         );
         let (_, params, _) = call_of(&["worlds", "restore", "S", "World", "--replace"]);
         assert_eq!(
             params,
-            json!({ "instance": "S", "world": "World", "backup": "latest", "mode": "replace" })
+            json!({ "instance": "S", "world": "World", "snapshot": "latest", "mode": "replace" })
         );
         let (_, params, _) = call_of(&[
             "shared",
@@ -1119,6 +1430,32 @@ mod tests {
         assert_eq!(params["override"], json!(["guiScale"]));
         assert_eq!(params["set"], json!({ "guiScale": "2" }));
         assert!(plan_of(&["instances", "group", "S"]).is_err());
+    }
+
+    #[test]
+    fn developer_set_sends_only_what_is_given() {
+        let dev = "https://connect-dev.lodestone.cc";
+        let (method, params, _) =
+            call_of(&["settings", "developer", "set", "--connect-service", dev]);
+        assert_eq!(method, "settings.developer.set");
+        assert_eq!(params, json!({ "connect_service": dev }));
+        let (_, params, _) = call_of(&[
+            "settings",
+            "developer",
+            "set",
+            "--sign-in-as-minecraft-launcher",
+            "false",
+            "--sign-out-accounts",
+        ]);
+        assert_eq!(
+            params,
+            json!({ "sign_in_as_minecraft_launcher": false, "sign_out_accounts": true })
+        );
+        // something to change is needed
+        assert!(
+            Cli::try_parse_from(["lodestone-launcher-cli", "settings", "developer", "set"])
+                .is_err()
+        );
     }
 
     #[test]
@@ -1144,6 +1481,89 @@ mod tests {
         let (method, params, _) = call_of(&["friends", "remove", "Alex's SMP"]);
         assert_eq!(method, "friends.remove");
         assert_eq!(params["friend"], "Alex's SMP");
+    }
+
+    #[test]
+    fn friend_list_commands_make_their_calls() {
+        assert_eq!(call_of(&["friend-list", "me"]).0, "friend_list.me");
+        let (method, params, long) = call_of(&["friend-list", "set-name", "Peter"]);
+        assert_eq!((method, long), ("friend_list.set_name", false));
+        assert_eq!(params["name"], "Peter");
+        assert_eq!(
+            call_of(&["friend-list", "make-link"]).0,
+            "friend_list.create_link"
+        );
+        assert_eq!(call_of(&["friend-list", "links"]).0, "friend_list.links");
+        let link = "https://connect.lodestone.cc/f/7KQ2M9XD4T#ab.cd";
+        let (method, params, _) = call_of(&["friend-list", "preview", link]);
+        assert_eq!(method, "friend_list.preview_link");
+        assert_eq!(params["link"], link);
+        let (method, params, _) = call_of(&[
+            "friend-list",
+            "answer",
+            link,
+            "--safety-code",
+            "K7Q2-M9XD-4TRW-H3BE",
+        ]);
+        assert_eq!(method, "friend_list.answer_link");
+        assert_eq!(params["safety_code"], "K7Q2-M9XD-4TRW-H3BE");
+        // "-": the link from stdin
+        let cli =
+            Cli::try_parse_from(["lodestone-launcher-cli", "friend-list", "answer", "-"]).unwrap();
+        let mut stdin = || Ok(format!("  {link}\n"));
+        match plan(&cli.command, &mut stdin).unwrap() {
+            Plan::Call { params, .. } => assert_eq!(params["link"], link),
+            other => panic!("not a call: {other:?}"),
+        }
+        let mut empty = || Ok("\n".to_string());
+        assert!(plan(&cli.command, &mut empty).is_err());
+        let (method, params, _) = call_of(&["friend-list", "accept", "7KQ2M9XD4T", "abcd"]);
+        assert_eq!(method, "friend_list.accept");
+        assert_eq!(
+            (params["code"].as_str(), params["key"].as_str()),
+            (Some("7KQ2M9XD4T"), Some("abcd"))
+        );
+        let (method, params, _) = call_of(&["friend-list", "verify", "Alex"]);
+        assert_eq!(method, "friend_list.verify");
+        assert_eq!(params["value"], true);
+        assert_eq!(
+            call_of(&["friend-list", "verify", "Alex", "--undo"]).1["value"],
+            false
+        );
+        assert_eq!(call_of(&["friend-list", "hide", "Kim"]).1["value"], true);
+        assert_eq!(
+            call_of(&["friend-list", "nickname", "Samantha", "Sam"]).1["nickname"],
+            "Sam"
+        );
+        assert!(
+            call_of(&["friend-list", "nickname", "Sam", "--clear"])
+                .1
+                .get("nickname")
+                .is_none_or(Value::is_null)
+        );
+        assert!(
+            Cli::try_parse_from(["lodestone-launcher-cli", "friend-list", "nickname", "Sam"])
+                .is_err()
+        );
+        assert_eq!(
+            call_of(&["friend-list", "remove", "Kim"]).0,
+            "friend_list.remove"
+        );
+        let (method, params, _) = call_of(&["friend-list", "servers", "Alex", "--core", "PC"]);
+        assert_eq!(method, "friend_list.servers");
+        assert_eq!(params["core"], "PC");
+        assert_eq!(
+            call_of(&["friend-list", "refresh"]).0,
+            "friend_list.refresh"
+        );
+        assert_eq!(
+            call_of(&["friend-list", "replies"]).0,
+            "friend_list.replies"
+        );
+        assert_eq!(call_of(&["friend-list", "retire"]).0, "friend_list.retire");
+        let (method, params, _) = call_of(&["friend-list", "retire-core", "Peter's PC"]);
+        assert_eq!(method, "friend_list.retire_core");
+        assert_eq!(params["core"], "Peter's PC");
     }
 
     #[test]
@@ -1182,6 +1602,122 @@ mod tests {
         ]);
         assert_eq!(params["password"], "");
         assert_eq!(params["accept_eula"], false);
+        // a core this computer is the owner of needs no password
+        let (_, params, _) = call_of(&["servers", "host", "S", "--core", "c", "--accept-eula"]);
+        assert!(params["username"].is_null() && params["password"].is_null());
+        // the worlds default to the last played (left to the launcher), and the world to
+        // the host's choice
+        assert!(params["worlds"].is_null() && params["world"].is_null());
+        assert_eq!(params["preview"], false);
+    }
+
+    #[test]
+    fn hosting_says_which_worlds_go_and_which_is_the_servers() {
+        let (method, params, _) = call_of(&[
+            "servers",
+            "host",
+            "S",
+            "--core",
+            "c",
+            "--send-world",
+            "A",
+            "--send-world",
+            "B",
+            "--world",
+            "B",
+            "--port",
+            "25570",
+            "--server-software",
+            "Paper",
+            "--accept-eula",
+        ]);
+        assert_eq!(method, "servers.host");
+        assert_eq!(params["worlds"], json!(["A", "B"]));
+        assert_eq!(params["world"], "B");
+        assert_eq!(params["port"], 25570);
+        assert_eq!(params["server_software"], "Paper");
+        let (_, params, _) = call_of(&[
+            "servers",
+            "host",
+            "S",
+            "--core",
+            "c",
+            "--no-worlds",
+            "--no-world",
+            "--preview",
+        ]);
+        assert_eq!(params["worlds"], json!([]));
+        assert!(params["world"].is_null());
+        assert_eq!(params["no_world"], true);
+        assert_eq!(params["preview"], true);
+        assert_eq!(params["accept_eula"], false);
+        assert!(
+            Cli::try_parse_from([
+                "lodestone-launcher-cli",
+                "servers",
+                "host",
+                "S",
+                "--core",
+                "c",
+                "--send-world",
+                "A",
+                "--no-worlds"
+            ])
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn a_world_download_names_its_backup() {
+        let (method, params, _) = call_of(&[
+            "servers",
+            "download-world",
+            "Smp",
+            "--core",
+            "c",
+            "--preview",
+        ]);
+        assert_eq!(method, "servers.download_world");
+        assert_eq!(params["server"], "Smp");
+        assert_eq!(params["core"], "c");
+        assert_eq!(params["backup"], "newest");
+        assert_eq!(params["preview"], true);
+        let (_, params, _) = call_of(&[
+            "servers",
+            "download-world",
+            "Smp",
+            "--new-backup",
+            "--name",
+            "At home",
+        ]);
+        assert_eq!(params["backup"], "new");
+        assert_eq!(params["name"], "At home");
+        let (_, params, _) = call_of(&["servers", "download-world", "Smp", "--backup", "b1"]);
+        assert_eq!(params["backup"], "b1");
+        assert!(
+            Cli::try_parse_from([
+                "lodestone-launcher-cli",
+                "servers",
+                "download-world",
+                "Smp",
+                "--backup",
+                "b1",
+                "--new-backup"
+            ])
+            .is_err()
+        );
+        // a preview changes nothing on the core: it never backs the server up
+        assert!(
+            Cli::try_parse_from([
+                "lodestone-launcher-cli",
+                "servers",
+                "download-world",
+                "Smp",
+                "--new-backup",
+                "--preview"
+            ])
+            .is_err()
+        );
     }
 
     /// `path` as the CLI sends it: `/tmp/x` is absolute on Unix, but on Windows it

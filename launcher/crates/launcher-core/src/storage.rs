@@ -130,6 +130,18 @@ pub fn migrate(
 
 /// Writes a document at the current version, atomically.
 pub fn save<T: Document>(path: &Path, document: &T) -> Result<(), StorageError> {
+    save_with(path, document, true)
+}
+
+/// Like [`save`], but only into a folder that is still there: a missing one is an
+/// `Io` error of kind `NotFound`, not made again. For a document saved into a folder
+/// that may have been deleted meanwhile (an instance moved to the trash), which saving
+/// would otherwise bring back holding only that document.
+pub fn save_in_existing_dir<T: Document>(path: &Path, document: &T) -> Result<(), StorageError> {
+    save_with(path, document, false)
+}
+
+fn save_with<T: Document>(path: &Path, document: &T, create_dir: bool) -> Result<(), StorageError> {
     let io_err = |source| StorageError::Io {
         path: path.to_owned(),
         source,
@@ -144,8 +156,11 @@ pub fn save<T: Document>(path: &Path, document: &T) -> Result<(), StorageError> 
     let mut bytes =
         serde_json::to_vec_pretty(&Value::Object(out)).map_err(|err| io_err(err.into()))?;
     bytes.push(b'\n');
-    write_atomic(path, &bytes).map_err(io_err)
+    write_atomic_into(path, create_dir, |file| file.write_all(&bytes)).map_err(io_err)
 }
+
+/// How the temporary files of [`write_atomic`] begin.
+pub const TEMP_PREFIX: &str = ".lodestone-tmp-";
 
 /// Replaces `path` with `contents` atomically, creating the parent directory.
 pub fn write_atomic(path: &Path, contents: &[u8]) -> io::Result<()> {
@@ -158,16 +173,30 @@ pub fn write_atomic_with(
     path: &Path,
     write: impl FnOnce(&mut File) -> io::Result<()>,
 ) -> io::Result<()> {
+    write_atomic_into(path, true, write)
+}
+
+/// [`write_atomic_with`], making the parent directory only when `create_dir` is set.
+fn write_atomic_into(
+    path: &Path,
+    create_dir: bool,
+    write: impl FnOnce(&mut File) -> io::Result<()>,
+) -> io::Result<()> {
     let dir = path
         .parent()
         .filter(|dir| !dir.as_os_str().is_empty())
         .unwrap_or(Path::new("."));
-    fs::create_dir_all(dir)?;
-    let name = path
-        .file_name()
-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "path has no file name"))?;
+    if create_dir {
+        fs::create_dir_all(dir)?;
+    }
+    if path.file_name().is_none() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "path has no file name",
+        ));
+    }
 
-    let (tmp_path, mut file) = create_temp_file(dir, name)?;
+    let (tmp_path, mut file) = create_temp_file(dir)?;
     let result = write(&mut file)
         .and_then(|()| file.sync_all())
         .and_then(|()| {
@@ -187,15 +216,16 @@ pub fn write_atomic_with(
     Ok(())
 }
 
-fn create_temp_file(dir: &Path, name: &std::ffi::OsStr) -> io::Result<(PathBuf, File)> {
+/// A new temporary file in `dir`, named `.lodestone-tmp-<random>`: a name starting with
+/// `.lodestone-` is never content, so a file being written into an instance's folders (a
+/// pack added from the computer, a shader setting) is in no content image, snapshot or
+/// check before a launch while it is half written, nor after a crash leaves it behind.
+fn create_temp_file(dir: &Path) -> io::Result<(PathBuf, File)> {
     for _ in 0..16 {
-        let mut tmp_name = std::ffi::OsString::from(".");
-        tmp_name.push(name);
-        tmp_name.push(format!(
-            ".{:016x}.tmp",
+        let tmp_path = dir.join(format!(
+            "{TEMP_PREFIX}{:016x}",
             u64::from_le_bytes(crate::random_bytes())
         ));
-        let tmp_path = dir.join(tmp_name);
         let mut options = OpenOptions::new();
         options.write(true).create_new(true);
         #[cfg(unix)]
@@ -240,6 +270,21 @@ mod tests {
         write_atomic(&path, b"second, longer than the first").unwrap();
         assert_eq!(fs::read(&path).unwrap(), b"second, longer than the first");
         assert_eq!(files_in(path.parent().unwrap()), ["data.json"]);
+    }
+
+    #[test]
+    fn temporary_files_have_a_name_that_is_never_content() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("mods/pack.zip");
+        let mut seen = Vec::new();
+        write_atomic_with(&path, |file| {
+            seen = files_in(path.parent().unwrap());
+            file.write_all(b"pack")
+        })
+        .unwrap();
+        assert_eq!(seen.len(), 1);
+        assert!(seen[0].starts_with(TEMP_PREFIX), "{}", seen[0]);
+        assert_eq!(files_in(path.parent().unwrap()), ["pack.zip"]);
     }
 
     #[cfg(unix)]
@@ -345,6 +390,21 @@ mod tests {
         let raw: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
         assert_eq!(raw, json!({"version": 2, "title": "saved", "tags": ["a"]}));
         assert_eq!(load::<Doc>(&path).unwrap().document, doc);
+    }
+
+    #[test]
+    fn a_save_into_an_existing_dir_never_makes_the_folder_again() {
+        let dir = tempfile::tempdir().unwrap();
+        let gone = dir.path().join("deleted-instance");
+        let err = save_in_existing_dir(&gone.join("link.json"), &Doc::default()).unwrap_err();
+        assert!(
+            matches!(&err, StorageError::Io { source, .. } if source.kind() == io::ErrorKind::NotFound),
+            "{err}"
+        );
+        assert!(!gone.exists());
+        // a folder that is there is saved into as by `save`
+        save_in_existing_dir(&dir.path().join("doc.json"), &Doc::default()).unwrap();
+        assert_eq!(files_in(dir.path()), ["doc.json"]);
     }
 
     #[test]

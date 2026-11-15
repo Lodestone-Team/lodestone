@@ -5,7 +5,6 @@ pub fn text(message: M) -> &'static str {
         M::CopyAddress => "复制地址",
         M::CopiedText => "已复制 {text}",
         M::SettingUpPercent => "正在设置… {percent}",
-        M::OwnerOnlyAtom => "只有所有者可以控制 atom 服务器",
         M::StepSelectGame => "选择游戏",
         M::StepBasicSettings => "基本设置",
         M::StepServerSettings => "服务器设置",
@@ -46,6 +45,7 @@ pub fn text(message: M) -> &'static str {
         M::ValidationInteger => "“{name}”必须是整数",
         M::ValidationPositive => "“{name}”必须为正数",
         M::ValidationMin => "“{name}”必须大于或等于 {min}",
+        M::ValidationNameCharacters => "名称不能包含以下任何字符：/ \\ : * ? \" < > |",
         M::ValidationMax => "“{name}”必须小于或等于 {max}",
         M::ValidationOneOf => "“{name}”必须是可用选项之一",
         M::MaxRamBelowMin => "最大内存不能小于最小内存",
@@ -56,9 +56,65 @@ pub fn text(message: M) -> &'static str {
         M::GameTypeSubtitle => "你的服务器将用于什么？",
         M::GameTypeNew => "新功能",
         M::GameTypeModpack => "Modrinth 整合包",
-        M::GameTypeModpackDescription => "从 Modrinth 整合包创建 Fabric 服务器",
+        M::GameTypeModpackDescription => "从 Modrinth 整合包创建 Fabric、Forge 或 NeoForge 服务器",
+        M::GameTypeImport => "已有的服务器",
+        M::GameTypeImportDescription => "导入你已有的 Minecraft 服务器，包括世界、设置、模组和插件",
+        M::StepChooseFolder => "选择文件夹",
+        M::ImportFolderTitle => "选择服务器的文件夹",
+        M::ImportFolderSubtitle => {
+            "包含 server.properties 和世界的文件夹。Lodestone 会复制它，原文件夹保持不变。"
+        }
+        M::ImportFolderPlaceholder => "文件夹路径",
+        M::ImportBrowse => "浏览…",
+        M::ImportChooseFolder => "请先选择服务器的文件夹",
+        M::ImportStopFirst => "如果服务器正在运行，请先停止它，以便完整复制世界。",
+        M::ImportReading => "正在读取文件夹",
+        M::ImportReadFailed => "无法读取文件夹：{error}",
+        M::ImportSettingsSubtitle => "确认 Lodestone 找到的内容，然后导入。",
+        M::ImportOtherSoftware => {
+            "此服务器之前使用 {other}。Lodestone 会用 {software} 运行它，两者使用相同的插件。"
+        }
+        M::ImportNotOffered => {
+            "此服务器之前使用 {other}，Lodestone 不提供它。请选择用来运行它的软件。"
+        }
+        M::ImportSoftwareUnknown => "Lodestone 无法判断此服务器使用的软件。请在下方选择。",
+        M::FieldSoftware => "服务器软件",
+        M::FieldSoftwareDescription => "运行服务器的软件。Lodestone 会重新安装它。",
+        M::FieldVersion => "Minecraft 版本",
+        M::FieldVersionDescription => "服务器上次运行的版本",
+        M::ImportLoadingVersions => "正在加载版本",
+        M::ImportVersionsFailed => "无法加载版本：{error}",
+        M::ImportNoVersions => "核心没有返回任何版本",
+        M::ImportVersionUnavailable => {
+            "Lodestone 没有适用于 Minecraft {version} 的 {software} 服务器。请选择其他版本。"
+        }
+        M::ImportChooseSoftware => "请选择服务器软件",
+        M::ImportServer => "导入服务器",
+        M::ImportFailed => "无法导入服务器：{error}",
+        M::GameTypeImage => "从文件",
+        M::GameTypeImageDescription => "用其他 Host 或 Launcher 导出的 .lodeimg 文件创建服务器",
+        M::StepChooseFile => "选择文件",
+        M::StepImageSummary => "文件内容",
+        M::ImageFileTitle => "选择 .lodeimg 文件",
+        M::ImageFileSubtitle => {
+            "从 Lodestone Host 导出的备份，或从 Lodestone Launcher 导出的快照。在你创建服务器之前，不会创建任何内容。"
+        }
+        M::ImageBrowse => "选择文件…",
+        M::ImageUploading => "正在读取文件…",
+        M::ImageUploadFailed => "无法打开文件：{error}",
+        M::ImageSummaryTitle => "文件内容",
+        M::ImageSummarySubtitle => "检查文件内容，然后创建服务器。",
+        M::ImageKeepOperators => "保留文件中的管理员：{names}",
+        M::ImageKeepOperatorsHint => "管理员可以在服务器上运行任何命令。",
+        M::ImageCreate => "创建服务器",
+        M::ImageCreateFailed => "无法创建服务器：{error}",
+        M::CreateFailedLater => "无法创建服务器",
+        M::ImageNotLodeimg => "{name} 不是 .lodeimg 文件",
         M::GameVanillaDescription => "Mojang 官方的标准原版 Minecraft 服务器。",
         M::GameForgeDescription => "模组框架，可用于安装模组并自定义你的 Minecraft 体验。",
+        M::GameNeoForgeDescription => {
+            "社区维护的 Forge 分支，有自己的模组，适用于 Minecraft 1.20.2 及更高版本。"
+        }
         M::GameFabricDescription => "轻量级的 Minecraft 模组工具链。",
         M::GamePaperDescription => "高性能的 Spigot 分支，旨在修复游戏玩法和机制上的不一致。",
         M::GameSpigotDescription => {
@@ -69,10 +125,9 @@ pub fn text(message: M) -> &'static str {
         M::GameGenericDescription => "未知游戏：{name}",
         M::ModpackSourceTitle => "选择整合包",
         M::ModpackSourceDescription => {
-            "搜索 Modrinth、粘贴 Modrinth 链接，或上传 .mrpack 文件。仅支持 Fabric 整合包。"
+            "搜索 Modrinth、粘贴 Modrinth 链接，或上传 .mrpack 文件。支持 Fabric、Forge 和 NeoForge 整合包。"
         }
         M::ModpackSearchPlaceholder => "搜索整合包，或粘贴 Modrinth 链接",
-        M::ModpackOnlyFabric => "仅显示 Fabric 整合包",
         M::ModpackUpload => "上传 .mrpack",
         M::ModpackVersionTitle => "选择版本",
         M::ModpackVersionUploaded => "已上传的整合包。",
@@ -161,12 +216,20 @@ pub fn text(message: M) -> &'static str {
         M::PlayersSortByName => "名称",
         M::PlayersLinkedUser => "关联此 Minecraft 账户的 Lodestone 用户",
         M::PlayersNone => "没有在线玩家",
-        M::ShareTitle => "与好友共享",
-        M::ShareLead => "好友通过链接在 Lodestone Launcher 中加入",
-        M::ShareOff => {
-            "把链接发给好友。他们在 Lodestone Launcher 中打开后，游戏会直接连接到这台电脑，无需端口转发。"
+        M::ShareTitle => "共享",
+        M::ShareLead => "从好友列表中选择好友，或给任何人发送链接",
+        M::ShareFriendsHeading => "你的好友",
+        M::ShareFriendsNote => {
+            "无需链接。服务器运行时，他们会在 Lodestone Launcher 中你的名字下看到这个服务器。"
         }
-        M::ShareStart => "与好友共享",
+        M::ShareFriendsNone => {
+            "在 Lodestone Launcher 中添加好友（Lodestone Host 页面的“好友”），即可无需链接与他们共享。"
+        }
+        M::ShareLinkHeading => "或发送邀请链接",
+        M::ShareOff => {
+            "把链接发给你想一起玩的人。他们在 Lodestone Launcher 中打开后，游戏会直接连接到这台电脑，无需端口转发。"
+        }
+        M::ShareStart => "通过链接共享",
         M::ShareStarting => "正在启动…",
         M::ShareSharing => "共享中",
         M::ShareReconnecting => "正在重新连接…",
@@ -175,27 +238,45 @@ pub fn text(message: M) -> &'static str {
         M::ShareCopy => "复制链接",
         M::ShareCopied => "已复制邀请链接",
         M::SharePreparing => "正在获取链接…",
-        M::ShareHowFriendsJoin => {
-            "服务器运行期间，任何拥有此链接的人都能加入。没有 Lodestone Launcher 的好友会看到下载链接。"
+        M::ShareHowToJoin => {
+            "服务器运行期间，任何拥有此链接的人都能加入。没有 Lodestone Launcher 的人会看到下载链接。"
         }
-        M::ShareHardNetwork => "此网络的路由器难以建立直接连接，部分好友可能无法加入。",
-        M::ShareFriendLine => "通过{connection}，{ms} 毫秒",
+        M::ShareHardNetwork => "此网络的路由器难以建立直接连接，部分玩家可能无法加入。",
+        M::SharePeerLine => "通过{connection}，{ms} 毫秒",
         M::ShareSameComputer => "这台电脑",
         M::ShareLocalNetwork => "局域网",
         M::ShareIpv6 => "IPv6",
         M::ShareInternet => "互联网",
         M::ShareStop => "停止共享",
         M::ShareStopTitle => "停止共享？",
-        M::ShareStopBody => "正在游戏的好友会断开连接，链接也将失效。再次共享会生成新链接。",
+        M::ShareStopBody => "通过链接游戏的人都会断开连接，链接也将失效。再次共享会生成新链接。",
+        M::ShareNewLink => "新链接",
+        M::ShareNewLinkTitle => "生成新链接？",
+        M::ShareNewLinkBody => {
+            "当前链接将失效，通过它游戏的人都会断开连接。请把新链接发给仍然可以加入的人。通过好友列表共享的好友不受影响。"
+        }
+        M::ShareNewLinkConfirm => "生成新链接",
+        M::ShareNewLinkMade => "已生成新的邀请链接",
+        M::ShareRemovedFriendsNote => {
+            "你已删除好友 {names}。如果对方有这个邀请链接，在你生成新链接之前仍然可以加入。"
+        }
+        M::ShareRemovedFriendsDismiss => "忽略",
+        M::ShareRemovedFriendsToast => {
+            "如果 {names} 有邀请链接，仍然可以加入 {servers}。生成新链接即可阻止。"
+        }
+        M::ShareNewLinks => "生成新链接",
+        M::ShareNewLinksMade => "已生成新的邀请链接。请发给仍然可以加入的人。",
+        M::ShareNewLinkFailed => "无法为 {name} 生成新链接：{error}",
         M::ShareShort => "分享",
-        M::ShareShortHint => "与好友分享此服务器",
+        M::ShareShortHint => "分享此服务器",
     }
 }
 
 pub fn plural(message: P) -> [&'static str; 2] {
     match message {
         P::ModpackShowMore => ["显示更多（还剩 {count} 个）", "显示更多（还剩 {count} 个）"],
-        P::ShareConnected => ["{count} 位好友已连接", "{count} 位好友已连接"],
+        P::ImportFiles => ["{count} 个文件", "{count} 个文件"],
+        P::ShareConnected => ["{count} 人已连接", "{count} 人已连接"],
         P::ShareJoins => ["（目前共加入 {count} 次）", "（目前共加入 {count} 次）"],
     }
 }

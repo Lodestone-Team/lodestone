@@ -4,7 +4,7 @@
 
 pub mod settings;
 pub mod sidebar;
-mod top_bar;
+pub(crate) mod top_bar;
 
 use gpui::{
     AnyView, Context, Entity, IntoElement, ParentElement, Render, Styled, Subscription, Window,
@@ -12,7 +12,10 @@ use gpui::{
 };
 use launcher_core::cores::admin::InstanceState;
 use lodestone_ui::{
-    components::{DialogSlot, UnderDialogs},
+    components::{
+        DialogSlot, UnderDialogs,
+        settings::{FindSetting, SettingsSearch},
+    },
     theme::{colors, fonts, ink, layout, px, text, weights},
 };
 
@@ -38,6 +41,9 @@ pub struct HostShell {
     settings: DialogSlot<HostShell, SettingsModal>,
     /// The Settings' page shown last, where they open again.
     settings_page: SettingsPage,
+    /// The Settings' search field, over every page: what is typed stays as the
+    /// pages change.
+    settings_search: Entity<SettingsSearch>,
     /// The core shown is this computer's (not another one's).
     pub on_local: bool,
     /// Asks to accept the Minecraft EULA when a server doesn't start without it.
@@ -56,6 +62,8 @@ pub struct HostShell {
     /// empty block keeps its space and nothing under it moves (the dashboard's fixed
     /// `h-[17.625rem]`).
     pub selected_block_height: Option<gpui::Pixels>,
+    /// The instance whose power menu is open, on the sidebar's selected-instance card.
+    pub power_menu: Option<String>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -89,6 +97,7 @@ impl HostShell {
             cores: DialogSlot::new(|this: &mut HostShell| &mut this.cores),
             settings: DialogSlot::new(|this: &mut HostShell| &mut this.settings),
             settings_page: SettingsPage::General,
+            settings_search: cx.new(|cx| SettingsSearch::new("settings-search", cx)),
             on_local: true,
             eula,
             notifications,
@@ -101,6 +110,7 @@ impl HostShell {
             sidebar_dragging: false,
             top_bar_drag_pending: false,
             selected_block_height: None,
+            power_menu: None,
             _subscriptions: subscriptions,
         }
     }
@@ -122,6 +132,25 @@ impl HostShell {
         if std::mem::take(&mut self.sidebar_dragging) {
             let width = self.sidebar_width;
             crate::prefs::Prefs::update(cx, |prefs| prefs.sidebar_width = Some(width));
+        }
+    }
+
+    /// ⌘F (Ctrl+F): to the search field of the open Settings, or of the instance
+    /// Settings tab shown. Elsewhere the key does nothing here.
+    fn find_setting(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.settings.is_open() {
+            self.settings_search
+                .update(cx, |search, cx| search.focus(window, cx));
+            return;
+        }
+        let page = self.page.as_ref().and_then(|(_, view)| {
+            view.clone()
+                .downcast::<pages::instance_settings::InstanceSettingsPage>()
+                .ok()
+        });
+        match page {
+            Some(page) => page.update(cx, |page, cx| page.focus_search(window, cx)),
+            None => cx.propagate(),
         }
     }
 
@@ -330,6 +359,7 @@ impl Render for HostShell {
         let heading = self.heading(cx);
         let error = self.state.read(cx).error.clone();
         let toasts = self.state.read(cx).toasts.clone();
+        let page_scroll = self.state.read(cx).page_scroll.clone();
         let title = self.title(cx);
         if self.title != title {
             window.set_window_title(&title);
@@ -399,6 +429,9 @@ impl Render for HostShell {
             .size_full()
             .flex()
             .flex_col()
+            .on_action(
+                cx.listener(|this, _: &FindSetting, window, cx| this.find_setting(window, cx)),
+            )
             .on_mouse_move(
                 cx.listener(|this, event: &gpui::MouseMoveEvent, window, cx| {
                     if !this.sidebar_dragging {
@@ -453,6 +486,7 @@ impl Render for HostShell {
                             .child(
                                 div()
                                     .id("main")
+                                    .track_scroll(&page_scroll)
                                     .flex_1()
                                     .min_w_0()
                                     .h_full()

@@ -23,8 +23,10 @@ pub fn text(message: M) -> &'static str {
 
         M::PreparingNote => "正在准备 Minecraft {version}（{loader}）",
         M::JoiningNote => "游戏启动后将加入 {address}",
+        M::ContentRecordedNote => "已记录实例当前的模组和配置",
+        M::ContentCheckFailedNote => "无法记录实例的模组和配置：{error}",
         M::VerifyingNote => "正在校验 Minecraft {version}（{loader}）的游戏文件",
-        M::RosettaNote => "此版本通过 Rosetta 2 在 Intel（x86_64）Java 中运行。",
+        M::RosettaNote => "游戏通过 Rosetta 2 在 Intel（x86_64）Java 中运行。",
         M::StartingJavaNote => "正在启动 Java：{command}",
         M::AutoMemoryNote => "自动设置：根据这台电脑和实例的模组，将内存设为 {memory}",
         M::AutoMemoryLimitedNote => {
@@ -40,6 +42,9 @@ pub fn text(message: M) -> &'static str {
         M::AutoControlsLauncherNote => {
             "自动设置：已从 Minecraft 启动器沿用鼠标灵敏度、按键绑定和语言"
         }
+        M::AutoControlsOtherLauncherNote => {
+            "自动设置：已从 {launcher} 的 {instance} 沿用鼠标灵敏度、按键绑定和语言"
+        }
         M::StoppedNote => "已停止",
         M::ExitedWithCode => "Minecraft 已退出，退出代码为 {code}",
         M::EndedBySignal => "Minecraft 被信号终止",
@@ -52,6 +57,19 @@ pub fn text(message: M) -> &'static str {
         M::RosettaMissing => {
             "此 Minecraft 版本需要 Intel（x86_64）Java，它在 Apple Silicon 上通过 Rosetta 2 运行。Rosetta 尚未安装。请在“终端”中运行以下命令安装，然后再次点击“开始游戏”：\n\nsoftwareupdate --install-rosetta"
         }
+        M::RosettaNoticeTitle => "Minecraft {version} 通过 Rosetta 2 运行",
+        M::RosettaNoticeBody => {
+            "Mojang 没有为此版本需要的部分库制作 Apple 芯片版本，因此它会通过 Rosetta 2 在 Intel 版 Java 中运行。启动会慢一些，之后可以正常游玩。Minecraft 1.14 及更高版本会原生运行。"
+        }
+        M::RosettaNoticeBodyOverride => {
+            "此实例使用的是在其“设置”中选择的 Intel 版 Java，因此游戏会通过 Rosetta 2 运行。启动会慢一些，之后可以正常游玩。若要原生运行，请选择适用于 Apple 芯片的 Java，或改回默认的 Java。"
+        }
+        M::NoNativeJava8 => {
+            "此 Minecraft 版本需要 Java 8，但目前没有适用于 Apple 芯片的 Java 8：Mojang 没有提供，Azul 也没有列出。请稍后再试，或在实例的“设置”中选择一个适用于 Apple 芯片（arm64）的 Java 8。"
+        }
+        M::NeedsIntelJava => {
+            "在 Apple 芯片上，Minecraft {version} 只能通过 Rosetta 2 在 Intel（x86_64）Java 中运行，而在实例“设置”中选择的 Java 是 Apple 芯片版。请在那里选择 Intel 版 Java，或 Mojang 提供的 Java。"
+        }
         M::CouldntStartMinecraft => "无法启动 Minecraft",
         M::CouldntStartJava => "无法启动 Java",
         M::CouldntVerify => "无法校验游戏文件",
@@ -61,18 +79,16 @@ pub fn text(message: M) -> &'static str {
         M::WaitForUpdate => "请等待更新完成，然后点击“开始游戏”。",
         M::StopBeforeDeleting => "请先停止游戏，再删除该实例。",
         M::FilesBusy => "请等待该实例的文件处理完成，然后重试。",
+        M::NoSnapshotBeforeGameChange => "更改游戏前未能拍摄快照",
+        M::LoaderChangeNotSaved => "新的加载器版本未保存",
+        M::LoaderChangeDropped => "拍摄快照期间该实例被修改了。请重新选择加载器版本。",
+        M::RestoreUnfinished => {
+            "该实例的一次恢复没有完成，也无法撤销，因此它的部分世界或模组被暂时移到了一旁。请关闭正在使用其文件的程序，然后再次点击“开始游戏”，或重新启动 Lodestone Launcher。"
+        }
         M::CouldntSavePlayed => "无法保存上次游玩时间：{error}",
         M::CouldntSavePlayTime => "无法保存游戏时长：{error}",
         M::ModpackExported => "整合包已导出",
         M::CouldntExportModpack => "无法导出整合包",
-        M::CouldntSwitchLoader => "无法切换到模组加载器",
-        M::NoModLoaderFor => {
-            "Lodestone Launcher 支持的模组加载器都无法在 Minecraft {version} 上运行：Fabric 从 1.14 起才支持，而 Forge 没有适用于该版本的构建。"
-        }
-        M::SwitchedTo => "已切换到 {loader}",
-        M::SwitchedToMessage => {
-            "{name} 现在使用 {loader} {version}。下次点击“开始游戏”时会自动安装。"
-        }
 
         M::SearchLog => "搜索日志",
         M::LevelDebug => "调试",
@@ -83,6 +99,15 @@ pub fn text(message: M) -> &'static str {
         M::NoLinesMatch => "没有符合筛选条件的行。",
         M::JumpToLatest => "跳到最新",
         M::CopyLog => "复制日志",
+        M::LogSource => "要显示的日志",
+        M::LogThisSession => "本次运行",
+        M::LogNoFiles => "还没有以前的日志或崩溃报告。",
+        M::LogKindLog => "日志",
+        M::LogKindCrash => "崩溃报告",
+        M::LogKindJvm => "Java 崩溃",
+        M::LogReading => "正在读取 {name}",
+        M::LogReadFailed => "无法读取 {name}：{error}",
+        M::LogFileEmpty => "此文件为空。",
 
         M::ImportTitle => "从其他启动器导入",
         M::ImportFromHere => "从此处导入",
@@ -112,7 +137,7 @@ pub fn text(message: M) -> &'static str {
 
         M::NotAModpack => "不是整合包",
         M::NotMrpack => {
-            "{name} 不是整合包。Modrinth 整合包的扩展名为 .mrpack，CurseForge 整合包是包含 manifest.json 的 .zip 文件。"
+            "{name} 不是整合包。Modrinth 整合包的扩展名为 .mrpack，CurseForge 整合包是包含 manifest.json 的 .zip 文件。从 Lodestone 分享的快照扩展名为 .lodeimg。"
         }
         M::CurseForgeUnreachable => {
             "这是 CurseForge 整合包，而此 Lodestone Launcher 无法连接 CurseForge。"
@@ -129,6 +154,7 @@ pub fn text(message: M) -> &'static str {
         M::CouldntImportModpack => "无法导入整合包",
         M::CouldntUpdateModpack => "无法更新整合包",
         M::StopGameFirst => "请先停止游戏。",
+        M::FinishFinderFirst => "请先完成“帮我找出来”的查找：它关闭了部分模组。",
         M::ModpackUpdated => "整合包已更新",
         M::ModpackUpdatedMessage => {
             "{name} 现在运行 {pack} {version}。被替换的文件已保存在 {path}。"
@@ -136,6 +162,11 @@ pub fn text(message: M) -> &'static str {
         M::UpdatedButNotSaved => "文件已更新，但无法保存实例：{error}",
         M::DownloadingName => "正在下载 {name}",
         M::InstallingName => "正在安装 {name}",
+        M::CopyReady => "{name} 已就绪",
+        M::CouldntCopy => "无法创建副本",
+        M::CopyingWorlds => "正在复制世界",
+        M::CopyingPacksAndOptions => "正在复制资源包、光影和选项",
+        M::InstallingMods => "正在安装模组",
         M::CopyingConfigs => "正在复制整合包的配置文件",
         M::RecordingFiles => "正在记录整合包的文件",
         M::SavingSnapshot => "正在保存实例文件的快照",
@@ -174,6 +205,9 @@ pub fn text(message: M) -> &'static str {
         M::FinderManual => {
             "游戏是在你游玩时崩溃的，所以每次尝试都需要你来玩。重复之前导致崩溃的操作。如果再次崩溃，下一次尝试会自动开始；如果没有，请按“没有崩溃”。"
         }
+        M::FinderByHand => {
+            "玩每一次尝试，做之前让游戏崩溃的操作。如果崩溃，下一次尝试会自动开始；如果没有，请按“没有崩溃”。"
+        }
         M::FinderStart => "开始",
         M::FinderReading => "正在检查你的模组",
         M::FinderTry => "第 {number} 次尝试",
@@ -205,6 +239,15 @@ pub fn text(message: M) -> &'static str {
         M::FinderInterruptedTitle => "要完成在“{name}”中查找模组吗？",
         M::FinderInterrupted => "启动器在查找中途关闭了，所以“{name}”的部分模组仍处于禁用状态。",
         M::FinderPutBackFailed => "部分模组无法重新启用：{error}",
+
+        M::AddingName => "正在添加 {name}",
+        M::ModrinthUnreachable => "无法连接到 Modrinth。",
+        M::ModpackAddedAlready => "此实例已添加 {pack}。要添加其他版本，请先在“设置”中将其移除。",
+        M::CouldntAddModpack => "无法添加整合包",
+        M::ModpackAdded => "整合包已添加",
+        M::ModpackAddedMessage => "{pack} 已添加到 {name}。按“开始游戏”即可启动。",
+        M::CouldntRemoveModpack => "无法移除整合包",
+        M::ModpackRemoved => "整合包已移除",
     }
 }
 
@@ -222,6 +265,7 @@ pub fn plural(message: P) -> [&'static str; 2] {
                 2]
         }
         P::FilesLeftOut => ["有 {count} 个文件被跳过，例如 {name}。"; 2],
+        P::LogLinesSkipped => ["前 {count} 行未显示"; 2],
         P::LinesShown => ["显示 {shown} 行，共 {count} 行"; 2],
         P::LinesShownFollowing => ["显示 {shown} 行，共 {count} 行 · 自动滚动"; 2],
         P::ProblemAndMore => ["{problem}（另有 {count} 个问题）"; 2],
@@ -232,10 +276,14 @@ pub fn plural(message: P) -> [&'static str; 2] {
             ["有 {count} 个文件需要从 CurseForge 网站下载：实例的“内容”标签页会列出它们。"; 2]
         }
         P::PackFilesLeftOut => ["整合包中有 {count} 个文件被跳过，例如 {path}。"; 2],
-        P::WorldsBackedUp => ["已先备份 {count} 个世界。"; 2],
         P::DownloadingFiles => ["正在下载 {count} 个文件"; 2],
+        P::CopyModsLeftBehind => ["{count} 个模组未复制：{names}。"; 2],
+        P::CopyDependenciesMissing => ["{count} 个所需的前置模组无法安装：{names}。"; 2],
         P::FinderModsLeft => ["还有 {count} 个模组待检查"; 2],
         P::FinderModsOff => ["已禁用 {count} 个模组"; 2],
         P::FinderTriesLeft => ["大约还需 {count} 次尝试"; 2],
+
+        P::AddedPackFilesRemoved => ["已移除 {pack} 的 {count} 个文件。"; 2],
+        P::AddedPackFilesKept => ["你修改过的 {count} 个文件已保留。"; 2],
     }
 }

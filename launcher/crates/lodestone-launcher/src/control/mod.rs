@@ -22,7 +22,9 @@
 
 mod accounts;
 mod content;
+mod copy_as;
 mod events;
+mod friend_list;
 mod friends;
 mod import;
 mod instances;
@@ -228,6 +230,16 @@ pub const METHODS: &[Method] = &[
         "Copies an instance.",
         instances::duplicate,
     ),
+    method(
+        "instances.copy_as",
+        "Makes a new instance from one for another Minecraft version or loader (a job): its Modrinth mods' builds for them, and its packs, options and worlds as asked. An instance's own version and loader never change. Needs confirm when mods stay behind or worlds are upgraded; the refusal carries the plan.",
+        copy_as::copy_as,
+    ),
+    method(
+        "instances.set_loader_version",
+        "Changes the version of an instance's mod loader (the loader itself never changes).",
+        copy_as::set_loader_version,
+    ),
     destructive(
         "instances.delete",
         "Moves an instance to the Trash.",
@@ -363,7 +375,7 @@ pub const METHODS: &[Method] = &[
     ),
     method(
         "settings.developer.set",
-        "Changes developer settings.",
+        "Changes developer settings: sign_in_as_minecraft_launcher (with sign_out_accounts), connect_service (a Lodestone Connect service URL, or \"default\").",
         settings::developer_set,
     ),
     method(
@@ -413,6 +425,11 @@ pub const METHODS: &[Method] = &[
         content::list,
     ),
     method(
+        "content.history",
+        "An instance's content images, newest first: label, time, game, pack and file count.",
+        content::history,
+    ),
+    method(
         "content.search",
         "Searches Modrinth for content that fits the instance.",
         content::search,
@@ -457,11 +474,6 @@ pub const METHODS: &[Method] = &[
         "Updates installed content (some or all).",
         content::update,
     ),
-    method(
-        "content.switch_loader",
-        "Changes an instance's mod loader.",
-        content::switch_loader,
-    ),
     // modpacks
     method(
         "modpacks.search",
@@ -483,44 +495,77 @@ pub const METHODS: &[Method] = &[
         "Updates an instance's modpack (shows the plan first).",
         content::modpack_update,
     ),
+    method(
+        "modpacks.add",
+        "Adds a modpack's files to an instance next to its own, such as a server's (shows the plan first).",
+        content::modpack_add,
+    ),
+    method(
+        "modpacks.added",
+        "The modpacks added to an instance on top of its own, with their files.",
+        content::modpack_added,
+    ),
+    destructive(
+        "modpacks.remove",
+        "Removes a modpack added to an instance: the files it added that weren't changed.",
+        content::modpack_remove,
+    ),
     // snapshots
     method(
         "snapshots.list",
-        "An instance's snapshots, newest first: name, date, sizes (total and new), parts.",
+        "An instance's snapshots, newest first (name, kind, date, worlds, sizes, pin), the images that can't be read, and its snapshot settings; deleted: true lists deleted instances' snapshots.",
         snapshots::list,
     ),
     method(
         "snapshots.create",
-        "Takes a snapshot of an instance (include: part ids; default all but screenshots and other; worlds: folder names).",
+        "Takes a snapshot of an instance: its worlds and other files linked to its mods (name; everything: true for mods and configs too).",
         snapshots::create,
     ),
     destructive(
-        "snapshots.revert",
-        "Puts back the chosen parts of a snapshot (default: all it has), after an automatic snapshot of them.",
-        snapshots::revert,
+        "snapshots.restore",
+        "Restores a snapshot: scope worlds (worlds: folders), worlds_and_mods, everything, or new (name). A safety snapshot is taken first; preview: true only says what it would do.",
+        snapshots::restore,
     ),
     method(
         "snapshots.export",
-        "Writes a snapshot to a .lodesnap file (absolute path; a folder names it).",
+        "Writes a snapshot as an image file, .lodeimg (absolute path; a folder names it). Modrinth and CurseForge files are listed, not copied.",
         snapshots::export,
     ),
     method(
         "snapshots.import",
-        "Makes a new instance from a .lodesnap file (absolute path); preview: true only reads it. With mods, needs confirm.",
+        "Makes a new instance from a .lodeimg file (absolute path; name); preview: true only reads it. With mods, needs confirm.",
         snapshots::import,
     ),
     destructive(
         "snapshots.delete",
-        "Deletes a snapshot and the files no other snapshot uses.",
+        "Deletes a snapshot, and its image when no other snapshot uses it.",
         snapshots::delete,
+    ),
+    method(
+        "snapshots.pin",
+        "Pins a snapshot (pinned: false unpins it): retention and Storage's clean-up never delete a pinned one.",
+        snapshots::pin,
+    ),
+    method(
+        "snapshots.policy",
+        "An instance's snapshot settings, changing those given: after_play (null follows the global setting), keep_last, keep_daily, keep_weekly (null: the default).",
+        snapshots::policy,
     ),
     // worlds
     method("worlds.list", "An instance's worlds.", worlds::list),
-    method("worlds.backups", "A world's backups.", worlds::backups),
-    method("worlds.backup", "Backs up a world.", worlds::backup),
+    method(
+        "worlds.backups",
+        "The snapshots that hold a world.",
+        worlds::backups,
+    ),
+    method(
+        "worlds.backup",
+        "Backs up a world: a snapshot named after it.",
+        worlds::backup,
+    ),
     method(
         "worlds.restore",
-        "Restores a backup as a copy, or replaces the world with it.",
+        "Restores a world from a snapshot (snapshot: id, name or latest) as a copy, or in its place after a safety snapshot (mode: replace).",
         worlds::restore,
     ),
     destructive(
@@ -528,15 +573,40 @@ pub const METHODS: &[Method] = &[
         "Moves a world to the Trash.",
         worlds::delete,
     ),
-    destructive(
-        "worlds.delete_backup",
-        "Moves a backup to the Trash.",
-        worlds::delete_backup,
+    method(
+        "worlds.datapacks",
+        "A world's data packs, and whether each is on.",
+        worlds::datapacks,
     ),
     method(
-        "worlds.download",
-        "Downloads a server's world from its core into an instance.",
-        servers::download_world,
+        "worlds.datapack_search",
+        "Data packs on Modrinth for the instance's Minecraft version.",
+        worlds::datapack_search,
+    ),
+    method(
+        "worlds.datapack_add",
+        "Copies a data pack (.zip or folder, absolute path) into a world.",
+        worlds::datapack_add,
+    ),
+    method(
+        "worlds.datapack_install",
+        "Installs a Modrinth data pack into a world; a newer version replaces the old file.",
+        worlds::datapack_install,
+    ),
+    method(
+        "worlds.datapack_enable",
+        "Turns a world's data pack on (from the next time the world loads).",
+        worlds::datapack_enable,
+    ),
+    method(
+        "worlds.datapack_disable",
+        "Turns a world's data pack off (from the next time the world loads).",
+        worlds::datapack_disable,
+    ),
+    destructive(
+        "worlds.datapack_remove",
+        "Moves a world's data pack to the Trash.",
+        worlds::datapack_remove,
     ),
     // accounts
     method(
@@ -551,7 +621,7 @@ pub const METHODS: &[Method] = &[
     ),
     method(
         "accounts.add_offline",
-        "Adds an offline account (development builds or LODESTONE_LAUNCHER_OFFLINE=1).",
+        "Adds an offline account (once Settings > Developer > Offline accounts is on; always in debug builds and with LODESTONE_LAUNCHER_OFFLINE=1).",
         accounts::add_offline,
     ),
     destructive(
@@ -645,13 +715,13 @@ pub const METHODS: &[Method] = &[
     ),
     method(
         "servers.host",
-        "Hosts an instance's modpack as a new server on a core.",
+        "Hosts an instance as a new server on a core, with the worlds it sends.",
         servers::host,
     ),
     method(
-        "servers.resource_pack",
-        "Saves a server's resource pack into an instance.",
-        servers::resource_pack,
+        "servers.download_world",
+        "Downloads a server's world as a new instance, with the mods its players get.",
+        servers::download_world,
     ),
     method(
         "prompts.list",
@@ -671,7 +741,7 @@ pub const METHODS: &[Method] = &[
     ),
     method(
         "friends.open",
-        "Opens the join dialog for an invite link, as opening the link does.",
+        "Opens the join dialog for an invite link (or Add friend for a friend link), as opening the link does.",
         friends::open,
     ),
     method(
@@ -683,6 +753,97 @@ pub const METHODS: &[Method] = &[
         "friends.remove",
         "Forgets a friend's server and its invite link. Instances made for it stay.",
         friends::remove,
+    ),
+    // the friend list
+    method(
+        "friend_list.me",
+        "Your name and safety code on the friend list (makes your friend key on first use).",
+        friend_list::me,
+    ),
+    method(
+        "friend_list.set_name",
+        "Sets the name your friends see.",
+        friend_list::set_name,
+    ),
+    method(
+        "friend_list.create_link",
+        "Makes a friend link to send (works once, for 24 hours).",
+        friend_list::create_link,
+    ),
+    method(
+        "friend_list.links",
+        "Your open friend links.",
+        friend_list::links,
+    ),
+    method(
+        "friend_list.cancel_link",
+        "Cancels one of your friend links.",
+        friend_list::cancel_link,
+    ),
+    method(
+        "friend_list.preview_link",
+        "Who a friend link is from (name and safety code), without answering it.",
+        friend_list::preview_link,
+    ),
+    destructive(
+        "friend_list.answer_link",
+        "Answers a friend link, adding its sender as a pending friend (after the user saw their name and safety code).",
+        friend_list::answer_link,
+    ),
+    method(
+        "friend_list.replies",
+        "Answers to your friend links, waiting for you to accept.",
+        friend_list::replies,
+    ),
+    destructive(
+        "friend_list.accept",
+        "Accepts an answer to one of your friend links: they become your friend.",
+        friend_list::accept,
+    ),
+    method(
+        "friend_list.list",
+        "Your friends: status, verified, hidden, cores and whether they're online (as last checked).",
+        friend_list::list,
+    ),
+    method(
+        "friend_list.refresh",
+        "Checks on friends: their states, which cores share now, and answers to your links.",
+        friend_list::refresh,
+    ),
+    destructive(
+        "friend_list.verify",
+        "Ticks \"Codes match\" for a friend, only on the user's word that they compared safety codes aloud with them (value: false unticks).",
+        friend_list::verify,
+    ),
+    method(
+        "friend_list.nickname",
+        "Gives a friend a name only you see (none: their own).",
+        friend_list::nickname,
+    ),
+    method(
+        "friend_list.hide",
+        "Hides your cores from a friend (value: false shows them again).",
+        friend_list::hide,
+    ),
+    destructive(
+        "friend_list.remove",
+        "Removes a friend.",
+        friend_list::remove,
+    ),
+    method(
+        "friend_list.servers",
+        "The servers a friend's cores share with you.",
+        friend_list::servers,
+    ),
+    destructive(
+        "friend_list.retire_core",
+        "Retires one of your cores: friends drop it, and it's never shown to them again.",
+        friend_list::retire_core,
+    ),
+    destructive(
+        "friend_list.retire",
+        "Retires your friend identity: friends are told, then your key and friend list are deleted.",
+        friend_list::retire,
     ),
     // jobs and events
     method(
@@ -1507,20 +1668,26 @@ pub const READ_METHODS: &[&str] = &[
     "shared.get",
     "shared.instance.get",
     "content.list",
+    "content.history",
     "content.search",
     "content.versions",
     "content.updates",
     "modpacks.search",
     "modpacks.check",
+    "modpacks.added",
     "snapshots.list",
     "worlds.list",
     "worlds.backups",
+    "worlds.datapacks",
+    "worlds.datapack_search",
     "accounts.list",
     "import.detect",
     "cores.list",
     "servers.list",
     "prompts.list",
     "friends.list",
+    "friend_list.links",
+    "friend_list.list",
     "jobs.list",
     "jobs.get",
     "jobs.wait",
@@ -1642,8 +1809,13 @@ mod tests {
             "accounts.remove",
             "cores.remove",
             "shared.clear",
-            "snapshots.revert",
+            "snapshots.restore",
             "snapshots.delete",
+            // only the user can say they compared safety codes
+            "friend_list.verify",
+            "friend_list.answer_link",
+            "friend_list.accept",
+            "friend_list.retire_core",
         ] {
             assert!(destructive.contains(&name), "{name} must need confirm");
         }
@@ -1660,6 +1832,8 @@ mod tests {
         "instances.set_icon",
         "instances.set_background",
         "instances.duplicate",
+        "instances.copy_as",
+        "instances.set_loader_version",
         "instances.delete",
         "instances.export",
         "instances.import_code",
@@ -1690,19 +1864,25 @@ mod tests {
         "content.enable",
         "content.disable",
         "content.update",
-        "content.switch_loader",
         "modpacks.install",
         "modpacks.update",
+        "modpacks.add",
+        "modpacks.remove",
         "snapshots.create",
-        "snapshots.revert",
+        "snapshots.restore",
         "snapshots.export",
         "snapshots.import",
         "snapshots.delete",
+        "snapshots.pin",
+        "snapshots.policy",
         "worlds.backup",
         "worlds.restore",
         "worlds.delete",
-        "worlds.delete_backup",
-        "worlds.download",
+        "worlds.datapack_add",
+        "worlds.datapack_install",
+        "worlds.datapack_enable",
+        "worlds.datapack_disable",
+        "worlds.datapack_remove",
         "accounts.switch",
         "accounts.add_offline",
         "accounts.remove",
@@ -1722,11 +1902,28 @@ mod tests {
         "servers.link",
         "servers.unlink",
         "servers.host",
-        "servers.resource_pack",
+        "servers.download_world",
         "prompts.answer",
         "friends.open",
         "friends.join",
         "friends.remove",
+        "friend_list.me",
+        "friend_list.set_name",
+        "friend_list.create_link",
+        "friend_list.cancel_link",
+        "friend_list.answer_link",
+        "friend_list.replies",
+        "friend_list.accept",
+        "friend_list.refresh",
+        "friend_list.verify",
+        "friend_list.nickname",
+        "friend_list.hide",
+        "friend_list.remove",
+        "friend_list.retire",
+        "friend_list.retire_core",
+        // these reach the service or a friend's core
+        "friend_list.preview_link",
+        "friend_list.servers",
         "jobs.cancel",
     ];
 
@@ -1820,6 +2017,36 @@ mod tests {
         assert!(
             settings::developer_params(json!({ "sign_in_as_minecraft_launcher": true })).is_ok()
         );
+        assert!(
+            settings::developer_params(
+                json!({ "connect_service": "https://connect-dev.lodestone.cc" })
+            )
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn the_connect_service_is_checked_as_the_window_checks_it() {
+        let url =
+            |text: &str| settings::connect_service_param(text).map(|s| s.map(|s| s.base_url()));
+        assert_eq!(
+            url("https://connect-dev.lodestone.cc/"),
+            Ok(Some("https://connect-dev.lodestone.cc".into()))
+        );
+        assert_eq!(
+            url("http://127.0.0.1:8787"),
+            Ok(Some("http://127.0.0.1:8787".into()))
+        );
+        for reset in ["", "default", "Default", "https://connect.lodestone.cc"] {
+            assert_eq!(url(reset), Ok(None), "{reset}");
+        }
+        for bad in [
+            "http://connect-dev.lodestone.cc",
+            "connect-dev.lodestone.cc",
+            "https://connect-dev.lodestone.cc/v1",
+        ] {
+            assert!(url(bad).is_err(), "{bad}");
+        }
     }
 
     #[test]

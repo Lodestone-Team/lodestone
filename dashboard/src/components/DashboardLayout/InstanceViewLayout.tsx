@@ -10,6 +10,7 @@ import { useLocalStorage } from 'usehooks-ts';
 import { useQueryParam } from 'utils/hooks';
 import LeftNav from './LeftNav';
 import { PageLoading } from './LayoutSkeletons';
+import { instanceRedirect } from './instanceRoute';
 
 export const InstanceViewLayout = () => {
   const { setPathname } = useContext(BrowserLocationContext);
@@ -35,20 +36,23 @@ export const InstanceViewLayout = () => {
     // While the list loads, keep the URL: a link to an instance's tab (for
     // example /dashboard/mods?instance=…&modrinth=…) must not be sent home.
     if (queryInstanceId && !instances) return;
-    // the settings modal is open over this page: its URL is a settings page
-    if (location.pathname.startsWith('/settings/')) return;
-    if (queryInstanceId && instances && queryInstanceId in instances) {
-      if (!location.pathname.startsWith('/dashboard'))
-        setPathname('/dashboard/overview');
-    } else {
-      if (location.pathname.startsWith('/dashboard')) setPathname('/');
-    }
-  }, [instances, queryInstanceId]);
+    const selected = !!(
+      queryInstanceId &&
+      instances &&
+      queryInstanceId in instances
+    );
+    // the browser's current path, as the setters read it (with the base path
+    // taken off)
+    const to = instanceRedirect(window.location.pathname, selected);
+    if (to) setPathname(to);
+  }, [instances, queryInstanceId, setPathname]);
 
   function selectInstance(instance: InstanceInfo | null) {
     if (instance === null) {
       setQueryInstanceId('');
-      if (location.pathname.startsWith('/dashboard')) setPathname('/');
+      // runs right after the URL changed, so read the browser's path
+      const to = instanceRedirect(window.location.pathname, false);
+      if (to) setPathname(to);
     } else {
       setQueryInstanceId(instance.uuid);
     }

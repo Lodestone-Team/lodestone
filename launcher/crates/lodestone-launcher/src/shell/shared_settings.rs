@@ -12,10 +12,10 @@ use launcher_core::shared_options::{self, Category, Profile, Row};
 
 use crate::{
     components::{
-        Button, ButtonSize, ButtonVariant, Icon, ListRow, TextInput, Toggle,
+        Button, ButtonSize, ButtonVariant, Dropdown, Icon, ListRow, TextInput, Toggle,
         a11y::Accessible,
         settings::{
-            SettingRow, Toast, card, link, muted_link, popover, popover_panel, section,
+            SearchRow, SettingRow, SettingsSearch, Toast, link, muted_link, popover_panel,
             select_button, value,
         },
     },
@@ -66,6 +66,8 @@ pub struct SharedSettings {
     /// [`Instances::shared_revision`], to reload when a game stops, an instance is
     /// added or deleted, or Undo puts the shared settings back.
     signature: (Vec<String>, usize, u64),
+    /// The Settings dialog's search.
+    search: Option<Entity<SettingsSearch>>,
     _observe: Subscription,
 }
 
@@ -93,13 +95,25 @@ impl SharedSettings {
             editing: None,
             confirm_reset: false,
             toast: Toast::default(),
+            search: None,
             _observe: observe,
         };
         this.reload(cx);
         this
     }
 
+    /// Filters the page by the Settings dialog's search.
+    pub fn set_search(&mut self, search: Entity<SettingsSearch>) {
+        self.search = Some(search);
+    }
+
     /// Opens value lists, for the offscreen screenshots.
+    /// Opens the Sync from list, for the `shared-settings-sync` scene.
+    pub fn preview_sync_from_open(&mut self, cx: &mut Context<Self>) {
+        self.picker = Some(Picker::SyncFrom);
+        cx.notify();
+    }
+
     pub fn preview_expand(&mut self, categories: &[Category], cx: &mut Context<Self>) {
         self.expanded.extend(categories.iter().copied());
         cx.notify();
@@ -276,11 +290,7 @@ impl SharedSettings {
         })
         .w(px(320.))
         .max_h(px(320.))
-        .overflow_y_scroll()
-        .on_mouse_down_out(cx.listener(|this, _, _, cx| {
-            this.picker = None;
-            cx.notify();
-        }));
+        .overflow_y_scroll();
         if picker == Picker::SyncFrom {
             list = list.child(
                 ListRow::new("sync-none", t(M::NoInstance))
@@ -394,6 +404,11 @@ impl SharedSettings {
 
 impl Render for SharedSettings {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let query = self
+            .search
+            .as_ref()
+            .map(|search| search.read(cx).query())
+            .unwrap_or_default();
         let rows = shared_options::rows(&self.profile, None);
         let preferred_name = self
             .profile
@@ -408,72 +423,66 @@ impl Render for SharedSettings {
         };
 
         let sync = SettingRow::new(t(M::SyncFrom)).hint(sync_hint).child(
-            div()
-                .flex()
-                .flex_col()
-                .items_end()
-                .child(
-                    select_button(
-                        "sync-from",
-                        div().font_weight(weights::BOLD.into()).child(
-                            preferred_name
-                                .clone()
-                                .unwrap_or_else(|| t(M::NoInstance).into()),
-                        ),
-                    )
-                    .aria_label(t(M::SyncFrom))
-                    .aria_value(preferred_name.unwrap_or_else(|| t(M::NoInstance).into()))
-                    .when(has_instances, |button| {
-                        let shell = cx.entity().downgrade();
-                        button.expandable(self.picker == Some(Picker::SyncFrom), move |_, cx| {
-                            shell
-                                .update(cx, |this, cx| this.toggle_picker(Picker::SyncFrom, cx))
-                                .ok();
-                        })
-                    })
-                    .when(has_instances, |button| {
-                        button.on_press(
-                            cx.listener(|this, _, _, cx| this.toggle_picker(Picker::SyncFrom, cx)),
-                        )
-                    }),
+            Dropdown::new(
+                select_button(
+                    "sync-from",
+                    div().font_weight(weights::BOLD.into()).child(
+                        preferred_name
+                            .clone()
+                            .unwrap_or_else(|| t(M::NoInstance).into()),
+                    ),
                 )
-                .when(self.picker == Some(Picker::SyncFrom), |this| {
-                    let close = cx.listener(|this, _: &(), _, cx| {
-                        this.picker = None;
-                        cx.notify();
-                    });
-                    this.child(popover(
-                        "syncfrom-popover",
-                        self.picker_list(Picker::SyncFrom, cx),
-                        move |window, cx| close(&(), window, cx),
-                    ))
+                .aria_label(t(M::SyncFrom))
+                .aria_value(preferred_name.unwrap_or_else(|| t(M::NoInstance).into()))
+                .when(has_instances, |button| {
+                    let shell = cx.entity().downgrade();
+                    button.expandable(self.picker == Some(Picker::SyncFrom), move |_, cx| {
+                        shell
+                            .update(cx, |this, cx| this.toggle_picker(Picker::SyncFrom, cx))
+                            .ok();
+                    })
+                })
+                .when(has_instances, |button| {
+                    button.on_press(
+                        cx.listener(|this, _, _, cx| this.toggle_picker(Picker::SyncFrom, cx)),
+                    )
                 }),
+            )
+            .align_end()
+            .when(self.picker == Some(Picker::SyncFrom), |this| {
+                let close = cx.listener(|this, _: &(), _, cx| {
+                    this.picker = None;
+                    cx.notify();
+                });
+                this.popover(
+                    "syncfrom-popover",
+                    self.picker_list(Picker::SyncFrom, cx),
+                    move |window, cx| close(&(), window, cx),
+                )
+            }),
         );
         let copy = SettingRow::new(t(M::StartFromInstance)).child(
-            div()
-                .flex()
-                .flex_col()
-                .items_end()
-                .child(
-                    Button::new("copy-from-instance", t(M::CopyFromInstance))
-                        .variant(ButtonVariant::Secondary)
-                        .size(ButtonSize::Slim)
-                        .disabled(!has_instances)
-                        .on_click(
-                            cx.listener(|this, _, _, cx| this.toggle_picker(Picker::CopyFrom, cx)),
-                        ),
+            Dropdown::new(
+                Button::new("copy-from-instance", t(M::CopyFromInstance))
+                    .variant(ButtonVariant::Secondary)
+                    .size(ButtonSize::Slim)
+                    .disabled(!has_instances)
+                    .on_click(
+                        cx.listener(|this, _, _, cx| this.toggle_picker(Picker::CopyFrom, cx)),
+                    ),
+            )
+            .align_end()
+            .when(self.picker == Some(Picker::CopyFrom), |this| {
+                let close = cx.listener(|this, _: &(), _, cx| {
+                    this.picker = None;
+                    cx.notify();
+                });
+                this.popover(
+                    "copyfrom-popover",
+                    self.picker_list(Picker::CopyFrom, cx),
+                    move |window, cx| close(&(), window, cx),
                 )
-                .when(self.picker == Some(Picker::CopyFrom), |this| {
-                    let close = cx.listener(|this, _: &(), _, cx| {
-                        this.picker = None;
-                        cx.notify();
-                    });
-                    this.child(popover(
-                        "copyfrom-popover",
-                        self.picker_list(Picker::CopyFrom, cx),
-                        move |window, cx| close(&(), window, cx),
-                    ))
-                }),
+            }),
         );
         let reset = SettingRow::new(t(M::ClearShared))
             .danger()
@@ -507,15 +516,35 @@ impl Render for SharedSettings {
             )
         };
 
-        let mut categories: Vec<AnyElement> = Vec::new();
+        let mut categories: Vec<SearchRow> = Vec::new();
         let mut index = 0;
         for category in Category::ALL {
             let in_category: Vec<&Row> = rows.iter().filter(|r| r.category == category).collect();
             let count = in_category.len();
             let shared = self.profile.shares(category);
-            let expanded = self.expanded.contains(&category) && count > 0;
+            // The values a search finds, by their name or their key in options.txt.
+            let value_texts: Vec<(SharedString, SharedString)> = in_category
+                .iter()
+                .map(|row| {
+                    (
+                        shared_options_i18n::label(row).into(),
+                        row.key.clone().into(),
+                    )
+                })
+                .collect();
+            let values_match = query.is_active()
+                && value_texts
+                    .iter()
+                    .any(|(label, key)| query.matches([label.as_ref(), key.as_ref()]));
+            let expanded = (self.expanded.contains(&category) || values_match) && count > 0;
+            let mut category_row = SettingRow::new(category_label(category));
+            for (label, key) in &value_texts {
+                category_row = category_row
+                    .search_text(label.clone())
+                    .search_text(key.clone());
+            }
             categories.push(
-                SettingRow::new(category_label(category))
+                category_row
                     .hint(category_description(category))
                     .child(
                         div()
@@ -562,11 +591,14 @@ impl Render for SharedSettings {
                                 this.set_category(category, *value, cx)
                             })),
                     )
-                    .into_any_element(),
+                    .into(),
             );
             if expanded {
-                for row in in_category {
-                    categories.push(self.value_row(index, row, cx));
+                for (row, texts) in in_category.into_iter().zip(value_texts) {
+                    categories.push(SearchRow::new(
+                        self.value_row(index, row, cx),
+                        [texts.0, texts.1],
+                    ));
                     index += 1;
                 }
             }
@@ -580,7 +612,7 @@ impl Render for SharedSettings {
                         .label(t(M::ServerList))
                         .disabled(true),
                 )
-                .into_any_element(),
+                .into(),
         );
 
         let accessibility_shared = self.profile.shares(Category::Accessibility);
@@ -604,22 +636,28 @@ impl Render for SharedSettings {
                     ),
             );
 
+        let sections = [
+            query
+                .section(t(M::Source), None)
+                .card([sync, copy, reset])
+                .finish(),
+            query
+                .section(t(M::NarratorSection), None)
+                .card([narrator])
+                .finish(),
+            query
+                .section(t(M::WhatsShared), Some(t(M::WhatsSharedLead).into()))
+                .card(categories)
+                .finish(),
+        ];
         div()
             .id("shared-game-settings")
             .flex()
             .flex_col()
             .gap_8()
             .w_full()
-            .child(section(t(M::Source), None).child(card([
-                sync.into_any_element(),
-                copy.into_any_element(),
-                reset.into_any_element(),
-            ])))
-            .child(section(t(M::NarratorSection), None).child(card([narrator.into_any_element()])))
-            .child(
-                section(t(M::WhatsShared), Some(t(M::WhatsSharedLead).into()))
-                    .child(card(categories)),
-            )
+            .children(query.status())
+            .children(sections.into_iter().flatten())
     }
 }
 

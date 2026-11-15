@@ -9,4 +9,8 @@ export type GlobalSettingsData = {
   allow_lan_http: boolean;
   list_instances_publicly: boolean;
   allow_local_claim: boolean;
+  /** Whether other devices may use the core. Missing on older cores: they allow it. */
+  allow_remote_access?: boolean;
+  /** Whether the core looks for newer modpack versions in the background. Missing on older cores. */
+  check_modpack_updates?: boolean;
 };

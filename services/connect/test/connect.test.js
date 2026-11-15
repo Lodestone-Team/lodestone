@@ -113,7 +113,10 @@ test('bodies are JSON and small', async () => {
   assert.equal(plain.status, 415);
   assert.equal((await s.post(`/v1/invites/${code}/joins`, 'x'.repeat(5000))).status, 400);
 
-  // Without a Content-Length, the body is cut off rather than read whole.
+  // Without a Content-Length, too: only the first 4 KiB are kept. The rest is read and
+  // thrown away before the answer, so the connection stays usable (answering in the
+  // middle of the body made `wrangler dev` answer 500, now and then, to this request or
+  // the next one).
   let sent = 0;
   const body = new ReadableStream({
     pull(controller) {
@@ -129,6 +132,9 @@ test('bodies are JSON and small', async () => {
     duplex: 'half',
   });
   assert.equal(streamed.status, 400);
+  assert.equal(sent, 64, 'read to its end');
+  // and the next requests are answered as usual
+  for (let i = 0; i < 3; i++) assert.equal((await s.join(code)).status, 200);
 });
 
 test('an invite takes at most 16 joins', async () => {

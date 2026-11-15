@@ -42,7 +42,7 @@ impl Cause {
                 "Out of memory. Raise the maximum memory in Settings, or close other apps."
             }
             Cause::Natives => {
-                "Native libraries are missing or are for the wrong processor. On Apple Silicon, versions before 1.19 run in an Intel Java under Rosetta 2; check that Rosetta is installed and that the Java override isn't an arm64 Java."
+                "Native libraries are missing or are for the wrong processor. On Apple silicon, versions before 1.14 run in an Intel Java under Rosetta 2 and later ones in an Apple silicon Java; check that Rosetta is installed and that a Java override is made for the same processor."
             }
             Cause::JvmOptions => {
                 "Java refused one of the settings. Check the JVM arguments and memory in Settings."

@@ -199,6 +199,22 @@ impl OwnerCredentials {
             password: Secret::new(random_string(PASSWORD_CHARS, 32)),
         }
     }
+
+    /// An owner without a password, for Lodestone Host's first run ([`claim_session`]
+    /// only: the core refuses it in a key claim). Nobody can sign in to it with a
+    /// password, and the core serves only this computer until the owner sets one up
+    /// (`AdminClient::set_up_owner_account`).
+    pub fn without_password(username: impl Into<String>) -> Self {
+        Self {
+            username: username.into(),
+            password: Secret::new(String::new()),
+        }
+    }
+
+    /// Whether it has a password (see [`Self::without_password`]).
+    pub fn has_password(&self) -> bool {
+        !self.password.expose().is_empty()
+    }
 }
 
 /// What a claim gave.
@@ -623,9 +639,11 @@ fn write_claim_with(
     let reply = random_string(LOWER_ALNUM, 32);
     dir.create("reply", reply.as_bytes())?;
     if let Some(owner) = owner {
+        // without a password: `null`, an owner who has none
+        let password = owner.has_password().then(|| owner.password.expose());
         let owner_json = serde_json::json!({
             "username": owner.username,
-            "password": owner.password.expose(),
+            "password": password,
         });
         dir.create("owner.json", owner_json.to_string().as_bytes())?;
     }
@@ -1326,6 +1344,21 @@ mod tests {
                 .mode();
             assert_eq!(mode & 0o077, 0, "owner.json is readable only by its user");
         }
+    }
+
+    /// Lodestone Host's first run: an owner without a password is `"password": null`.
+    #[test]
+    fn an_owner_without_a_password_is_written_as_null() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = core_folder(tmp.path(), "c1");
+        let owner = OwnerCredentials::without_password("peter");
+        assert!(!owner.has_password());
+        assert!(OwnerCredentials::generate().has_password());
+        write_claim(&open(tmp.path(), "c1"), &start("c1"), &owner).unwrap();
+        let written: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(dir.join("owner.json")).unwrap()).unwrap();
+        assert_eq!(written["username"], "peter");
+        assert!(written["password"].is_null());
     }
 
     #[test]

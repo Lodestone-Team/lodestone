@@ -1,5 +1,6 @@
 //! The Content tab (mods, resource packs, shader packs from Modrinth or files) and
-//! modpacks (the New instance dialog's Modpack mode, and the Settings tab's update).
+//! modpacks (the New instance dialog's Modpack mode, the Settings tab's update, and
+//! "Add a modpack" with the Settings tab's Added modpacks).
 //!
 //! The Content tab keeps its steps in its view, for the selected instance; these are
 //! the same `launcher_core::content` calls in the same order, for any instance, with
@@ -14,13 +15,14 @@ use launcher_core::{
         ContentKind, InstanceDirs, Modrinth, Target, files,
         install::{self, InstallOutcome, InstallProgress, InstallRequest},
         listing::{self, Item},
-        loader_change,
         shaders::{self, ShaderModOffer},
         share,
     },
     game::download::CancelToken,
-    instances::{Instance, Loader},
+    images::{ImageError, Images, labels},
+    instances::Instance,
     mc_text,
+    modpack::addon::{self, AddedPack},
 };
 use lodestone_minecraft::modrinth::{
     ClientProjectType, ClientSearchParams, ModrinthProject, ModrinthSearchIndex,
@@ -31,11 +33,14 @@ use serde_json::{Value, json};
 
 use super::{
     ApiResult, Call, Control, Reply, api_error,
-    instances::{absolute, failed, params, parse_loader, tri},
+    instances::{absolute, failed, params, tri},
     jobs::{Cancel, JobSpec, Progress},
     poll_until, ready,
 };
-use crate::instances::settings::update_candidate;
+use crate::instances::{
+    modpacks::{AddPrompt, AddSource},
+    settings::update_candidate,
+};
 
 /// Results per search page, as the Content tab shows.
 const PAGE_SIZE: u32 = 20;
@@ -223,6 +228,43 @@ pub fn list(call: Call, cx: &mut App) -> Reply {
     })
 }
 
+/// The instance's content images, newest first (`content.history`): what each was
+/// recorded for, when, its game and pack, and how many files it lists. `label` is as
+/// recorded; `label_shown` and `game_shown` have control and invisible characters
+/// written visibly, for showing.
+pub fn history(call: Call, cx: &mut App) -> Reply {
+    let control = call.control.clone();
+    let instance = tri!(control.instance_param(&call, cx));
+    let images = control.instances.read(cx).images();
+    let id = instance.id.clone();
+    let work = cx.background_spawn(async move {
+        let history = images.history(&id).map_err(|err| match err {
+            ImageError::Gone(_) => api_error(codes::NOT_FOUND, err.to_string()),
+            err => api_error(codes::FAILED, err.to_string()),
+        })?;
+        Ok::<_, ErrorObject>(json!({
+            "instance": id,
+            "current": history.current,
+            "images": history.images.iter().map(|image| json!({
+                "id": image.id,
+                "created": image.created,
+                "label": image.label,
+                "label_shown": image.label_shown(),
+                "game_shown": image.game_shown(),
+                "parent": image.parent,
+                "current": image.current,
+                "minecraft": image.game.minecraft,
+                "loader": image.game.loader,
+                "loader_version": image.game.loader_version,
+                "base": image.base,
+                "files": image.files,
+                "withheld": image.withheld,
+            })).collect::<Vec<_>>(),
+        }))
+    });
+    cx.spawn(async move |_| work.await)
+}
+
 #[derive(Deserialize)]
 struct SearchParams {
     query: Option<String>,
@@ -394,16 +436,20 @@ struct InstallParams {
 }
 
 /// The Content tab's install: each request planned and run in turn (a shader mod
-/// before its first shader pack), with the shader loader read again after mods.
+/// before its first shader pack), with the shader loader read again after mods. Each
+/// install is an operation of the instance's content images.
+#[allow(clippy::too_many_arguments)]
 async fn run_requests(
     api: Arc<Modrinth>,
     downloader: launcher_core::game::download::Downloader,
+    images: (Arc<Images>, String),
     dirs: InstanceDirs,
     mut target: Target,
     requests: Vec<InstallRequest>,
     progress: Arc<InstallProgress>,
     cancel: CancelToken,
 ) -> Result<InstallOutcome, ErrorObject> {
+    let (images, id) = images;
     let content_error = |err: launcher_core::content::ContentError| {
         let text = err.to_string();
         if cancel.is_cancelled() {
@@ -412,30 +458,49 @@ async fn run_requests(
             api_error(codes::FAILED, text)
         }
     };
+    // The whole job is one operation: what each install did, and what one that failed
+    // part way placed, is one image once it ends.
+    let mut operation = images.begin(&id, "");
     let mut total = InstallOutcome::default();
-    for request in requests {
-        let kind = request.kind;
-        progress.set_label(format!(
-            "Checking {}",
-            request
-                .project
-                .as_ref()
-                .map_or("the dependencies", |p| p.title.as_str())
-        ));
-        let plan = install::plan(&api, &dirs, &target, request)
-            .await
-            .map_err(content_error)?;
-        let outcome = install::execute(&api, &downloader, &dirs, &target, plan, &progress, &cancel)
-            .await
-            .map_err(content_error)?;
-        total.installed.extend(outcome.installed);
-        total.removed.extend(outcome.removed);
-        total.skipped.extend(outcome.skipped);
-        if kind == ContentKind::Mod {
-            target.shader_loader = listing::shader_state(&dirs).map_err(content_error)?.loader;
+    let result = async {
+        for request in requests {
+            let kind = request.kind;
+            progress.set_label(format!(
+                "Checking {}",
+                request
+                    .project
+                    .as_ref()
+                    .map_or("the dependencies", |p| p.title.as_str())
+            ));
+            let plan = install::plan(&api, &dirs, &target, request)
+                .await
+                .map_err(content_error)?;
+            let title = plan.files.first().map(|f| f.title()).unwrap_or_default();
+            let outcome =
+                match install::execute(&api, &downloader, &dirs, &target, plan, &progress, &cancel)
+                    .await
+                {
+                    Ok(outcome) => outcome,
+                    Err(err) => {
+                        operation.note(labels::partly_installed(&title));
+                        return Err(content_error(err));
+                    }
+                };
+            if let Some(label) = labels::installed(&outcome, kind) {
+                operation.note(label);
+            }
+            total.installed.extend(outcome.installed);
+            total.removed.extend(outcome.removed);
+            total.skipped.extend(outcome.skipped);
+            if kind == ContentKind::Mod {
+                target.shader_loader = listing::shader_state(&dirs).map_err(content_error)?.loader;
+            }
         }
+        Ok(())
     }
-    Ok(total)
+    .await;
+    operation.succeed();
+    result.map(|()| total)
 }
 
 fn outcome_json(outcome: &InstallOutcome) -> Value {
@@ -446,12 +511,16 @@ fn outcome_json(outcome: &InstallOutcome) -> Value {
     })
 }
 
+/// What an install job runs: its requests, and for an update the titles it updates (a
+/// snapshot is taken first, as before the Content tab's updates).
+type Planned = (Vec<InstallRequest>, Option<Vec<String>>);
+
 /// Runs install requests as a content job of the instance.
 fn start_install(
     call: &Call,
     instance: &Instance,
     label: String,
-    plan: impl AsyncFnOnce(&mut AsyncApp) -> Result<Vec<InstallRequest>, ErrorObject> + 'static,
+    plan: impl AsyncFnOnce(&mut AsyncApp) -> Result<Planned, ErrorObject> + 'static,
     kinds: Vec<ContentKind>,
     cx: &mut App,
 ) -> Reply {
@@ -459,6 +528,9 @@ fn start_install(
     let api = tri!(modrinth(&control, cx));
     let (dirs, target) = tri!(context(&control, instance, cx));
     let downloader = control.instances.read(cx).content_downloader();
+    let images = control.instances.read(cx).images();
+    // Play waits while the job writes the instance's files, as for the Content tab's.
+    let busy = control.instances.read(cx).mark_files_busy(&instance.id);
     let progress = Arc::new(InstallProgress::default());
     let cancel = CancelToken::new();
     let job_progress = progress.clone();
@@ -466,18 +538,43 @@ fn start_install(
     let refresh = Rc::downgrade(&control);
     let id = instance.id.clone();
     let work = cx.spawn(async move |cx| {
-        let requests = plan(cx).await?;
+        let _busy = busy;
+        let (requests, updating) = plan(cx).await?;
+        let job_id = id.clone();
         let outcome = cx
-            .background_spawn(run_requests(
-                api, downloader, dirs, target, requests, progress, cancel,
-            ))
+            .background_spawn(async move {
+                let no_snapshot = match &updating {
+                    Some(titles) => crate::instances::content::snapshot_before_update(
+                        &images, &job_id, titles, &progress, &cancel,
+                    )
+                    .map_err(|_| api_error(codes::CANCELLED, "Cancelled."))?,
+                    None => None,
+                };
+                run_requests(
+                    api,
+                    downloader,
+                    (images, job_id),
+                    dirs,
+                    target,
+                    requests,
+                    progress,
+                    cancel,
+                )
+                .await
+                .map(|outcome| (outcome, no_snapshot))
+            })
             .await;
         if let Some(control) = refresh.upgrade() {
             let mut all = kinds.clone();
             all.push(ContentKind::ShaderPack);
             cx.update(|cx| refresh_view(&control, &id, &all, cx));
         }
-        Ok(outcome_json(&outcome?))
+        let (outcome, no_snapshot) = outcome?;
+        let mut reply = outcome_json(&outcome);
+        if let Some(why) = no_snapshot {
+            reply["snapshot_failed"] = json!(why);
+        }
+        Ok(reply)
     });
     let job = control.start_job(
         JobSpec::new("content", label)
@@ -588,7 +685,7 @@ pub fn install(call: Call, cx: &mut App) -> Reply {
                     ShaderModOffer::NeedsModLoader => {
                         return Err(api_error(
                             codes::CONFLICT,
-                            "Shader packs need a mod loader, and this instance is vanilla. Switch it to Fabric first: `content switch-loader <instance> fabric`.",
+                            "Shader packs need a mod loader, and this instance is vanilla (its loader never changes). Make a copy with Fabric first: `instances copy-as <instance> --loader fabric`.",
                         ));
                     }
                     ShaderModOffer::Unavailable { reason } => {
@@ -603,7 +700,7 @@ pub fn install(call: Call, cx: &mut App) -> Reply {
                 install_dependencies: !params.no_deps,
                 force: params.force,
             });
-            Ok(requests)
+            Ok((requests, None))
         },
         kinds,
         cx,
@@ -638,7 +735,17 @@ pub fn add_file(call: Call, cx: &mut App) -> Reply {
     let (dirs, target) = tri!(context(&control, &instance, cx));
     let path = params.path.clone();
     let id = instance.id.clone();
-    let work = cx.background_spawn(async move { files::add(&dirs, &target, kind, &path) });
+    // Play waits while the file is copied in, as it does for the Content tab's.
+    let busy = control.instances.read(cx).mark_files_busy(&id);
+    let operation = control.instances.read(cx).images().begin(&id, "");
+    let work = cx.background_spawn(async move {
+        let _busy = busy;
+        let added = files::add(&dirs, &target, kind, &path);
+        if let Ok(name) = &added {
+            operation.succeed_as(labels::added(name));
+        }
+        added
+    });
     cx.spawn(async move |cx| {
         let name = work
             .await
@@ -727,6 +834,7 @@ fn change_items(
     call: Call,
     cx: &mut App,
     confirm: Option<&str>,
+    label: fn(&Item) -> String,
     change: fn(&InstanceDirs, &Target, &Item) -> Result<Value, ErrorObject>,
 ) -> Reply {
     let params: ItemParams = params!(call);
@@ -748,6 +856,7 @@ fn change_items(
     };
     let (dirs, target) = tri!(context(&control, &instance, cx));
     let api = control.instances.read(cx).modrinth();
+    let images = control.instances.read(cx).images();
     let id = instance.id.clone();
     cx.spawn(async move |cx| {
         let find_dirs = dirs.clone();
@@ -763,11 +872,19 @@ fn change_items(
             can_change(&control, &instance, cx)
         })?;
         let kinds: Vec<ContentKind> = items.iter().map(|i| i.file.kind).collect();
+        let image_id = id.clone();
         let results = cx
             .background_spawn(async move {
                 items
                     .iter()
-                    .map(|item| change(&dirs, &target, item))
+                    .map(|item| {
+                        let operation = images.begin(&image_id, label(item));
+                        let result = change(&dirs, &target, item);
+                        // A removal can fail after the file went to the Trash.
+                        let (kind, name) = (item.file.kind, &item.file.file_name);
+                        operation.finish_if(result.is_ok() || files::is_gone(&dirs, kind, name));
+                        result
+                    })
                     .collect::<Result<Vec<Value>, _>>()
             })
             .await;
@@ -786,6 +903,7 @@ pub fn remove(call: Call, cx: &mut App) -> Reply {
         call,
         cx,
         Some("moves to the Trash:"),
+        |item| labels::removed(&item.file.file_name),
         |dirs, target, item| {
             files::delete(dirs, target, item.file.kind, &item.file.file_name)
                 .map_err(content_failed)?;
@@ -794,6 +912,8 @@ pub fn remove(call: Call, cx: &mut App) -> Reply {
     )
 }
 
+/// Turns `item` on or off. [`change_items`] makes each call an operation of the
+/// instance's content images.
 fn set_enabled(
     dirs: &InstanceDirs,
     target: &Target,
@@ -838,16 +958,32 @@ fn set_enabled(
     }
 }
 
+/// What turning `item` on or off is called in the instance's content images.
+fn enabled_label(item: &Item, enabled: bool) -> String {
+    match item.file.kind {
+        ContentKind::ShaderPack => labels::shader(enabled.then_some(item.file.file_name.as_str())),
+        _ => labels::enabled(&item.file.file_name, enabled),
+    }
+}
+
 pub fn enable(call: Call, cx: &mut App) -> Reply {
-    change_items(call, cx, None, |dirs, target, item| {
-        set_enabled(dirs, target, item, true)
-    })
+    change_items(
+        call,
+        cx,
+        None,
+        |item| enabled_label(item, true),
+        |dirs, target, item| set_enabled(dirs, target, item, true),
+    )
 }
 
 pub fn disable(call: Call, cx: &mut App) -> Reply {
-    change_items(call, cx, None, |dirs, target, item| {
-        set_enabled(dirs, target, item, false)
-    })
+    change_items(
+        call,
+        cx,
+        None,
+        |item| enabled_label(item, false),
+        |dirs, target, item| set_enabled(dirs, target, item, false),
+    )
 }
 
 #[derive(Deserialize)]
@@ -961,7 +1097,11 @@ pub fn update(call: Call, cx: &mut App) -> Reply {
                     },
                 ));
             }
-            Ok(chosen
+            let titles = chosen
+                .iter()
+                .map(|(_, file, _)| launcher_core::content::enabled_name(file))
+                .collect();
+            let requests = chosen
                 .into_iter()
                 .map(|(kind, _, version)| InstallRequest {
                     kind,
@@ -970,139 +1110,12 @@ pub fn update(call: Call, cx: &mut App) -> Reply {
                     install_dependencies: true,
                     force: false,
                 })
-                .collect())
+                .collect();
+            Ok((requests, Some(titles)))
         },
         refresh_kinds,
         cx,
     )
-}
-
-#[derive(Deserialize)]
-struct SwitchLoaderParams {
-    /// fabric, quilt, forge, neoforge or vanilla; the Content tab's offer (Fabric, or
-    /// Forge before 1.14) without it.
-    #[serde(default)]
-    loader: Option<String>,
-    #[serde(default)]
-    loader_version: Option<String>,
-    /// Turn off the mods made for another loader (the window asks).
-    #[serde(default)]
-    disable_mismatched: bool,
-}
-
-pub fn switch_loader(call: Call, cx: &mut App) -> Reply {
-    let params: SwitchLoaderParams = params!(call);
-    let control = call.control.clone();
-    let instance = tri!(control.instance_param(&call, cx));
-    tri!(can_change(&control, &instance, cx));
-    if control.instances.read(cx).loader_switch_running() {
-        return ready(Err(api_error(codes::BUSY, "A loader switch is running.")));
-    }
-    let Some(loader) = params.loader.clone() else {
-        // "Switch to Fabric" on a vanilla instance
-        if instance.loader != Loader::None {
-            return ready(Err(api_error(
-                codes::INVALID_PARAMS,
-                format!(
-                    "{} has {} already; name the loader to change to.",
-                    instance.name,
-                    instance.loader_label()
-                ),
-            )));
-        }
-        let seq = control.notices.borrow().last_seq();
-        let id = instance.id.clone();
-        control
-            .instances
-            .update(cx, |instances, cx| instances.switch_to_mod_loader(&id, cx));
-        let outbox = call.outbox.clone();
-        return cx.spawn(async move |cx| {
-            poll_until(
-                cx,
-                Some(&outbox),
-                Duration::from_millis(200),
-                Duration::from_secs(120),
-                |cx| (!control.instances.read(cx).loader_switch_running()).then_some(()),
-            )
-            .await?;
-            let notice = control
-                .notices
-                .borrow()
-                .find_since(seq, |n| matches!(n.kind, "notice" | "launch_failed"));
-            match notice {
-                Some(n) if n.is_failure() => Err(api_error(
-                    codes::FAILED,
-                    format!("{}: {}", n.title, n.message),
-                )),
-                Some(n) => Ok(json!({ "instance": id, "title": n.title, "message": n.message })),
-                None => Ok(json!({ "instance": id })),
-            }
-        });
-    };
-    let kind = tri!(parse_loader(&loader));
-    let installer = control.instances.read(cx).installer();
-    let dirs = control.instances.read(cx).content_dirs(&instance.id);
-    cx.spawn(async move |cx| {
-        let choice = match kind {
-            None => None,
-            Some(kind) => {
-                let game_version = instance.game_version.clone();
-                let list = cx
-                    .background_spawn(async move { installer.loader_versions(kind, &game_version).await })
-                    .await
-                    .map_err(|err| api_error(codes::UNAVAILABLE, err.to_string()))?;
-                let version = match &params.loader_version {
-                    Some(wanted) => list.iter().find(|v| &v.id == wanted || &v.display == wanted),
-                    None => list.iter().find(|v| v.recommended).or_else(|| list.first()),
-                }
-                .ok_or_else(|| {
-                    api_error(
-                        codes::NOT_FOUND,
-                        format!("{} has no such build for Minecraft {}.", kind.label(), instance.game_version),
-                    )
-                })?;
-                Some(launcher_core::game::loaders::LoaderChoice { kind, version: version.id.clone() })
-            }
-        };
-        let to = Loader::from_kind(choice.as_ref().map(|c| c.kind));
-        // the Settings tab's check before a loader change
-        let check = loader_change::check(&dirs, instance.loader, to, &instance.game_version)
-            .map_err(|err| api_error(codes::FAILED, err.to_string()))?;
-        let mismatched: Vec<String> = check.mismatched.iter().map(|m| m.file_name.clone()).collect();
-        if check.needs_confirmation() && !params.disable_mismatched && !super::confirmed(&call.params) {
-            return Err(api_error(
-                codes::CONFIRMATION_REQUIRED,
-                format!(
-                    "Changing the loader leaves {} mod(s) behind{}. Ask the user, then pass --yes to keep them as they are, or --disable-mismatched to turn them off.",
-                    mismatched.len(),
-                    if check.worlds_at_risk { " and may damage this instance's worlds (back them up first)" } else { "" }
-                ),
-            )
-            .with_data(json!({
-                "mismatched": check.mismatched.iter().map(|m| json!({ "file": m.file_name, "name": m.name, "made_for": m.made_for })).collect::<Vec<_>>(),
-                "worlds": check.worlds,
-                "worlds_at_risk": check.worlds_at_risk,
-            })));
-        }
-        if params.disable_mismatched {
-            loader_change::disable_mods(&dirs, &mismatched)
-                .map_err(|err| api_error(codes::FAILED, err.to_string()))?;
-        }
-        let mut changed = instance.clone();
-        changed.loader = to;
-        changed.loader_version = choice.map(|c| c.version);
-        let saved = control
-            .instances
-            .update(cx, |instances, cx| instances.save(&changed, cx));
-        failed(saved)?;
-        Ok(json!({
-            "instance": changed.id,
-            "loader": changed.loader,
-            "loader_version": changed.loader_version,
-            "disabled": if params.disable_mismatched { mismatched } else { Vec::new() },
-            "message": "The loader installs the next time the game starts.",
-        }))
-    })
 }
 
 // --- modpacks ---
@@ -1277,10 +1290,10 @@ fn follow_import(call: &Call, before: Option<u64>, seq: u64, label: String, cx: 
             (!watch.instances.read(cx).imports().iter().any(|j| j.id == import)).then_some(())
         })
         .await?;
-        let notice = watch
-            .notices
-            .borrow()
-            .find_since(seq, |n| matches!(n.kind, "notice" | "launch_failed"));
+        // its own notice: another import's or instance's can come first
+        let notice = watch.notices.borrow().find_since(seq, |n| {
+            n.import == Some(import) && matches!(n.kind, "notice" | "launch_failed")
+        });
         match notice {
             Some(n) if n.is_failure() => Err(api_error(codes::FAILED, format!("{}: {}", n.title, n.message))),
             Some(n) => Ok(cx.update(|cx| {
@@ -1354,12 +1367,6 @@ struct ModpackUpdateParams {
     /// A version id or number; the newer version `modpacks.check` finds without it.
     #[serde(default)]
     version: Option<String>,
-    #[serde(default = "yes")]
-    backup_worlds: bool,
-}
-
-fn yes() -> bool {
-    true
 }
 
 fn plan_json(prompt: &crate::instances::modpacks::UpdatePrompt) -> Value {
@@ -1442,10 +1449,13 @@ pub fn modpack_update(call: Call, cx: &mut App) -> Reply {
             let seq = control.notices.borrow().last_seq();
             let id = prompt.instance_id.clone();
             control.instances.update(cx, |instances, cx| {
-                instances.apply_modpack_update(prompt, params.backup_worlds, cx)
+                instances.apply_modpack_update(prompt, cx)
             });
             let Some(job) = control.instances.read(cx).modpack_update(&id) else {
-                let notice = control.notices.borrow().find_since(seq, |n| n.is_failure());
+                let notice = control
+                    .notices
+                    .borrow()
+                    .find_since(seq, |n| n.is_about(&id) && n.is_failure());
                 return ready(Err(match notice {
                     Some(n) => api_error(codes::FAILED, format!("{}: {}", n.title, n.message)),
                     None => api_error(codes::FAILED, "The update didn't start."),
@@ -1460,10 +1470,10 @@ pub fn modpack_update(call: Call, cx: &mut App) -> Reply {
                     watch.instances.read(cx).modpack_update(&id).is_none().then_some(())
                 })
                 .await?;
-                let notice = watch
-                    .notices
-                    .borrow()
-                    .find_since(seq, |n| matches!(n.kind, "notice" | "launch_failed"));
+                // its own notice: another instance's can come first
+                let notice = watch.notices.borrow().find_since(seq, |n| {
+                    n.is_about(&id) && matches!(n.kind, "notice" | "launch_failed")
+                });
                 match notice {
                     Some(n) if n.is_failure() => Err(api_error(codes::FAILED, format!("{}: {}", n.title, n.message))),
                     Some(n) => Ok(json!({ "instance": id, "title": n.title, "message": n.message, "plan": plan })),
@@ -1481,6 +1491,322 @@ pub fn modpack_update(call: Call, cx: &mut App) -> Reply {
             control.reply_job(&call, job, cx)
         });
         reply.await
+    })
+}
+
+#[derive(Deserialize)]
+struct ModpackAddParams {
+    #[serde(default)]
+    project: Option<String>,
+    #[serde(default)]
+    version: Option<String>,
+    /// A `.mrpack`, or a CurseForge pack's `.zip`, instead of a Modrinth project.
+    #[serde(default)]
+    file: Option<PathBuf>,
+}
+
+fn added_pack_json(pack: &AddedPack) -> Value {
+    let record = &pack.record;
+    json!({
+        "id": pack.id,
+        "title": record.title,
+        "version_number": record.version_number,
+        "project_id": (!record.project_id.is_empty()).then_some(&record.project_id),
+        "slug": (!record.slug.is_empty()).then_some(&record.slug),
+        "curseforge": record.curseforge.as_ref().map(|cf| json!({ "project_id": cf.project_id, "file_id": cf.file_id })),
+        "files": record.files.keys().collect::<Vec<_>>(),
+    })
+}
+
+fn add_plan_json(prompt: &AddPrompt) -> Value {
+    let plan = &prompt.plan;
+    let record = &plan.pack.record;
+    json!({
+        "instance": prompt.instance_id,
+        "server": prompt.server,
+        "pack": {
+            "title": record.title,
+            "version_number": record.version_number,
+            "project_id": (!record.project_id.is_empty()).then_some(&record.project_id),
+        },
+        "added": plan.added,
+        "configs": plan.configs,
+        "kept_instance_pack": plan.kept_instance_pack,
+        "already_there": plan.already_there,
+        "curseforge_website_only": prompt.blocked.len(),
+        "download_bytes": plan.download_size(),
+    })
+}
+
+/// The Modrinth modpack `reference` names, at `wanted` (a version id or number) or the
+/// newest release for the instance's Minecraft version and loader.
+async fn compatible_pack_version(
+    api: &Modrinth,
+    reference: &str,
+    wanted: Option<&str>,
+    instance: &Instance,
+) -> Result<(ModrinthProject, RawVersion), ErrorObject> {
+    let (project, linked) = resolve_project(api, reference).await?;
+    if project.project_type != "modpack" {
+        return Err(api_error(
+            codes::INVALID_PARAMS,
+            format!(
+                "{} is a {}, not a modpack. Install it with `content install`.",
+                project.title, project.project_type
+            ),
+        ));
+    }
+    if let (None, Some(version)) = (wanted, linked) {
+        return Ok((project, version));
+    }
+    let loaders: Vec<String> = instance
+        .loader
+        .kind()
+        .map(|k| vec![k.label().to_ascii_lowercase()])
+        .unwrap_or_default();
+    let games = vec![instance.game_version.clone()];
+    // a version asked for by name is looked for among all of them: adding it says
+    // why it doesn't fit
+    let versions = match wanted {
+        Some(_) => api.versions(&project.id, &[], &[]).await,
+        None => api.versions(&project.id, &loaders, &games).await,
+    }
+    .map_err(|err| api_error(codes::UNAVAILABLE, err.to_string()))?;
+    let version = match wanted {
+        Some(wanted) => versions
+            .into_iter()
+            .find(|v| v.id == wanted || v.version_number == wanted)
+            .ok_or_else(|| {
+                api_error(
+                    codes::NOT_FOUND,
+                    format!("{} has no version \"{wanted}\".", project.title),
+                )
+            })?,
+        None => default_modpack_version(versions).ok_or_else(|| {
+            api_error(
+                codes::NOT_FOUND,
+                format!(
+                    "{} has no version for Minecraft {} with {}.",
+                    project.title,
+                    instance.game_version,
+                    instance.loader.label()
+                ),
+            )
+        })?,
+    };
+    Ok((project, version))
+}
+
+/// Adds a modpack's files to an instance, next to its own (a server's pack, say): the
+/// "Add a modpack" dialog. Without `"confirm": true` it answers with the plan.
+pub fn modpack_add(call: Call, cx: &mut App) -> Reply {
+    let params: ModpackAddParams = params!(call);
+    let control = call.control.clone();
+    let instance = tri!(control.instance_param(&call, cx));
+    tri!(can_change(&control, &instance, cx));
+    if instance.loader.kind().is_none() {
+        return ready(Err(api_error(
+            codes::INVALID_PARAMS,
+            format!(
+                "{} has no mod loader, so a modpack can't be added to it.",
+                instance.name
+            ),
+        )));
+    }
+    let file = match (&params.project, &params.file) {
+        (Some(_), Some(_)) | (None, None) => {
+            return ready(Err(api_error(
+                codes::INVALID_PARAMS,
+                "Give a Modrinth project or a modpack file (.mrpack, or a CurseForge .zip).",
+            )));
+        }
+        (None, Some(file)) => {
+            tri!(absolute(file));
+            if !file.is_file() {
+                return ready(Err(api_error(
+                    codes::NOT_FOUND,
+                    format!("{} isn't a file.", file.display()),
+                )));
+            }
+            Some(file.clone())
+        }
+        (Some(_), None) => None,
+    };
+    let api = match file {
+        Some(_) => None,
+        None => Some(tri!(modrinth(&control, cx))),
+    };
+    let call = Rc::new(call);
+    cx.spawn(async move |cx| {
+        let source = match (file, api) {
+            (Some(file), _) => AddSource::File(file),
+            (None, Some(api)) => {
+                let reference = params.project.clone().unwrap_or_default();
+                let picked = compatible_pack_version(
+                    &api,
+                    &reference,
+                    params.version.as_deref(),
+                    &instance,
+                )
+                .await?;
+                AddSource::Modrinth(Box::new(picked))
+            }
+            (None, None) => return Err(api_error(codes::UNAVAILABLE, "Modrinth isn't available.")),
+        };
+        let id = instance.id.clone();
+        let planned = cx.update(|cx| {
+            control
+                .instances
+                .update(cx, |instances, cx| instances.plan_add_modpack(&id, source, cx))
+        });
+        let prompt = planned.await.map_err(|err| api_error(codes::FAILED, err))?;
+        let plan = add_plan_json(&prompt);
+        if !prompt.plan.changes_files() {
+            control.instances.update(cx, |instances, _| instances.discard_add(&prompt));
+            return Ok(json!({
+                "instance": id,
+                "message": "The instance has every file of this pack already; nothing was added.",
+                "plan": plan,
+            }));
+        }
+        if !super::confirmed(&call.params) {
+            // the window asks before adding; so does the API
+            control.instances.update(cx, |instances, _| instances.discard_add(&prompt));
+            return Err(api_error(
+                codes::CONFIRMATION_REQUIRED,
+                "This adds the pack's files to the instance as the plan says. Show the user the plan, then pass --yes.",
+            )
+            .with_data(json!({ "plan": plan })));
+        }
+        let reply = cx.update(|cx| -> Reply {
+            let seq = control.notices.borrow().last_seq();
+            control
+                .instances
+                .update(cx, |instances, cx| instances.apply_add_modpack(prompt, cx));
+            let Some(job) = control.instances.read(cx).modpack_update(&id) else {
+                let notice = control
+                    .notices
+                    .borrow()
+                    .find_since(seq, |n| n.is_about(&id) && n.is_failure());
+                return ready(Err(match notice {
+                    Some(n) => api_error(codes::FAILED, format!("{}: {}", n.title, n.message)),
+                    None => api_error(codes::FAILED, "Adding the modpack didn't start."),
+                }));
+            };
+            let progress = job.progress.clone();
+            let cancel = job.cancel.clone();
+            let watch = control.clone();
+            let plan = plan.clone();
+            let id = id.clone();
+            let work = cx.spawn(async move |cx| {
+                poll_until(cx, None, Duration::from_millis(300), Duration::from_secs(6 * 3600), |cx| {
+                    watch.instances.read(cx).modpack_update(&id).is_none().then_some(())
+                })
+                .await?;
+                // its own notice: another instance's can come first
+                let notice = watch.notices.borrow().find_since(seq, |n| {
+                    n.is_about(&id) && matches!(n.kind, "notice" | "launch_failed")
+                });
+                match notice {
+                    Some(n) if n.is_failure() => Err(api_error(codes::FAILED, format!("{}: {}", n.title, n.message))),
+                    Some(n) => {
+                        let added = cx.update(|cx| {
+                            watch.instances.read(cx).added_modpacks(&id).packs.iter().map(added_pack_json).collect::<Vec<_>>()
+                        });
+                        Ok(json!({ "instance": id, "title": n.title, "message": n.message, "plan": plan, "added_modpacks": added }))
+                    }
+                    None => Err(api_error(codes::CANCELLED, "Cancelled.")),
+                }
+            });
+            let job = control.start_job(
+                JobSpec::new("modpack_add", format!("Adding a modpack to {}", instance.name))
+                    .instance(&instance)
+                    .progress(Progress::Install(progress))
+                    .cancel(Cancel::Token(cancel)),
+                work,
+                cx,
+            );
+            control.reply_job(&call, job, cx)
+        });
+        reply.await
+    })
+}
+
+/// The modpacks added to an instance on top of its own, with the files each added.
+pub fn modpack_added(call: Call, cx: &mut App) -> Reply {
+    let control = call.control.clone();
+    let instance = tri!(control.instance_param(&call, cx));
+    let packs = control.instances.read(cx).added_modpacks(&instance.id);
+    ready(Ok(json!({
+        "instance": instance.id,
+        "packs": packs.packs.iter().map(added_pack_json).collect::<Vec<_>>(),
+    })))
+}
+
+#[derive(Deserialize)]
+struct ModpackRemoveParams {
+    /// The added pack's id, Modrinth project id or slug, CurseForge project id, or title.
+    pack: String,
+}
+
+/// Removes a pack added to an instance: the files it added that are as it added them.
+/// Without `"confirm": true` it answers with what it would remove and keep.
+pub fn modpack_remove(call: Call, cx: &mut App) -> Reply {
+    let params: ModpackRemoveParams = params!(call);
+    let control = call.control.clone();
+    let instance = tri!(control.instance_param(&call, cx));
+    tri!(can_change(&control, &instance, cx));
+    let packs = control.instances.read(cx).added_modpacks(&instance.id);
+    let Some(pack) = packs.find(&params.pack).cloned() else {
+        return ready(Err(api_error(
+            codes::NOT_FOUND,
+            format!(
+                "{} has no added modpack \"{}\". Added: {}.",
+                instance.name,
+                params.pack,
+                if packs.packs.is_empty() {
+                    "none".to_string()
+                } else {
+                    packs
+                        .packs
+                        .iter()
+                        .map(|p| format!("{} ({})", p.record.title, p.id))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                }
+            ),
+        )));
+    };
+    let dirs = control.instances.read(cx).content_dirs(&instance.id);
+    let preview = addon::removal(&dirs, &pack.id).unwrap_or_default();
+    let plan = json!({
+        "instance": instance.id,
+        "pack": added_pack_json(&pack),
+        "removes": preview.removed,
+        "keeps_changed": preview.kept_changed,
+    });
+    if !super::confirmed(&call.params) {
+        return ready(Err(api_error(
+            codes::CONFIRMATION_REQUIRED,
+            format!(
+                "This deletes the files {} added (not moved to the Trash). Show the user the plan, then pass --yes.",
+                pack.record.title
+            ),
+        )
+        .with_data(json!({ "plan": plan }))));
+    }
+    let id = instance.id.clone();
+    let removed = control.instances.update(cx, |instances, cx| {
+        instances.remove_added_modpack(&id, &pack.id, cx)
+    });
+    ready(match removed {
+        Ok(outcome) => Ok(json!({
+            "instance": id,
+            "pack": added_pack_json(&pack),
+            "removed": outcome.removed,
+            "kept_changed": outcome.kept_changed,
+        })),
+        Err(err) => Err(api_error(codes::FAILED, err)),
     })
 }
 
@@ -1635,22 +1961,47 @@ pub fn import_code(call: Call, cx: &mut App) -> Reply {
         let instances = control.instances.read(cx);
         super::instances::instance_json(&instance, instances, control.servers.read(cx))
     };
-    let Some(api) = api else {
-        return ready(Ok(
-            json!({ "instance": summary, "installed": [], "failed": [] }),
-        ));
+    // The instance's first image comes before any of the code's content (see
+    // `Instances::create_from_share_code`).
+    let created_label = labels::created(&instance.name);
+    let installing = match api {
+        Some(api) => {
+            context(&control, &instance, cx).map(|(dirs, target)| Some((api, dirs, target)))
+        }
+        None => Ok(None),
     };
-    let (dirs, target) = tri!(context(&control, &instance, cx));
+    let (api, dirs, target) = match installing {
+        Ok(Some(installing)) => installing,
+        other => {
+            control.instances.update(cx, |instances, cx| {
+                instances.record_created(&instance.id, created_label, cx)
+            });
+            return ready(
+                other.map(|_| json!({ "instance": summary, "installed": [], "failed": [] })),
+            );
+        }
+    };
     let downloader = control.instances.read(cx).content_downloader();
     let progress = Arc::new(InstallProgress::default());
     let cancel = CancelToken::new();
     let (job_progress, job_cancel) = (progress.clone(), cancel.clone());
     let refresh = Rc::downgrade(&control);
     let id = instance.id.clone();
+    let images = control.instances.read(cx).images();
+    let image_id = id.clone();
+    // Play waits while the code's content is installed, as it does for the Content tab's.
+    let busy = control.instances.read(cx).mark_files_busy(&id);
     let work = cx.spawn(async move |cx| {
         let outcome = cx
             .background_spawn(async move {
-                share::install(&api, &downloader, &dirs, &target, &code, &progress, &cancel).await
+                let _busy = busy;
+                crate::instances::record_created(&images, &image_id, &created_label);
+                let operation = images.begin(&image_id, labels::SHARE_CODE);
+                let outcome =
+                    share::install(&api, &downloader, &dirs, &target, &code, &progress, &cancel)
+                        .await;
+                operation.finish_partly(&outcome);
+                outcome
             })
             .await;
         if let Some(control) = refresh.upgrade() {

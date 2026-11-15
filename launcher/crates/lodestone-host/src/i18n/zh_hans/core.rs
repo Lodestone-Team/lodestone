@@ -28,19 +28,14 @@ pub fn text(message: M) -> &'static str {
         }
         M::TurnOff => "关闭",
         M::CodeExecution => "代码执行",
-        M::CodeExecutionHint => "宏、Atom 服务器、扩展、服务器脚本和自定义 Java 命令。",
-        M::CodeExecutionHintJavaOnly => "自定义 Java 命令。",
+        M::CodeExecutionHint => "自定义 Java 命令。",
         M::CodeExecutionLocked => {
             "已被此核心的管理员锁定（LODESTONE_DISABLE_CODE_EXECUTION 或 --disable-code-execution）。"
         }
         M::CodeExecutionOffTitle => "关闭代码执行？",
         M::CodeExecutionOffBody => {
-            "正在运行的宏和 Atom 服务器将被停止。在你重新开启代码执行之前，宏、Atom 服务器、扩展、服务器脚本和自定义 Java 命令都不会在此核心上运行。任何内容都不会自动重新启动。"
-        }
-        M::CodeExecutionOffBodyJavaOnly => {
             "在你重新开启代码执行之前，自定义 Java 命令不会在此核心上运行。任何内容都不会自动重新启动。"
         }
-        M::NoScripting => "此核心构建时未包含脚本支持（Deno），因此无法使用宏。",
         M::LanHttp => "允许通过明文 HTTP 进行局域网访问",
         M::LanHttpHint => "未加密。你网络中的其他人可以读取密码。",
         M::LanHttpConfirmTitle => "允许其他设备使用明文 HTTP？",
@@ -106,8 +101,6 @@ pub fn text(message: M) -> &'static str {
         M::PermissionsLead => "{username} 在此核心上可以执行的操作。",
         M::UnsafePermissions => "不安全权限",
         M::UnsafePermissionsLead => "关闭安全模式后才能授予非所有者。",
-        M::OwnerOnly => "宏、扩展和 Atom 服务器",
-        M::OwnerOnlyHint => "仅限所有者。Docker 服务器使用普通权限。",
         M::UsersOwnerOnly => "只有所有者可以管理用户。",
         M::You => "你",
         M::Admin => "管理员",
@@ -181,6 +174,10 @@ pub fn text(message: M) -> &'static str {
         M::Appearance => "外观",
         M::AppearanceLead => "保存在这台电脑上，而不是核心上。",
         M::ColoredConsole => "彩色控制台",
+        M::Startup => "启动",
+        M::StartAtLogin => "登录时打开 Lodestone Host",
+        M::StartAtLoginHint => "登录这台电脑时，它会在后台打开，并启动设为自动启动的服务器。",
+        M::StartAtLoginFailed => "无法更改启动设置：{error}",
         M::Language => "语言",
         M::LanguageAuto => "系统默认（{language}）",
         M::Theme => "主题",
@@ -241,8 +238,6 @@ pub fn text(message: M) -> &'static str {
         M::KeyUnsafeSafeMode => {
             "安全模式已开启，因此在核心设置中关闭安全模式之前，核心会拒绝为自定义访问的密钥授予这些权限。"
         }
-        M::KeyOwnerOnly => "宏、扩展和 Atom 服务器",
-        M::KeyOwnerOnlyHint => "只有完全访问的密钥才能使用宏、扩展和 Atom 服务器。",
         M::NewKeyTitle => "已创建 API 密钥“{name}”",
         M::NewKeyCopyNow => "请立即复制此密钥。之后将无法再次查看。",
         M::NewKeyUseWithCli => "在 Lodestone CLI 中使用：",
@@ -273,6 +268,7 @@ pub fn text(message: M) -> &'static str {
         M::EventStopped => "服务器 {name} 已停止！",
         M::EventCrashed => "服务器 {name} 出现错误！",
         M::WarningToast => "警告：某个服务器发出了警告。这不应该发生，请向开发者报告此问题。",
+        M::EventModpackUpdate => "{name} 的 {pack} {version} 已发布",
         M::EventWarning => "服务器 {name} 发出了警告",
         M::EventError => "服务器 {name} 出现错误",
         M::PlayersJoined => "{players} 加入了 {name}",
@@ -281,11 +277,7 @@ pub fn text(message: M) -> &'static str {
         M::PlayerMessage => "{player} 在 {name} 上说：{message}",
         M::EventApiKeyCreated => "已创建 API 密钥“{name}”",
         M::EventApiKeyRevoked => "已吊销 API 密钥“{name}”",
-        M::MacroStarted => "宏 {pid} 已在 {server} 上启动",
-        M::MacroDetached => "宏 {pid} 已在 {server} 上分离",
-        M::MacroStopped => "宏 {pid} 已在 {server} 上停止，状态为 {status}",
         M::LoadFailed => "无法加载通知：{error}",
-        M::CoreFallback => "核心",
         M::CoreFailedNotice => "Lodestone Core 无法启动：{error}",
         M::UpdatesTitle => "更新",
         M::UpdatesLead => "这台电脑上的 Lodestone Host。Lodestone Core 随之更新。",
@@ -293,13 +285,9 @@ pub fn text(message: M) -> &'static str {
         M::UpdateAutomatically => "自动更新",
         M::UpdateAutomaticallyHint => "在后台下载新构建。",
         M::BetaBuilds => "测试版构建",
-        M::BetaBuildsHint => {
-            "抢先体验新功能。测试版构建可能有错误。关闭后会保留当前构建，直到有更新的稳定版构建。"
-        }
+        M::BetaBuildsHint => "测试版构建可能有错误。",
         M::DeveloperBuilds => "开发者构建",
-        M::DeveloperBuildsHint => {
-            "供 Lodestone 开发者使用：更新到开发中的构建，可能无法正常工作。关闭后会保留当前构建，直到有更新的正式发布。"
-        }
+        M::DeveloperBuildsHint => "供 Lodestone 开发者使用：更新到开发版构建，可能有错误。",
         M::BuildNumber => "构建 {build}",
         M::BuildNumberCommit => "构建 {build} · {commit}",
         M::DevelopmentBuild => "开发构建",
@@ -317,6 +305,24 @@ pub fn text(message: M) -> &'static str {
             "重启 Lodestone Host 会先停止这些服务器。设为自动启动的服务器会在重启后再次启动。"
         }
         M::RestartUpdateConfirm => "停止服务器并重启",
+        M::DeveloperSection => "开发者",
+        M::ConnectService => "Connect 服务（中继）",
+        M::ConnectServiceHint => "仅供测试。邀请链接和好友列表使用此服务。更改后会重启核心。",
+        M::ConnectServiceInUse => "开发中继：{service}",
+        M::ConnectServiceEnv => {
+            "已设置 {var}，因此核心使用 {service}。取消设置后，此设置才会生效。"
+        }
+        M::ConnectServiceScheme => "地址需以 https:// 开头。",
+        M::ConnectServiceInsecure => {
+            "请使用 https://。只有本机上的服务（127.0.0.1 或 localhost）可以使用 http://。"
+        }
+        M::ConnectServiceExtra => "只输入地址，不要包含路径、查询参数或用户名。",
+        M::ConnectServiceAddress => "这不是有效的地址。",
+        M::SaveAndRestartCore => "保存并重启核心",
+        M::RestartCoreTitle => "重启核心？",
+        M::RestartCoreBody => {
+            "更改 Connect 服务会重启 Lodestone Core，它会先停止这些服务器。设为自动启动的服务器会在重启后再次启动。"
+        }
         M::UpdateFailed => "无法更新：{error}",
         M::CheckForUpdates => "立即检查",
         M::DownloadUpdate => "下载",
@@ -355,6 +361,34 @@ pub fn text(message: M) -> &'static str {
         M::SignIn => "登录",
         M::RemoveCore => "移除",
         M::RemoteSignedOut => "你已从 {name} 退出登录。Lodestone Host 已回到这台电脑的核心。",
+        M::RemoteAccess => "允许其他设备访问",
+        M::RemoteAccessHintOff => {
+            "关闭：只有这台电脑上的应用可以使用这个核心（Lodestone Host、Lodestone Launcher 和 Lodestone CLI）。打开后可以在其他设备上使用网页控制台、添加用户或创建 API 密钥。无论开关如何，都可以分享服务器。"
+        }
+        M::RemoteAccessHintOn => "其他设备可以通过 HTTPS 用用户名和密码登录这个核心。",
+        M::RemoteAccessOffTitle => "关闭其他设备的访问？",
+        M::RemoteAccessOffBody => {
+            "只有这台电脑上的应用可以使用这个核心。其他设备、其他用户和在别处使用的 API 密钥将无法使用，直到你重新打开。分享服务器仍然可用。"
+        }
+        M::LocalClaimNeedsPassword => "请先设置所有者账户：没有密码时，这是唯一的登录方式。",
+        M::OwnerAccountTitle => "设置所有者账户以分享这个核心",
+        M::OwnerAccountLead => {
+            "其他设备使用用户名和密码登录。请选择你将在网页控制台和其他设备上使用的用户名和密码。这台电脑上的应用无需它们也能继续登录。"
+        }
+        M::OwnerAccountButton => "设置并允许访问",
+        M::OwnerAccountDone => "所有者账户已设置。其他设备现在可以登录这个核心。",
+        M::PasswordTooShort => "密码至少需要 12 个字符。",
+        M::SetPassword => "设置密码",
+        M::NoPasswordYet => "还没有密码。只有这台电脑上的应用可以使用这个核心。",
+        M::ModpackChecks => "检查整合包更新",
+        M::ModpackChecksHint => {
+            "每隔几小时在 Modrinth 上查找服务器所用整合包的新版本，有新版本时通知。关闭后，服务器“模组”标签中的“检查更新”仍可使用。"
+        }
+        M::ModpackChecksKeywords => "整合包 更新 通知 Modrinth 自动",
+        M::RemoteAccessKeywords => "远程 局域网 网络 共享",
+        M::DomainKeywords => "地址 主机名 网址",
+        M::OpenPortKeywords => "端口转发 路由器 UPnP 防火墙",
+        M::ThemeKeywords => "深色 浅色 模式 外观 颜色",
     }
 }
 

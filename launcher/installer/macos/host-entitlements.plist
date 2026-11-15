@@ -4,7 +4,7 @@
   Entitlements for Lodestone Host and the Lodestone Core inside it, signed with a
   Developer ID, which run with the hardened runtime
   (launcher/scripts/publish_release.py, for the Host). Neither needs an exception:
-  the core is built without Deno, so nothing compiles code at run time, and the Java
+  the core runs no scripts, so nothing compiles code at run time, and the Java
   that runs Minecraft servers is a program of its own, with its own signature.
 -->
 <plist version="1.0">

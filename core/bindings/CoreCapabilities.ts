@@ -6,14 +6,14 @@
  */
 export type CoreCapabilities = { 
 /**
- * Macros, tasks, instance scripts (prelaunch) and extensions, which run on the Deno
- * runtime. False when the core was built without the `deno` feature. Whether code
- * may run right now is the separate code execution setting.
+ * Macros, tasks, instance scripts (prelaunch) and extensions. They ran on the Deno
+ * runtime, which Lodestone Core no longer has, so this is always false. Kept so that
+ * clients that read it hide those features instead of assuming an older core.
  */
 macros: boolean, 
 /**
- * Atom (generic TypeScript) instances, which also run on Deno. False when the core
- * was built without the `deno` feature. Docker instances do not need it.
+ * Atom (generic TypeScript) instances, which also ran on Deno. Always false, like
+ * `macros`. Docker instances do not need it.
  */
 generic_instances: boolean, 
 /**

@@ -1,5 +1,5 @@
 //! How a server's page looks: its state and controls, the console with the
-//! dashboard's colours, the chat box, the players, and the Minecraft account link.
+//! dashboard's colours, the chat box, and the Minecraft account link.
 
 use crate::components::RichText;
 use crate::skin::Skinned;
@@ -19,16 +19,17 @@ use lodestone_minecraft::console_format::{
 use super::{
     core_error,
     detail::{DetailEvent, EulaState, LinkState, ServerDetail, StreamStatus},
-    loader_label, status_label,
+    loader_label, power_state, status_label,
 };
 use crate::{
     components::{
-        Button, ButtonSize, ButtonVariant, Icon, LoadingDots,
+        Button, ButtonSize, ButtonVariant, Icon, LoadingDots, PowerButtons,
         a11y::{Accessible, Role},
     },
     i18n::{CommonMsg, ServersMsg as M, t, tr},
     theme::{self, Color, colors, fonts, leading, radius, text, weights},
 };
+use launcher_core::cores::admin::instances::Power;
 
 /// The dashboard's 16 console colours in its dark theme (`--console-0` … in
 /// `globals.css`), which the launcher's console uses.
@@ -350,20 +351,24 @@ impl ServerDetail {
             (loader, None) => format!(" · {}", loader_label(*loader)),
         };
         let access = self.access.unwrap_or_default();
-        let stopped = matches!(server.state, ServerState::Stopped | ServerState::Error);
         let status = status_label(server);
+        // the Host's power buttons, with what this device's key may do; the top bar's
+        // back arrow goes back to the list
+        let power = {
+            let press = cx.listener(|_, power: &Power, _, cx| cx.emit(DetailEvent::Power(*power)));
+            PowerButtons::new("detail-power", power_state(server.state))
+                .allow(move |power| match power {
+                    Power::Start => access.start,
+                    Power::Restart => access.start && access.stop,
+                    Power::Stop | Power::Kill => access.stop,
+                })
+                .on_power(move |power, window, cx| press(&power, window, cx))
+        };
         div()
             .flex()
             .flex_row()
             .items_center()
             .gap_4()
-            .child(
-                Button::new("detail-back", t(M::ServersTitle))
-                    .variant(ButtonVariant::Ghost)
-                    .size(ButtonSize::Slim)
-                    .icon(Icon::ArrowLeft)
-                    .on_click(cx.listener(|this, _, _, cx| this.close(cx))),
-            )
             .child(
                 div()
                     .flex()
@@ -409,19 +414,24 @@ impl ServerDetail {
                     )
                     .child(small(status).text_color(crate::theme::ink::secondary())),
             )
-            .when(access.start && stopped, |this| {
-                this.child(
-                    Button::new("detail-start", t(CommonMsg::Start))
-                        .size(ButtonSize::Slim)
-                        .on_click(cx.listener(|_, _, _, cx| cx.emit(DetailEvent::Start))),
-                )
+            // the state above comes from the event stream: say when it isn't live
+            .when(self.events_status != StreamStatus::Live, |this| {
+                this.child(div().flex_none().child(status_line(&self.events_status)))
             })
-            .when(access.stop && !stopped, |this| {
+            .when(!power.is_empty(), |this| {
+                this.child(div().flex_none().child(power))
+            })
+            // signed in: the world can come as an instance (the core checks that this
+            // user may read the server's files)
+            .when(self.access.is_some(), |this| {
                 this.child(
-                    Button::new("detail-stop", t(CommonMsg::Stop))
-                        .size(ButtonSize::Slim)
-                        .variant(ButtonVariant::Danger)
-                        .on_click(cx.listener(|_, _, _, cx| cx.emit(DetailEvent::Stop))),
+                    div().flex_none().child(
+                        Button::new("server-download-world", t(M::DownloadWorldAction))
+                            .size(ButtonSize::Slim)
+                            .on_click(
+                                cx.listener(|_, _, _, cx| cx.emit(DetailEvent::DownloadWorld)),
+                            ),
+                    ),
                 )
             })
             .into_any_element()
@@ -459,7 +469,7 @@ impl ServerDetail {
                 .child(
                     div()
                         .font_weight(weights::BOLD.into())
-                        .text_color(colors::GRAY_FADED.opacity(50))
+                        .text_color(crate::theme::ink::faint())
                         .child(t(M::ConsoleNotShown)),
                 )
                 .child(
@@ -480,7 +490,7 @@ impl ServerDetail {
                 .items_center()
                 .justify_center()
                 .size_full()
-                .text_color(colors::GRAY_FADED.opacity(30))
+                .text_color(crate::theme::ink::faint())
                 .font_weight(weights::BOLD.into())
                 .child(t(M::OutputAppearsHere))
                 .into_any_element()
@@ -541,7 +551,7 @@ impl ServerDetail {
                     .text_color(if self.chat_error.is_some() {
                         colors::RED_200
                     } else {
-                        colors::GRAY_550
+                        crate::theme::ink::faint()
                     }),
                 )
                 .into_any_element()
@@ -555,7 +565,7 @@ impl ServerDetail {
             } else {
                 String::new()
             })
-            .text_color(colors::GRAY_550)
+            .text_color(crate::theme::ink::faint())
             .into_any_element()
         };
 
@@ -606,50 +616,6 @@ impl ServerDetail {
             )
             .child(chat)
             .into_any_element()
-    }
-
-    fn players_card(&self) -> AnyElement {
-        let mut card = card().child(
-            div()
-                .flex()
-                .flex_row()
-                .items_center()
-                .justify_between()
-                .child(card_title(t(M::Players)))
-                .child(status_line(&self.events_status)),
-        );
-        card = match &self.players {
-            None => card.child(LoadingDots),
-            Some(players) if players.is_empty() => card.child(
-                small(t(if self.server.state == ServerState::Running {
-                    M::NoOneOnline
-                } else {
-                    M::ServerNotRunning
-                }))
-                .text_color(crate::theme::ink::muted()),
-            ),
-            Some(players) => card.children(players.iter().enumerate().map(|(index, player)| {
-                div()
-                    .id(("player", index))
-                    .accessible(
-                        Role::ListItem,
-                        format!("player-{index}"),
-                        player.name.clone(),
-                    )
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .gap_2()
-                    .child(div().size(px(6.)).rounded_full().bg(colors::GREEN_200))
-                    .child(
-                        div()
-                            .truncate()
-                            .text_color(crate::theme::ink::text())
-                            .child(player.name.clone()),
-                    )
-            })),
-        };
-        card.into_any_element()
     }
 
     fn account_card(&self, cx: &mut Context<Self>) -> AnyElement {
@@ -708,7 +674,7 @@ impl ServerDetail {
                     .full_width()
                     .on_click(cx.listener(|this, _, _, cx| this.link_selected(cx))),
                 )
-                .child(small(t(M::LinkCheckHint)).text_color(colors::GRAY_550)),
+                .child(small(t(M::LinkCheckHint)).text_color(crate::theme::ink::faint())),
             Some(_) => card,
             None if self.selected_is_offline(cx) => {
                 card.child(small(t(M::OfflineCantLink)).text_color(crate::theme::ink::muted()))
@@ -732,7 +698,6 @@ impl Render for ServerDetail {
         let header = self.header(cx);
         let eula = self.eula_card(cx);
         let console = self.console_card(cx);
-        let players = self.players_card();
         let account = self.account_card(cx);
         div()
             .id("server-detail")
@@ -762,7 +727,6 @@ impl Render for ServerDetail {
                             .w(px(280.))
                             .flex_none()
                             .overflow_y_scroll()
-                            .child(players)
                             .child(account),
                     ),
             )

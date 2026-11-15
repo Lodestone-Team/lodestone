@@ -3,11 +3,13 @@
 //! The parts, in the order a launch uses them:
 //! - [`platform`]: the OS, the Java's architecture, Rosetta and memory;
 //! - [`version`] and [`rules`]: a version's details file and its `rules`;
-//! - [`libraries`], [`assets`], [`runtime`]: what to download, and where it goes;
+//! - [`libraries`], [`assets`], [`runtime`], [`zulu`]: what to download, and where it
+//!   goes;
 //! - [`mojang`] and [`download`]: the URL policy and the download engine;
 //! - [`install`]: all of the above for one version;
 //! - [`natives`], [`launch`], [`process`]: the natives, the command line, the process;
 //! - [`log4j`] and [`crash`]: the game's output and what went wrong.
+//! - [`past_logs`]: the logs and crash reports left on disk.
 
 pub mod assets;
 pub mod crash;
@@ -19,9 +21,11 @@ pub mod loaders;
 pub mod log4j;
 pub mod mojang;
 pub mod natives;
+pub mod past_logs;
 pub mod platform;
 pub mod process;
 pub mod record;
 pub mod rules;
 pub mod runtime;
 pub mod version;
+pub mod zulu;

@@ -347,3 +347,35 @@ fn the_server_can_drop_a_client_or_all_of_them() {
     assert!(second.call("echo", json!({ "n": 5 })).is_err());
     assert!(UnixStream::connect(&path).is_err());
 }
+
+/// Connections that arrive together are all let in (on Windows, by one wait on the
+/// thread pool), and the socket can be served again after a shutdown, as when
+/// command-line connections are turned off and on.
+#[test]
+fn bursts_of_clients_are_let_in_and_the_server_can_start_again() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("control.sock");
+    for round in 0..3 {
+        let fake = Arc::new(Fake::default());
+        let mut handle = Server::bind(&path).unwrap().spawn(fake.clone()).unwrap();
+        let clients: Vec<_> = (0..24)
+            .map(|n| {
+                let path = path.clone();
+                std::thread::spawn(move || {
+                    let mut client = Client::connect(&path).unwrap();
+                    let answer = client.call("echo", json!({ "n": n })).unwrap();
+                    assert_eq!(answer, Ok(json!({ "n": n })));
+                    client
+                })
+            })
+            .collect();
+        // still connected while the server shuts down
+        let clients: Vec<_> = clients.into_iter().map(|c| c.join().unwrap()).collect();
+        wait_until(|| fake.connected.lock().unwrap().len() == 24);
+        assert_eq!(handle.connections(), 24, "round {round}");
+        handle.shutdown();
+        wait_until(|| fake.disconnected.lock().unwrap().len() == 24);
+        assert!(UnixStream::connect(&path).is_err());
+        drop(clients);
+    }
+}

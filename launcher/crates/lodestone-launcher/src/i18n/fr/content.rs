@@ -6,14 +6,21 @@ pub fn text(message: M) -> &'static str {
         M::KindResourcePacks => "Packs de ressources",
         M::KindShaders => "Shaders",
         M::Vanilla => "Vanilla",
-        M::SearchInstalledOrModrinth => "Rechercher parmi les contenus installés ou sur Modrinth",
+        M::ViewInstalled => "Installés",
+        M::ViewModrinth => "Modrinth",
+        M::ViewCurseForge => "CurseForge",
+        M::SearchInstalled => "Rechercher parmi les contenus installés",
+        M::SearchModrinth => "Rechercher sur Modrinth",
+        M::SearchCurseForge => "Rechercher sur CurseForge",
+        M::LookingForMore => "Envie de nouveautés ?",
+        M::BrowseModrinth => "Parcourir Modrinth",
+        M::BrowseCurseForge => "Parcourir CurseForge",
+        M::BackToTop => "Revenir en haut",
+        M::AlreadyInstalled => "Installé",
+        M::ShowInstalled => "Afficher les installés",
         M::InstalledCount => "Installés · {count}",
         M::EnabledCount => "Activés · {count} · le pack du haut l’emporte en cas de chevauchement",
         M::AvailableCount => "Disponibles · {count}",
-        M::OnModrinthCount => "Sur Modrinth · {count}",
-        M::OnModrinth => "Sur Modrinth",
-        M::OnCurseForgeCount => "Sur CurseForge · {count}",
-        M::OnCurseForge => "Sur CurseForge",
         M::NoInstalledMatch => {
             "Installés · {count} · Aucun élément installé ne correspond ({kind})."
         }
@@ -53,6 +60,9 @@ pub fn text(message: M) -> &'static str {
         M::AddToResourcePacks => "Ajouter aux packs de ressources",
         M::AddToShaders => "Ajouter aux shaders",
 
+        M::LinkIsDataPack => {
+            "Ce lien mène à un pack de données. Les packs de données appartiennent à un monde\u{a0}: ajoutez-le depuis les packs de données du monde, dans l’onglet Mondes."
+        }
         M::LinkNotInstallable => {
             "Ce lien mène à un projet de type «\u{a0}{kind}\u{a0}», que Lodestone Launcher n’installe pas encore."
         }
@@ -86,12 +96,6 @@ pub fn text(message: M) -> &'static str {
 
         M::ModsNeedLoader => "Les mods ont besoin d’un chargeur de mods",
         M::ShadersNeedLoader => "Les shaders ont besoin d’un chargeur de mods",
-        M::VanillaSwitchMods => {
-            "Cette instance est un Minecraft vanilla. Les mods passent par un chargeur de mods comme {loader}\u{202F}; changer de chargeur conserve vos mondes et vos paramètres, et {loader} s’installera la prochaine fois que vous appuierez sur Jouer."
-        }
-        M::VanillaSwitchShaders => {
-            "Cette instance est un Minecraft vanilla. Les shaders passent par un chargeur de mods comme {loader}\u{202F}; changer de chargeur conserve vos mondes et vos paramètres, et {loader} s’installera la prochaine fois que vous appuierez sur Jouer."
-        }
         M::VanillaNoLoaderMods => {
             "Cette instance est un Minecraft {version} vanilla. Les mods ont besoin d’un chargeur de mods, et aucun de ceux que Lodestone Launcher prend en charge ne fonctionne sur cette version\u{a0}: Fabric commence à la 1.14, et Forge n’a pas de build pour elle. Une nouvelle instance sur une version plus récente pourra les utiliser."
         }
@@ -110,8 +114,14 @@ pub fn text(message: M) -> &'static str {
         M::VanillaCheckingShaders => {
             "Cette instance est un Minecraft vanilla. Les shaders passent par un chargeur de mods\u{202F}; recherche de celui qui fonctionne sur Minecraft {version}…"
         }
-        M::SwitchTo => "Passer à {loader}",
         M::NewFabricInstance => "Nouvelle instance Fabric…",
+        M::VanillaCopyMods => {
+            "Cette instance est un Minecraft vanilla. Les mods passent par un chargeur de mods comme {loader}, et une instance garde le chargeur choisi à sa création. Une copie avec {loader} peut reprendre vos mondes et vos paramètres."
+        }
+        M::VanillaCopyShaders => {
+            "Cette instance est un Minecraft vanilla. Les shaders passent par un chargeur de mods comme {loader}, et une instance garde le chargeur choisi à sa création. Une copie avec {loader} peut reprendre vos mondes et vos paramètres."
+        }
+        M::CopyWith => "Copier avec {loader}…",
 
         M::ShaderModUsingPack => "{shader_mod} utilise {pack}.",
         M::ShaderModUsingBuiltIn => "{shader_mod} utilise ses shaders intégrés.",
@@ -144,14 +154,77 @@ pub fn text(message: M) -> &'static str {
         M::SortUpdated => "Mis à jour",
         M::SearchingModrinth => "Recherche sur Modrinth",
         M::NothingMatches => "Aucun résultat sur Modrinth.",
-        M::ModrinthPromptMods => "Recherchez ci-dessus pour trouver des mods sur Modrinth.",
-        M::ModrinthPromptResourcePacks => {
-            "Recherchez ci-dessus pour trouver des packs de ressources sur Modrinth."
+        M::Filters => "Filtres",
+        M::FiltersCount => "Filtres · {count}",
+        M::FilterCategories => "Catégories",
+        M::FilterFeatures => "Fonctionnalités",
+        M::FilterResolution => "Résolution",
+        M::FilterPerformance => "Impact sur les performances",
+        M::FilterEnvironment => "Où l’installer",
+        M::EnvAny => "Tous",
+        M::EnvClientOnly => "Client uniquement",
+        M::EnvServerToo => "Requis aussi sur le serveur",
+        M::FilterEnvironmentHint => {
+            "Les mods client uniquement fonctionnent sur n’importe quel serveur ; les autres doivent aussi être installés sur le serveur."
         }
-        M::ModrinthPromptShaderPacks => {
-            "Recherchez ci-dessus pour trouver des packs de shaders sur Modrinth."
-        }
-        M::ModrinthPromptTarget => "Les résultats compatibles avec {target} s’affichent ici.",
+        M::FilterOther => "Autres",
+        M::FilterOpenSource => "Open source uniquement",
+        M::ClearFilters => "Effacer les filtres",
+        M::FiltersModrinthOnly => "Ces filtres s’appliquent aux résultats de Modrinth.",
+        M::CatAdventure => "Aventure",
+        M::CatCursed => "Maudit",
+        M::CatDecoration => "Décoration",
+        M::CatEconomy => "Économie",
+        M::CatEquipment => "Équipement",
+        M::CatFood => "Nourriture",
+        M::CatGameMechanics => "Mécaniques de jeu",
+        M::CatLibrary => "Bibliothèque",
+        M::CatMagic => "Magie",
+        M::CatManagement => "Gestion",
+        M::CatMinigame => "Mini-jeu",
+        M::CatMobs => "Créatures",
+        M::CatOptimization => "Optimisation",
+        M::CatSocial => "Social",
+        M::CatStorage => "Stockage",
+        M::CatTechnology => "Technologie",
+        M::CatTransportation => "Transport",
+        M::CatUtility => "Utilitaire",
+        M::CatWorldGen => "Génération du monde",
+        M::CatCombat => "Combat",
+        M::CatModded => "Moddé",
+        M::CatRealistic => "Réaliste",
+        M::CatSimplistic => "Simpliste",
+        M::CatThemed => "Thématique",
+        M::CatTweaks => "Ajustements",
+        M::CatVanillaLike => "Proche du vanilla",
+        M::CatAudio => "Audio",
+        M::CatBlocks => "Blocs",
+        M::CatCoreShaders => "Shaders de base",
+        M::CatEntities => "Entités",
+        M::CatEnvironment => "Environnement",
+        M::CatFonts => "Polices",
+        M::CatGui => "Interface",
+        M::CatItems => "Objets",
+        M::CatLocale => "Langue",
+        M::CatModels => "Modèles",
+        M::CatResolutionLow => "8x ou moins",
+        M::CatResolutionHigh => "512x ou plus",
+        M::CatCartoon => "Cartoon",
+        M::CatFantasy => "Fantastique",
+        M::CatSemiRealistic => "Semi-réaliste",
+        M::CatAtmosphere => "Atmosphère",
+        M::CatBloom => "Bloom",
+        M::CatColoredLighting => "Éclairage coloré",
+        M::CatFoliage => "Feuillage",
+        M::CatPathTracing => "Path tracing",
+        M::CatPbr => "PBR",
+        M::CatReflections => "Reflets",
+        M::CatShadows => "Ombres",
+        M::CatPotato => "Patate",
+        M::CatLow => "Faible",
+        M::CatMedium => "Moyen",
+        M::CatHigh => "Élevé",
+        M::CatScreenshot => "Capture d’écran",
         M::NothingOnCurseForge => "Aucun résultat sur CurseForge.",
         M::PageOf => "Page {page} sur {pages}",
         M::ByAuthor => "par {author}",
@@ -165,6 +238,14 @@ pub fn text(message: M) -> &'static str {
         M::ViewOnModrinth => "Voir sur Modrinth",
         M::Versions => "Versions",
         M::Description => "Description",
+        M::Gallery => "Galerie",
+        M::ProjectPage => "Page du projet",
+        M::Files => "Fichiers",
+        M::ClosePage => "Fermer la page",
+        M::ShowPageOf => "Afficher la page de {name}",
+        M::LoadingDescription => "Chargement de la description",
+        M::NoDescription => "Ce projet n’a pas de description.",
+        M::RestOnCurseForge => "La suite de la description est sur CurseForge.",
         M::LoadingVersions => "Chargement des versions",
         M::ShowAllVersions => {
             "Afficher les versions pour d’autres chargeurs et versions de Minecraft"
@@ -206,6 +287,23 @@ pub fn text(message: M) -> &'static str {
         M::WatchFolderPrompt => "Surveiller ce dossier",
         M::CouldntAddDownload => "Impossible d’ajouter {name}\u{a0}: {error}",
         M::AddedDownloads => "{names} ajouté(s).",
+        M::DisableModTitle => "Désactiver {name} ?",
+        M::DisableModOnlyWarning => {
+            "Si seul {name} est désactivé, le jeu ne démarrera pas tant qu’ils ne sont pas désactivés aussi ou que {name} n’est pas réactivé."
+        }
+        M::DisableModAll => "Tout désactiver",
+        M::DisableModOnly => "Seulement {name}",
+        M::EnableModTitle => "Activer {name} ?",
+        M::EnableModOnlyWarning => {
+            "Si seul {name} est activé, le jeu ne démarrera pas tant qu’ils ne sont pas activés aussi ou que {name} n’est pas désactivé."
+        }
+        M::EnableModAll => "Tout activer",
+        M::EnableModOnly => "Seulement {name}",
+
+        M::AddModpackContent => "Ajouter un modpack",
+        M::NoSnapshotFirst => {
+            "Aucun instantané n’a été pris avant\u{a0}: prenez-en un dans Paramètres › Instantanés avant de jouer.\n{error}"
+        }
     }
 }
 
@@ -214,6 +312,14 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::Downloads => ["{count} téléchargement", "{count} téléchargements"],
         P::Follows => ["{count} abonné", "{count} abonnés"],
         P::Followers => ["{count} abonné", "{count} abonnés"],
+        P::Needs => [
+            "{name} a besoin de {count} mod désactivé :",
+            "{name} a besoin de {count} mods désactivés :",
+        ],
+        P::NeededBy => [
+            "{count} mod a besoin de {name} et ne se chargera pas sans lui :",
+            "{count} mods ont besoin de {name} et ne se chargeront pas sans lui :",
+        ],
         P::MoreVersions => [
             "{count} autre version est sur Modrinth.",
             "{count} autres versions sont sur Modrinth.",

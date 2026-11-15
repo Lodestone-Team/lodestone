@@ -188,6 +188,18 @@ impl Found {
         self.notes.push(note.into());
     }
 
+    /// Changes the loader the other launcher wrote into one this launcher runs, with a
+    /// note: NeoForge for Minecraft 1.20.1 becomes Forge ([`neoforge_as_forge`]). Every
+    /// instance [`detect`] reads goes through this, whichever launcher it came from.
+    pub(crate) fn settle_loader(&mut self) {
+        if let (WantedVersion::Exact(game_version), Some(loader)) =
+            (&self.game_version, &mut self.loader)
+            && neoforge_as_forge(loader, game_version)
+        {
+            self.notes.push(NEOFORGE_AS_FORGE.into());
+        }
+    }
+
     /// Memory in MiB, if the launcher overrode it and the values make sense.
     pub(crate) fn set_memory(&mut self, min: Option<u64>, max: Option<u64>) {
         let Some(max) = max.filter(|m| (256..=1024 * 1024).contains(m)) else {
@@ -250,6 +262,24 @@ pub(crate) fn io_error(path: &Path) -> impl FnOnce(io::Error) -> ImportError + '
     }
 }
 
+/// Said when [`neoforge_as_forge`] changes a loader.
+const NEOFORGE_AS_FORGE: &str =
+    "NeoForge for Minecraft 1.20.1 runs as Forge 47.1 in Lodestone Launcher.";
+
+/// Turns NeoForge on Minecraft 1.20.1 into Forge, and says whether it did. NeoForge for
+/// 1.20.1 is a fork of Forge 47.1 (its builds are `47.1.x`, published as
+/// `net.neoforged:forge`), and NeoForge's own version list has no 1.20.1 builds, so
+/// kept as NeoForge the instance would come in vanilla with its mods off. This launcher
+/// runs those instances as Forge 47.1.
+fn neoforge_as_forge(loader: &mut WantedLoader, game_version: &str) -> bool {
+    if loader.kind == LoaderKind::NeoForge && game_version == "1.20.1" {
+        loader.kind = LoaderKind::Forge;
+        true
+    } else {
+        false
+    }
+}
+
 /// Resolves `found`'s version and loader with `installer`'s cached lists: Mojang's for
 /// "latest release"/"latest snapshot", the loader's for its version.
 pub async fn resolve(installer: &Installer, found: &Found) -> Result<Resolved, ImportError> {
@@ -270,10 +300,16 @@ pub async fn resolve(installer: &Installer, found: &Found) -> Result<Resolved, I
     let loader = match &found.loader {
         None => None,
         Some(wanted) => {
+            // [`detect`] has done this already; a `Found` made some other way (or whose
+            // version was "latest") gets it here.
+            let mut wanted = wanted.clone();
+            if neoforge_as_forge(&mut wanted, &game_version) {
+                notes.push(NEOFORGE_AS_FORGE.to_string());
+            }
             let list = installer
                 .loader_versions(wanted.kind, &game_version)
                 .await?;
-            let resolution = mapping::resolve_loader(wanted, &game_version, &list);
+            let resolution = mapping::resolve_loader(&wanted, &game_version, &list);
             notes.extend(resolution.note);
             resolution.choice
         }

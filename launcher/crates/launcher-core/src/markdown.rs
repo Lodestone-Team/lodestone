@@ -9,15 +9,22 @@
 //!   `<img>` becomes an image like Markdown's;
 //! - links keep only `http`, `https` and `mailto` targets ([`safe_link`]); other links
 //!   are plain text;
-//! - images keep a URL only when it is on Modrinth's CDN ([`loadable_image`]), which is
-//!   where the app's image loader fetches from (with its size cap); others show their
-//!   alt text, linked to the image when the URL is a safe link.
+//! - images keep a URL only when it is on a host the app loads page images from
+//!   ([`image_url`](crate::content::page_images::image_url): Modrinth's and CurseForge's
+//!   CDNs, GitHub and imgur), with a size cap; others show their alt text, linked to the
+//!   image when the URL is a safe link.
 
 use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
 use url::Url;
 
 /// Descriptions are cut at this many bytes.
 pub const MAX_BODY_BYTES: usize = 128 * 1024;
+
+/// Quotes and lists nest at most this deep; anything deeper is flattened into the
+/// innermost one kept. Drawing (and dropping) the blocks recurses once per level, and a
+/// description of a few thousand `>` would otherwise overflow the stack. Real
+/// descriptions rarely nest more than three or four levels.
+pub const MAX_DEPTH: usize = 8;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Style {
@@ -36,7 +43,7 @@ pub enum Inline {
         link: Option<String>,
     },
     Image {
-        /// A Modrinth CDN URL the app may load, if the image is one.
+        /// A URL the app may load, if the image is on an allowed host.
         url: Option<String>,
         alt: String,
         link: Option<String>,
@@ -74,8 +81,9 @@ pub fn safe_link(url: &str) -> Option<String> {
     ok.then(|| parsed.to_string())
 }
 
-/// `url` if the app may load it as an image: HTTPS on `cdn.modrinth.com`, no port or
-/// user name.
+/// `url` if it is an image on Modrinth's CDN: HTTPS on `cdn.modrinth.com`, no port or
+/// user name. (A project page's images may also come from other hosts:
+/// [`image_url`](crate::content::page_images::image_url).)
 pub fn loadable_image(url: &str) -> Option<String> {
     let parsed = Url::parse(url.trim()).ok()?;
     let ok = parsed.scheme() == "https"
@@ -132,6 +140,9 @@ struct Builder {
     skipping: bool,
     table: Option<Vec<Vec<Vec<Inline>>>>,
     row: Vec<Vec<Inline>>,
+    /// Quotes, lists and items opened past [`MAX_DEPTH`] that are still open: they get
+    /// no container of their own, so their content goes into the innermost one kept.
+    flattened: usize,
 }
 
 impl Builder {
@@ -150,6 +161,37 @@ impl Builder {
             skipping: false,
             table: None,
             row: Vec::new(),
+            flattened: 0,
+        }
+    }
+
+    /// How many quotes and lists are open.
+    fn depth(&self) -> usize {
+        self.stack
+            .iter()
+            .filter(|c| matches!(c, Container::Quote(_) | Container::List { .. }))
+            .count()
+    }
+
+    /// Whether a quote, list or item starting now goes past [`MAX_DEPTH`] (and is
+    /// counted in `flattened` instead of getting a container). An item is flattened
+    /// only when its list was.
+    fn flatten_start(&mut self, item: bool) -> bool {
+        if self.flattened > 0 || (!item && self.depth() >= MAX_DEPTH) {
+            self.flattened += 1;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Whether a quote, list or item ending now was a flattened one.
+    fn flatten_end(&mut self) -> bool {
+        if self.flattened > 0 {
+            self.flattened -= 1;
+            true
+        } else {
+            false
         }
     }
 
@@ -323,7 +365,9 @@ impl Builder {
             }
             Tag::BlockQuote(_) => {
                 self.flush();
-                self.stack.push(Container::Quote(Vec::new()));
+                if !self.flatten_start(false) {
+                    self.stack.push(Container::Quote(Vec::new()));
+                }
             }
             Tag::CodeBlock(_) => {
                 self.flush();
@@ -335,14 +379,18 @@ impl Builder {
             }
             Tag::List(start) => {
                 self.flush();
-                self.stack.push(Container::List {
-                    start,
-                    items: Vec::new(),
-                });
+                if !self.flatten_start(false) {
+                    self.stack.push(Container::List {
+                        start,
+                        items: Vec::new(),
+                    });
+                }
             }
             Tag::Item => {
                 self.flush();
-                self.stack.push(Container::Item(Vec::new()));
+                if !self.flatten_start(true) {
+                    self.stack.push(Container::Item(Vec::new()));
+                }
             }
             Tag::Table(_) => {
                 self.flush();
@@ -365,7 +413,7 @@ impl Builder {
             Tag::Link { dest_url, .. } => self.links.push(safe_link(&dest_url)),
             Tag::Image { dest_url, .. } => {
                 let link = self.links.iter().rev().find_map(|l| l.clone());
-                let url = loadable_image(&dest_url);
+                let url = crate::content::page_images::image_url(&dest_url);
                 // An image that can't be shown links to itself when it can.
                 let link = link.or_else(|| url.is_none().then(|| safe_link(&dest_url)).flatten());
                 self.image = Some((url, String::new(), link));
@@ -385,6 +433,9 @@ impl Builder {
             TagEnd::Paragraph | TagEnd::Heading(_) => self.finish_target(),
             TagEnd::BlockQuote(_) => {
                 self.flush();
+                if self.flatten_end() {
+                    return;
+                }
                 if let Some(Container::Quote(blocks)) =
                     self.pop_if(|c| matches!(c, Container::Quote(_)))
                 {
@@ -399,6 +450,9 @@ impl Builder {
             TagEnd::HtmlBlock => self.flush_html(),
             TagEnd::List(_) => {
                 self.flush();
+                if self.flatten_end() {
+                    return;
+                }
                 if let Some(Container::List { start, items }) =
                     self.pop_if(|c| matches!(c, Container::List { .. }))
                 {
@@ -407,6 +461,9 @@ impl Builder {
             }
             TagEnd::Item => {
                 self.flush();
+                if self.flatten_end() {
+                    return;
+                }
                 if let Some(Container::Item(blocks)) =
                     self.pop_if(|c| matches!(c, Container::Item(_)))
                     && let Some(Container::List { items, .. }) = self.stack.last_mut()
@@ -535,7 +592,13 @@ fn decode_entities(text: &str) -> String {
     while let Some(start) = rest.find('&') {
         out.push_str(&rest[..start]);
         rest = &rest[start..];
-        let Some(end) = rest[..rest.len().min(12)].find(';') else {
+        // Look for the ';' in the bytes: a fixed cut of the text could fall inside a
+        // character (say CJK text after a plain '&'). The ';' itself is ASCII, so where
+        // it is found is a character boundary.
+        let Some(end) = rest.as_bytes()[..rest.len().min(12)]
+            .iter()
+            .position(|&b| b == b';')
+        else {
             out.push('&');
             rest = &rest[1..];
             continue;
@@ -615,7 +678,7 @@ fn tag_inline(tag: &str) -> Option<Inline> {
             let alt = attribute(tag, "alt")
                 .filter(|a| !a.trim().is_empty())
                 .unwrap_or_else(|| "image".into());
-            let url = loadable_image(&src);
+            let url = crate::content::page_images::image_url(&src);
             let link = url.is_none().then(|| safe_link(&src)).flatten();
             Some(Inline::Image { url, alt, link })
         }
@@ -654,7 +717,8 @@ fn html_inlines(html: &str) -> Vec<Inline> {
     out
 }
 
-/// A block of HTML as paragraphs of its text (and its images).
+/// A block of HTML as paragraphs and headings of its text (and its images), keeping
+/// bold, italic and safe links. CurseForge's descriptions are all HTML.
 fn html_blocks(html: &str) -> Vec<Block> {
     const BLOCK_TAGS: &[&str] = &[
         "p",
@@ -679,19 +743,37 @@ fn html_blocks(html: &str) -> Vec<Block> {
     ];
     let mut blocks = Vec::new();
     let mut current: Vec<Inline> = Vec::new();
-    let close = |current: &mut Vec<Inline>, blocks: &mut Vec<Block>| {
+    // The heading being read, if any: what `close` makes of the text.
+    let mut heading: Option<u8> = None;
+    let mut bold = 0usize;
+    let mut italic = 0usize;
+    let mut link: Option<String> = None;
+    let close = |current: &mut Vec<Inline>, blocks: &mut Vec<Block>, heading: Option<u8>| {
         let inlines = trim(collapse(std::mem::take(current)));
         if !inlines.is_empty() {
-            blocks.push(Block::Paragraph(inlines));
+            blocks.push(match heading {
+                Some(level) => Block::Heading { level, inlines },
+                None => Block::Paragraph(inlines),
+            });
         }
     };
     let mut rest = html;
     loop {
+        let style = Style {
+            bold: bold > 0 || heading.is_some(),
+            italic: italic > 0,
+            ..Style::default()
+        };
         let Some(start) = rest.find('<') else {
-            push_text(&mut current, &decode_entities(rest));
+            push_text(&mut current, &decode_entities(rest), style, link.clone());
             break;
         };
-        push_text(&mut current, &decode_entities(&rest[..start]));
+        push_text(
+            &mut current,
+            &decode_entities(&rest[..start]),
+            style,
+            link.clone(),
+        );
         rest = &rest[start..];
         if let Some(comment) = rest.strip_prefix("<!--") {
             rest = comment.find("-->").map_or("", |end| &comment[end + 3..]);
@@ -703,13 +785,14 @@ fn html_blocks(html: &str) -> Vec<Block> {
         let tag = &rest[..=end];
         rest = &rest[end + 1..];
         let lower = tag.to_ascii_lowercase();
+        let closing = lower.starts_with("</");
         let name: String = lower
             .trim_start_matches('<')
             .trim_start_matches('/')
             .chars()
             .take_while(|c| c.is_ascii_alphanumeric())
             .collect();
-        if (name == "script" || name == "style") && !lower.starts_with("</") {
+        if (name == "script" || name == "style") && !closing {
             let closing = format!("</{name}");
             let lower_rest = rest.to_ascii_lowercase();
             rest = match lower_rest.find(&closing) {
@@ -719,31 +802,57 @@ fn html_blocks(html: &str) -> Vec<Block> {
             continue;
         }
         if BLOCK_TAGS.contains(&name.as_str()) {
-            close(&mut current, &mut blocks);
+            close(&mut current, &mut blocks, heading);
+            heading = match (name.as_bytes(), closing) {
+                ([b'h', level @ b'1'..=b'6'], false) => Some(level - b'0'),
+                _ => None,
+            };
+            if name == "li" && !closing {
+                push_text(&mut current, "• ", Style::default(), None);
+            }
             continue;
         }
-        match tag_inline(tag) {
-            Some(Inline::Image { url, alt, link }) => {
-                current.push(Inline::Image { url, alt, link });
-            }
-            Some(other) => current.push(other),
-            None => {}
+        match (name.as_str(), closing) {
+            ("b" | "strong", false) => bold += 1,
+            ("b" | "strong", true) => bold = bold.saturating_sub(1),
+            ("i" | "em", false) => italic += 1,
+            ("i" | "em", true) => italic = italic.saturating_sub(1),
+            ("a", false) => link = attribute(tag, "href").and_then(|h| safe_link(&h)),
+            ("a", true) => link = None,
+            _ => match tag_inline(tag) {
+                // An image inside a link opens the link.
+                Some(Inline::Image {
+                    url,
+                    alt,
+                    link: own,
+                }) => current.push(Inline::Image {
+                    link: if url.is_some() { link.clone() } else { own },
+                    url,
+                    alt,
+                }),
+                Some(other) => current.push(other),
+                None => {}
+            },
         }
     }
-    close(&mut current, &mut blocks);
+    close(&mut current, &mut blocks, heading);
     blocks
 }
 
-fn push_text(inlines: &mut Vec<Inline>, text: &str) {
+fn push_text(inlines: &mut Vec<Inline>, text: &str, style: Style, link: Option<String>) {
     if text.is_empty() {
         return;
     }
     match inlines.last_mut() {
-        Some(Inline::Text { text: last, .. }) => last.push_str(text),
+        Some(Inline::Text {
+            text: last,
+            style: last_style,
+            link: last_link,
+        }) if *last_style == style && *last_link == link => last.push_str(text),
         _ => inlines.push(Inline::Text {
             text: text.to_string(),
-            style: Style::default(),
-            link: None,
+            style,
+            link,
         }),
     }
 }
@@ -862,9 +971,50 @@ mod tests {
     }
 
     #[test]
+    fn html_keeps_headings_styles_and_links() {
+        let blocks = parse(
+            "<h2>Features</h2>
+<ul>
+<li><strong>Fast</strong> and <em>small</em></li>
+<li>See <a href=\"https://example.com/wiki\">the wiki</a> or <a href=\"javascript:x\">this</a></li>
+</ul>
+<p><a href=\"https://example.com/big\"><img src=\"https://media.forgecdn.net/attachments/1/2/a.png\" alt=\"shot\"></a></p>",
+        );
+        assert!(
+            matches!(&blocks[0], Block::Heading { level: 2, inlines } if plain_text(inlines) == "Features")
+        );
+        let Block::Paragraph(first) = &blocks[1] else {
+            panic!("{:?}", blocks[1])
+        };
+        assert_eq!(plain_text(first), "• Fast and small");
+        assert!(first.iter().any(
+            |i| matches!(i, Inline::Text { text, style, .. } if text == "Fast" && style.bold)
+        ));
+        assert!(first.iter().any(
+            |i| matches!(i, Inline::Text { text, style, .. } if text == "small" && style.italic)
+        ));
+        let Block::Paragraph(second) = &blocks[2] else {
+            panic!("{:?}", blocks[2])
+        };
+        assert!(second.iter().any(|i| matches!(i, Inline::Text { text, link: Some(l), .. } if text == "the wiki" && l == "https://example.com/wiki")));
+        assert!(
+            second.iter().any(
+                |i| matches!(i, Inline::Text { text, link: None, .. } if text.ends_with("this"))
+            )
+        );
+        let Block::Paragraph(image) = &blocks[3] else {
+            panic!("{:?}", blocks[3])
+        };
+        assert!(
+            matches!(&image[0], Inline::Image { url: Some(u), link: Some(l), .. }
+            if u == "https://media.forgecdn.net/attachments/1/2/a.png" && l == "https://example.com/big")
+        );
+    }
+
+    #[test]
     fn links_and_images() {
         let blocks = parse(
-            "[ok](https://modrinth.com/mod/sodium) [mail](mailto:a@b.c) [js](javascript:alert(1)) [rel](/mod/x) [file](file:///etc/passwd) [data](data:text/html,x)\n\n![shot](https://cdn.modrinth.com/data/AANobbMI/images/a.png) ![other](https://i.imgur.com/x.png) ![bad](javascript:x) [![badge](https://img.shields.io/x.svg)](https://github.com/x)\n\n<img src=\"https://cdn.modrinth.com/data/x/b.webp\" alt=\"html image\"> <img src=\"http://evil.example/track.gif\">",
+            "[ok](https://modrinth.com/mod/sodium) [mail](mailto:a@b.c) [js](javascript:alert(1)) [rel](/mod/x) [file](file:///etc/passwd) [data](data:text/html,x)\n\n![shot](https://cdn.modrinth.com/data/AANobbMI/images/a.png) ![shot2](https://i.imgur.com/x.png) ![other](https://example.com/x.png) ![bad](javascript:x) [![badge](https://img.shields.io/x.svg)](https://github.com/x)\n\n<img src=\"https://cdn.modrinth.com/data/x/b.webp\" alt=\"html image\"> <img src=\"http://evil.example/track.gif\">",
         );
         let Block::Paragraph(links) = &blocks[0] else {
             panic!()
@@ -906,9 +1056,14 @@ mod tests {
                     None
                 ),
                 (
+                    Some("https://i.imgur.com/x.png".into()),
+                    "shot2".into(),
+                    None
+                ),
+                (
                     None,
                     "other".into(),
-                    Some("https://i.imgur.com/x.png".into())
+                    Some("https://example.com/x.png".into())
                 ),
                 (None, "bad".into(), None),
                 (None, "badge".into(), Some("https://github.com/x".into())),
@@ -970,5 +1125,84 @@ mod tests {
             decode_entities("&bogus; &#0; &#x110000; &amp"),
             "&bogus; &#0; &#x110000; &amp"
         );
+    }
+
+    /// An '&' followed by multi-byte text must not cut the text inside a character
+    /// while looking for the entity's ';' (LS-03).
+    #[test]
+    fn entities_before_multibyte_text() {
+        for (body, text) in [
+            ("<p>Fabric&中文说明文字</p>\n", "Fabric&中文说明文字"),
+            (
+                "<p>Tom & Jerry 日本語テキスト</p>\n",
+                "Tom & Jerry 日本語テキスト",
+            ),
+            ("<p>a&é&amp;b</p>\n", "a&é&b"),
+        ] {
+            assert_eq!(texts(&parse(body)), vec![text.to_string()], "{body}");
+        }
+        assert_eq!(decode_entities("&日本語テキスト"), "&日本語テキスト");
+        assert_eq!(decode_entities("&ab😀;"), "&ab😀;");
+        assert_eq!(decode_entities("&amp;日本"), "&日本");
+        assert_eq!(
+            attribute("<img alt=\"&中文说明文字\">", "alt").as_deref(),
+            Some("&中文说明文字")
+        );
+        assert_eq!(
+            texts(&parse("x <b>&中文说明文字</b> y")),
+            ["x &中文说明文字 y"]
+        );
+    }
+
+    /// How deep the quotes and lists in some blocks nest.
+    fn depth(blocks: &[Block]) -> usize {
+        blocks
+            .iter()
+            .map(|b| match b {
+                Block::Quote(inner) => 1 + depth(inner),
+                Block::List { items, .. } => {
+                    1 + items.iter().map(|item| depth(item)).max().unwrap_or(0)
+                }
+                _ => 0,
+            })
+            .max()
+            .unwrap_or(0)
+    }
+
+    /// Deeply nested quotes and lists are flattened past MAX_DEPTH, keeping their text,
+    /// so drawing and dropping them can't overflow the stack (LS-35).
+    #[test]
+    fn nesting_is_capped() {
+        let quotes = format!("{} deep\n\nafter", ">".repeat(100_000));
+        let blocks = parse(&quotes);
+        assert_eq!(depth(&blocks), MAX_DEPTH);
+        let all = format!("{blocks:?}");
+        assert!(all.contains("deep"), "{all}");
+        assert!(all.contains("after"), "{all}");
+        drop(blocks);
+
+        let mut list = String::new();
+        for level in 0..50 {
+            list.push_str(&"  ".repeat(level));
+            list.push_str(&format!("- item {level}\n"));
+        }
+        list.push_str("\nend\n");
+        let blocks = parse(&list);
+        assert_eq!(depth(&blocks), MAX_DEPTH);
+        let all = format!("{blocks:?}");
+        for level in 0..50 {
+            assert!(
+                all.contains(&format!("item {level}\"")),
+                "item {level}: {all}"
+            );
+        }
+        assert_eq!(texts(&blocks[1..]), ["end"]);
+
+        // Shallow nesting is kept as it is, and what follows a flattened part still
+        // nests where it should.
+        let mixed = format!("{} x\n\n> - a\n>   - b\n", ">".repeat(20));
+        let blocks = parse(&mixed);
+        assert_eq!(depth(&blocks[..1]), MAX_DEPTH);
+        assert_eq!(depth(&blocks[1..]), 3);
     }
 }

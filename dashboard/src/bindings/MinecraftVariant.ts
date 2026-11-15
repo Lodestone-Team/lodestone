@@ -3,6 +3,7 @@
 export type MinecraftVariant =
   | { type: 'Vanilla' }
   | { type: 'Forge' }
+  | { type: 'NeoForge' }
   | { type: 'Fabric' }
   | { type: 'Paper' }
   | { type: 'Spigot' }

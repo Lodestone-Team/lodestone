@@ -1,6 +1,7 @@
 //! Modrinth modpacks (`.mrpack`) as instances: reading and checking a pack, making a new
-//! instance from it ([`import`]), and updating an instance to another version of its
-//! pack ([`update`]).
+//! instance from it ([`import`]), updating an instance to another version of its
+//! pack ([`update`]), and adding a pack's files to an instance that has a pack of its
+//! own already, such as a server's ([`addon`]).
 //!
 //! The rules follow the dashboard's server import (`core/src/modpack`), for the client:
 //!
@@ -16,12 +17,15 @@
 //!
 //! See <https://support.modrinth.com/en/articles/8802351-modrinth-modpack-format-mrpack>.
 
+pub mod addon;
 pub mod curseforge;
+pub mod fetch;
 pub mod import;
+pub mod merge;
 pub mod update;
 
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     fs::File,
     io::{self, Read},
     path::{Path, PathBuf},
@@ -73,8 +77,19 @@ pub enum ModpackError {
     Instance(#[from] InstanceError),
     #[error(transparent)]
     Storage(#[from] StorageError),
+    /// A server's file couldn't be had ([`crate::cores::player_image`]).
+    #[error(transparent)]
+    Image(#[from] crate::cores::player_image::ImageError),
     #[error("cancelled")]
     Cancelled,
+    /// A file an update would overwrite or remove changed after the update was planned:
+    /// nothing was changed, and planning again takes the change in.
+    #[error("{path} changed after the update was worked out, so nothing was changed. Try again.")]
+    ChangedSincePlanned { path: String },
+    /// An update stopped part way and some of what it changed couldn't be put back: the
+    /// instance's files are partly the new version's.
+    #[error("{0}")]
+    NotUndone(String),
 }
 
 impl From<lodestone_minecraft::Error> for ModpackError {
@@ -119,6 +134,21 @@ pub struct PackFile {
     /// The Modrinth project of a downloaded file, from its CDN URL.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub project: Option<String>,
+    /// The SHA-256 of the file, for a file a server's image placed (its entries all have
+    /// one; only Modrinth and CurseForge files have a SHA-1 too, which `sha1` holds, empty
+    /// otherwise). When set, the file is compared by it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sha256: Option<String>,
+}
+
+impl PackFile {
+    /// The hash the file is compared with: its SHA-256 when known, else its SHA-1.
+    pub fn digest(&self) -> merge::Digest {
+        match &self.sha256 {
+            Some(sha256) => merge::Digest::Sha256(sha256.clone()),
+            None => merge::Digest::Sha1(self.sha1.clone()),
+        }
+    }
 }
 
 /// `modpack.json`: the pack and version an instance was made from, and the files the pack
@@ -146,6 +176,18 @@ pub struct ModpackRecord {
     /// The CurseForge project and file, for a pack from CurseForge.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub curseforge: Option<CurseForgePack>,
+    /// The SHA-512 of the version's `.mrpack` as Modrinth lists it (128 lowercase hex
+    /// characters), for a pack on Modrinth: the instance's content images name the pack by
+    /// it (their `modrinth_pack` base, [`crate::images::context`]). `None` for a pack that
+    /// isn't on Modrinth or whose `.mrpack` hash isn't known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pack_sha512: Option<String>,
+    /// The files are a server's image's, placed from its client view
+    /// ([`crate::cores::image_sync`]): the pack named here (when there is one) is the
+    /// server's base, which the server updates, so the instance offers no Modrinth update
+    /// of its own ([`ModpackRecord::on_modrinth`]).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub from_server: bool,
 }
 
 /// The CurseForge file a modpack instance was made from.
@@ -189,9 +231,17 @@ impl ModpackRecord {
         self.curseforge.is_some()
     }
 
-    /// Whether the pack is on Modrinth, so it can be updated.
+    /// Whether the pack is on Modrinth and the instance updates it itself. A server's
+    /// instance doesn't: its server does.
     pub fn on_modrinth(&self) -> bool {
-        !self.project_id.is_empty() && !self.version_id.is_empty()
+        !self.from_server && self.modrinth_ids().is_some()
+    }
+
+    /// The Modrinth project and version of the pack, when it is on Modrinth: an instance's
+    /// own pack, or the base of a server's image.
+    pub fn modrinth_ids(&self) -> Option<(&str, &str)> {
+        (!self.project_id.is_empty() && !self.version_id.is_empty())
+            .then_some((self.project_id.as_str(), self.version_id.as_str()))
     }
 
     /// The record of `version` of `project`, without files.
@@ -212,6 +262,11 @@ impl ModpackRecord {
                 .and_then(crate::markdown::loadable_image),
             files: BTreeMap::new(),
             curseforge: None,
+            from_server: false,
+            pack_sha512: import::pack_file(version)
+                .and_then(|file| file.hashes.sha512.as_deref())
+                .map(str::to_ascii_lowercase)
+                .filter(|sha512| lodestone_image::hex::is_sha512(sha512)),
         }
     }
 }
@@ -406,6 +461,17 @@ pub(crate) fn read_overrides<R: Read + io::Seek>(
     prefixes: &[&str],
     skipped: &mut Vec<SkippedPath>,
 ) -> Result<Vec<OverrideFile>, ModpackError> {
+    read_overrides_of(archive, prefixes, None, skipped)
+}
+
+/// [`read_overrides`], only of the files at the paths `only` (in the game folder, with
+/// `/`) when given: the rest are neither read nor hashed.
+pub(crate) fn read_overrides_of<R: Read + io::Seek>(
+    archive: &mut zip::ZipArchive<R>,
+    prefixes: &[&str],
+    only: Option<&BTreeSet<String>>,
+    skipped: &mut Vec<SkippedPath>,
+) -> Result<Vec<OverrideFile>, ModpackError> {
     // The overrides, later folders winning, each hashed.
     let mut overrides: BTreeMap<String, OverrideFile> = BTreeMap::new();
     for prefix in prefixes {
@@ -430,6 +496,9 @@ pub(crate) fn read_overrides<R: Read + io::Seek>(
                 }
             };
             if is_dir {
+                continue;
+            }
+            if only.is_some_and(|only| !only.contains(&slash_path(&relative_path))) {
                 continue;
             }
             if entry
@@ -559,6 +628,57 @@ pub(crate) fn slash_path(path: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn project() -> lodestone_minecraft::modrinth::ModrinthProject {
+        serde_json::from_value(serde_json::json!({
+            "id": "1KVo5zza", "slug": "fo", "project_type": "modpack", "title": "FO",
+            "description": "", "body": "", "icon_url": null, "categories": [],
+            "loaders": [], "game_versions": [], "downloads": 0, "followers": 0,
+            "client_side": "required", "server_side": "optional", "license_id": null,
+            "source_url": null, "issues_url": null, "wiki_url": null, "discord_url": null,
+            "gallery": [], "published": "", "updated": ""
+        }))
+        .unwrap()
+    }
+
+    fn version(sha512: Option<&str>) -> lodestone_minecraft::modrinth::RawVersion {
+        serde_json::from_value(serde_json::json!({
+            "id": "v1", "project_id": "1KVo5zza", "version_type": "release",
+            "files": [
+                { "hashes": { "sha1": "a" }, "url": "https://cdn.modrinth.com/x/readme.txt",
+                  "filename": "readme.txt", "primary": true },
+                { "hashes": { "sha512": sha512 }, "url": "https://cdn.modrinth.com/x/fo.mrpack",
+                  "filename": "FO.mrpack" }
+            ]
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn the_record_keeps_the_mrpack_sha512_when_it_is_one() {
+        let sha512 = "AB".repeat(64);
+        let record = ModpackRecord::from_modrinth(&project(), &version(Some(&sha512)));
+        // The .mrpack's, not the primary file's; lowercased.
+        assert_eq!(record.pack_sha512, Some("ab".repeat(64)));
+        let dir = tempfile::tempdir().unwrap();
+        record.save(dir.path()).unwrap();
+        assert_eq!(ModpackRecord::load(dir.path()), Some(record));
+        for odd in [None, Some("abc"), Some(&*"zz".repeat(64))] {
+            let record = ModpackRecord::from_modrinth(&project(), &version(odd));
+            assert_eq!(record.pack_sha512, None, "{odd:?}");
+        }
+        // A record written before the field reads as none, and none isn't written.
+        std::fs::write(
+            ModpackRecord::path(dir.path()),
+            br#"{"version":1,"project_id":"P","version_id":"V"}"#,
+        )
+        .unwrap();
+        let old = ModpackRecord::load(dir.path()).unwrap();
+        assert_eq!(old.pack_sha512, None);
+        old.save(dir.path()).unwrap();
+        let written = std::fs::read_to_string(ModpackRecord::path(dir.path())).unwrap();
+        assert!(!written.contains("pack_sha512"));
+    }
 
     #[test]
     fn an_instance_without_modpack_json_has_no_modpack_record() {

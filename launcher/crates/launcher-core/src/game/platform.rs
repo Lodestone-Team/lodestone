@@ -1,11 +1,11 @@
 //! The platform the game runs on, as Mojang's version files name it: the operating
 //! system, the CPU architecture of the Java runtime, and the OS version.
 //!
-//! On Apple Silicon the game can run in an x86_64 Java under Rosetta. The platform the
-//! version's rules are evaluated against is then the x86_64 one, because that is what
-//! the game's Java reports.
+//! On Apple silicon, versions before 1.14 run in an x86_64 Java under Rosetta (see
+//! [`super::libraries::java_arch`]). The platform the version's rules are evaluated
+//! against is then the x86_64 one, because that is what the game's Java reports.
 
-use std::fmt;
+use std::{fmt, path::Path};
 
 /// An operating system, by its name in Mojang's rules (`os.name`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -301,7 +301,7 @@ fn sysctl_string(name: &std::ffi::CStr) -> Option<String> {
 }
 
 /// Whether x86_64 programs can run on this Mac. On Intel Macs they always can; on
-/// Apple Silicon they need Rosetta 2.
+/// Apple silicon they need Rosetta 2.
 pub fn can_run_x86_64() -> bool {
     if !cfg!(target_os = "macos") || Arch::current() != Arch::Arm64 {
         return Arch::current() == Arch::X86_64;
@@ -321,12 +321,122 @@ pub fn rosetta_installed() -> bool {
         .is_ok_and(|status| status.success())
 }
 
+/// The architecture a Mac program at `path` runs as on Apple silicon, from its Mach-O
+/// header: `X86_64` for an Intel-only program (which runs under Rosetta 2), `Arm64`
+/// for an arm64 one or a universal one that has arm64 (macOS runs a universal program
+/// natively). `None` when the file can't be read or isn't a Mac program (a script, say),
+/// and for Apple's stubs in `/usr/bin` (`/usr/bin/java` is universal, but runs whichever
+/// JDK is chosen in the system, which may be Intel).
+///
+/// It is read, never run: a Java override is the player's file, and starting it to ask
+/// would run it before they pressed Play.
+pub fn mac_binary_arch(path: &Path) -> Option<Arch> {
+    let resolved = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    if path.starts_with("/usr/bin") || resolved.starts_with("/usr/bin") {
+        return None;
+    }
+    let mut header = [0u8; 4096];
+    let mut file = std::fs::File::open(path).ok()?;
+    let mut read = 0;
+    while read < header.len() {
+        match std::io::Read::read(&mut file, &mut header[read..]) {
+            Ok(0) => break,
+            Ok(n) => read += n,
+            Err(err) if err.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(_) => return None,
+        }
+    }
+    mach_o_arch(&header[..read])
+}
+
+/// [`mac_binary_arch`] on the first bytes of a file.
+fn mach_o_arch(bytes: &[u8]) -> Option<Arch> {
+    const CPU_TYPE_X86_64: u32 = 0x0100_0007;
+    const CPU_TYPE_ARM64: u32 = 0x0100_000c;
+    let word = |at: usize, big_endian: bool| -> Option<u32> {
+        let bytes: [u8; 4] = bytes.get(at..at + 4)?.try_into().ok()?;
+        Some(if big_endian {
+            u32::from_be_bytes(bytes)
+        } else {
+            u32::from_le_bytes(bytes)
+        })
+    };
+    let arch = |cpu: u32| match cpu {
+        CPU_TYPE_X86_64 => Some(Arch::X86_64),
+        CPU_TYPE_ARM64 => Some(Arch::Arm64),
+        _ => None,
+    };
+    match word(0, true)? {
+        // A universal ("fat") file, always big-endian: the architectures it holds,
+        // 20 bytes each (32 for the 64-bit form), the CPU type first.
+        magic @ (0xcafe_babe | 0xcafe_babf) => {
+            let count = word(4, true)? as usize;
+            // Java class files share 0xcafebabe; their next word, a version, is never
+            // a small count.
+            if count == 0 || count > 16 {
+                return None;
+            }
+            let size = if magic == 0xcafe_babe { 20 } else { 32 };
+            let cpus: Vec<Arch> = (0..count)
+                .filter_map(|i| word(8 + i * size, true).and_then(arch))
+                .collect();
+            if cpus.contains(&Arch::Arm64) {
+                Some(Arch::Arm64)
+            } else {
+                cpus.first().copied()
+            }
+        }
+        // A thin 64-bit Mach-O file, little-endian on both Intel and Apple silicon.
+        0xcffa_edfe => word(4, false).and_then(arch),
+        _ => None,
+    }
+}
+
 /// What to tell the user when an x86_64 Java is needed but Rosetta is missing.
-pub const ROSETTA_MISSING: &str = "This Minecraft version needs an Intel (x86_64) Java, which runs on Apple Silicon through Rosetta 2. Rosetta isn't installed. Install it by running this in Terminal, then press Play again:\n\nsoftwareupdate --install-rosetta";
+pub const ROSETTA_MISSING: &str = "This Minecraft version needs an Intel (x86_64) Java, which runs on Apple silicon through Rosetta 2. Rosetta isn't installed. Install it by running this in Terminal, then press Play again:\n\nsoftwareupdate --install-rosetta";
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Headers as Apple's tools write them: thin Intel, thin arm64, universal (Intel
+    /// and arm64e, like /usr/bin/java), and files that are not Mac programs.
+    #[test]
+    fn reads_the_architecture_of_mac_programs() {
+        let thin = |cpu: u32| {
+            let mut bytes = vec![0xcf, 0xfa, 0xed, 0xfe];
+            bytes.extend(cpu.to_le_bytes());
+            bytes.extend([0u8; 24]);
+            bytes
+        };
+        assert_eq!(mach_o_arch(&thin(0x0100_0007)), Some(Arch::X86_64));
+        assert_eq!(mach_o_arch(&thin(0x0100_000c)), Some(Arch::Arm64));
+        let fat = |cpus: &[u32]| {
+            let mut bytes = vec![0xca, 0xfe, 0xba, 0xbe];
+            bytes.extend((cpus.len() as u32).to_be_bytes());
+            for cpu in cpus {
+                bytes.extend(cpu.to_be_bytes());
+                bytes.extend([0u8; 16]);
+            }
+            bytes
+        };
+        assert_eq!(
+            mach_o_arch(&fat(&[0x0100_0007, 0x0100_000c])),
+            Some(Arch::Arm64)
+        );
+        assert_eq!(mach_o_arch(&fat(&[0x0100_0007])), Some(Arch::X86_64));
+        // A Java class file (0xcafebabe, then its version) and a script.
+        assert_eq!(
+            mach_o_arch(&[0xca, 0xfe, 0xba, 0xbe, 0x00, 0x00, 0x00, 0x34]),
+            None
+        );
+        assert_eq!(mach_o_arch(b"#!/bin/sh\nexec java \"$@\"\n"), None);
+        assert_eq!(mach_o_arch(&[]), None);
+        assert_eq!(mac_binary_arch(Path::new("/nonexistent/java")), None);
+        // Apple's stub runs whichever JDK is chosen: unknown, whatever its header.
+        #[cfg(target_os = "macos")]
+        assert_eq!(mac_binary_arch(Path::new("/usr/bin/java")), None);
+    }
 
     #[test]
     fn runtime_keys() {

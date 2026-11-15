@@ -296,6 +296,15 @@ pub fn read_index<R: Read + Seek>(archive: &mut zip::ZipArchive<R>) -> Result<In
         .map_err(|e| invalid_pack(format!("{INDEX_FILE} is invalid ({e})")))
 }
 
+/// Whether a pack file may be downloaded from `url`: HTTPS on one of [`DOWNLOAD_HOSTS`],
+/// with no port or user.
+pub fn is_allowed_download(url: &url::Url) -> bool {
+    url.scheme() == "https"
+        && url.port().is_none()
+        && url.username().is_empty()
+        && url.host_str().is_some_and(|h| DOWNLOAD_HOSTS.contains(&h))
+}
+
 /// Checks the files of the index that are for `side`: their paths, hosts, hashes and sizes.
 pub fn check_files(
     index: &Index,
@@ -335,12 +344,7 @@ pub fn check_files(
             .downloads
             .iter()
             .filter_map(|u| url::Url::parse(u).ok())
-            .filter(|u| {
-                u.scheme() == "https"
-                    && u.port().is_none()
-                    && u.username().is_empty()
-                    && u.host_str().is_some_and(|h| DOWNLOAD_HOSTS.contains(&h))
-            })
+            .filter(is_allowed_download)
             .collect();
         if urls.is_empty() {
             return Err(unsafe_pack(format!(

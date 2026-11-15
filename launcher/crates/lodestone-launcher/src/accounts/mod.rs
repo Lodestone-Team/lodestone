@@ -5,6 +5,7 @@ pub mod auth_errors;
 mod keychain;
 pub mod offline_dialog;
 pub mod sign_in;
+pub mod skin_dialog;
 
 use std::{
     collections::HashMap,
@@ -74,12 +75,22 @@ pub struct Accounts {
     avatars: HashMap<String, Arc<RenderImage>>,
     /// A problem with `accounts.json` to show the user.
     notice: Option<SharedString>,
-    offline_enabled: bool,
+    /// Offline accounts are on whatever the setting says: a debug build, or
+    /// `LODESTONE_LAUNCHER_OFFLINE=1`.
+    offline_forced: bool,
+    /// Settings > Developer > "Offline accounts".
+    offline_setting: bool,
     /// Settings > Developer > "Sign in as the Minecraft Launcher". New Microsoft
     /// sign-ins use the official launcher's client while it is on.
     launcher_identity: bool,
     /// Refreshes and scheduled refreshes, by account id. Dropping one cancels it.
     tasks: HashMap<String, Task<()>>,
+    /// Removals still deleting their Keychain item, by account id. They are kept
+    /// apart from `tasks` so that a refresh never replaces (and so cancels) one:
+    /// removing several accounts at once makes the next one active after each
+    /// removal, and switching to it would otherwise start a refresh in its place.
+    /// An account in here is never refreshed.
+    removals: HashMap<String, Task<()>>,
     avatar_tasks: HashMap<String, Task<()>>,
 }
 
@@ -111,9 +122,11 @@ impl Accounts {
                 OpenProblem::Unreadable(err) => tr!(M::CouldntReadAccounts, error = err),
             })
         });
-        let launcher_identity = settings::load_or_default(&data_dir.settings_file())
-            .developer
-            .sign_in_as_minecraft_launcher;
+        let developer = settings::load_or_default(&data_dir.settings_file()).developer;
+        let launcher_identity = developer.sign_in_as_minecraft_launcher;
+        launcher_core::cores::connect_service::set_setting_text(
+            developer.connect_service.as_deref(),
+        );
         let mut this = Self {
             store,
             data_dir,
@@ -123,9 +136,11 @@ impl Accounts {
             sessions: HashMap::new(),
             avatars: HashMap::new(),
             notice,
-            offline_enabled,
+            offline_forced: offline_enabled,
+            offline_setting: developer.offline_accounts,
             launcher_identity,
             tasks: HashMap::new(),
+            removals: HashMap::new(),
             avatar_tasks: HashMap::new(),
         };
         for account in this.store.accounts().to_vec() {
@@ -157,8 +172,74 @@ impl Accounts {
         self.notice.as_ref()
     }
 
+    /// Whether offline accounts can be added: a debug build,
+    /// `LODESTONE_LAUNCHER_OFFLINE=1`, or Settings > Developer > "Offline accounts".
     pub fn offline_enabled(&self) -> bool {
-        self.offline_enabled
+        self.offline_forced || self.offline_setting
+    }
+
+    /// Offline accounts are on in this build whatever the setting says.
+    pub fn offline_forced(&self) -> bool {
+        self.offline_forced
+    }
+
+    /// Turns Settings > Developer > "Offline accounts" on or off and saves it in
+    /// `settings.json`. Offline accounts already added are kept. The error says why
+    /// it couldn't be saved; the setting is then unchanged.
+    pub fn set_offline_accounts(
+        &mut self,
+        enabled: bool,
+        cx: &mut Context<Self>,
+    ) -> Result<(), SharedString> {
+        let result = self.save_developer(|developer| developer.offline_accounts = enabled);
+        if result.is_ok() {
+            self.offline_setting = enabled;
+        }
+        cx.notify();
+        result
+    }
+
+    /// Sets Settings > Developer > "Connect service (relay)" and saves it in
+    /// `settings.json`: `None` (or connect.lodestone.cc) for the default. It applies at
+    /// once, to the next lookup ([`connect_service::service`]). The error says why it
+    /// couldn't be saved; the setting is then unchanged.
+    ///
+    /// [`connect_service::service`]: launcher_core::cores::connect_service::service
+    pub fn set_connect_service(
+        &mut self,
+        service: Option<launcher_core::cores::connect_service::Service>,
+        cx: &mut Context<Self>,
+    ) -> Result<(), SharedString> {
+        use launcher_core::cores::connect_service;
+        let service = service.filter(|s| *s != connect_service::Service::default());
+        let text = service.as_ref().map(|s| s.base_url());
+        let result = self.save_developer(|developer| developer.connect_service = text);
+        if result.is_ok() {
+            connect_service::set_setting(service);
+        }
+        cx.notify();
+        result
+    }
+
+    /// Changes the developer section of `settings.json`, which the accounts own:
+    /// read as the file is now, changed and written back, and traced.
+    fn save_developer(
+        &self,
+        change: impl FnOnce(&mut settings::DeveloperSettings),
+    ) -> Result<(), SharedString> {
+        let mut before = None;
+        let saved = settings::update(&self.data_dir.settings_file(), |settings| {
+            before = Some(settings.developer.clone());
+            change(&mut settings.developer);
+        })
+        .map_err(|err| SharedString::from(tr!(M::CouldntSaveSettings, error = err)))?;
+        launcher_core::trace::settings_changed(
+            "launcher",
+            &serde_json::json!({ "developer": before }),
+            &serde_json::json!({ "developer": saved.developer }),
+            serde_json::Value::Null,
+        );
+        Ok(())
     }
 
     /// Whether "Sign in as the Minecraft Launcher" is on.
@@ -186,18 +267,20 @@ impl Accounts {
     }
 
     /// Turns "Sign in as the Minecraft Launcher" on or off and saves it in
-    /// `settings.json`. Accounts already signed in are not changed.
-    pub fn set_launcher_identity(&mut self, enabled: bool, cx: &mut Context<Self>) {
-        let result = settings::update(&self.data_dir.settings_file(), |settings| {
-            settings.developer.sign_in_as_minecraft_launcher = enabled;
-        });
-        match result {
-            Ok(_) => self.launcher_identity = enabled,
-            Err(err) => {
-                self.notice = Some(tr!(M::CouldntSaveSettings, error = err).into());
-            }
+    /// `settings.json`. Accounts already signed in are not changed. The error says
+    /// why it couldn't be saved; the setting is then unchanged.
+    pub fn set_launcher_identity(
+        &mut self,
+        enabled: bool,
+        cx: &mut Context<Self>,
+    ) -> Result<(), SharedString> {
+        let result =
+            self.save_developer(|developer| developer.sign_in_as_minecraft_launcher = enabled);
+        if result.is_ok() {
+            self.launcher_identity = enabled;
         }
         cx.notify();
+        result
     }
 
     /// Signs out (removes) every account signed in as the Minecraft Launcher,
@@ -214,6 +297,11 @@ impl Accounts {
 
     pub fn secrets(&self) -> &Secrets {
         &self.secrets
+    }
+
+    /// The HTTP client, for skins.
+    pub fn http(&self) -> Arc<dyn HttpClient> {
+        self.http.clone()
     }
 
     pub fn data_dir(&self) -> &DataDir {
@@ -266,12 +354,36 @@ impl Accounts {
         let Some(account) = self.store.get(id).cloned() else {
             return;
         };
+        if self.removals.contains_key(id) {
+            return;
+        }
+        // Cancels any refresh, or scheduled refresh, of the account being removed.
+        self.tasks.remove(id);
         let secrets = self.secrets.clone();
         let task = cx.spawn(async move |this, cx| {
             if let Some(key) = account.secret_key() {
                 let store = secrets.store(cx);
                 if let Err(err) = store.delete(&key).await {
                     this.update(cx, |this, cx| {
+                        // The account stays, so it can be refreshed again. Removing it
+                        // cancelled any refresh and the timer that keeps it fresh: a
+                        // session that's ready gets its timer back, and one that was
+                        // being refreshed is dropped, so switching to it refreshes it
+                        // instead of waiting on a refresh that's gone.
+                        this.removals.remove(&account.id);
+                        match this.sessions.get(&account.id) {
+                            Some(SessionState::Ready(session)) => {
+                                let expires_at = session.expires_at;
+                                this.schedule_refresh(&account.id, expires_at, cx);
+                            }
+                            Some(SessionState::Refreshing) => {
+                                this.sessions.remove(&account.id);
+                            }
+                            _ => {}
+                        }
+                        if this.store.active().is_some_and(|a| a.id == account.id) {
+                            this.switch(&account.id, cx);
+                        }
                         this.notice = Some(
                             tr!(
                                 M::CouldntRemoveSignIn,
@@ -287,6 +399,7 @@ impl Accounts {
                 }
             }
             this.update(cx, |this, cx| {
+                this.removals.remove(&account.id);
                 let result = this.store.forget(&account.id);
                 this.report(result.map(|_| ()));
                 this.sessions.remove(&account.id);
@@ -299,13 +412,14 @@ impl Accounts {
             })
             .ok();
         });
-        // Replaces (and so cancels) any refresh of the account being removed.
-        self.tasks.insert(id.to_string(), task);
+        self.removals.insert(id.to_string(), task);
     }
 
     /// Signs the account in again with its refresh token, in the background.
     pub fn refresh(&mut self, account: &Account, cx: &mut Context<Self>) {
-        if account.is_offline() {
+        // An account being removed is going away; refreshing it would only sign
+        // it in again.
+        if account.is_offline() || self.removals.contains_key(&account.id) {
             return;
         }
         self.sessions
@@ -413,14 +527,20 @@ impl Accounts {
 
     /// Stores the session and schedules a refresh shortly before it expires.
     fn set_session(&mut self, id: &str, session: MinecraftSession, cx: &mut Context<Self>) {
-        let refresh_in = session
-            .expires_at
+        let expires_at = session.expires_at;
+        self.sessions
+            .insert(id.to_string(), SessionState::Ready(session));
+        self.schedule_refresh(id, expires_at, cx);
+    }
+
+    /// Refreshes the account shortly before its session expires, if it's still the
+    /// active one then.
+    fn schedule_refresh(&mut self, id: &str, expires_at: SystemTime, cx: &mut Context<Self>) {
+        let refresh_in = expires_at
             .duration_since(SystemTime::now())
             .unwrap_or_default()
             .saturating_sub(Duration::from_secs(10 * 60))
             .max(Duration::from_secs(60));
-        self.sessions
-            .insert(id.to_string(), SessionState::Ready(session));
         let id = id.to_string();
         let timer = cx.background_executor().timer(refresh_in);
         let task = cx.spawn({
@@ -484,6 +604,26 @@ impl Accounts {
             }
         });
         self.avatar_tasks.insert(id, task);
+    }
+
+    /// The account's skin was changed (the "Change skin" dialog): remembers the new
+    /// one and shows its head.
+    pub fn skin_changed(&mut self, id: &str, skin_url: Option<String>, cx: &mut Context<Self>) {
+        let Some(account) = self.store.get(id).cloned() else {
+            return;
+        };
+        let result = self
+            .store
+            .update_profile(id, &account.username, skin_url.clone());
+        self.report(result);
+        self.load_avatar(
+            &Account {
+                skin_url,
+                ..account
+            },
+            cx,
+        );
+        cx.notify();
     }
 
     /// Shows a cached head for an account without downloading anything. For the
@@ -553,4 +693,142 @@ pub fn create(cx: &mut App) -> Entity<Accounts> {
             cx,
         )
     })
+}
+
+/// Settings > Developer's options as a release build has them: not forced on.
+#[cfg(all(test, feature = "screenshot"))]
+mod developer_setting_tests {
+    use std::path::{Path, PathBuf};
+
+    use gpui::{AppContext as _, TestAppContext};
+    use launcher_core::{
+        accounts::Account,
+        auth::{ClientIdentity, MsaConfig},
+        paths::DataDir,
+    };
+
+    use super::{Accounts, MemorySecretStore, Secrets};
+
+    /// A data folder of its own, removed when the test ends.
+    struct TempDir(PathBuf);
+
+    impl TempDir {
+        fn new(name: &str) -> Self {
+            let dir = std::env::temp_dir().join(format!(
+                "lodestone-launcher-test-{name}-{}",
+                std::process::id()
+            ));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).unwrap();
+            Self(dir)
+        }
+
+        fn path(&self) -> &Path {
+            &self.0
+        }
+    }
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn accounts(dir: &Path, cx: &mut TestAppContext) -> gpui::Entity<Accounts> {
+        let dir = DataDir::at(dir.to_path_buf());
+        cx.update(|cx| {
+            cx.new(|cx| {
+                Accounts::new(
+                    dir,
+                    launcher_core::http::default_client().unwrap(),
+                    MsaConfig::from_env(),
+                    Secrets::Memory(MemorySecretStore::new()),
+                    false,
+                    cx,
+                )
+            })
+        })
+    }
+
+    #[test]
+    fn offline_accounts_follow_the_saved_setting() {
+        let mut cx = TestAppContext::single();
+        let dir = TempDir::new("offline-setting");
+        let accounts = accounts(dir.path(), &mut cx);
+        cx.update(|cx| {
+            assert!(!accounts.read(cx).offline_enabled());
+            assert!(!accounts.read(cx).offline_forced());
+            accounts
+                .update(cx, |a, cx| a.set_offline_accounts(true, cx))
+                .unwrap();
+            assert!(accounts.read(cx).offline_enabled());
+        });
+        // a new start reads it back
+        let again = self::accounts(dir.path(), &mut cx);
+        cx.update(|cx| {
+            assert!(again.read(cx).offline_enabled());
+            again
+                .update(cx, |a, cx| a.set_offline_accounts(false, cx))
+                .unwrap();
+            assert!(!again.read(cx).offline_enabled());
+        });
+    }
+
+    #[test]
+    fn a_setting_that_cant_be_saved_says_why_and_stays() {
+        let mut cx = TestAppContext::single();
+        let dir = TempDir::new("unsaved-setting");
+        // A file this build can't read (a newer version) isn't overwritten.
+        let settings = DataDir::at(dir.path().to_path_buf()).settings_file();
+        std::fs::create_dir_all(settings.parent().unwrap()).unwrap();
+        std::fs::write(&settings, r#"{"version":999}"#).unwrap();
+        let accounts = accounts(dir.path(), &mut cx);
+        cx.update(|cx| {
+            let notice = accounts.read(cx).notice().cloned();
+            let saved = accounts.update(cx, |a, cx| a.set_offline_accounts(true, cx));
+            assert!(saved.is_err());
+            assert!(!accounts.read(cx).offline_enabled());
+            let launcher = accounts.read(cx).launcher_identity_enabled();
+            let saved = accounts.update(cx, |a, cx| a.set_launcher_identity(!launcher, cx));
+            assert!(saved.is_err());
+            assert_eq!(accounts.read(cx).launcher_identity_enabled(), launcher);
+            // the accounts' own notice is left alone
+            assert_eq!(accounts.read(cx).notice().cloned(), notice);
+        });
+        assert_eq!(
+            std::fs::read_to_string(&settings).unwrap(),
+            r#"{"version":999}"#
+        );
+    }
+
+    #[test]
+    fn turning_off_and_signing_out_removes_every_launcher_identity_account() {
+        let mut cx = TestAppContext::single();
+        let dir = TempDir::new("sign-out-launcher-identity");
+        let accounts = accounts(dir.path(), &mut cx);
+        // Microsoft accounts signed in as the Minecraft Launcher. The memory store
+        // has no sign-ins for them, so nothing here reaches the network.
+        let launcher_account = |name: &str| {
+            let uuid = Account::offline(name).unwrap().uuid;
+            Account::microsoft(uuid, name, None).with_client(ClientIdentity::MinecraftLauncher)
+        };
+        let a = launcher_account("Alex");
+        let b = launcher_account("Steve");
+        cx.update(|cx| {
+            accounts.update(cx, |this, _| {
+                this.store.upsert_and_activate(a.clone()).unwrap();
+                this.store.upsert_and_activate(b.clone()).unwrap();
+                // A is active and listed first, so removing it makes B active
+                // while B's own removal is still waiting.
+                this.store.set_active(&a.id).unwrap();
+            });
+            accounts.update(cx, |this, cx| this.sign_out_launcher_identity_accounts(cx));
+        });
+        cx.run_until_parked();
+        cx.update(|cx| {
+            let this = accounts.read(cx);
+            assert!(this.accounts().is_empty(), "{:?}", this.accounts());
+            assert!(this.active().is_none());
+        });
+    }
 }

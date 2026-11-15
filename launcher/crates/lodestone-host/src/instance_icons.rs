@@ -133,6 +133,7 @@ pub fn game_icon_path(game: &Game) -> &'static str {
             MinecraftVariant::Fabric => "images/games/minecraft-fabric.png",
             MinecraftVariant::Forge => "images/games/minecraft-forge.png",
             MinecraftVariant::Paper => "images/games/minecraft-paper.png",
+            MinecraftVariant::NeoForge => "images/games/minecraft-neoforge.svg",
             _ => "images/games/minecraft-missing-texture.svg",
         },
         Game::Generic { .. } => "images/games/generic.svg",

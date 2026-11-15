@@ -24,16 +24,20 @@ impl Modal {
             Modal::Import { .. } => "import",
             Modal::Snapshot { .. } => "snapshot",
             Modal::Share { .. } => "share",
+            Modal::AddModpack { .. } => "add_modpack",
             Modal::Crash { .. } => "crash",
             Modal::ModFinder { .. } => "mod_finder",
             Modal::LaunchFailed { .. } => "launch_failed",
             Modal::OfferMain { .. } => "offer_main",
             Modal::ConfirmMain { .. } => "confirm_main",
+            Modal::ConfirmRosetta { .. } => "confirm_rosetta",
             Modal::DeleteInstance { .. } => "delete_instance",
+            Modal::ToggleMod { prompt, .. } if prompt.enable => "enable_mod",
+            Modal::ToggleMod { .. } => "disable_mod",
             Modal::SignIn { .. } => "sign_in",
             Modal::Offline { .. } => "offline_account",
+            Modal::Skin { .. } => "change_skin",
             Modal::RemoveAccount { .. } => "remove_account",
-            Modal::LoaderChange { .. } => "loader_change",
             Modal::DeleteWorld { .. } => "delete_world",
             Modal::ReplaceWorld { .. } => "replace_world",
             Modal::ModpackUpdate { .. } => "modpack_update",
@@ -41,6 +45,8 @@ impl Modal {
             Modal::DisableLauncherIdentity { .. } => "disable_launcher_identity",
             Modal::Unsaved { .. } => "unsaved_changes",
             Modal::StorageClean { .. } => "storage_clean",
+            Modal::DataMove { .. } => "data_move",
+            Modal::DataFolderMissing { .. } => "data_folder_missing",
         }
     }
 }
@@ -49,6 +55,7 @@ fn page_name(page: Page) -> &'static str {
     match page {
         Page::Instance => "instance",
         Page::Servers => "servers",
+        Page::Friends => "friends",
     }
 }
 

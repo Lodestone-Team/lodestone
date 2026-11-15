@@ -1,7 +1,8 @@
-//! A server's page, opened from its row on a signed-in core: live state and players
-//! from the core's event stream, the console when this device's key may read it, a
-//! chat box when it may write to it, and linking the selected Minecraft account to the
-//! Lodestone user. How it looks is in [`super::detail_view`].
+//! A server's page, opened from its row on a signed-in core: its live state (and how
+//! many play) from the core's event stream, Start and Stop, the console when this
+//! device's key may read it, a chat box when it may write to it, and linking the
+//! selected Minecraft account to the Lodestone user. Who is online, and the rest of
+//! running a server, is Lodestone Host's. How it looks is in [`super::detail_view`].
 //!
 //! What the key may do comes from the core (`/launcher/instances/{uuid}/access`): the
 //! console opt-ins chosen at sign-in, within the user's own permissions. The streams
@@ -16,9 +17,9 @@ use launcher_core::{
     Secret,
     cores::{
         CoreClient, CoreError, ServerInstance, ServerState,
+        admin::instances::Power,
         live::{
-            self, ConsoleLine, LauncherAccess, LiveMessage, LiveStream, MinecraftLink, Player,
-            StreamKind,
+            self, ConsoleLine, LauncherAccess, LiveMessage, LiveStream, MinecraftLink, StreamKind,
         },
     },
     game::launch::UserType,
@@ -80,11 +81,13 @@ pub struct ConsoleRow {
 pub enum DetailEvent {
     /// Back to the list.
     Close,
-    /// Start or stop the server, as its row on the list does.
-    Start,
-    Stop,
+    /// A power button: start, stop, restart or kill the server, as its row on the
+    /// list does.
+    Power(Power),
     /// The core refused the key: sign the core out.
     SignedOut,
+    /// "Download this world": a backup of the server as a new instance.
+    DownloadWorld,
 }
 
 /// Whether the server's Minecraft EULA is accepted, for those who may start it.
@@ -122,7 +125,6 @@ pub struct ServerDetail {
     key: Secret,
     accounts: Entity<Accounts>,
     pub server: ServerInstance,
-    pub players: Option<Vec<Player>>,
     /// `None` until the core says.
     pub access: Option<LauncherAccess>,
     pub events_status: StreamStatus,
@@ -184,7 +186,6 @@ impl ServerDetail {
             key,
             accounts,
             server,
-            players: None,
             access: None,
             events_status: StreamStatus::Connecting,
             console_status: StreamStatus::Connecting,
@@ -216,7 +217,6 @@ impl ServerDetail {
         username: &str,
         server: ServerInstance,
         access: LauncherAccess,
-        players: Vec<Player>,
         console: &[&str],
         links: Vec<MinecraftLink>,
         accounts: Entity<Accounts>,
@@ -232,7 +232,6 @@ impl ServerDetail {
             cx,
         );
         this.access = Some(access);
-        this.players = Some(players);
         this.events_status = StreamStatus::Live;
         this.console_status = if access.console_read {
             StreamStatus::Live
@@ -256,13 +255,12 @@ impl ServerDetail {
         let uuid = self.server.uuid.clone();
         let fetch = cx.background_spawn(async move {
             let access = client.access(&key, &uuid).await;
-            let players = client.players(&key, &uuid).await.ok();
             // a core too old to say, or a server that isn't Minecraft: nothing to show
             let eula = client.eula_accepted(&key, &uuid).await.ok();
-            (access, players, eula)
+            (access, eula)
         });
         self.tasks.push(cx.spawn(async move |this, cx| {
-            let (access, players, eula) = fetch.await;
+            let (access, eula) = fetch.await;
             this.update(cx, |this, cx| {
                 this.eula = match eula {
                     Some(true) => EulaState::Accepted,
@@ -293,9 +291,6 @@ impl ServerDetail {
                         this.events_status = StreamStatus::Off(OffReason::Failed(err.clone()));
                         this.console_status = StreamStatus::Off(OffReason::Failed(err));
                     }
-                }
-                if this.players.is_none() {
-                    this.players = players;
                 }
                 cx.notify();
             })
@@ -378,11 +373,8 @@ impl ServerDetail {
             LiveMessage::Connected => {
                 *self.status_mut(kind) = StreamStatus::Live;
                 // fill in whatever was missed before (or while) connecting
-                match kind {
-                    StreamKind::Console => self.fetch_buffer(cx),
-                    StreamKind::Events => self.fetch_players(cx),
-                    // the launcher doesn't follow every event
-                    StreamKind::All | StreamKind::Monitor => {}
+                if matches!(kind, StreamKind::Console) {
+                    self.fetch_buffer(cx);
                 }
             }
             LiveMessage::Disconnected(reason) => {
@@ -392,14 +384,10 @@ impl ServerDetail {
                 self.server.state = state;
                 if !matches!(state, ServerState::Running) {
                     self.server.player_count = None;
-                    if matches!(state, ServerState::Stopped | ServerState::Error) {
-                        self.players = Some(Vec::new());
-                    }
                 }
             }
             LiveMessage::Players(players) => {
                 self.server.player_count = Some(players.len() as u32);
-                self.players = Some(players);
             }
             LiveMessage::Output(line) => self.push_console([line]),
             LiveMessage::Frame(_) => {}
@@ -455,26 +443,6 @@ impl ServerDetail {
                 cx.notify();
             })
             .ok();
-        }));
-    }
-
-    fn fetch_players(&mut self, cx: &mut Context<Self>) {
-        let Some(client) = self.client.clone() else {
-            return;
-        };
-        let key = self.key.clone();
-        let uuid = self.server.uuid.clone();
-        let fetch = cx.background_spawn(async move { client.players(&key, &uuid).await });
-        self.tasks.push(cx.spawn(async move |this, cx| {
-            // a stopped server has no player list: keep what the stream says
-            if let Ok(players) = fetch.await {
-                this.update(cx, |this, cx| {
-                    this.server.player_count = Some(players.len() as u32);
-                    this.players = Some(players);
-                    cx.notify();
-                })
-                .ok();
-            }
         }));
     }
 
@@ -679,6 +647,33 @@ impl super::Servers {
         let (client, accounts) = (self.client(core), self.accounts.clone());
         let (name, username) = (core.saved.name.clone(), core.saved.username.clone());
         let core_uuid = core_uuid.to_string();
+        // the offscreen screenshots reach no core: a made-up page
+        if self.preview {
+            let detail = cx.new(|cx| {
+                let access = LauncherAccess {
+                    view: true,
+                    start: true,
+                    stop: true,
+                    console_read: false,
+                    console_write: false,
+                };
+                let username = username.unwrap_or_default();
+                let mut detail = ServerDetail::preview(
+                    &name,
+                    &username,
+                    server,
+                    access,
+                    &[],
+                    Vec::new(),
+                    accounts,
+                    cx,
+                );
+                detail.core_uuid = core_uuid;
+                detail
+            });
+            self.show_detail(detail, cx);
+            return;
+        }
         let detail = cx.new(|cx| {
             ServerDetail::new(
                 client,
@@ -694,6 +689,31 @@ impl super::Servers {
         self.show_detail(detail, cx);
     }
 
+    /// Opens the page of server `server_uuid` on core `core_uuid`, for the top bar's
+    /// arrows: nothing if it is open already, or no longer on its core's list.
+    pub fn open_detail_by_id(
+        &mut self,
+        core_uuid: &str,
+        server_uuid: &str,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(detail) = self.detail() {
+            let detail = detail.read(cx);
+            if detail.core_uuid == core_uuid && detail.server.uuid == server_uuid {
+                return;
+            }
+        }
+        let server = self
+            .cores
+            .iter()
+            .find(|core| core.saved.uuid == core_uuid)
+            .and_then(|core| core.servers().iter().find(|s| s.uuid == server_uuid))
+            .cloned();
+        if let Some(server) = server {
+            self.open_detail(core_uuid, server, cx);
+        }
+    }
+
     /// Shows `detail` and handles what it asks for.
     pub fn show_detail(&mut self, detail: Entity<ServerDetail>, cx: &mut Context<Self>) {
         let subscription = cx.subscribe(&detail, |this, detail, event, cx| {
@@ -703,8 +723,10 @@ impl super::Servers {
             };
             match event {
                 DetailEvent::Close => this.close_detail(cx),
-                DetailEvent::Start => this.start(&core_uuid, server, false, cx),
-                DetailEvent::Stop => this.stop(&core_uuid, server, cx),
+                DetailEvent::Power(power) => this.power(&core_uuid, server, *power, cx),
+                DetailEvent::DownloadWorld => {
+                    this.open_download_world(&core_uuid, &server.uuid, &server.name, cx)
+                }
                 DetailEvent::SignedOut => {
                     this.close_detail(cx);
                     if let Some(index) = this.cores.iter().position(|c| c.saved.uuid == core_uuid) {

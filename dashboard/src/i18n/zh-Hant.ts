@@ -21,7 +21,6 @@
 //   upload / download                上傳 / 下載
 //   mod / modpack                    模組 / 模組包
 //   resource pack                    資源包
-//   macro                            巨集
 //   player / world                   玩家 / 世界
 //   port / address                   連接埠 / 位址
 //   memory (RAM)                     記憶體
@@ -212,17 +211,11 @@ export const zhHant: Messages = {
   'shell.event.playersLeft': '{players} 離開了 {name}',
   'shell.event.playersJoinedAndLeft':
     '{joined} 加入了 {name}，{left} 離開了 {name}',
+  'shell.event.modpackUpdate': '{name} 的 {pack} {version} 已發布',
   'shell.event.playerMessage': '{player} 在 {name} 上說：{message}',
   'shell.event.apiKeyCreated': '已建立 API 金鑰「{name}」',
   'shell.event.apiKeyRevoked': '已撤銷 API 金鑰「{name}」',
-  'shell.event.macroStarted': '巨集 {pid} 已在 {server} 上啟動',
-  'shell.event.macroDetached': '巨集 {pid} 已在 {server} 上分離',
-  'shell.event.macroStopped':
-    '巨集 {pid} 已在 {server} 上停止，狀態為 {status}',
   'shell.event.loadFailed': '無法載入通知：{error}',
-
-  'shell.noScripting':
-    '此核心建置時未包含指令碼支援（Deno），因此無法使用巨集。',
 
   'shell.userMenu.guest': '訪客',
   'shell.userMenu.account': '帳戶：{name}',
@@ -263,6 +256,11 @@ export const zhHant: Messages = {
   'shell.login.passwordRequired': '請輸入密碼',
   'shell.login.changeCore': '更換核心',
   'shell.login.signIn': '登入',
+  'common.localOnly':
+    '這個核心只允許它所在電腦上的應用程式使用。請在那台電腦上開啟 Lodestone Host 來管理它，或在那裡設定擁有者帳戶（設定 › 一般 › 允許其他裝置存取）以使用網頁控制台。',
+  'shell.localOnly.title': '這個核心只允許它所在的電腦使用',
+  'shell.login.localOnly':
+    '這個核心只允許這台電腦上的應用程式使用。請開啟 Lodestone Host 來管理它，或在那裡設定擁有者密碼（設定 › 一般 › 允許其他裝置存取）以使用網頁控制台。',
 
   'shell.login.withApiKey': '使用 API 金鑰登入',
   'shell.login.withPassword': '使用使用者名稱和密碼登入',
@@ -367,6 +365,9 @@ export const zhHant: Messages = {
   'settings.core.domain.tooLong': '網域不能超過 {max} 個字元',
   'settings.core.domain.tooltip':
     '如果你已設定連接埠轉送，這裡填入你的公開 IP。否則請維持不變。',
+  'settings.core.modpackChecks.label': '檢查模組包更新',
+  'settings.core.modpackChecks.hint':
+    '每隔幾小時在 Modrinth 上查找伺服器所用模組包的新版本，有新版本時通知。關閉後，伺服器「模組」分頁中的「檢查更新」仍可使用。',
   'settings.core.listPublicly.label': '公開列出伺服器',
   'settings.core.listPublicly.hint':
     '任何能連到此核心的人都能看到你在下方設為公開的伺服器。',
@@ -380,15 +381,11 @@ export const zhHant: Messages = {
     '確定要關閉安全模式嗎？這樣你就能讓自己以外的使用者執行可能有危險的指令。請確認你信任所有取得這些權限的使用者。',
   'settings.core.turnOff': '關閉',
   'settings.core.codeExecution.label': '程式碼執行',
-  'settings.core.codeExecution.hint':
-    '巨集、Atom 伺服器、擴充功能、伺服器指令碼和自訂 Java 指令。',
-  'settings.core.codeExecution.hintJavaOnly': '自訂 Java 指令。',
+  'settings.core.codeExecution.hint': '自訂 Java 指令。',
   'settings.core.codeExecution.locked':
     '已被此核心的管理員鎖定（LODESTONE_DISABLE_CODE_EXECUTION 或 --disable-code-execution）。',
   'settings.core.codeExecution.offTitle': '要關閉程式碼執行嗎？',
   'settings.core.codeExecution.offBody':
-    '執行中的巨集和 Atom 伺服器將會停止。在你重新開啟程式碼執行之前，巨集、Atom 伺服器、擴充功能、伺服器指令碼和自訂 Java 指令都不會在此核心上執行。任何項目都不會自動重新啟動。',
-  'settings.core.codeExecution.offBodyJavaOnly':
     '在你重新開啟程式碼執行之前，自訂 Java 指令不會在此核心上執行。任何項目都不會自動重新啟動。',
   'settings.core.lanHttp.label': '允許透過未加密 HTTP 進行區域網路存取',
   'settings.core.lanHttp.hint': '未加密。你網路中的其他人可以讀取密碼。',
@@ -439,8 +436,6 @@ export const zhHant: Messages = {
   'settings.users.permissionsLead': '{username} 在此核心上可以執行的操作。',
   'settings.users.unsafePermissions': '不安全的權限',
   'settings.users.unsafePermissionsLead': '關閉安全模式後才能授予非擁有者。',
-  'settings.users.ownerOnly': '巨集、擴充功能和 Atom 伺服器',
-  'settings.users.ownerOnlyHint': '僅限擁有者。Docker 伺服器使用一般權限。',
 
   'settings.permission.can_create_instance.title': '建立伺服器',
   'settings.permission.can_create_instance.user':
@@ -599,9 +594,6 @@ export const zhHant: Messages = {
   'settings.apiKeys.unsafe': '不安全的設定',
   'settings.apiKeys.unsafeSafeMode':
     '安全模式已開啟，因此在核心設定中關閉安全模式之前，核心會拒絕將這些權限授予自訂存取的金鑰。',
-  'settings.apiKeys.ownerOnly': '巨集、擴充功能和 Atom 伺服器',
-  'settings.apiKeys.ownerOnlyHint':
-    '只有完整存取的金鑰才能使用巨集、擴充功能和 Atom 伺服器。',
   'settings.apiKeys.newTitle': '已建立 API 金鑰「{name}」',
   'settings.apiKeys.newCopyNow': '請立即複製此金鑰。之後將無法再次檢視。',
   'settings.apiKeys.newUseWithCli': '在 Lodestone CLI 中使用：',
@@ -619,7 +611,6 @@ export const zhHant: Messages = {
   'server.tab.console': '主控台',
   'server.tab.files': '檔案',
   'server.tab.mods': '模組',
-  'server.tab.macros': '巨集',
   'server.tab.logs': '事件日誌',
 
   // InstanceTabs
@@ -703,11 +694,11 @@ export const zhHant: Messages = {
   'server.settingField.unknownType': '提交錯誤：未知的值類型。',
 
   // PublicListingSetting
-  'server.share.title': '與好友分享',
-  'server.share.lead': '好友透過連結在 Lodestone Launcher 中加入',
+  'server.share.title': '分享',
+  'server.share.lead': '擁有連結的人可在 Lodestone Launcher 中加入',
   'server.share.off':
-    '把連結傳給好友。他們在 Lodestone Launcher 中開啟後，遊戲會直接連線到這台電腦，無需連接埠轉送。',
-  'server.share.start': '與好友分享',
+    '把連結傳給你想一起玩的人。他們在 Lodestone Launcher 中開啟後，遊戲會直接連線到這台電腦，無需連接埠轉送。',
+  'server.share.start': '分享',
   'server.share.state.starting': '正在啟動…',
   'server.share.state.sharing': '分享中',
   'server.share.state.reconnecting': '正在重新連線…',
@@ -717,13 +708,13 @@ export const zhHant: Messages = {
   'server.share.copied': '已複製邀請連結',
   'server.share.copyFailed': '無法複製。請選取連結後手動複製。',
   'server.share.preparing': '正在取得連結…',
-  'server.share.howFriendsJoin':
-    '伺服器執行期間，任何擁有此連結的人都能加入。沒有 Lodestone Launcher 的好友會看到下載連結。',
+  'server.share.howToJoin':
+    '伺服器執行期間，任何擁有此連結的人都能加入。沒有 Lodestone Launcher 的人會看到下載連結。',
   'server.share.hardNetwork':
-    '此網路的路由器難以建立直接連線，部分好友可能無法加入。',
-  'server.share.connected': { other: '{count} 位好友已連線' },
+    '此網路的路由器難以建立直接連線，部分玩家可能無法加入。',
+  'server.share.connected': { other: '{count} 人已連線' },
   'server.share.joins': { other: '（目前共加入 {count} 次）' },
-  'server.share.friendLine': '透過{connection}，{ms} 毫秒',
+  'server.share.peerLine': '透過{connection}，{ms} 毫秒',
   'server.share.connection.same_computer': '這台電腦',
   'server.share.connection.local_network': '區域網路',
   'server.share.connection.ipv6': 'IPv6',
@@ -731,7 +722,7 @@ export const zhHant: Messages = {
   'server.share.stop': '停止分享',
   'server.share.stopTitle': '停止分享？',
   'server.share.stopBody':
-    '正在遊戲的好友會中斷連線，連結也將失效。再次分享會產生新連結。',
+    '透過連結遊戲的人都會中斷連線，連結也將失效。再次分享會產生新連結。',
   'server.publicListing.title': '分享',
   'server.publicListing.lead': '誰可以在不登入的情況下找到此伺服器。',
   'server.publicListing.listedPublicly': '公開列出',
@@ -776,10 +767,9 @@ export const zhHant: Messages = {
   'server.action.restart': '重新啟動',
   'server.action.kill': '強制停止',
   'server.card.power': '電源',
-  'server.card.noScripting':
-    '此核心建置時未包含指令碼支援（Deno），因此無法使用 atom 伺服器。',
-  'server.card.codeExecutionDisabled': '此核心已停用程式碼執行',
   'server.card.copyIp': '複製 IP',
+  'server.card.share': '分享',
+  'server.card.shareHint': '透過連結分享此伺服器',
   'server.card.online': '{players}/{max} 在線上',
 
   // InstanceCard：啟動未接受 Minecraft EULA 的伺服器
@@ -815,7 +805,7 @@ export const zhHant: Messages = {
   'server.api.loginFailed': '登入失敗：{message}',
   'server.api.loginError': '錯誤：{message}',
 
-  // ===== Console and macros =====
+  // ===== Console =====
 
   // GameConsole: a server's console tab
   'console.pageTitle': '伺服器主控台',
@@ -843,46 +833,9 @@ export const zhHant: Messages = {
   // ConsoleLine: one line of console output
   'console.line.linkedUser': '連結了此 Minecraft 帳戶的 Lodestone 使用者',
 
-  // CodeExecution: owner-only features and the code execution switch
-  'console.ownerOnlyAtom': '只有擁有者可以控制 atom 伺服器',
-  'console.ownerOnlyAtomSentence': '只有擁有者可以控制 atom 伺服器。',
+  // CodeExecution: the custom Java command settings and the code execution switch
   'console.commandLine.readOnly': '此核心已停用程式碼執行，此設定為唯讀。',
   'console.commandLine.ownerOnly': '只有擁有者可以變更此設定。',
-
-  // Macros page
-  'console.macros.pageTitle': '伺服器巨集',
-  'console.macros.intro': '你的伺服器的所有巨集',
-  'console.macros.ownerOnly': '只有此核心的擁有者可以使用巨集。',
-  'console.macros.codeExecutionDisabledBanner':
-    '此核心已停用程式碼執行。在核心設定中重新啟用之前，無法執行或設定巨集。',
-  'console.macros.codeExecutionDisabled': '此核心已停用程式碼執行',
-  'console.macros.tab.macros': '所有巨集',
-  'console.macros.tab.tasks': '執行中的工作',
-  'console.macros.tab.history': '歷史記錄',
-  'console.macros.column.name': '巨集名稱',
-  'console.macros.column.lastRun': '上次執行',
-  'console.macros.column.created': '建立時間',
-  'console.macros.column.finished': '完成時間',
-  'console.macros.column.pid': '處理程序 ID',
-  'console.macros.noTime': '無',
-  'console.macros.run': '執行巨集',
-  'console.macros.editConfig': '編輯設定',
-  'console.macros.killTask': '強制停止工作',
-  'console.macros.configTitle': '巨集設定',
-  'console.macros.configRequired': '此巨集需要額外的設定。',
-  'console.macros.noServer': '未選取伺服器',
-  'console.macros.loadFailed': '無法載入巨集：{error}',
-  'console.macros.openConfigFailed': '開啟巨集設定時發生錯誤：{error}',
-  'console.macros.runFailed': '執行巨集時發生錯誤：{error}',
-  'console.macros.killFailed': '無法強制停止工作：{error}',
-  'console.macros.saveConfigFailed': '無法儲存巨集設定：{error}',
-  'console.macros.invalidState': '錯誤：狀態無效',
-
-  // MacroCreateForm (not used yet)
-  'console.macros.create.name': '巨集名稱',
-  'console.macros.create.args': '引數',
-  'console.macros.create.submit': '建立巨集',
-  'console.macros.create.nameRequired': '必須填寫巨集名稱',
 
   // ===== Creating a server =====
 
@@ -942,13 +895,16 @@ export const zhHant: Messages = {
   'create.gameType.subtitle': '你的伺服器要用來做什麼？',
   'create.gameType.new': '新功能',
   'create.gameType.modpack': 'Modrinth 模組包',
-  'create.gameType.modpackDescription': '從 Modrinth 模組包建立 Fabric 伺服器',
+  'create.gameType.modpackDescription':
+    '從 Modrinth 模組包建立 Fabric、Forge 或 NeoForge 伺服器',
 
   // GameTypeMappings: games' titles and descriptions
   'create.game.genericTitle': '{name}（通用）',
   'create.game.vanillaDescription': 'Mojang 官方的標準原版 Minecraft 伺服器。',
   'create.game.forgeDescription':
     '模組框架，可用來安裝模組並自訂你的 Minecraft 體驗。',
+  'create.game.neoforgeDescription':
+    '社群維護的 Forge 分支，有自己的模組，適用於 Minecraft 1.20.2 及更新版本。',
   'create.game.fabricDescription': '輕量級的 Minecraft 模組工具鏈。',
   'create.game.paperDescription':
     '高效能的 Spigot 分支，旨在修正遊戲玩法與機制上的不一致。',
@@ -964,7 +920,7 @@ export const zhHant: Messages = {
   // ModpackCreateForm: creating a server from a Modrinth modpack
   'create.modpack.sourceTitle': '選擇模組包',
   'create.modpack.sourceDescription':
-    '搜尋 Modrinth、貼上 Modrinth 連結，或上傳 .mrpack 檔案。僅支援 Fabric 模組包。',
+    '搜尋 Modrinth、貼上 Modrinth 連結，或上傳 .mrpack 檔案。支援 Fabric、Forge 和 NeoForge 模組包。',
   'create.modpack.searchPlaceholder': '搜尋模組包，或貼上 Modrinth 連結',
   'create.modpack.onlyFabric': '僅顯示 Fabric 模組包',
   'create.modpack.upload': '上傳 .mrpack',
@@ -1078,6 +1034,7 @@ export const zhHant: Messages = {
   'files.createFolder.label': '為資料夾命名',
   'files.createFolder.placeholder': '未命名資料夾',
   'files.createFolder.submit': '建立資料夾',
+  'files.nameTaken': '此資料夾中已有 {name}',
   'files.rename.label': '為檔案命名',
   'files.rename.submit': '重新命名檔案',
 
@@ -1115,6 +1072,20 @@ export const zhHant: Messages = {
     'Modrinth 未說明玩家是否需要它，請查看該模組的頁面',
   'mods.clientRequirement.unknownNotOnModrinth':
     '不在 Modrinth 上，請查看該模組的頁面',
+  'mods.clientRequirement.unknownModrinthMark':
+    'Modrinth 未說明玩家是否需要它，請查看該模組的頁面。如果玩家需要，請勾選「給玩家」。',
+  'mods.clientRequirement.unknownNotOnModrinthMark':
+    '不在 Modrinth 上，請查看該模組的頁面。如果玩家需要，請勾選「給玩家」。',
+  'mods.forPlayers.label': '給玩家',
+  'mods.forPlayers.hint':
+    '玩家加入時會取得這個模組及其相依的模組。對於 Lodestone 無法判斷但玩家需要的模組（例如你上傳的），請勾選此項。',
+  'mods.forPlayers.already':
+    '玩家已會取得這個模組：Modrinth 或模組本身表明玩家需要它。',
+  'mods.forPlayers.marked': '玩家下次加入時會取得 {name}',
+  'mods.forPlayers.optional':
+    'Modrinth 表示玩家沒有這個模組也能加入，但在 Fabric 上，這類模組常常會讓玩家無法加入，所以玩家會取得它。取消勾選即可不給玩家。',
+  'mods.forPlayers.unmarked': '玩家加入時不再取得 {name}',
+  'mods.forPlayers.failed': '無法變更 {name}：{error}',
   'mods.versionType.release': '正式版',
   'mods.versionType.beta': '測試版',
   'mods.versionType.alpha': '早期測試版',
@@ -1181,6 +1152,45 @@ export const zhHant: Messages = {
   'mods.installed.empty.plugin':
     '尚未安裝任何外掛。瀏覽 Modrinth 或上傳 .jar 檔案。',
 
+  'mods.modpack.from': '此伺服器使用模組包 {pack}。',
+  'mods.modpack.check': '檢查更新',
+  'mods.modpack.checkFailed': '無法檢查更新：{error}',
+  'mods.modpack.upToDate': '已是最新版本。',
+  'mods.modpack.whatsNew': '更新內容',
+  'mods.modpack.out': '{version} 已發布',
+  'mods.modpack.updateTo': '更新到 {version}',
+  'mods.modpack.fromFile': '從檔案更新',
+  'mods.modpack.notMrpack': '{name} 不是 .mrpack 檔案。',
+  'mods.modpack.planFailed': '無法準備更新：{error}',
+  'mods.modpack.history': '歷史',
+  'mods.modpack.historyFailed': '無法載入模組包的歷史：{error}',
+  'mods.modpack.historyEmpty': '尚無記錄。之後的變更可以復原。',
+  'mods.modpack.current': '目前',
+  'mods.modpack.restore': '還原',
+  'mods.modpack.restoreMissing': 'Lodestone 已不再保有此版本的部分檔案。',
+  'mods.modpack.restoreTitle': '還原此版本？',
+  'mods.modpack.updateTitle': '更新模組包？',
+  'mods.modpack.update': '更新',
+  'mods.modpack.restored': '已還原「{change}」。',
+  'mods.modpack.updated': '已將 {pack} 更新到 {version}。',
+  'mods.modpack.restoreFailed': '無法還原此版本：{error}',
+  'mods.modpack.updateFailed': '無法更新模組包：{error}',
+  'mods.modpack.since': '自 {date} 起',
+  'mods.modpack.sinceTooltip': '此檔案保持「{change}」之後的樣子。',
+  'mods.modpack.unknownVersion': '未知版本',
+  'mods.modpack.dialog.intro': '{pack} 將從 {from} 更新到 {to}。',
+  'mods.modpack.dialog.restoreIntro':
+    '模組和設定將回到「{change}」之後的樣子。',
+  'mods.modpack.dialog.reinstall': '伺服器將改用 {software} 並重新安裝。',
+  'mods.modpack.dialog.kept': '你修改過的檔案將保持不變：{files}',
+  'mods.modpack.dialog.nothing': '沒有檔案會變更。',
+  'mods.modpack.dialog.stop': '請先停止伺服器：伺服器執行時無法更新。',
+  'mods.modpack.dialog.unsupported': '無法使用此版本：{reason}',
+  'mods.modpack.added': { other: '已新增 {count} 個檔案' },
+  'mods.modpack.replaced': { other: '已取代 {count} 個檔案' },
+  'mods.modpack.removed': { other: '已刪除 {count} 個檔案' },
+  'mods.modpack.moreChanges': { other: '還有 {count} 個' },
+
   // ClientPackPanel
   'mods.clientPack.loader': 'Fabric Loader {version}',
   'mods.clientPack.loaderNoVersion': 'Fabric Loader',
@@ -1188,6 +1198,11 @@ export const zhHant: Messages = {
     '玩家只需原版 Fabric 即可加入（Minecraft {gameVersion}，{loader}）。',
   'mods.clientPack.title': { other: '玩家需要 {count} 個模組才能加入' },
   'mods.clientPack.download': '下載用戶端模組包（.mrpack）',
+  'mods.clientPack.showAll': {
+    one: '顯示全部 {count} 個模組',
+    other: '顯示全部 {count} 個模組',
+  },
+  'mods.clientPack.showFewer': '收合',
   'mods.clientPack.downloadFailed': '無法下載用戶端模組包：{error}',
   'mods.clientPack.importHint':
     '將其匯入 Prism Launcher、Modrinth App 或 ATLauncher，即可取得所有正確版本的內容。',

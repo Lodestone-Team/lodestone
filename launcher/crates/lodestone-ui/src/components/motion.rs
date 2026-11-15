@@ -47,6 +47,18 @@ pub fn tween(
     if super::dialog::prefers_reduced_motion() {
         return target;
     }
+    tween_even_reduced(key, target, duration, window, cx)
+}
+
+/// [`tween`], also with reduced motion: for a fade, which reduced motion keeps (only
+/// movement goes).
+pub fn tween_even_reduced(
+    key: impl Into<ElementId>,
+    target: f32,
+    duration: Duration,
+    window: &mut Window,
+    cx: &mut App,
+) -> f32 {
     let state = window.use_keyed_state(key, cx, |_, _| Tween {
         from: target,
         to: target,

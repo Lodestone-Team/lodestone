@@ -28,19 +28,14 @@ pub fn text(message: M) -> &'static str {
         }
         M::TurnOff => "關閉",
         M::CodeExecution => "程式碼執行",
-        M::CodeExecutionHint => "巨集、Atom 伺服器、擴充功能、伺服器指令碼和自訂 Java 指令。",
-        M::CodeExecutionHintJavaOnly => "自訂 Java 指令。",
+        M::CodeExecutionHint => "自訂 Java 指令。",
         M::CodeExecutionLocked => {
             "已被此核心的管理員鎖定（LODESTONE_DISABLE_CODE_EXECUTION 或 --disable-code-execution）。"
         }
         M::CodeExecutionOffTitle => "要關閉程式碼執行嗎？",
         M::CodeExecutionOffBody => {
-            "執行中的巨集和 Atom 伺服器將會停止。在你重新開啟程式碼執行之前，巨集、Atom 伺服器、擴充功能、伺服器指令碼和自訂 Java 指令都不會在此核心上執行。任何項目都不會自動重新啟動。"
-        }
-        M::CodeExecutionOffBodyJavaOnly => {
             "在你重新開啟程式碼執行之前，自訂 Java 指令不會在此核心上執行。任何項目都不會自動重新啟動。"
         }
-        M::NoScripting => "此核心建置時未包含指令碼支援（Deno），因此無法使用巨集。",
         M::LanHttp => "允許透過未加密 HTTP 進行區域網路存取",
         M::LanHttpHint => "未加密。你網路中的其他人可以讀取密碼。",
         M::LanHttpConfirmTitle => "要允許其他裝置使用未加密 HTTP 嗎？",
@@ -106,8 +101,6 @@ pub fn text(message: M) -> &'static str {
         M::PermissionsLead => "{username} 在此核心上可以執行的操作。",
         M::UnsafePermissions => "不安全的權限",
         M::UnsafePermissionsLead => "關閉安全模式後才能授予非擁有者。",
-        M::OwnerOnly => "巨集、擴充功能和 Atom 伺服器",
-        M::OwnerOnlyHint => "僅限擁有者。Docker 伺服器使用一般權限。",
         M::UsersOwnerOnly => "只有擁有者可以管理使用者。",
         M::You => "你",
         M::Admin => "管理員",
@@ -181,6 +174,10 @@ pub fn text(message: M) -> &'static str {
         M::Appearance => "外觀",
         M::AppearanceLead => "儲存在這台電腦上，而不是核心上。",
         M::ColoredConsole => "彩色主控台",
+        M::Startup => "啟動",
+        M::StartAtLogin => "登入時開啟 Lodestone Host",
+        M::StartAtLoginHint => "登入這台電腦時，它會在背景開啟，並啟動設為自動啟動的伺服器。",
+        M::StartAtLoginFailed => "無法變更啟動設定：{error}",
         M::Language => "語言",
         M::LanguageAuto => "系統預設（{language}）",
         M::Theme => "主題",
@@ -245,8 +242,6 @@ pub fn text(message: M) -> &'static str {
         M::KeyUnsafeSafeMode => {
             "安全模式已開啟，因此在核心設定中關閉安全模式之前，核心會拒絕將這些權限授予自訂存取的金鑰。"
         }
-        M::KeyOwnerOnly => "巨集、擴充功能和 Atom 伺服器",
-        M::KeyOwnerOnlyHint => "只有完整存取的金鑰才能使用巨集、擴充功能和 Atom 伺服器。",
         M::NewKeyTitle => "已建立 API 金鑰「{name}」",
         M::NewKeyCopyNow => "請立即複製此金鑰。之後將無法再次檢視。",
         M::NewKeyUseWithCli => "在 Lodestone CLI 中使用：",
@@ -279,6 +274,7 @@ pub fn text(message: M) -> &'static str {
         M::EventStopped => "伺服器 {name} 已停止！",
         M::EventCrashed => "伺服器 {name} 發生錯誤！",
         M::WarningToast => "警告：某個伺服器發出了警告。這不應該發生，請向開發者回報此問題。",
+        M::EventModpackUpdate => "{name} 的 {pack} {version} 已發布",
         M::EventWarning => "伺服器 {name} 發出了警告",
         M::EventError => "伺服器 {name} 發生錯誤",
         M::PlayersJoined => "{players} 加入了 {name}",
@@ -287,11 +283,7 @@ pub fn text(message: M) -> &'static str {
         M::PlayerMessage => "{player} 在 {name} 上說：{message}",
         M::EventApiKeyCreated => "已建立 API 金鑰「{name}」",
         M::EventApiKeyRevoked => "已撤銷 API 金鑰「{name}」",
-        M::MacroStarted => "巨集 {pid} 已在 {server} 上啟動",
-        M::MacroDetached => "巨集 {pid} 已在 {server} 上分離",
-        M::MacroStopped => "巨集 {pid} 已在 {server} 上停止，狀態為 {status}",
         M::LoadFailed => "無法載入通知：{error}",
-        M::CoreFallback => "核心",
         M::CoreFailedNotice => "Lodestone Core 無法啟動：{error}",
         M::UpdatesTitle => "更新",
         M::UpdatesLead => "這台電腦上的 Lodestone Host。Lodestone Core 隨之更新。",
@@ -299,13 +291,9 @@ pub fn text(message: M) -> &'static str {
         M::UpdateAutomatically => "自動更新",
         M::UpdateAutomaticallyHint => "在背景下載新組建。",
         M::BetaBuilds => "測試版組建",
-        M::BetaBuildsHint => {
-            "搶先體驗新功能。測試版組建可能有錯誤。關閉後會保留目前的組建，直到有更新的穩定版組建。"
-        }
+        M::BetaBuildsHint => "測試版組建可能有錯誤。",
         M::DeveloperBuilds => "開發者組建",
-        M::DeveloperBuildsHint => {
-            "供 Lodestone 開發者使用：更新到開發中的組建，可能無法正常運作。關閉後會保留目前的組建，直到有更新的正式發行。"
-        }
+        M::DeveloperBuildsHint => "供 Lodestone 開發者使用：更新到開發版組建，可能有錯誤。",
         M::BuildNumber => "組建 {build}",
         M::BuildNumberCommit => "組建 {build} · {commit}",
         M::DevelopmentBuild => "開發組建",
@@ -323,6 +311,24 @@ pub fn text(message: M) -> &'static str {
             "重新啟動 Lodestone Host 會先停止這些伺服器。設為自動啟動的伺服器會在重新啟動後再次啟動。"
         }
         M::RestartUpdateConfirm => "停止伺服器並重新啟動",
+        M::DeveloperSection => "開發者",
+        M::ConnectService => "Connect 服務（中繼）",
+        M::ConnectServiceHint => "僅供測試。邀請連結和好友清單使用此服務。變更後會重新啟動核心。",
+        M::ConnectServiceInUse => "開發中繼：{service}",
+        M::ConnectServiceEnv => {
+            "已設定 {var}，因此核心使用 {service}。取消設定後，此設定才會生效。"
+        }
+        M::ConnectServiceScheme => "位址需以 https:// 開頭。",
+        M::ConnectServiceInsecure => {
+            "請使用 https://。只有本機上的服務（127.0.0.1 或 localhost）可以使用 http://。"
+        }
+        M::ConnectServiceExtra => "只輸入位址，不要包含路徑、查詢參數或使用者名稱。",
+        M::ConnectServiceAddress => "這不是有效的位址。",
+        M::SaveAndRestartCore => "儲存並重新啟動核心",
+        M::RestartCoreTitle => "重新啟動核心？",
+        M::RestartCoreBody => {
+            "變更 Connect 服務會重新啟動 Lodestone Core，它會先停止這些伺服器。設為自動啟動的伺服器會在重新啟動後再次啟動。"
+        }
         M::UpdateFailed => "無法更新：{error}",
         M::CheckForUpdates => "立即檢查",
         M::DownloadUpdate => "下載",
@@ -361,6 +367,34 @@ pub fn text(message: M) -> &'static str {
         M::SignIn => "登入",
         M::RemoveCore => "移除",
         M::RemoteSignedOut => "你已從 {name} 登出。Lodestone Host 已回到這台電腦的核心。",
+        M::RemoteAccess => "允許其他裝置存取",
+        M::RemoteAccessHintOff => {
+            "關閉：只有這台電腦上的應用程式可以使用這個核心（Lodestone Host、Lodestone Launcher 和 Lodestone CLI）。開啟後可以在其他裝置上使用網頁控制台、新增使用者或建立 API 金鑰。無論開關如何，都可以分享伺服器。"
+        }
+        M::RemoteAccessHintOn => "其他裝置可以透過 HTTPS 用使用者名稱和密碼登入這個核心。",
+        M::RemoteAccessOffTitle => "關閉其他裝置的存取？",
+        M::RemoteAccessOffBody => {
+            "只有這台電腦上的應用程式可以使用這個核心。其他裝置、其他使用者和在別處使用的 API 金鑰將無法使用，直到你重新開啟。分享伺服器仍然可用。"
+        }
+        M::LocalClaimNeedsPassword => "請先設定擁有者帳戶：沒有密碼時，這是唯一的登入方式。",
+        M::OwnerAccountTitle => "設定擁有者帳戶以分享這個核心",
+        M::OwnerAccountLead => {
+            "其他裝置使用使用者名稱和密碼登入。請選擇你將在網頁控制台和其他裝置上使用的使用者名稱和密碼。這台電腦上的應用程式無需它們也能繼續登入。"
+        }
+        M::OwnerAccountButton => "設定並允許存取",
+        M::OwnerAccountDone => "擁有者帳戶已設定。其他裝置現在可以登入這個核心。",
+        M::PasswordTooShort => "密碼至少需要 12 個字元。",
+        M::SetPassword => "設定密碼",
+        M::NoPasswordYet => "還沒有密碼。只有這台電腦上的應用程式可以使用這個核心。",
+        M::ModpackChecks => "檢查模組包更新",
+        M::ModpackChecksHint => {
+            "每隔幾小時在 Modrinth 上查找伺服器所用模組包的新版本，有新版本時通知。關閉後，伺服器「模組」分頁中的「檢查更新」仍可使用。"
+        }
+        M::ModpackChecksKeywords => "模組包 更新 通知 Modrinth 自動",
+        M::RemoteAccessKeywords => "遠端 區域網路 網路 共用",
+        M::DomainKeywords => "位址 主機名稱 網址",
+        M::OpenPortKeywords => "連接埠轉送 路由器 UPnP 防火牆",
+        M::ThemeKeywords => "深色 淺色 模式 外觀 顏色",
     }
 }
 

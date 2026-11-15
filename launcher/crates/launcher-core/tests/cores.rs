@@ -17,10 +17,9 @@ use launcher_core::{
     content::{InstanceDirs, install::InstallProgress, provenance::Provenance},
     cores::{
         CoreClient, CoreError, PackFetch, ServerState,
+        image_sync::plan::PackChanges,
         link::{self, ServerLink},
-        parse_address,
-        sync::{self, PackChanges},
-        trust,
+        parse_address, sync, trust,
     },
     game::{
         download::{CancelToken, Downloader, recording_sleep},
@@ -127,6 +126,19 @@ fn route(state: &mut State, request: &Recorded) -> (u16, Vec<(String, String)>, 
             state.running = true;
             json_reply(200, json!(null))
         }
+        ("PUT", "/api/v1/instance/inst-1/restart") if bearer_ok => json_reply(200, json!(null)),
+        ("PUT", "/api/v1/instance/inst-1/kill") if bearer_ok => {
+            state.running = false;
+            json_reply(200, json!("ok"))
+        }
+        ("GET", "/api/v1/instance/inst-1/share") if bearer_ok => json_reply(
+            200,
+            json!({ "sharing": true, "state": null, "link": "https://connect.lodestone.cc/j/abc", "stable_link": true, "joins": 2, "friends": [] }),
+        ),
+        ("GET", "/api/v1/instance/inst-2/share") if bearer_ok => json_reply(
+            403,
+            json!({ "kind": "PermissionDenied", "causes": ["You don't have permission to change this instance's settings"] }),
+        ),
         ("PUT", "/api/v1/instance/inst-1/stop") if bearer_ok => json_reply(
             403,
             json!({ "kind": "PermissionDenied", "causes": ["You don't have permission to stop this instance"] }),
@@ -297,6 +309,29 @@ fn reports_bad_passwords_revoked_keys_and_refusals() {
     assert!(err.is_offline(), "{err:?}");
 }
 
+#[test]
+fn restarts_kills_and_reads_the_share_link() {
+    let core = MockCore::start();
+    let client = core.client();
+    let key = Secret::new(KEY);
+    block_on(client.start(&key, "inst-1")).unwrap();
+    block_on(client.restart(&key, "inst-1")).unwrap();
+    block_on(client.kill(&key, "inst-1")).unwrap();
+    assert!(!core.state.lock().unwrap().running);
+
+    let share = block_on(client.share(&key, "inst-1")).unwrap();
+    assert!(share.sharing);
+    assert_eq!(
+        share.link.as_deref(),
+        Some("https://connect.lodestone.cc/j/abc")
+    );
+    // a key that may not change the server's settings gets no link
+    assert!(matches!(
+        block_on(client.share(&key, "inst-2")),
+        Err(CoreError::Forbidden(_))
+    ));
+}
+
 fn make_pack(files: Value, overrides: &[(&str, &[u8])]) -> Vec<u8> {
     let mut out = Cursor::new(Vec::new());
     {
@@ -449,6 +484,7 @@ fn imports_and_keeps_a_servers_client_pack_in_step() {
         server_uuid: server.uuid.clone(),
         server_name: server.name.clone(),
         pack_etag: etag,
+        view: None,
     };
     link::save_link(&dirs.instance, &link).unwrap();
     assert_eq!(
@@ -497,7 +533,6 @@ fn imports_and_keeps_a_servers_client_pack_in_step() {
         &dirs,
         &plan,
         &pack_path,
-        false,
         &InstallProgress::default(),
         &CancelToken::new(),
     )))

@@ -27,7 +27,6 @@ crate::i18n::messages! {
         ConsoleSendFailed = "Failed to send command: {error}",
         /// The tooltip of the name after a console line about a linked player.
         ConsoleLinkedUser = "The Lodestone user who linked this Minecraft account",
-        ConsoleOwnerOnlyAtom = "Only the owner can control atom servers",
         /// A button over the console when it has been scrolled up.
         ConsoleJumpToLatest = "Jump to latest",
         /// The console's name for screen readers.
@@ -35,7 +34,6 @@ crate::i18n::messages! {
         /// The command line's name for screen readers.
         ConsoleCommand = "Command",
         /// Over the tab while files are dragged onto it.
-        FilesDropToUpload = "Release to upload files",
         /// The toolbar's menu.
         FilesAddRemove = "Add/Remove",
         FilesSelectAll = "Select all",
@@ -94,6 +92,8 @@ crate::i18n::messages! {
         FilesCreateFolder = "Create folder",
         FilesRenameFile = "Rename file",
         FilesNameRequired = "Enter a name.",
+        /// The New file or New folder dialog, when the folder already has something by that name.
+        FilesNameTaken = "A file or folder named {name} already exists here.",
         FilesDeletedFile = "Deleted file: {name}",
         FilesDeletedFolder = "Deleted folder: {path}",
         FilesMoveFailed = "Failed to move {name}: {error}",

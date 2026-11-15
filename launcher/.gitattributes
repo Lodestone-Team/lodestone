@@ -1,0 +1,7 @@
+# Files the launcher reads byte for byte (embedded with include_str!, or test data
+# compared exactly). Git's core.autocrlf, on by default on Windows, would check them
+# out with CRLF and change what is built or tested.
+skills/**/SKILL.md text eol=lf
+crates/lodestone-launcher-cli/SKILL.md text eol=lf
+crates/launcher-core/testdata/options/*.txt text eol=lf
+crates/launcher-core/testdata/golden/**/*.txt text eol=lf

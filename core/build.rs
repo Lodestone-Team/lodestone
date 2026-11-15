@@ -1,80 +1,20 @@
-//! Builds the deno runtime startup snapshot used by the macro executor.
-//!
-//! Without a snapshot, deno_runtime reads its own JavaScript sources from the cargo
-//! registry path at runtime, which does not exist on machines running a shipped binary.
-//! The snapshot is built for the host architecture, so core must not be cross-compiled.
-//!
-//! Only with the `deno` feature: without it there is no deno runtime to snapshot, and the
-//! deno build dependencies are not compiled at all.
-
-#[cfg(feature = "deno")]
-use std::{collections::HashSet, fmt::Write as _, path::PathBuf};
-
-#[cfg(feature = "deno")]
-use deno_runtime::{
-    ops::bootstrap::SnapshotOptions,
-    snapshot::{create_runtime_snapshot, LazyExtensionFileKind},
-};
-
+// Delay-loads the Windows DLLs the core rarely or never calls, so starting it doesn't map
+// and initialise them (and the DLLs they pull in). Each loads on its first call instead:
+// pdh and powrprof are sysinfo's, secur32 has only GetUserNameExW, shell32 only
+// CommandLineToArgvW and oleaut32 only GetErrorInfo. All are system DLLs, so loading them
+// later can't fail where loading them at start would have succeeded.
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
-    #[cfg(feature = "deno")]
-    build_snapshot();
-}
-
-#[cfg(feature = "deno")]
-fn build_snapshot() {
-    let out_dir = PathBuf::from(std::env::var_os("OUT_DIR").expect("OUT_DIR is set by cargo"));
-    let output = create_runtime_snapshot(
-        out_dir.join("RUNTIME_SNAPSHOT.bin"),
-        SnapshotOptions::default(),
-        // Lodestone's own extensions are registered at worker creation, not snapshotted,
-        // since they carry per-worker state.
-        vec![],
-    );
-
-    // Lazily loaded runtime files that the snapshot did not consume must ship in the
-    // binary. The runtime does not transpile these, so transpile them here.
-    let consumed: HashSet<_> = output.consumed_lazy_specifiers.iter().cloned().collect();
-    let mut js = String::from("&[\n");
-    let mut esm = String::from("&[\n");
-    for (i, file) in output.lazy_extension_files.iter().enumerate() {
-        if consumed.contains(&file.specifier) {
-            continue;
-        }
-        println!("cargo:rerun-if-changed={}", file.path.display());
-        let source = std::fs::read_to_string(&file.path).expect("failed to read lazy runtime file");
-        let (code, _source_map) = deno_runtime::transpile::maybe_transpile_source(
-            deno_core::ModuleName::from(file.specifier.clone()),
-            source.into(),
-        )
-        .expect("failed to transpile lazy runtime file");
-        let path = out_dir.join(format!("residual_{i}.js"));
-        std::fs::write(&path, code.as_bytes()).expect("failed to write lazy runtime file");
-        let entry = format!(
-            "    ({:?}, include_str!({:?})),\n",
-            file.specifier,
-            path.display().to_string()
-        );
-        match file.kind {
-            LazyExtensionFileKind::Js => js.push_str(&entry),
-            LazyExtensionFileKind::Esm => esm.push_str(&entry),
-        }
+    // the target's, not the host's: a build script runs on the host
+    let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
+    let target_env = std::env::var("CARGO_CFG_TARGET_ENV").unwrap_or_default();
+    if target_os != "windows" || target_env != "msvc" {
+        return;
     }
-    js.push(']');
-    esm.push(']');
-
-    let mut generated = String::new();
-    writeln!(
-        generated,
-        "pub static RESIDUAL_LAZY_JS: &[(&str, &str)] = {js};"
-    )
-    .unwrap();
-    writeln!(
-        generated,
-        "pub static RESIDUAL_LAZY_ESM: &[(&str, &str)] = {esm};"
-    )
-    .unwrap();
-    std::fs::write(out_dir.join("residual_sources.rs"), generated)
-        .expect("failed to write residual_sources.rs");
+    // Only the core's own binary: the dashboard links the library into an app of its own.
+    for dll in ["shell32", "oleaut32", "pdh", "powrprof", "secur32"] {
+        println!("cargo:rustc-link-arg-bins=/DELAYLOAD:{dll}.dll");
+    }
+    // the helper that resolves delay-loaded imports on their first call
+    println!("cargo:rustc-link-arg-bins=delayimp.lib");
 }

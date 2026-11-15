@@ -12,12 +12,12 @@ use launcher_core::settings::{DEFAULT_MIN_RAM_MB, InstanceDefaults, default_max_
 use crate::{
     components::{
         TextInput, Toggle,
-        settings::{SettingRow, Toast, card},
+        settings::{SettingRow, SettingsQuery, SettingsSearch, Toast},
     },
-    i18n::{CommonMsg, FormatMsg, ShellMsg as M, format, t, tr},
+    i18n::{CommonMsg, FormatMsg, InstanceSettingsMsg, ShellMsg as M, format, t, tr},
     instances::{
         Instances,
-        fields::{Fields, Values},
+        fields::{Fields, Values, window_controls},
     },
     theme::{self, colors, leading, text},
 };
@@ -31,6 +31,8 @@ pub struct LauncherSettings {
     form_last: Option<InstanceDefaults>,
     form_seen: Option<InstanceDefaults>,
     form_base: Option<InstanceDefaults>,
+    /// The Settings dialog's search.
+    search: Option<Entity<SettingsSearch>>,
     _observe: Vec<Subscription>,
 }
 
@@ -101,8 +103,21 @@ impl LauncherSettings {
             form_last: None,
             form_seen: None,
             form_base: None,
+            search: None,
             _observe: observe,
         }
+    }
+
+    /// Filters the page by the Settings dialog's search.
+    pub fn set_search(&mut self, search: Entity<SettingsSearch>) {
+        self.search = Some(search);
+    }
+
+    fn query(&self, cx: &App) -> SettingsQuery {
+        self.search
+            .as_ref()
+            .map(|search| search.read(cx).query())
+            .unwrap_or_default()
     }
 
     /// Whether the fields differ from the saved defaults (or aren't valid).
@@ -150,6 +165,23 @@ impl LauncherSettings {
         self.fields
             .jvm_args
             .update(cx, |input, cx| input.set_text("-XX:+UseZGC", cx));
+    }
+
+    /// Opens the window size list, or picks a size of no name, for the offscreen
+    /// screenshots.
+    pub fn preview_window_size(&mut self, open: bool, cx: &mut Context<Self>) {
+        if open {
+            self.fields.size_menu_open = true;
+        } else {
+            self.fields.set_resolution(
+                Some(launcher_core::instances::Resolution {
+                    width: 1000,
+                    height: 700,
+                }),
+                cx,
+            );
+        }
+        cx.notify();
     }
 
     /// Puts the saved defaults back in the fields.
@@ -282,7 +314,7 @@ impl LauncherSettings {
 }
 
 impl Render for LauncherSettings {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.track_edits(cx);
         let total = self.instances.read(cx).total_memory();
         let memory_check = self.fields.memory(total, cx);
@@ -295,14 +327,11 @@ impl Render for LauncherSettings {
         let window_error = self.fields.window(cx).err();
         let env_error = self.fields.env(cx).err();
         let auto_configure = self.instances.read(cx).auto_configure();
-        div()
-            .flex()
-            .flex_col()
-            .gap_6()
-            .w_full()
-            .line_height(theme::line_height(text::MEDIUM, leading::NORMAL))
-            // Applies at once, unlike the fields below, which wait for Save.
-            .child(card([SettingRow::new(t(M::AutoConfigure))
+        let query = self.query(cx);
+        // Applies at once, unlike the fields below, which wait for Save.
+        let after_play = self.instances.read(cx).defaults().snapshot_after_play;
+        let auto = query.card([
+            SettingRow::new(t(M::AutoConfigure))
                 .hint(t(M::AutoConfigureHint))
                 .child(
                     Toggle::new("auto-configure", auto_configure)
@@ -312,56 +341,66 @@ impl Render for LauncherSettings {
                             this.instances
                                 .update(cx, |instances, cx| instances.set_auto_configure(on, cx));
                         })),
+                ),
+            // An instance's own setting wins over this one.
+            SettingRow::new(t(InstanceSettingsMsg::SnapshotAfterPlay))
+                .hint(t(InstanceSettingsMsg::SnapshotAfterPlayDefaultHint))
+                .child(
+                    Toggle::new("default-snapshot-after-play", after_play)
+                        .label(t(InstanceSettingsMsg::SnapshotAfterPlay))
+                        .on_change(cx.listener(|this, value: &bool, _, cx| {
+                            let on = *value;
+                            this.instances.update(cx, |instances, cx| {
+                                instances.set_default_snapshot_after_play(on, cx)
+                            });
+                        })),
+                ),
+        ]);
+        let fields = query.card([
+            SettingRow::new(t(M::Memory))
+                .hint(memory_hint)
+                .keywords(t(InstanceSettingsMsg::MemoryKeywords))
+                .child(sized(&self.fields.min_ram, 84.))
+                .child("–")
+                .child(sized(&self.fields.max_ram, 84.))
+                .child(
+                    div()
+                        .text_color(crate::theme::ink::muted())
+                        .child(t(M::MegabytesUnit)),
                 )
-                .into_any_element()]))
-            .child(card([
-                SettingRow::new(t(M::Memory))
-                    .hint(memory_hint)
-                    .child(sized(&self.fields.min_ram, 84.))
-                    .child("–")
-                    .child(sized(&self.fields.max_ram, 84.))
-                    .child(
-                        div()
-                            .text_color(crate::theme::ink::muted())
-                            .child(t(M::MegabytesUnit)),
-                    )
-                    .note_opt(
-                        memory_check
-                            .error
-                            .map(|e| (e.into(), colors::RED_200))
-                            .or(memory_check.warning.map(|w| (w.into(), colors::YELLOW))),
-                    )
-                    .into_any_element(),
-                SettingRow::new(t(M::Window))
-                    .child(sized(&self.fields.width, 72.))
-                    .child("×")
-                    .child(sized(&self.fields.height, 72.))
-                    .child(
-                        div()
-                            .ml_2()
-                            .text_color(crate::theme::ink::secondary())
-                            .child(t(M::Fullscreen)),
-                    )
-                    .child(
-                        Toggle::new("default-fullscreen", self.fields.fullscreen)
-                            .label(t(M::Fullscreen))
-                            .on_change(cx.listener(|this, value: &bool, _, cx| {
-                                this.fields.fullscreen = *value;
-                                cx.notify();
-                            })),
-                    )
-                    .note_opt(window_error.map(|e| (e.into(), colors::RED_200)))
-                    .into_any_element(),
-                SettingRow::new(t(M::JvmArguments))
-                    .child(sized(&self.fields.jvm_args, 280.))
-                    .into_any_element(),
-                SettingRow::new(t(M::GameArguments))
-                    .child(sized(&self.fields.game_args, 280.))
-                    .into_any_element(),
-                SettingRow::new(t(M::EnvironmentVariables))
-                    .child(sized(&self.fields.env, 280.))
-                    .note_opt(env_error.map(|e| (e.into(), colors::RED_200)))
-                    .into_any_element(),
-            ]))
+                .note_opt(
+                    memory_check
+                        .error
+                        .map(|e| (e.into(), colors::RED_200))
+                        .or(memory_check.warning.map(|w| (w.into(), colors::YELLOW))),
+                ),
+            SettingRow::new(t(M::Window))
+                .keywords(t(InstanceSettingsMsg::WindowKeywords))
+                .child(window_controls(
+                    &self.fields,
+                    |this: &mut Self| &mut this.fields,
+                    "default-window",
+                    window,
+                    cx,
+                ))
+                .note_opt(window_error.map(|e| (e.into(), colors::RED_200))),
+            SettingRow::new(t(M::JvmArguments))
+                .keywords(t(InstanceSettingsMsg::JvmArgumentsKeywords))
+                .child(sized(&self.fields.jvm_args, 280.)),
+            SettingRow::new(t(M::GameArguments)).child(sized(&self.fields.game_args, 280.)),
+            SettingRow::new(t(M::EnvironmentVariables))
+                .keywords(t(InstanceSettingsMsg::EnvironmentKeywords))
+                .child(sized(&self.fields.env, 280.))
+                .note_opt(env_error.map(|e| (e.into(), colors::RED_200))),
+        ]);
+        div()
+            .flex()
+            .flex_col()
+            .gap_6()
+            .w_full()
+            .line_height(theme::line_height(text::MEDIUM, leading::NORMAL))
+            .children(query.status())
+            .children(auto)
+            .children(fields)
     }
 }

@@ -8,9 +8,11 @@
 //! tied to the core's HTTPS certificate and only ever sent to it. Nothing is saved:
 //! the Host claims again each time it starts.
 //!
-//! - A core without an owner yet (first run): the user picks the owner's username and
-//!   password, as on the dashboard's setup page, and the claim makes the account. The
-//!   password is what the web dashboard and other devices sign in with.
+//! - A core without an owner yet (first run): the claim makes the owner without a
+//!   password, named after this computer's user ([`default_owner_name`]), so the first
+//!   run asks nothing. The core then serves only this computer. When the owner wants to
+//!   use it from other devices, the Host asks for a username and password first
+//!   (`pages::account_dialogs`), which lets other devices in.
 //! - A core whose owner turned off "Let apps on this computer claim owner access": the
 //!   claim is refused and the user signs in with a username and password, as on the
 //!   dashboard's sign-in page ([`sign_in_with_password`]).
@@ -42,8 +44,6 @@ pub struct Session {
 /// Why signing in didn't work.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SignInError {
-    /// The core has no owner yet: ask for one ([`claim_owner`] with the account).
-    NeedsOwner,
     /// The core refused the claim (its owner turned it off): sign in with a password.
     Refused,
     /// Anything else, for people.
@@ -66,8 +66,8 @@ impl From<CoreError> for SignInError {
 }
 
 /// Signs in to the core at `local_url` (its plain-HTTP address on this computer),
-/// whose data folder is `data_dir`, as its owner. `owner` makes the owner account on a
-/// core that has none; without it such a core gives [`SignInError::NeedsOwner`].
+/// whose data folder is `data_dir`, as its owner. A core without an owner gets `owner`,
+/// or else (the Host's first run) one without a password, named [`default_owner_name`].
 pub async fn claim_owner(
     http: Arc<dyn HttpClient>,
     local_url: url::Url,
@@ -77,9 +77,11 @@ pub async fn claim_owner(
 ) -> Result<Session, SignInError> {
     let local = CoreClient::new(http, local_url);
     let info = local.info().await?;
-    if !info.is_setup && owner.is_none() {
-        return Err(SignInError::NeedsOwner);
-    }
+    let owner = match owner {
+        _ if info.is_setup => None,
+        Some(owner) => Some(owner),
+        None => Some(OwnerCredentials::without_password(default_owner_name())),
+    };
     let session =
         local_claim::claim_session(&local, data_dir, owner.as_ref(), CLAIM_NAME, sleep).await?;
     let admin = AdminClient::new(session.client()?, session.token.clone());
@@ -128,26 +130,36 @@ pub fn token_expiry(token: &str) -> Option<i64> {
     claims.get("exp")?.as_i64()
 }
 
-/// Checks the owner account the user typed on the first run, as the dashboard's setup
-/// form does. `None` when it is fine; the core checks again.
-pub fn owner_problem(username: &str, password: &str, confirm: &str) -> Option<OwnerProblem> {
-    if username.trim().is_empty() {
-        Some(OwnerProblem::NoUsername)
-    } else if password.is_empty() {
-        Some(OwnerProblem::NoPassword)
-    } else if password != confirm {
-        Some(OwnerProblem::Mismatch)
-    } else {
-        None
-    }
+/// The owner's username on the first run: this computer's user name (`USER`, or
+/// `USERNAME` on Windows), cleaned up, else "owner". It can be changed in Settings ›
+/// Profile.
+pub fn default_owner_name() -> String {
+    let user = std::env::var("USER")
+        .or_else(|_| std::env::var("USERNAME"))
+        .ok();
+    owner_name_from(user.as_deref())
 }
 
-/// What is wrong with the owner account typed on the first run.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum OwnerProblem {
-    NoUsername,
-    NoPassword,
-    Mismatch,
+/// `user` as a username: letters, digits, `-`, `_` and `.` (spaces become `_`), at most
+/// 32 characters; "owner" when nothing is left.
+pub fn owner_name_from(user: Option<&str>) -> String {
+    let name: String = user
+        .unwrap_or_default()
+        .trim()
+        .chars()
+        .filter_map(|c| match c {
+            c if c.is_alphanumeric() || matches!(c, '-' | '_' | '.') => Some(c),
+            ' ' => Some('_'),
+            _ => None,
+        })
+        .take(32)
+        .collect();
+    let name = name.trim_matches(|c| matches!(c, '_' | '.' | '-'));
+    if name.is_empty() {
+        "owner".to_string()
+    } else {
+        name.to_string()
+    }
 }
 
 #[cfg(test)]
@@ -171,13 +183,15 @@ mod tests {
     }
 
     #[test]
-    fn the_owner_form_is_checked() {
-        assert_eq!(
-            owner_problem(" ", "pw", "pw"),
-            Some(OwnerProblem::NoUsername)
-        );
-        assert_eq!(owner_problem("a", "", ""), Some(OwnerProblem::NoPassword));
-        assert_eq!(owner_problem("a", "x", "y"), Some(OwnerProblem::Mismatch));
-        assert_eq!(owner_problem("a", "x", "x"), None);
+    fn the_first_owner_is_named_after_this_computers_user() {
+        assert_eq!(owner_name_from(Some("peter")), "peter");
+        assert_eq!(owner_name_from(Some(" Peter Jiang ")), "Peter_Jiang");
+        assert_eq!(owner_name_from(Some("DOMAIN\\alex")), "DOMAINalex");
+        assert_eq!(owner_name_from(Some("élodie.m")), "élodie.m");
+        assert_eq!(owner_name_from(Some("$#@")), "owner");
+        assert_eq!(owner_name_from(Some("")), "owner");
+        assert_eq!(owner_name_from(None), "owner");
+        assert_eq!(owner_name_from(Some(&"a".repeat(80))).len(), 32);
+        assert!(!default_owner_name().is_empty());
     }
 }

@@ -58,6 +58,7 @@ jobs:
     with:
       version: ${{ needs.draft.outputs.tag }}
       ref: ${{ needs.draft.outputs.commit }}
+      prerelease: ${{ needs.draft.outputs.prerelease }}
       debug: false
     secrets:
       TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
@@ -72,3 +73,22 @@ jobs:
     with:
       version: ${{ needs.draft.outputs.tag }}
       ref: ${{ needs.draft.outputs.commit }}
+      prerelease: ${{ needs.draft.outputs.prerelease }}
+
+  # Both build jobs put their files in the draft as well as in this run's
+  # artifacts, so the artifacts go once both succeeded. A failed run keeps them.
+  delete-builds:
+    needs: [dashboard-build-and-draft, core-build-and-draft]
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+    - name: Delete the builds
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts" \
+          --jq '.artifacts[].id' |
+        while read -r id; do
+          gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$id"
+        done

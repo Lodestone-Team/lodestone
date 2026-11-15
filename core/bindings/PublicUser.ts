@@ -2,4 +2,10 @@
 import type { UserId } from "./UserId";
 import type { UserPermission } from "./UserPermission";
 
-export type PublicUser = { uid: UserId, username: string, is_owner: boolean, is_admin: boolean, permissions: UserPermission, };
+export type PublicUser = { uid: UserId, username: string, is_owner: boolean, is_admin: boolean, permissions: UserPermission, 
+/**
+ * Whether the user can sign in with a password. Only Lodestone Host's owner has
+ * none, until they set one to share the core. Older cores don't send it: all their
+ * users have one.
+ */
+has_password: boolean, };

@@ -495,6 +495,14 @@ pub async fn find_update_for(
     }))
 }
 
+/// Lists the repository's releases, where Lodestone Host's are, from GitHub's API
+/// (or `LODESTONE_HOST_RELEASES_URL`, for tests). Run it inside
+/// [`crate::http::in_http_runtime`].
+pub async fn fetch_host_releases(http: &dyn HttpClient) -> Result<Vec<Release>, UpdateError> {
+    let list = env_url(Product::HOST.releases_url_env).unwrap_or_else(|| RELEASES_URL.to_string());
+    fetch_releases(http, &list).await
+}
+
 /// Lists releases from GitHub's API.
 async fn fetch_releases(http: &dyn HttpClient, url: &str) -> Result<Vec<Release>, UpdateError> {
     check_url(url)?;

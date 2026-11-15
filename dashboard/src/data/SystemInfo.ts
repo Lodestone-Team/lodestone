@@ -9,7 +9,6 @@ import { TlsInfo } from 'bindings/TlsInfo';
 import { CoreCapabilities } from 'bindings/CoreCapabilities';
 import { CoreProduct } from 'bindings/CoreProduct';
 import { LaunchedBy } from 'bindings/LaunchedBy';
-import { t } from 'i18n';
 
 // The /system routes require login; axios sends the token by default
 // (set in pages/index.tsx).
@@ -74,6 +73,11 @@ export interface CoreInfo {
   product?: CoreProduct;
   /** What started the core. Missing on older cores: unknown. */
   launched_by?: LaunchedBy;
+  /**
+   * Whether other devices may use the core. Only apps on the core's computer see
+   * `false` (others are refused). Missing on older cores: `true`.
+   */
+  remote_access?: boolean;
 }
 
 /**
@@ -100,24 +104,22 @@ export const useCoreInfo = (refetchInterval: number | false = false) => {
   });
 };
 
-/** Shown instead of the macro features on a core built without Deno. */
-export const noScriptingMessage = () => t('shell.noScripting');
-
 /**
  * The optional features of the core, from /info. A feature the core doesn't
  * report (an older core) counts as available. While /info loads, `isPending`
  * is true: wait before showing anything that may turn out to be unavailable.
  *
- * - `macros`: macros, tasks, instance scripts and extensions.
- * - `genericInstances`: atom instances. Docker instances don't need it.
+ * - `docker`: a Docker daemon was reachable, so containers can be instances.
+ *
+ * (`capabilities.macros` and `generic_instances` are always false now: macros,
+ * extensions and atom instances were removed with the core's Deno runtime.)
  */
 export const useCoreCapabilities = () => {
   const { data, isPending } = useCoreInfo();
   const capabilities = data?.capabilities;
   return {
     isPending,
-    macros: capabilities?.macros ?? true,
-    genericInstances: capabilities?.generic_instances ?? true,
+    docker: capabilities?.docker ?? true,
   };
 };
 

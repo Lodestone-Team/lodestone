@@ -7,6 +7,20 @@ use ts_rs::TS;
 #[ts(export)]
 pub struct HashedPassword(String);
 
+impl HashedPassword {
+    /// No password: matches nothing. Lodestone Host's owner has none until they set one
+    /// to share the core (see `crate::remote_access`); until then they sign in only
+    /// through the local claim.
+    pub fn none() -> Self {
+        Self(String::new())
+    }
+
+    /// Whether there is a password (an empty hash is none).
+    pub fn is_set(&self) -> bool {
+        !self.0.is_empty()
+    }
+}
+
 impl PartialEq<str> for HashedPassword {
     fn eq(&self, other: &str) -> bool {
         // a malformed stored hash matches no password
@@ -68,6 +82,15 @@ mod tests {
                 &PasswordHash::new(ARGON2_0_4_HASH).unwrap(),
             )
             .is_ok());
+    }
+
+    #[test]
+    fn no_password_matches_nothing() {
+        let none = HashedPassword::none();
+        assert!(!none.is_set());
+        assert!(none != *"");
+        assert!(none != *"anything at all");
+        assert!(hash_password("hunter2").is_set());
     }
 
     #[test]

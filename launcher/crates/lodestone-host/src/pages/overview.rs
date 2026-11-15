@@ -4,14 +4,15 @@
 //! (`/monitor/{uuid}`); the players with their linked Lodestone users; and the details.
 
 use std::{
-    collections::VecDeque,
+    collections::{HashMap, VecDeque},
     sync::atomic::{AtomicBool, Ordering},
     time::Duration,
 };
 
 use gpui::{
-    AnyElement, ClipboardItem, Context, Entity, FocusHandle, IntoElement, KeyDownEvent,
-    ParentElement, Render, SharedString, Styled, Subscription, Task, Window, div, img, prelude::*,
+    AnyElement, App, ClipboardItem, Context, Entity, FocusHandle, Global, IntoElement,
+    KeyDownEvent, ParentElement, Render, SharedString, Styled, Subscription, Task, Window, div,
+    img, prelude::*,
 };
 use launcher_core::cores::{
     CoreError,
@@ -25,13 +26,14 @@ use launcher_core::cores::{
 };
 use lodestone_ui::{
     components::{
-        Button, ButtonVariant, Dialog, DialogSlot, Icon, IconButton, LineChart, LoadingDots,
-        TextInput, Toast, text_tooltip, window_layer,
+        Button, ButtonSize, ButtonVariant, Dialog, DialogSlot, Icon, IconButton, LineChart,
+        LoadingDots, TextInput, Toast, text_tooltip, window_layer,
     },
     theme::{Color, colors, fonts, ink, px, radius, text, weights},
 };
 
 use crate::{
+    friends::Phase,
     i18n::{CommonMsg, InstancesMsg as M, InstancesPlural as P, t, tr, trn},
     instance_icons,
     shell::sidebar::{instance_address, state_color, state_name},
@@ -59,9 +61,30 @@ struct Editing {
     saving: bool,
 }
 
-/// The "Stop sharing?" confirmation.
+/// The share status last fetched, by instance: the card shows it at once when the
+/// Overview opens again, while it fetches anew, so it doesn't pop in.
+#[derive(Default)]
+struct ShareCache(HashMap<String, InstanceShare>);
+
+impl Global for ShareCache {}
+
+/// Keeps (or, with `None`, forgets) an instance's share status for the next opening.
+fn remember_share(uuid: &str, share: Option<&InstanceShare>, cx: &mut App) {
+    let cache = &mut cx.default_global::<ShareCache>().0;
+    match share {
+        Some(share) => {
+            cache.insert(uuid.to_string(), share.clone());
+        }
+        None => {
+            cache.remove(uuid);
+        }
+    }
+}
+
+/// The "Stop sharing?" confirmation, or with `new_link` the "Make a new link?" one.
 struct StopPrompt {
     focus: FocusHandle,
+    new_link: bool,
 }
 
 pub struct OverviewPage {
@@ -74,6 +97,8 @@ pub struct OverviewPage {
     share_busy: bool,
     /// Start sharing as soon as the status arrives (the sidebar's "Share").
     share_on_load: bool,
+    /// Bring the Share section into view once it is drawn (the sidebar's "Share").
+    scroll_to_share: bool,
     stop_prompt: DialogSlot<Self, StopPrompt>,
     /// Oldest first, at most [`SAMPLES`].
     reports: VecDeque<PerformanceReport>,
@@ -89,21 +114,28 @@ pub struct OverviewPage {
 
 impl OverviewPage {
     pub fn new(state: Entity<HostState>, uuid: String, cx: &mut Context<Self>) -> Self {
-        let share_on_load = state.update(cx, |state, _| {
+        // (scroll to Share, also start the link)
+        let (scroll_on_load, share_on_load) = state.update(cx, |state, _| {
             if state.share_requested.as_deref() == Some(uuid.as_str()) {
                 state.share_requested = None;
-                true
+                (true, std::mem::take(&mut state.share_start))
             } else {
-                false
+                (false, false)
             }
         });
-        let subscriptions = vec![
+        let mut subscriptions = vec![
             cx.observe(&state, |this, state, cx| {
                 // the sidebar's Share while this Overview is open
                 let requested = state.read(cx).share_requested.as_deref() == Some(&this.uuid);
                 if requested {
-                    state.update(cx, |state, _| state.share_requested = None);
-                    this.request_share(cx);
+                    let start = state.update(cx, |state, _| {
+                        state.share_requested = None;
+                        std::mem::take(&mut state.share_start)
+                    });
+                    this.scroll_to_share = true;
+                    if start {
+                        this.request_share(cx);
+                    }
                 }
                 cx.notify()
             }),
@@ -114,13 +146,21 @@ impl OverviewPage {
                 }
             }),
         ];
+        // the friends to share with, in "Share"
+        if let Some(friends) = state.read(cx).friends.clone() {
+            subscriptions.push(cx.observe(&friends, |_, _, cx| cx.notify()));
+        }
+        let share = cx
+            .try_global::<ShareCache>()
+            .and_then(|cache| cache.0.get(&uuid).cloned());
         let mut this = Self {
             state,
             uuid,
             editing: None,
-            share: None,
+            share,
             share_busy: false,
             share_on_load,
+            scroll_to_share: scroll_on_load,
             stop_prompt: DialogSlot::new(|this: &mut Self| &mut this.stop_prompt),
             reports: VecDeque::new(),
             received: None,
@@ -200,7 +240,7 @@ impl OverviewPage {
         self.received = Some(self.received.unwrap_or(0) + 1);
     }
 
-    // ---- Share with friends ----
+    // ---- Share ----
 
     /// Fetches the share status, and again every 5 s while sharing (2 s while it
     /// starts or reconnects), as the dashboard does. A failure hides the card.
@@ -226,10 +266,13 @@ impl OverviewPage {
                         let next = match result {
                             Ok(share) => {
                                 let next = share_poll_interval(&share);
+                                remember_share(&this.uuid, Some(&share), cx);
                                 this.share = Some(share);
                                 if this.share_on_load {
                                     this.share_on_load = false;
-                                    if !this.share.as_ref().is_some_and(|s| s.sharing) {
+                                    if !this.share.as_ref().is_some_and(|s| s.sharing)
+                                        && !this.has_friends_to_pick(cx)
+                                    {
                                         this.start_share(cx);
                                     }
                                 }
@@ -237,6 +280,7 @@ impl OverviewPage {
                             }
                             Err(CoreError::SignedOut) => None,
                             Err(_) => {
+                                remember_share(&this.uuid, None, cx);
                                 this.share = None;
                                 None
                             }
@@ -253,13 +297,26 @@ impl OverviewPage {
     }
 
     /// Starts sharing unless the server is shared already; before the first answer
-    /// about sharing, once it comes.
+    /// about sharing, once it comes. Only for the `--share` screenshot flag: the
+    /// sidebar's Share just goes to the Share section. With friends to tick in
+    /// "Share", it leaves the choice to the person.
     fn request_share(&mut self, cx: &mut Context<Self>) {
+        if self.has_friends_to_pick(cx) {
+            return;
+        }
         match &self.share {
             Some(share) if share.sharing => {}
             Some(_) => self.start_share(cx),
             None => self.share_on_load = true,
         }
+    }
+
+    /// Whether "Share" lists friends to share with without a link.
+    fn has_friends_to_pick(&self, cx: &App) -> bool {
+        self.state.read(cx).friends.as_ref().is_some_and(|sharing| {
+            let sharing = sharing.read(cx);
+            sharing.phase == Phase::Ready && !sharing.rows.is_empty()
+        })
     }
 
     fn start_share(&mut self, cx: &mut Context<Self>) {
@@ -277,6 +334,7 @@ impl OverviewPage {
                 this.share_busy = false;
                 match result {
                     Ok(share) => {
+                        remember_share(&this.uuid, Some(&share), cx);
                         this.share = Some(share);
                         this.poll_share(cx);
                     }
@@ -306,6 +364,7 @@ impl OverviewPage {
             this.update(cx, |this, cx| {
                 match result {
                     Ok(share) => {
+                        remember_share(&this.uuid, Some(&share), cx);
                         this.share = Some(share);
                         this._poll = None;
                     }
@@ -316,6 +375,47 @@ impl OverviewPage {
             .ok();
         });
         self._tasks.push(task);
+    }
+
+    /// Replaces the invite link: the old one stops working, and everyone playing
+    /// through it is disconnected.
+    fn new_link(&mut self, cx: &mut Context<Self>) {
+        self.stop_prompt.close(cx);
+        if self.share_busy {
+            return;
+        }
+        self.share_busy = true;
+        let admin = self.admin(cx);
+        let uuid = self.uuid.clone();
+        let task = cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_spawn(async move { crate::friends::new_link(&admin, &uuid).await })
+                .await;
+            this.update(cx, |this, cx| {
+                this.share_busy = false;
+                match result {
+                    Ok(share) => {
+                        remember_share(&this.uuid, Some(&share), cx);
+                        this.share = Some(share);
+                        this.poll_share(cx);
+                        if let Some(sharing) = this.state.read(cx).friends.clone() {
+                            let uuid = this.uuid.clone();
+                            sharing.update(cx, |sharing, cx| sharing.link_renewed(&uuid, cx));
+                        }
+                        this.toast(Toast::success(t(M::ShareNewLinkMade)).key("share"), cx);
+                    }
+                    Err(err) => {
+                        // it may have stopped without starting again: show what it is now
+                        this.poll_share(cx);
+                        this.toast(Toast::error(err.to_string()).key("share"), cx)
+                    }
+                }
+                cx.notify();
+            })
+            .ok();
+        });
+        self._tasks.push(task);
+        cx.notify();
     }
 
     fn copy(&self, text: String, message: String, cx: &mut Context<Self>) {
@@ -500,6 +600,13 @@ impl OverviewPage {
     }
 }
 
+/// "Dev relay: connect-dev.lodestone.cc" when the share's link goes through another
+/// Lodestone Connect service than connect.lodestone.cc (the Connect service setting).
+pub fn share_relay_note(share: &InstanceShare) -> Option<String> {
+    let invite = launcher_core::cores::connect::Invite::parse(share.link.as_deref()?).ok()?;
+    super::connect_service::relay_note(&invite.service)
+}
+
 /// How long until the share status is fetched again, or `None` to stop.
 pub fn share_poll_interval(share: &InstanceShare) -> Option<Duration> {
     if !share.sharing {
@@ -512,6 +619,23 @@ pub fn share_poll_interval(share: &InstanceShare) -> Option<Duration> {
 }
 
 /// A section's title and the line under it.
+/// A part's title inside the "Share" card.
+fn subheading(title: &'static str) -> gpui::Div {
+    div()
+        .text_size(text::MEDIUM)
+        .font_weight(weights::MEDIUMBOLD.face())
+        .text_color(ink::text())
+        .child(title)
+}
+
+/// A small grey line inside the "Share" card.
+fn share_note(text_: &'static str) -> gpui::Div {
+    div()
+        .text_size(text::SMALL)
+        .text_color(lodestone_ui::theme::ink::muted())
+        .child(text_)
+}
+
 fn heading(title: &'static str, lead: &'static str) -> AnyElement {
     div()
         .flex()
@@ -575,125 +699,114 @@ fn loader_name(instance: &InstanceInfo) -> Option<String> {
 
 impl OverviewPage {
     fn render_header(&mut self, instance: &InstanceInfo, cx: &mut Context<Self>) -> AnyElement {
-        let me = &self.state.read(cx).me;
-        let read_only = instance.is_atom() && !me.is_owner;
         let address = instance_address(self.state.read(cx).settings.as_ref(), instance.port);
-        let editable =
-            |field: EditField, this: &mut Self, cx: &mut Context<Self>| -> AnyElement {
-                let (value, placeholder, size, color, edit_label) = match field {
-                    EditField::Name => (
-                        instance.name.clone(),
-                        t(M::NoName),
-                        text::XLARGE_2,
-                        ink::text(),
-                        t(M::EditName),
-                    ),
-                    EditField::Description => (
-                        instance.description.clone(),
-                        t(M::NoDescription),
-                        text::H3,
-                        ink::muted(),
-                        t(M::EditDescription),
-                    ),
-                };
-                if let Some(editing) = this.editing.as_ref().filter(|e| e.field == field) {
-                    let saving = editing.saving;
-                    return div()
-                        .flex()
-                        .flex_col()
-                        .gap(px(4.))
-                        .child(
-                            div()
-                                .flex()
-                                .flex_row()
-                                .items_center()
-                                .gap(px(6.))
-                                .on_key_down(cx.listener(|this, event: &KeyDownEvent, _, cx| {
-                                    match event.keystroke.key.as_str() {
-                                        "enter" => this.save_edit(cx),
-                                        "escape" => this.cancel_edit(cx),
-                                        _ => return,
-                                    }
-                                    cx.stop_propagation();
-                                }))
-                                .child(div().flex_1().min_w_0().child(editing.input.clone()))
-                                .child(if saving {
-                                    div().px(px(6.)).child(LoadingDots).into_any_element()
-                                } else {
-                                    IconButton::new(
-                                        SharedString::from(format!("save-{field:?}")),
-                                        Icon::FloppyDisk,
-                                    )
-                                    .label(t(CommonMsg::Save))
-                                    .on_click(cx.listener(|this, _, _, cx| this.save_edit(cx)))
-                                    .into_any_element()
-                                })
-                                .child(
-                                    IconButton::new(
-                                        SharedString::from(format!("cancel-{field:?}")),
-                                        Icon::Xmark,
-                                    )
-                                    .label(t(CommonMsg::Cancel))
-                                    .disabled(saving)
-                                    .on_click(cx.listener(|this, _, _, cx| this.cancel_edit(cx))),
-                                ),
-                        )
-                        .when_some(editing.error.clone(), |this, error| {
-                            this.child(
-                                div()
-                                    .text_size(text::SMALL)
-                                    .text_color(colors::RED_200)
-                                    .child(error),
-                            )
-                        })
-                        .into_any_element();
-                }
-                let shown = if value.is_empty() {
-                    placeholder.to_string()
-                } else {
-                    value
-                };
-                div()
-                    .id(SharedString::from(format!("overview-{field:?}")))
-                    .group("editable")
+        let editable = |field: EditField, this: &mut Self, cx: &mut Context<Self>| -> AnyElement {
+            let (value, placeholder, size, color, edit_label) = match field {
+                EditField::Name => (
+                    instance.name.clone(),
+                    t(M::NoName),
+                    text::XLARGE_2,
+                    ink::text(),
+                    t(M::EditName),
+                ),
+                EditField::Description => (
+                    instance.description.clone(),
+                    t(M::NoDescription),
+                    text::H3,
+                    ink::muted(),
+                    t(M::EditDescription),
+                ),
+            };
+            if let Some(editing) = this.editing.as_ref().filter(|e| e.field == field) {
+                let saving = editing.saving;
+                return div()
                     .flex()
-                    .flex_row()
-                    .items_center()
-                    .gap(px(8.))
-                    .min_w_0()
+                    .flex_col()
+                    .gap(px(4.))
                     .child(
                         div()
-                            .min_w_0()
-                            .truncate()
-                            .when(field == EditField::Name, |this| {
-                                this.font_family(fonts::heading())
-                                    .font_weight(weights::BOLD.face())
-                            })
-                            .when(field == EditField::Description, |this| this.italic())
-                            .text_size(size)
-                            .text_color(color)
-                            .child(shown),
-                    )
-                    .map(|this| {
-                        if read_only {
-                            this.tooltip(text_tooltip(t(M::OwnerOnlyAtom)))
-                        } else {
-                            this.cursor_pointer()
-                                .child(
-                                    div()
-                                        .flex_none()
-                                        .invisible()
-                                        .group_hover("editable", |style| style.visible())
-                                        .child(Icon::Pen.render(px(14.), ink::muted())),
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap(px(6.))
+                            .on_key_down(cx.listener(|this, event: &KeyDownEvent, _, cx| {
+                                match event.keystroke.key.as_str() {
+                                    "enter" => this.save_edit(cx),
+                                    "escape" => this.cancel_edit(cx),
+                                    _ => return,
+                                }
+                                cx.stop_propagation();
+                            }))
+                            .child(div().flex_1().min_w_0().child(editing.input.clone()))
+                            .child(if saving {
+                                div().px(px(6.)).child(LoadingDots).into_any_element()
+                            } else {
+                                IconButton::new(
+                                    SharedString::from(format!("save-{field:?}")),
+                                    Icon::FloppyDisk,
                                 )
-                                .tooltip(text_tooltip(edit_label))
-                                .on_click(cx.listener(move |this, _, window, cx| {
-                                    this.edit(field, window, cx)
-                                }))
-                        }
+                                .label(t(CommonMsg::Save))
+                                .on_click(cx.listener(|this, _, _, cx| this.save_edit(cx)))
+                                .into_any_element()
+                            })
+                            .child(
+                                IconButton::new(
+                                    SharedString::from(format!("cancel-{field:?}")),
+                                    Icon::Xmark,
+                                )
+                                .label(t(CommonMsg::Cancel))
+                                .disabled(saving)
+                                .on_click(cx.listener(|this, _, _, cx| this.cancel_edit(cx))),
+                            ),
+                    )
+                    .when_some(editing.error.clone(), |this, error| {
+                        this.child(
+                            div()
+                                .text_size(text::SMALL)
+                                .text_color(colors::RED_200)
+                                .child(error),
+                        )
                     })
-                    .into_any_element()
+                    .into_any_element();
+            }
+            let shown = if value.is_empty() {
+                placeholder.to_string()
+            } else {
+                value
             };
+            div()
+                .id(SharedString::from(format!("overview-{field:?}")))
+                .group("editable")
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap(px(8.))
+                .min_w_0()
+                .child(
+                    div()
+                        .min_w_0()
+                        .truncate()
+                        .when(field == EditField::Name, |this| {
+                            this.font_family(fonts::heading())
+                                .font_weight(weights::BOLD.face())
+                        })
+                        .when(field == EditField::Description, |this| this.italic())
+                        .text_size(size)
+                        .text_color(color)
+                        .child(shown),
+                )
+                .cursor_pointer()
+                .child(
+                    div()
+                        .flex_none()
+                        .invisible()
+                        .group_hover("editable", |style| style.visible())
+                        .child(Icon::Pen.render(px(14.), ink::muted())),
+                )
+                .tooltip(text_tooltip(edit_label))
+                .on_click(cx.listener(move |this, _, window, cx| this.edit(field, window, cx)))
+                .into_any_element()
+        };
         let name = editable(EditField::Name, self, cx);
         let description = editable(EditField::Description, self, cx);
         let players = tr!(
@@ -838,6 +951,44 @@ impl OverviewPage {
                     .text_color(color)
                     .child(text_)
             };
+            // friends removed since this link was made may still have it
+            let removed_note = self
+                .state
+                .read(cx)
+                .friends
+                .clone()
+                .and_then(|sharing| {
+                    let names = sharing.read(cx).link_warning(&self.uuid)?.to_vec();
+                    Some((sharing, names))
+                })
+                .map(|(sharing, names)| {
+                    div()
+                        .id("share-removed-friends")
+                        .flex()
+                        .flex_row()
+                        .flex_wrap()
+                        .items_center()
+                        .gap(px(8.))
+                        .child(div().flex_1().min_w(px(240.)).child(note(
+                            tr!(
+                                M::ShareRemovedFriendsNote,
+                                names = lodestone_ui::i18n::format::list(&names)
+                            ),
+                            colors::YELLOW,
+                        )))
+                        .child(
+                            Button::new(
+                                "share-removed-friends-dismiss",
+                                t(M::ShareRemovedFriendsDismiss),
+                            )
+                            .variant(ButtonVariant::Ghost)
+                            .size(ButtonSize::Slim)
+                            .on_click(move |_, _, cx| {
+                                sharing.update(cx, |sharing, cx| sharing.dismiss_link_warnings(cx));
+                            }),
+                        )
+                        .into_any_element()
+                });
             let friends: Vec<AnyElement> = share
                 .friends
                 .iter()
@@ -864,7 +1015,7 @@ impl OverviewPage {
                                 .child(friend.address.clone()),
                         )
                         .child(div().text_color(ink::muted()).child(tr!(
-                            M::ShareFriendLine,
+                            M::SharePeerLine,
                             connection = connection,
                             ms = friend.rtt_ms
                         )))
@@ -885,11 +1036,23 @@ impl OverviewPage {
                         .gap(px(12.))
                         .child(label(state_text, state_color))
                         .when(share.stable_link, |this| {
-                            this.child(note(t(M::ShareStableLink).into(), colors::GRAY_500))
+                            this.child(note(
+                                t(M::ShareStableLink).into(),
+                                lodestone_ui::theme::ink::muted(),
+                            ))
                         }),
                 )
                 .child(link)
-                .child(note(t(M::ShareHowFriendsJoin).into(), colors::GRAY_500))
+                .children(removed_note)
+                // the link names its service: say so when it isn't connect.lodestone.cc,
+                // so testers don't send a dev link to friends
+                .when_some(share_relay_note(&share), |this, relay| {
+                    this.child(note(relay, colors::YELLOW))
+                })
+                .child(note(
+                    t(M::ShareHowToJoin).into(),
+                    lodestone_ui::theme::ink::muted(),
+                ))
                 .when_some(share.problem.clone(), |this, problem| {
                     this.child(note(problem, colors::YELLOW))
                 })
@@ -910,7 +1073,7 @@ impl OverviewPage {
                         .child(
                             div()
                                 .text_size(text::SMALL)
-                                .text_color(colors::GRAY_500)
+                                .text_color(lodestone_ui::theme::ink::muted())
                                 .child(trn!(P::ShareJoins, share.joins)),
                         ),
                 )
@@ -933,53 +1096,179 @@ impl OverviewPage {
                     )
                 })
                 .child(
-                    div().flex().flex_row().justify_end().child(
-                        Button::new("share-stop", t(M::ShareStop))
-                            .variant(ButtonVariant::Danger)
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                let focus = cx.focus_handle();
-                                this.stop_prompt.open(StopPrompt { focus }, cx);
-                            })),
-                    ),
+                    div()
+                        .flex()
+                        .flex_row()
+                        .justify_end()
+                        .gap(px(8.))
+                        .child(
+                            Button::new("share-new-link", t(M::ShareNewLink))
+                                .variant(ButtonVariant::Secondary)
+                                .icon(Icon::Link)
+                                .loading(self.share_busy)
+                                .disabled(self.share_busy)
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    let focus = cx.focus_handle();
+                                    this.stop_prompt.open(
+                                        StopPrompt {
+                                            focus,
+                                            new_link: true,
+                                        },
+                                        cx,
+                                    );
+                                })),
+                        )
+                        .child(
+                            Button::new("share-stop", t(M::ShareStop))
+                                .variant(ButtonVariant::Danger)
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    let focus = cx.focus_handle();
+                                    this.stop_prompt.open(
+                                        StopPrompt {
+                                            focus,
+                                            new_link: false,
+                                        },
+                                        cx,
+                                    );
+                                })),
+                        ),
                 )
                 .into_any_element()
         };
+        let friends = self.share_friends(cx);
+        // the sidebar's Share: scroll the page so the section starts near its top
+        let scroll_here = self.scroll_to_share.then(|| {
+            let page = self.state.read(cx).page_scroll.clone();
+            let this = cx.entity().downgrade();
+            gpui::canvas(
+                move |bounds, window, cx| {
+                    let viewport = page.bounds();
+                    let offset = page.offset();
+                    let below_top = bounds.top() - viewport.top() - px(16.);
+                    let y = (offset.y - below_top).max(-page.max_offset().y).min(px(0.));
+                    page.set_offset(gpui::point(offset.x, y));
+                    window.refresh();
+                    this.update(cx, |this, _| this.scroll_to_share = false).ok();
+                },
+                |_, _, _, _| {},
+            )
+            .absolute()
+            .size_full()
+        });
         Some(
             div()
+                .id("share")
+                .relative()
                 .flex()
                 .flex_col()
                 .gap(px(16.))
+                .children(scroll_here)
                 .child(heading(t(M::ShareTitle), t(M::ShareLead)))
-                .child(card().child(body))
+                .child(
+                    card()
+                        .when_some(friends, |card, friends| {
+                            card.child(friends).child(
+                                div()
+                                    .pt(px(16.))
+                                    .border_t_1()
+                                    .border_color(colors::GRAY_FADED.opacity(30))
+                                    .child(subheading(t(M::ShareLinkHeading))),
+                            )
+                        })
+                        .child(body),
+                )
                 .into_any_element(),
         )
+    }
+
+    /// The friends from the friend list, each to tick to share this server with them
+    /// without a link (as on the Settings tab), or how to add some. `None` while
+    /// friend sharing isn't set up on this computer (the Settings tab says why).
+    fn share_friends(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let sharing = self.state.read(cx).friends.clone()?;
+        let phase = sharing.read(cx).phase;
+        let rows = crate::pages::friend_sharing::friend_rows(&sharing, &self.uuid, cx);
+        let none = match phase {
+            Phase::Ready if rows.is_empty() => true,
+            Phase::Ready => false,
+            Phase::NeedsLauncher => true,
+            _ => return None,
+        };
+        let block = div()
+            .id("share-friends")
+            .flex()
+            .flex_col()
+            .gap(px(8.))
+            .pb(px(16.))
+            .child(subheading(t(M::ShareFriendsHeading)));
+        Some(if none {
+            block
+                .child(share_note(t(M::ShareFriendsNone)))
+                .into_any_element()
+        } else {
+            block
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .rounded(radius::DEFAULT)
+                        .border_1()
+                        .border_color(colors::GRAY_FADED.opacity(30))
+                        .children(rows.into_iter().enumerate().map(|(i, row)| {
+                            div()
+                                .when(i > 0, |this| {
+                                    this.border_t_1()
+                                        .border_color(colors::GRAY_FADED.opacity(30))
+                                })
+                                .child(row)
+                        })),
+                )
+                .child(share_note(t(M::ShareFriendsNote)))
+                .into_any_element()
+        })
     }
 
     fn stop_dialog(&self, prompt: &StopPrompt, cx: &mut Context<Self>) -> AnyElement {
         let close = std::rc::Rc::new(cx.listener(|this, _: &(), _, cx| {
             this.stop_prompt.close(cx);
         }));
-        Dialog::new(
-            "share-stop-dialog",
-            t(M::ShareStopTitle),
-            prompt.focus.clone(),
-        )
-        .on_close({
-            let close = close.clone();
-            move |window, cx| close(&(), window, cx)
-        })
-        .child(
-            div()
-                .text_size(text::MEDIUM)
-                .text_color(ink::secondary())
-                .child(t(M::ShareStopBody)),
-        )
-        .footer(
-            Button::new("share-stop-confirm", t(M::ShareStop))
-                .variant(ButtonVariant::Danger)
-                .on_click(cx.listener(|this, _, _, cx| this.stop_share(cx))),
-        )
-        .into_any_element()
+        let new_link = prompt.new_link;
+        let (title, body, confirm) = if new_link {
+            (
+                M::ShareNewLinkTitle,
+                M::ShareNewLinkBody,
+                M::ShareNewLinkConfirm,
+            )
+        } else {
+            (M::ShareStopTitle, M::ShareStopBody, M::ShareStop)
+        };
+        Dialog::new("share-stop-dialog", t(title), prompt.focus.clone())
+            .on_close({
+                let close = close.clone();
+                move |window, cx| close(&(), window, cx)
+            })
+            .child(
+                div()
+                    .text_size(text::MEDIUM)
+                    .text_color(ink::secondary())
+                    .child(t(body)),
+            )
+            .footer(
+                Button::new("share-stop-confirm", t(confirm))
+                    .variant(if new_link {
+                        ButtonVariant::Primary
+                    } else {
+                        ButtonVariant::Danger
+                    })
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        if new_link {
+                            this.new_link(cx)
+                        } else {
+                            this.stop_share(cx)
+                        }
+                    })),
+            )
+            .into_any_element()
     }
 
     fn render_performance(&self, instance: &InstanceInfo, cx: &Context<Self>) -> AnyElement {
@@ -1069,7 +1358,7 @@ impl OverviewPage {
                     div()
                         .text_size(text::SMALL)
                         .font_weight(weights::MEDIUMBOLD.face())
-                        .text_color(colors::GRAY_FADED.opacity(60))
+                        .text_color(lodestone_ui::theme::ink::muted())
                         .child(title),
                 )
                 .child(
@@ -1113,6 +1402,8 @@ impl OverviewPage {
 
     fn render_players(&mut self, instance: &InstanceInfo, cx: &mut Context<Self>) -> AnyElement {
         let mut players = instance.player_list.clone().unwrap_or_default();
+        // a player this build can't read (an older core's atom instance's) has no name
+        players.retain(|p| *p != Player::Unknown);
         players.sort_by_key(|p| p.name().to_lowercase());
         if !self.sort_ascending {
             players.reverse();
@@ -1478,6 +1769,27 @@ impl Render for OverviewPage {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_link_through_another_service_says_so() {
+        let secret = format!("{}.{}", "ab".repeat(32), "01".repeat(16));
+        let mut share = InstanceShare {
+            link: Some(format!(
+                "https://connect.lodestone.cc/j/ABCDEFGH23#{secret}"
+            )),
+            ..Default::default()
+        };
+        assert_eq!(share_relay_note(&share), None, "the default service");
+        share.link = Some(format!(
+            "https://connect-dev.lodestone.cc/j/ABCDEFGH23#{secret}"
+        ));
+        assert_eq!(
+            share_relay_note(&share).as_deref(),
+            Some("Dev relay: connect-dev.lodestone.cc")
+        );
+        share.link = None;
+        assert_eq!(share_relay_note(&share), None);
+    }
 
     #[test]
     fn sharing_is_checked_as_often_as_the_dashboard_does() {

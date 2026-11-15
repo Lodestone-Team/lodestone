@@ -694,8 +694,11 @@ impl Default for SidebarInks {
         Self {
             primary: colors::GRAY_300,
             secondary: colors::GRAY_400,
-            muted: colors::GRAY_500,
-            faint: colors::GRAY_FADED.opacity(30),
+            // a subtitle under a name: 6.5:1 on the sidebar (GRAY_500 was 3.9:1)
+            muted: Color::rgb(0x9FA1A8),
+            // the section labels (Last played, Instances, a group's name): 4.8:1 (a
+            // 30% grey was 1.9:1)
+            faint: Color::rgb(0x84868D),
             icon: colors::GRAY_FADED.opacity(50),
             fill: colors::GRAY_800,
             ghost: colors::WHITE.opacity(50),
@@ -705,6 +708,13 @@ impl Default for SidebarInks {
 }
 
 impl SidebarInks {
+    /// Whether the sidebar's text is dark, as drawn (the light theme included): the
+    /// sidebar is light.
+    pub fn dark_text(&self) -> bool {
+        let ink = gpui::Rgba::from(self.primary);
+        0.2126 * ink.r + 0.7152 * ink.g + 0.0722 * ink.b < 0.4
+    }
+
     fn of(palette: Option<Palette>) -> Self {
         let Some(palette) = palette else {
             return Self::default();

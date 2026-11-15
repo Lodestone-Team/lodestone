@@ -9,8 +9,8 @@
 //! can't start, shows a notification of the system's ([`native`]).
 
 use gpui::{
-    AnyElement, App, Context, Entity, IntoElement, ParentElement, Render, SharedString, Styled,
-    Subscription, Window, anchored, deferred, div, point, prelude::*,
+    AnyElement, App, Context, Entity, IntoElement, MouseButton, ParentElement, Render,
+    SharedString, Styled, Subscription, Window, div, point, prelude::*,
 };
 use launcher_core::cores::admin::{
     ClientEvent, EventInner, InstanceState,
@@ -19,7 +19,7 @@ use launcher_core::cores::admin::{
     },
 };
 use lodestone_ui::{
-    components::{Icon, IconButton, Toast},
+    components::{Dropdown, Icon, IconButton, Toast},
     theme::{colors, fonts, ink, px, radius, shadow, text, weights},
 };
 
@@ -85,6 +85,16 @@ pub fn describe(event: &ClientEvent) -> Option<(String, String)> {
                     tr!(CoreMsg::EventWarning, name = name)
                 }
                 InstanceEventInner::InstanceError { .. } => tr!(CoreMsg::EventError, name = name),
+                InstanceEventInner::ModpackUpdateAvailable {
+                    modpack,
+                    version_number,
+                    ..
+                } => tr!(
+                    CoreMsg::EventModpackUpdate,
+                    pack = modpack,
+                    version = version_number,
+                    name = name
+                ),
                 InstanceEventInner::PlayerChange {
                     players_joined,
                     players_left,
@@ -131,37 +141,6 @@ pub fn describe(event: &ClientEvent) -> Option<(String, String)> {
             }
             _ => return None,
         },
-        EventInner::MacroEvent(macro_event) => {
-            let pid = match &macro_event.macro_pid {
-                serde_json::Value::String(s) => s.clone(),
-                other => other.to_string(),
-            };
-            let server = macro_event
-                .instance_uuid
-                .clone()
-                .unwrap_or_else(|| t(CoreMsg::CoreFallback).to_string());
-            match macro_event
-                .macro_event_inner
-                .get("type")
-                .and_then(|v| v.as_str())
-            {
-                Some("Started") => tr!(CoreMsg::MacroStarted, pid = pid, server = server),
-                Some("Detach") => tr!(CoreMsg::MacroDetached, pid = pid, server = server),
-                Some("Stopped") => {
-                    let status = macro_event.macro_event_inner["exit_status"]["type"]
-                        .as_str()
-                        .unwrap_or("")
-                        .to_string();
-                    tr!(
-                        CoreMsg::MacroStopped,
-                        pid = pid,
-                        server = server,
-                        status = status
-                    )
-                }
-                _ => return None,
-            }
-        }
         _ => return None,
     };
     Some((title, String::new()))
@@ -357,6 +336,16 @@ impl Notifications {
                     let toast = Toast::error(t(CoreMsg::WarningToast));
                     self.state.update(cx, |state, cx| state.toast(toast, cx));
                 }
+                InstanceEventInner::ModpackUpdateAvailable { .. } => {
+                    if let Some((title, _)) = describe(event) {
+                        if background {
+                            native::notify(crate::APP_NAME, &title);
+                        } else {
+                            let toast = Toast::info(title);
+                            self.state.update(cx, |state, cx| state.toast(toast, cx));
+                        }
+                    }
+                }
                 InstanceEventInner::InstanceError { .. }
                 | InstanceEventInner::StateTransition {
                     to: InstanceState::Error,
@@ -371,11 +360,20 @@ impl Notifications {
                 if let ProgressionEventInner::ProgressionEnd {
                     inner:
                         Some(ProgressionEndValue::FsOperationCompleted {
-                            success, message, ..
+                            instance_uuid,
+                            success,
+                            message,
                         }),
                     ..
                 } = &progression.progression_event_inner
                 {
+                    // a page that started it shows its own, fuller toast
+                    let own = self
+                        .state
+                        .update(cx, |state, _| state.take_own_file_toast(instance_uuid));
+                    if own {
+                        return;
+                    }
                     let toast = if *success {
                         Toast::success(message.clone())
                     } else {
@@ -511,7 +509,7 @@ impl Notifications {
             .child(text_)
     }
 
-    fn panel(&self, window: &Window, cx: &mut Context<Self>) -> AnyElement {
+    fn panel(&self, window: &Window) -> AnyElement {
         let height = window.viewport_size().height * 0.8;
         let mut body = div()
             .id("notifications-list")
@@ -575,7 +573,6 @@ impl Notifications {
                 spread_radius: px(0.),
                 inset: false,
             }])
-            .on_mouse_down_out(cx.listener(|this, _, _, cx| this.close(cx)))
             .child(
                 div()
                     .font_family(fonts::heading())
@@ -592,22 +589,8 @@ impl Notifications {
 impl Render for Notifications {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let dot = self.unseen || !self.list.ongoing.is_empty();
-        let panel = self.open.then(|| {
-            let panel = self.panel(window, cx);
-            // under the bell, at the window's right edge
-            let corner = point(
-                window.viewport_size().width - px(12.),
-                gpui::px(crate::TOP_BAR_HEIGHT + 4.0),
-            );
-            deferred(
-                anchored()
-                    .position(corner)
-                    .anchor(gpui::Anchor::TopRight)
-                    .snap_to_window_with_margin(px(8.))
-                    .child(panel),
-            )
-            .with_priority(3)
-        });
+        let panel = self.open.then(|| self.panel(window));
+        let dismiss = cx.entity().downgrade();
         let close = cx.entity().downgrade();
         let beta = self.beta.render(window, |focus| {
             let close = close.clone();
@@ -632,26 +615,42 @@ impl Render for Notifications {
             .items_end()
             .children(beta)
             .child(
-                div()
-                    .relative()
-                    .child(
-                        IconButton::new("notifications", Icon::Bell)
-                            .label(SharedString::from(t(CoreMsg::Notifications)))
-                            .on_click(cx.listener(|this, _, _, cx| this.toggle(cx))),
-                    )
-                    .when(dot, |this| {
-                        this.child(
-                            div()
-                                .absolute()
-                                .top(px(4.))
-                                .right(px(4.))
-                                .size(px(8.))
-                                .rounded_full()
-                                .bg(colors::RED_200),
+                // over the window's dialogs
+                Dropdown::new(
+                    div()
+                        .id("notifications-bell")
+                        .relative()
+                        // The bell sits in the top bar, which moves the window: it is not
+                        // part of the caption (on Windows the bar answers the hit test as
+                        // the caption, which swallows the click), and pressing it doesn't
+                        // arm the bar's drag.
+                        .occlude()
+                        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                        .child(
+                            IconButton::new("notifications", Icon::Bell)
+                                .label(SharedString::from(t(CoreMsg::Notifications)))
+                                .on_click(cx.listener(|this, _, _, cx| this.toggle(cx))),
                         )
-                    }),
+                        .when(dot, |this| {
+                            this.child(
+                                div()
+                                    .absolute()
+                                    .top(px(4.))
+                                    .right(px(4.))
+                                    .size(px(8.))
+                                    .rounded_full()
+                                    .bg(colors::RED_200),
+                            )
+                        }),
+                )
+                .align_end()
+                .priority(3)
+                .when_some(panel, |this, panel| {
+                    this.popover("notifications-menu", panel, move |_, cx| {
+                        dismiss.update(cx, |this, cx| this.close(cx)).ok();
+                    })
+                }),
             )
-            .children(panel)
     }
 }
 

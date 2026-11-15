@@ -11,6 +11,7 @@ use crate::{
     error::{Error, ErrorKind},
     event_broadcaster::EventBroadcaster,
     persist::write_atomic,
+    remote_access::RemoteAccess,
 };
 
 /// The message of every request refused because code execution is turned off.
@@ -20,7 +21,7 @@ pub const CODE_EXECUTION_DISABLED_MESSAGE: &str = "Code execution is disabled on
 /// [`code_execution_lock_requested`].
 pub const DISABLE_CODE_EXECUTION_ENV: &str = "LODESTONE_DISABLE_CODE_EXECUTION";
 
-fn default_true() -> bool {
+pub(crate) fn default_true() -> bool {
     true
 }
 
@@ -30,8 +31,7 @@ pub struct GlobalSettingsData {
     pub core_name: String,
     pub safe_mode: bool,
     pub domain: Option<String>,
-    // Whether macros, atom instances, extensions, instance scripts and custom Java commands
-    // may run. Files written by older versions have no switch, so it defaults to on.
+    // Whether custom Java commands may run. Files written by older versions have no switch, so it defaults to on.
     #[serde(default = "default_true")]
     pub code_execution_enabled: bool,
     // Whether the administrator locked code execution off with LODESTONE_DISABLE_CODE_EXECUTION
@@ -54,6 +54,16 @@ pub struct GlobalSettingsData {
     // files written before it existed.
     #[serde(default = "default_true")]
     pub allow_local_claim: bool,
+    // Whether other devices may use the core, see `crate::remote_access`. Off only for
+    // Lodestone Host's core until its owner sets a password to share it. Files written
+    // before it existed have no field: they keep serving other devices.
+    #[serde(default = "default_true")]
+    pub allow_remote_access: bool,
+    // Whether the core looks for newer versions of the modpacks servers were made from, in
+    // the background, see `crate::modpack::updates`. On by default, also for files written
+    // before it existed.
+    #[serde(default = "default_true")]
+    pub check_modpack_updates: bool,
 }
 
 /// A lock-free view of the code execution kill switch, shared by everything that runs
@@ -120,10 +130,7 @@ pub fn code_execution_lock_from_env(cli_flag: bool) -> bool {
         } else {
             format!("{DISABLE_CODE_EXECUTION_ENV} is set")
         };
-        warn!(
-            "Code execution is locked off ({reason}): macros, atom instances, extensions, \
-             instance scripts and custom Java commands are disabled"
-        );
+        warn!("Code execution is locked off ({reason}): custom Java commands are disabled");
     } else if env_value.is_some() {
         info!("Ignoring {DISABLE_CODE_EXECUTION_ENV}: it is not 1, true or yes");
     }
@@ -157,6 +164,10 @@ impl Default for GlobalSettingsData {
             allow_lan_http: false,
             list_instances_publicly: false,
             allow_local_claim: true,
+            // a standalone core is set up from the dashboard with its setup key; Lodestone
+            // Host's core turns this off at startup while it has no owner (`crate::run`)
+            allow_remote_access: true,
+            check_modpack_updates: true,
         }
     }
 }
@@ -170,6 +181,9 @@ pub struct GlobalSettings {
     /// Mirrors `global_settings_data.allow_lan_http`, see
     /// [`GlobalSettings::allow_lan_http_flag`].
     allow_lan_http_flag: Arc<AtomicBool>,
+    /// Mirrors `global_settings_data.allow_remote_access`, see
+    /// [`GlobalSettings::remote_access`].
+    remote_access: Arc<RemoteAccess>,
     /// On when `global_settings_data.code_execution_enabled` is on and the switch is not
     /// locked, see [`GlobalSettings::code_execution_switch`].
     code_execution: CodeExecutionSwitch,
@@ -186,12 +200,14 @@ impl GlobalSettings {
         let safe_mode_flag = Arc::new(AtomicBool::new(global_settings_data.safe_mode));
         let allow_lan_http_flag = Arc::new(AtomicBool::new(global_settings_data.allow_lan_http));
         let code_execution = CodeExecutionSwitch::new(global_settings_data.code_execution_enabled);
+        let remote_access = RemoteAccess::new(global_settings_data.allow_remote_access);
         Self {
             path_to_global_settings,
             _event_broadcaster,
             global_settings_data,
             safe_mode_flag,
             allow_lan_http_flag,
+            remote_access,
             code_execution,
             code_execution_locked: false,
         }
@@ -249,7 +265,8 @@ impl GlobalSettings {
                 "Failed to parse global settings file at {}",
                 self.path_to_global_settings.display()
             ))?;
-            must_save = stored.get("allow_lan_http").is_none();
+            must_save = stored.get("allow_lan_http").is_none()
+                || stored.get("allow_remote_access").is_none();
             self.global_settings_data = serde_json::from_value(stored).context(format!(
                 "Failed to parse global settings file at {}",
                 self.path_to_global_settings.display()
@@ -259,6 +276,8 @@ impl GlobalSettings {
             .store(self.global_settings_data.safe_mode, Ordering::SeqCst);
         self.allow_lan_http_flag
             .store(self.global_settings_data.allow_lan_http, Ordering::SeqCst);
+        self.remote_access
+            .set(self.global_settings_data.allow_remote_access);
         self.sync_code_execution_switch();
         if must_save {
             // Not fatal: the value is the same on the next start, just resolved again.
@@ -395,6 +414,56 @@ impl GlobalSettings {
 
     pub fn allow_local_claim(&self) -> bool {
         self.global_settings_data.allow_local_claim
+    }
+
+    /// Turns the background check for newer modpack versions on or off.
+    pub async fn set_check_modpack_updates(&mut self, enabled: bool) -> Result<(), Error> {
+        let old = self.global_settings_data.check_modpack_updates;
+        self.global_settings_data.check_modpack_updates = enabled;
+        match self.write_to_file().await {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                self.global_settings_data.check_modpack_updates = old;
+                Err(e)
+            }
+        }
+    }
+
+    pub fn check_modpack_updates(&self) -> bool {
+        self.global_settings_data.check_modpack_updates
+    }
+
+    /// Lets other devices use the core, or only this computer, see
+    /// [`crate::remote_access`]. Takes effect at once. Turning it off stays in effect
+    /// even when it can't be saved (the error says so): that is the safe side.
+    pub async fn set_allow_remote_access(&mut self, allowed: bool) -> Result<(), Error> {
+        let old = self.global_settings_data.allow_remote_access;
+        self.global_settings_data.allow_remote_access = allowed;
+        if !allowed {
+            self.remote_access.set(false);
+        }
+        match self.write_to_file().await {
+            Ok(_) => {
+                self.remote_access.set(allowed);
+                Ok(())
+            }
+            Err(e) => {
+                if allowed {
+                    self.global_settings_data.allow_remote_access = old;
+                }
+                Err(e)
+            }
+        }
+    }
+
+    pub fn allow_remote_access(&self) -> bool {
+        self.global_settings_data.allow_remote_access
+    }
+
+    /// The setting, shared with the web server, which reads it for every request without
+    /// locking the global settings.
+    pub fn remote_access(&self) -> Arc<RemoteAccess> {
+        self.remote_access.clone()
     }
 
     /// Turns code execution on or off and saves the setting. Turning it on fails with 403
@@ -574,8 +643,8 @@ mod tests {
         assert!(!settings.client_view().code_execution_enabled);
         assert!(!settings.client_view().allow_local_claim);
         settings.set_core_name("new".to_string()).await.unwrap();
-        let stored: serde_json::Value = serde_json::from_slice(&std::fs::read(&path).unwrap())
-            .unwrap();
+        let stored: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
         assert_eq!(stored["core_name"], "new");
         assert!(stored.get("playit_enabled").is_none());
     }

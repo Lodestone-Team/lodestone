@@ -38,12 +38,14 @@ use std::fmt::Display;
 #[cfg(test)]
 use lodestone_ui::i18n::placeholders;
 pub use lodestone_ui::i18n::{
-    CommonMsg, CommonPlural, FormatMsg, FormatPlural, Language, Locale, Message, Text, apply,
-    cjk_fallbacks, force, format, interpolate, locale, locale_fonts, resolve,
+    CommonMsg, CommonPlural, FormatMsg, FormatPlural, Language, Locale, Message, SharingMsg,
+    SharingPlural, Text, apply, cjk_fallbacks, force, format, interpolate, locale, locale_fonts,
+    resolve,
 };
 
 pub use en::{
     content::{ContentMsg, ContentPlural},
+    friend_list::{FriendListMsg, FriendListPlural},
     instance_settings::{InstanceSettingsMsg, InstanceSettingsPlural},
     instances::{InstancesMsg, InstancesPlural},
     servers::{ServersMsg, ServersPlural},
@@ -133,6 +135,12 @@ macro_rules! areas {
             }
         }
 
+        impl From<SharingMsg> for Msg {
+            fn from(message: SharingMsg) -> Self {
+                Msg::Ui(message.into())
+            }
+        }
+
         impl From<CommonPlural> for Plural {
             fn from(message: CommonPlural) -> Self {
                 Plural::Ui(message.into())
@@ -141,6 +149,12 @@ macro_rules! areas {
 
         impl From<FormatPlural> for Plural {
             fn from(message: FormatPlural) -> Self {
+                Plural::Ui(message.into())
+            }
+        }
+
+        impl From<SharingPlural> for Plural {
+            fn from(message: SharingPlural) -> Self {
                 Plural::Ui(message.into())
             }
         }
@@ -188,8 +202,7 @@ macro_rules! areas {
                 }
             }
 
-            /// Every message, for the tests.
-            #[cfg(test)]
+            /// Every message, for the tests and the settings search's English.
             fn all() -> Vec<Msg> {
                 let mut all: Vec<Msg> =
                     lodestone_ui::i18n::Msg::all().into_iter().map(Msg::Ui).collect();
@@ -238,5 +251,23 @@ areas! {
     content => ContentMsg, ContentPlural;
     worlds => WorldsMsg, WorldsPlural;
     servers => ServersMsg, ServersPlural;
+    friend_list => FriendListMsg, FriendListPlural;
     shared_options => SharedOptionsMsg, SharedOptionsPlural;
+}
+
+/// The English of `text`, a message as shown in the current locale, so a Settings
+/// search finds "Mémoire" by "memory" (`settings::set_english_lookup`).
+pub fn english_of(text: &str) -> Option<&'static str> {
+    use lodestone_ui::components::settings::{EnglishIndex, english_in};
+    static INDEX: EnglishIndex = std::sync::Mutex::new(None);
+    english_in(
+        &INDEX,
+        |locale| {
+            Msg::all()
+                .into_iter()
+                .map(|m| (m.text(locale), m.text(Locale::En)))
+                .collect()
+        },
+        text,
+    )
 }

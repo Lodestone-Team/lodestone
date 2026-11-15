@@ -22,8 +22,8 @@ use launcher_core::cores::admin::{
 };
 use lodestone_ui::{
     components::{
-        Accessible as _, Checkbox, Icon, IconButton, KeyboardFocus as _, LoadingDots, TextInput,
-        settings::{popover, popover_panel, select_button},
+        Accessible as _, Checkbox, Dropdown, Icon, KeyboardFocus as _, LoadingDots, TextInput,
+        settings::{popover_panel, select_button},
     },
     theme::{colors, ink, px, radius, text, weights},
 };
@@ -32,9 +32,10 @@ use super::Load;
 use crate::{
     i18n::{InstancesMsg as M, t, tr},
     instance_icons,
+    pages::pager,
 };
 
-const PAGE_SIZE: u32 = 20;
+const PAGE_SIZE: u32 = pager::PAGE_SIZE as u32;
 const PAUSE: Duration = Duration::from_millis(300);
 
 /// A project picked from the results, or from a link.
@@ -78,7 +79,7 @@ pub struct ModrinthSearchView {
     /// Mods: whether players need a result too (its `client_side`).
     client_side: bool,
     index: ModrinthSearchIndex,
-    sort_open: bool,
+    pub(crate) sort_open: bool,
     /// The last text that wasn't a link: what the results are for.
     query: String,
     page: u32,
@@ -105,6 +106,7 @@ impl ModrinthSearchView {
         let input = cx.new(|cx| {
             TextInput::new(cx)
                 .with_leading_icon(Icon::MagnifyingGlass)
+                .with_clear_button()
                 .with_placeholder(placeholder)
         });
         let observe = cx.observe(&input, |this, _, cx| this.text_changed(cx));
@@ -325,63 +327,54 @@ impl ModrinthSearchView {
                     .child(t(M::SortLabel)),
             )
             .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .child(
-                        select_button("modrinth-sort", div().child(name(current)))
-                            .aria_label(t(M::SortLabel))
-                            .min_w(px(176.))
-                            .justify_between()
-                            .on_press(cx.listener(|this, _, _, cx| {
-                                this.sort_open = !this.sort_open;
-                                cx.notify();
-                            })),
-                    )
-                    .when(self.sort_open, |this| {
-                        let close = cx.listener(|this, _: &(), _, cx| {
-                            this.sort_open = false;
+                Dropdown::new(
+                    select_button("modrinth-sort", div().child(name(current)))
+                        .aria_label(t(M::SortLabel))
+                        .min_w(px(176.))
+                        .justify_between()
+                        .on_press(cx.listener(|this, _, _, cx| {
+                            this.sort_open = !this.sort_open;
                             cx.notify();
-                        });
-                        let options = ModrinthSearchIndex::ALL.map(|index| {
-                            div()
-                                .id(SharedString::from(format!("sort-{}", index.as_str())))
-                                .accessible(
-                                    gpui::Role::ListItem,
-                                    format!("sort-{}", index.as_str()),
-                                    name(index),
-                                )
-                                .keyboard_focus()
-                                .px(px(10.))
-                                .py(px(6.))
-                                .rounded(radius::MD)
-                                .cursor_pointer()
-                                .text_size(text::MEDIUM)
-                                .text_color(ink::text())
-                                .when(index == current, |this| this.bg(colors::GRAY_700))
-                                .hover(|style| style.bg(colors::GRAY_750))
-                                .child(name(index))
-                                .on_press(cx.listener(move |this, _, _, cx| {
-                                    this.index = index;
-                                    this.sort_open = false;
-                                    this.page = 0;
-                                    this.search(cx);
-                                }))
-                        });
-                        this.child(
-                            div().child(popover(
-                                "modrinth-sort-popover",
-                                popover_panel("modrinth-sort-list")
-                                    .min_w(px(176.))
-                                    .on_mouse_down_out(cx.listener(|this, _, _, cx| {
-                                        this.sort_open = false;
-                                        cx.notify();
-                                    }))
-                                    .children(options),
-                                move |window, cx| close(&(), window, cx),
-                            )),
-                        )
-                    }),
+                        })),
+                )
+                .when(self.sort_open, |this| {
+                    let close = cx.listener(|this, _: &(), _, cx| {
+                        this.sort_open = false;
+                        cx.notify();
+                    });
+                    let options = ModrinthSearchIndex::ALL.map(|index| {
+                        div()
+                            .id(SharedString::from(format!("sort-{}", index.as_str())))
+                            .accessible(
+                                gpui::Role::ListItem,
+                                format!("sort-{}", index.as_str()),
+                                name(index),
+                            )
+                            .keyboard_focus()
+                            .px(px(10.))
+                            .py(px(6.))
+                            .rounded(radius::MD)
+                            .cursor_pointer()
+                            .text_size(text::MEDIUM)
+                            .text_color(ink::text())
+                            .when(index == current, |this| this.bg(colors::GRAY_700))
+                            .hover(|style| style.bg(colors::GRAY_750))
+                            .child(name(index))
+                            .on_press(cx.listener(move |this, _, _, cx| {
+                                this.index = index;
+                                this.sort_open = false;
+                                this.page = 0;
+                                this.search(cx);
+                            }))
+                    });
+                    this.popover(
+                        "modrinth-sort-popover",
+                        popover_panel("modrinth-sort-list")
+                            .min_w(px(176.))
+                            .children(options),
+                        move |window, cx| close(&(), window, cx),
+                    )
+                }),
             )
             .into_any_element()
     }
@@ -656,34 +649,12 @@ impl Render for ModrinthSearchView {
                     .flex_col()
                     .gap(px(8.))
                     .children(cards)
-                    .child(
-                        div()
-                            .flex()
-                            .flex_row()
-                            .items_center()
-                            .justify_center()
-                            .gap(px(12.))
-                            .pt(px(4.))
-                            .text_size(text::MEDIUM)
-                            .text_color(ink::muted())
-                            .child(
-                                IconButton::new("previous-page", Icon::ChevronLeft)
-                                    .label(t(M::PreviousPage))
-                                    .disabled(page == 0)
-                                    .on_click(cx.listener(move |this, _, _, cx| {
-                                        this.set_page(page.saturating_sub(1), cx)
-                                    })),
-                            )
-                            .child(tr!(M::SearchPage, page = page + 1, total = total_pages))
-                            .child(
-                                IconButton::new("next-page", Icon::ChevronRight)
-                                    .label(t(M::NextPage))
-                                    .disabled(page + 1 >= total_pages)
-                                    .on_click(cx.listener(move |this, _, _, cx| {
-                                        this.set_page(page + 1, cx)
-                                    })),
-                            ),
-                    )
+                    .child(pager::pager(
+                        page as usize,
+                        total_pages as usize,
+                        |this: &mut Self, page, cx| this.set_page(page as u32, cx),
+                        cx,
+                    ))
                     .into_any_element()
             }
         };

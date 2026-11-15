@@ -14,7 +14,7 @@ use lodestone_minecraft::modrinth::{
 };
 use serde_json::json;
 
-use crate::instances::content::ContentView;
+use crate::instances::content::{ContentView, ListView};
 
 /// A square icon in two shades of `rgb`, with a lighter block in the middle.
 pub(super) fn icon(rgb: [u8; 3]) -> image::RgbaImage {
@@ -162,12 +162,17 @@ pub fn fill(instance_dir: &Path, scene: &str) {
     let shaders = dirs.content_dir(ContentKind::ShaderPack);
     let mut provenance = Provenance::default();
 
-    // `--mods N`: N more mods, for timing long lists (`--bench-scroll`).
+    // `--mods N`: N more mods, for timing long lists (`--bench-scroll`). The paged
+    // scenes have 45 mods, three pages.
     let extra = std::env::args()
         .skip_while(|arg| arg != "--mods")
         .nth(1)
         .and_then(|n| n.parse::<usize>().ok())
-        .unwrap_or(0);
+        .unwrap_or(if scene.starts_with("content-mods-paged") {
+            40
+        } else {
+            0
+        });
     for i in 0..extra {
         let shade = (i * 37 % 200) as u8;
         fabric_mod(
@@ -252,8 +257,17 @@ pub fn fill(instance_dir: &Path, scene: &str) {
         scene,
         "content-mods"
             | "content-shaders"
+            | "content-shaders-paged"
             | "content-browse"
+            | "content-sort"
+            | "content-browse-idle"
+            | "content-filters"
             | "content-project"
+            | "content-description"
+            | "content-gallery"
+            | "content-page-scrolled"
+            | "content-project-narrow"
+            | "content-cf-project"
             | "content-formatted-shaders"
     ) {
         fabric_mod(
@@ -328,9 +342,29 @@ pub fn fill(instance_dir: &Path, scene: &str) {
             false,
         ),
     );
+    // The paged scene: 23 packs in use and 9 not, two pages.
+    let mut in_use = String::new();
+    if scene == "content-packs-paged" {
+        for i in 0..26 {
+            let shade = (i * 37 % 200) as u8;
+            let name = format!("Extra pack {i:02}.zip");
+            resource_pack(
+                &packs.join(&name),
+                &format!("Extra textures {i}"),
+                json!({"pack_format": 15}),
+                [60 + shade / 2, 120 - shade / 3, 90 + shade / 2],
+            );
+            // the lowest priority first, as the game lists them
+            if i < 20 {
+                in_use.push_str(&format!(",\"file/{name}\""));
+            }
+        }
+    }
     let _ = fs::write(
         dirs.game.join("options.txt"),
-        "version:3465\nautoJump:false\nresourcePacks:[\"vanilla\",\"fabric\",\"file/Old Classic Textures.zip\",\"file/FreshAnimations_v1.9.zip\",\"file/Faithful 32x - 1.20.1.zip\"]\nincompatibleResourcePacks:[\"file/Old Classic Textures.zip\"]\nlang:en_us\n",
+        format!(
+            "version:3465\nautoJump:false\nresourcePacks:[\"vanilla\",\"fabric\"{in_use},\"file/Old Classic Textures.zip\",\"file/FreshAnimations_v1.9.zip\",\"file/Faithful 32x - 1.20.1.zip\"]\nincompatibleResourcePacks:[\"file/Old Classic Textures.zip\"]\nlang:en_us\n"
+        ),
     );
 
     write_zip(
@@ -345,6 +379,15 @@ pub fn fill(instance_dir: &Path, scene: &str) {
         &shaders.join("MakeUp-UltraFast-9.2.zip"),
         &[("MakeUp-UltraFast/shaders/final.fsh", b"x".to_vec())],
     );
+    // The paged scene: 25 shader packs, two pages.
+    if scene == "content-shaders-paged" {
+        for i in 0..22 {
+            write_zip(
+                &shaders.join(format!("Extra shaders {i:02}.zip")),
+                &[("shaders/final.fsh", b"x".to_vec())],
+            );
+        }
+    }
     remember(
         &mut provenance,
         &dirs,
@@ -366,15 +409,23 @@ pub fn fill(instance_dir: &Path, scene: &str) {
         source("Q1vvjJYV", "bsl-shaders", "BSL Shaders", "v8.2.09", true),
     );
     let _ = fs::create_dir_all(dirs.game.join("config"));
+    // The paged scene's pack in use is the last, on the second page.
+    let in_use = if scene == "content-shaders-paged" {
+        "MakeUp-UltraFast-9.2.zip"
+    } else {
+        "ComplementaryReimagined_r5.3.zip"
+    };
     let _ = fs::write(
         dirs.game.join("config/iris.properties"),
-        "#This file stores configuration options for Iris\nenableShaders=true\nshaderPack=ComplementaryReimagined_r5.3.zip\n",
+        format!(
+            "#This file stores configuration options for Iris\nenableShaders=true\nshaderPack={in_use}\n"
+        ),
     );
     if scene.starts_with("content-formatted") {
         formatted(&packs, &shaders, &dirs.game);
     }
     let _ = provenance.save(&dirs.instance);
-    if scene == "loader-change" {
+    if scene.starts_with("copy-as") {
         for world in ["New World", "Creative build"] {
             let dir = dirs.game.join("saves").join(world);
             let _ = fs::create_dir_all(&dir);
@@ -520,6 +571,26 @@ pub fn apply(scene: &str, view: &mut ContentView, cx: &mut Context<ContentView>)
         "content-resourcepacks" | "content-formatted" => {
             view.preview_state(ContentKind::ResourcePack, None, HashMap::new(), icons(), cx)
         }
+        // What is installed, a page at a time: the first, the last, and filtered.
+        "content-mods-paged" | "content-mods-paged-last" | "content-mods-paged-search" => {
+            view.preview_state(ContentKind::Mod, None, HashMap::new(), icons(), cx);
+            match scene {
+                "content-mods-paged-last" => view.preview_installed(ContentKind::Mod, "", 2, cx),
+                "content-mods-paged-search" => {
+                    view.preview_installed(ContentKind::Mod, "extra", 0, cx)
+                }
+                _ => {}
+            }
+        }
+        // The second page, with the end of the packs in use and those that aren't.
+        "content-packs-paged" => {
+            view.preview_state(ContentKind::ResourcePack, None, HashMap::new(), icons(), cx);
+            view.preview_installed(ContentKind::ResourcePack, "", 1, cx);
+        }
+        // Opened on the page of the pack in use, the second.
+        "content-shaders-paged" => {
+            view.preview_state(ContentKind::ShaderPack, None, HashMap::new(), icons(), cx)
+        }
         "content-menu" => {
             view.preview_state(ContentKind::Mod, None, HashMap::new(), icons(), cx);
             view.menu_open = true;
@@ -546,6 +617,25 @@ pub fn apply(scene: &str, view: &mut ContentView, cx: &mut Context<ContentView>)
             icons(),
             cx,
         ),
+        "content-filters-packs" | "content-filters-shaders" => {
+            let kind = if scene == "content-filters-packs" {
+                ContentKind::ResourcePack
+            } else {
+                ContentKind::ShaderPack
+            };
+            view.preview_state(kind, None, HashMap::new(), icons(), cx);
+            let browse = &mut view.section_mut(kind).browse;
+            browse.filters_open = true;
+            browse
+                .filters
+                .toggle_category(if kind == ContentKind::ShaderPack {
+                    "shadows"
+                } else {
+                    "audio"
+                });
+            browse.filters.open_source = true;
+            view.set_view(kind, ListView::Modrinth, cx);
+        }
         "content-shaders-vanilla" => {
             view.preview_state(ContentKind::ShaderPack, None, HashMap::new(), icons(), cx)
         }
@@ -633,8 +723,12 @@ pub fn apply(scene: &str, view: &mut ContentView, cx: &mut Context<ContentView>)
             }))
             .expect("a valid response");
             view.preview_results(ContentKind::ResourcePack, text, response.normalize(), cx);
+            // Typed in the installed list: its matches, then the way to Modrinth's.
+            if scene == "content-search-modrinth-only" {
+                view.set_view(ContentKind::ResourcePack, ListView::Modrinth, cx);
+            }
         }
-        "content-browse" => {
+        "content-browse" | "content-sort" | "content-browse-idle" | "content-filters" => {
             view.preview_state(ContentKind::Mod, None, HashMap::new(), icons(), cx);
             let hits = [
                 (
@@ -697,9 +791,42 @@ pub fn apply(scene: &str, view: &mut ContentView, cx: &mut Context<ContentView>)
                 "offset": 0, "limit": 20, "total_hits": 2481,
             }))
             .expect("a valid response");
-            view.preview_results(ContentKind::Mod, "so", response.normalize(), cx);
+            // Typed "so", or browsing with nothing typed (with the filter panel open).
+            let text = if scene == "content-browse" { "so" } else { "" };
+            // The sort list open, under its button in the toolbar.
+            view.sort_open = scene == "content-sort";
+            view.preview_results(ContentKind::Mod, text, response.normalize(), cx);
+            view.set_view(ContentKind::Mod, ListView::Modrinth, cx);
+            if scene == "content-filters" {
+                let browse = &mut view.section_mut(ContentKind::Mod).browse;
+                browse.filters_open = true;
+                browse.filters.toggle_category("optimization");
+                browse.filters.toggle_category("utility");
+                browse.filters.environment =
+                    lodestone_minecraft::modrinth::ClientEnvironment::ClientOnly;
+            }
         }
-        "content-project" | "content-description" => {
+        "content-cf-project" => {
+            view.preview_state(ContentKind::Mod, None, HashMap::new(), icons(), cx);
+            let project: launcher_core::content::curseforge::CfMod =
+                serde_json::from_value(json!({
+                    "id": 238222, "name": "Just Enough Items (JEI)", "slug": "jei",
+                    "summary": "View Items and Recipes", "downloadCount": 412_000_000.0,
+                    "authors": [{ "name": "mezz" }],
+                    "screenshots": [{ "title": "Recipes", "url": CF_SHOT_URL }],
+                }))
+                .expect("a valid project");
+            view.preview_cf_project(ContentKind::Mod, project, CF_DESCRIPTION.into(), vec![], cx);
+            view.preview_description_image(
+                CF_SHOT_URL,
+                crate::images::render_image(super::worlds::landscape(1280, 720, 1, 0.7)),
+            );
+        }
+        "content-project"
+        | "content-description"
+        | "content-gallery"
+        | "content-page-scrolled"
+        | "content-project-narrow" => {
             view.preview_state(ContentKind::Mod, None, HashMap::new(), icons(), cx);
             let versions = vec![
                 version(
@@ -761,17 +888,44 @@ pub fn apply(scene: &str, view: &mut ContentView, cx: &mut Context<ContentView>)
                 98_400_000,
             );
             sodium.body = DESCRIPTION.into();
+            sodium.gallery = GALLERY
+                .iter()
+                .enumerate()
+                .map(
+                    |(index, (url, title))| lodestone_minecraft::modrinth::ModrinthGalleryImage {
+                        url: url.to_string(),
+                        title: Some(title.to_string()),
+                        description: None,
+                        featured: index == 0,
+                    },
+                )
+                .collect();
             view.preview_project(ContentKind::Mod, sodium, versions, cx);
-            if scene == "content-description" {
+            view.preview_description_image(
+                BANNER_URL,
+                crate::images::render_image(super::worlds::landscape(900, 140, 1, 0.4)),
+            );
+            for (index, (url, _)) in GALLERY.iter().enumerate() {
                 view.preview_description_image(
-                    BANNER_URL,
-                    crate::images::render_image(super::worlds::landscape(900, 140, 1, 0.4)),
+                    url,
+                    crate::images::render_image(super::worlds::landscape(
+                        1280,
+                        720,
+                        index + 2,
+                        0.5,
+                    )),
                 );
-                view.set_project_tab(
-                    ContentKind::Mod,
-                    crate::instances::content::ProjectTab::Description,
-                    cx,
-                );
+            }
+            let tab = match scene {
+                "content-project" => crate::instances::content::ProjectTab::Versions,
+                "content-gallery" => crate::instances::content::ProjectTab::Gallery,
+                _ => crate::instances::content::ProjectTab::Description,
+            };
+            view.set_project_tab(ContentKind::Mod, tab, cx);
+            // The description read part of the way down: "Back to top" shows.
+            if scene == "content-page-scrolled" {
+                view.page_scroll
+                    .set_offset(gpui::point(gpui::px(0.), gpui::px(-480.)));
             }
         }
         _ => {}
@@ -779,6 +933,31 @@ pub fn apply(scene: &str, view: &mut ContentView, cx: &mut Context<ContentView>)
 }
 
 const BANNER_URL: &str = "https://cdn.modrinth.com/data/AANobbMI/images/banner.png";
+
+const CF_SHOT_URL: &str = "https://media.forgecdn.net/attachments/1/2/recipes.png";
+
+/// A made-up CurseForge description: HTML with headings, styles, links and an image.
+const CF_DESCRIPTION: &str = r#"<h2>About</h2>
+<p><strong>JEI</strong> is an item and recipe viewing mod, built from the ground up for <em>stability</em> and performance.</p>
+<p><a href="https://example.com/wiki"><img src="https://media.forgecdn.net/attachments/1/2/recipes.png" alt="Recipes"></a></p>
+<h3>Features</h3>
+<ul>
+<li>Search items by name, mod or tag</li>
+<li>See every recipe that makes or uses an item</li>
+<li>Read the <a href="https://example.com/wiki">wiki</a> for more</li>
+</ul>"#;
+
+/// Made-up gallery images, by URL and title.
+const GALLERY: &[(&str, &str)] = &[
+    (
+        "https://cdn.modrinth.com/data/AANobbMI/images/far.png",
+        "A 32-chunk render distance",
+    ),
+    (
+        "https://cdn.modrinth.com/data/AANobbMI/images/night.png",
+        "Night in a dense forest",
+    ),
+];
 
 /// A made-up description with every block the renderer draws, and HTML that is shown
 /// as text.

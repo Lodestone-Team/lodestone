@@ -84,6 +84,27 @@ impl AdminClient {
         .await
     }
 
+    /// `PUT /user/owner_account`: gives the owner, who has no password yet (Lodestone
+    /// Host's first run), a username and a password, and lets other devices use the
+    /// core. Only once, and only signed in (not with an API key). Returns the owner.
+    pub async fn set_up_owner_account(
+        &self,
+        username: &str,
+        password: &str,
+    ) -> Result<PublicUser, CoreError> {
+        #[derive(Serialize)]
+        struct Body<'a> {
+            username: &'a str,
+            password: &'a str,
+        }
+        self.json(
+            Method::PUT,
+            "user/owner_account",
+            Some(Body { username, password }),
+        )
+        .await
+    }
+
     /// `PUT /user/{uid}/update_perm`: the user's whole permission set.
     pub async fn set_permissions(
         &self,
@@ -378,7 +399,9 @@ impl Permission {
 }
 
 /// How many permissions `p` grants, and how many distinct instances they name
-/// (`countPermissions`), for "Custom: 3 servers, 5 permissions".
+/// (`countPermissions`), for "Custom: 3 servers, 5 permissions". The macro and
+/// extension permissions an older core may still hold aren't counted: nothing shows
+/// them.
 pub fn count_permissions(p: &UserPermission) -> (usize, usize) {
     let mut instances = std::collections::BTreeSet::new();
     let lists = [
@@ -389,7 +412,6 @@ pub fn count_permissions(p: &UserPermission) -> (usize, usize) {
         &p.can_access_instance_setting,
         &p.can_read_instance_resource,
         &p.can_write_instance_resource,
-        &p.can_access_instance_macro,
         &p.can_read_instance_file,
         &p.can_write_instance_file,
     ];
@@ -399,7 +421,6 @@ pub fn count_permissions(p: &UserPermission) -> (usize, usize) {
         p.can_read_global_file,
         p.can_write_global_file,
         p.can_manage_permission,
-        p.can_install_extension,
     ];
     let mut granted = flags.iter().filter(|flag| **flag).count();
     for list in lists {
@@ -470,6 +491,10 @@ mod tests {
         assert!(Permission::ViewInstance.per_instance());
         assert!(!Permission::CreateInstance.per_instance());
         assert_eq!(count_permissions(&p), (2, 1));
+        // an older core's macro and extension permissions aren't shown, so not counted
+        p.can_install_extension = true;
+        p.can_access_instance_macro = vec!["c".into()];
+        assert_eq!(count_permissions(&p), (2, 1));
     }
 
     #[test]
@@ -484,6 +509,7 @@ mod tests {
                 can_read_global_file: true,
                 ..Default::default()
             },
+            has_password: true,
         };
         assert!(Permission::StopInstance.grantable_by(&user, Some("a")));
         assert!(!Permission::StopInstance.grantable_by(&user, Some("b")));

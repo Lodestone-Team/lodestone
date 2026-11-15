@@ -1,16 +1,16 @@
 //! The launcher's data directory.
 //!
-//! On macOS it is `~/Library/Application Support/Lodestone Launcher/`. The
-//! `LODESTONE_LAUNCHER_DATA_DIR` environment variable replaces it, for development.
+//! On macOS it is `~/Library/Application Support/Lodestone Launcher/`, unless the
+//! person moved it to another folder (Settings › Storage, [`crate::data_move`]) or
+//! the `LODESTONE_LAUNCHER_DATA_DIR` environment variable replaces it, for
+//! development. `launcher_control::paths` finds it, for the CLI too.
 //! Nothing in it is secret: tokens live in the [`SecretStore`](crate::SecretStore).
 
-use std::{
-    ffi::OsString,
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 
-/// The folder name under the platform's data directory.
-pub const APP_DIR_NAME: &str = "Lodestone Launcher";
+pub use launcher_control::paths::{
+    APP_DIR_NAME, DataDirLocation, DataDirSource, LOCATION_FILE, locate as locate_data_dir,
+};
 
 /// The paths of the launcher's files.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -21,17 +21,7 @@ pub struct DataDir {
 impl DataDir {
     /// The data directory for this user, or `None` if the home directory is unknown.
     pub fn locate() -> Option<Self> {
-        Self::locate_with(
-            std::env::var_os("LODESTONE_LAUNCHER_DATA_DIR"),
-            dirs::data_dir(),
-        )
-    }
-
-    fn locate_with(env_override: Option<OsString>, platform_dir: Option<PathBuf>) -> Option<Self> {
-        if let Some(dir) = env_override.filter(|dir| !dir.is_empty()) {
-            return Some(Self::at(PathBuf::from(dir)));
-        }
-        platform_dir.map(|dir| Self::at(dir.join(APP_DIR_NAME)))
+        locate_data_dir().map(|location| Self::at(location.dir))
     }
 
     /// A data directory at `root`, for tests and the offscreen screenshots.
@@ -63,6 +53,24 @@ impl DataDir {
         self.root.join("cache")
     }
 
+    /// The base packs (`.mrpack`) of servers' images, by their SHA-512
+    /// ([`crate::cores::image_sync::base`]).
+    pub fn server_pack_cache_dir(&self) -> PathBuf {
+        self.cache_dir().join("server-packs")
+    }
+
+    /// The temporary folders the Launcher empties when it starts: what an earlier run was
+    /// writing to share and never finished with (snapshot exports, "Host this" uploads,
+    /// "Download this world" downloads).
+    pub fn temporary_dirs(&self) -> [PathBuf; 3] {
+        [
+            self.cache_dir().join("snapshot-exports"),
+            self.cache_dir().join(crate::cores::hosting::UPLOADS_FOLDER),
+            self.cache_dir()
+                .join(crate::cores::world_download::DOWNLOADS_FOLDER),
+        ]
+    }
+
     /// One folder per instance, each with `instance.json` and the game's `minecraft/`.
     pub fn instances_dir(&self) -> PathBuf {
         self.root.join("instances")
@@ -87,6 +95,12 @@ impl DataDir {
     pub fn runtimes_dir(&self) -> PathBuf {
         self.root.join("runtimes")
     }
+
+    /// The image store every instance's content images and snapshots are kept in
+    /// ([`crate::images`]): `objects/`, `lists/`, `chunks/` and `images/<instance>/`.
+    pub fn image_store_dir(&self) -> PathBuf {
+        self.root.join("image-store")
+    }
 }
 
 #[cfg(test)]
@@ -94,13 +108,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn uses_the_platform_data_dir() {
-        let dir = DataDir::locate_with(None, Some("/Users/me/Library/Application Support".into()))
-            .unwrap();
-        assert_eq!(
-            dir.root(),
-            Path::new("/Users/me/Library/Application Support/Lodestone Launcher")
-        );
+    fn files_are_in_the_root() {
+        let dir = DataDir::at("/Users/me/Library/Application Support/Lodestone Launcher");
         assert_eq!(
             dir.accounts_file(),
             Path::new("/Users/me/Library/Application Support/Lodestone Launcher/accounts.json")
@@ -112,12 +121,10 @@ mod tests {
     }
 
     #[test]
-    fn the_env_var_overrides_it() {
-        let dir = DataDir::locate_with(Some("/tmp/dev".into()), Some("/ignored".into())).unwrap();
-        assert_eq!(dir.root(), Path::new("/tmp/dev"));
-        let dir = DataDir::locate_with(Some("".into()), Some("/platform".into())).unwrap();
-        assert_eq!(dir.root(), Path::new("/platform/Lodestone Launcher"));
-        assert_eq!(DataDir::locate_with(None, None), None);
+    fn the_image_store_is_in_the_data_folder_beside_the_instances() {
+        let dir = DataDir::at("/data");
+        assert_eq!(dir.image_store_dir(), Path::new("/data/image-store"));
+        assert!(!dir.image_store_dir().starts_with(dir.instances_dir()));
     }
 
     #[cfg(target_os = "macos")]

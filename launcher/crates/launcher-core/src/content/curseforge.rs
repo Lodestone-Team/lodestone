@@ -122,6 +122,9 @@ pub struct CfMod {
     /// `false` when the author doesn't allow downloads outside CurseForge.
     #[serde(default)]
     pub allow_mod_distribution: Option<bool>,
+    /// The project's gallery, on [`MEDIA_HOST`].
+    #[serde(default)]
+    pub screenshots: Vec<CfImage>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -134,6 +137,8 @@ pub struct CfLinks {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CfImage {
+    #[serde(default)]
+    pub title: Option<String>,
     #[serde(default)]
     pub thumbnail_url: Option<String>,
     #[serde(default)]

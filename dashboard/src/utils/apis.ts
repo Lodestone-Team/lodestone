@@ -1,7 +1,6 @@
 import { QueryClient } from '@tanstack/react-query';
 import axios from 'axios';
 import { ClientFile } from 'bindings/ClientFile';
-import { MacroEntry } from 'bindings/MacroEntry';
 import { LoginReply } from 'bindings/LoginReply';
 import { PublicUser } from 'bindings/PublicUser';
 import { UserPermission } from 'bindings/UserPermission';
@@ -21,11 +20,10 @@ import {
 import { UnzipOption } from 'bindings/UnzipOption';
 import { CopyInstanceFileRequest } from 'bindings/CopyInstanceFileRequest';
 import { ZipRequest } from 'bindings/ZipRequest';
-import { TaskEntry } from 'bindings/TaskEntry';
-import { HistoryEntry } from 'bindings/HistoryEntry';
-import { GetConfigResponse } from 'bindings/GetConfigResponse';
-import { SettingManifest } from 'bindings/SettingManifest';
 import { t } from 'i18n';
+import { basicAuthHeader } from './basicAuth';
+import { startDownload } from './download';
+import { tauri } from './tauriUtil';
 
 /*
  * Error convention
@@ -91,13 +89,16 @@ export const saveInstanceFile = async (
   queryClient.setQueryData(fileListKey, newFileList);
 };
 
-/** Shows a toast on failure (and on success). */
+/**
+ * Shows a toast on failure (and on success). Resolves with whether the file
+ * was deleted.
+ */
 export const deleteInstanceFile = async (
   uuid: string,
   directory: string,
   file: ClientFile,
   queryClient: QueryClient
-) => {
+): Promise<boolean> => {
   const error = await catchAsyncToString(
     axiosWrapper<null>({
       method: 'delete',
@@ -106,27 +107,31 @@ export const deleteInstanceFile = async (
   );
   if (error) {
     toast.error(error);
-    return;
+    return false;
   } else {
     toast.success(t('server.api.deletedFile', { name: file.name }));
   }
 
   const fileListKey = ['instance', uuid, 'fileList', directory];
   const fileList = queryClient.getQueryData<ClientFile[]>(fileListKey);
-  if (!fileList) return;
+  if (!fileList) return true;
   queryClient.setQueryData(
     fileListKey,
     fileList?.filter((f) => f.path !== file.path)
   );
+  return true;
 };
 
-/** Shows a toast on failure (and on success). */
+/**
+ * Shows a toast on failure (and on success). Resolves with whether the folder
+ * was deleted.
+ */
 export const deleteInstanceDirectory = async (
   uuid: string,
   parentDirectory: string,
   directory: string,
   queryClient: QueryClient
-) => {
+): Promise<boolean> => {
   const error = await catchAsyncToString(
     axiosWrapper<null>({
       method: 'delete',
@@ -135,7 +140,7 @@ export const deleteInstanceDirectory = async (
   );
   if (error) {
     toast.error(error);
-    return;
+    return false;
   } else {
     toast.success(t('server.api.deletedDirectory', { path: directory }));
   }
@@ -145,15 +150,32 @@ export const deleteInstanceDirectory = async (
     fileListKey,
     fileList?.filter((file) => file.path !== directory)
   );
+  return true;
 };
 
 /**
  * The URL that downloads a file the core registered under `key` (see
- * `/file/{key}` in the core's global_fs.rs). Opened in a new tab, it works in
- * browsers and in Lodestone Host.
+ * `/file/{key}` in the core's global_fs.rs). Start it with downloadFromCore.
  */
 export const fileDownloadUrl = (key: string) =>
   axios.defaults.baseURL + `/file/${key}`;
+
+/**
+ * Starts downloading a fileDownloadUrl link, in browsers and in Lodestone Host
+ * (where the system browser downloads it). See startDownload: no popup, so it
+ * still works after awaiting the link.
+ * @throws if Lodestone Host could not hand the link to the browser
+ */
+export const downloadFromCore = (url: string) => {
+  const host = tauri;
+  return startDownload(
+    url,
+    document,
+    host
+      ? (link) => host.core.invoke('plugin:opener|open_url', { url: link })
+      : undefined
+  );
+};
 
 /** @throws ApiError */
 export const requestInstanceFileUrl = async (
@@ -169,15 +191,18 @@ export const requestInstanceFileUrl = async (
   return fileDownloadUrl(tokenResponse);
 };
 
-/** Shows a toast on failure. */
+/**
+ * Shows a toast on failure. Resolves with whether the download started.
+ */
 export const downloadInstanceFile = async (
   uuid: string,
   file: ClientFile,
   timeout = 5000
-) => {
-  let url: string;
+): Promise<boolean> => {
   try {
-    url = await requestInstanceFileUrl(uuid, file, timeout);
+    const url = await requestInstanceFileUrl(uuid, file, timeout);
+    await downloadFromCore(url);
+    return true;
   } catch (error) {
     toast.error(
       t('server.api.downloadFailed', {
@@ -185,9 +210,8 @@ export const downloadInstanceFile = async (
         error: errorToString(error),
       })
     );
-    return;
+    return false;
   }
-  window.open(url, '_blank');
 };
 
 /** Shows a toast on failure. */
@@ -428,9 +452,12 @@ export async function loginToCore(
       method: 'post',
       url: '/user/login',
       data: {},
-      auth: {
-        username: loginValue.username,
-        password: loginValue.password,
+      // not axios's `auth`, which sends the username as Latin-1
+      headers: {
+        Authorization: basicAuthHeader(
+          loginValue.username,
+          loginValue.password
+        ),
       },
     });
     return response.data;
@@ -557,98 +584,3 @@ export const openPort = async (port: number) => {
     })
   );
 };
-
-/***********************
- * Start Tasks/Macro API
- * the getters below throw ApiError
- ***********************/
-
-export const getTasks = async (uuid: string) => {
-  const taskList = await axiosWrapper<TaskEntry[]>({
-    method: 'get',
-    url: `/instance/${uuid}/task/list`,
-  });
-
-  return taskList;
-};
-
-export const getMacros = async (uuid: string) => {
-  const macroList = await axiosWrapper<MacroEntry[]>({
-    method: 'get',
-    url: `/instance/${uuid}/macro/list`,
-  });
-
-  return macroList;
-};
-
-// get macro config
-export const getMacroConfig = async (uuid: string, macro_name: string) => {
-  const macroConfig = await axiosWrapper<GetConfigResponse>({
-    method: 'get',
-    url: `/instance/${uuid}/macro/config/get/${macro_name}`,
-  });
-  return macroConfig;
-};
-
-// write macro local config
-export const storeMacroConfig = async (
-  uuid: string,
-  macro_name: string,
-  config: Record<string, SettingManifest>
-) => {
-  const serverResponse = await axiosWrapper<unknown>({
-    method: 'post',
-    url: `/instance/${uuid}/macro/config/store/${macro_name}`,
-    data: config,
-  });
-  return serverResponse;
-};
-
-export const getInstanceHistory = async (uuid: string) => {
-  const historyList = await axiosWrapper<HistoryEntry[]>({
-    method: 'get',
-    url: `/instance/${uuid}/history/list`,
-  });
-
-  return historyList;
-};
-
-/** Runs a macro. Returns the error message. */
-export const createTask = async (
-  queryClient: QueryClient,
-  uuid: string,
-  macro_name: string,
-  args: string[]
-) => {
-  const error = await catchAsyncToString(
-    axiosWrapper<null>({
-      method: 'put',
-      url: `/instance/${uuid}/macro/run/${macro_name}`,
-      data: args,
-    })
-  );
-  // refetch the task list once the task exists
-  if (!error)
-    queryClient.invalidateQueries({
-      queryKey: ['instance', uuid, 'taskList'],
-    });
-  return error;
-};
-
-/** Kills a running macro. Returns the error message. */
-export const killTask = async (
-  queryClient: QueryClient,
-  uuid: string,
-  pid: string
-) => {
-  return await catchAsyncToString(
-    axiosWrapper<null>({
-      method: 'put',
-      url: `/instance/${uuid}/macro/kill/${pid}`,
-    })
-  );
-};
-/***********************
- * End Tasks/Macro API
- ***********************/
-

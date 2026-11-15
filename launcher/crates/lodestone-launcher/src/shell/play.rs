@@ -7,16 +7,17 @@ use gpui::{AnyElement, Context, IntoElement, ObjectFit, SharedString, div, img, 
 use launcher_core::instances::{BackgroundMode, Instance};
 use launcher_core::ui_skin::SurfaceId;
 
-use super::{InstanceTab, LauncherShell, loader_label};
+use super::{InstanceTab, LauncherShell, Page, loader_label};
 use crate::{
     components::{
-        Align, Button, ButtonSize, ButtonVariant, Icon, PlayButton, PlayButtonState, Tabs,
+        Align, Button, ButtonSize, ButtonVariant, Icon, KeyboardFocus, MagnetLook, PlayButton,
+        PlayButtonState, Tabs,
         a11y::{Accessible, Role},
     },
-    i18n::{ShellMsg as M, t, tr},
+    i18n::{ServersMsg, ShellMsg as M, t, tr},
     instances::appearance::{Background, scrim_layers},
     instances::{Ago, PlayState, play_time},
-    servers::InstanceLink,
+    servers::{InstanceLink, friends::Liveness},
     theme::{self, colors, fonts, leading, radius, text, weights},
 };
 
@@ -27,6 +28,9 @@ pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl In
     let link = instance
         .as_ref()
         .and_then(|i| shell.servers.read(cx).instance_link(&i.id));
+    let rosetta = instance
+        .as_ref()
+        .and_then(|i| shell.instances.read(cx).rosetta_note(i));
     let (title, subtitle): (SharedString, SharedString) = match &instance {
         Some(instance) => (
             instance.name.clone().into(),
@@ -82,7 +86,8 @@ pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl In
                                 .font_weight(weights::BOLD.into())
                                 .child(subtitle),
                         )
-                        .children(link.as_ref().map(linked_to)),
+                        .children(link.as_ref().map(|link| linked_to(link, cx)))
+                        .children(rosetta.map(rosetta_note)),
                 )
                 .child(
                     Tabs::new("instance-tabs", InstanceTab::ALL.map(InstanceTab::label))
@@ -200,14 +205,16 @@ fn hero(
             // the skin's colour or gradient, or the launcher's artwork
             Backdrop::Artwork => match crate::skin::painted(SurfaceId::Hero) {
                 Some(painted) if painted.paint.is_some() => crate::skin::paint(this, &painted),
-                _ => this.child(
-                    img(crate::images::hero(cx))
-                        .absolute()
-                        .inset_0()
-                        .size_full()
-                        .rounded(radius::XL)
-                        .object_fit(ObjectFit::Cover),
-                ),
+                _ => this
+                    .child(
+                        img(crate::images::hero(cx))
+                            .absolute()
+                            .inset_0()
+                            .size_full()
+                            .rounded(radius::XL)
+                            .object_fit(ObjectFit::Cover),
+                    )
+                    .child(crate::images::hero_fit()),
             },
         })
         .child(
@@ -258,8 +265,79 @@ fn hero(
         )
 }
 
-/// "Linked to Survival SMP on Peter's core", under the instance's name.
-fn linked_to(link: &InstanceLink) -> impl IntoElement + use<> {
+/// "Runs under Rosetta 2: …", under the instance's name, while its game runs in an
+/// Intel Java on this Apple silicon Mac, and why ([`crate::instances::Instances::rosetta_note`]):
+/// the launcher never runs a game under Rosetta without saying so.
+fn rosetta_note(reason: launcher_core::game::install::Rosetta) -> impl IntoElement {
+    let note: SharedString = t(match reason {
+        launcher_core::game::install::Rosetta::Version => M::RunsUnderRosetta,
+        launcher_core::game::install::Rosetta::JavaOverride => M::RunsUnderRosettaOverride,
+    })
+    .into();
+    div()
+        .id("rosetta-note")
+        .accessible(Role::Label, "rosetta-note", note.clone())
+        .text_size(theme::text_size(text::SMALL))
+        .text_color(crate::theme::ink::muted())
+        .child(note)
+}
+
+/// "Linked to Survival SMP on Peter's core", under the instance's name. Pressing it
+/// opens the Lodestone Host page with that server's row scrolled into sight and
+/// flashed.
+fn linked_to(link: &InstanceLink, cx: &mut Context<LauncherShell>) -> impl IntoElement + use<> {
+    let label = tr!(
+        if link.core_known {
+            M::LinkedTo
+        } else {
+            M::LinkedToRemoved
+        },
+        server = link.server_name,
+        core = link.core_name
+    );
+    let (core, server) = (link.core_uuid.clone(), link.server_uuid.clone());
+    // whether the server runs: the dot's colour, and a word after the link
+    let (dot, status): (Option<theme::Color>, Option<(&'static str, theme::Color)>) =
+        match link.live {
+            Liveness::Unknown => (None, None),
+            Liveness::Checking => (
+                Some(colors::GRAY_500),
+                Some((t(M::ServerChecking), crate::theme::ink::muted())),
+            ),
+            Liveness::Running => (
+                Some(colors::GREEN_200),
+                Some((t(M::ServerOnline), colors::GREEN_200)),
+            ),
+            Liveness::Starting => (
+                Some(colors::YELLOW),
+                Some((t(M::ServerStarting), colors::YELLOW)),
+            ),
+            Liveness::Stopped => (
+                Some(colors::GRAY_500),
+                Some((t(M::ServerStopped), crate::theme::ink::muted())),
+            ),
+            Liveness::Unreachable => (
+                Some(colors::RED_200),
+                Some((t(M::ServerUnreachable), colors::RED_200)),
+            ),
+        };
+    // "Check" asks a friend's server again, when it isn't running
+    let check = (link.friend
+        && matches!(
+            link.live,
+            Liveness::Stopped | Liveness::Starting | Liveness::Unreachable
+        ))
+    .then(|| {
+        let friend = link.core_uuid.clone();
+        Button::new("linked-server-check", t(ServersMsg::FriendCheck))
+            .size(ButtonSize::Slim)
+            .variant(ButtonVariant::Ghost)
+            .disabled(link.checking)
+            .on_click(cx.listener(move |this, _, _, cx| {
+                this.servers
+                    .update(cx, |servers, cx| servers.check_friend(&friend, cx))
+            }))
+    });
     div()
         .flex()
         .flex_row()
@@ -271,24 +349,55 @@ fn linked_to(link: &InstanceLink) -> impl IntoElement + use<> {
                 .flex_none()
                 .size(px(6.))
                 .rounded_full()
-                .bg(crate::theme::accent::light()),
+                .map(|this| match dot {
+                    Some(dot) => this.bg(dot),
+                    // Lodestone Host's green, as the instance's outline in the sidebar
+                    None => this.bg(crate::components::host_gradient(100, false)),
+                }),
         )
         .child(
             div()
+                .id("linked-server")
+                .accessible(Role::Link, "linked-server", label.clone())
+                .keyboard_focus()
+                .min_w_0()
                 .truncate()
+                .rounded(radius::DEFAULT)
                 .text_size(theme::text_size(text::SMALL))
                 .font_weight(weights::BOLD.into())
                 .text_color(crate::theme::accent::light())
-                .child(tr!(
-                    if link.core_known {
-                        M::LinkedTo
-                    } else {
-                        M::LinkedToRemoved
-                    },
-                    server = link.server_name,
-                    core = link.core_name
-                )),
+                .cursor_pointer()
+                .hover(|style| style.underline())
+                .on_press(cx.listener(move |this, _, _, cx| {
+                    // the page its row is on: the Friends page for a server from the
+                    // friend list, the Lodestone Host page for the others
+                    let (friends, row_core, row_server) =
+                        this.servers.read(cx).link_target(&core, &server);
+                    this.show(
+                        if friends {
+                            Page::Friends
+                        } else {
+                            Page::Servers
+                        },
+                        cx,
+                    );
+                    this.servers.update(cx, |servers, cx| {
+                        servers.highlight_server(&row_core, &row_server, cx)
+                    });
+                }))
+                .child(label),
         )
+        .children(status.map(|(word, color)| {
+            div()
+                .id("linked-server-status")
+                .accessible(Role::Status, "linked-server-status", word)
+                .flex_none()
+                .text_size(theme::text_size(text::SMALL))
+                .font_weight(weights::BOLD.into())
+                .text_color(color)
+                .child(format!("· {word}"))
+        }))
+        .children(check)
 }
 
 /// "Minecraft 1.20.1", or "Minecraft 1.20.1 with Fabric 0.16.14".
@@ -314,7 +423,7 @@ fn placeholder(message: impl Into<SharedString>) -> impl IntoElement {
         .border_2()
         .border_dashed()
         .border_color(colors::GRAY_FADED.opacity(10))
-        .text_color(colors::GRAY_FADED.opacity(30))
+        .text_color(crate::theme::ink::faint())
         .font_weight(weights::BOLD.into())
         .child(message.into())
 }
@@ -325,44 +434,176 @@ fn placeholder(message: impl Into<SharedString>) -> impl IntoElement {
 /// "Play without joining" under it.
 pub const BOTTOM_BAR_HEIGHT: f32 = 108.0;
 
+/// What Play shows and does for an instance: the Play bar's button, and the one over
+/// the instance's icon in the sidebar.
+pub(super) struct PlayTarget {
+    pub state: PlayButtonState,
+    /// "and join Survival SMP", or why Play waits.
+    pub caption: Option<String>,
+    /// Play joins the server the instance was made for.
+    pub joins: bool,
+}
+
+impl LauncherShell {
+    /// What Play shows and does for the instance `id`. An instance made for a server
+    /// plays on it: the same mod check as the Servers page, then the game joins.
+    pub(super) fn play_target(&self, id: &str, cx: &gpui::App) -> PlayTarget {
+        let state = match self.instances.read(cx).play_state_of(id) {
+            PlayState::NoInstance => PlayButtonState::Disabled,
+            PlayState::Ready => PlayButtonState::Ready,
+            PlayState::Playing => PlayButtonState::Playing,
+            PlayState::Preparing {
+                label,
+                detail,
+                fraction,
+                step,
+            } => PlayButtonState::Preparing {
+                label,
+                detail,
+                fraction,
+                step,
+            },
+        };
+        let servers = self.servers.read(cx);
+        let link = servers.instance_link(id);
+        let busy = servers.instance_busy(id).map(|busy| busy.label());
+        let joins = link.is_some() && matches!(state, PlayButtonState::Ready);
+        let (state, caption) = match (&link, busy) {
+            (Some(_), Some(busy)) if joins => (PlayButtonState::Disabled, Some(busy)),
+            // a friend's server that is stopped or starting: Minecraft couldn't join it
+            // ("Play without joining" still plays)
+            (Some(link), None) if joins && link.blocks_play => (
+                PlayButtonState::Disabled,
+                Some(tr!(
+                    if link.live == Liveness::Starting {
+                        M::ServerStartingCaption
+                    } else {
+                        M::ServerStoppedCaption
+                    },
+                    server = link.server_name
+                )),
+            ),
+            (Some(link), None) if joins => {
+                (state, Some(tr!(M::AndJoin, server = link.server_name)))
+            }
+            _ => (state, None),
+        };
+        PlayTarget {
+            state,
+            caption,
+            joins,
+        }
+    }
+
+    /// Play: starts the instance `id`, joining its server when `joins`.
+    pub(super) fn press_play(&mut self, id: &str, joins: bool, cx: &mut Context<Self>) {
+        if joins {
+            self.servers
+                .update(cx, |servers, cx| servers.play_instance(id, cx));
+        } else {
+            self.instances
+                .update(cx, |instances, cx| instances.play(id, cx));
+        }
+    }
+}
+
+/// How Play melts into filings, in the skin's colours: the button as the skin (or the
+/// instance) colours and shapes it, and filings in the instance's Play colour, else
+/// the skin's progress colours (all of a gradient's), else its Play colours, else the
+/// gem's, made to read on the bar as the skin paints it.
+fn magnet_look(
+    skin: &crate::skin::Look,
+    resolved: &crate::skin::Resolved,
+    instance: Option<&Instance>,
+) -> MagnetLook {
+    use launcher_core::ui_skin::{Fill, Rgb, Shape, readable};
+    let spec = &skin.spec;
+    let play = &resolved.play;
+    // an image or rich gradient on the button: melt from what it looks like on average
+    let fill_rgb = play.color.or_else(|| {
+        resolved
+            .play_layer
+            .then(|| skin.backdrops.get(&SurfaceId::PlayButton).map(|b| b.mean))
+            .flatten()
+    });
+    let (fill, edge) = match fill_rgb {
+        Some(c) => (
+            crate::theme::Color::rgb(c.0),
+            crate::theme::Color::rgb(c.mix(Rgb::WHITE, 0.2).0),
+        ),
+        None => (colors::GREEN_400, colors::GREEN_300),
+    };
+    let sample = |stops: &dyn Fn(f32) -> Rgb| (0..5).map(|i| stops(i as f32 / 4.0)).collect();
+    let progress_fill = spec
+        .surfaces
+        .get(&SurfaceId::Progress)
+        .and_then(|s| s.fill.as_ref());
+    let palette = if let Some(color) = instance.and_then(|i| i.play_color) {
+        MagnetLook::shades(color)
+    } else if let Some(Fill::Gradient(gradient)) = progress_fill {
+        sample(&|t| gradient.at(t))
+    } else if let Some(color) = resolved.progress {
+        MagnetLook::shades(color)
+    } else if let (Some(from), Some(to)) = (play.color, play.gradient) {
+        sample(&|t| from.mix(to, t))
+    } else if let Some(color) = play.color {
+        MagnetLook::shades(color)
+    } else {
+        crate::components::MAGNET_GEM.to_vec()
+    };
+    // the bar the filings are drawn on: the skin's paint, or the launcher's own
+    let backdrop = match spec.surface(SurfaceId::PlayBar) {
+        Some(_) => readable::surface_backdrop(spec, SurfaceId::PlayBar, &|surface| {
+            skin.backdrops.get(&surface).copied()
+        }),
+        None => readable::Backdrop::solid(Rgb(crate::theme::palette::map(colors::GRAY_850).0 >> 8)),
+    };
+    MagnetLook {
+        palette,
+        backdrop,
+        fill,
+        gradient: play.gradient.map(|c| crate::theme::Color::rgb(c.0)),
+        edge,
+        corner: match play.shape {
+            Shape::Rounded => Some(8.0),
+            Shape::Pill => None,
+            Shape::Pixel => Some(0.0),
+        },
+        glow: play.glow,
+    }
+}
+
 /// The bar under the tabs: Play.
 fn play_bar(
     shell: &LauncherShell,
     instance: Option<&Instance>,
     cx: &mut Context<LauncherShell>,
 ) -> impl IntoElement {
-    let state = match shell.instances.read(cx).play_state() {
-        PlayState::NoInstance => PlayButtonState::Disabled,
-        PlayState::Ready => PlayButtonState::Ready,
-        PlayState::Playing => PlayButtonState::Playing,
-        PlayState::Preparing {
-            label,
-            detail,
-            fraction,
-        } => PlayButtonState::Preparing {
-            label,
-            detail,
-            fraction,
+    let id = instance.map(|i| i.id.clone());
+    let PlayTarget {
+        state,
+        caption,
+        joins,
+    } = match &id {
+        Some(id) => shell.play_target(id, cx),
+        None => PlayTarget {
+            state: PlayButtonState::Disabled,
+            caption: None,
+            joins: false,
         },
     };
-    let id = instance.map(|i| i.id.clone());
     let stop_id = id.clone();
-    // An instance made for a server plays on it: the same mod check as the Servers
-    // page, then the game joins. "Play without joining" is the plain Play.
-    let servers = shell.servers.read(cx);
-    let link = id.as_ref().and_then(|id| servers.instance_link(id));
-    let busy = id
-        .as_ref()
-        .and_then(|id| servers.instance_busy(id))
-        .map(|busy| busy.label());
-    let joins = link.is_some() && matches!(state, PlayButtonState::Ready);
-    let (state, caption) = match (&link, busy) {
-        (Some(_), Some(busy)) if joins => (PlayButtonState::Disabled, Some(busy)),
-        (Some(link), None) if joins => (state, Some(tr!(M::AndJoin, server = link.server_name))),
-        _ => (state, None),
-    };
+    // "Play without joining" is the plain Play.
     let single_id = id.clone();
-    let resolved = crate::skin::resolve(&crate::skin::look(cx).spec, instance);
+    let skin = crate::skin::look(cx);
+    let resolved = crate::skin::resolve(&skin.spec, instance);
+    let magnet = magnet_look(&skin, &resolved, instance);
+    // the line under the step, in the skin's progress colour, made to read on the bar
+    let progress = instance
+        .and_then(|i| i.play_color)
+        .or(resolved.progress)
+        .or(resolved.play.color)
+        .map(|c| launcher_core::ui_skin::readable::suggest(c, magnet.backdrop, 3.0));
     div()
         .flex()
         .flex_row()
@@ -389,19 +630,12 @@ fn play_bar(
                 .child(
                     PlayButton::new("play")
                         .state(state)
-                        .look(resolved.play, resolved.progress)
+                        .look(resolved.play, progress)
                         .layer(resolved.play_layer)
                         .when_some(caption, |button, caption| button.caption(caption))
                         .on_click(cx.listener(move |this, _, _, cx| {
-                            let Some(id) = &id else {
-                                return;
-                            };
-                            if joins {
-                                this.servers
-                                    .update(cx, |servers, cx| servers.play_instance(id, cx));
-                            } else {
-                                this.instances
-                                    .update(cx, |instances, cx| instances.play(id, cx));
+                            if let Some(id) = &id {
+                                this.press_play(id, joins, cx);
                             }
                         }))
                         .on_stop(cx.listener(move |this, _, _, cx| {
@@ -418,8 +652,7 @@ fn play_bar(
                             .variant(ButtonVariant::Ghost)
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 if let Some(id) = &single_id {
-                                    this.instances
-                                        .update(cx, |instances, cx| instances.play(id, cx));
+                                    this.press_play(id, false, cx);
                                 }
                             })),
                     )

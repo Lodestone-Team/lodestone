@@ -36,8 +36,13 @@ crate::i18n::messages! {
         // Lines the launcher writes in the console.
         PreparingNote = "Preparing Minecraft {version} ({loader})",
         JoiningNote = "Joining {address} once the game starts",
+        /// Before a launch, the instance's content changed since it was last recorded (by
+        /// the launcher, or by hand), so it was recorded again.
+        ContentRecordedNote = "Recorded the instance's current mods and configs",
+        /// Recording the instance's content before a launch failed; the game starts anyway.
+        ContentCheckFailedNote = "Couldn't record the instance's mods and configs: {error}",
         VerifyingNote = "Verifying the game files of Minecraft {version} ({loader})",
-        RosettaNote = "This version runs in an Intel (x86_64) Java under Rosetta 2.",
+        RosettaNote = "The game runs in an Intel (x86_64) Java under Rosetta 2.",
         /// Followed by the Java command line.
         StartingJavaNote = "Starting Java: {command}",
         /// Automatic setup gave the instance memory: {memory} is a range, "2 GB – 4 GB".
@@ -53,6 +58,9 @@ crate::i18n::messages! {
         /// {source} is the name of the instance they were copied from.
         AutoControlsNote = "Automatic setup: mouse sensitivity, key bindings and language copied from {source}",
         AutoControlsLauncherNote = "Automatic setup: mouse sensitivity, key bindings and language copied from the Minecraft Launcher",
+        /// {instance} is the name of an instance in another launcher; {launcher} is that
+        /// launcher's name ("Prism Launcher", "Modrinth App").
+        AutoControlsOtherLauncherNote = "Automatic setup: mouse sensitivity, key bindings and language copied from {instance} in {launcher}",
         StoppedNote = "Stopped",
         ExitedWithCode = "Minecraft exited with code {code}",
         EndedBySignal = "Minecraft was ended by a signal",
@@ -64,7 +72,21 @@ crate::i18n::messages! {
         // Launch errors and notices.
         CouldntSignIn = "Couldn't sign in",
         RosettaNeeded = "Rosetta 2 is needed",
-        RosettaMissing = "This Minecraft version needs an Intel (x86_64) Java, which runs on Apple Silicon through Rosetta 2. Rosetta isn't installed. Install it by running this in Terminal, then press Play again:\n\nsoftwareupdate --install-rosetta",
+        RosettaMissing = "This Minecraft version needs an Intel (x86_64) Java, which runs on Apple silicon through Rosetta 2. Rosetta isn't installed. Install it by running this in Terminal, then press Play again:\n\nsoftwareupdate --install-rosetta",
+        /// Asked once per instance, before its first game under Rosetta 2 on an Apple
+        /// silicon Mac, with Play and Cancel. {version} is the Minecraft version, such
+        /// as 1.12.2.
+        RosettaNoticeTitle = "Minecraft {version} runs under Rosetta 2",
+        /// Minecraft 1.13.2 and older.
+        RosettaNoticeBody = "Mojang made no Apple silicon build of some libraries this version needs, so it runs in an Intel Java through Rosetta 2. It takes longer to start, then plays normally. Minecraft 1.14 and later run natively.",
+        /// A version that could run natively, with an Intel Java chosen in the
+        /// instance's Settings.
+        RosettaNoticeBodyOverride = "This instance uses an Intel Java, chosen in its Settings, so the game runs through Rosetta 2. It takes longer to start, then plays normally. To run it natively, choose a Java made for Apple silicon, or go back to the default Java.",
+        /// Minecraft 1.14 to 1.16.5 on Apple silicon, when Azul lists no Java 8 for it.
+        NoNativeJava8 = "This Minecraft version needs Java 8, and no Java 8 for Apple silicon is available right now: Mojang makes none, and Azul lists none. Try again later, or choose a Java 8 made for Apple silicon (arm64) in the instance's Settings.",
+        /// Minecraft 1.13.2 and older on Apple silicon, with a Java chosen in the
+        /// instance's Settings that is made for Apple silicon.
+        NeedsIntelJava = "On Apple silicon, Minecraft {version} runs only in an Intel (x86_64) Java, through Rosetta 2, and the Java chosen in the instance's Settings is made for Apple silicon. Choose an Intel Java there, or Mojang's Java.",
         CouldntStartMinecraft = "Couldn't start Minecraft",
         CouldntStartJava = "Couldn't start Java",
         CouldntVerify = "Couldn't verify the game files",
@@ -77,15 +99,19 @@ crate::i18n::messages! {
         /// Another change of the instance's files (a copy, a move to the Trash, an image
         /// being imported) is still running.
         FilesBusy = "Wait for the instance's files to finish changing, then try again.",
+        /// A notice's title: the snapshot before a new loader version (or another game
+        /// version or loader) failed; the change was saved anyway.
+        NoSnapshotBeforeGameChange = "No snapshot was taken before the game changed",
+        /// A notice's title: the new loader version chosen in Settings wasn't saved.
+        LoaderChangeNotSaved = "The new loader version wasn't saved",
+        LoaderChangeDropped = "The instance was changed while its snapshot was taken. Choose the loader version again.",
+        /// A restore from a snapshot failed and couldn't be undone, so some worlds or mods
+        /// may be set aside in the instance's folder.
+        RestoreUnfinished = "A restore of this instance didn't finish and couldn't be undone, so some of its worlds or mods are set aside. Close any program using its files and press Play again, or restart Lodestone Launcher.",
         CouldntSavePlayed = "Couldn't save when it was played: {error}",
         CouldntSavePlayTime = "Couldn't save the play time: {error}",
         ModpackExported = "Modpack exported",
         CouldntExportModpack = "Couldn't export the modpack",
-        CouldntSwitchLoader = "Couldn't switch to a mod loader",
-        NoModLoaderFor = "No mod loader Lodestone Launcher supports runs on Minecraft {version}: Fabric starts at 1.14, and Forge has no build for it.",
-        /// After "Switch to Fabric": the dialog's title.
-        SwitchedTo = "Switched to {loader}",
-        SwitchedToMessage = "{name} now uses {loader} {version}. It installs the next time you press Play.",
 
         // The Logs tab.
         SearchLog = "Search the log",
@@ -98,6 +124,16 @@ crate::i18n::messages! {
         NoLinesMatch = "No lines match the filter.",
         JumpToLatest = "Jump to latest",
         CopyLog = "Copy log",
+        /// The list beside the search: what the Logs tab shows. "This session" is the live console; the rest are files the game left on disk.
+        LogSource = "Log to show",
+        LogThisSession = "This session",
+        LogNoFiles = "No earlier logs or crash reports yet.",
+        LogKindLog = "Log",
+        LogKindCrash = "Crash report",
+        LogKindJvm = "Java crash",
+        LogReading = "Reading {name}",
+        LogReadFailed = "Couldn’t read {name}: {error}",
+        LogFileEmpty = "This file is empty.",
 
         // Import from another launcher.
         ImportTitle = "Import from another launcher",
@@ -134,7 +170,7 @@ crate::i18n::messages! {
 
         // Modpacks.
         NotAModpack = "Not a modpack",
-        NotMrpack = "{name} isn't a modpack. Modrinth modpacks end in .mrpack, and CurseForge modpacks are .zip files with a manifest.json in them.",
+        NotMrpack = "{name} isn't a modpack. Modrinth modpacks end in .mrpack, and CurseForge modpacks are .zip files with a manifest.json in them. Snapshots shared from Lodestone end in .lodeimg.",
         /// A CurseForge modpack while this build can't reach CurseForge (no API key).
         CurseForgeUnreachable = "This is a CurseForge modpack, and this copy of Lodestone Launcher can't reach CurseForge.",
         CurseForgePackOnWebsite = "This modpack can only be downloaded from CurseForge's website. Download it there, then drop the .zip on Lodestone Launcher.",
@@ -147,6 +183,7 @@ crate::i18n::messages! {
         CouldntImportModpack = "Couldn't import the modpack",
         CouldntUpdateModpack = "Couldn't update the modpack",
         StopGameFirst = "Stop the game first.",
+        FinishFinderFirst = "Finish the Find it for me search first: it has some of the mods turned off.",
         ModpackUpdated = "Modpack updated",
         /// "Survival now runs Fabulously Optimized 6.1.0. The files it replaced are saved in …".
         ModpackUpdatedMessage = "{name} now runs {pack} {version}. The files it replaced are saved in {path}.",
@@ -155,6 +192,13 @@ crate::i18n::messages! {
         DownloadingName = "Downloading {name}",
         InstallingName = "Installing {name}",
         CopyingConfigs = "Copying the pack's configs",
+        /// A copy with another version or loader: the notice when it is made.
+        CopyReady = "{name} is ready",
+        CouldntCopy = "Couldn't make the copy",
+        /// What a copy with another version or loader is doing.
+        CopyingWorlds = "Copying the worlds",
+        CopyingPacksAndOptions = "Copying the resource packs, shaders and options",
+        InstallingMods = "Installing the mods",
         RecordingFiles = "Recording the pack's files",
         SavingSnapshot = "Saving a snapshot of the instance's files",
         /// Backing up a world before an update.
@@ -195,6 +239,8 @@ crate::i18n::messages! {
         FinderIntro = "Lodestone Launcher will start the game a few times, turning off half of the mods that might be causing the crash each time, until only one is left. Afterwards, your mods go back to how they were.",
         FinderAutomatic = "The game crashed during startup, so you don't need to do anything. Each try ends when the game crashes or gets to the main menu.",
         FinderManual = "The game crashed while you were playing, so you'll need to play each try. Do whatever made it crash before. If it crashes again, the next try starts on its own. If it doesn't, press It didn't crash.",
+        /// The finder started from Settings, not after a crash.
+        FinderByHand = "Play each try and do whatever made the game crash. If it crashes, the next try starts on its own. If it doesn't, press It didn't crash.",
         FinderStart = "Start",
         FinderReading = "Checking your mods",
         /// A heading: the try being played, 1, 2, 3…
@@ -222,6 +268,19 @@ crate::i18n::messages! {
         FinderInterrupted = "Lodestone Launcher closed in the middle of a search, so some of {name}'s mods are still turned off.",
         /// {error} says what went wrong.
         FinderPutBackFailed = "Some mods couldn't be turned back on: {error}",
+
+        // Adding a modpack's files to an instance that exists.
+        /// Progress: the pack's files going into the instance.
+        AddingName = "Adding {name}",
+        ModrinthUnreachable = "Modrinth can't be reached.",
+        /// The pack, or another version of it, was added to the instance before.
+        ModpackAddedAlready = "{pack} is added to this instance already. Remove it in Settings first to add another version.",
+        CouldntAddModpack = "Couldn't add the modpack",
+        ModpackAdded = "Modpack added",
+        /// "Fabulously Optimized was added to Survival. Press Play to start it."
+        ModpackAddedMessage = "{pack} was added to {name}. Press Play to start it.",
+        CouldntRemoveModpack = "Couldn't remove the modpack",
+        ModpackRemoved = "Modpack removed",
     }
 
     pub enum InstancesPlural {
@@ -254,6 +313,11 @@ crate::i18n::messages! {
             "{count} file was left out: {name}.",
             "{count} files were left out, such as {name}."
         ),
+        /// After the footer's count, for a very long file: only its last lines are shown.
+        LogLinesSkipped = (
+            "the first {count} line isn’t shown",
+            "the first {count} lines aren’t shown"
+        ),
         /// The console's footer: rows shown of the total.
         LinesShown = ("{shown} of {count} line", "{shown} of {count} lines"),
         /// The same while it follows new output.
@@ -276,12 +340,25 @@ crate::i18n::messages! {
             "{count} file of the pack was left out: {path}.",
             "{count} files of the pack were left out, such as {path}."
         ),
-        WorldsBackedUp = ("{count} world was backed up first.", "{count} worlds were backed up first."),
         /// A modpack's progress.
         DownloadingFiles = ("Downloading {count} file", "Downloading {count} files"),
+        /// After a copy's "ready" message; {names} is a list of mods.
+        CopyModsLeftBehind = ("{count} mod stayed behind: {names}.", "{count} mods stayed behind: {names}."),
+        /// Mods the copied mods require that couldn't be installed.
+        CopyDependenciesMissing = ("{count} mod they need couldn't be installed: {names}.", "{count} mods they need couldn't be installed: {names}."),
         /// The mod finder's progress.
         FinderModsLeft = ("{count} mod left to check", "{count} mods left to check"),
         FinderModsOff = ("{count} mod turned off", "{count} mods turned off"),
         FinderTriesLeft = ("About {count} more try", "About {count} more tries"),
+
+        /// After removing a pack added to an instance.
+        AddedPackFilesRemoved = (
+            "{count} file of {pack} was removed.",
+            "{count} files of {pack} were removed."
+        ),
+        AddedPackFilesKept = (
+            "{count} file you changed was kept.",
+            "{count} files you changed were kept."
+        ),
     }
 }

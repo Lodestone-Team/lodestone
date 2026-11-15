@@ -26,10 +26,57 @@ pub fn newest_forge_build(
         .ok_or_else(|| Error::NotFound(format!("Forge has no builds for Minecraft {version}")))
 }
 
+/// The Forge build in Forge's maven metadata that a modpack's Forge version names: a pack
+/// says `47.2.0` for the build `1.20.1-47.2.0`, and `10.13.4.1614` for
+/// `1.7.10-10.13.4.1614-1.7.10`. A full build id is found as it is.
+pub fn forge_build_for(
+    metadata: &BTreeMap<String, Vec<String>>,
+    game_version: &str,
+    forge_version: &str,
+) -> Result<String, Error> {
+    let builds = metadata.get(game_version).map(Vec::as_slice).unwrap_or(&[]);
+    let candidates = [
+        forge_version.to_string(),
+        format!("{game_version}-{forge_version}"),
+        format!("{game_version}-{forge_version}-{game_version}"),
+    ];
+    candidates
+        .iter()
+        .find(|c| builds.contains(c))
+        .cloned()
+        .ok_or_else(|| {
+            Error::NotFound(format!(
+                "Forge has no build {forge_version} for Minecraft {game_version}"
+            ))
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::versions::fixture;
+
+    #[test]
+    fn finds_the_build_a_pack_names() {
+        let metadata: BTreeMap<String, Vec<String>> = fixture(
+            r#"{ "1.20.1": ["1.20.1-47.1.0", "1.20.1-47.2.0"],
+                 "1.7.10": ["1.7.10-10.13.4.1614-1.7.10"] }"#,
+        );
+        assert_eq!(
+            forge_build_for(&metadata, "1.20.1", "47.2.0").unwrap(),
+            "1.20.1-47.2.0"
+        );
+        assert_eq!(
+            forge_build_for(&metadata, "1.20.1", "1.20.1-47.1.0").unwrap(),
+            "1.20.1-47.1.0"
+        );
+        assert_eq!(
+            forge_build_for(&metadata, "1.7.10", "10.13.4.1614").unwrap(),
+            "1.7.10-10.13.4.1614-1.7.10"
+        );
+        assert!(forge_build_for(&metadata, "1.20.1", "47.9.9").is_err());
+        assert!(forge_build_for(&metadata, "1.19.2", "47.2.0").is_err());
+    }
 
     const METADATA: &str = include_str!("../../testdata/forge_maven_metadata.json");
 

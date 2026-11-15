@@ -5,14 +5,17 @@
 
 pub mod a11y;
 mod button;
+pub mod caption;
 pub mod console_line;
 mod dialog;
 mod dialog_slot;
+mod dropdown;
 pub mod focus;
 mod icon;
 mod list_row;
 pub mod log_view;
 pub mod motion;
+mod power;
 mod rich_text;
 pub mod scrollbar;
 mod segmented;
@@ -28,13 +31,18 @@ pub mod window_frame;
 mod window_layer;
 
 pub use a11y::Accessible;
-pub use button::{Align, Button, ButtonSize, ButtonVariant, IconButton, LoadingDots};
+pub use button::{
+    Align, Button, ButtonSize, ButtonVariant, ColoredLoadingDots, IconButton, LoadingDots,
+    loading_dots,
+};
 pub use dialog::prefers_reduced_motion;
 pub use dialog::{Dialog, UnderDialogs};
 pub use dialog_slot::{DialogSlot, EXIT, EXIT_REDUCED, Presence};
+pub use dropdown::Dropdown;
 pub use focus::{ArrowGroup, FocusScope, KeyboardFocus};
 pub use icon::Icon;
 pub use list_row::ListRow;
+pub use power::{PowerButtons, power_actions, power_name, power_toggle};
 pub use rich_text::{CopySelection, RichText, clear_selection};
 pub use scrollbar::{ScrollMetrics, ScrollSource, Scrollbar};
 pub use segmented::segmented;
@@ -61,6 +69,7 @@ pub fn init(cx: &mut App) {
     log_view::init(cx);
     text_input::init(cx);
     text_editor::init(cx);
+    settings::init(cx);
 }
 
 /// Emits `ui.click` (or another `ui.*` topic) for a shared control, with its element

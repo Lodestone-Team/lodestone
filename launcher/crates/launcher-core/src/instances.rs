@@ -17,6 +17,7 @@ use serde_json::{Map, Value};
 
 use crate::{
     game::{
+        install::Rosetta,
         launch::{GameSettings, split_args},
         loaders::{LoaderChoice, LoaderKind},
     },
@@ -207,6 +208,86 @@ pub struct Instance {
     /// until it has set it up.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auto_config: Option<AutoConfig>,
+    /// Whether the instance ran under Rosetta 2 on this Apple silicon Mac when its game
+    /// was last prepared, and whether the player agreed to it; `None` until the game was
+    /// first prepared on one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rosetta: Option<RosettaState>,
+    /// The instance's own snapshot settings, over the global ones; `None` follows them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub snapshots: Option<SnapshotSettings>,
+}
+
+/// An instance's snapshot settings (`images::snapshots`). Each `None` follows the
+/// Launcher's: Settings › Instance defaults for `after_play` (off by default), and the retention
+/// defaults ([`crate::images::retention::DEFAULT_POLICY`]) for the counts.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SnapshotSettings {
+    /// Take a snapshot after each play session.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub after_play: Option<bool>,
+    /// How many of the newest automatic snapshots are kept.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub keep_last: Option<u32>,
+    /// For how many of the most recent days the newest automatic snapshot is kept.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub keep_daily: Option<u32>,
+    /// For how many of the most recent weeks the newest automatic snapshot is kept.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub keep_weekly: Option<u32>,
+}
+
+impl SnapshotSettings {
+    /// The most any count may be: far more than anyone keeps, and a bound on what a
+    /// hand-edited `instance.json` asks retention to walk.
+    pub const MAX_KEEP: u32 = 1000;
+
+    /// Whether every field follows the Launcher's (the settings say nothing).
+    pub fn is_empty(&self) -> bool {
+        *self == SnapshotSettings::default()
+    }
+}
+
+/// Rosetta 2 and an instance, on an Apple silicon Mac. Versions before 1.14 run in an
+/// Intel Java under Rosetta, because Mojang made no Apple silicon build of libraries
+/// they need, and so does any version with an Intel Java override
+/// ([`crate::game::install::Rosetta`]); the launcher never does that without saying so.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RosettaState {
+    /// The Minecraft version and Java override the game was last prepared with, and
+    /// why it ran under Rosetta then, if it did: the instance says it runs under
+    /// Rosetta while its version and override are still these.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prepared: Option<RosettaPrepared>,
+    /// Whether the player agreed, before the instance's first game under Rosetta
+    /// because of its version ([`Rosetta::Version`]), to run it so.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub told: bool,
+    /// The same for an Intel Java override ([`Rosetta::JavaOverride`]): a different
+    /// reason, asked about on its own.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub told_override: bool,
+}
+
+impl RosettaState {
+    /// Whether the player agreed to run the instance under Rosetta for `reason`.
+    pub fn told_for(&self, reason: Rosetta) -> bool {
+        match reason {
+            Rosetta::Version => self.told,
+            Rosetta::JavaOverride => self.told_override,
+        }
+    }
+}
+
+/// The version and Java override an instance's game was last prepared with on an
+/// Apple silicon Mac, and why it ran under Rosetta 2, if it did.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RosettaPrepared {
+    pub version: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<Rosetta>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub java_override: Option<PathBuf>,
 }
 
 /// What automatic setup chose for an instance. While a setting still has the value it
@@ -253,7 +334,33 @@ impl Default for Instance {
             prerelease_updates: false,
             recommended_memory: None,
             auto_config: None,
+            rosetta: None,
+            snapshots: None,
         }
+    }
+}
+
+impl Instance {
+    /// What the instance's game was last prepared as for its current version and
+    /// Java override: `None` when it wasn't prepared with these yet (on an Apple
+    /// silicon Mac), and `Some(reason)` with why it ran under Rosetta 2, if it did.
+    pub fn prepared_rosetta(&self) -> Option<Option<Rosetta>> {
+        self.rosetta
+            .as_ref()
+            .and_then(|rosetta| rosetta.prepared.as_ref())
+            .filter(|prepared| {
+                prepared.version == self.game_version
+                    && prepared.java_override == self.java_override
+            })
+            .map(|prepared| prepared.reason)
+    }
+
+    /// Whether the player already agreed to run this instance under Rosetta 2 for
+    /// `reason`.
+    pub fn told_about_rosetta(&self, reason: Rosetta) -> bool {
+        self.rosetta
+            .as_ref()
+            .is_some_and(|rosetta| rosetta.told_for(reason))
     }
 }
 
@@ -436,9 +543,13 @@ pub fn format_env(env: &BTreeMap<String, String>) -> String {
 }
 
 /// The groups the sidebar puts instances without a group of their own in, in the
-/// order they are listed (after the groups the user named).
+/// order they are listed: Servers before the groups the user named, the others
+/// after them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum AutoGroup {
+    /// Linked to a server: one on a Lodestone core, or a friend's shared server
+    /// ([`crate::cores::link`]), whatever its loader.
+    Servers,
     Fabric,
     Forge,
     NeoForge,
@@ -449,7 +560,8 @@ pub enum AutoGroup {
 }
 
 impl AutoGroup {
-    pub const ALL: [AutoGroup; 6] = [
+    pub const ALL: [AutoGroup; 7] = [
+        AutoGroup::Servers,
         AutoGroup::Fabric,
         AutoGroup::Forge,
         AutoGroup::NeoForge,
@@ -458,9 +570,12 @@ impl AutoGroup {
         AutoGroup::Imported,
     ];
 
-    /// The instance's automatic group: Imported for one imported from another
-    /// launcher, else its loader's.
-    pub fn of(instance: &Instance) -> Self {
+    /// The instance's automatic group: Servers for one `linked` to a server, then
+    /// Imported for one imported from another launcher, else its loader's.
+    pub fn of(instance: &Instance, linked: bool) -> Self {
+        if linked {
+            return AutoGroup::Servers;
+        }
         if instance.imported_from.is_some() {
             return AutoGroup::Imported;
         }
@@ -476,6 +591,7 @@ impl AutoGroup {
     /// The group's name, which is also its heading.
     pub fn name(self) -> &'static str {
         match self {
+            AutoGroup::Servers => "Servers",
             AutoGroup::Fabric => "Fabric (modded)",
             AutoGroup::Forge => "Forge (modded)",
             AutoGroup::NeoForge => "NeoForge (modded)",
@@ -489,11 +605,16 @@ impl AutoGroup {
 /// The instances by sidebar group, each group keeping the list's order: those
 /// without a group first (none when `automatic`), then the groups the user named in
 /// name order (ignoring case), then, when `automatic`, the [`AutoGroup`]s in their
-/// order for the instances without a group of their own.
+/// order for the instances without a group of their own. The Servers group, of the
+/// instances `linked` to a server, comes before the named groups.
 ///
 /// A group the user named like an automatic group ("vanilla") is that group: the
 /// instances it would get join it.
-pub fn grouped(instances: &[Instance], automatic: bool) -> Vec<(Option<String>, Vec<&Instance>)> {
+pub fn grouped(
+    instances: &[Instance],
+    automatic: bool,
+    linked: impl Fn(&Instance) -> bool,
+) -> Vec<(Option<String>, Vec<&Instance>)> {
     let mut groups: Vec<(Option<String>, Vec<&Instance>)> = Vec::new();
     if !automatic {
         let ungrouped: Vec<&Instance> = instances
@@ -508,6 +629,21 @@ pub fn grouped(instances: &[Instance], automatic: bool) -> Vec<(Option<String>, 
     names.sort_by_key(|name| name.to_lowercase());
     names.dedup();
     let named = |name: &str| names.iter().copied().find(|n| n.eq_ignore_ascii_case(name));
+    let auto_of = |i: &Instance| AutoGroup::of(i, linked(i));
+    // An automatic group, unless a group the user named takes its instances.
+    let auto_group = |auto: AutoGroup| -> Option<(Option<String>, Vec<&Instance>)> {
+        if named(auto.name()).is_some() {
+            return None;
+        }
+        let members: Vec<&Instance> = instances
+            .iter()
+            .filter(|i| group_name(i).is_none() && auto_of(i) == auto)
+            .collect();
+        (!members.is_empty()).then(|| (Some(auto.name().to_string()), members))
+    };
+    if automatic {
+        groups.extend(auto_group(AutoGroup::Servers));
+    }
     for name in &names {
         groups.push((
             Some(name.to_string()),
@@ -515,22 +651,15 @@ pub fn grouped(instances: &[Instance], automatic: bool) -> Vec<(Option<String>, 
                 .iter()
                 .filter(|i| match group_name(i) {
                     Some(group) => group == *name,
-                    None => automatic && named(AutoGroup::of(i).name()) == Some(*name),
+                    None => automatic && named(auto_of(i).name()) == Some(*name),
                 })
                 .collect(),
         ));
     }
     if automatic {
         for auto in AutoGroup::ALL {
-            if named(auto.name()).is_some() {
-                continue;
-            }
-            let members: Vec<&Instance> = instances
-                .iter()
-                .filter(|i| group_name(i).is_none() && AutoGroup::of(i) == auto)
-                .collect();
-            if !members.is_empty() {
-                groups.push((Some(auto.name().to_string()), members));
+            if auto != AutoGroup::Servers {
+                groups.extend(auto_group(auto));
             }
         }
     }
@@ -538,11 +667,11 @@ pub fn grouped(instances: &[Instance], automatic: bool) -> Vec<(Option<String>, 
 }
 
 /// The group the sidebar lists the instance in: its own, or its automatic one when
-/// `automatic`.
-pub fn group_of(instance: &Instance, automatic: bool) -> Option<String> {
+/// `automatic` (Servers when it is `linked` to a server).
+pub fn group_of(instance: &Instance, automatic: bool, linked: bool) -> Option<String> {
     match group_name(instance) {
         Some(name) => Some(name.to_string()),
-        None => automatic.then(|| AutoGroup::of(instance).name().to_string()),
+        None => automatic.then(|| AutoGroup::of(instance, linked).name().to_string()),
     }
 }
 
@@ -772,18 +901,32 @@ impl InstanceStore {
     }
 
     /// Makes the folder from [`InstanceStore::new_staging`] the instance `instance`, under
-    /// an unused id from its name, by renaming it into place.
+    /// an unused id from its name, by renaming it into place. Commits wait for each
+    /// other, so two jobs finishing at once (copies of one instance with the same name)
+    /// don't pick the same id; one that still finds its id taken (another launcher on
+    /// the data folder) takes the next.
     pub fn commit_staged(
         &self,
         staging: &Path,
         mut instance: Instance,
     ) -> Result<Instance, InstanceError> {
-        instance.name = self.unique_name(&clean_name(&instance.name)?);
-        instance.id = self.unused_id(&instance.name);
-        storage::save(&staging.join("instance.json"), &instance)?;
-        let dir = self.dir(&instance.id);
-        crate::fsx::rename(staging, &dir).map_err(io_error(staging))?;
-        Ok(instance)
+        static COMMITS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let _commits = COMMITS
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let name = clean_name(&instance.name)?;
+        let mut tries = 0;
+        loop {
+            instance.name = self.unique_name(&name);
+            instance.id = self.unused_id(&instance.name);
+            storage::save(&staging.join("instance.json"), &instance)?;
+            let dir = self.dir(&instance.id);
+            match crate::fsx::rename(staging, &dir) {
+                Ok(()) => return Ok(instance),
+                Err(_) if dir.exists() && tries < 3 => tries += 1,
+                Err(err) => return Err(io_error(staging)(err)),
+            }
+        }
     }
 
     /// The instance's own icon, if it has one.
@@ -1014,6 +1157,49 @@ impl InstanceStore {
         Ok(instance)
     }
 
+    /// Records whether, and why, the game was just prepared to run under Rosetta 2 (on
+    /// an Apple silicon Mac). Returns the instance, and whether the player must be asked
+    /// first: its first game under Rosetta for this reason, until they agree
+    /// ([`Self::record_told_rosetta`]).
+    pub fn record_rosetta(
+        &self,
+        id: &str,
+        reason: Option<Rosetta>,
+    ) -> Result<(Instance, bool), InstanceError> {
+        let mut instance = self.get(id)?;
+        let mut state = instance.rosetta.clone().unwrap_or_default();
+        state.prepared = Some(RosettaPrepared {
+            version: instance.game_version.clone(),
+            reason,
+            java_override: instance.java_override.clone(),
+        });
+        let ask = reason.is_some_and(|reason| !state.told_for(reason));
+        if instance.rosetta.as_ref() != Some(&state) {
+            instance.rosetta = Some(state);
+            self.save(&instance)?;
+        }
+        Ok((instance, ask))
+    }
+
+    /// The player agreed to run the instance under Rosetta 2 for `reason`: they aren't
+    /// asked again for it.
+    pub fn record_told_rosetta(
+        &self,
+        id: &str,
+        reason: Rosetta,
+    ) -> Result<Instance, InstanceError> {
+        let mut instance = self.get(id)?;
+        if !instance.told_about_rosetta(reason) {
+            let state = instance.rosetta.get_or_insert_with(Default::default);
+            match reason {
+                Rosetta::Version => state.told = true,
+                Rosetta::JavaOverride => state.told_override = true,
+            }
+            self.save(&instance)?;
+        }
+        Ok(instance)
+    }
+
     /// Records a finished game: when it started and how long it ran.
     pub fn record_play(
         &self,
@@ -1196,7 +1382,11 @@ pub fn icon_png(bytes: &[u8]) -> Result<Vec<u8>, String> {
 
 /// Copies the folder `from` to `to` (which must not exist), skipping what `skip`
 /// says (by path relative to `from`) and symbolic links.
-fn copy_tree(from: &Path, to: &Path, skip: &dyn Fn(&Path) -> bool) -> Result<(), InstanceError> {
+pub(crate) fn copy_tree(
+    from: &Path,
+    to: &Path,
+    skip: &dyn Fn(&Path) -> bool,
+) -> Result<(), InstanceError> {
     fn walk(
         root: &Path,
         dir: &Path,
@@ -1265,6 +1455,32 @@ pub fn now() -> u64 {
 mod tests {
 
     #[test]
+    fn snapshot_settings_are_optional_and_round_trip() {
+        // An instance.json from before the setting reads, and writes nothing for it.
+        let old = r#"{"id":"a","name":"A","game_version":"1.21.1","created":1}"#;
+        let instance: Instance = serde_json::from_str(old).unwrap();
+        assert_eq!(instance.snapshots, None);
+        let raw = serde_json::to_value(&instance).unwrap();
+        assert!(raw.get("snapshots").is_none());
+        let with = Instance {
+            snapshots: Some(SnapshotSettings {
+                after_play: Some(true),
+                keep_last: Some(3),
+                ..SnapshotSettings::default()
+            }),
+            ..instance
+        };
+        let raw = serde_json::to_value(&with).unwrap();
+        assert_eq!(
+            raw["snapshots"],
+            serde_json::json!({"after_play": true, "keep_last": 3})
+        );
+        let back: Instance = serde_json::from_value(raw).unwrap();
+        assert_eq!(back.snapshots, with.snapshots);
+        assert!(SnapshotSettings::default().is_empty());
+    }
+
+    #[test]
     fn icon_names_are_library_icons_or_emoji() {
         assert!(valid_icon_name("builtin:grass"));
         assert!(valid_icon_name("builtin:diamond-ore"));
@@ -1308,6 +1524,87 @@ mod tests {
         let cleared = store.clear_background(&instance.id).unwrap();
         assert_eq!(cleared.background, None);
         assert!(!path.exists());
+    }
+
+    /// The player is asked before the instance's first game under Rosetta until they
+    /// agree, then never again, and the instance says it runs under Rosetta only while
+    /// its version is the one that did.
+    #[test]
+    fn rosetta_is_asked_until_agreed_and_follows_the_version() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = InstanceStore::new(dir.path().join("instances"));
+        let instance = store.create("Old", "1.12.2", None).unwrap();
+        assert_eq!(instance.prepared_rosetta(), None);
+        let (native, ask) = store.record_rosetta(&instance.id, None).unwrap();
+        assert!(!ask);
+        assert_eq!(native.prepared_rosetta(), Some(None));
+        let (first, ask) = store
+            .record_rosetta(&instance.id, Some(Rosetta::Version))
+            .unwrap();
+        assert!(ask);
+        assert_eq!(first.prepared_rosetta(), Some(Some(Rosetta::Version)));
+        // Cancelled: asked again next time.
+        let (_, ask) = store
+            .record_rosetta(&instance.id, Some(Rosetta::Version))
+            .unwrap();
+        assert!(ask);
+        let agreed = store
+            .record_told_rosetta(&instance.id, Rosetta::Version)
+            .unwrap();
+        assert!(agreed.told_about_rosetta(Rosetta::Version));
+        assert!(!agreed.told_about_rosetta(Rosetta::JavaOverride));
+        let (again, ask) = store
+            .record_rosetta(&instance.id, Some(Rosetta::Version))
+            .unwrap();
+        assert!(!ask);
+        assert_eq!(again.prepared_rosetta(), Some(Some(Rosetta::Version)));
+        // Saved, and only for the version that ran under Rosetta.
+        let mut changed = store.get(&instance.id).unwrap();
+        assert_eq!(changed.prepared_rosetta(), Some(Some(Rosetta::Version)));
+        changed.game_version = "1.16.5".into();
+        assert_eq!(changed.prepared_rosetta(), None);
+        store.save(&changed).unwrap();
+        let (native, ask) = store.record_rosetta(&instance.id, None).unwrap();
+        assert!(!ask);
+        assert_eq!(
+            native.rosetta,
+            Some(RosettaState {
+                prepared: Some(RosettaPrepared {
+                    version: "1.16.5".into(),
+                    reason: None,
+                    java_override: None,
+                }),
+                told: true,
+                told_override: false,
+            })
+        );
+
+        // An Intel Java override is another reason: asked about on its own, and the
+        // header follows the override, not only the version.
+        let mut with_override = store.get(&instance.id).unwrap();
+        assert_eq!(with_override.prepared_rosetta(), Some(None));
+        with_override.java_override = Some(PathBuf::from("/intel/jdk8/bin/java"));
+        assert_eq!(
+            with_override.prepared_rosetta(),
+            None,
+            "not prepared with it"
+        );
+        store.save(&with_override).unwrap();
+        let (intel, ask) = store
+            .record_rosetta(&instance.id, Some(Rosetta::JavaOverride))
+            .unwrap();
+        assert!(ask);
+        assert_eq!(intel.prepared_rosetta(), Some(Some(Rosetta::JavaOverride)));
+        store
+            .record_told_rosetta(&instance.id, Rosetta::JavaOverride)
+            .unwrap();
+        let (_, ask) = store
+            .record_rosetta(&instance.id, Some(Rosetta::JavaOverride))
+            .unwrap();
+        assert!(!ask);
+        let mut cleared = store.get(&instance.id).unwrap();
+        cleared.java_override = None;
+        assert_eq!(cleared.prepared_rosetta(), None, "the override is gone");
     }
 
     #[test]
@@ -1732,7 +2029,7 @@ mod tests {
             instance("d", Some("survival")),
             instance("e", Some("  ")),
         ];
-        let groups: Vec<(Option<String>, Vec<&str>)> = grouped(&list, false)
+        let groups: Vec<(Option<String>, Vec<&str>)> = grouped(&list, false, |_| false)
             .into_iter()
             .map(|(name, items)| (name, items.iter().map(|i| i.id.as_str()).collect()))
             .collect();
@@ -1774,14 +2071,17 @@ mod tests {
             auto_instance("prism", Loader::Fabric, None, true),
             auto_instance("named", Loader::Fabric, Some("Survival"), true),
         ];
-        assert_eq!(AutoGroup::of(&list[0]), AutoGroup::Vanilla);
-        assert_eq!(AutoGroup::of(&list[5]), AutoGroup::Imported);
+        assert_eq!(AutoGroup::of(&list[0], false), AutoGroup::Vanilla);
+        assert_eq!(AutoGroup::of(&list[5], false), AutoGroup::Imported);
         // A group of its own wins over the automatic one.
-        assert_eq!(group_of(&list[6], true).as_deref(), Some("Survival"));
-        assert_eq!(group_of(&list[1], true).as_deref(), Some("Fabric (modded)"));
-        assert_eq!(group_of(&list[1], false), None);
+        assert_eq!(group_of(&list[6], true, false).as_deref(), Some("Survival"));
         assert_eq!(
-            ids(grouped(&list, true)),
+            group_of(&list[1], true, false).as_deref(),
+            Some("Fabric (modded)")
+        );
+        assert_eq!(group_of(&list[1], false, false), None);
+        assert_eq!(
+            ids(grouped(&list, true, |_| false)),
             [
                 (Some("Survival".into()), vec!["named"]),
                 (Some("Fabric (modded)".into()), vec!["fabric"]),
@@ -1794,7 +2094,7 @@ mod tests {
         );
         // Off, the instances without a group are listed loose, as before.
         assert_eq!(
-            ids(grouped(&list, false)),
+            ids(grouped(&list, false, |_| false)),
             [
                 (
                     None,
@@ -1815,7 +2115,7 @@ mod tests {
             auto_instance("q", Loader::Quilt, None, false),
         ];
         assert_eq!(
-            ids(grouped(&list, true)),
+            ids(grouped(&list, true, |_| false)),
             [
                 (Some("Alpha".into()), vec!["a"]),
                 (Some("beta".into()), vec!["b"]),
@@ -1834,10 +2134,105 @@ mod tests {
             auto_instance("fabric", Loader::Fabric, None, false),
         ];
         assert_eq!(
-            ids(grouped(&list, true)),
+            ids(grouped(&list, true, |_| false)),
             [
                 (Some("vanilla".into()), vec!["mine", "plain"]),
                 (Some("Fabric (modded)".into()), vec!["fabric"]),
+            ]
+        );
+    }
+
+    #[test]
+    fn linked_instances_are_grouped_first() {
+        let list = [
+            auto_instance("plain", Loader::None, None, false),
+            auto_instance("smp", Loader::Fabric, None, false),
+            auto_instance("fabric", Loader::Fabric, None, false),
+            auto_instance("pack", Loader::Forge, None, true),
+            auto_instance("named", Loader::Fabric, Some("Alpha"), false),
+        ];
+        let linked = |i: &Instance| ["smp", "pack", "named"].contains(&i.id.as_str());
+        // Linked instances leave their loader's (or Imported's) group for Servers,
+        // which comes before the groups the user named; a group of its own still wins.
+        assert_eq!(AutoGroup::of(&list[3], true), AutoGroup::Servers);
+        assert_eq!(group_of(&list[1], true, true).as_deref(), Some("Servers"));
+        assert_eq!(group_of(&list[4], true, true).as_deref(), Some("Alpha"));
+        assert_eq!(
+            ids(grouped(&list, true, linked)),
+            [
+                (Some("Servers".into()), vec!["smp", "pack"]),
+                (Some("Alpha".into()), vec!["named"]),
+                (Some("Fabric (modded)".into()), vec!["fabric"]),
+                (Some("Vanilla".into()), vec!["plain"]),
+            ]
+        );
+        // Without linked instances, nothing changes.
+        assert_eq!(
+            ids(grouped(&list, true, |_| false)),
+            [
+                (Some("Alpha".into()), vec!["named"]),
+                (Some("Fabric (modded)".into()), vec!["smp", "fabric"]),
+                (Some("Vanilla".into()), vec!["plain"]),
+                (Some("Imported".into()), vec!["pack"]),
+            ]
+        );
+        // Off, nothing moves: the links make no group.
+        assert_eq!(group_of(&list[1], false, true), None);
+        assert_eq!(
+            ids(grouped(&list, false, linked)),
+            ids(grouped(&list, false, |_| false))
+        );
+        // A group the user named "servers" takes them, in its name's place.
+        let mut list = list.to_vec();
+        list[2].group = Some("servers".into());
+        assert_eq!(
+            ids(grouped(&list, true, linked)),
+            [
+                (Some("Alpha".into()), vec!["named"]),
+                (Some("servers".into()), vec!["smp", "fabric", "pack"]),
+                (Some("Vanilla".into()), vec!["plain"]),
+            ]
+        );
+    }
+
+    /// The links on disk say which instances are linked: to a server on a core, or
+    /// to a friend's shared server.
+    #[test]
+    fn instances_linked_on_disk_and_to_friends_are_grouped_as_servers() {
+        use crate::cores::{friends, link};
+        let dir = tempfile::tempdir().unwrap();
+        let list = [
+            auto_instance("core-linked", Loader::Fabric, None, false),
+            auto_instance("friend-linked", Loader::None, None, false),
+            auto_instance("loose", Loader::None, None, false),
+        ];
+        let save = |id: &str, core: &str| {
+            let instance_dir = dir.path().join(id);
+            fs::create_dir_all(&instance_dir).unwrap();
+            let server = link::ServerLink {
+                core_uuid: core.into(),
+                core_url: "https://example.org:16662".into(),
+                server_uuid: "smp".into(),
+                server_name: "Survival SMP".into(),
+                pack_etag: None,
+                view: None,
+            };
+            link::save_link(&instance_dir, &server).unwrap();
+        };
+        save("core-linked", "6f1c-core-uuid");
+        let friend = format!("{}connect.lodestone.cc/ABCDEFGH23", friends::ID_PREFIX);
+        assert!(friends::is_friend_id(&friend));
+        save("friend-linked", &friend);
+        fs::create_dir_all(dir.path().join("loose")).unwrap();
+        let linked: std::collections::HashSet<String> = link::linked_instances(dir.path())
+            .into_iter()
+            .map(|(id, _)| id)
+            .collect();
+        assert_eq!(
+            ids(grouped(&list, true, |i| linked.contains(&i.id))),
+            [
+                (Some("Servers".into()), vec!["core-linked", "friend-linked"]),
+                (Some("Vanilla".into()), vec!["loose"]),
             ]
         );
     }

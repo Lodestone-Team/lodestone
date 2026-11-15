@@ -76,7 +76,11 @@ pub fn instance_json(instance: &Instance, instances: &Instances, servers: &Serve
     let link = servers.instance_link(&instance.id);
     let extra = json!({
         "loader_label": instance.loader_label(),
-        "effective_group": core_instances::group_of(instance, instances.auto_groups()),
+        "effective_group": core_instances::group_of(
+            instance,
+            instances.auto_groups(),
+            instances.is_linked(&instance.id),
+        ),
         "selected": instances.selected().is_some_and(|s| s.id == instance.id),
         "state": status.state,
         "server": link.map(|link| json!({
@@ -395,8 +399,12 @@ pub fn save_changed(
 ) -> Result<Value, ErrorObject> {
     let saved = control
         .instances
-        .update(cx, |instances, cx| instances.save(&instance, cx));
-    failed(saved)?;
+        .update(cx, |instances, cx| instances.save_settings(&instance, cx));
+    // These setters never change the loader, so nothing waits for a snapshot; one that
+    // did would say its failures in notices.
+    if let Some(pending) = failed(saved)? {
+        pending.detach();
+    }
     let current = control.instance(&instance.id, cx)?;
     Ok(json!({
         "instance": instance_json(&current, control.instances.read(cx), control.servers.read(cx))
@@ -825,8 +833,9 @@ fn follow_run(
         if status.state == "running" {
             return Ok(json!({ "state": "running", "pid": status.pid }));
         }
+        // its own notice: another instance's can come first
         let notice = control.notices.borrow().find_since(seq, |n| {
-            matches!(n.kind, "notice" | "launch_failed" | "crashed")
+            n.is_about(&id) && matches!(n.kind, "notice" | "launch_failed" | "crashed")
         });
         match notice {
             Some(notice) if notice.is_failure() => Err(api_error(

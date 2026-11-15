@@ -6,6 +6,8 @@
 //! - [`state`]: what the Host knows about the core, kept live by its event stream;
 //! - [`app`]: the window, from starting the core to the shell;
 //! - [`shell`], [`routes`] and [`pages`]: the dashboard's layout, navigation and pages;
+//! - [`friends`] and [`keychain`]: sharing servers with the friends added in
+//!   Lodestone Launcher;
 //! - [`tray`] and [`single_instance`]: the menu bar icon and one Host at a time.
 //!
 //! The components, theme, fonts and the translations' plumbing are shared with
@@ -14,8 +16,12 @@
 
 pub mod app;
 pub mod core_process;
+pub mod friends;
 pub mod i18n;
 pub mod instance_icons;
+pub mod keychain;
+pub mod local_core;
+pub mod login_item;
 pub mod notifications;
 pub mod onboarding;
 pub mod pages;
@@ -28,16 +34,48 @@ pub mod state;
 pub mod supervisor;
 pub mod tray;
 pub mod updater;
+pub mod whitelist;
 
 use gpui::{
-    App, Bounds, KeyBinding, Menu, MenuItem, SharedString, WindowBounds, WindowOptions, actions,
-    px, size,
+    Action, App, Bounds, Context, KeyBinding, Menu, MenuItem, Render, SharedString, WindowBounds,
+    WindowHandle, WindowOptions, actions, px, size,
 };
 
 actions!(
     lodestone_host,
-    [Quit, ShowWindow, ZoomIn, ZoomOut, ResetZoom, OpenSettings]
+    [
+        Quit,
+        ShowWindow,
+        ZoomIn,
+        ZoomOut,
+        ResetZoom,
+        OpenSettings,
+        /// Restarts this computer's core (its servers stop first), with the settings as
+        /// they are now.
+        RestartCore
+    ]
 );
+
+/// Dispatches `action` once the current event is handled. `App::dispatch_action` goes
+/// through the active window, which GPUI can't update while it handles a click or a key
+/// (the call fails, and is only logged), so a view dispatches an app action this way.
+pub fn dispatch_later<A: Action>(action: A, cx: &mut App) {
+    cx.defer(move |cx| cx.dispatch_action(&action));
+}
+
+/// Updates `window`'s root view with `update` once the current event is handled: for an
+/// app action's handler, which runs while the window that dispatched it is being updated
+/// (a key binding, the menu, a page's button), where updating it again would fail and
+/// do nothing.
+pub fn update_later<V: Render>(
+    window: WindowHandle<V>,
+    update: impl FnOnce(&mut V, &mut Context<V>) + 'static,
+    cx: &mut App,
+) {
+    cx.defer(move |cx| {
+        window.update(cx, |view, _, cx| update(view, cx)).ok();
+    });
+}
 
 /// The window's title and the app menu's name.
 pub const APP_NAME: &str = "Lodestone Host";
@@ -54,6 +92,7 @@ pub fn init(cx: &mut App) {
     // the messages shared with the launcher name this app
     launcher_core::wording::set_app_name(APP_NAME);
     lodestone_ui::init(cx);
+    lodestone_ui::components::settings::set_english_lookup(i18n::english_of);
     prefs::Prefs::init(cx);
     updater::Updater::init(cx);
     pages::init(cx);
@@ -91,8 +130,10 @@ pub fn set_menus(cx: &mut App) {
 }
 
 /// The window: 1100 × 700, at least 900 × 550, as the Tauri Host's. On macOS the title
-/// bar is transparent and the top bar sits under the traffic lights; elsewhere the
-/// system draws the frame.
+/// bar is transparent and the top bar sits under the traffic lights. On Windows the
+/// system's title bar is hidden and the top bar takes its place, with its own caption
+/// buttons (`shell::top_bar::window_controls`), as in the launcher; the title still
+/// names the window in the taskbar and Alt-Tab. Elsewhere the system draws the frame.
 pub fn window_options(cx: &App) -> WindowOptions {
     let bounds = Bounds::centered(None, size(px(1100.), px(700.)), cx);
     WindowOptions {
@@ -100,7 +141,7 @@ pub fn window_options(cx: &App) -> WindowOptions {
         window_min_size: Some(size(px(900.), px(550.))),
         titlebar: Some(gpui::TitlebarOptions {
             title: Some(SharedString::from(APP_NAME)),
-            appears_transparent: cfg!(target_os = "macos"),
+            appears_transparent: cfg!(any(target_os = "macos", target_os = "windows")),
             traffic_light_position: cfg!(target_os = "macos")
                 .then(|| gpui::point(px(16.), px((TOP_BAR_HEIGHT - 14.0) / 2.0))),
         }),

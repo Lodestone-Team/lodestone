@@ -8,9 +8,8 @@ use gpui::{
 };
 use launcher_core::{
     cores::{
-        ServerState,
         connect::{JoinError, Stage},
-        friends::InstanceMatch,
+        friends::{InstanceMatch, Placement},
     },
     ui_skin::SurfaceId,
 };
@@ -19,7 +18,8 @@ use super::{
     Servers,
     extras::note,
     friends::{
-        FriendEntry, FriendStatus, JoinPrompt, JoinStage, connection_label, join_error_text,
+        FriendEntry, FriendStatus, JoinPrompt, JoinStage, Liveness, connection_label, game_address,
+        join_error_text, port_taken_text,
     },
     status_label,
     view::server_detail,
@@ -32,6 +32,24 @@ use crate::{
     i18n::{CommonMsg, ServersMsg as M, t, tr},
     theme::{self, colors, fonts, leading, radius, text, weights},
 };
+
+/// A small Copy button that puts `value` on the clipboard.
+/// A public invite link without its scheme: `connect.lodestone.cc/j/ABCDEFGH23`.
+fn short_link(link: &str) -> &str {
+    link.strip_prefix("https://")
+        .or_else(|| link.strip_prefix("http://"))
+        .unwrap_or(link)
+}
+
+pub(super) fn copy_button(id: impl Into<SharedString>, value: String) -> Button {
+    Button::new(id.into(), t(CommonMsg::Copy))
+        .size(ButtonSize::Slim)
+        .variant(ButtonVariant::Ghost)
+        .icon(Icon::Copy)
+        .on_click(move |_, _, cx| {
+            cx.write_to_clipboard(gpui::ClipboardItem::new_string(value.clone()))
+        })
+}
 
 fn paragraph(value: impl Into<SharedString>) -> gpui::Div {
     div()
@@ -58,16 +76,22 @@ fn online_line(status: &FriendStatus) -> Option<String> {
 }
 
 impl Servers {
-    /// "Friends' servers": the ones joined before, and "Join a friend".
-    pub(super) fn render_friends(&self, cx: &mut Context<Self>) -> AnyElement {
+    /// "Servers from invite links", in "Other hosts and servers": the ones joined
+    /// before with an invite link from anyone. Those shared from a core on this
+    /// computer show under it in "On this computer" instead. None when there are none.
+    pub(super) fn render_invite_servers(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let local = self.local_cores();
         let rows: Vec<AnyElement> = self
             .friends
             .list
             .iter()
-            .map(|entry| self.friend_row(entry, cx))
+            .filter(|entry| entry.saved.placement(&local) == Placement::Friends)
+            .map(|entry| self.friend_row(entry, false, cx))
             .collect();
-        let empty = rows.is_empty();
-        div()
+        if rows.is_empty() {
+            return None;
+        }
+        let card = div()
             .id("friends-servers")
             .flex()
             .flex_col()
@@ -105,30 +129,30 @@ impl Servers {
                                     .child(t(M::FriendsTitle)),
                             )
                             .child(note(t(M::FriendsHint))),
-                    )
-                    .child(
-                        Button::new("join-friend", t(M::JoinAFriend))
-                            .size(ButtonSize::Slim)
-                            .icon(Icon::Plus)
-                            .on_click(cx.listener(|this, _, _, cx| this.open_join(None, cx))),
                     ),
             )
-            .when(empty, |this| {
-                this.child(
-                    note(t(M::NoFriendsYet))
-                        .px_4()
-                        .py_3()
-                        .border_t_1()
-                        .border_color(crate::theme::ink::border()),
-                )
-            })
             .children(rows)
-            .into_any_element()
+            .into_any_element();
+        Some(card)
     }
 
-    fn friend_row(&self, entry: &FriendEntry, cx: &mut Context<Self>) -> AnyElement {
+    /// A friend's server's row. `here`: it is shared from a core on this computer, and
+    /// shows under that core in "On this computer".
+    pub(super) fn friend_row(
+        &self,
+        entry: &FriendEntry,
+        here: bool,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let saved = &entry.saved;
         let id = saved.id.clone();
+        // shared from this computer: as the core's owner the launcher would join it
+        // directly (and the core's own list shows it, so it isn't here)
+        let not_owner = here
+            && !self
+                .local_cores()
+                .iter()
+                .any(|core| core.uuid == saved.core_uuid && core.owner);
         let row_id = format!("friend-{}", saved.id.replace([':', '/', '.'], "-"));
         let playing = self
             .friends
@@ -150,8 +174,9 @@ impl Servers {
                     Some((t(M::FriendChecking).into(), crate::theme::ink::muted())),
                 ),
                 status @ FriendStatus::Online { server, .. } => (
-                    match server.state.as_deref() {
-                        Some("Stopped") | Some("Error") => colors::GRAY_500,
+                    match Liveness::of_shared(server) {
+                        Liveness::Stopped => colors::GRAY_500,
+                        Liveness::Starting => colors::YELLOW,
                         _ => colors::GREEN_200,
                     },
                     online_line(status).map(|line| (line, crate::theme::ink::secondary())),
@@ -162,16 +187,26 @@ impl Servers {
                 ),
             }
         };
-        let checking = matches!(entry.status, FriendStatus::Checking);
+        let checking = self.friend_checking(&id);
+        // known to be stopped or starting: Play couldn't join it
+        let blocked = playing.is_none() && self.friend_liveness(&id).blocks_play();
         let busy = matches!(
             self.friends.join.current().map(|p| &p.stage),
             Some(JoinStage::Connecting { .. } | JoinStage::Preparing { .. })
         );
         let (play_id, check_id, remove_id, untrust_id) =
             (id.clone(), id.clone(), id.clone(), id.clone());
+        // an instance page's link to this server (its id is the server link's core)
+        let overlay = self
+            .highlight
+            .as_ref()
+            .is_some_and(|h| h.core == saved.id)
+            .then(|| self.highlight_overlay())
+            .flatten();
         div()
             .id(SharedString::from(row_id.clone()))
             .accessible(Role::ListItem, row_id.clone(), saved.name.clone())
+            .relative()
             .flex()
             .flex_row()
             .items_center()
@@ -180,6 +215,7 @@ impl Servers {
             .py_2p5()
             .border_t_1()
             .border_color(crate::theme::ink::border())
+            .children(overlay)
             .child(div().flex_none().size(px(8.)).rounded_full().bg(dot))
             .child(
                 div()
@@ -192,14 +228,40 @@ impl Servers {
                             .truncate()
                             .font_weight(weights::BOLD.into())
                             .text_color(crate::theme::ink::text())
-                            .child(saved.name.clone()),
+                            .child(if saved.never_answered() {
+                                // added without joining: its host hasn't answered yet
+                                tr!(M::ServerFromLink, link = short_link(&saved.link))
+                            } else {
+                                saved.name.clone()
+                            }),
                     )
-                    .child(note(format!(
-                        "{} · {}",
-                        server_detail(&as_server),
-                        tr!(M::SharedBy, name = saved.core_name)
-                    )))
+                    .child(note(if saved.never_answered() {
+                        t(M::AddedNotAnswered).to_string()
+                    } else if here {
+                        // under the core that shares it
+                        server_detail(&as_server)
+                    } else {
+                        format!(
+                            "{} · {}",
+                            server_detail(&as_server),
+                            tr!(M::SharedBy, name = saved.core_name)
+                        )
+                    }))
+                    .when(not_owner, |this| {
+                        this.child(note(t(M::ConnectToJoinDirectly)))
+                    })
                     .children(status.map(|(line, color)| note(line).text_color(color)))
+                    // the same every session: for Minecraft's server list
+                    .children(saved.game_port.map(|port| {
+                        let address = game_address(port);
+                        div()
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap_2()
+                            .child(note(tr!(M::FriendAddress, address = address)))
+                            .child(copy_button(format!("copy-address-{row_id}"), address))
+                    }))
                     .when(saved.is_trusted(), |this| {
                         this.child(
                             div()
@@ -258,7 +320,7 @@ impl Servers {
                         Button::new(SharedString::from(format!("play-{row_id}")), t(M::Play))
                             .size(ButtonSize::Slim)
                             .variant(ButtonVariant::Primary)
-                            .disabled(busy)
+                            .disabled(busy || blocked)
                             .on_click(
                                 cx.listener(move |this, _, _, cx| this.play_friend(&play_id, cx)),
                             ),
@@ -352,7 +414,13 @@ pub fn join_dialog(servers: &Entity<Servers>, prompt: &JoinPrompt, cx: &App) -> 
     let this = servers.read(cx);
     let close = servers.clone();
     let cancel = servers.clone();
-    let dialog = Dialog::new("join-friend", t(M::JoinFriendTitle), prompt.focus.clone())
+    // pasting a link adds a server; the other stages join one
+    let title = if matches!(prompt.stage, JoinStage::Paste { .. }) {
+        t(M::AddServerTitle)
+    } else {
+        t(M::JoinFriendTitle)
+    };
+    let dialog = Dialog::new("join-friend", title, prompt.focus.clone())
         .width(px(560.))
         .on_close(move |_, cx| close.update(cx, |this, cx| this.close_join(cx)));
     let cancel_button = move |label: &'static str| {
@@ -376,7 +444,7 @@ pub fn join_dialog(servers: &Entity<Servers>, prompt: &JoinPrompt, cx: &App) -> 
                             div()
                                 .on_key_down(move |event: &KeyDownEvent, _, cx| {
                                     if event.keystroke.key == "enter" {
-                                        enter.update(cx, |this, cx| this.submit_invite(cx));
+                                        enter.update(cx, |this, cx| this.submit_invite_add(cx));
                                         cx.stop_propagation();
                                     }
                                 })
@@ -388,9 +456,18 @@ pub fn join_dialog(servers: &Entity<Servers>, prompt: &JoinPrompt, cx: &App) -> 
                                 .text_color(colors::RED_200)
                         })),
                 )
+                // Add saves it without joining, even while its host is offline
                 .footer(
-                    Button::new("join-friend-submit", t(M::Join))
+                    Button::new("join-friend-add", t(M::AddInvite))
                         .variant(ButtonVariant::Primary)
+                        .on_click({
+                            let add = submit.clone();
+                            move |_, _, cx| add.update(cx, |this, cx| this.submit_invite_add(cx))
+                        }),
+                )
+                .footer(
+                    Button::new("join-friend-submit", t(M::AddAndJoin))
+                        .variant(ButtonVariant::Secondary)
                         .on_click(move |_, _, cx| {
                             submit.update(cx, |this, cx| this.submit_invite(cx))
                         }),
@@ -435,7 +512,8 @@ pub fn join_dialog(servers: &Entity<Servers>, prompt: &JoinPrompt, cx: &App) -> 
             };
             let shared = session.shared();
             let server = &session.server;
-            let stopped = matches!(server.state, ServerState::Stopped | ServerState::Error);
+            let liveness = Liveness::of_shared(shared);
+            let stopped = liveness.blocks_play();
             let instance = this.friend_instance(id, cx);
             let instances = this.instances.read(cx);
             let instance_name = |instance_id: &str| {
@@ -526,12 +604,24 @@ pub fn join_dialog(servers: &Entity<Servers>, prompt: &JoinPrompt, cx: &App) -> 
                 ))
                 .child(fact(
                     t(M::FactConnection),
-                    tr!(
-                        M::ConnectedVia,
-                        how = connection_label(session.kind()),
-                        ms = session.rtt().as_millis().to_string()
-                    ),
+                    if session.is_direct() {
+                        t(M::DirectConnection).to_string()
+                    } else {
+                        tr!(
+                            M::ConnectedVia,
+                            how = connection_label(session.kind()),
+                            ms = session.rtt().as_millis().to_string()
+                        )
+                    },
                 ))
+                .child(
+                    fact(t(M::Address), session.address.clone())
+                        .items_center()
+                        .child(copy_button(
+                            "join-friend-copy-address",
+                            session.address.clone(),
+                        )),
+                )
                 .child(fact(t(M::FactInstance), instance_line));
             dialog
                 .child(
@@ -540,12 +630,26 @@ pub fn join_dialog(servers: &Entity<Servers>, prompt: &JoinPrompt, cx: &App) -> 
                         .flex_col()
                         .gap_3()
                         .child(card)
+                        .children(session.port_taken.map(|saved| {
+                            let (title, body) = port_taken_text(saved, &session.address);
+                            problem(title, body, colors::YELLOW)
+                        }))
                         .when(stopped, |this| {
-                            this.child(problem(
-                                t(M::FriendServerStopped).into(),
-                                t(M::FriendServerStoppedBody).into(),
-                                colors::YELLOW,
-                            ))
+                            let (title, body) = if liveness == Liveness::Starting {
+                                (M::FriendServerStarting, M::FriendServerStartingBody)
+                            } else {
+                                (M::FriendServerStopped, M::FriendServerStoppedBody)
+                            };
+                            this.child(
+                                div()
+                                    .id("join-friend-stopped")
+                                    .accessible(Role::Status, "join-friend-stopped", t(title))
+                                    .child(problem(
+                                        t(title).into(),
+                                        t(body).into(),
+                                        colors::YELLOW,
+                                    )),
+                            )
                         })
                         .children(
                             error
@@ -556,6 +660,8 @@ pub fn join_dialog(servers: &Entity<Servers>, prompt: &JoinPrompt, cx: &App) -> 
                 .footer(
                     Button::new("join-friend-play", t(M::Play))
                         .variant(ButtonVariant::Primary)
+                        // on again once the server runs (the dialog follows its state)
+                        .disabled(stopped)
                         .on_click(move |_, _, cx| play.update(cx, |this, cx| this.friend_play(cx))),
                 )
                 .footer(cancel_button(t(CommonMsg::Cancel)))
@@ -580,7 +686,7 @@ pub fn join_dialog(servers: &Entity<Servers>, prompt: &JoinPrompt, cx: &App) -> 
         }
         JoinStage::Failed {
             error,
-            invite: _,
+            source: _,
             name,
         } => {
             let (title, body) = join_error_text(error);

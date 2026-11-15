@@ -19,10 +19,11 @@ use crate::components::{
 use crate::{
     accounts::SessionState,
     components::{
-        Button, ButtonSize, ButtonVariant, Dialog, Icon, IconButton, ListRow, Toggle, segmented,
+        Button, ButtonSize, ButtonVariant, Dialog, Dropdown, Icon, IconButton, ListRow, Toggle,
+        segmented,
         settings::{
-            SettingRow, card, content_width, left_overlay, link, muted_link, popover,
-            popover_panel, section, select_button, tag, unsaved_bar,
+            SettingRow, content_width, left_overlay, link, muted_link, popover_panel,
+            select_button, tag, unsaved_bar,
         },
     },
     i18n::{self, CommonMsg, Language, ShellMsg, ShellMsg as M, t, tr},
@@ -148,9 +149,21 @@ impl LauncherShell {
             .update(cx, |settings, cx| settings.preview_change(cx));
     }
 
+    /// Instance defaults' window size list open, or a size of no name, for the
+    /// offscreen screenshots.
+    pub fn preview_window_size(&mut self, open: bool, cx: &mut Context<Self>) {
+        self.launcher_settings
+            .update(cx, |settings, cx| settings.preview_window_size(open, cx));
+    }
+
     /// Opens the pages over the page in a narrow window, for the offscreen screenshots.
     pub fn preview_settings_nav_open(&mut self) {
         self.settings_nav_open = true;
+    }
+
+    /// Opens Settings › General's Language list, for the `settings-language` scene.
+    pub fn preview_language_menu_open(&mut self) {
+        self.language_menu_open = true;
     }
 
     pub fn close_settings(&mut self, cx: &mut Context<Self>) {
@@ -321,6 +334,12 @@ impl LauncherShell {
                                             .text_color(crate::theme::ink::muted())
                                             .child(lead)
                                     })),
+                            )
+                            .child(
+                                div()
+                                    .flex_none()
+                                    .w(px(if small { 200. } else { 240. }))
+                                    .child(self.settings_search.clone()),
                             ),
                     )
                     .child(
@@ -475,7 +494,7 @@ impl LauncherShell {
             div()
                 .px_2p5()
                 .text_size(theme::text_size(text::CAPTION))
-                .text_color(colors::GRAY_FADED.opacity(30))
+                .text_color(crate::theme::ink::faint())
                 .child(RichText::new(tr!(
                     M::AppVersion,
                     version = env!("CARGO_PKG_VERSION")
@@ -498,46 +517,43 @@ impl LauncherShell {
             other => i18n::resolve(other).native_name().to_string(),
         };
         let language_row = SettingRow::new(t(ShellMsg::Language)).child(
-            div()
-                .flex()
-                .flex_col()
-                .items_end()
-                .child(
-                    select_button(
-                        "language",
-                        div()
-                            .font_weight(weights::BOLD.into())
-                            .child(current.clone()),
-                    )
-                    .aria_label(t(ShellMsg::Language))
-                    .aria_value(current)
-                    .expandable(self.language_menu_open, {
-                        let shell = cx.entity().downgrade();
-                        move |_, cx| {
-                            shell
-                                .update(cx, |this, cx| {
-                                    this.language_menu_open = !this.language_menu_open;
-                                    cx.notify();
-                                })
-                                .ok();
-                        }
-                    })
-                    .on_press(cx.listener(|this, _, _, cx| {
-                        this.language_menu_open = !this.language_menu_open;
-                        cx.notify();
-                    })),
+            Dropdown::new(
+                select_button(
+                    "language",
+                    div()
+                        .font_weight(weights::BOLD.into())
+                        .child(current.clone()),
                 )
-                .when(self.language_menu_open, |this| {
-                    let close = cx.listener(|this, _: &(), _, cx| {
-                        this.language_menu_open = false;
-                        cx.notify();
-                    });
-                    this.child(popover(
-                        "language-popover",
-                        self.render_language_list(language, cx),
-                        move |window, cx| close(&(), window, cx),
-                    ))
-                }),
+                .aria_label(t(ShellMsg::Language))
+                .aria_value(current)
+                .expandable(self.language_menu_open, {
+                    let shell = cx.entity().downgrade();
+                    move |_, cx| {
+                        shell
+                            .update(cx, |this, cx| {
+                                this.language_menu_open = !this.language_menu_open;
+                                cx.notify();
+                            })
+                            .ok();
+                    }
+                })
+                .on_press(cx.listener(|this, _, _, cx| {
+                    this.language_menu_open = !this.language_menu_open;
+                    cx.notify();
+                })),
+            )
+            .align_end()
+            .when(self.language_menu_open, |this| {
+                let close = cx.listener(|this, _: &(), _, cx| {
+                    this.language_menu_open = false;
+                    cx.notify();
+                });
+                this.popover(
+                    "language-popover",
+                    self.render_language_list(language, cx),
+                    move |window, cx| close(&(), window, cx),
+                )
+            }),
         );
         let zoom = theme::zoom::get();
         let levels = theme::zoom::LEVELS;
@@ -548,6 +564,7 @@ impl LauncherShell {
         };
         let zoom_row = SettingRow::new(t(ShellMsg::Zoom))
             .hint(format!("{key}+  {key}−  {key}0"))
+            .keywords(t(M::ZoomKeywords))
             .child(
                 Button::new("zoom-out", "−")
                     .accessible_label(t(ShellMsg::ZoomOut))
@@ -582,9 +599,10 @@ impl LauncherShell {
                     )),
                 )
             });
-        let general = card([
-            language_row.into_any_element(),
-            zoom_row.into_any_element(),
+        let query = self.settings_search.read(cx).query();
+        let general = query.card([
+            language_row,
+            zoom_row,
             SettingRow::new(t(M::GroupAutomatically))
                 .hint(t(M::GroupAutomaticallyHint))
                 .child(
@@ -595,14 +613,14 @@ impl LauncherShell {
                             this.instances
                                 .update(cx, |instances, cx| instances.set_auto_groups(on, cx));
                         })),
-                )
-                .into_any_element(),
+                ),
             SettingRow::new(t(M::WhenAGameStarts))
-                .hint(t(match after_launch {
-                    AfterLaunch::Stay => M::AfterLaunchStayHint,
-                    AfterLaunch::Minimize => M::AfterLaunchMinimizeHint,
-                    AfterLaunch::Quit => M::AfterLaunchQuitHint,
-                }))
+                .keywords(t(M::WhenAGameStartsKeywords))
+                .hint_opt(match after_launch {
+                    AfterLaunch::Stay => Some(t(M::AfterLaunchStayHint)),
+                    AfterLaunch::Minimize => None,
+                    AfterLaunch::Quit => Some(t(M::AfterLaunchQuitHint)),
+                })
                 .child(segmented(
                     "after-launch",
                     AfterLaunch::ALL
@@ -625,22 +643,30 @@ impl LauncherShell {
                                 .update(cx, |instances, cx| instances.set_after_launch(choice, cx));
                         }
                     },
-                ))
-                .into_any_element(),
+                )),
         ]);
+        let updates = query
+            .section(t(M::UpdatesSection), None)
+            .card(self.update_rows(cx))
+            .finish();
+        let discord = query
+            .section(t(M::DiscordSection), None)
+            .card(self.discord_rows(cx))
+            .finish();
         div()
             .flex()
             .flex_col()
             .gap_8()
             .w_full()
-            .child(general)
-            .child(section(t(M::UpdatesSection), None).child(self.render_updates(cx)))
-            .child(section(t(M::DiscordSection), None).child(self.render_discord(cx)))
+            .children(query.status())
+            .children(general)
+            .children(updates)
+            .children(discord)
     }
 
     /// Settings > General > Discord: whether the Discord status shows the game, what it
     /// shows, and whether it can.
-    fn render_discord(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+    fn discord_rows(&self, cx: &mut Context<Self>) -> Vec<SettingRow> {
         use crate::discord::Status;
         let settings = self.instances.read(cx).discord_settings();
         let status = self.discord.read(cx).status();
@@ -667,7 +693,6 @@ impl LauncherShell {
                             });
                         })),
                 )
-                .into_any_element()
         };
         let mut rows = vec![toggle(
             "discord-enabled",
@@ -723,17 +748,15 @@ impl LauncherShell {
         };
         if let Some(note) = note {
             rows.push(
-                SettingRow::new(t(M::DiscordSection))
-                    .hint(note)
-                    .into_any_element(),
+                SettingRow::new(t(M::DiscordSection)).hint(note),
             );
         }
-        card(rows)
+        rows
     }
 
     /// Settings > General > Updates: "Update automatically", and the running build
     /// with where updating stands and what can be done about it.
-    fn render_updates(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+    fn update_rows(&self, cx: &mut Context<Self>) -> Vec<SettingRow> {
         let auto_update = self.instances.read(cx).auto_update();
         let channel = self.instances.read(cx).update_channel();
         let dev = channel == UpdateChannel::Dev;
@@ -842,51 +865,47 @@ impl LauncherShell {
                                 .update(cx, |updater, cx| updater.channel_changed(cx));
                         })),
                 )
-                .into_any_element()
         });
-        card(
-            [
-                SettingRow::new(t(M::UpdateAutomatically))
-                    .hint(t(M::UpdateAutomaticallyHint))
-                    .child(
-                        Toggle::new("auto-update", auto_update)
-                            .label(t(M::UpdateAutomatically))
-                            .disabled(build.is_none())
-                            .on_change(cx.listener(|this, value: &bool, _, cx| {
-                                let on = *value;
-                                this.instances
-                                    .update(cx, |instances, cx| instances.set_auto_update(on, cx));
-                                this.updater
-                                    .update(cx, |updater, cx| updater.automatic_changed(cx));
-                            })),
-                    )
-                    .into_any_element(),
-                SettingRow::new(t(M::BetaBuilds))
-                    .hint(t(M::BetaBuildsHint))
-                    .child(
-                        // Developer builds include betas.
-                        Toggle::new("beta-builds", channel != UpdateChannel::Stable)
-                            .label(t(M::BetaBuilds))
-                            .disabled(build.is_none() || dev)
-                            .on_change(cx.listener(|this, value: &bool, _, cx| {
-                                let channel = if *value {
-                                    UpdateChannel::Beta
-                                } else {
-                                    UpdateChannel::Stable
-                                };
-                                this.instances.update(cx, |instances, cx| {
-                                    instances.set_update_channel(channel, cx)
-                                });
-                                this.updater
-                                    .update(cx, |updater, cx| updater.channel_changed(cx));
-                            })),
-                    )
-                    .into_any_element(),
-            ]
-            .into_iter()
-            .chain(dev_row)
-            .chain([status_row.into_any_element()]),
-        )
+        [
+            SettingRow::new(t(M::UpdateAutomatically))
+                .hint(t(M::UpdateAutomaticallyHint))
+                .child(
+                    Toggle::new("auto-update", auto_update)
+                        .label(t(M::UpdateAutomatically))
+                        .disabled(build.is_none())
+                        .on_change(cx.listener(|this, value: &bool, _, cx| {
+                            let on = *value;
+                            this.instances
+                                .update(cx, |instances, cx| instances.set_auto_update(on, cx));
+                            this.updater
+                                .update(cx, |updater, cx| updater.automatic_changed(cx));
+                        })),
+                ),
+            SettingRow::new(t(M::BetaBuilds))
+                .hint(t(M::BetaBuildsHint))
+                .child(
+                    // Developer builds include betas.
+                    Toggle::new("beta-builds", channel != UpdateChannel::Stable)
+                        .label(t(M::BetaBuilds))
+                        .disabled(build.is_none() || dev)
+                        .on_change(cx.listener(|this, value: &bool, _, cx| {
+                            let channel = if *value {
+                                UpdateChannel::Beta
+                            } else {
+                                UpdateChannel::Stable
+                            };
+                            this.instances.update(cx, |instances, cx| {
+                                instances.set_update_channel(channel, cx)
+                            });
+                            this.updater
+                                .update(cx, |updater, cx| updater.channel_changed(cx));
+                        })),
+                ),
+        ]
+        .into_iter()
+        .chain(dev_row)
+        .chain([status_row])
+        .collect()
     }
 
     /// The Language list: System, then each language in its own name.
@@ -895,12 +914,7 @@ impl LauncherShell {
         selected: Language,
         cx: &mut Context<Self>,
     ) -> impl IntoElement + use<> {
-        let mut list = popover_panel("language-list")
-            .w(px(240.))
-            .on_mouse_down_out(cx.listener(|this, _, _, cx| {
-                this.language_menu_open = false;
-                cx.notify();
-            }));
+        let mut list = popover_panel("language-list").w(px(240.));
         for (index, language) in Language::ALL.into_iter().enumerate() {
             let label: SharedString = match language {
                 Language::System => t(ShellMsg::LanguageSystem).into(),
@@ -925,7 +939,8 @@ impl LauncherShell {
         let accounts = self.accounts.read(cx);
         let active_id = accounts.active().map(|a| a.id.clone());
         let offline_enabled = accounts.offline_enabled();
-        let mut rows: Vec<AnyElement> = Vec::new();
+        let query = self.settings_search.read(cx).query();
+        let mut rows: Vec<SettingRow> = Vec::new();
         for (index, account) in accounts.accounts().iter().enumerate() {
             let in_use = active_id.as_deref() == Some(account.id.as_str());
             let needs_sign_in = matches!(
@@ -973,8 +988,7 @@ impl LauncherShell {
                                 this.confirm_remove(&remove_id, Some(window), cx)
                             }),
                         ),
-                    )
-                    .into_any_element(),
+                    ),
             );
         }
         rows.push(
@@ -996,9 +1010,15 @@ impl LauncherShell {
                                 this.open_offline(None, Some(window), cx)
                             })),
                     )
-                })
-                .into_any_element(),
+                }),
         );
-        card(rows)
+        let card = query.card(rows);
+        div()
+            .flex()
+            .flex_col()
+            .gap_6()
+            .w_full()
+            .children(query.status())
+            .children(card)
     }
 }

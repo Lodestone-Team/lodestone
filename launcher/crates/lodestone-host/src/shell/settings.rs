@@ -5,12 +5,14 @@
 //! on the backdrop close it. Dialogs that a page opens (Open port, Create user, …)
 //! open over it.
 
-use gpui::{AnyElement, AnyView, Context, FocusHandle, IntoElement, Window, div, prelude::*};
+use gpui::{
+    AnyElement, AnyView, Context, Entity, FocusHandle, IntoElement, Window, div, prelude::*,
+};
 use lodestone_ui::{
     components::{
         Dialog, Icon, KeyboardFocus,
         a11y::{Accessible, Role},
-        settings::content_width,
+        settings::{SettingsSearch, content_width},
     },
     theme::{self, colors, fonts, ink, leading, px, radius, text, weights},
 };
@@ -69,7 +71,7 @@ impl HostShell {
             return;
         }
         self.settings_page = page;
-        let view = pages::open_settings(page, self.state.clone(), cx);
+        let view = pages::open_settings(page, self.state.clone(), self.settings_search.clone(), cx);
         let focus = cx.focus_handle();
         self.settings.open(SettingsModal { focus, page, view }, cx);
     }
@@ -78,12 +80,13 @@ impl HostShell {
     pub fn set_settings_page(&mut self, page: SettingsPage, cx: &mut Context<Self>) {
         self.settings_page = page;
         let state = self.state.clone();
+        let search = self.settings_search.clone();
         let Some(modal) = self.settings.current_mut() else {
             return;
         };
         if modal.page != page {
             modal.page = page;
-            modal.view = pages::open_settings(page, state, cx);
+            modal.view = pages::open_settings(page, state, search, cx);
             cx.notify();
         }
     }
@@ -96,6 +99,11 @@ impl HostShell {
     /// The page the open Settings show, if they are open.
     pub fn settings_open(&self) -> Option<SettingsPage> {
         self.settings.current().map(|modal| modal.page)
+    }
+
+    /// The Settings' search field, for the development screenshots.
+    pub fn settings_search(&self) -> &Entity<SettingsSearch> {
+        &self.settings_search
     }
 
     /// The page view the open Settings show, for the development screenshots.
@@ -152,8 +160,14 @@ impl HostShell {
                             .pb_5()
                             // clear of the dialog's ×, at the corner
                             .pr_12()
+                            .flex()
+                            .flex_row()
+                            .items_start()
+                            .gap_4()
                             .child(
                                 div()
+                                    .flex_1()
+                                    .min_w_0()
                                     .id("settings-page-title")
                                     .role(Role::Heading)
                                     .aria_level(1)
@@ -165,6 +179,12 @@ impl HostShell {
                                     .font_weight(weights::BOLD.face())
                                     .text_color(ink::text())
                                     .child(page_name(page)),
+                            )
+                            .child(
+                                div()
+                                    .flex_none()
+                                    .w(px(if small { 200. } else { 240. }))
+                                    .child(self.settings_search.clone()),
                             ),
                     )
                     .child(
@@ -367,6 +387,7 @@ mod tests {
                 is_owner: true,
                 is_admin: false,
                 permissions: UserPermission::default(),
+                has_password: true,
             },
         };
         let (shell, cx) = cx.add_window_view(|_, cx| {
@@ -450,6 +471,38 @@ mod tests {
             shell.open_settings(None, cx);
         });
         assert_eq!(open_page(&shell, cx), Some(SettingsPage::Profile));
+    }
+
+    /// LS-32: Escape on the new API key's dialog, which only Done closes, doesn't close
+    /// the Settings under it (and lose the key, shown only once).
+    #[test]
+    fn escape_on_a_new_api_key_keeps_it_and_the_settings() {
+        let mut cx = TestAppContext::single();
+        let (shell, cx) = shell(&mut cx);
+        shell.update(cx, |shell, cx| {
+            shell.open_settings(Some(SettingsPage::Profile), cx)
+        });
+        cx.run_until_parked();
+        let profile = shell
+            .read_with(cx, |shell, _| shell.settings_view())
+            .unwrap()
+            .downcast::<crate::pages::profile::ProfilePage>()
+            .unwrap();
+        let keys = profile.read_with(cx, |profile, _| profile.api_keys().clone());
+        let created: launcher_core::cores::admin::users::CreatedApiKey =
+            serde_json::from_value(serde_json::json!({
+                "key": "lsk_test_not_a_real_key",
+                "info": { "id": "test", "name": "Scripts", "scope": { "type": "full" } },
+            }))
+            .unwrap();
+        keys.update(cx, |keys, cx| keys.show_created(created, cx));
+        cx.run_until_parked();
+        assert!(keys.read_with(cx, |keys, _| keys.created_open()));
+
+        cx.simulate_keystrokes("escape");
+        cx.run_until_parked();
+        assert_eq!(open_page(&shell, cx), Some(SettingsPage::Profile));
+        assert!(keys.read_with(cx, |keys, _| keys.created_open()));
     }
 
     #[test]
