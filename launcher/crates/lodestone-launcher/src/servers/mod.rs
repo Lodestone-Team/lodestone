@@ -2746,6 +2746,7 @@ impl Servers {
                             server_uuid: server.clone(),
                             server_name: name,
                             pack_etag: None,
+                            view: None,
                         },
                     ));
                 }
@@ -2763,6 +2764,7 @@ impl Servers {
                         server_uuid: server.clone(),
                         server_name: name,
                         pack_etag: None,
+                        view: None,
                     },
                 ))
             })

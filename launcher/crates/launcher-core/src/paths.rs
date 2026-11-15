@@ -53,6 +53,12 @@ impl DataDir {
         self.root.join("cache")
     }
 
+    /// The base packs (`.mrpack`) of servers' images, by their SHA-512
+    /// ([`crate::cores::image_sync::base`]).
+    pub fn server_pack_cache_dir(&self) -> PathBuf {
+        self.cache_dir().join("server-packs")
+    }
+
     /// One folder per instance, each with `instance.json` and the game's `minecraft/`.
     pub fn instances_dir(&self) -> PathBuf {
         self.root.join("instances")

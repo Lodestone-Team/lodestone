@@ -147,9 +147,10 @@ pub struct Merged {
     pub removals: Vec<String>,
 }
 
-/// The files on disk, hashed when asked, each once per hash.
+/// The files on disk, hashed when asked, each once per hash. No game folder: nothing is
+/// on disk (a new instance).
 struct Disk<'a> {
-    game: &'a Path,
+    game: Option<&'a Path>,
     hashes: RefCell<HashMap<(String, HashKind), Option<String>>>,
 }
 
@@ -159,7 +160,7 @@ impl Disk<'_> {
         if let Some(found) = self.hashes.borrow().get(&key) {
             return found.clone();
         }
-        let path = self.game.join(relative);
+        let path = self.game?.join(relative);
         let found = match kind {
             HashKind::Sha1 => sha1_on_disk(&path),
             HashKind::Sha256 => std::fs::symlink_metadata(&path)
@@ -173,13 +174,14 @@ impl Disk<'_> {
 
     /// The file at `relative` (or, for a mod, its `.disabled` name), as it is on disk.
     fn find(&self, relative: &str) -> Option<String> {
+        let game = self.game?;
         let mut candidates = vec![relative.to_string()];
         if relative.starts_with("mods/") && !is_disabled_name(relative) {
             candidates.push(disabled_name(relative));
         }
         candidates
             .into_iter()
-            .find(|path| std::fs::symlink_metadata(self.game.join(path)).is_ok_and(|m| m.is_file()))
+            .find(|path| std::fs::symlink_metadata(game.join(path)).is_ok_and(|m| m.is_file()))
     }
 
     /// Whether the file at `actual` has `digest`.
@@ -190,10 +192,11 @@ impl Disk<'_> {
 }
 
 /// Plans the move from the files `current` records to the files `new` places, for the
-/// game folder `game`. The new files under the folders `authoritative` (a server's
-/// `mods/`) replace the user's changed copies instead of keeping them.
+/// game folder `game` (`None` for a new instance, which has none yet). The new files under
+/// the folders `authoritative` (a server's `mods/`) replace the user's changed copies
+/// instead of keeping them.
 pub(crate) fn plan(
-    game: &Path,
+    game: Option<&Path>,
     current: &BTreeMap<String, PackFile>,
     new: &BTreeMap<String, Wanted>,
     authoritative: &[&str],

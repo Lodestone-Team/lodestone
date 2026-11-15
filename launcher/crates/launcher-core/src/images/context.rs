@@ -109,9 +109,11 @@ impl InstanceContext {
             });
         }
         let sha512 = record.pack_sha512.as_deref().filter(|h| is_sha512(h))?;
-        record.on_modrinth().then(|| Base::ModrinthPack {
-            project: record.project_id.clone(),
-            version: record.version_id.clone(),
+        // a server's instance too: its files are its server's base and what it placed
+        let (project, version) = record.modrinth_ids()?;
+        Some(Base::ModrinthPack {
+            project: project.to_string(),
+            version: version.to_string(),
             sha512: sha512.to_string(),
         })
     }

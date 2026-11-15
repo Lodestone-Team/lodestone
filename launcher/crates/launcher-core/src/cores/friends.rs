@@ -878,6 +878,7 @@ mod tests {
             server_uuid: "server".into(),
             server_name: "SMP".into(),
             pack_etag: None,
+            view: None,
         }
     }
 

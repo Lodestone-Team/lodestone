@@ -174,7 +174,7 @@ pub fn plan_with(
     for file in &pack.overrides {
         new.insert(file.path.clone(), Wanted::override_file(file));
     }
-    let plan = plan_files(dirs, current, &new, record, authoritative);
+    let plan = plan_files(Some(&dirs.game), current, &new, record, authoritative);
     UpdatePlan {
         game_version: pack.game_version.clone(),
         loader,
@@ -183,17 +183,17 @@ pub fn plan_with(
     }
 }
 
-/// The plan for moving the instance at `dirs` from the files `current` records to the
-/// files `new` places (a pack's, or a server's image's), whose record is `record` with
-/// those files. The caller fills in the game.
+/// The plan for moving the game folder `game` (`None` for a new instance) from the files
+/// `current` records to the files `new` places (a pack's, or a server's image's), whose
+/// record is `record` with those files. The caller fills in the game.
 pub fn plan_files(
-    dirs: &InstanceDirs,
+    game: Option<&Path>,
     current: &ModpackRecord,
     new: &BTreeMap<String, Wanted>,
     record: ModpackRecord,
     authoritative: &[&str],
 ) -> UpdatePlan {
-    let merged = merge::plan(&dirs.game, &current.files, new, authoritative);
+    let merged = merge::plan(game, &current.files, new, authoritative);
     UpdatePlan {
         record: ModpackRecord {
             files: merge::record_files(new),

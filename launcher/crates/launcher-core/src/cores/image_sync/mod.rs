@@ -29,6 +29,11 @@
 //! The game and loader are fixed: a view of another Minecraft version or loader is refused
 //! for an existing instance (the player makes a new one); only the loader version follows.
 
+pub mod apply;
+pub mod base;
+pub mod placed;
+pub mod plan;
+pub mod prepare;
 pub mod received;
 pub mod views;
 

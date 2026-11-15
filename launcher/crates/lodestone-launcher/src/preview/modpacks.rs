@@ -278,6 +278,7 @@ pub fn fill_server(instance_dir: &Path, scene: &str) {
             server_uuid: "server".into(),
             server_name: SERVER.into(),
             pack_etag: None,
+            view: None,
         },
     );
     if scene == "modpack-added-settings" {

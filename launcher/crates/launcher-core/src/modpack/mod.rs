@@ -174,6 +174,12 @@ pub struct ModpackRecord {
     /// isn't on Modrinth or whose `.mrpack` hash isn't known.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pack_sha512: Option<String>,
+    /// The files are a server's image's, placed from its client view
+    /// ([`crate::cores::image_sync`]): the pack named here (when there is one) is the
+    /// server's base, which the server updates, so the instance offers no Modrinth update
+    /// of its own ([`ModpackRecord::on_modrinth`]).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub from_server: bool,
 }
 
 /// The CurseForge file a modpack instance was made from.
@@ -217,9 +223,17 @@ impl ModpackRecord {
         self.curseforge.is_some()
     }
 
-    /// Whether the pack is on Modrinth, so it can be updated.
+    /// Whether the pack is on Modrinth and the instance updates it itself. A server's
+    /// instance doesn't: its server does.
     pub fn on_modrinth(&self) -> bool {
-        !self.project_id.is_empty() && !self.version_id.is_empty()
+        !self.from_server && self.modrinth_ids().is_some()
+    }
+
+    /// The Modrinth project and version of the pack, when it is on Modrinth: an instance's
+    /// own pack, or the base of a server's image.
+    pub fn modrinth_ids(&self) -> Option<(&str, &str)> {
+        (!self.project_id.is_empty() && !self.version_id.is_empty())
+            .then_some((self.project_id.as_str(), self.version_id.as_str()))
     }
 
     /// The record of `version` of `project`, without files.
@@ -240,6 +254,7 @@ impl ModpackRecord {
                 .and_then(crate::markdown::loadable_image),
             files: BTreeMap::new(),
             curseforge: None,
+            from_server: false,
             pack_sha512: import::pack_file(version)
                 .and_then(|file| file.hashes.sha512.as_deref())
                 .map(str::to_ascii_lowercase)

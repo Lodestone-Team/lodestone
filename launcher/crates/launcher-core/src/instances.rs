@@ -2155,6 +2155,7 @@ mod tests {
                 server_uuid: "smp".into(),
                 server_name: "Survival SMP".into(),
                 pack_etag: None,
+                view: None,
             };
             link::save_link(&instance_dir, &server).unwrap();
         };
