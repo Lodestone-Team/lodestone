@@ -213,9 +213,6 @@ mod tests {
         assert!(joined.ends_with('…'));
         // Cut by characters, never inside one.
         let wide = vec!["é".repeat(MAX_TEXT_LEN + 5)];
-        assert_eq!(
-            join_labels(&wide).unwrap().chars().count(),
-            MAX_TEXT_LEN
-        );
+        assert_eq!(join_labels(&wide).unwrap().chars().count(), MAX_TEXT_LEN);
     }
 }
