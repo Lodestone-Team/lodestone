@@ -300,21 +300,33 @@ pub fn restore(call: Call, cx: &mut App) -> Reply {
     let params: RestoreParams = params!(call);
     let target = tri!(target(&call, cx));
     let images = target.control.instances.read(cx).images();
-    let records = tri!(
-        images
-            .snapshots(&target.instance.id)
-            .map_err(super::snapshots::image_error)
+    // Read in the background: reading the snapshots can wait for the instance's record
+    // lock.
+    let folder = target.world.folder.clone();
+    let instance = target.instance.clone();
+    let reference = params.snapshot.clone();
+    super::snapshots::with_snapshots(
+        images.clone(),
+        &target.instance.clone(),
+        move |_, records| {
+            let held: Vec<SnapshotRecord> =
+                holding(&records, &folder).into_iter().cloned().collect();
+            super::snapshots::find(&held, &instance, &reference)
+        },
+        move |snapshot, cx| restore_found(call, params, target, images, snapshot, cx),
+        cx,
     )
-    .records;
-    let held: Vec<SnapshotRecord> = holding(&records, &target.world.folder)
-        .into_iter()
-        .cloned()
-        .collect();
-    let snapshot = tri!(super::snapshots::find(
-        &held,
-        &target.instance,
-        &params.snapshot
-    ));
+}
+
+/// [`restore`] once the snapshot is found.
+fn restore_found(
+    call: Call,
+    params: RestoreParams,
+    target: Target,
+    images: std::sync::Arc<launcher_core::images::Images>,
+    snapshot: SnapshotRecord,
+    cx: &mut App,
+) -> Reply {
     let replace = match params.mode.as_str() {
         "copy" => false,
         "replace" => {

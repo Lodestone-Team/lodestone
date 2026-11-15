@@ -248,6 +248,8 @@ crate::i18n::messages! {
         /// Like ModsDiffer, when only configs and other files differ, not mods.
         FilesDiffer = "These worlds last ran with other files.",
         RestoreModsToo = "Put their mods back too",
+        /// Before the list of what "Put their mods back too" changes, when it is off.
+        RestoreModsTooChanges = "Putting their mods back too:",
         /// {version} is a loader version.
         RestoreLoaderChange = "The loader goes back to {version}.",
         RestoreSafety = "A snapshot of what is replaced is taken first and kept for 30 days.",
@@ -517,7 +519,7 @@ crate::i18n::messages! {
         RestoreKeptAside = "Files written while the restore ran are kept in {folder}.",
         ImportNoRoom = "The disk doesn't have room for it: it needs {size}, 1 GB of it to spare, and {free} is free.",
         ImportSpaceFree = "Needs {size} of disk space, 1 GB of it to spare; {free} is free.",
-        ExportNotDownloadable = "These can't be downloaded, so whoever imports the file won't get them: {files}",
+        ExportNotDownloadable = "These can't be downloaded, so whoever imports the file won't get them: {files}.",
         SnapshotAfterPlayOwnHint = "Copies the worlds after you play. Set for this instance.",
         DeleteUnreadableNote = "They are deleted for good.",
     }

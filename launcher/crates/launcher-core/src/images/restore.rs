@@ -357,6 +357,7 @@ impl Images {
             return Err(ImageError::Running);
         }
         self.recover_unfinished_locked(instance)?;
+        swap::empty_trash(&self.instances().dir(instance));
         let record = self
             .reconciled_locked(instance)?
             .into_iter()
@@ -365,17 +366,10 @@ impl Images {
         let ctx = InstanceContext::load(self.instances(), instance)?;
         // A game this process didn't start (the Launcher was restarted while it ran) has
         // the worlds open: swapping them would mix its next save into the restored world.
-        let owned_worlds = match scope {
-            RestoreScope::Worlds(worlds) | RestoreScope::WorldsAndContent(worlds) => {
-                Some(worlds.as_slice())
-            }
-            RestoreScope::Everything => None,
-        };
-        if crate::worlds::open_in_game(
-            &ctx.dir.join(CLIENT_GAME_FOLDER).join("saves"),
-            owned_worlds,
-        )
-        .is_some()
+        // Any open world refuses, not only those put back: the safety snapshot reads them
+        // all, and would refuse anyway, after staging nothing.
+        if crate::worlds::open_in_game(&ctx.dir.join(CLIENT_GAME_FOLDER).join("saves"), None)
+            .is_some()
         {
             return Err(ImageError::Running);
         }
@@ -421,14 +415,18 @@ impl Images {
             }
         }
 
-        // The safety snapshot: everything the restore replaces or removes.
+        // The safety snapshot: everything the restore replaces or removes. Cancel stops it
+        // too (the first one of a big world reads all of it).
         let safety = self.take_snapshot_locked(
             &slot,
             instance,
-            Take::new(
-                SnapshotKind::BeforeRestore,
-                labels::before_going_back(&record.name),
-            ),
+            Take {
+                cancel,
+                ..Take::new(
+                    SnapshotKind::BeforeRestore,
+                    labels::before_going_back(&record.name),
+                )
+            },
             scope.has_content().then_some(labels::BEFORE_RESTORE),
         )?;
         let safety_target = match &safety {
@@ -471,11 +469,14 @@ impl Images {
             )));
         }
 
+        // What the swap refuses (links, names spelled differently on disk, files the safety
+        // snapshot hasn't), checked before anything is staged; again once it is.
+        let suffix = swap::random_suffix();
+        Staged::new(&ctx.dir, suffix.clone(), &owned, &replaced, &placed)?;
         // Stage, checking every byte, while collections are held off.
         let _hold = self.store().hold_off_collection()?;
         let bytes = entries.iter().map(|e| e.size).fold(0, u64::saturating_add);
         let _room = self.reserve_space(bytes)?;
-        let suffix = swap::random_suffix();
         let staging = ctx.dir.join(format!("{STAGING_PREFIX}{suffix}"));
         std::fs::create_dir(&staging).map_err(ImageError::io(
             "Failed to create the restore's staging folder",
@@ -574,9 +575,10 @@ impl Images {
     }
 
     /// Makes a new instance from the snapshot `id` of `instance`, named `name` (made
-    /// unique): its files, the source's own settings (as Duplicate copies them) with the
-    /// snapshot's game, and its content sources. Recorded as "Made from a snapshot".
-    /// Blocking.
+    /// unique; a name that is blank once control and invisible characters are gone is
+    /// "`<instance>` (`<snapshot>`)", so the name never refuses what was staged): its files, the
+    /// source's own settings (as Duplicate copies them) with the snapshot's game, and its
+    /// content sources. Recorded as "Made from a snapshot". Blocking.
     pub fn restore_as_new(
         self: &Arc<Self>,
         instance: &str,
@@ -623,8 +625,17 @@ impl Images {
                 follow_base(&dirs, base.as_ref(), &entries).map_err(ImageError::Invalid)?;
                 let game = &target.image.game;
                 let loader = loader_of(&game.loader).unwrap_or(instances::Loader::None);
+                let blank = super::export::shown_name(name).trim().is_empty();
                 let new = Instance {
-                    name: name.trim().to_string(),
+                    name: if blank {
+                        format!(
+                            "{} ({})",
+                            source.instance.name,
+                            super::export::shown_name(&record.name)
+                        )
+                    } else {
+                        name.trim().to_string()
+                    },
                     game_version: game.minecraft.clone(),
                     loader,
                     loader_version: game.loader_version.clone(),
@@ -722,20 +733,23 @@ impl Images {
     /// Whether a restore of `instance` didn't finish and couldn't be undone: its journal is
     /// still there (a rollback that failed, at startup or during the restore itself). The
     /// instance mustn't be played until [`Self::retry_unfinished_restore`] undoes it: the
-    /// game would start with worlds or mods renamed aside and write fresh ones. One look at
-    /// a file, for Play; a restore under way has its journal too, while the instance is
-    /// busy.
+    /// game would start with worlds or mods renamed aside and write fresh ones. A look at
+    /// a file or two, for Play: the journal may also be in the snapshots of the instance
+    /// kept when it was deleted, if it was put back since and nothing took them back yet.
+    /// A restore under way has its journal too, while the instance is busy.
     pub fn restore_unfinished(&self, instance: &str) -> bool {
         self.accepts(instance)
-            && self
+            && (self
                 .store()
                 .instance_dir(instance)
                 .is_ok_and(|dir| dir.join(swap::JOURNAL_FILE).exists())
+                || self.retired_journal(instance))
     }
 
     /// Tries again to undo a restore of `instance` that couldn't be undone (Play does,
     /// before refusing). `Ok` when none is left. Waits at most `wait` for another record
-    /// of the instance, then says to try again. Blocking, but short: renames back.
+    /// of the instance, then says to try again. Blocking, but short: renames back, and
+    /// leaves the work folders for [`Self::empty_restore_trash`].
     pub fn retry_unfinished_restore(
         &self,
         instance: &str,
@@ -757,6 +771,7 @@ impl Images {
     /// caller holding its record lock: Play's retry, and every restore before it starts,
     /// which would otherwise write its journal over the one that knows what is aside.
     fn recover_unfinished_locked(&self, instance: &str) -> Result<(), ImageError> {
+        self.readopt_before_journal_check(instance);
         let journal = self
             .store()
             .instance_dir(instance)?
@@ -778,12 +793,23 @@ impl Images {
     }
 
     /// Finishes or undoes every restore a crash interrupted (see [`super::swap`]), and
-    /// deletes restore work folders no journal names. Run once when the Launcher starts,
-    /// right after opening the images and before anything can be played. A journal whose
-    /// instance folder is gone stays, with a note. Blocking.
+    /// clears restore work folders no journal names. Run once when the Launcher starts,
+    /// right after opening the images and before anything can be played. An instance put
+    /// back after it was deleted takes its snapshots back first, as an unfinished restore's
+    /// journal is kept with them. A journal whose instance folder is gone stays, with a
+    /// note. Renames only (folders to delete go to the trash, for
+    /// [`Self::empty_restore_trash`]), so it can run before the window shows.
     pub fn recover_restores(&self) -> swap::Recovery {
         let mut recovery = swap::Recovery::default();
         let mut stuck: HashSet<String> = HashSet::new();
+        let (instances, _) = self.instances().list();
+        if !self.retired_folders().is_empty() {
+            for instance in &instances {
+                let slot = self.slot(&instance.id);
+                let _record = slot.lock_record();
+                self.readopt_before_journal_check(&instance.id);
+            }
+        }
         let Ok(ids) = self.store().list_instances() else {
             return recovery;
         };
@@ -835,13 +861,27 @@ impl Images {
                 }
             }
         }
-        let (instances, _) = self.instances().list();
         for instance in instances {
             if !stuck.contains(&instance.id) {
                 swap::remove_leftovers(&self.instances().dir(&instance.id));
             }
         }
         recovery
+    }
+
+    /// Deletes the restore work folders recovery set aside ([`swap::TRASH_PREFIX`]) in
+    /// `instance`'s folder, or in every instance's with `None`. Blocking and possibly long
+    /// (a staged copy of a world): run it in the background, after
+    /// [`Self::recover_restores`] or [`Self::retry_unfinished_restore`].
+    pub fn empty_restore_trash(&self, instance: Option<&str>) {
+        match instance {
+            Some(id) => swap::empty_trash(&self.instances().dir(id)),
+            None => {
+                for instance in self.instances().list().0 {
+                    swap::empty_trash(&self.instances().dir(&instance.id));
+                }
+            }
+        }
     }
 }
 

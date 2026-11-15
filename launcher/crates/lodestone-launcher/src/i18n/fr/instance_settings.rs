@@ -221,6 +221,7 @@ pub fn text(message: M) -> &'static str {
         M::ModsDiffer => "Ces mondes ont tourné pour la dernière fois avec d’autres mods.",
         M::FilesDiffer => "Ces mondes ont tourné pour la dernière fois avec d’autres fichiers.",
         M::RestoreModsToo => "Remettre aussi leurs mods",
+        M::RestoreModsTooChanges => "En remettant aussi leurs mods\u{a0}:",
         M::RestoreLoaderChange => "Le chargeur revient à la version {version}.",
         M::RestoreSafety => {
             "Un instantané de ce qui est remplacé est pris d’abord et gardé 30 jours."
@@ -477,7 +478,7 @@ pub fn text(message: M) -> &'static str {
             "Nécessite {size} d’espace disque, dont 1\u{a0}Go de marge\u{a0}; {free} sont libres."
         }
         M::ExportNotDownloadable => {
-            "Ceux-ci ne peuvent pas être téléchargés, donc la personne qui importe le fichier ne les aura pas\u{a0}: {files}"
+            "Ceux-ci ne peuvent pas être téléchargés, donc la personne qui importe le fichier ne les aura pas\u{a0}: {files}."
         }
         M::SnapshotAfterPlayOwnHint => {
             "Copie les mondes après chaque partie. Réglé pour cette instance."

@@ -3132,14 +3132,15 @@ impl InstanceSettings {
                 }
             }
         }
-        items.push(SettingRow::new(tr!(
+        // How long automatic snapshots are kept: the section's grey lead, not a setting.
+        let keep = tr!(
             M::SnapshotKeepHint,
             last = policy.keep_last,
             days = policy.keep_daily,
             weeks = policy.keep_weekly
-        )));
+        );
         query
-            .section(t(M::InstanceSnapshots), None)
+            .section(t(M::InstanceSnapshots), Some(keep.into()))
             .card(items)
             .finish()
     }

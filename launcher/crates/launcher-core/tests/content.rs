@@ -358,8 +358,12 @@ fn damaged_and_off_cdn_downloads_leave_nothing_behind() {
             .contains("files only come from cdn.modrinth.com"),
         "{err}"
     );
+    // Refused by the CDN URL check (its URL has dot segments) or the file name check.
     let err = install_version(&mock, &dirs, &target, ContentKind::Mod, "bad3").unwrap_err();
-    assert!(err.to_string().contains("isn't a file name"), "{err}");
+    assert!(
+        err.to_string().contains("isn't a file name") || err.to_string().contains("dot segments"),
+        "{err}"
+    );
     assert!(names(&dirs.content_dir(ContentKind::Mod)).is_empty());
     assert!(!dir.path().join("evil.txt").exists());
 }

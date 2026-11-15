@@ -326,12 +326,16 @@ What the replies say beyond the obvious:
 
 - `snapshots export`: `not_downloadable` lists CurseForge files whose authors forbid
   downloads elsewhere: whoever imports the file won't get them, so tell the user;
-  `left_out` lists the files kept private (typed commands, account switchers' files).
+  `left_out` lists the files kept private (typed commands, the official launcher's and
+  account switchers' account files).
 - `snapshots import --preview`: `carried_mods` (see above), `needed_bytes` (what the
   import writes, with 1 GiB to spare; the import refuses with less free) and
-  `not_downloadable`. After the import, `left_out` lists what it couldn't get. A mod the
-  file names as a Modrinth or CurseForge download is always downloaded from there and
-  checked; one that can't be is placed only if the file carries it, as the sender's file.
+  `not_downloadable`. After the import, `left_out` lists the files no download confirmed
+  whose bytes neither the file nor the store had: a download that fails (a deleted
+  version, a network error) leaves its file out rather than stopping the import, so tell
+  the user. A mod the file names as a Modrinth or CurseForge download is always downloaded
+  from there and checked; one that can't be is placed only if the file carries it (it is
+  then in `carried_mods`) or the store has it, as a plain file.
 - `snapshots restore` in place: `kept_aside` is a folder in the instance where files
   written meanwhile by another job were moved rather than lost; tell the user.
 - Snapshot records carry `world_details` (each world's folder, own name and size) and

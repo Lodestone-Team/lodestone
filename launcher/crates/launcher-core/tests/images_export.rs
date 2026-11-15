@@ -88,6 +88,9 @@ fn fixture() -> (Fixture, launcher_core::images::SnapshotRecord) {
     f.write("command_history.txt", b"/login hunter2");
     f.write("hotbar.nbt", b"hotbars");
     f.write("config/ias.json", b"{\"accounts\":\"token\"}");
+    // The official launcher's account files, as a pasted `.minecraft` folder brings them.
+    f.write("launcher_accounts.json", b"{\"accessToken\":\"official\"}");
+    f.write("Launcher_Profiles.json", b"{\"authenticationDatabase\":{}}");
     // A JVM crash log, which holds the whole command line, access token included.
     f.write(
         "hs_err_pid4242.log",
@@ -253,7 +256,13 @@ fn an_export_carries_references_not_jars_and_never_private_files() {
     left_out.sort();
     assert_eq!(
         left_out,
-        ["command_history.txt", "config/ias.json", "hotbar.nbt"]
+        [
+            "Launcher_Profiles.json",
+            "command_history.txt",
+            "config/ias.json",
+            "hotbar.nbt",
+            "launcher_accounts.json"
+        ]
     );
     let names = zip_names(&file);
     let objects: Vec<&String> = names.iter().filter(|n| n.starts_with("objects/")).collect();
@@ -266,6 +275,8 @@ fn an_export_carries_references_not_jars_and_never_private_files() {
         b"hotbars",
         b"{\"accounts\":\"token\"}",
         b"java ... --accessToken eyJsecret ...",
+        b"{\"accessToken\":\"official\"}",
+        b"{\"authenticationDatabase\":{}}",
     ] {
         assert!(!names.contains(&format!("objects/{}", hex_sha256(private))));
     }
@@ -329,6 +340,7 @@ fn an_import_makes_a_new_instance_and_downloads_the_references() {
     assert!(!game.join("command_history.txt").exists());
     assert!(!game.join("hotbar.nbt").exists());
     assert!(!game.join("config/ias.json").exists());
+    assert!(!game.join("launcher_accounts.json").exists());
     // content.json knows the Modrinth file.
     let known = Provenance::load(&other.store.dir(&made.id));
     assert_eq!(
@@ -359,7 +371,7 @@ fn an_import_makes_a_new_instance_and_downloads_the_references() {
 }
 
 #[test]
-fn a_download_that_doesnt_match_and_a_full_disk_are_refused() {
+fn a_download_that_doesnt_match_is_left_out_and_a_full_disk_is_refused() {
     let (f, record) = fixture();
     let file = f.data.root().join("Survival.lodeimg");
     f.images
@@ -367,8 +379,14 @@ fn a_download_that_doesnt_match_and_a_full_disk_are_refused() {
         .unwrap();
     let other = elsewhere();
     let before = instance_count(&other);
+    // Bytes that aren't the ones named: Sodium is left out, the rest is imported.
     other.mock.serve(SODIUM_URL, b"something else entirely");
-    assert!(import(&other, &file, true).is_err());
+    let imported = import(&other, &file, true).unwrap();
+    assert_eq!(imported.left_out, ["mods/sodium.jar"]);
+    let game = other.store.game_dir(&imported.instance.id);
+    assert!(!game.join("mods/sodium.jar").exists());
+    assert!(game.join("saves/World/level.dat").is_file());
+    let before = before + 1;
     assert_eq!(instance_count(&other), before);
     // No room: refused before anything is unpacked.
     other.mock.serve(SODIUM_URL, SODIUM);
@@ -544,11 +562,23 @@ fn a_download_whose_bytes_the_export_carries_is_downloaded_and_checked_anyway() 
         ],
         &file,
     );
-    let before = instance_count(&other);
-    // Modrinth's file isn't those bytes, so the download fails its check.
-    let refused = import(&other, &file, true);
-    assert!(refused.is_err(), "{:?}", refused.map(|i| i.instance.id));
-    assert_eq!(instance_count(&other), before);
+    // The preview names the carried bytes as the sender's.
+    assert_eq!(export::inspect(&file).unwrap().carried_mods, ["sodium.jar"]);
+    // Modrinth's file isn't those bytes, so the download fails its check: the carried bytes
+    // are placed, as a plain file that nothing records as Sodium.
+    let imported = import(&other, &file, true).unwrap();
+    assert!(imported.left_out.is_empty());
+    let game = other.store.game_dir(&imported.instance.id);
+    assert_eq!(fs::read(game.join("mods/sodium.jar")).unwrap(), evil);
+    let known = Provenance::load(&other.store.dir(&imported.instance.id));
+    assert!(
+        known
+            .files
+            .get("mods/sodium.jar")
+            .is_none_or(|e| e.modrinth.is_none()),
+        "{:?}",
+        known.files.get("mods/sodium.jar")
+    );
     assert!(
         other
             .mock
@@ -556,6 +586,45 @@ fn a_download_whose_bytes_the_export_carries_is_downloaded_and_checked_anyway() 
             .iter()
             .any(|r| r.path.ends_with("/sodium.jar")),
         "Sodium was downloaded from Modrinth although the store had the claimed bytes"
+    );
+}
+
+#[test]
+fn a_download_that_fails_leaves_the_file_out_and_the_import_goes_on() {
+    let (f, record) = fixture();
+    let file = f.data.root().join("Survival.lodeimg");
+    f.images
+        .export_snapshot(&f.instance.id, &record.id, &file, NEVER)
+        .unwrap();
+    // Modrinth answers 404: the author deleted the version.
+    let other = elsewhere();
+    let before = instance_count(&other);
+    let imported = import(&other, &file, true).unwrap();
+    assert_eq!(instance_count(&other), before + 1);
+    assert_eq!(imported.left_out, ["mods/sodium.jar"]);
+    let game = other.store.game_dir(&imported.instance.id);
+    assert!(!game.join("mods/sodium.jar").exists());
+    assert_eq!(
+        fs::read(game.join("saves/World/region/r.0.0.mca")).unwrap(),
+        b"region bytes"
+    );
+    assert_eq!(
+        fs::read(game.join("config/sodium.json")).unwrap(),
+        b"{\"fps\":true}"
+    );
+    // A store that has the bytes already places them, as a plain file.
+    let third = elsewhere();
+    third.images.store().put_bytes(SODIUM).unwrap();
+    let imported = import(&third, &file, true).unwrap();
+    assert!(imported.left_out.is_empty());
+    let game = third.store.game_dir(&imported.instance.id);
+    assert_eq!(fs::read(game.join("mods/sodium.jar")).unwrap(), SODIUM);
+    let known = Provenance::load(&third.store.dir(&imported.instance.id));
+    assert!(
+        known
+            .files
+            .get("mods/sodium.jar")
+            .is_none_or(|e| e.modrinth.is_none())
     );
 }
 
@@ -669,6 +738,66 @@ fn a_file_of_another_project_never_passes_for_the_one_named() {
     );
     // The label's direction override is gone from the instance's name.
     assert_eq!(imported.instance.name, "Survivallacitnedi");
+}
+
+#[test]
+fn a_url_that_resolves_to_another_project_never_passes_for_the_one_named() {
+    let evil: &[u8] = b"another project's jar";
+    let evil_url = "https://cdn.modrinth.com/data/EVILPROJ/versions/x1/evil.jar";
+    for spoof in [
+        "https://cdn.modrinth.com/data/AANobbMI/versions/v1/../../../EVILPROJ/versions/x1/evil.jar",
+        "https://cdn.modrinth.com/data/AANobbMI/versions/v1/%2e%2e/%2E%2E/%2e%2e/EVILPROJ/versions/x1/evil.jar",
+        "https://cdn.modrinth.com/data/AANobbMI/versions/v1/..\\..\\..\\EVILPROJ/versions/x1/evil.jar",
+        "https://cdn.modrinth.com/data/AANobbMI/versions/v1/evil.jar?x=../../EVILPROJ",
+    ] {
+        let other = elsewhere();
+        other.mock.serve(evil_url, evil);
+        let file = other.data.root().join("spoof.lodeimg");
+        // The bytes are carried too, under another path.
+        hostile_export(
+            &other.data.root().join("sender"),
+            lodestone_image::Loader::Fabric,
+            &[
+                (
+                    "mods/sodium.jar",
+                    evil,
+                    lodestone_image::Source::Modrinth {
+                        project: "AANobbMI".into(),
+                        version: "v1".into(),
+                        url: spoof.into(),
+                    },
+                    Some(hex_sha512(evil)),
+                ),
+                (
+                    "config/blob.bin",
+                    evil,
+                    lodestone_image::Source::Object {},
+                    None,
+                ),
+            ],
+            &file,
+        );
+        // Carried, so the preview names it as the sender's file.
+        assert_eq!(export::inspect(&file).unwrap().carried_mods, ["sodium.jar"]);
+        let imported = import(&other, &file, true).unwrap();
+        let known = Provenance::load(&other.store.dir(&imported.instance.id));
+        assert!(
+            known
+                .files
+                .get("mods/sodium.jar")
+                .is_none_or(|e| e.modrinth.is_none()),
+            "{spoof}: {:?}",
+            known.files.get("mods/sodium.jar")
+        );
+        assert!(
+            other
+                .mock
+                .requests()
+                .iter()
+                .all(|r| !r.path.ends_with("/evil.jar")),
+            "{spoof} was downloaded"
+        );
+    }
 }
 
 #[test]

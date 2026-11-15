@@ -1090,30 +1090,34 @@ impl SnapshotDialog {
                     } else {
                         M::FilesDiffer
                     };
-                    let mut differs = note(t(headline).to_string());
-                    for line in restore_changes(diff) {
+                    // The toggle first, then what it changes, introduced as such: they
+                    // only happen if it is turned on.
+                    let mut differs = note(t(headline).to_string()).child(
+                        div()
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap_2()
+                            .child(
+                                Toggle::new("snapshot-mods-too", false)
+                                    .label(t(M::RestoreModsToo))
+                                    .on_change(cx.listener(|this, value: &bool, _, cx| {
+                                        if *value {
+                                            this.choice = Choice::WorldsAndMods;
+                                        }
+                                        cx.notify();
+                                    })),
+                            )
+                            .child(muted(t(M::RestoreModsToo))),
+                    );
+                    let changes = restore_changes(diff);
+                    if !changes.is_empty() {
+                        differs = differs.child(muted(t(M::RestoreModsTooChanges)));
+                    }
+                    for line in changes {
                         differs = differs.child(muted(line));
                     }
-                    body = body.child(
-                        differs.child(
-                            div()
-                                .flex()
-                                .flex_row()
-                                .items_center()
-                                .gap_2()
-                                .child(
-                                    Toggle::new("snapshot-mods-too", false)
-                                        .label(t(M::RestoreModsToo))
-                                        .on_change(cx.listener(|this, value: &bool, _, cx| {
-                                            if *value {
-                                                this.choice = Choice::WorldsAndMods;
-                                            }
-                                            cx.notify();
-                                        })),
-                                )
-                                .child(muted(t(M::RestoreModsToo))),
-                        ),
-                    );
+                    body = body.child(differs);
                 }
             }
             Choice::Everything => {

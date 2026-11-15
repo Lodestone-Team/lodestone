@@ -476,6 +476,7 @@ fn a_crash_at_any_rename_is_undone_at_the_next_start() {
         assert!(phase.is_some());
         assert!(!journal.exists());
         swap::remove_leftovers(&root);
+        swap::empty_trash(&root);
         assert_eq!(
             files(&root),
             before,
@@ -512,6 +513,21 @@ fn a_failed_rename_rolls_back_and_a_broken_rollback_waits_for_the_next_start() {
     assert!(journal.exists());
     swap::recover_one(&root, &journal).unwrap();
     swap::remove_leftovers(&root);
+    // Recovery only renames: the staged copy waits in the trash for the background.
+    let trash = |root: &std::path::Path| {
+        std::fs::read_dir(root)
+            .unwrap()
+            .flatten()
+            .filter(|e| {
+                e.file_name()
+                    .to_string_lossy()
+                    .starts_with(swap::TRASH_PREFIX)
+            })
+            .count()
+    };
+    assert!(trash(&root) >= 1);
+    swap::empty_trash(&root);
+    assert_eq!(trash(&root), 0);
     assert_eq!(files(&root), before);
 }
 
@@ -559,6 +575,7 @@ fn what_another_job_wrote_meanwhile_is_kept_aside() {
     .unwrap();
     swap::recover_one(&root, &journal).unwrap();
     swap::remove_leftovers(&root);
+    swap::empty_trash(&root);
     let now = files(&root);
     let (kept, rest): (BTreeMap<String, Vec<u8>>, BTreeMap<String, Vec<u8>>) = now
         .into_iter()
@@ -589,6 +606,7 @@ fn a_crash_after_the_swap_finished_keeps_what_another_job_wrote() {
         Some(swap::Phase::Done)
     );
     swap::remove_leftovers(&root);
+    swap::empty_trash(&root);
     let (kept, rest): (BTreeMap<String, Vec<u8>>, BTreeMap<String, Vec<u8>>) = files(&root)
         .into_iter()
         .partition(|(path, _)| path.starts_with(swap::LEFTOVERS_PREFIX));
@@ -633,6 +651,7 @@ fn work_folders_without_a_journal_never_lose_the_instances_files() {
     .unwrap();
     std::fs::remove_file(&journal).unwrap();
     swap::remove_leftovers(&root);
+    swap::empty_trash(&root);
     let now = files(&root);
     assert!(
         now.iter()
@@ -690,6 +709,7 @@ fn an_interrupted_restore_is_recovered_when_the_launcher_starts() {
     let recovery = s.images.recover_restores();
     assert_eq!(recovery.repaired, [s.id().to_string()]);
     assert!(recovery.broken.is_empty());
+    s.images.empty_restore_trash(None);
     assert_eq!(files(&root), before);
     // A staging folder a crash left before any journal is deleted too.
     std::fs::create_dir_all(root.join(format!(
@@ -699,6 +719,7 @@ fn an_interrupted_restore_is_recovered_when_the_launcher_starts() {
     )))
     .unwrap();
     s.images.recover_restores();
+    s.images.empty_restore_trash(None);
     assert_eq!(files(&root), before);
 }
 
@@ -737,7 +758,71 @@ fn an_unfinished_restore_is_reported_and_retried() {
         .retry_unfinished_restore(s.id(), std::time::Duration::from_secs(1))
         .unwrap();
     assert!(!s.images.restore_unfinished(s.id()));
+    s.images.empty_restore_trash(Some(s.id()));
     assert_eq!(files(&root), before);
+}
+
+/// A swap whose rollback failed, with the world renamed aside and the journal kept; then
+/// the instance deleted (its images retired, the journal with them) and put back.
+fn broken_then_deleted_and_put_back(s: &Setup) {
+    let root = s.store.dir(s.id());
+    let suffix = swap::random_suffix();
+    let staging = root.join(format!("{}{suffix}", swap::STAGING_PREFIX));
+    std::fs::create_dir_all(staging.join("minecraft/saves/World")).unwrap();
+    std::fs::write(staging.join("minecraft/saves/World/level.dat"), b"new").unwrap();
+    let replaced: HashSet<String> = ["minecraft/saves/World/level.dat".to_string()].into();
+    let mut staged = Staged::new(
+        &root,
+        suffix,
+        &["minecraft/saves/World".to_string()],
+        &replaced,
+        &["minecraft/saves/World/level.dat".to_string()],
+    )
+    .unwrap();
+    staged.faults.fail_after = Some(1);
+    staged.faults.break_rollback = true;
+    let journal = s
+        .images
+        .store()
+        .instance_dir(s.id())
+        .unwrap()
+        .join(swap::JOURNAL_FILE);
+    assert!(matches!(staged.swap(&journal), Err(SwapError::Broken(_))));
+    let trash = s.data.root().join("trash-copy");
+    std::fs::rename(&root, &trash).unwrap();
+    s.images.delete_instance(s.id()).unwrap();
+    std::fs::rename(&trash, &root).unwrap();
+    assert!(!s.images.store().instance_dir(s.id()).unwrap().exists());
+    assert!(!root.join("minecraft/saves/World/level.dat").exists());
+}
+
+#[test]
+fn play_sees_an_unfinished_restore_kept_with_a_deleted_instances_snapshots() {
+    let (s, _) = played();
+    let root = s.store.dir(s.id());
+    let before = files(&root);
+    broken_then_deleted_and_put_back(&s);
+    assert!(s.images.restore_unfinished(s.id()), "Play must refuse");
+    s.images
+        .retry_unfinished_restore(s.id(), std::time::Duration::from_secs(1))
+        .unwrap();
+    assert!(!s.images.restore_unfinished(s.id()));
+    s.images.empty_restore_trash(Some(s.id()));
+    assert_eq!(files(&root), before);
+    assert!(s.images.deleted_snapshots().unwrap().is_empty());
+}
+
+#[test]
+fn startup_undoes_an_unfinished_restore_kept_with_a_deleted_instances_snapshots() {
+    let (s, _) = played();
+    let root = s.store.dir(s.id());
+    let before = files(&root);
+    broken_then_deleted_and_put_back(&s);
+    let recovery = s.images.recover_restores();
+    assert_eq!(recovery.repaired, [s.id().to_string()]);
+    assert!(!s.images.restore_unfinished(s.id()));
+    s.images.empty_restore_trash(None);
+    assert_eq!(files(&root), before, "nothing is left in restore-leftovers");
 }
 
 #[test]

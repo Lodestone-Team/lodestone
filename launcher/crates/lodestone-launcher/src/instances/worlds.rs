@@ -27,7 +27,7 @@ use gpui::{
 use launcher_core::{
     content::{InstanceDirs, packs::Compatibility},
     datapacks::{self, PackState, WorldDataPacks},
-    game::download::{CancelToken, Progress},
+    game::download::{CancelToken, Progress, ProgressSnapshot},
     images::{ImageError, Images, RestoreScope, SnapshotKind, SnapshotRecord, Take, labels},
     screenshots::{self, Screenshot},
     worlds::{self, World, WorldError},
@@ -277,6 +277,8 @@ pub struct WorldsView {
     /// ([`Instances::snapshot_revision`]).
     snapshot_revision: u64,
     load_task: Option<Task<()>>,
+    /// Re-reads the backups alone after a snapshot change ([`Self::reload_backups`]).
+    backups_task: Option<Task<()>>,
     shots_task: Option<Task<()>>,
     large_task: Option<Task<()>>,
     _prompt: Option<Task<()>>,
@@ -350,6 +352,7 @@ impl WorldsView {
             was_active: false,
             snapshot_revision: 0,
             load_task: None,
+            backups_task: None,
             shots_task: None,
             large_task: None,
             _prompt: None,
@@ -406,8 +409,9 @@ impl WorldsView {
             self.reload(cx);
             self.reload_screenshots(cx);
         } else if snapshots != self.snapshot_revision && !matches!(self.worlds, Load::NotLoaded) {
-            // a snapshot was taken or deleted elsewhere: the backups listed changed
-            self.reload(cx);
+            // a snapshot was taken or deleted elsewhere: the backups listed changed, not the
+            // worlds
+            self.reload_backups(cx);
         }
         self.snapshot_revision = snapshots;
         self.was_active = active;
@@ -513,6 +517,38 @@ impl WorldsView {
             self.load_datapacks(folder, cx);
         }
         cx.notify();
+    }
+
+    /// Reads the snapshots again for the backups each world lists, against the worlds
+    /// already listed: no level.dat or icon is read again. A full [`Self::reload`] when
+    /// the worlds aren't listed yet.
+    fn reload_backups(&mut self, cx: &mut Context<Self>) {
+        let Load::Ready(list) = &self.worlds else {
+            return self.reload(cx);
+        };
+        let Some((id, dirs)) = self.dirs(cx) else {
+            return;
+        };
+        let list = list.clone();
+        let images = self.instances.read(cx).images();
+        let work = cx.background_spawn(async move {
+            let records = images
+                .snapshots(&id_of(&dirs))
+                .map(|found| found.records)
+                .unwrap_or_default();
+            backups_of(&list, &records)
+        });
+        self.backups_task = Some(cx.spawn(async move |this, cx| {
+            let backups = work.await;
+            this.update(cx, |this, cx| {
+                if this.instance_id.as_deref() != Some(id.as_str()) {
+                    return;
+                }
+                this.backups = backups;
+                cx.notify();
+            })
+            .ok();
+        }));
     }
 
     pub fn ensure_loaded(&mut self, cx: &mut Context<Self>) {
@@ -622,17 +658,30 @@ impl WorldsView {
         cx.notify();
     }
 
-    /// Backs the world up: a manual snapshot named after it.
+    /// Backs the world up: a manual snapshot named after it, with the bytes it reads as
+    /// the job's progress, and stopped by its Cancel.
     pub fn back_up(&mut self, folder: String, name: String, cx: &mut Context<Self>) {
         self.expanded = Some(folder.clone());
         let (images, instance) = self.images_of(cx);
         self.run(
             JobLabel::BackingUp(name.clone()),
-            move |_, _, _| {
+            move |_, progress, cancel| {
                 images
                     .take_snapshot(
                         &instance,
-                        Take::new(SnapshotKind::Manual, labels::backed_up(&name)),
+                        Take {
+                            kind: SnapshotKind::Manual,
+                            name: Some(labels::backed_up(&name)),
+                            full: false,
+                            progress: &|done, total| {
+                                progress.set(ProgressSnapshot {
+                                    bytes_done: done,
+                                    bytes_total: total,
+                                    ..ProgressSnapshot::default()
+                                })
+                            },
+                            cancel: &|| cancel.is_cancelled(),
+                        },
                     )
                     .map_err(world_error)?;
                 Ok(tr!(M::BackedUp, name = name))
@@ -648,14 +697,11 @@ impl WorldsView {
         let (images, instance) = self.images_of(cx);
         self.run(
             JobLabel::Restoring,
-            move |_, _, _| {
+            move |_, _, cancel| {
                 let copy = images
-                    .restore_world_copy(
-                        &instance,
-                        &backup.snapshot,
-                        &folder,
-                        launcher_core::images::NEVER,
-                    )
+                    .restore_world_copy(&instance, &backup.snapshot, &folder, &|| {
+                        cancel.is_cancelled()
+                    })
                     .map_err(world_error)?;
                 Ok(tr!(M::RestoredAsCopy, folder = copy))
             },
@@ -672,13 +718,13 @@ impl WorldsView {
         let (images, instance) = self.images_of(cx);
         self.run(
             JobLabel::Replacing,
-            move |_, _, _| {
+            move |_, _, cancel| {
                 let restored = images
                     .restore(
                         &instance,
                         &backup.snapshot,
                         &RestoreScope::Worlds(vec![folder.clone()]),
-                        launcher_core::images::NEVER,
+                        &|| cancel.is_cancelled(),
                     )
                     .map_err(world_error)?;
                 Ok(match restored.safety {

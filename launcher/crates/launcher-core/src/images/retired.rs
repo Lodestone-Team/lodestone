@@ -217,21 +217,8 @@ impl Images {
     /// from deleting it meanwhile.
     pub(crate) fn readopt_locked(&self, id: &str, created: u64) -> Result<bool, ImageError> {
         let dir = self.store().instance_dir(id)?;
-        if dir.exists() || id.starts_with(RETIRED_PREFIX) {
-            return Ok(false);
-        }
         let images_dir = self.store().images_dir();
-        let Some(folder) = self
-            .retired_folders()
-            .into_iter()
-            .map(|folder| {
-                let marker = read_marker(&images_dir.join(&folder));
-                (folder, marker)
-            })
-            .filter(|(_, m)| m.former_id == id && m.instance_created == Some(created))
-            .max_by_key(|(_, m)| m.deleted)
-            .map(|(folder, _)| folder)
-        else {
+        let Some(folder) = self.readoptable(id, created)? else {
             return Ok(false);
         };
         let slot = self.slot(&folder);
@@ -262,6 +249,73 @@ impl Images {
         );
         self.snapshots_changed(id);
         Ok(true)
+    }
+
+    /// The retired folder [`Self::readopt_locked`] would take back for the instance `id`
+    /// created at `created`: the most recently deleted one whose marker names both. `None`
+    /// when the instance has images of its own (`images/<id>/` is there).
+    fn readoptable(&self, id: &str, created: u64) -> Result<Option<String>, ImageError> {
+        let dir = self.store().instance_dir(id)?;
+        if dir.exists() || id.starts_with(RETIRED_PREFIX) {
+            return Ok(None);
+        }
+        let images_dir = self.store().images_dir();
+        Ok(self
+            .retired_folders()
+            .into_iter()
+            .map(|folder| {
+                let marker = read_marker(&images_dir.join(&folder));
+                (folder, marker)
+            })
+            .filter(|(_, m)| m.former_id == id && m.instance_created == Some(created))
+            .max_by_key(|(_, m)| m.deleted)
+            .map(|(folder, _)| folder))
+    }
+
+    /// Whether the snapshots [`Self::readopt_locked`] would take back for `instance` hold
+    /// an unfinished restore's journal (`restore-journal.json`): retiring keeps it, and
+    /// until they are taken back no other check sees it. For Play's gate.
+    pub(crate) fn retired_journal(&self, instance: &str) -> bool {
+        if self.retired_folders().is_empty() {
+            return false;
+        }
+        let Ok(found) = self.instances().get(instance) else {
+            return false;
+        };
+        self.readoptable(instance, found.created)
+            .ok()
+            .flatten()
+            .is_some_and(|folder| {
+                self.store()
+                    .images_dir()
+                    .join(folder)
+                    .join(super::swap::JOURNAL_FILE)
+                    .exists()
+            })
+    }
+
+    /// Takes back the snapshots of `instance` if it came back after it was deleted
+    /// ([`Self::readopt_locked`]), before a check for an unfinished restore's journal,
+    /// which comes back with them. The caller holds the instance's record lock. A failure
+    /// is only noted: the journal then stays where it is, and Play keeps refusing.
+    pub(crate) fn readopt_before_journal_check(&self, instance: &str) {
+        if self
+            .store()
+            .instance_dir(instance)
+            .is_ok_and(|dir| dir.exists())
+            || self.retired_folders().is_empty()
+        {
+            return;
+        }
+        let Ok(found) = self.instances().get(instance) else {
+            return;
+        };
+        let readopted = self
+            .enter()
+            .and_then(|_writing| self.readopt_locked(instance, found.created));
+        if let Err(e) = readopted {
+            super::warn("images.readopted", instance, &e.to_string());
+        }
     }
 
     /// Whether `images/<id>/` has a retirement marker: its images are a deleted instance's,

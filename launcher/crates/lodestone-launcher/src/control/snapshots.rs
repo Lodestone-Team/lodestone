@@ -152,14 +152,45 @@ fn apply_policy(settings: &mut SnapshotSettings, params: &Value) -> Result<bool,
     Ok(changed)
 }
 
-/// The instance's snapshot `reference`, read now (blocking: the records file).
-pub(super) fn find_now(
-    images: &Images,
+/// Reads the instance's snapshots in the background, as reading them can wait for the
+/// instance's record lock (a snapshot being taken holds it) and reconciles the store, and
+/// passes them to `lookup` there too; then runs `then` with what it found on the window's
+/// thread, where it can confirm and start a job.
+pub(super) fn with_snapshots<T: Send + 'static>(
+    images: Arc<Images>,
     instance: &Instance,
-    reference: &str,
-) -> Result<SnapshotRecord, ErrorObject> {
-    let records = images.snapshots(&instance.id).map_err(image_error)?.records;
-    find(&records, instance, reference)
+    lookup: impl FnOnce(&Images, Vec<SnapshotRecord>) -> Result<T, ErrorObject> + Send + 'static,
+    then: impl FnOnce(T, &mut App) -> Reply + 'static,
+    cx: &mut App,
+) -> Reply {
+    let id = instance.id.clone();
+    let found = cx.background_spawn(async move {
+        let records = images.snapshots(&id).map_err(image_error)?.records;
+        lookup(&images, records)
+    });
+    cx.spawn(async move |cx| {
+        let found = found.await?;
+        let reply = cx.update(|cx| then(found, cx));
+        reply.await
+    })
+}
+
+/// [`with_snapshots`] for the one snapshot `reference` names (see [`find`]).
+fn with_snapshot(
+    images: Arc<Images>,
+    instance: &Instance,
+    reference: String,
+    then: impl FnOnce(SnapshotRecord, &mut App) -> Reply + 'static,
+    cx: &mut App,
+) -> Reply {
+    let named = instance.clone();
+    with_snapshots(
+        images,
+        instance,
+        move |_, records| find(&records, &named, &reference),
+        then,
+        cx,
+    )
 }
 
 fn snapshot_param(call: &Call) -> Result<String, ErrorObject> {
@@ -370,12 +401,38 @@ pub fn restore(call: Call, cx: &mut App) -> Reply {
     let params: RestoreParams = params!(call);
     let instance = tri!(call.control.instance_param(&call, cx));
     let images = call.control.instances.read(cx).images();
-    let snapshot = tri!(find_now(&images, &instance, &tri!(snapshot_param(&call))));
-    let preview = tri!(
-        images
-            .preview_restore(&instance.id, &snapshot.id)
-            .map_err(image_error)
-    );
+    let reference = tri!(snapshot_param(&call));
+    // The preview reads the snapshot's manifests and checks its objects: in the
+    // background too.
+    let named = instance.clone();
+    let id = instance.id.clone();
+    with_snapshots(
+        images.clone(),
+        &instance.clone(),
+        move |images, records| {
+            let snapshot = find(&records, &named, &reference)?;
+            let preview = images
+                .preview_restore(&id, &snapshot.id)
+                .map_err(image_error)?;
+            Ok((snapshot, preview))
+        },
+        move |(snapshot, preview), cx| {
+            restore_found(call, params, instance, images, snapshot, preview, cx)
+        },
+        cx,
+    )
+}
+
+/// [`restore`] once the snapshot and its preview are read.
+fn restore_found(
+    call: Call,
+    params: RestoreParams,
+    instance: Instance,
+    images: Arc<Images>,
+    snapshot: SnapshotRecord,
+    preview: launcher_core::images::RestorePreview,
+    cx: &mut App,
+) -> Reply {
     if params.preview {
         return ready(Ok(json!({
             "snapshot": record_json(&snapshot),
@@ -489,10 +546,14 @@ pub fn restore(call: Call, cx: &mut App) -> Reply {
             )
         }
         None => {
+            // An imported snapshot's name is the sender's: without the invisible
+            // characters that could make it show as another name, as the import does.
             let name = params
                 .name
-                .filter(|n| !n.trim().is_empty())
-                .unwrap_or_else(|| format!("{} ({})", instance.name, snapshot.name));
+                .filter(|n| !export::shown_name(n).trim().is_empty())
+                .unwrap_or_else(|| {
+                    format!("{} ({})", instance.name, export::shown_name(&snapshot.name))
+                });
             let label = format!("Making an instance from {}", snapshot.name_shown());
             let source = instance.id.clone();
             job(
@@ -520,8 +581,26 @@ pub fn restore(call: Call, cx: &mut App) -> Reply {
 pub fn export(call: Call, cx: &mut App) -> Reply {
     let instance = tri!(call.control.instance_param(&call, cx));
     let images = call.control.instances.read(cx).images();
-    let snapshot = tri!(find_now(&images, &instance, &tri!(snapshot_param(&call))));
-    let mut path = tri!(path_param(&call));
+    let reference = tri!(snapshot_param(&call));
+    let path = tri!(path_param(&call));
+    with_snapshot(
+        images.clone(),
+        &instance.clone(),
+        reference,
+        move |snapshot, cx| export_found(call, instance, images, snapshot, path, cx),
+        cx,
+    )
+}
+
+/// [`export`] once the snapshot is found.
+fn export_found(
+    call: Call,
+    instance: Instance,
+    images: Arc<Images>,
+    snapshot: SnapshotRecord,
+    mut path: PathBuf,
+    cx: &mut App,
+) -> Reply {
     if path.is_dir() {
         path = path.join(format!(
             "{} - {}.{}",
@@ -656,7 +735,24 @@ pub fn import(call: Call, cx: &mut App) -> Reply {
 pub fn delete(call: Call, cx: &mut App) -> Reply {
     let instance = tri!(call.control.instance_param(&call, cx));
     let images = call.control.instances.read(cx).images();
-    let snapshot = tri!(find_now(&images, &instance, &tri!(snapshot_param(&call))));
+    let reference = tri!(snapshot_param(&call));
+    with_snapshot(
+        images.clone(),
+        &instance.clone(),
+        reference,
+        move |snapshot, cx| delete_found(call, instance, images, snapshot, cx),
+        cx,
+    )
+}
+
+/// [`delete`] once the snapshot is found.
+fn delete_found(
+    call: Call,
+    instance: Instance,
+    images: Arc<Images>,
+    snapshot: SnapshotRecord,
+    cx: &mut App,
+) -> Reply {
     tri!(call.confirm(format!(
         "deletes the snapshot \"{}\" of \"{}\", for good",
         snapshot.name_shown(),
@@ -692,7 +788,25 @@ pub fn pin(call: Call, cx: &mut App) -> Reply {
     let params: PinParams = params!(call);
     let instance = tri!(call.control.instance_param(&call, cx));
     let images = call.control.instances.read(cx).images();
-    let snapshot = tri!(find_now(&images, &instance, &tri!(snapshot_param(&call))));
+    let reference = tri!(snapshot_param(&call));
+    with_snapshot(
+        images.clone(),
+        &instance.clone(),
+        reference,
+        move |snapshot, cx| pin_found(call, params, instance, images, snapshot, cx),
+        cx,
+    )
+}
+
+/// [`pin`] once the snapshot is found.
+fn pin_found(
+    call: Call,
+    params: PinParams,
+    instance: Instance,
+    images: Arc<Images>,
+    snapshot: SnapshotRecord,
+    cx: &mut App,
+) -> Reply {
     let pinning = cx.background_spawn({
         let instance = instance.id.clone();
         let id = snapshot.id.clone();

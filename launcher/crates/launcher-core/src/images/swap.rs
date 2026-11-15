@@ -56,6 +56,10 @@ const REPLACED_DIR: &str = ".replaced";
 /// files a swap or its rollback found in its way and that no snapshot holds are kept
 /// (written by another job meanwhile), rather than deleted with the work folders.
 pub const LEFTOVERS_PREFIX: &str = "restore-leftovers-";
+/// A work folder that recovery is done with, before 16 hex digits: renamed so (a rename
+/// only, as recovery runs on the window's thread) and deleted in the background
+/// ([`empty_trash`]), since a staged copy can be gigabytes.
+pub const TRASH_PREFIX: &str = ".lodestone-restore-trash-";
 
 /// Why a swap failed.
 #[derive(Debug)]
@@ -150,6 +154,35 @@ pub(crate) fn random_suffix() -> String {
     format!("{:016x}", u64::from_le_bytes(crate::random_bytes()))
 }
 
+/// Renames the work folder `dir` in the instance folder `root` to a trash name, for
+/// [`empty_trash`] to delete; deletes it here only when that rename fails.
+fn discard(root: &Path, dir: &Path) {
+    let trash = root.join(format!("{TRASH_PREFIX}{}", random_suffix()));
+    if crate::fsx::rename(dir, &trash).is_err() {
+        let _ = super::remove_tree(dir);
+    }
+}
+
+/// Deletes the work folders recovery renamed to trash ([`TRASH_PREFIX`]) in the instance
+/// folder `root`. Blocking and possibly long: run it in the background. Nothing else
+/// writes a trash folder, so it is safe beside a restore of the same instance.
+pub(crate) fn empty_trash(root: &Path) {
+    let Ok(entries) = fs::read_dir(root) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if entry
+            .file_name()
+            .to_str()
+            .is_some_and(|name| name.starts_with(TRASH_PREFIX))
+            && is_real_dir(&path)
+        {
+            let _ = super::remove_tree(&path);
+        }
+    }
+}
+
 /// `rel` (a `/`-separated relative path) under `base`.
 pub(crate) fn join_rel(base: &Path, rel: &str) -> PathBuf {
     rel.split('/')
@@ -215,7 +248,8 @@ impl Staged {
     /// of; a name inside an owned folder it can't handle; and a name on disk spelled
     /// differently from the snapshot's (letter case, or accents written another way) where
     /// the disk takes them for one, since the copy on disk would then win over the
-    /// snapshot's without a word.
+    /// snapshot's without a word. Called before staging too, as a check (the staging
+    /// folder isn't there yet), so these refusals come before gigabytes are staged.
     pub(crate) fn new(
         root: &Path,
         staging: String,
@@ -272,10 +306,9 @@ impl Staged {
         // A carried path the staging also has: on a disk that takes two spellings for one
         // name, the snapshot's copy would lose to it; elsewhere, it is a file the safety
         // snapshot couldn't take that the restore would overwrite.
-        if let Some(clash) = carried
-            .iter()
-            .find(|path| exists(&join_rel(&staging_dir, path)))
-        {
+        if let Some(clash) = carried.iter().find(|path| {
+            placed_set.contains(path.as_str()) || exists(&join_rel(&staging_dir, path))
+        }) {
             return Err(ImageError::Invalid(format!(
                 "{clash} on disk isn't in the safety snapshot, or is spelled differently from the snapshot's copy (letter case or accents); rename or move it away, and try again"
             )));
@@ -866,7 +899,8 @@ pub(crate) fn read_journal(path: &Path) -> Result<Option<Journal>, String> {
 }
 
 /// Finishes or undoes the swap `journal_path` describes in the instance folder `root`,
-/// then deletes the journal and the work folders. Ok(None) when there was no journal.
+/// then deletes the journal and renames the work folders to trash ([`empty_trash`]
+/// deletes them): renames only. Ok(None) when there was no journal.
 pub(crate) fn recover_one(root: &Path, journal_path: &Path) -> Result<Option<Phase>, String> {
     let Some(journal) = read_journal(journal_path)? else {
         return Ok(None);
@@ -901,16 +935,16 @@ pub(crate) fn recover_one(root: &Path, journal_path: &Path) -> Result<Option<Pha
         root.join(format!("{OLD_PREFIX}{}", journal.old)),
     ] {
         if is_real_dir(&dir) {
-            let _ = super::remove_tree(&dir);
+            discard(root, &dir);
         }
     }
     Ok(Some(journal.phase))
 }
 
 /// Clears restore work folders in the instance folder `root` that no journal names. A
-/// staging folder is deleted (a crash while staging, before the journal was written, leaves
-/// only copies from the store), except what a rollback set aside in it (`.rollback-<n>/`),
-/// which may be files from the instance. An old folder only outlives its journal when its
+/// staging folder is renamed to trash for [`empty_trash`] (a crash while staging, before
+/// the journal was written, leaves only copies from the store), except what a rollback set
+/// aside in it (`.rollback-<n>/`), which may be files from the instance. Renames only. An old folder only outlives its journal when its
 /// clean-up failed or the journal was lost, and may hold files no snapshot has (carried
 /// ones, or ones written meanwhile): it is kept as `restore-leftovers-<16>/`, never
 /// deleted.
@@ -953,7 +987,7 @@ pub(crate) fn remove_leftovers(root: &Path) {
                     .is_some_and(|n| n.bytes().all(|b| b.is_ascii_digit()))
                     .then(|| rest.to_string())
             });
-            let _ = super::remove_tree(&path);
+            discard(root, &path);
         }
     }
 }

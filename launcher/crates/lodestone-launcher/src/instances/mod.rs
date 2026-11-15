@@ -642,7 +642,8 @@ impl Instances {
         let store = InstanceStore::new(data_dir.instances_dir());
         let images = Images::open(&data_dir);
         // A restore a crash interrupted is finished or undone before anything can be
-        // played: on this thread, since it only renames folders back.
+        // played: on this thread, since it only renames folders (back, or to the trash
+        // that the task below empties).
         let recovery = images.recover_restores();
         if !recovery.broken.is_empty() {
             log::warn!(
@@ -657,6 +658,7 @@ impl Instances {
         let forgetting = images.clone();
         let old_store = data_dir.clone();
         cx.background_spawn(async move {
+            forgetting.empty_restore_trash(None);
             if let Err(err) = forgetting.forget_deleted() {
                 log::warn!("Couldn't forget the images of deleted instances: {err}");
             }
@@ -2004,20 +2006,25 @@ impl Instances {
         }
         // A restore whose rollback failed (at startup, or while it ran) may have left
         // worlds or mods renamed aside: the game would start without them and write fresh
-        // ones. Undone now if it can be (renames only, so on this thread); Play waits until
-        // it is.
-        if self.images.restore_unfinished(id)
-            && let Err(err) = self
+        // ones. Undone now if it can be (renames only, so on this thread, with the work
+        // folders deleted in the background); Play waits until it is.
+        if self.images.restore_unfinished(id) {
+            if let Err(err) = self
                 .images
                 .retry_unfinished_restore(id, Duration::from_millis(300))
-        {
-            log::warn!("Play of {id} waits for an unfinished restore: {err}");
-            cx.emit(InstancesEvent::LaunchFailed {
-                title: t(M::CouldntStartMinecraft).into(),
-                message: t(M::RestoreUnfinished).into(),
-                about: About::Instance(id.to_string()),
-            });
-            return;
+            {
+                log::warn!("Play of {id} waits for an unfinished restore: {err}");
+                cx.emit(InstancesEvent::LaunchFailed {
+                    title: t(M::CouldntStartMinecraft).into(),
+                    message: t(M::RestoreUnfinished).into(),
+                    about: About::Instance(id.to_string()),
+                });
+                return;
+            }
+            let images = self.images.clone();
+            let instance = id.to_string();
+            cx.background_spawn(async move { images.empty_restore_trash(Some(&instance)) })
+                .detach();
         }
         let Ok(mut instance) = self.store.get(id) else {
             return;

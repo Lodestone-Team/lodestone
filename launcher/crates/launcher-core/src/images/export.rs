@@ -7,7 +7,8 @@
 //! `object`. Mods and packs from Modrinth or CurseForge travel as references, not jars,
 //! so an export of a modded instance is mostly its worlds and configs. Files that must
 //! never leave the computer ([`PRIVATE_FILES`]: the commands the player typed, a
-//! server's `/login` password among them, and account switchers' account files) are taken
+//! server's `/login` password among them, and the account files of the official launcher
+//! and of account switchers) are taken
 //! out of both images, which say so in their `excludes`; the export's ids are then those
 //! of the stripped images. Best effort: an account file of a mod not listed still travels,
 //! and the dialog says what was left out.
@@ -50,15 +51,20 @@ pub const EXTENSION: &str = "lodeimg";
 
 /// Files an export never carries, as image exclude patterns (a name at any depth, a path
 /// with `/` from the game folder): the commands the player typed (passwords given to a
-/// server's `/login` among them), the saved hotbars, and the account files of account
+/// server's `/login` among them), the saved hotbars, the account files of account
 /// switchers that keep sign-ins in the game folder (In-Game Account Switcher's
-/// `ias.json`, Essential's account files).
+/// `ias.json`, Essential's account files), and the official launcher's account files at
+/// the top of the game folder (a `.minecraft` folder pasted into an instance has them;
+/// `strip_private` matches them in any case, as `import::copy` does).
 pub const PRIVATE_FILES: &[&str] = &[
     "command_history.txt",
     "hotbar.nbt",
     "ias.json",
     "essential/microsoft_accounts.json",
     "essential/mojang_accounts.json",
+    "/launcher_profiles.json",
+    "/launcher_accounts*.json",
+    "/launcher_msa_credentials*.bin",
     // The JVM's crash logs and dumps, which snapshots leave out: a crash log holds the
     // command line, access token included. `strip_private` also takes out every top-level
     // name `scope::is_crash_name` matches (any case), as an image from elsewhere may hold
@@ -132,7 +138,8 @@ pub struct ImportPreview {
 #[derive(Debug, Clone)]
 pub struct Imported {
     pub instance: Instance,
-    /// Files it couldn't get (CurseForge files that can't be downloaded), by path.
+    /// Files no download confirmed and whose bytes neither the file nor the store had, by
+    /// path: left out of the instance.
     pub left_out: Vec<String>,
 }
 
@@ -151,9 +158,11 @@ fn strip_private(image: &mut Image) -> Vec<String> {
     let excludes = Excludes::new(&patterns);
     let mut left_out = Vec::new();
     image.entries.retain(|entry| {
-        let top_level_crash =
-            !entry.path.as_str().contains('/') && is_crash_name(entry.path.as_str());
-        let private = top_level_crash || excludes.excludes(entry.path.as_str(), false);
+        let top_level = !entry.path.as_str().contains('/');
+        let top_level_secret = top_level
+            && (is_crash_name(entry.path.as_str())
+                || crate::import::copy::is_account_file(entry.path.as_str()));
+        let private = top_level_secret || excludes.excludes(entry.path.as_str(), false);
         if private {
             left_out.push(entry.path.to_string());
         }
@@ -346,12 +355,44 @@ fn check_entries(entries: &[Entry]) -> Result<(), ImageError> {
 /// author allows (with a client to ask).
 fn downloadable(entry: &Entry, curseforge: bool) -> bool {
     match &entry.source {
-        Source::Modrinth { url, .. } => {
-            entry.sha512.is_some() && Source::modrinth_from_url(url).as_ref() == Some(&entry.source)
-        }
+        Source::Modrinth {
+            url,
+            project,
+            version,
+        } => entry.sha512.is_some() && names_modrinth_file(url, project, version),
         Source::Curseforge { downloadable, .. } => *downloadable && curseforge,
         _ => false,
     }
+}
+
+/// Whether `url` is the Modrinth CDN URL of a file of `project`'s `version`, written the
+/// way the URL parser writes it (so no dot segments, backslashes or other spellings that
+/// would download another path than the one checked): exactly
+/// `https://cdn.modrinth.com/data/<project>/versions/<version>/<file>`, with base62 ids
+/// as Modrinth's are, no query, and a file name without an encoded `.`, `/` or `\`.
+fn names_modrinth_file(url: &str, project: &str, version: &str) -> bool {
+    let Ok(parsed) = url::Url::parse(url) else {
+        return false;
+    };
+    let id = |text: &str| !text.is_empty() && text.bytes().all(|b| b.is_ascii_alphanumeric());
+    let Some(segments) = parsed.path_segments() else {
+        return false;
+    };
+    let segments: Vec<&str> = segments.collect();
+    let file_ok = |file: &str| {
+        let lower = file.to_ascii_lowercase();
+        !file.is_empty() && !["%2e", "%2f", "%5c"].iter().any(|bad| lower.contains(bad))
+    };
+    parsed.as_str() == url
+        && Source::modrinth_from_url(url).is_some()
+        && parsed.query().is_none()
+        && parsed.fragment().is_none()
+        && id(project)
+        && id(version)
+        && matches!(
+            segments.as_slice(),
+            ["data", p, "versions", v, file] if p == &project && v == &version && file_ok(file)
+        )
 }
 
 /// An entry's file and claimed source, for telling apart the downloads an import made: two
@@ -372,19 +413,15 @@ fn carried(image: &Image, linked: &[Image]) -> Result<HashSet<String>, ImageErro
 
 /// The names, as [`mod_name`] gives them, of the mod files in `image` and `linked` (each
 /// image's own entries, so a file a data image hides at its content link's path is
-/// counted too, as a later restore of the content can place it) whose bytes come from
-/// whoever made the export: bytes the file carries, unless the entry is a Modrinth
-/// download, which an import always downloads from Modrinth and checks. Sorted, without
-/// repeats.
+/// counted too, as a later restore of the content can place it) whose bytes the file
+/// carries: they come from whoever made the export. A Modrinth or CurseForge entry counts
+/// too, as a download of it that fails places the carried bytes (as a plain file); an
+/// export the Launcher writes never carries those. Sorted, without repeats.
 fn carried_mod_names(image: &Image, linked: &[Image], carried: &HashSet<String>) -> Vec<String> {
     let mut names: Vec<String> = std::iter::once(image)
         .chain(linked.iter())
         .flat_map(|i| i.entries.iter())
-        .filter(|e| {
-            is_mod_path(&e.path)
-                && carried.contains(&e.sha256)
-                && !(matches!(e.source, Source::Modrinth { .. }) && downloadable(e, false))
-        })
+        .filter(|e| is_mod_path(&e.path) && carried.contains(&e.sha256))
         .map(|e| lodestone_image::display_text(&mod_name(&e.path)).into_owned())
         .collect();
     names.sort();
@@ -444,6 +481,25 @@ fn space_needed(unpacked: u64, entries: &[Entry]) -> u64 {
         .saturating_add(SPARE_BYTES)
 }
 
+/// The distinct downloads an import of `entries` may make (each file and claimed source
+/// once), refused past [`MAX_DOWNLOADS`]: checked when the file is opened, before anything
+/// is unpacked or asked of Modrinth or CurseForge.
+fn wanted_downloads(entries: &[Entry], curseforge: bool) -> Result<Vec<&Entry>, ImageError> {
+    let mut seen = HashSet::new();
+    let wanted: Vec<&Entry> = entries
+        .iter()
+        .filter(|e| downloadable(e, curseforge))
+        .filter(|e| seen.insert(download_key(e)))
+        .collect();
+    if wanted.len() > MAX_DOWNLOADS {
+        return Err(ImageError::Invalid(format!(
+            "the export names {} files to download, more than an instance has",
+            wanted.len()
+        )));
+    }
+    Ok(wanted)
+}
+
 /// What the export at `path` holds (see [`ImportPreview`]), after the container's checks
 /// and [`check_entries`]. Blocking.
 pub fn inspect(path: &Path) -> Result<ImportPreview, ImageError> {
@@ -452,6 +508,7 @@ pub fn inspect(path: &Path) -> Result<ImportPreview, ImageError> {
     let linked = container.linked();
     let entries = placed_entries(image, linked);
     check_entries(&entries)?;
+    wanted_downloads(&entries, true)?;
     let shown = |text: &str| lodestone_image::display_text(text).into_owned();
     let mods = entries
         .iter()
@@ -541,6 +598,7 @@ pub async fn import_file(
     let linked = opened.linked().to_vec();
     let entries = placed_entries(&image, &linked);
     check_entries(&entries)?;
+    wanted_downloads(&entries, sources.curseforge.is_some())?;
     let store = images.store().clone();
     check_room(space_needed(opened.unpacked_bytes(), &entries))?;
 
@@ -559,8 +617,6 @@ pub async fn import_file(
         images, &sources, &store, &image, &entries, &staging, name, progress, cancel,
     )
     .await;
-    drop(hold);
-    drop(writing);
     let Built {
         instance,
         left_out,
@@ -572,6 +628,9 @@ pub async fn import_file(
             return Err(e);
         }
     };
+    // Collections stay held off until the imported snapshot's manifests are saved: until
+    // then nothing names the objects only it uses (its worlds), and a long import may have
+    // unpacked them longer ago than the collection's grace.
     if let Err(e) = images.record_now(&instance.id, labels::FROM_SNAPSHOT) {
         super::warn("images.record", &instance.id, &e.to_string());
     }
@@ -592,6 +651,8 @@ pub async fn import_file(
     if let Err(e) = images.adopt_imported(&instance.id, &kept, &kept_linked) {
         super::warn("images.import", &instance.id, &e.to_string());
     }
+    drop(hold);
+    drop(writing);
     Ok(Imported { instance, left_out })
 }
 
@@ -670,17 +731,28 @@ async fn download_urls(
         .collect())
 }
 
+/// Why [`download_into_store`] didn't store a file.
+enum Missed {
+    /// It wasn't downloaded (the server refused, the network failed, or the bytes aren't
+    /// the ones the export names): the entry stays unconfirmed, and the import goes on.
+    NotDownloaded(String),
+    /// The import must stop: cancelled, or the store or the disk failed.
+    Stop(ImageError),
+}
+
 /// Downloads `entry` from `url` into the store (through `temp`), checking its size,
-/// SHA-256 and, when the export names one, SHA-512.
+/// SHA-256 and, when the export names one, SHA-512. The check and the store's write run on
+/// a thread of their own, so the other downloads keep going meanwhile.
 async fn download_into_store(
     sources: &Sources<'_>,
-    store: &lodestone_image::store::Store,
+    store: &Arc<lodestone_image::store::Store>,
     entry: &Entry,
     url: String,
     temp: PathBuf,
     cancel: &CancelToken,
-) -> Result<(), ImageError> {
-    let shown = || lodestone_image::display_text(entry.path.as_str()).into_owned();
+) -> Result<(), Missed> {
+    use crate::game::download::DownloadError;
+    let shown = lodestone_image::display_text(entry.path.as_str()).into_owned();
     let item = DownloadItem {
         url,
         dest: temp.clone(),
@@ -688,7 +760,7 @@ async fn download_into_store(
         size: Some(entry.size),
         executable: false,
     };
-    sources
+    let fetched = sources
         .downloader
         .fetch_sha256(
             &item,
@@ -697,32 +769,69 @@ async fn download_into_store(
             &Progress::default(),
             cancel,
         )
-        .await
-        .map_err(|e| ImageError::Invalid(format!("{} couldn't be downloaded: {e}", shown())))?;
-    let stored = (|| -> Result<(), ImageError> {
-        if let Some(sha512) = &entry.sha512 {
-            let file =
-                std::fs::File::open(&temp).map_err(ImageError::io("Failed to read a download"))?;
-            let found = sha512_of(std::io::BufReader::new(file))
-                .map_err(ImageError::io("Failed to read a download"))?;
-            if !found.eq_ignore_ascii_case(sha512) {
-                return Err(ImageError::Invalid(format!(
-                    "{} didn't download as the export says (SHA-512)",
-                    shown()
-                )));
-            }
+        .await;
+    match fetched {
+        Ok(()) => {}
+        Err(DownloadError::Cancelled) => {
+            let _ = std::fs::remove_file(&temp);
+            return Err(Missed::Stop(ImageError::Cancelled));
         }
-        let put = store.put_file(&temp, NEVER)?;
-        if put.sha256 != entry.sha256 || put.size != entry.size {
-            return Err(ImageError::Invalid(format!(
-                "{} didn't download as the export says (SHA-256)",
-                shown()
+        Err(DownloadError::Io { path, source }) => {
+            let _ = std::fs::remove_file(&temp);
+            return Err(Missed::Stop(ImageError::io(format!(
+                "Failed to write {}",
+                path.display()
+            ))(source)));
+        }
+        Err(e) => {
+            let _ = std::fs::remove_file(&temp);
+            return Err(Missed::NotDownloaded(format!(
+                "{shown} couldn't be downloaded: {e}"
             )));
         }
-        Ok(())
-    })();
-    let _ = std::fs::remove_file(&temp);
-    stored
+    }
+    let (sender, receiver) = futures::channel::oneshot::channel();
+    let (store, entry) = (store.clone(), entry.clone());
+    std::thread::spawn(move || {
+        let _ = sender.send(check_and_store(&store, &entry, &temp, &shown));
+        let _ = std::fs::remove_file(&temp);
+    });
+    receiver.await.unwrap_or_else(|_| {
+        Err(Missed::Stop(ImageError::Invalid(
+            "A download's check stopped unexpectedly".into(),
+        )))
+    })
+}
+
+/// Checks the downloaded file at `temp` against `entry`'s SHA-512 (when it names one) and
+/// puts it in the store, checking its SHA-256 and size. Blocking.
+fn check_and_store(
+    store: &lodestone_image::store::Store,
+    entry: &Entry,
+    temp: &Path,
+    shown: &str,
+) -> Result<(), Missed> {
+    let read = |e| Missed::Stop(ImageError::io("Failed to read a download")(e));
+    if let Some(sha512) = &entry.sha512 {
+        let file = std::fs::File::open(temp).map_err(read)?;
+        let found = sha512_of(std::io::BufReader::new(file)).map_err(read)?;
+        if !found.eq_ignore_ascii_case(sha512) {
+            return Err(Missed::NotDownloaded(format!(
+                "{shown} didn't download as the export says (SHA-512)"
+            )));
+        }
+    }
+    let put = store
+        .put_file(temp, NEVER)
+        .map_err(|e| Missed::Stop(e.into()))?;
+    if put.sha256 != entry.sha256 || put.size != entry.size {
+        // The store keeps the bytes it was given, which nothing names: a collection
+        // removes them.
+        return Err(Missed::NotDownloaded(format!(
+            "{shown} didn't download as the export says (SHA-256)"
+        )));
+    }
+    Ok(())
 }
 
 /// What [`build`] made.
@@ -740,15 +849,16 @@ struct Built {
 /// Every Modrinth and CurseForge file is downloaded from its source in this import, even
 /// when the store has its bytes: the export's hashes came from the same file as its
 /// sources, so only a download says that a project's file has those bytes. Each distinct
-/// file and claimed source is downloaded once. A file that wasn't downloaded is still
-/// placed when the store has its bytes (the export carries them, or the store had them
-/// before), but as a plain file: `content.json` learns no source for it. The rest are left
-/// out.
+/// file and claimed source is downloaded once. A file that wasn't downloaded (no URL, a
+/// download that failed, or bytes that aren't the ones named) is still placed when the
+/// store has its bytes (the export carries them, or the store had them before), but as a
+/// plain file: `content.json` learns no source for it. The rest are left out. Only
+/// cancelling, or a failure of the store or the disk, stops the import.
 #[allow(clippy::too_many_arguments)]
 async fn build(
     images: &Arc<Images>,
     sources: &Sources<'_>,
-    store: &lodestone_image::store::Store,
+    store: &Arc<lodestone_image::store::Store>,
     image: &Image,
     entries: &[Entry],
     staging: &Path,
@@ -756,28 +866,17 @@ async fn build(
     progress: &Progress,
     cancel: &CancelToken,
 ) -> Result<Built, ImageError> {
-    use futures::TryStreamExt as _;
-    let mut seen = HashSet::new();
-    let wanted: Vec<&Entry> = entries
-        .iter()
-        .filter(|e| downloadable(e, sources.curseforge.is_some()))
-        .filter(|e| seen.insert(download_key(e)))
-        .collect();
-    if wanted.len() > MAX_DOWNLOADS {
-        return Err(ImageError::Invalid(format!(
-            "the export names {} files to download, more than an instance has",
-            wanted.len()
-        )));
-    }
+    use futures::StreamExt as _;
+    let wanted = wanted_downloads(entries, sources.curseforge.is_some())?;
     let urls = download_urls(sources, &wanted, cancel).await?;
-    let downloads: Vec<(usize, &Entry, String)> = wanted
+    // Owned, so the stream's closure takes no borrowed argument (its future must be Send
+    // for any lifetime).
+    let downloads: Vec<(usize, Entry, String)> = wanted
         .iter()
         .zip(urls)
         .enumerate()
-        .filter_map(|(n, (entry, url))| url.map(|url| (n, *entry, url)))
+        .filter_map(|(n, (entry, url))| url.map(|url| (n, (*entry).clone(), url)))
         .collect();
-    let verified: HashSet<(String, String)> =
-        downloads.iter().map(|(_, e, _)| download_key(e)).collect();
     progress.reset(
         downloads.len() as u64,
         downloads
@@ -785,18 +884,49 @@ async fn build(
             .map(|(_, e, _)| e.size)
             .fold(0, u64::saturating_add),
     );
-    futures::stream::iter(downloads.into_iter().map(Ok::<_, ImageError>))
-        .try_for_each_concurrent(IMPORT_DOWNLOADS, |(n, entry, url)| async move {
-            if cancel.is_cancelled() {
-                return Err(ImageError::Cancelled);
+    let results: Vec<Result<Option<(String, String)>, ImageError>> =
+        futures::stream::iter(downloads)
+            .map(|(n, entry, url)| async move {
+                if cancel.is_cancelled() {
+                    return Err(ImageError::Cancelled);
+                }
+                let temp = staging.join(format!(".lodestone-download-{n}"));
+                let stored = download_into_store(sources, store, &entry, url, temp, cancel).await;
+                progress.add_bytes(entry.size);
+                progress.file_done();
+                match stored {
+                    Ok(()) => Ok(Some(download_key(&entry))),
+                    Err(Missed::NotDownloaded(problem)) => {
+                        super::warn("images.import", "", &problem);
+                        Ok(None)
+                    }
+                    Err(Missed::Stop(e)) => Err(e),
+                }
+            })
+            .buffer_unordered(IMPORT_DOWNLOADS)
+            .collect()
+            .await;
+    // The downloads that succeeded: the sources this import confirmed. Cancelling wins
+    // over another failure, so a cancelled import says so.
+    let mut verified = HashSet::new();
+    let mut stopped = None;
+    for result in results {
+        match result {
+            Ok(Some(key)) => {
+                verified.insert(key);
             }
-            let temp = staging.join(format!(".lodestone-download-{n}"));
-            download_into_store(sources, store, entry, url, temp, cancel).await?;
-            progress.add_bytes(entry.size);
-            progress.file_done();
-            Ok(())
-        })
-        .await?;
+            Ok(None) => {}
+            Err(ImageError::Cancelled) => stopped = Some(ImageError::Cancelled),
+            Err(e) => {
+                if stopped.is_none() {
+                    stopped = Some(e);
+                }
+            }
+        }
+    }
+    if let Some(e) = stopped {
+        return Err(e);
+    }
     let mut placed = without_unconfirmed_sources(
         &Image {
             entries: entries.to_vec(),
@@ -862,8 +992,46 @@ async fn build(
 /// invisible format characters (direction overrides, zero-width ones:
 /// `lodestone_image::paths::is_default_ignorable`), which could make it show as another
 /// name.
-fn shown_name(text: &str) -> String {
+pub fn shown_name(text: &str) -> String {
     text.chars()
         .filter(|c| !c.is_control() && !lodestone_image::paths::is_default_ignorable(*c))
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::names_modrinth_file;
+
+    #[test]
+    fn only_a_canonical_url_of_the_named_project_and_version_passes() {
+        let named = |url: &str| names_modrinth_file(url, "AANobbMI", "v1");
+        assert!(named(
+            "https://cdn.modrinth.com/data/AANobbMI/versions/v1/sodium.jar"
+        ));
+        assert!(named(
+            "https://cdn.modrinth.com/data/AANobbMI/versions/v1/sodium%20fabric.jar"
+        ));
+        for bad in [
+            "https://cdn.modrinth.com/data/EVILPROJ/versions/x1/evil.jar",
+            "https://cdn.modrinth.com/data/AANobbMI/versions/v1/../../../EVILPROJ/versions/x1/e.jar",
+            "https://cdn.modrinth.com/data/AANobbMI/versions/v1/%2e%2e/%2E%2E/x.jar",
+            "https://cdn.modrinth.com/data/AANobbMI/versions/v1/..\\..\\x.jar",
+            "https://cdn.modrinth.com/data/AANobbMI/versions/v1/a%2Fb.jar",
+            "https://cdn.modrinth.com/data/AANobbMI/versions/v1/a%5cb.jar",
+            "https://cdn.modrinth.com/data/AANobbMI/versions/v1/x.jar?y=1",
+            "https://cdn.modrinth.com/data/AANobbMI/versions/v1/x.jar#y",
+            "https://cdn.modrinth.com/data/AANobbMI/versions/v1/a/b.jar",
+            "https://cdn.modrinth.com/data/AANobbMI/versions/v1/",
+            "https://CDN.modrinth.com/data/AANobbMI/versions/v1/x.jar",
+            "https://evil.com/data/AANobbMI/versions/v1/x.jar",
+        ] {
+            assert!(!named(bad), "{bad}");
+        }
+        // Ids that aren't base62 never pass, even when the URL names them.
+        assert!(!names_modrinth_file(
+            "https://cdn.modrinth.com/data/A%2e/versions/v1/x.jar",
+            "A%2e",
+            "v1"
+        ));
+    }
 }

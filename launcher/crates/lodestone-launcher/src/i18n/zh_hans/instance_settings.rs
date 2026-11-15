@@ -212,6 +212,7 @@ pub fn text(message: M) -> &'static str {
         M::ModsDiffer => "这些世界上次运行时使用的是其他模组。",
         M::FilesDiffer => "这些世界上次运行时使用的是其他文件。",
         M::RestoreModsToo => "同时恢复它们的模组",
+        M::RestoreModsTooChanges => "同时恢复它们的模组将会：",
         M::RestoreLoaderChange => "加载器将恢复为 {version}。",
         M::RestoreSafety => "会先为被替换的内容拍摄快照，并保留 30 天。",
         M::RestoreOtherGame => "此快照属于其他 Minecraft 版本或加载器，只能作为新实例恢复。",
@@ -418,7 +419,7 @@ pub fn text(message: M) -> &'static str {
         M::RestoreKeptAside => "恢复期间写入的文件保存在 {folder}。",
         M::ImportNoRoom => "磁盘空间不足：需要 {size}（含 1 GB 余量），可用 {free}。",
         M::ImportSpaceFree => "需要 {size} 磁盘空间（含 1 GB 余量）；可用 {free}。",
-        M::ExportNotDownloadable => "这些无法下载，因此导入该文件的人不会得到它们：{files}",
+        M::ExportNotDownloadable => "这些无法下载，因此导入该文件的人不会得到它们：{files}。",
         M::SnapshotAfterPlayOwnHint => "游玩后复制世界。仅为此实例设置。",
         M::DeleteUnreadableNote => "它们将被永久删除。",
     }
