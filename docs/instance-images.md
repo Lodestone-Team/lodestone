@@ -624,47 +624,77 @@ server that doesn't exist, isn't listed, isn't shared or is a Docker container:
 | `/api/v1/public/instances/{uuid}/` on a Connect invite's info port or a friend tunnel | a friend | the shared server only |
 
 ```
-GET  …/image?side=client[&have=<view id>,<view id>…]     (HEAD: the same, without the body)
-GET  …/objects/{sha256}                                   (and HEAD)
+GET  …/image?side=client[&have=<view id>,<view id>…][&rules=<n>]   (HEAD: the same, without the body)
+GET  …/objects/{sha256}                                             (and HEAD)
 ```
 
 On the main port (both prefixes) the core's remote-access check comes first: while the
 core serves only this computer, another device gets 403 `{"kind": "LocalOnly"}` on every
-route. No route takes a request body; any other method is 405. `have` is one
-comma-separated parameter: a repeated or malformed query parameter (`have=a&have=b`,
-`side` twice) is refused before anything else but that check, even before the sign-in on
-`/launcher/…` and the 404 for a server that isn't listed, with 400 and a plain-text body,
-not the JSON error body. An error that isn't the player's (an
-image or file the store can't read) is 500 with the JSON error body
-`{"kind": "Internal", "causes": ["<message>"]}`, whose message never names the store's
-folders.
+route. No route takes a request body; any other method is 405, except `OPTIONS`, which the
+core's CORS layer answers as a preflight (200). Conditional requests aren't honoured (an
+`If-None-Match` naming the current view still gets 200): a player says what it has with
+`have`. Unknown query parameters are ignored, so a client may send `rules` to any core.
+
+Errors: a query that can't be read at all (a parameter given twice, `have=a&have=b` or
+`side` twice) is refused before anything but the remote-access check, even before the
+sign-in on `/launcher/…` and the 404 for a server that isn't listed, with 400 and a
+plain-text body. On `/launcher/…` a request without a bearer token is 400 with a plain-text
+body too. Every other error has the JSON error body `{"kind": "<kind>", "causes":
+["<message>"]}`: bad values of `side`, `have` or `rules` (400 `BadRequest`, checked after
+access, so an unlisted server is 404 first), and an error that isn't the player's (an
+image or file the store can't read for now: 500 `Internal`, whose message never names the
+store's folders). A client reads the JSON body only when `Content-Type` is
+`application/json`.
 
 Every 503 has `Retry-After` (seconds) and the JSON error body, whose `kind` says why:
 `Conflict` (the first content image, or a file the store lost, is being recorded: ask
 again after the delay), `Internal` (that record failed or ran a moment ago: none starts
-again before the delay) or `TooManyRequests` (too many downloads at once, objects only).
-Each is described below.
+again before the delay) or `TooManyRequests` (too many downloads at once, or the store's
+garbage collection is running; objects only). Each is described below.
 
 Answers can be large: a 300-mod pack's view is about 160 KiB of JSON and one of 450 mods
 passes 256 KiB, and an object is a whole file. Read every route as a stream (through a
 tunnel, the forwarded port with an ordinary HTTP client, not `lodestone_connect::info::get`,
-which stops at 256 KiB).
+which stops at 256 KiB). A client stops reading a view or delta past
+`lodestone_image::store::MAX_MANIFEST_BYTES` (512 MiB, the limit exports use too) and
+treats it as an error: it must hold the body to check it, and a hostile server or peer
+could send one that never ends.
+
+**Finding out.** The image routes answer wherever the client pack's access holds: on the
+public list, for a server whose listing has `has_client_pack` at all (present, true or
+false: the client-pack scope is on); for a friend's shared server and with `ViewInstance`,
+always. `has_client_pack` and a shared server's `modpack` only say whether a `.mrpack`
+can be built (Fabric, with an enabled jar); images serve Fabric, Quilt, Forge and NeoForge
+servers alike, so a client must not take them as "no image". A core older than milestone 3
+answers 404 on `…/image` even where it serves the `.mrpack`: a 404 on `…/image` for a
+server whose listing says `has_client_pack: true` (or whose `.mrpack` route answers 200)
+means an older core, and the client falls back to the `.mrpack`.
 
 **`GET …/image`.** `side` must be `client` (anything else is 400: a server view carries
 the server's configs and secrets). `have` lists client view ids the player has, newest
-first, comma-separated, at most 16, each 64 lowercase hex digits (else 400). The first id
-the core knows decides (it first looks among the views it has already learnt, and reads the
-server's other manifests for ids it doesn't know only when none of those decides):
+first, comma-separated, at most 16, each 64 lowercase hex digits (else 400). `rules`, which
+a client should send, is the newest view rules it knows (`lodestone_image::RULES`, a whole
+number from 1, else 400): a core whose rules are newer answers 400 `BadRequest` ("update
+Lodestone"), since it makes views the client can't check; a core whose rules are older or
+the same ignores it (views are made under the core's rules, which every later Lodestone
+reads). The first id the core knows decides (it first looks among the views it has
+already learnt, and reads the server's other manifests for ids it doesn't know only when
+none of those decides), so it is not always the first id:
 
-- it is the current view: **204**, no body;
+- it is the current view: **204**, no body. The current view is the one
+  `X-Lodestone-View` names, one of the `have` ids; a player whose applied view isn't that
+  one switches to it, placing it as it would a received view (diffing its applied view
+  against it);
 - it is another view of one of the server's content images: **200** with a delta from it
   to the current view (`X-Lodestone-Answer: delta`), or the whole view when the delta
   would be no smaller;
 - none is known (pruned, another server's, a content id rather than a view id, `have`
-  empty): **200** with the whole view (`X-Lodestone-Answer: view`).
+  empty): **200** with the whole view (`X-Lodestone-Answer: view`). A view whose images
+  were all pruned may still get a delta while the core has one from it cached.
 
 A view is the client view manifest JSON (an `Image` with `"side": "client"`), a delta the
-`Delta` JSON of "Deltas" whose `from` and `to` are view ids. Every 200 and 204 carries
+`Delta` JSON of "Deltas" whose `from` and `to` are view ids: `from` is the `have` id that
+decided, so it names which of the player's views to apply the delta to. Every 200 and 204 carries
 `X-Lodestone-View: <current view id>`, `ETag: "<current view id>"` and
 `Cache-Control: no-cache`; a 200 has `Content-Type: application/json`. The player checks
 what it gets before using it:
@@ -675,13 +705,21 @@ what it gets before using it:
 - a delta: `Delta::from_json`, then `apply` to the view it has, which checks `from` and
   that the result's id is `to` (which equals `X-Lodestone-View`).
 
+A view or delta whose `schema` or `rules` the client doesn't know (the parse or the view
+check fails with an unsupported schema or `UnsupportedRules`) means the server runs a newer
+Lodestone: the client tells the player to update Lodestone, and neither retries nor
+installs anything.
+
 While the server has no content image yet (or its pointer names a manifest that went
 missing or can't be read), the answer is **503** with `Retry-After: 5` and the error body
 `{"kind": "Conflict", "causes": [...]}`, and the core records the server's first content
 image in the background (once, however many ask, on one thread, for a running server
 too). The player asks again after the delay. When that record failed, no other starts for
 a minute, doubling with each failure in a row up to 30 minutes; meanwhile the answer is
-**503** with `{"kind": "Internal", …}` and `Retry-After` the seconds left (at least 5).
+**503** with `{"kind": "Internal", …}` and `Retry-After` the seconds left (at least 5). A
+player that gets `Internal` stops asking, tells the player the server couldn't prepare its
+files, and offers to try again (which asks again, and may get the same answer until the
+delay has passed).
 
 **A player whose views were all pruned** (retention keeps the newest 30 content images)
 names views the core no longer knows, so it gets the whole view (200,
@@ -695,7 +733,9 @@ with the view's entries over them by path:
 
 1. the base's share: for a `modrinth_pack` base, the pack's index files whose `env.client`
    isn't `unsupported`, and its `overrides/` with `client-overrides/` over them (as any
-   Modrinth launcher installs a pack for a client); a `loader` base or none has no files;
+   Modrinth launcher installs a pack for a client); a `loader` base or none has no files.
+   The core never sends a `curseforge_pack` base today; a client that gets one refuses the
+   view and tells the player it can't install it;
 2. less every path in `removed` (pack files the server deleted, disabled or replaced under
    another name);
 3. then every entry of the view, placed over whatever the base put at its path.
@@ -717,7 +757,10 @@ that kept changing or couldn't be read when the image was recorded; names only) 
 the server has that the image holds no copy of, so a player can't get them from the
 server. A player must say so before it plays, for those a client view would carry as files
 (in `mods/`, say; not configs, the server's own files or disabled ones), listing them with
-the reason, and not install silently without them. A view's `excludes` never reach `mods/` ("M3 decisions"), so they
+the reason, and not install silently without them. As code: a withheld path that parses as
+a `CanonicalPath` is needed when `view::in_view` holds, for the client, for an `Entry` at
+that path with unknown sides (`Entry::new(path, 0, <any hash>, Source::Object {})`); one
+that doesn't parse is needed when its first part (before the first `/`) is `mods`. A view's `excludes` never reach `mods/` ("M3 decisions"), so they
 only name files players don't need.
 
 **`GET …/objects/{sha256}`.** The bytes of a file the current client view names with
@@ -727,7 +770,9 @@ player downloads those from where they say), not server-only files, configs the 
 leaves out, worlds, backups or another server's files. 400 when `sha256` isn't 64
 lowercase hex digits; 404 for anything not served, including an object of a view that is
 no longer current (the player asks for the image again and fetches what the new view
-names). A large file (over 1 MiB, a chunk list in the store) is sent whole, put together
+names). While the server has no content image it can read (none yet, or its manifest was
+damaged), the answer is the image route's 503 (`Conflict`, then `Internal` while a failed
+record waits) and a record starts, as for `…/image`. A large file (over 1 MiB, a chunk list in the store) is sent whole, put together
 from its chunks: chunk lists never reach players.
 
 - 200: `Content-Type: application/octet-stream`, `Content-Length`, `ETag: "<sha256>"`,
@@ -745,6 +790,11 @@ from its chunks: chunk lists never reach players.
   over every server and route, 16 of this server's, or 8 of this player's (by address, an
   IPv6 address's /64, or by friend; a Connect invite's info port can't tell its players
   apart and has only the first two limits). A player should run at most 4 at once.
+- 503 with `Retry-After: 5` and `{"kind": "TooManyRequests", …}` while the store's garbage
+  collection runs (seconds, or minutes on a large store with many backups): a request
+  never waits for one. A download already running pauses until the collection ends, so a
+  client gives a download a generous read timeout (minutes, not seconds) and treats a
+  stall as a passing failure: it fetches again, resuming with `Range` if it likes.
 - 503 with `Retry-After: 5` and `{"kind": "Conflict", …}` when the store lost a file the
   view names (found damaged and deleted, or a large file that lost a chunk: the download
   that found it ended short and took the file's chunk list away): the core records the
@@ -761,7 +811,10 @@ from its chunks: chunk lists never reach players.
   only be found after some bytes went (a damaged chunk mid-file, or the whole file's
   SHA-256 at the end): the response is then cut short. So the player checks the SHA-256
   of what it got, and fetches again (with `Range` to resume a large file, if it likes) when
-  the body was short or doesn't hash to the name, at most 3 times in a row per file.
+  the body was short or doesn't hash to the name, at most 3 times in a row per file. A file
+  the store can't read for now (the core out of file descriptors, an antivirus holding it)
+  is answered the same way, a 500 before the body or a body cut short, and the next try
+  usually works.
 
 **Freshness.** The view is the server's current content image: what Lodestone's actions
 change shows within the merge window (3 s after the last change, at most 30 s), and
@@ -781,9 +834,12 @@ The Launcher (M4):
    files atomically;
 3. records the view it applied plus the server link, and keeps that view (and any it will
    name in `have`) for deltas and for diffing a whole view;
-4. next Play: `have=<that view id>`; 204 means join at once, otherwise apply the delta (or
-   the new view, diffed against the applied one) with the three-way merge modpack updates
-   already use (the player's own mods and changed configs stay).
+4. next Play: `have=<that view id>` (and any other views it keeps), `rules=<its RULES>`;
+   a 204 whose `X-Lodestone-View` is the applied view means join at once (one naming
+   another of its views means switch to that one first), otherwise apply the delta to the
+   view its `from` names (or diff the new view against the applied one) with the
+   three-way merge modpack updates already use (the player's own mods and changed configs
+   stay).
 
 Works for Fabric, Quilt, Forge and NeoForge servers.
 
@@ -1363,7 +1419,13 @@ player" has the protocol itself).
   but without the pack's file list, which only the `.mrpack` has; it keeps the restored
   image's `removed` instead (`BaseInfo::removed`), and the recorder keeps those paths in
   `removed` by the same rules while they are still gone, until an install or update
-  writes the pack's files again.
+  writes the pack's files again. With the file list unknown, which of the files the
+  server has are the pack's isn't known either, so `pack.json` also keeps every path the
+  restored image carried (`BaseInfo::paths`), and the recorder treats them as it would
+  pack files: one the owner deletes, disables or renames after the restore goes into
+  `removed`. Some of them aren't the pack's (a mod the owner added), but taking out a path
+  the base doesn't have changes nothing for players, so erring that way is safe, while
+  erring the other way would bring the pack's old copy back.
 - **Open, for the developer before M4: "Not for players" on a pack's own file.** An image
   can't both list and remove a path (`lodestone_image` refuses such a manifest), so the
   mark on one of the pack's own files (`env.client` `unsupported` from `owner_mark`) drops
@@ -1409,9 +1471,10 @@ player" has the protocol itself).
   through a friend tunnel the friend's key; a Connect invite's info port can't tell its
   players apart, so it has only the other two limits. Eight leaves room for a household
   behind one address (a player runs at most 4). A download is a task that hands its bytes
-  to the connection in pieces of at most 256 KiB (each a copy of its own, so a stalled
-  connection holds one piece, not the 1 MiB read it came from), reading ahead at most one
-  1 MiB step; a piece the connection doesn't take within 60 seconds (`IDLE_TIMEOUT`) ends
+  to the connection in pieces of at most 256 KiB, slices of the step they were read in (no
+  copy), reading ahead at most one step of about 1 MiB, so a stalled download holds about
+  2 MiB (the step, at most 1 MiB and one chunk, and what the connection buffered; about
+  128 MiB over all 64); a piece the connection doesn't take within 60 seconds (`IDLE_TIMEOUT`) ends
   the download, cut short, and gives its place back. So a client that opens downloads and
   stops reading holds them a minute at most; one that reads slowly on purpose (over 4 KiB/s
   per download) keeps at most 8 places, so it takes two addresses to hold a server's 16 and
@@ -1423,13 +1486,31 @@ player" has the protocol itself).
   no thread, and a collection waits for at most one read. The objects a current view names
   are always there (the current image is never pruned, and saving its manifest checked
   them); an object of a view superseded and pruned during a download can go at a
-  collection, and the download then ends short.
+  collection, and the download then ends short. The other way round, a read waits for a
+  collection that runs (the lock is the operating system's, which a collection holds
+  exclusively for its whole run): a running download stalls until it ends, so M4 gives
+  downloads a generous read timeout. A new request doesn't wait: it tries the lock
+  (`Store::try_hold_off_collection`) and answers 503 `TooManyRequests` with
+  `Retry-After: 5` while a collection holds it, so a HEAD or GET never hangs unanswered.
+  File locks give a waiting collection no priority, so many overlapping downloads can
+  hold one off for as long as they keep overlapping; each hold is one read, and pruning
+  asks again every 15 minutes, so it runs in a gap.
 - **Damaged and lost objects.** A whole object is checked before any byte goes; a large
   file's chunks one by one, and on a full download the whole file's SHA-256 at the end. A
   check that fails ends the response short (the player sees a truncated body and must check
-  SHA-256 itself) and deletes the damaged object or chunk. A large file that lost a chunk
+  SHA-256 itself) and deletes the damaged object or chunk, but only on proof: the store's
+  plain reads call any failure to open or read a file damage, and running out of file
+  descriptors (or an antivirus holding a file on Windows) would then delete healthy
+  objects that backups share, from an anonymous request. So the serving path reads again
+  with the checked functions the shared crate gained (`Store::read_chunk_checked`,
+  `remove_damaged_checked`, `remove_damaged_chunk_checked`, `remove_incomplete_checked`),
+  which call damage only bytes that were read and are wrong, or a chunk the drive says is
+  missing, and report any other failure as an I/O error that deletes nothing: the request
+  is then a 500, or its body is cut short, and no record starts. The core also raises its
+  soft limit on open files to the hard limit at startup (`open_files::raise_limit`; macOS
+  starts programs with 256, and caps the soft limit at 10240). A large file that lost a chunk
   (found damaged and deleted, or missing) also loses its chunk list
-  (`Store::remove_incomplete`): the list can't give the file whole, and while it is there the
+  (`Store::remove_incomplete_checked`): the list can't give the file whole, and while it is there the
   object looks present, so nothing would ever store the file again. Before it answers, a
   download checks the object is there (a large file's chunk list read and checked, not its
   chunks, which would cost an open per chunk on every request, under a hold on
@@ -1485,7 +1566,13 @@ player" has the protocol itself).
   now also reads Forge's and NeoForge's `mods.toml`: top-level `clientSideOnly = true` is
   client only; `displayTest = "IGNORE_SERVER_VERSION"` on every `[[mods]]` entry (clients
   may join without it) is server only; anything else says nothing
-  (`lodestone_minecraft::jar::mods_toml_environment`). Every Forge and NeoForge content
+  (`lodestone_minecraft::jar::mods_toml_environment`). That declaration is also what a
+  client-optional mod (one with client features that clients may skip) declares, so a
+  Forge mod Modrinth doesn't know that declares it and adds client features doesn't reach
+  players. It is kept server only on purpose: most mods declaring it are server-side
+  utilities, some of which crash a client that loads them, and a crashing client is worse
+  than a missing optional feature; the owner's "For players" mark puts such a mod in the
+  view (it beats every other input), and a mod Modrinth knows takes Modrinth's sides. Every Forge and NeoForge content
   image with such a jar gets a new id once, which nothing released depends on. The Mods
   tab's "for players" column reads the same metadata, so Forge mods that declare a side now
   show it there too.
@@ -1504,8 +1591,13 @@ player" has the protocol itself).
   and the count tells this process's own saves apart where a file system reuses inodes at
   once and keeps coarse times) and cache hits. Players asking at once for a delta not
   cached yet (all the players of the older view, after a modpack update) wait for one diff,
-  as for a view; a computation whose request ends early (its player went away) gives its
-  turn up. A 300-mod view takes
+  as for a view. A computation (a view, a delta, a scan of the manifests) runs on a
+  blocking thread that fills the cache itself and keeps its turn until it ends, so a
+  request dropped meanwhile (its player hung up) neither throws the work away nor lets the
+  next request start it again: a client that asks and hangs up at once costs the work
+  once. A cached delta answers without the view it starts from being loaded (its two ids
+  are its key), so cycling through many old views costs a cache hit, not a manifest read
+  each. A 300-mod view takes
   about 30 ms and its delta about 60 ms the first time in a debug build, and a cached answer
   well under a millisecond.
 - **What the view leaks, by the rules (rules 1).** Every file in `mods/` that isn't
@@ -1515,6 +1607,16 @@ player" has the protocol itself).
   Configs (unless marked for players), `server.properties`, plugins and worlds never go (a
   level that `level-name` puts inside `mods/` isn't content at all). Changing this needs new
   rules, since it changes view ids.
+- **Rules and versions.** `…/image` takes an optional `rules=<n>`, the newest rules the
+  client knows. A core whose rules are newer answers 400 ("update Lodestone") rather than
+  send a view the client's `view` check refuses (`UnsupportedRules`); older or equal rules
+  change nothing, since views are made under the core's rules. Unknown query parameters
+  are ignored, so a client sends it to every core. A client that still meets a schema or
+  rules it doesn't know tells the player to update and installs nothing.
+- **Finding out which servers serve images.** No new field in the listings: the image
+  routes answer wherever the client pack's access holds (the client-pack scope on the
+  public list, a friend's shared server, `ViewInstance`), for every mod loader, and a 404
+  where the `.mrpack` is served means a core older than milestone 3 ("Server to player").
 - **`base` entries need the pack.** The objects endpoint never serves them, by design: a
   player gets them from the base pack's `.mrpack`. If that pack version disappears from
   Modrinth, players can't install those files; M4 must say so clearly.
@@ -1526,8 +1628,9 @@ player" has the protocol itself).
   capped (64 in all, 16 per server, 8 per client, ended after 60 seconds without progress)
   with no thread held while a player is slow. Errors a player can cause or see never carry
   the store's paths (the store's own messages are causes, which only the log gets). A first burst of unknown ids on a server with many backup-linked content images
-  reads each of them once. A download waits while a collection runs (seconds to minutes on
-  a large store). The core's HTTP server has no connection timeouts of its own, so a
+  reads each of them once, however many of those requests hang up early (the scan keeps
+  what it learnt). A running download waits while a collection runs (seconds to minutes
+  on a large store); a new request is told to try again instead. The core's HTTP server has no connection timeouts of its own, so a
   stalled connection keeps what it already buffered (at most about 2 MiB of a download:
   the connection's buffers, one 256 KiB piece waiting and the step being read) until the
   client closes it. Its download's place comes back after 60 seconds but the connection

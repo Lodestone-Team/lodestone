@@ -19,6 +19,12 @@
 //! image and its parent are never pruned, and saving a manifest checks every object it
 //! names is in the store, so the objects a current view names are there. Nothing here holds
 //! one of the core's locks: a player's request never waits for a record.
+//!
+//! Work shared between requests (computing a view or a delta, scanning an instance's
+//! manifests) runs on a blocking thread that fills the cache itself and holds the work's
+//! turn until it ends: a request dropped meanwhile (its player went away) doesn't throw the
+//! work away, and the next request waits for it rather than start it again. So a client
+//! that asks and hangs up at once costs the work once, not once per request.
 
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
@@ -278,28 +284,32 @@ fn locked<T>(mutex: &StdMutex<T>) -> std::sync::MutexGuard<'_, T> {
 }
 
 /// Whose turn it is to compute what, by key: one computation of a key at a time.
-type Turns<K> = StdMutex<HashMap<K, Arc<tokio::sync::Mutex<()>>>>;
+type Turns<K> = Arc<StdMutex<HashMap<K, Arc<tokio::sync::Mutex<()>>>>>;
 
 /// A request's place in line to compute `key` ([`Turns`]): hold [`Turn::mutex`] while
 /// computing. Dropping it takes the key's entry out of the map however the computation
-/// ended (done, failed, or dropped with a request whose player went away), unless a newer
-/// entry replaced it, so the map holds only keys being computed.
-struct Turn<'a, K: Eq + Hash + Clone> {
-    turns: &'a Turns<K>,
+/// ended (done, failed, or dropped), unless a newer entry replaced it, so the map holds
+/// only keys being computed. A computation that outlives its request takes its turn along.
+struct Turn<K: Eq + Hash + Clone> {
+    turns: Turns<K>,
     key: K,
     mutex: Arc<tokio::sync::Mutex<()>>,
 }
 
-impl<'a, K: Eq + Hash + Clone> Turn<'a, K> {
-    fn take(turns: &'a Turns<K>, key: K) -> Turn<'a, K> {
+impl<K: Eq + Hash + Clone> Turn<K> {
+    fn take(turns: &Turns<K>, key: K) -> Turn<K> {
         let mutex = locked(turns).entry(key.clone()).or_default().clone();
-        Turn { turns, key, mutex }
+        Turn {
+            turns: turns.clone(),
+            key,
+            mutex,
+        }
     }
 }
 
-impl<K: Eq + Hash + Clone> Drop for Turn<'_, K> {
+impl<K: Eq + Hash + Clone> Drop for Turn<K> {
     fn drop(&mut self) {
-        let mut turns = locked(self.turns);
+        let mut turns = locked(&self.turns);
         if turns
             .get(&self.key)
             .is_some_and(|mutex| Arc::ptr_eq(mutex, &self.mutex))
@@ -355,6 +365,24 @@ impl ViewCache {
         if let Some(known) = locked(&self.known).get_mut(uuid) {
             known.forget(content_id);
         }
+    }
+
+    /// Keeps a view just computed, and learns its id.
+    fn keep_view(&self, uuid: &InstanceUuid, view: &Arc<ServedView>) {
+        self.learn(uuid, view.id(), &view.content_id);
+        locked(&self.views).insert(
+            view.content_id.clone(),
+            view.clone(),
+            VIEW_CACHE,
+            VIEW_CACHE_BYTES,
+            |view| view.json.len(),
+        );
+    }
+
+    /// The delta from the view `from` to the view `to`, when cached (`Some(None)`: no
+    /// smaller than the view).
+    fn cached_delta(&self, from: &str, to: &str) -> Option<Option<Bytes>> {
+        locked(&self.deltas).get(&(from.to_string(), to.to_string()))
     }
 }
 
@@ -452,7 +480,8 @@ impl ImageService {
     }
 
     /// The client view of the content image `content_id`, from the cache or its manifest.
-    /// Players asking at once for a view not cached yet wait for one computation.
+    /// Players asking at once for a view not cached yet wait for one computation, which
+    /// fills the cache even when every one of them went away meanwhile (see the module).
     async fn served(
         &self,
         uuid: &InstanceUuid,
@@ -462,34 +491,25 @@ impl ImageService {
             return Ok(view);
         }
         let turn = Turn::take(&self.views.computing, content_id.to_string());
-        let _one = turn.mutex.lock().await;
-        self.compute_served(uuid, content_id).await
-    }
-
-    async fn compute_served(
-        &self,
-        uuid: &InstanceUuid,
-        content_id: &str,
-    ) -> Result<Arc<ServedView>, Unserved> {
+        let one = turn.mutex.clone().lock_owned().await;
+        // Another request may have computed it while this one waited.
         if let Some(view) = locked(&self.views.views).get(&content_id.to_string()) {
             return Ok(view);
         }
         let store = self.store();
+        let views = self.views.clone();
         let id = uuid.clone();
         let content = content_id.to_string();
-        let view = blocking(move || Ok(served_view(&store, &id, &content)))
-            .await
-            .map_err(Unserved::Failed)??;
-        let view = Arc::new(view);
-        self.views.learn(uuid, view.id(), content_id);
-        locked(&self.views.views).insert(
-            content_id.to_string(),
-            view.clone(),
-            VIEW_CACHE,
-            VIEW_CACHE_BYTES,
-            |view| view.json.len(),
-        );
-        Ok(view)
+        blocking(move || {
+            let _turn = (one, turn);
+            let view = served_view(&store, &id, &content).map(Arc::new);
+            if let Ok(view) = &view {
+                views.keep_view(&id, view);
+            }
+            Ok(view)
+        })
+        .await
+        .map_err(Unserved::Failed)?
     }
 
     /// What to send a player that has the views `have` (client view ids, newest first, at
@@ -536,6 +556,10 @@ impl ImageService {
             if id == current.id() {
                 return Ok(Some(ClientAnswer::Current(current.clone())));
             }
+            // A delta already computed needs neither view: a view id is its contents.
+            if let Some(json) = self.views.cached_delta(id, current.id()) {
+                return Ok(Some(delta_answer(json, current.clone())));
+            }
             for content in self.views.contents_of(uuid, id) {
                 match self.served(uuid, &content).await {
                     Ok(from) => return Ok(Some(self.delta(from, current.clone()).await?)),
@@ -561,7 +585,9 @@ impl ImageService {
         Ok(None)
     }
 
-    /// The answer for a player with the view `from`: a delta to `current`, cached.
+    /// The answer for a player with the view `from`: a delta to `current`, cached. Like a
+    /// view, one computation however many ask, which fills the cache whatever becomes of
+    /// them.
     async fn delta(
         &self,
         from: Arc<ServedView>,
@@ -571,59 +597,57 @@ impl ImageService {
             // Another content image with the same client view.
             return Ok(ClientAnswer::Current(current));
         }
-        let key = (from.id().to_string(), current.id().to_string());
-        let mut cached = locked(&self.views.deltas).get(&key);
-        let turn;
-        let _one;
-        if cached.is_none() {
-            turn = Turn::take(&self.views.computing_deltas, key.clone());
-            _one = turn.mutex.lock().await;
-            // Another request may have computed it while this one waited.
-            cached = locked(&self.views.deltas).get(&key);
+        if let Some(json) = self.views.cached_delta(from.id(), current.id()) {
+            return Ok(delta_answer(json, current));
         }
-        let json = match cached {
-            Some(json) => json,
-            None => {
-                let to = current.clone();
-                let json = blocking(move || Ok(delta_json(&from.view, &to))).await?;
-                locked(&self.views.deltas).insert(
-                    key,
-                    json.clone(),
-                    DELTA_CACHE,
-                    DELTA_CACHE_BYTES,
-                    |json| json.as_ref().map_or(0, Bytes::len),
-                );
-                json
-            }
-        };
-        Ok(match json {
-            Some(json) => ClientAnswer::Delta {
-                view: current,
-                json,
-            },
-            None => ClientAnswer::View(current),
+        let key = (from.id().to_string(), current.id().to_string());
+        let turn = Turn::take(&self.views.computing_deltas, key.clone());
+        let one = turn.mutex.clone().lock_owned().await;
+        // Another request may have computed it while this one waited.
+        if let Some(json) = self.views.cached_delta(from.id(), current.id()) {
+            return Ok(delta_answer(json, current));
+        }
+        let views = self.views.clone();
+        let to = current.clone();
+        let json = blocking(move || {
+            let _turn = (one, turn);
+            let json = delta_json(&from.view, &to);
+            locked(&views.deltas).insert(
+                key,
+                json.clone(),
+                DELTA_CACHE,
+                DELTA_CACHE_BYTES,
+                |json| json.as_ref().map_or(0, Bytes::len),
+            );
+            Ok(json)
         })
+        .await?;
+        Ok(delta_answer(json, current))
     }
 
     /// Learns the client view id of each content manifest of `uuid` not looked at yet, and
     /// forgets manifests that are gone (a view stays known while any manifest left has it).
     /// Each manifest is read once while the core runs (a view id is a function of the
     /// content id and the rules), and one scan of an instance runs at a time, so a burst of
-    /// requests naming unknown views costs one listing of the instance's folder each.
+    /// requests naming unknown views costs one listing of the instance's folder each. The
+    /// scan keeps what it learnt, and holds the instance's turn, until it ends, even when
+    /// the request that started it was dropped (see the module).
     async fn learn_view_ids(&self, uuid: &InstanceUuid) -> Result<(), Error> {
         let lookup = locked(&self.views.lookups)
             .entry(uuid.clone())
             .or_default()
             .clone();
-        let _scan = lookup.lock().await;
-        let seen: HashSet<String> = locked(&self.views.known)
-            .get(uuid)
-            .map(|known| known.seen.keys().cloned().collect())
-            .unwrap_or_default();
+        let scan = lookup.lock_owned().await;
         let store = self.store();
         let links = self.links.clone();
+        let views = self.views.clone();
         let id = uuid.clone();
-        let (ids, learnt) = blocking(move || {
+        blocking(move || {
+            let _scan = scan;
+            let seen: HashSet<String> = locked(&views.known)
+                .get(&id)
+                .map(|known| known.seen.keys().cloned().collect())
+                .unwrap_or_default();
             let ids = store
                 .manifest_ids(id.as_ref())
                 .map_err(color_eyre::Report::new)
@@ -655,25 +679,24 @@ impl ImageService {
                 };
                 learnt.push((manifest.clone(), view_id));
             }
-            Ok((ids, learnt))
+            let present: HashSet<String> = ids.into_iter().collect();
+            let mut known = locked(&views.known);
+            let known = known.entry(id).or_default();
+            let gone: Vec<String> = known
+                .seen
+                .keys()
+                .filter(|id| !present.contains(*id))
+                .cloned()
+                .collect();
+            for manifest in gone {
+                known.forget(&manifest);
+            }
+            for (manifest, view_id) in learnt {
+                known.learn(&manifest, view_id.as_deref());
+            }
+            Ok(())
         })
-        .await?;
-        let present: HashSet<String> = ids.into_iter().collect();
-        let mut known = locked(&self.views.known);
-        let known = known.entry(uuid.clone()).or_default();
-        let gone: Vec<String> = known
-            .seen
-            .keys()
-            .filter(|id| !present.contains(*id))
-            .cloned()
-            .collect();
-        for manifest in gone {
-            known.forget(&manifest);
-        }
-        for (manifest, view_id) in learnt {
-            known.learn(&manifest, view_id.as_deref());
-        }
-        Ok(())
+        .await
     }
 
     /// Records the instance's first content image in the background, once however many
@@ -825,6 +848,17 @@ impl Drop for Settle {
                 );
             }
         }
+    }
+}
+
+/// The answer for a delta to `current` (`None`: no smaller than the view, which is sent).
+fn delta_answer(json: Option<Bytes>, current: Arc<ServedView>) -> ClientAnswer {
+    match json {
+        Some(json) => ClientAnswer::Delta {
+            view: current,
+            json,
+        },
+        None => ClientAnswer::View(current),
     }
 }
 

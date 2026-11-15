@@ -107,6 +107,7 @@ mod minecraft_links;
 mod modpack;
 mod modrinth;
 mod mods;
+mod open_files;
 mod output_types;
 mod persist;
 mod port_manager;
@@ -1197,6 +1198,9 @@ pub async fn run_with(
     ),
     Error,
 > {
+    // Before anything opens files: player downloads and records need more than the 256
+    // macOS gives a program by default.
+    open_files::raise_limit();
     // first, so a stop asked for while the core starts is not lost
     let (stop_requests, mut stop_signal) = listen_for_stop_signals();
     // Stdin closing asks the core to stop like a signal does: reading it from the start

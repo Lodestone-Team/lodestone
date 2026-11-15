@@ -239,7 +239,10 @@ pub fn fabric_environment_and_depends(text: &str) -> (Option<JarEnvironment>, Ve
 ///   dedicated server);
 /// - otherwise, when every `[[mods]]` entry has `displayTest = "IGNORE_SERVER_VERSION"`,
 ///   the mod tells clients they may join without it: a server-side mod, which players
-///   don't need;
+///   don't need. A client-optional mod declares the same, and is taken for server-side
+///   too: most mods declaring it are server utilities, some of which crash a client that
+///   loads them, so missing an optional client feature is the safer mistake (an owner's
+///   "For players" mark, or Modrinth's sides, override it);
 /// - anything else (`MATCH_VERSION`, the default; `IGNORE_ALL_VERSION`, which says nothing
 ///   about the server; `NONE`; entries that disagree; no entries; TOML that can't be read)
 ///   is no answer.

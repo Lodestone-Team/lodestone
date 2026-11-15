@@ -533,6 +533,9 @@ pub struct RestoreTarget {
     /// The pack files the image had taken out, kept in `pack.json` when the pack's file
     /// list can't be read (`crate::images::base::BaseInfo::removed`).
     pub removed: Vec<CanonicalPath>,
+    /// Every path the image carries, kept in `pack.json` with `removed`
+    /// (`crate::images::base::BaseInfo::paths`).
+    pub paths: Vec<CanonicalPath>,
     pub game: Game,
 }
 
@@ -626,6 +629,11 @@ pub fn plan_restore(
             label: target_image.label.clone(),
             base: target_image.base.clone(),
             removed: target_image.removed.clone(),
+            paths: target_image
+                .entries
+                .iter()
+                .map(|e| e.path.clone())
+                .collect(),
             game: target_image.game.clone(),
         },
         plan: FilePlan::default(),

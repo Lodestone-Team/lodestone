@@ -31,7 +31,9 @@ use serde::Deserialize;
 use crate::error::{Error, ErrorKind};
 use lodestone_image::store::chunklist::CHUNKED_ABOVE;
 
-use crate::images::objects::{object_stream, object_there, ByteRange, ClientKey, IDLE_TIMEOUT};
+use crate::images::objects::{
+    object_stream, object_there, ByteRange, ClientKey, There, IDLE_TIMEOUT,
+};
 use crate::images::serve::{ClientAnswer, FirstRecord, MAX_HAVE};
 use crate::types::InstanceUuid;
 use crate::AppState;
@@ -47,6 +49,8 @@ const BUSY_RETRY_SECS: u64 = 1;
 /// How long a player waits before fetching an object again that the store lacks while a
 /// record stores it again.
 const MISSING_RETRY_SECS: u64 = 5;
+/// How long a player waits before fetching again while the store's garbage collection runs.
+const COLLECTING_RETRY_SECS: u64 = 5;
 
 /// The query of `…/image`.
 #[derive(Debug, Deserialize)]
@@ -57,6 +61,10 @@ pub(crate) struct ImageQuery {
     /// Client view ids the player has, comma-separated, newest first.
     #[serde(default)]
     have: Option<String>,
+    /// The newest view rules the player knows (`lodestone_image::RULES`), so a core with
+    /// newer rules can tell it to update rather than send a view it can't check.
+    #[serde(default)]
+    rules: Option<String>,
 }
 
 fn bad_request(message: &str) -> Error {
@@ -78,6 +86,27 @@ fn check_side(query: &ImageQuery) -> Result<(), Error> {
         Some("client") => Ok(()),
         _ => Err(bad_request("Only side=client is served")),
     }
+}
+
+/// Checks `rules`: a player that knows only older rules than the core's can't check the
+/// views this core makes (`lodestone_image::view` refuses rules newer than its own), so it
+/// is told to update instead. Newer rules than the core's are fine: views are made under
+/// the core's own, which every later Lodestone still reads.
+fn check_rules(text: Option<&str>) -> Result<(), Error> {
+    let Some(text) = text else {
+        return Ok(());
+    };
+    let rules: u32 = text
+        .parse()
+        .ok()
+        .filter(|rules| *rules >= 1)
+        .ok_or_else(|| bad_request("rules must be a whole number from 1"))?;
+    if rules < lodestone_image::RULES {
+        return Err(bad_request(
+            "This server runs a newer Lodestone: update Lodestone to join it",
+        ));
+    }
+    Ok(())
 }
 
 /// The ids in `have`: at most [`MAX_HAVE`], each a SHA-256 in lowercase hex.
@@ -193,6 +222,7 @@ pub(crate) async fn image_response(
     query: ImageQuery,
 ) -> Result<Response, Error> {
     check_side(&query)?;
+    check_rules(query.rules.as_deref())?;
     let have = parse_have(query.have.as_deref())?;
     match state.images().client_answer(uuid, &have).await? {
         Some(answer) => answer_response(answer),
@@ -271,6 +301,8 @@ fn parse_range(headers: &HeaderMap, size: u64) -> RangeAsk {
 /// `GET`/`HEAD …/objects/{sha256}`: the bytes of a file the current client view names with
 /// source `object` (or the client settings' icon or background), whole or one range.
 /// Nothing else in the store is served: it holds worlds, backups and server-only files too.
+/// While the instance has no readable current image, the answer is the image route's 503
+/// that records one; while a collection runs, a 503 to try again.
 /// `client` is who asks, when the route can tell ([`ClientKey`]), for the per-client limit.
 pub(crate) async fn object_response(
     state: &AppState,
@@ -283,17 +315,16 @@ pub(crate) async fn object_response(
     if !is_sha256(sha256) {
         return Err(bad_request("Not a SHA-256"));
     }
-    let Some(size) = state
-        .images()
-        .client_view(uuid)
-        .await?
-        .and_then(|view| view.object_size(sha256))
-    else {
+    // No readable current image (none yet, or its manifest is damaged) is the image
+    // route's 503 that records one, not a 404: a player that holds the view keeps fetching.
+    let Some(view) = state.images().client_view(uuid).await? else {
+        return Ok(recording(state, uuid).await);
+    };
+    let Some(size) = view.object_size(sha256) else {
         return Err(not_found());
     };
-    // Taken before the store is looked at, which waits while a collection runs: so the
-    // requests waiting are bounded by the download limits too (a HEAD gives its place back
-    // once it has looked).
+    // Taken before the store is looked at, so the requests looking at once are bounded by
+    // the download limits too (a HEAD gives its place back once it has looked).
     let Some(permit) = state.images().downloads.try_start(uuid, client.as_ref()) else {
         return Ok(unavailable(
             ErrorKind::TooManyRequests,
@@ -310,9 +341,19 @@ pub(crate) async fn object_response(
             .map_err(Error::from)
     })
     .await?;
-    if !there {
-        drop(permit);
-        return Ok(missing(state, uuid).await);
+    match there {
+        There::Yes => {}
+        There::No => {
+            drop(permit);
+            return Ok(missing(state, uuid).await);
+        }
+        There::Collecting => {
+            return Ok(unavailable(
+                ErrorKind::TooManyRequests,
+                "The server is tidying its files; try again in a few seconds",
+                COLLECTING_RETRY_SECS,
+            ))
+        }
     }
     let builder = Response::builder()
         .header(CONTENT_TYPE, "application/octet-stream")
@@ -397,6 +438,16 @@ mod tests {
         assert_eq!(range("bytes=-", n), RangeAsk::Whole);
         assert_eq!(range("bytes=1", n), RangeAsk::Whole);
         assert_eq!(range("bytes=99999999999999999999999-", n), RangeAsk::Whole);
+    }
+
+    #[test]
+    fn rules_are_checked() {
+        assert!(check_rules(None).is_ok());
+        assert!(check_rules(Some(&lodestone_image::RULES.to_string())).is_ok());
+        assert!(check_rules(Some(&(lodestone_image::RULES + 1).to_string())).is_ok());
+        for bad in ["0", "", "-1", "x", "1.0", "99999999999"] {
+            assert!(check_rules(Some(bad)).is_err(), "{bad}");
+        }
     }
 
     #[test]

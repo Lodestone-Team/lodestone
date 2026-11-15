@@ -213,8 +213,9 @@ pub async fn save(images: &Arc<ImageService>, uuid: &InstanceUuid, info: BaseInf
 /// After a restore that put back the content of the image `content`: makes the server's
 /// `pack.json` name the image's base, without the pack's file list (an image doesn't keep
 /// it), so the next update falls back to the files of the origin's pack version, and with
-/// the image's `removed`, so the next content images still take out the pack files the
-/// server had taken out ([`BaseInfo::removed`]). A `pack.json` with that base already is
+/// the image's `removed` and paths, so the next content images still take out the pack
+/// files the server had taken out, or takes out later ([`BaseInfo::removed`],
+/// [`BaseInfo::paths`]). A `pack.json` with that base already is
 /// left as it is (its file list gives `removed`). Call it inside the restore's content
 /// operation, before its image is recorded.
 pub async fn follow_base(images: &Arc<ImageService>, uuid: &InstanceUuid, content: &Image) {
@@ -231,23 +232,31 @@ pub async fn follow_base(images: &Arc<ImageService>, uuid: &InstanceUuid, conten
     if current.as_ref().and_then(|info| info.base.as_ref()) == content.base.as_ref() {
         return;
     }
+    let paths = content
+        .entries
+        .iter()
+        .map(|entry| entry.path.clone())
+        .collect();
     save(
         images,
         uuid,
-        without_files(content.base.clone(), &content.removed),
+        without_files(content.base.clone(), &content.removed, paths),
     )
     .await;
 }
 
 /// A `pack.json` naming `base` without its file list, keeping what an image built on it
-/// had `removed` ([`BaseInfo::removed`]; none without a base).
-pub fn without_files(base: Option<Base>, removed: &[CanonicalPath]) -> BaseInfo {
+/// had `removed` and the `paths` it carried ([`BaseInfo::removed`], [`BaseInfo::paths`];
+/// neither without a base).
+pub fn without_files(
+    base: Option<Base>,
+    removed: &[CanonicalPath],
+    paths: Vec<CanonicalPath>,
+) -> BaseInfo {
+    let based = base.is_some();
     BaseInfo {
-        removed: if base.is_some() {
-            removed.to_vec()
-        } else {
-            Vec::new()
-        },
+        removed: if based { removed.to_vec() } else { Vec::new() },
+        paths: if based { paths } else { Vec::new() },
         base,
         files: BTreeMap::new(),
     }

@@ -7,13 +7,22 @@
 //! on a blocking thread of its own under its own shared hold on the store's collection lock
 //! (`Store::hold_off_collection`), and hands the bytes to the connection in pieces of at
 //! most [`PIECE`]: a slow player holds no thread while it reads, and a collection waits for
-//! at most one read, never for a whole download. Every byte is checked before it is sent:
-//! a whole object as it is read, a chunk against its own hash, and on a full download of a
-//! large file the whole file's SHA-256 at the end. A check that fails ends the stream with
-//! an error, which aborts the response (the player sees a body cut short and fetches it
-//! again), and the damaged object is deleted (for a large file, the damaged or missing
-//! chunk and the file's chunk list), so the next request for it gets a 503 and starts a
-//! record of the server's content, which stores the file again from its disk.
+//! at most one read, never for a whole download. The other way round, a read waits for a
+//! collection that is running (they take a few seconds, or longer with many backups): a
+//! download stalls meanwhile, and a new request that finds a collection running answers
+//! 503 at once ([`object_there`]) rather than wait.
+//!
+//! Every byte is checked before it is sent: a whole object as it is read, a chunk against
+//! its own hash, and on a full download of a large file the whole file's SHA-256 at the
+//! end. A check that fails ends the stream with an error, which aborts the response (the
+//! player sees a body cut short and fetches it again), and the damaged object is deleted
+//! (for a large file, the damaged or missing chunk and the file's chunk list), so the next
+//! request for it gets a 503 and starts a record of the server's content, which stores the
+//! file again from its disk. Only proven damage deletes anything (the store's `…_checked`
+//! functions): bytes that were read and are wrong, or a chunk the drive says is missing. A
+//! file that can't be opened or read for now (too many open files, an antivirus holding
+//! it) ends the response the same way but deletes nothing: the store and its backups share
+//! these objects, and a player's request must never cost them one.
 //!
 //! Downloads are limited ([`Downloads`]): at most [`MAX_OBJECT_STREAMS`] at once over every
 //! server and route, at most [`MAX_OBJECT_STREAMS_PER_SERVER`] of one server, at most
@@ -263,10 +272,15 @@ pub(crate) fn object_stream(
                     return;
                 }
             };
-            for piece in bytes.chunks(PIECE) {
-                // A copy of its own, so a connection that stalls holds one piece, not the
-                // whole unit it was cut from.
-                let piece = Bytes::copy_from_slice(piece);
+            // Pieces share the unit's one allocation, so nothing is copied; a connection that
+            // stalls holds the whole unit (at most `UNIT` and one chunk, about 2 MiB) until
+            // `idle` passes.
+            let bytes = Bytes::from(bytes);
+            let mut start = 0;
+            while start < bytes.len() {
+                let end = (start + PIECE).min(bytes.len());
+                let piece = bytes.slice(start..end);
+                start = end;
                 match tokio::time::timeout(idle, tx.send(Ok(piece))).await {
                     Ok(Ok(())) => {}
                     // The player went away.
@@ -341,7 +355,7 @@ impl Progress {
             }
             let bytes = self
                 .store
-                .read_chunk(chunk)
+                .read_chunk_checked(chunk)
                 .inspect_err(|e| lost_chunk(&self.store, &self.sha256, self.size, chunk, e))?;
             if self.full {
                 self.hasher.update(&bytes);
@@ -368,10 +382,7 @@ impl Progress {
     fn failed(&self, e: StoreError) -> std::io::Error {
         match &e {
             StoreError::Damaged(name) if *name == self.sha256 => {
-                warn!("The stored object {} is damaged; deleting it", self.sha256);
-                if let Err(e) = self.store.remove_damaged(&self.sha256) {
-                    warn!("Failed to delete the damaged object {}: {e}", self.sha256);
-                }
+                remove_if_damaged(&self.store, &self.sha256);
             }
             StoreError::Missing(_) => {}
             _ => warn!("Failed to send the object {}: {e}", self.sha256),
@@ -380,35 +391,64 @@ impl Progress {
     }
 }
 
+/// What [`object_there`] found.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum There {
+    /// The store holds the object.
+    Yes,
+    /// It doesn't (or did, damaged, and it was deleted): a record must store it again.
+    No,
+    /// A collection is running: ask again in a moment.
+    Collecting,
+}
+
 /// Whether the store holds the object `sha256` for a file of `size` bytes, whole or as a
 /// sound chunk list: what a download needs before it promises a body. Reads at most the
 /// chunk list, not its chunks: a damaged whole object, or a large file that lost a chunk,
 /// is only found as it is sent, which then deletes it ([`lost_chunk`]), so the next request
-/// gets here `false`. Checking every chunk here would cost an open per chunk on every
-/// request (tens of thousands for a file of a few GiB). A damaged one is deleted, so a
-/// record stores it again. Blocking.
-pub(crate) fn object_there(store: &Store, sha256: &str, size: u64) -> Result<bool, StoreError> {
-    let _hold = store.hold_off_collection()?;
+/// gets here [`There::No`]. Checking every chunk here would cost an open per chunk on every
+/// request (tens of thousands for a file of a few GiB). One proven damaged is deleted, so a
+/// record stores it again; a failure to read it for now is an error and deletes nothing.
+/// Never waits for a collection: while one runs, it is [`There::Collecting`]. Blocking.
+pub(crate) fn object_there(store: &Store, sha256: &str, size: u64) -> Result<There, StoreError> {
+    let Some(_hold) = store.try_hold_off_collection()? else {
+        return Ok(There::Collecting);
+    };
     match store.object_form(sha256, size) {
-        Ok(_) => Ok(true),
-        Err(StoreError::Missing(_) | StoreError::WrongSize { .. }) => Ok(false),
+        Ok(_) => Ok(There::Yes),
+        Err(StoreError::Missing(_) | StoreError::WrongSize { .. }) => Ok(There::No),
+        // What `object_form` calls damaged may be a file it couldn't open: only a checked
+        // read tells, and only proven damage is deleted. Whatever that leaves is looked at
+        // again, and a failure then is the request's error.
         Err(StoreError::Damaged(_)) => {
-            warn!("The stored object {sha256} is damaged; deleting it");
-            if let Err(e) = store.remove_damaged(sha256) {
-                warn!("Failed to delete the damaged object {sha256}: {e}");
+            remove_if_damaged(store, sha256);
+            match store.object_form(sha256, size) {
+                Ok(_) => Ok(There::Yes),
+                Err(StoreError::Missing(_) | StoreError::WrongSize { .. }) => Ok(There::No),
+                Err(e) => Err(e),
             }
-            Ok(false)
         }
         Err(e) => Err(e),
     }
 }
 
-/// After a chunk of the large file `sha256` (of `size` bytes) couldn't be read: deletes it
-/// when it was damaged, and then the file's chunk list, which can no longer give the file
-/// whole (`Store::remove_incomplete`). So the object counts as missing: the next request
-/// for it gets the 503 that starts a record ([`object_there`]), and that record, which
-/// can't claim it, stores the file again from the server's disk with the lost chunk. A
-/// chunk lost some other way (missing) goes the same way.
+/// Deletes the object `sha256` if a checked read proves it damaged
+/// (`Store::remove_damaged_checked`), logging what happened.
+fn remove_if_damaged(store: &Store, sha256: &str) {
+    match store.remove_damaged_checked(sha256) {
+        Ok(true) => warn!("The stored object {sha256} was damaged; deleted it"),
+        Ok(false) => {}
+        Err(e) => warn!("Failed to read the stored object {sha256}: {e}"),
+    }
+}
+
+/// After a chunk of the large file `sha256` (of `size` bytes) was found damaged or missing
+/// by a checked read: deletes it when damaged, and then the file's chunk list, which can
+/// no longer give the file whole (`Store::remove_incomplete_checked`). So the object
+/// counts as missing: the next request for it gets the 503 that starts a record
+/// ([`object_there`]), and that record, which can't claim it, stores the file again from
+/// the server's disk with the lost chunk. Both deletions read again first and act only on
+/// proof, so a read that fails for now (any other error) deletes nothing.
 fn lost_chunk(
     store: &Store,
     sha256: &str,
@@ -417,19 +457,18 @@ fn lost_chunk(
     e: &StoreError,
 ) {
     match e {
-        StoreError::Damaged(_) => {
-            warn!("The stored chunk {} is damaged; deleting it", chunk.sha256);
-            if let Err(e) = store.remove_damaged_chunk(chunk) {
-                warn!("Failed to delete the damaged chunk {}: {e}", chunk.sha256);
-            }
-        }
+        StoreError::Damaged(_) => match store.remove_damaged_chunk_checked(chunk) {
+            Ok(true) => warn!("The stored chunk {} was damaged; deleted it", chunk.sha256),
+            Ok(false) => {}
+            Err(e) => warn!("Failed to read the stored chunk {}: {e}", chunk.sha256),
+        },
         StoreError::Missing(_) => {}
         _ => return,
     }
-    match store.remove_incomplete(sha256, size) {
+    match store.remove_incomplete_checked(sha256, size) {
         Ok(true) => warn!("The stored object {sha256} lost a chunk; it will be stored again"),
         Ok(false) => {}
-        Err(e) => warn!("Failed to delete the incomplete object {sha256}: {e}"),
+        Err(e) => warn!("Failed to look at the chunks of the stored object {sha256}: {e}"),
     }
 }
 

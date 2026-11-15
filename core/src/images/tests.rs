@@ -1415,6 +1415,7 @@ async fn pack_files_get_their_sources_and_env() {
             ),
         ]),
         removed: Vec::new(),
+        paths: Vec::new(),
     };
     base::save_base(s.images.root(), &uuid(), &info).unwrap();
     s.images

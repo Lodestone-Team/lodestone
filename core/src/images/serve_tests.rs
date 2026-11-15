@@ -463,6 +463,15 @@ async fn a_shared_view_survives_the_pruning_of_one_of_its_images() {
         ClientAnswer::View(_)
     ));
     assert!(!fx.service.views.knows(&fx.uuid, &shared));
+    // the delta computed from it still answers while cached (a view id is its contents);
+    // once it isn't, the whole view does
+    assert!(matches!(
+        fx.answer(&[&shared]).await,
+        ClientAnswer::Delta { .. }
+    ));
+    locked(&fx.service.views.deltas)
+        .entries
+        .retain(|(from, _), _| *from != shared);
     assert!(matches!(fx.answer(&[&shared]).await, ClientAnswer::View(_)));
 }
 
@@ -485,6 +494,65 @@ async fn known_ids_answer_before_unknown_ones_are_looked_up() {
         .get(&fx.uuid)
         .is_none_or(|known| !known.seen.contains_key(&pruned) && known.seen.len() == 1));
     assert!(locked(&fx.service.views.lookups).get(&fx.uuid).is_none());
+}
+
+/// A scan of the manifests whose request was dropped (its player hung up) runs to its end
+/// and keeps what it learnt: hanging up at once can't make the core read every manifest
+/// again on each request.
+#[tokio::test]
+async fn a_scan_outlives_a_request_that_was_dropped() {
+    let fx = fixture();
+    let content = server_content(&fx);
+    let mut last = None;
+    for i in 0..16 {
+        let mut entries = content.clone();
+        entries.retain(|e| e.path.as_str() != "server.properties");
+        let properties = format!("motd=Version {i}\n");
+        entries.push(fx.object(
+            "server.properties",
+            properties.as_bytes(),
+            EnvInputs::default(),
+        ));
+        last = Some(fx.save(entries, &format!("Version {i}")));
+    }
+    let current = last.unwrap();
+    fx.set_current(&current.id);
+    // the current view is cached; nothing else was read
+    assert!(matches!(fx.answer(&[]).await, ClientAnswer::View(_)));
+    let seen = |fx: &Fixture| {
+        locked(&fx.service.views.known)
+            .get(&fx.uuid)
+            .map_or(0, |known| known.seen.len())
+    };
+    assert_eq!(seen(&fx), 1);
+    let lookup = locked(&fx.service.views.lookups)
+        .entry(fx.uuid.clone())
+        .or_default()
+        .clone();
+    let unknown = vec!["f".repeat(64)];
+    {
+        let mut request = std::pin::pin!(fx.service.client_answer(&fx.uuid, &unknown));
+        let deadline = Instant::now() + Duration::from_secs(10);
+        // polled until the scan holds the instance's turn, then dropped
+        loop {
+            if futures::poll!(request.as_mut()).is_ready() {
+                panic!("the request ended before it could be dropped mid-scan");
+            }
+            if lookup.try_lock().is_err() {
+                break;
+            }
+            assert!(Instant::now() < deadline, "no scan started");
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+    }
+    // the scan still holds the turn until it ends, so no second one starts meanwhile...
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while lookup.try_lock().is_err() {
+        assert!(Instant::now() < deadline, "the scan never ended");
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    // ...and what it learnt is kept: every manifest was looked at once
+    assert_eq!(seen(&fx), 16);
 }
 
 #[tokio::test]

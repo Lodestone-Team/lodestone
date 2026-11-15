@@ -41,6 +41,14 @@ pub struct BaseInfo {
     /// replaced. Empty once the pack's files are written again (an install or update).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub removed: Vec<CanonicalPath>,
+    /// With [`BaseInfo::removed`], when the pack's file list isn't known: every path the
+    /// restored image carried, any of which may be one of the pack's files. The recorder
+    /// puts one the server no longer has into the next images' `removed`, as it would a
+    /// pack file, so a pack file the owner deletes, disables or renames after the restore
+    /// doesn't come back on players' machines. Some aren't the pack's (a mod the owner
+    /// added), and taking out a path the base doesn't have changes nothing for players.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub paths: Vec<CanonicalPath>,
 }
 
 /// One file a pack wrote.
@@ -113,6 +121,7 @@ mod tests {
             }),
             files: BTreeMap::new(),
             removed: vec![CanonicalPath::new("mods/gone.jar").unwrap()],
+            paths: vec![CanonicalPath::new("mods/kept.jar").unwrap()],
         };
         info.files.insert(
             "mods/a.jar".into(),

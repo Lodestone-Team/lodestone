@@ -42,11 +42,14 @@
 //! - [`materialize`]: placing an image's files into a staging folder.
 //! - [`gc`]: deleting what no manifest uses.
 //! - [`excludes`]: an image's exclude patterns.
+//! - `checked`: deleting what is damaged only on proof, where a read may fail for a
+//!   moment ([`Store::remove_damaged_checked`] and the like).
 //!
 //! Unlike the rest of the crate, this module reads and writes files. Everything here
 //! blocks; callers run it on their own threads.
 
 pub mod cdc;
+mod checked;
 pub mod chunklist;
 pub mod encoding;
 pub mod excludes;

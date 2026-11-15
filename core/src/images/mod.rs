@@ -197,7 +197,7 @@ pub struct ImageService {
     source: StdRwLock<Option<Arc<dyn InstanceSource>>>,
     gc: Arc<gc::GcState>,
     /// What players are served, cached ([`serve`]).
-    pub(crate) views: serve::ViewCache,
+    pub(crate) views: Arc<serve::ViewCache>,
     /// Which object downloads may start ([`objects::Downloads`]).
     pub(crate) downloads: objects::Downloads,
 }

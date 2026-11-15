@@ -77,7 +77,10 @@ impl<'a> Player<'a> {
     /// `GET …/image?side=client&have=…`, through 503s while the first image is recorded,
     /// checking the answer as a player must.
     async fn image(&self, have: &[&str]) -> Answer {
-        let mut url = self.url("image?side=client");
+        let mut url = self.url(&format!(
+            "image?side=client&rules={}",
+            lodestone_image::RULES
+        ));
         if !have.is_empty() {
             url.push_str(&format!("&have={}", have.join(",")));
         }
@@ -133,25 +136,38 @@ impl<'a> Player<'a> {
         }
     }
 
-    /// `GET …/objects/{sha256}`: the status, and the bytes when they check out.
+    /// `GET …/objects/{sha256}`: the status, and the bytes when they check out. Asks again,
+    /// as a player must, while the server says it is busy (`TooManyRequests`: a collection
+    /// runs, or too many downloads do), sooner than its `Retry-After` to keep tests quick.
     async fn object(&self, sha256: &str) -> (StatusCode, Vec<u8>) {
-        let response = self
-            .http
-            .get(self.url(&format!("objects/{sha256}")))
-            .bearer_auth(&self.core.owner)
-            .send()
-            .await
-            .unwrap();
-        let status = response.status();
-        let bytes = response
-            .bytes()
-            .await
-            .map(|b| b.to_vec())
-            .unwrap_or_default();
-        if status == StatusCode::OK {
-            assert_eq!(sha256_hex(&bytes), sha256, "the bytes the server sent");
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        loop {
+            let response = self
+                .http
+                .get(self.url(&format!("objects/{sha256}")))
+                .bearer_auth(&self.core.owner)
+                .send()
+                .await
+                .unwrap();
+            let status = response.status();
+            let bytes = response
+                .bytes()
+                .await
+                .map(|b| b.to_vec())
+                .unwrap_or_default();
+            if status == StatusCode::SERVICE_UNAVAILABLE {
+                let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+                if body["kind"] == "TooManyRequests" {
+                    assert!(std::time::Instant::now() < deadline, "always busy");
+                    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                    continue;
+                }
+            }
+            if status == StatusCode::OK {
+                assert_eq!(sha256_hex(&bytes), sha256, "the bytes the server sent");
+            }
+            return (status, bytes);
         }
-        (status, bytes)
     }
 
     /// Fetches what the player's store lacks of `view`: objects (and the client settings'
@@ -697,6 +713,7 @@ async fn a_player_of_a_pack_server_installs_the_pack_less_what_the_server_took_o
             ),
         ]),
         removed: Vec::new(),
+        paths: Vec::new(),
     };
     save_base(core.state.images().root(), &core.uuid, &info).unwrap();
     // the server's folder: the owner updated Fabric API (a new file name), deleted one pack
@@ -801,6 +818,7 @@ async fn a_player_of_a_pack_server_installs_the_pack_less_what_the_server_took_o
         }),
         files: BTreeMap::from([("mods/pack.jar".into(), pack_file(b"pack mod", both, true))]),
         removed: Vec::new(),
+        paths: Vec::new(),
     };
     save_base(core.state.images().root(), &core.uuid, &updated).unwrap();
     write(&core.root, "mods/pack.jar", b"pack mod");
@@ -809,6 +827,10 @@ async fn a_player_of_a_pack_server_installs_the_pack_less_what_the_server_took_o
     assert_eq!(followed.base, info.base);
     assert!(followed.files.is_empty());
     assert_eq!(followed.removed, first.removed);
+    assert!(followed
+        .paths
+        .iter()
+        .any(|path| path.as_str() == "mods/pack.jar"));
     let ctx = crate::images::context_of(&core.state, &core.uuid)
         .await
         .unwrap();
@@ -824,6 +846,29 @@ async fn a_player_of_a_pack_server_installs_the_pack_less_what_the_server_took_o
     assert_eq!(restored.removed, view.removed);
     assert!(player.fetch(&restored).await);
     assert_eq!(player.install(&restored, &share), expected);
+
+    // After the restore, `pack.json` still has no file list, yet a pack mod the owner now
+    // deletes is taken out of players' installs too: the restored image's paths stand in
+    // for the pack's files.
+    std::fs::remove_file(core.root.join("mods/pack.jar")).unwrap();
+    let ctx = crate::images::context_of(&core.state, &core.uuid)
+        .await
+        .unwrap();
+    core.state
+        .images
+        .record_now(ctx, "Removed Pack Mod Again".into())
+        .await
+        .unwrap();
+    let Answer::View(after) = player.image(&[]).await else {
+        panic!("the whole view");
+    };
+    assert!(after.removed.iter().any(|p| p.as_str() == "mods/pack.jar"));
+    assert!(player.fetch(&after).await);
+    assert_eq!(
+        player.install(&after, &share),
+        after_removal,
+        "the pack mod the owner deleted after the restore came back"
+    );
 }
 
 /// An object the current view names that the store lost (deleted when found damaged): the
@@ -1215,4 +1260,33 @@ async fn unmarking_a_mod_players_need_keeps_it_in_the_view() {
     let paths: BTreeSet<&str> = view.entries.iter().map(|e| e.path.as_str()).collect();
     assert!(paths.contains("mods/needed.jar"), "{paths:?}");
     assert!(!paths.contains("mods/free.jar"), "{paths:?}");
+}
+
+/// Before the server has a content image, an object request gets the image route's 503 and
+/// starts the first record, rather than a 404 that would tell the player the file isn't
+/// served; once the image is there, the object is.
+#[tokio::test]
+async fn objects_before_the_first_image_wait_for_it() {
+    let core = content::core(Kind::Fabric).await;
+    write(&core.root, "mods/own.jar", b"the server's own mod");
+    let player = Player::new(&core, Vec::new());
+    let own = sha256_hex(b"the server's own mod");
+    let response = player
+        .http
+        .get(player.url(&format!("objects/{own}")))
+        .bearer_auth(&core.owner)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(response.headers()["retry-after"], "5");
+    let body: serde_json::Value = response.json().await.unwrap();
+    assert_eq!(body["kind"], "Conflict");
+    let Answer::View(view) = player.image(&[]).await else {
+        panic!("the whole view");
+    };
+    assert!(view.entries.iter().any(|e| e.sha256 == own));
+    let (status, bytes) = player.object(&own).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(bytes, b"the server's own mod");
 }

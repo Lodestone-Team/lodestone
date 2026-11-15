@@ -1114,8 +1114,10 @@ async fn matching_base_files(
 /// path, readable or not) and it is content the image would carry (in the content scope,
 /// not left out by `excludes`); files outside that scope say nothing either way. Never a
 /// path the image lists, which an image can't both remove and carry. A `pack.json` without
-/// the pack's file list (after a restore across pack versions) carries the restored image's
-/// `removed` instead ([`BaseInfo::removed`]), and those stay removed by the same rules.
+/// the pack's file list (after a restore across pack versions) has the restored image's
+/// `removed` and every path it carried instead ([`BaseInfo::removed`], [`BaseInfo::paths`]),
+/// and each of those the walk didn't find is removed by the same rules: any of them may be
+/// a pack file, and taking out one the base doesn't have changes nothing for players.
 fn removed_pack_files(
     layout: &DiskLayout,
     excludes: &[String],
@@ -1125,7 +1127,7 @@ fn removed_pack_files(
 ) -> Vec<CanonicalPath> {
     let listed: HashSet<&str> = entries.iter().map(|e| e.path.as_str()).collect();
     let excludes = Excludes::new(excludes);
-    let carried = base.removed.iter().filter(|path| {
+    let carried = base.removed.iter().chain(&base.paths).filter(|path| {
         layout
             .to_disk(path)
             .is_ok_and(|disk| !found.contains_key(disk.as_str()))

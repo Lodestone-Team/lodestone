@@ -727,7 +727,8 @@ async fn restored_pack(
             origin: None,
         };
     }
-    let without_files = pack_info::without_files(target.base.clone(), &target.removed);
+    let without_files =
+        pack_info::without_files(target.base.clone(), &target.removed, target.paths.clone());
     let Some(Base::ModrinthPack {
         project,
         version,

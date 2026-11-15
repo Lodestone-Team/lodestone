@@ -154,7 +154,10 @@ async fn a_damaged_chunk_ends_the_stream_and_is_deleted_with_its_list() {
     // and the file's chunk list, which can't give the file whole any more: the object is
     // missing, so a download answers 503 and a record stores it again
     assert!(!store.has_object(&stored.sha256, stored.size));
-    assert!(!object_there(&store, &stored.sha256, stored.size).unwrap());
+    assert_eq!(
+        object_there(&store, &stored.sha256, stored.size).unwrap(),
+        There::No
+    );
     // storing the file again brings the chunk back
     store.put_bytes(&bytes).unwrap();
     assert_eq!(
@@ -180,11 +183,17 @@ async fn a_missing_chunk_ends_the_stream_and_its_list_is_deleted() {
     permissions.set_readonly(false);
     std::fs::set_permissions(&path, permissions).unwrap();
     std::fs::remove_file(&path).unwrap();
-    assert!(object_there(&store, &stored.sha256, stored.size).unwrap());
+    assert_eq!(
+        object_there(&store, &stored.sha256, stored.size).unwrap(),
+        There::Yes
+    );
     assert!(collect(&store, &stored.sha256, stored.size, None)
         .await
         .is_err());
-    assert!(!object_there(&store, &stored.sha256, stored.size).unwrap());
+    assert_eq!(
+        object_there(&store, &stored.sha256, stored.size).unwrap(),
+        There::No
+    );
     store.put_bytes(&bytes).unwrap();
     assert!(store.object_complete(&stored.sha256, stored.size));
 }
@@ -203,6 +212,93 @@ async fn a_damaged_small_object_ends_the_stream_and_is_deleted() {
         .await
         .is_err());
     assert!(!path.exists(), "the damaged object is deleted");
+}
+
+/// A file that can't be opened for now (as when the core is out of file descriptors, or an
+/// antivirus holds it) ends the stream like damage does, but deletes nothing: the store and
+/// its backups share these objects. Once it can be read again, it is sent.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_file_that_cant_be_read_for_now_is_never_deleted() {
+    use std::os::unix::fs::PermissionsExt;
+    let (_dir, store) = store();
+    let small = store.put_bytes(b"a small object").unwrap();
+    let bytes = noise(2 << 20, 14);
+    let large = store.put_bytes(&bytes).unwrap();
+    let ObjectForm::Chunked(list) = store.object_form(&large.sha256, large.size).unwrap() else {
+        panic!("a chunk list");
+    };
+    let object = store.object_path(&small.sha256).unwrap();
+    let chunk = store.chunk_path(&list.chunks[1].sha256).unwrap();
+    let set = |path: &std::path::Path, mode: u32| {
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).unwrap()
+    };
+    set(&object, 0o000);
+    set(&chunk, 0o000);
+    if std::fs::File::open(&object).is_ok() {
+        // Running as root, which reads anything: nothing to test.
+        set(&object, 0o444);
+        set(&chunk, 0o444);
+        return;
+    }
+    // a small object: looking for it is an error (a 500), not a deletion
+    assert!(object_there(&store, &small.sha256, small.size).is_err());
+    assert!(collect(&store, &small.sha256, small.size, None)
+        .await
+        .is_err());
+    // a large one: its list reads fine, the chunk doesn't
+    assert_eq!(
+        object_there(&store, &large.sha256, large.size).unwrap(),
+        There::Yes
+    );
+    assert!(collect(&store, &large.sha256, large.size, None)
+        .await
+        .is_err());
+    assert!(object.exists() && chunk.exists());
+    assert!(store.has_object(&large.sha256, large.size));
+    set(&object, 0o444);
+    set(&chunk, 0o444);
+    assert_eq!(
+        collect(&store, &small.sha256, small.size, None)
+            .await
+            .unwrap(),
+        b"a small object"
+    );
+    assert_eq!(
+        collect(&store, &large.sha256, large.size, None)
+            .await
+            .unwrap(),
+        bytes
+    );
+}
+
+/// While a collection runs, looking for an object doesn't wait for it: the request is told
+/// to try again.
+#[tokio::test]
+async fn looking_while_a_collection_runs_never_waits() {
+    let (dir, store) = store();
+    let stored = store.put_bytes(b"a small object").unwrap();
+    // what a collection holds for its whole run (the file is made by a first hold)
+    drop(store.hold_off_collection().unwrap());
+    let lock = std::fs::File::options()
+        .read(true)
+        .write(true)
+        .open(
+            dir.path()
+                .join("images")
+                .join(lodestone_image::store::gc::COLLECTION_LOCK),
+        )
+        .unwrap();
+    lock.lock().unwrap();
+    assert_eq!(
+        object_there(&store, &stored.sha256, stored.size).unwrap(),
+        There::Collecting
+    );
+    drop(lock);
+    assert_eq!(
+        object_there(&store, &stored.sha256, stored.size).unwrap(),
+        There::Yes
+    );
 }
 
 /// Marks every object, list and chunk two hours old, so a collection takes whatever no
