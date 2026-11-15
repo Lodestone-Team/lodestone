@@ -653,7 +653,7 @@ impl Images {
         if let Some(free) = *self.fake_free.lock().unwrap_or_else(|e| e.into_inner()) {
             return Some(free);
         }
-        crate::snapshots::free_space(&self.data_root)
+        crate::disk::free_space(&self.data_root)
     }
 }
 

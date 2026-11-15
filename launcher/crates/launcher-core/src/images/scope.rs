@@ -239,6 +239,52 @@ impl ContentScope {
     }
 }
 
+impl ContentScope {
+    /// The other half of the instance: a snapshot's filter for a data image, which takes
+    /// everything in the game folder that isn't content ("worlds and everything else":
+    /// `saves/`, `options.txt`, `servers.dat`, screenshots, a script no pack lists). A file
+    /// is taken when [`Self::accepts`] turns it down; a folder is turned down only when
+    /// everything in it is content (a content folder, or something in one), so a folder
+    /// that holds some pack files is still walked for its other files. Lodestone's own
+    /// names are never taken. Content and data never overlap, and together they are
+    /// everything a walk without a filter takes.
+    pub fn data_accepts(&self, candidate: &Candidate) -> bool {
+        let Some(parts) = game_parts(candidate) else {
+            return false;
+        };
+        if parts.iter().any(|part| is_lodestone_name(part)) {
+            return false;
+        }
+        if candidate.is_dir {
+            !is_content_parts(&parts)
+        } else {
+            !self.accepts(candidate)
+        }
+    }
+}
+
+/// A snapshot's filter for a full image: everything in the game folder but Lodestone's own
+/// names (which no image holds anyway).
+pub fn full_filter(candidate: &Candidate) -> bool {
+    game_parts(candidate).is_some_and(|parts| !parts.iter().any(|part| is_lodestone_name(part)))
+}
+
+/// The parts of `candidate`'s path in the game folder: its canonical path, or, for a name
+/// the layout can't map, its disk path under the game folder. `None` outside the game
+/// folder.
+fn game_parts<'c>(candidate: &Candidate<'c>) -> Option<Vec<&'c str>> {
+    match candidate.path {
+        Some(path) => Some(path.components().collect()),
+        None => {
+            let mut parts = candidate.disk.split('/');
+            if parts.next() != Some(CLIENT_GAME_FOLDER) {
+                return None;
+            }
+            Some(parts.collect())
+        }
+    }
+}
+
 /// Whether `name` is one of Lodestone's own (`.lodestone…`), folded the way a disk that
 /// ignores letter case might.
 pub fn is_lodestone_name(name: &str) -> bool {
@@ -424,6 +470,100 @@ mod tests {
             path: Some(&p(&folder)),
             is_dir: true,
         }));
+    }
+
+    /// The disk paths a walk of `root` takes with `filter` (all of them with `None`).
+    fn walked(
+        root: &std::path::Path,
+        filter: Option<&(dyn Fn(&Candidate) -> bool + Sync)>,
+    ) -> BTreeSet<String> {
+        use lodestone_image::DiskLayout;
+        use lodestone_image::store::snapshot::{SnapshotOptions, plan};
+        use lodestone_image::store::{Encoding, Store};
+        let store_dir = tempfile::tempdir().unwrap();
+        let store = Store::new(store_dir.path(), Encoding::Raw);
+        let options = SnapshotOptions {
+            filter,
+            ..SnapshotOptions::default()
+        };
+        plan(&store, root, &DiskLayout::Client, &options)
+            .unwrap()
+            .to_read
+            .into_iter()
+            .map(|file| file.disk)
+            .collect()
+    }
+
+    #[test]
+    fn content_and_data_split_the_game_folder_without_overlap() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        for file in [
+            "instance.json",
+            "minecraft/mods/a.jar",
+            "minecraft/mods/b.jar.disabled",
+            "minecraft/config/a.toml",
+            "minecraft/resourcepacks/p.zip",
+            "minecraft/scripts/pack.zs",
+            "minecraft/scripts/mine.zs",
+            "minecraft/scripts/deep/other.zs",
+            "minecraft/saves/World/level.dat",
+            "minecraft/saves/World/region/r.0.0.mca",
+            "minecraft/options.txt",
+            "minecraft/servers.dat",
+            "minecraft/screenshots/a.png",
+            "minecraft/.lodestone-tmp-x",
+            "minecraft/mods/.lodestone-y.download",
+            "minecraft/.lodestone_marker",
+            "minecraft/saves/World/.lodestone_x",
+            "minecraft/logs/latest.log",
+        ] {
+            let path = root.join(file);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, file).unwrap();
+        }
+        let scope = ContentScope::new(["scripts/pack.zs"]);
+        let content_filter = |c: &Candidate| scope.accepts(c);
+        let data_filter = |c: &Candidate| scope.data_accepts(c);
+        let content = walked(root, Some(&content_filter));
+        let data = walked(root, Some(&data_filter));
+        let full = walked(root, Some(&full_filter));
+        let everything = walked(root, None);
+        assert!(content.is_disjoint(&data), "{content:?} {data:?}");
+        let union: BTreeSet<String> = content.union(&data).cloned().collect();
+        let lodestone_free: BTreeSet<String> = everything
+            .iter()
+            .filter(|p| !p.split('/').any(is_lodestone_name))
+            .cloned()
+            .collect();
+        assert_eq!(union, lodestone_free);
+        assert_eq!(full, lodestone_free);
+        for yes in [
+            "minecraft/saves/World/level.dat",
+            "minecraft/saves/World/region/r.0.0.mca",
+            "minecraft/options.txt",
+            "minecraft/servers.dat",
+            "minecraft/screenshots/a.png",
+            // A script no pack lists, beside one a pack does.
+            "minecraft/scripts/mine.zs",
+            "minecraft/scripts/deep/other.zs",
+        ] {
+            assert!(data.contains(yes), "{yes}");
+        }
+        for no in [
+            "minecraft/scripts/pack.zs",
+            "minecraft/mods/a.jar",
+            "minecraft/mods/b.jar.disabled",
+            "minecraft/config/a.toml",
+            "minecraft/.lodestone_marker",
+            "minecraft/saves/World/.lodestone_x",
+            "minecraft/logs/latest.log",
+            "instance.json",
+        ] {
+            assert!(!data.contains(no), "{no}");
+        }
+        // Lodestone's own names are in no image.
+        assert!(!full.iter().any(|p| p.contains(".lodestone")));
     }
 
     #[test]

@@ -214,6 +214,50 @@ pub fn reverted(snapshot: &str) -> String {
     format!("Went back to snapshot \u{201c}{snapshot}\u{201d}")
 }
 
+/// The content record before an in-place restore that puts content back, of what the
+/// restore is about to replace.
+pub const BEFORE_RESTORE: &str = "Before going back to a snapshot";
+
+/// A snapshot's label when the user gives it no name.
+pub const SNAPSHOT: &str = "Snapshot";
+
+/// The snapshot after a play session (when the setting is on).
+pub const AFTER_PLAYING: &str = "After playing";
+
+/// The safety snapshot before going back to the snapshot `name`.
+pub fn before_going_back(name: &str) -> String {
+    format!("Before going back to \u{201c}{name}\u{201d}")
+}
+
+/// The snapshot before a modpack update.
+pub fn before_pack_update(title: &str, version: &str) -> String {
+    with_version(format!("Before updating {title} to"), version)
+}
+
+/// The snapshot before a server's update is applied.
+pub fn before_server_update(server: &str) -> String {
+    format!("Before updating from {server}")
+}
+
+/// The snapshot before a content update: one title, or a count of several.
+pub fn before_content_update(titles: &[String]) -> String {
+    match titles {
+        [] => "Before updating content".into(),
+        [title] => format!("Before updating {}", title.trim()),
+        many => format!("Before updating {} mods", many.len()),
+    }
+}
+
+/// The snapshot before the loader's version changes.
+pub fn before_loader_change(loader: Loader, version: &str) -> String {
+    format!("Before changing {} to {}", loader.label(), version.trim())
+}
+
+/// A world backed up from the Worlds tab: a manual snapshot.
+pub fn backed_up(world: &str) -> String {
+    format!("Backed up {world}")
+}
+
 /// "Find it for me" ended: the mods it found stay off, or every mod it turned off is back.
 /// The second records only when putting them back failed part way (with " (stopped part
 /// way)"): one that succeeded records nothing ([`super::Images::search_put_back`]).
@@ -335,5 +379,33 @@ mod tests {
             "Went back to snapshot \u{201c}Before\u{201d}"
         );
         assert_eq!(shader(None), "Turned off shaders");
+    }
+
+    #[test]
+    fn snapshot_labels() {
+        assert_eq!(
+            before_going_back("Before 1.21"),
+            "Before going back to \u{201c}Before 1.21\u{201d}"
+        );
+        assert_eq!(
+            before_pack_update("FO", "6.4.0"),
+            "Before updating FO to 6.4.0"
+        );
+        assert_eq!(before_pack_update("FO", " "), "Before updating FO");
+        assert_eq!(before_server_update("SMP"), "Before updating from SMP");
+        assert_eq!(
+            before_content_update(&["Sodium".into()]),
+            "Before updating Sodium"
+        );
+        assert_eq!(
+            before_content_update(&["a".into(), "b".into(), "c".into()]),
+            "Before updating 3 mods"
+        );
+        assert_eq!(before_content_update(&[]), "Before updating content");
+        assert_eq!(
+            before_loader_change(Loader::Fabric, "0.16.10"),
+            "Before changing Fabric to 0.16.10"
+        );
+        assert_eq!(backed_up("New World"), "Backed up New World");
     }
 }

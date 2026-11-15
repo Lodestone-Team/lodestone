@@ -178,6 +178,47 @@ pub const LEFTOVER_AGE: Duration = Duration::from_secs(60 * 60);
 /// The prefix of the temporary files and folders imports make in `instances/`.
 const LEFTOVER_PREFIX: &str = ".lodestone-";
 
+/// The bytes free to this user on `dir`'s volume (quotas included), like `statvfs`'s
+/// `f_bavail`; `None` when it can't be asked. For the checks before copying into the
+/// data folder (images, data moves, copies of worlds).
+#[cfg(unix)]
+pub(crate) fn free_space(dir: &Path) -> Option<u64> {
+    use std::os::unix::ffi::OsStrExt;
+    let path = std::ffi::CString::new(dir.as_os_str().as_bytes()).ok()?;
+    let mut stat: libc::statvfs = unsafe { std::mem::zeroed() };
+    // SAFETY: `path` is NUL-terminated and `stat` is a valid statvfs to fill.
+    if unsafe { libc::statvfs(path.as_ptr(), &mut stat) } != 0 {
+        return None;
+    }
+    #[allow(clippy::unnecessary_cast)]
+    Some(stat.f_bavail as u64 * stat.f_frsize as u64)
+}
+
+/// See the Unix version.
+#[cfg(windows)]
+pub(crate) fn free_space(dir: &Path) -> Option<u64> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
+    let path: Vec<u16> = dir.as_os_str().encode_wide().chain([0]).collect();
+    let mut available = 0u64;
+    // SAFETY: `path` is NUL-terminated; the call writes only the one counter it is
+    // given, and leaves the other two out.
+    let ok = unsafe {
+        GetDiskFreeSpaceExW(
+            path.as_ptr(),
+            &mut available,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+        )
+    };
+    (ok != 0).then_some(available)
+}
+
+#[cfg(not(any(unix, windows)))]
+pub(crate) fn free_space(_: &Path) -> Option<u64> {
+    None
+}
+
 /// What the data directory takes.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
 pub struct Report {
