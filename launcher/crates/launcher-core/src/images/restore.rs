@@ -791,7 +791,7 @@ fn plan_scope(
             }
             for top in tops {
                 let keep_out = is_lodestone_name(&top)
-                    || CanonicalPath::new(&format!("{top}/x")).is_ok_and(|p| always_excluded(&p))
+                    || CanonicalPath::new(format!("{top}/x")).is_ok_and(|p| always_excluded(&p))
                     || CanonicalPath::new(&top).is_ok_and(|p| always_excluded(&p));
                 if !keep_out {
                     owned.insert(game(&top));

@@ -840,7 +840,7 @@ impl Images {
 /// lists them newest first as they were taken, and an id's random part says nothing about
 /// which came first.
 pub(crate) fn newest_first(records: &mut [SnapshotRecord]) {
-    records.sort_by(|a, b| b.created.cmp(&a.created));
+    records.sort_by_key(|r| std::cmp::Reverse(r.created));
 }
 
 /// A snapshot's name: `name` trimmed and cut to [`MAX_NAME_CHARS`], or

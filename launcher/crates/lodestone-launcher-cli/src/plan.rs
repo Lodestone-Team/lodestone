@@ -1326,9 +1326,8 @@ mod tests {
                 true
             )
         );
-        assert_eq!(
-            call_of(&["snapshots", "restore", "S", "latest", "--preview"]).2,
-            false,
+        assert!(
+            !call_of(&["snapshots", "restore", "S", "latest", "--preview"]).2,
             "a preview reads, so it is no long job"
         );
         assert_eq!(

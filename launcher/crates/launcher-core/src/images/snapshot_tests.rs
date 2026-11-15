@@ -93,7 +93,7 @@ fn a_snapshot_is_a_data_image_linked_to_the_current_content() {
     assert!(record.new_bytes > 0);
     // Listed, newest first, with nothing unreadable.
     let listed = s.images.snapshots(s.id()).unwrap();
-    assert_eq!(listed.records, [record.clone()]);
+    assert_eq!(listed.records, std::slice::from_ref(&record));
     assert!(listed.unreadable.is_empty());
     // The snapshot records a change made by hand first, so the link is what is on disk.
     s.write("mods/b.jar", b"dropped in by hand");

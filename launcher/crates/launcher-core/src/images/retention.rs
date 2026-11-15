@@ -101,7 +101,7 @@ pub fn data_to_delete(
     keep.extend(just_created);
     // Newest first by time; within a second, in the order given (newest first as taken).
     let newest_first = |list: &mut Vec<&SnapshotRecord>| {
-        list.sort_by(|a, b| b.created.cmp(&a.created));
+        list.sort_by_key(|r| std::cmp::Reverse(r.created));
     };
     let mut automatic: Vec<&SnapshotRecord> = records
         .iter()

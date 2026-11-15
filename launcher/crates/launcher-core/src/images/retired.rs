@@ -117,7 +117,7 @@ impl Images {
                 break name;
             }
         };
-        crate::fsx::rename(&dir, &images_dir.join(&folder)).map_err(ImageError::io(format!(
+        crate::fsx::rename(&dir, images_dir.join(&folder)).map_err(ImageError::io(format!(
             "Failed to set aside the images of {id}"
         )))?;
         super::warn(
@@ -223,7 +223,7 @@ impl Images {
                 records,
             });
         }
-        retired.sort_by(|a, b| b.marker.deleted.cmp(&a.marker.deleted));
+        retired.sort_by_key(|r| std::cmp::Reverse(r.marker.deleted));
         Ok(retired)
     }
 

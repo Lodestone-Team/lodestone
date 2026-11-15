@@ -137,7 +137,7 @@ fn backups_of(list: &[World], records: &[SnapshotRecord]) -> HashMap<String, Vec
         .map(|world| {
             let held = records
                 .iter()
-                .filter(|r| r.worlds.iter().any(|w| *w == world.folder))
+                .filter(|r| r.worlds.contains(&world.folder))
                 .map(|r| Backup {
                     snapshot: r.id.clone(),
                     name: r.name_shown(),
