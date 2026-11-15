@@ -1163,12 +1163,23 @@ same, it does the same. The code is `launcher/crates/launcher-core/src/images/`.
   the snapshot store (`<data>/snapshots/`), never inside it: each store has its own objects
   and its own collector, and neither collector reads the other's folder, so neither can
   delete what the other names (tested with both collectors over old objects). Nothing is
-  created until the first record. A data move carries it like everything else, after
-  `Images::settle` has written what was queued. Settings › Storage counts it under "Other"
-  until milestone 5 replaces the snapshot store with images.
+  created until the first record. Settings › Storage counts it under "Other" until
+  milestone 5 replaces the snapshot store with images.
+- **Suspending for a data move.** A data move carries the store like everything else.
+  First `Images::settle` writes what was queued, then `Images::suspend` stops every write
+  to the store and waits for the running ones to end: a record (however long the first
+  record of a big pack takes), a check, a session's end, deleting an instance's images, a
+  collection. Each of these counts itself while it writes. While suspended, operations
+  still queue their labels; records and deletes refuse (`Suspended`), the check is skipped
+  (its session is still marked), the merged records' thread sleeps, and a collection
+  waits. A move that fails or is cancelled resumes the store, and what waited then runs. A
+  move that succeeds keeps it suspended until the Launcher restarts at the new place, since
+  a write would remake the old folder or leave a manifest whose objects the copy lacks.
 - **One collector.** The store's own GC, in a background thread, one at a time; a request
   while one runs makes it run once more. Pruning asks at most every 15 minutes; deleting an
-  instance asks at once. No lock of the Launcher's is taken around it.
+  instance asks at once. It takes no lock of the Launcher's, only the store's own and the
+  count of writes that suspending waits for. Before each collection it forgets instances
+  deleted outside the Launcher (see "Deleting and reused ids").
 - **What content is.** An allowlist, matched ignoring ASCII case: everything in the game
   folder's `mods/`, `config/`, `defaultconfigs/`, `kubejs/`, `resourcepacks/` and
   `shaderpacks/`, disabled `*.disabled` files included (turning a mod off is a content
@@ -1178,9 +1189,19 @@ same, it does the same. The code is `launcher/crates/launcher-core/src/images/`.
   `.lodestone-<sha1>.download`), `saves/`, screenshots, logs, crash reports,
   `options.txt` and the other files the game writes, and anything outside the game folder
   (`instance.json`, `content.json`, `modpack.json`, the icon). A path the layout can't map
-  is judged by its parts, so a mod with a bad name is withheld as `bad_name`. The rules have
-  a version (`SCOPE_RULES`, 1): a baseline taken under other rules is recorded again,
-  without a label, rather than compared.
+  is judged by its parts, so a mod with a bad name is withheld as `bad_name`. Content is
+  also every file that `modpack.json` or an added pack lists as one it wrote, in whatever
+  folder (at most 100,000, matched ignoring ASCII case). Packs put CraftTweaker's
+  `scripts/`, `global_packs/`, FancyMenu's and Patchouli's folders and the like in their
+  overrides, and the updater's three-way merge changes them, so "Before a modpack update"
+  has to hold them. Files the game writes are never taken this way, even when a pack ships
+  them: `options.txt` and the other options files, `servers.dat`, the user caches,
+  `saves/`, `screenshots/`, the always-left-out folders, `versions/`, `libraries/`,
+  `assets/`, `session.lock` and Lodestone's own names. Known limit, for milestones 4b and
+  5: a file outside the content folders that no pack lists (a script added by hand) is not
+  content, so a restore leaves it alone and a server's client view is compared without it.
+  The rules have a version (`SCOPE_RULES`, 2): a baseline taken under other rules is
+  recorded again, without a label, rather than compared.
 - **Game, base and settings.** The game is `instance.json`'s (no loader is `vanilla`, with
   no loader version). The base is `modpack.json`'s pack: `curseforge_pack` for a CurseForge
   pack, `modrinth_pack` for a Modrinth pack whose `.mrpack` SHA-512 is known
@@ -1220,22 +1241,31 @@ same, it does the same. The code is `launcher/crates/launcher-core/src/images/`.
 - **Order of writes.** As the core's: snapshot (objects claimed), a free-space check (what
   it will read and 256 MiB to spare), manifest (the store flushes what it names; temp file
   and rename; once more when a collection took an object meanwhile), then
-  `content-state.json`, then the `content` stat cache, then pruning. A crash in between
-  leaves the old pointer, which the next record moves; never a half-written manifest.
-  Labels queued at a crash are lost: the next check before a launch records the change as
+  `content-state.json`, then the `content` stat cache, then pruning. An instance's first
+  record (no state file yet) writes a state naming only the instance (`instance_created`)
+  before anything else, so manifests a crash leaves are never mistaken for an earlier
+  instance's. A crash in between leaves the old pointer (or none, at the first record),
+  which the next record moves. When the contents are still those of the image the crash
+  left and there is no pointer, the pointer moves to that image, which keeps its own label
+  and time. A crash never leaves a half-written manifest. Labels queued at a crash are lost: the next check before a launch records the change as
   "Changed by hand".
 - **The check before a launch.** The launch's background task calls `Images::before_launch`
-  before the game's files are prepared. It does nothing while a "Find it for me" search is
-  saved, waits at most 10 s for a record of the instance (one that has begun runs to its
-  end), and never fails the launch; a recorded change or a failure is noted in the run's
+  before the game's files are prepared. It first sets the flag that holds merged records
+  off for the session, whatever it then does. It does nothing more while a "Find it for
+  me" search is saved, waits at most 10 s for a record of the instance (one that has begun
+  runs to its end), and never fails the launch; a recorded change or a failure is noted in the run's
   log. When `running_since` is still set (the Launcher died while the game ran), it takes
   the baseline again and records nothing. Otherwise it records what is queued; else the
   first image ("Content when the Launcher began recording") when there is none or its
   manifest is gone; else an unlabelled record under new scope rules; else "Changed by hand"
   when a content file's size or modification time differs from the baseline (no file is
   read) or the game differs from the current image's (a loader version edited into
-  `instance.json`). Then it marks the session (`running_since`, and a flag that holds
-  merged records off). However the run ends (the game exits or crashes, the launch fails or
+  `instance.json`). Then it notes the session in the state (`running_since`). When it
+  couldn't run (the record still held the instance after 10 s, or the store was
+  suspended), the session's end runs it instead of taking the baseline again: a change made
+  by hand before the launch is still recorded as "Changed by hand" and not folded into the
+  baseline, with what the game wrote in the same image, since nothing tells the two apart
+  then. Otherwise, however the run ends (the game exits or crashes, the launch fails or
   is cancelled after the check), `Images::session_ended` takes the baseline again in the
   background without an image, so what the game wrote (configs rewritten at startup, Forge's
   `splash.properties`) joins the next image an operation records.
@@ -1263,8 +1293,10 @@ same, it does the same. The code is `launcher/crates/launcher-core/src/images/`.
   share code", "Went back to snapshot “<name>”". A pack update is "Updated <pack> to
   <version>", succeeding after the new loader version is saved (a failed save still
   records: the files changed); a server's is "Updated from <server>". Saving `instance.json`
-  with another loader version or recommended memory, from Settings, Undo, a revert, an
-  update or the CLI, is "Changed <loader> to <version>" or "Changed the recommended memory",
+  from Settings, Undo, a revert, an update or the CLI, with another game (Minecraft version, loader or loader version, as the
+  image's `game` has it) or recommended memory, is "Changed <loader> to <version>",
+  "Changed to <loader>", "Changed Minecraft to <version>" (with " with <loader> <version>"
+  when the loader changed too) or "Changed the recommended memory",
   merged with the update's own label when it is one. "Find it for me" records nothing while
   it searches; its end is one operation ("Find it for me turned off <file>", or nothing when
   every mod went back as it was).
@@ -1282,10 +1314,17 @@ same, it does the same. The code is `launcher/crates/launcher-core/src/images/`.
   goes to the next instance of the same name. Deleting an instance (after its folder went to
   the Trash) deletes `images/<id>/` and asks for a collection, so restoring it from the
   Trash starts a new history. A record, check or history that finds `content-state.json`
-  naming another `created` time than `instance.json`'s, or manifests with no state at all,
-  takes them for an earlier instance's: a record or check deletes them first, the history
-  shows none. Nothing is recorded or deleted while `instance.json` can't be read. Ids the
-  store can't name (a Windows device name such as `con`) record nothing.
+  naming another `created` time than `instance.json`'s, or manifests with no state at all
+  (an instance's first record writes its state before any manifest, so only a deleted
+  instance's leftovers look like that), takes them for an earlier instance's: a record or
+  check deletes them first, the history shows none. Nothing is recorded or deleted while
+  `instance.json` can't be read. An instance folder deleted outside the Launcher (in
+  Finder or Explorer, by a sync tool) is forgotten once the Launcher starts and before
+  every collection: `images/<id>/` goes, under the instance's record lock, when its folder
+  has no `instance.json`, though not while the instances folder itself is missing (a drive
+  that isn't there). Otherwise its manifests would keep its objects from every
+  collection. Ids the store can't name (a Windows device name such as `con`) record
+  nothing.
 - **What stays, and why.** `modpack.json` is current state: the modpack updater's three-way
   merge needs each pack file's SHA-1, and it names the image's base. `content.json` is a
   cache of hashes and Modrinth and CurseForge identities for listing, updates and exports,

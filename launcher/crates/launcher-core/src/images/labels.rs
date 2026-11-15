@@ -128,7 +128,10 @@ pub fn shader(file: Option<&str>) -> String {
 /// The game the instance plays changed in place: `minecraft` is the new Minecraft
 /// version when it changed, `loader` the new loader and its version when either changed.
 /// `None` when neither did.
-pub fn game_changed(minecraft: Option<&str>, loader: Option<(Loader, Option<&str>)>) -> Option<String> {
+pub fn game_changed(
+    minecraft: Option<&str>,
+    loader: Option<(Loader, Option<&str>)>,
+) -> Option<String> {
     let loader_text = |loader: Loader, version: Option<&str>| match version {
         Some(version) if loader != Loader::None => format!("{} {version}", loader.label()),
         _ => loader.label().to_string(),

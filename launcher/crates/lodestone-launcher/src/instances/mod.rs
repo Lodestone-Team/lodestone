@@ -1567,7 +1567,7 @@ impl Instances {
             (before.game_version != after.game_version).then_some(after.game_version.as_str());
         let loader = (before.loader != after.loader
             || before.loader_version != after.loader_version)
-            .then(|| (after.loader, after.loader_version.as_deref()));
+            .then_some((after.loader, after.loader_version.as_deref()));
         let label = match labels::game_changed(minecraft, loader) {
             Some(label) => label,
             None if before.recommended_memory != after.recommended_memory => {

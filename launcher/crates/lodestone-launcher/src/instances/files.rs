@@ -29,6 +29,9 @@ pub enum FileOp {
     Image,
 }
 
+/// Removes an instance's folder in place of the Trash ([`Instances::delete_with`]).
+pub(crate) type RemoveFolder = fn(&Path) -> Result<(), String>;
+
 impl Instances {
     /// Goes up each time the list changes, for those that read something for each
     /// instance and want to know when to read again.
@@ -130,6 +133,17 @@ impl Instances {
 
     /// Moves the instance to the Trash, in the background.
     pub fn delete(&mut self, id: &str, cx: &mut Context<Self>) -> Task<Result<(), String>> {
+        self.delete_with(id, None, cx)
+    }
+
+    /// [`Self::delete`], with `remove` removing the folder instead of the Trash: tests pass
+    /// one that doesn't touch the user's Trash.
+    pub(crate) fn delete_with(
+        &mut self,
+        id: &str,
+        remove: Option<RemoveFolder>,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<(), String>> {
         if self.is_active(id) {
             return Task::ready(Err(t(M::StopBeforeDeleting).into()));
         }
@@ -146,7 +160,11 @@ impl Instances {
             id,
             FileOp::Delete,
             move || {
-                store.delete(&gone).map_err(|err| err.to_string())?;
+                match remove {
+                    Some(remove) => store.delete_with(&gone, remove),
+                    None => store.delete(&gone),
+                }
+                .map_err(|err| err.to_string())?;
                 // Its id goes to the next instance of the same name: its history mustn't.
                 if let Err(err) = images.delete_instance(&gone) {
                     log::warn!("Couldn't delete the images of {gone}: {err}");

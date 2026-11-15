@@ -2862,6 +2862,36 @@ mod image_tests {
             Some("0.16.99")
         );
 
+        // Another Minecraft version or loader with the same loader version is an operation
+        // too, so the next launch doesn't take it for a change by hand.
+        instances.update(&mut cx, |instances, cx| {
+            let mut instance = instances.store().get(&id).unwrap();
+            instance.game_version = "1.20.4".into();
+            instances.save(&instance, cx).unwrap();
+        });
+        images.flush(&id).unwrap();
+        instances.update(&mut cx, |instances, cx| {
+            let mut instance = instances.store().get(&id).unwrap();
+            instance.loader = launcher_core::instances::Loader::Quilt;
+            instances.save(&instance, cx).unwrap();
+        });
+        images.flush(&id).unwrap();
+        let history = images.history(&id).unwrap();
+        assert_eq!(
+            history.images[0].label.as_deref(),
+            Some("Changed Quilt to 0.16.99")
+        );
+        assert_eq!(
+            history.images[1].label.as_deref(),
+            Some("Changed Minecraft to 1.20.4")
+        );
+        assert_eq!(history.images[0].game.minecraft, "1.20.4");
+        assert_eq!(
+            images.before_launch(&id),
+            launcher_core::images::Checked::Unchanged
+        );
+        images.end_session(&id);
+
         // A new instance gets its first image as it is made.
         let made = instances.update(&mut cx, |instances, cx| {
             instances.create("Fresh", "1.21.1", None, cx).unwrap()
@@ -2877,5 +2907,251 @@ mod image_tests {
         let history = images.history(&made.id).unwrap();
         assert_eq!(history.images.len(), 1);
         assert_eq!(history.images[0].label.as_deref(), Some("Created Fresh"));
+    }
+
+    /// The sample instances, off the network, with the first one's id and the images.
+    fn sample(cx: &mut TestAppContext) -> (Entity<Instances>, String, Arc<Images>) {
+        let instances = cx.update(|cx| {
+            let accounts = crate::preview::accounts("signed-out", cx);
+            crate::preview::instances("worlds", &accounts, cx)
+        });
+        let (id, images) = instances.update(cx, |instances, _| {
+            instances.preview_offline();
+            (instances.list()[0].id.clone(), instances.images())
+        });
+        cx.run_until_parked();
+        (instances, id, images)
+    }
+
+    /// Runs the app until `done`, for at most ten seconds.
+    fn wait_until(cx: &mut TestAppContext, mut done: impl FnMut(&mut TestAppContext) -> bool) {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while !done(cx) && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+            cx.run_until_parked();
+        }
+    }
+
+    fn labels(images: &Images, id: &str) -> Vec<String> {
+        images
+            .history(id)
+            .unwrap()
+            .images
+            .into_iter()
+            .map(|image| image.label.unwrap_or_default())
+            .collect()
+    }
+
+    /// Writes a `.mrpack` with no downloads: its index, for Fabric `loader`, and the
+    /// override files `overrides`.
+    fn write_mrpack(path: &std::path::Path, loader: &str, overrides: &[(&str, &[u8])]) {
+        use std::io::Write as _;
+        let index = serde_json::json!({
+            "formatVersion": 1,
+            "game": "minecraft",
+            "versionId": "2.0",
+            "name": "Pack",
+            "files": [],
+            "dependencies": {"minecraft": "1.20.1", "fabric-loader": loader},
+        });
+        let mut zip = zip::ZipWriter::new(std::fs::File::create(path).unwrap());
+        let options = zip::write::SimpleFileOptions::default();
+        zip.start_file("modrinth.index.json", options).unwrap();
+        zip.write_all(index.to_string().as_bytes()).unwrap();
+        for (name, bytes) in overrides {
+            zip.start_file(format!("overrides/{name}"), options)
+                .unwrap();
+            zip.write_all(bytes).unwrap();
+        }
+        zip.finish().unwrap();
+    }
+
+    #[test]
+    fn a_modpack_update_is_recorded_before_and_after() {
+        use launcher_core::game::loaders::{LoaderChoice, LoaderKind};
+        use launcher_core::modpack::{self, FileSource, ModpackRecord, PackFile, update};
+
+        let mut cx = TestAppContext::single();
+        let (instances, id, images) = sample(&mut cx);
+        let (dirs, loader_before) = instances.read_with(&cx, |instances, _| {
+            let instance = instances.store().get(&id).unwrap();
+            (instances.content_dirs(&id), instance.loader_version)
+        });
+        std::fs::create_dir_all(dirs.game.join("mods")).unwrap();
+        let old_mod = dirs.game.join("mods/old.jar");
+        std::fs::write(&old_mod, b"the pack's old mod").unwrap();
+        let current = ModpackRecord {
+            title: "Pack".into(),
+            version_number: "1.0".into(),
+            files: [(
+                "mods/old.jar".to_string(),
+                PackFile {
+                    sha1: lodestone_minecraft::hash::sha1_of(&old_mod).unwrap(),
+                    source: FileSource::Index,
+                    project: None,
+                },
+            )]
+            .into_iter()
+            .collect(),
+            ..ModpackRecord::default()
+        };
+        current.save(&dirs.instance).unwrap();
+        images.record_now(&id, "Installed Pack 1.0").unwrap();
+        // A play session: the game rewrote a config, which joins no image of its own.
+        images.before_launch(&id);
+        std::fs::create_dir_all(dirs.game.join("config")).unwrap();
+        std::fs::write(dirs.game.join("config/rewritten.json"), b"{}").unwrap();
+        images.end_session(&id);
+        assert_eq!(labels(&images, &id), ["Installed Pack 1.0"]);
+
+        // Version 2.0: the old mod dropped, a script added, another loader version.
+        let pack_path = dirs.instance.join(".lodestone-test-pack.mrpack");
+        write_mrpack(
+            &pack_path,
+            "0.16.99",
+            &[("scripts/recipes.zs", b"recipes" as &[u8])],
+        );
+        let pack = modpack::read_pack(&pack_path).unwrap();
+        let next = ModpackRecord {
+            title: "Pack".into(),
+            version_number: "2.0".into(),
+            ..ModpackRecord::default()
+        };
+        let plan = update::plan(
+            &dirs,
+            &current,
+            &pack,
+            next,
+            Some(LoaderChoice {
+                kind: LoaderKind::Fabric,
+                version: "0.16.99".into(),
+            }),
+        );
+        let prompt = super::super::modpacks::UpdatePrompt {
+            instance_id: id.clone(),
+            instance_name: "Survival 1.20.1".into(),
+            from_version: "1.0".into(),
+            plan: Arc::new(plan),
+            pack_path,
+            pack: Arc::new(pack),
+        };
+        instances.update(&mut cx, |instances, cx| {
+            instances.apply_modpack_update(prompt, false, cx)
+        });
+        wait_until(&mut cx, |cx| {
+            instances.read_with(cx, |instances, _| {
+                !instances.modpack_updates.contains_key(&id)
+            })
+        });
+        images.flush(&id).unwrap();
+
+        let history = images.history(&id).unwrap();
+        let labels: Vec<_> = history
+            .images
+            .iter()
+            .map(|image| image.label.clone().unwrap_or_default())
+            .collect();
+        assert_eq!(labels.len(), 3, "{labels:?}");
+        // After: the update's label (with the loader change its save made), the new loader
+        // and the new files, the pack's script among them.
+        assert!(labels[0].ends_with("Updated Pack to 2.0"), "{}", labels[0]);
+        assert_eq!(
+            history.images[0].game.loader_version.as_deref(),
+            Some("0.16.99")
+        );
+        let after = images
+            .store()
+            .load_manifest(&id, &history.images[0].id)
+            .unwrap();
+        let paths: Vec<String> = after.entries.iter().map(|e| e.path.to_string()).collect();
+        assert!(
+            paths.contains(&"scripts/recipes.zs".to_string()),
+            "{paths:?}"
+        );
+        assert!(!paths.contains(&"mods/old.jar".to_string()), "{paths:?}");
+        // Before: every file the update replaced, with what the game wrote.
+        assert_eq!(labels[1], "Before a modpack update");
+        assert_eq!(history.images[1].game.loader_version, loader_before);
+        let before = images
+            .store()
+            .load_manifest(&id, &history.images[1].id)
+            .unwrap();
+        let paths: Vec<String> = before.entries.iter().map(|e| e.path.to_string()).collect();
+        assert!(paths.contains(&"mods/old.jar".to_string()), "{paths:?}");
+        assert!(
+            paths.contains(&"config/rewritten.json".to_string()),
+            "{paths:?}"
+        );
+    }
+
+    #[test]
+    fn deleting_copying_and_ending_a_run_reach_the_images() {
+        let mut cx = TestAppContext::single();
+        let (instances, id, images) = sample(&mut cx);
+        let game = instances.read_with(&cx, |instances, _| instances.game_dir(&id));
+        std::fs::create_dir_all(game.join("mods")).unwrap();
+        std::fs::write(game.join("mods/a.jar"), b"a").unwrap();
+        images.record_now(&id, "Created").unwrap();
+
+        // A run that ended, however it ended, takes the baseline again: what the game wrote
+        // joins the next image, and the next launch finds nothing changed by hand.
+        assert_eq!(
+            images.before_launch(&id),
+            launcher_core::images::Checked::Unchanged
+        );
+        instances.update(&mut cx, |instances, cx| {
+            instances.runs.entry(id.clone()).or_default().image_session = true;
+            std::fs::create_dir_all(game.join("config")).unwrap();
+            std::fs::write(game.join("config/rewritten.json"), b"{}").unwrap();
+            instances.set_idle(&id, cx);
+            assert!(!instances.runs[&id].image_session, "ended once");
+        });
+        let store = images.store().clone();
+        wait_until(&mut cx, |_| {
+            let state = launcher_core::images::state::load(&store, &id);
+            state.running_since.is_none()
+                && state
+                    .baseline
+                    .contains_key("minecraft/config/rewritten.json")
+        });
+        assert_eq!(
+            images.before_launch(&id),
+            launcher_core::images::Checked::Unchanged
+        );
+        images.end_session(&id);
+        assert_eq!(labels(&images, &id), ["Created"]);
+
+        // Duplicate: the copy's first image says where it came from.
+        let name = instances.read_with(&cx, |instances, _| instances.list()[0].name.clone());
+        let copied = instances.update(&mut cx, |instances, cx| instances.duplicate(&id, cx));
+        wait_until(&mut cx, |cx| {
+            instances.read_with(cx, |instances, _| instances.list().len() == 5)
+        });
+        drop(copied);
+        let copy = instances.read_with(&cx, |instances, _| {
+            instances
+                .list()
+                .iter()
+                .find(|instance| instance.id != id && instance.name.starts_with(&name))
+                .map(|instance| instance.id.clone())
+                .expect("the copy")
+        });
+        wait_until(&mut cx, |_| !labels(&images, &copy).is_empty());
+        assert_eq!(labels(&images, &copy), [format!("Copied from {name}")]);
+
+        // Deleting the instance (to a stand-in for the Trash) forgets its images.
+        let theirs = images.store().instance_dir(&id).unwrap();
+        assert!(theirs.is_dir());
+        let deleted = instances.update(&mut cx, |instances, cx| {
+            instances.delete_with(
+                &id,
+                Some(|path| std::fs::remove_dir_all(path).map_err(|e| e.to_string())),
+                cx,
+            )
+        });
+        wait_until(&mut cx, |_| !theirs.exists());
+        drop(deleted);
+        assert!(!theirs.exists());
+        assert!(images.store().instance_dir(&copy).unwrap().is_dir());
     }
 }

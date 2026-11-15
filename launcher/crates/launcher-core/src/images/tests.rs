@@ -1051,10 +1051,7 @@ fn a_suspended_store_writes_nothing_until_it_resumes() {
     let op = s.images.begin(s.id(), "Added a.jar");
     s.write("mods/a.jar", b"a");
     op.succeed();
-    assert!(matches!(
-        s.images.flush(s.id()),
-        Err(ImageError::Suspended)
-    ));
+    assert!(matches!(s.images.flush(s.id()), Err(ImageError::Suspended)));
     assert!(matches!(
         s.images.record_now(s.id(), "x"),
         Err(ImageError::Suspended)
@@ -1113,7 +1110,11 @@ fn instances_deleted_outside_the_launcher_are_forgotten() {
     assert!(theirs.is_dir());
     assert_eq!(s.images.forget_deleted().unwrap(), 1);
     assert!(!theirs.exists());
-    assert_eq!(s.history().images.len(), 1, "the other instance keeps its images");
+    assert_eq!(
+        s.history().images.len(),
+        1,
+        "the other instance keeps its images"
+    );
 
     // A collection forgets them too, before it collects.
     let third = s.store.create("Third", "1.21.1", None).unwrap();
