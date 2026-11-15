@@ -228,7 +228,8 @@ fn every_snapshot_holds_the_configs_the_game_wrote() {
     // Manual, after playing, before a content update, before a loader change: each links a
     // content image holding what the game wrote during the last session, which the session's
     // end folded into the baseline without recording.
-    let takes: [(&str, fn(&Setup) -> SnapshotRecord); 4] = [
+    type TakeOne = fn(&Setup) -> SnapshotRecord;
+    let takes: [(&str, TakeOne); 4] = [
         ("manual", |s| s.snapshot("Mine")),
         ("after playing", |s| {
             s.images.after_play(s.id());

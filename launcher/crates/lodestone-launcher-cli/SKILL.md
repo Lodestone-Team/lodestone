@@ -113,7 +113,9 @@ The user also sees each connected program (this CLI says
 - **Snapshot files from other people.** `snapshots import` of a `.lodeimg` with mods
   fails with `confirmation_required` and names them: mods run as programs when the game
   starts. Run `snapshots import <file> --preview` and show the user what it holds (game,
-  worlds, mods, downloads, size); only if they trust who sent it, rerun with `--yes`.
+  worlds, mods, downloads, size; `carried_mods` are the mods whose bytes the file
+  itself carries rather than downloading from Modrinth or CurseForge: say so); only if
+  they trust who sent it, rerun with `--yes`.
   An import always makes a new instance with the launcher's own launch settings (image
   files carry none), and downloads the Modrinth and CurseForge files it lists.
 - **Certificates:** a core whose HTTPS certificate isn't trusted fails with
@@ -283,7 +285,7 @@ lodestone-launcher-cli modpacks install fabulously-optimized --name FO     # lon
 lodestone-launcher-cli modpacks install --file ./pack.mrpack
 lodestone-launcher-cli modpacks check FO
 lodestone-launcher-cli modpacks update FO           # exit 5 with data.plan: show it to the user
-lodestone-launcher-cli modpacks update FO --yes     # long; takes a snapshot first
+lodestone-launcher-cli modpacks update FO --yes     # long; takes a snapshot first, and changes nothing if it fails
 # Add a pack's mods and configs to an instance that has its own (one made for a server):
 # the instance's pack (the server's) wins, nothing the instance has is replaced, and the
 # pack must be for the instance's Minecraft version and loader.
@@ -311,9 +313,11 @@ files (options, servers, screenshots), linked to the mods and configs they ran w
 which are stored once however many snapshots use them. `--everything` takes the mods and
 configs as files too. The launcher also takes them on its own before mod, modpack,
 server and loader version updates, before a restore (a safety snapshot), and after
-playing when the user turns that on. Automatic ones are kept by the instance's policy;
-manual, imported and pinned ones are never deleted on their own. Logs and caches are
-never included. Nothing runs while the instance's game does (`busy`).
+playing when the user turns that on. A failed snapshot stops a modpack update (the
+error says why; the window offers to update without one); a mod update goes on and its
+reply's `snapshot_failed` says why. Automatic ones are kept by the instance's policy;
+manual, imported and pinned ones are never deleted on their own. Logs, caches and the
+JVM's crash logs and dumps are never included. Nothing runs while the instance's game does (`busy`).
 
 ```sh
 lodestone-launcher-cli snapshots list Survival                                   # newest first, with the policy
