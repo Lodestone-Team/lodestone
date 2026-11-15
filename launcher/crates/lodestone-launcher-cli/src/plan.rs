@@ -506,6 +506,9 @@ pub fn plan(
                 "content.list",
                 vec![("instance", json!(instance)), ("kind", json!(kind))],
             ),
+            Content::History { instance } => {
+                call("content.history", vec![("instance", json!(instance))])
+            }
             Content::Search {
                 query,
                 instance,

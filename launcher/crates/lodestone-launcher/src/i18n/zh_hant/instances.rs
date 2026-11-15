@@ -23,6 +23,8 @@ pub fn text(message: M) -> &'static str {
 
         M::PreparingNote => "正在準備 Minecraft {version}（{loader}）",
         M::JoiningNote => "遊戲啟動後將加入 {address}",
+        M::ContentRecordedNote => "已記錄實例目前的模組和設定",
+        M::ContentCheckFailedNote => "無法記錄實例的模組和設定：{error}",
         M::VerifyingNote => "正在驗證 Minecraft {version}（{loader}）的遊戲檔案",
         M::RosettaNote => "遊戲透過 Rosetta 2 在 Intel（x86_64）Java 中執行。",
         M::StartingJavaNote => "正在啟動 Java：{command}",
@@ -146,6 +148,7 @@ pub fn text(message: M) -> &'static str {
         M::CouldntImportModpack => "無法匯入模組包",
         M::CouldntUpdateModpack => "無法更新模組包",
         M::StopGameFirst => "請先停止遊戲。",
+        M::FinishFinderFirst => "請先完成「幫我找出來」的尋找：它關閉了部分模組。",
         M::ModpackUpdated => "模組包已更新",
         M::ModpackUpdatedMessage => {
             "{name} 現在執行 {pack} {version}。被取代的檔案已儲存在 {path}。"

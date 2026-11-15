@@ -25,6 +25,10 @@ pub fn text(message: M) -> &'static str {
 
         M::PreparingNote => "Préparation de Minecraft {version} ({loader})",
         M::JoiningNote => "Connexion à {address} dès que le jeu aura démarré",
+        M::ContentRecordedNote => "Mods et configurations actuels de l’instance enregistrés",
+        M::ContentCheckFailedNote => {
+            "Impossible d’enregistrer les mods et configurations de l’instance\u{a0}: {error}"
+        }
         M::VerifyingNote => "Vérification des fichiers du jeu de Minecraft {version} ({loader})",
         M::RosettaNote => "Le jeu s’exécute dans un Java Intel (x86_64) via Rosetta 2.",
         M::StartingJavaNote => "Démarrage de Java\u{a0}: {command}",
@@ -164,6 +168,9 @@ pub fn text(message: M) -> &'static str {
         M::CouldntImportModpack => "Impossible d’importer le modpack",
         M::CouldntUpdateModpack => "Impossible de mettre à jour le modpack",
         M::StopGameFirst => "Arrêtez d’abord le jeu.",
+        M::FinishFinderFirst => {
+            "Terminez d’abord la recherche Le trouver pour moi\u{a0}: elle a désactivé une partie des mods."
+        }
         M::ModpackUpdated => "Modpack mis à jour",
         M::ModpackUpdatedMessage => {
             "{name} utilise maintenant {pack} {version}. Les fichiers remplacés sont conservés dans {path}."

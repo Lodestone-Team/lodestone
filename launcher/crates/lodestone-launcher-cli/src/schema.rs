@@ -122,6 +122,7 @@ pub const COMMANDS: &[(&str, &str, bool, bool)] = &[
     ("shared instance get", "shared.instance.get", false, false),
     ("shared instance set", "shared.instance.set", false, false),
     ("content list", "content.list", false, false),
+    ("content history", "content.history", false, false),
     ("content search", "content.search", false, false),
     ("content versions", "content.versions", false, false),
     ("content install", "content.install", true, false),

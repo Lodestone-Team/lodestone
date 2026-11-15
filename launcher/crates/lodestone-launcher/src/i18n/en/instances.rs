@@ -36,6 +36,11 @@ crate::i18n::messages! {
         // Lines the launcher writes in the console.
         PreparingNote = "Preparing Minecraft {version} ({loader})",
         JoiningNote = "Joining {address} once the game starts",
+        /// Before a launch, the instance's content changed since it was last recorded (by
+        /// the launcher, or by hand), so it was recorded again.
+        ContentRecordedNote = "Recorded the instance's current mods and configs",
+        /// Recording the instance's content before a launch failed; the game starts anyway.
+        ContentCheckFailedNote = "Couldn't record the instance's mods and configs: {error}",
         VerifyingNote = "Verifying the game files of Minecraft {version} ({loader})",
         RosettaNote = "The game runs in an Intel (x86_64) Java under Rosetta 2.",
         /// Followed by the Java command line.
@@ -169,6 +174,7 @@ crate::i18n::messages! {
         CouldntImportModpack = "Couldn't import the modpack",
         CouldntUpdateModpack = "Couldn't update the modpack",
         StopGameFirst = "Stop the game first.",
+        FinishFinderFirst = "Finish the Find it for me search first: it has some of the mods turned off.",
         ModpackUpdated = "Modpack updated",
         /// "Survival now runs Fabulously Optimized 6.1.0. The files it replaced are saved in …".
         ModpackUpdatedMessage = "{name} now runs {pack} {version}. The files it replaced are saved in {path}.",

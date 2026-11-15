@@ -43,6 +43,14 @@ Destructive commands (delete, remove, replace) need `--yes`; on a terminal witho
 the CLI asks. Long commands wait with progress; `--no-wait` returns a job to follow with
 `jobs wait`.
 
+## Content history
+
+`content history <instance>` lists the instance's content images, newest first: the
+launcher records one after each change it makes to the instance's mods, packs, configs
+or loader version, and before a launch when they changed by hand. Each has its label,
+time, game, pack and file count. Labels are printed as recorded in JSON and with control
+characters written visibly in `--human` output (`docs/instance-images.md`).
+
 ## Debug traces
 
 `trace snapshot`, `trace topics` and `trace watch [patterns…]` read the launcher's debug

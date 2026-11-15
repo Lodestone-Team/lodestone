@@ -1488,10 +1488,7 @@ impl LauncherShell {
             .collect();
         let check = cx.background_spawn(async move {
             candidates.into_iter().find_map(|(id, dirs)| {
-                dirs.instance
-                    .join(launcher_core::content::mod_finder::FILE_NAME)
-                    .exists()
-                    .then_some(id)
+                launcher_core::content::mod_finder::is_saved(&dirs.instance).then_some(id)
             })
         });
         cx.spawn(async move |this, cx| {
@@ -1528,9 +1525,15 @@ impl LauncherShell {
             } else {
                 file_name.clone()
             };
-            launcher_core::content::files::set_mod_enabled(&dirs, &current, enabled)
+            let operation = instances.images().begin(
+                &id,
+                launcher_core::images::labels::enabled(&current, enabled),
+            );
+            let result = launcher_core::content::files::set_mod_enabled(&dirs, &current, enabled)
                 .map(|_| ())
-                .map_err(|err| err.to_string())
+                .map_err(|err| err.to_string());
+            operation.finish(&result);
+            result
         };
         launcher_core::trace::emit("crash.suspect_toggled", || {
             serde_json::json!({

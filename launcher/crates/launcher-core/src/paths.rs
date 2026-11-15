@@ -77,6 +77,14 @@ impl DataDir {
     pub fn runtimes_dir(&self) -> PathBuf {
         self.root.join("runtimes")
     }
+
+    /// The image store every instance's content images are kept in
+    /// ([`crate::images`]): `objects/`, `lists/`, `chunks/` and `images/<instance>/`. It
+    /// sits beside the snapshot store (`snapshots/`), never inside it, so neither store's
+    /// collector ever sees the other's objects.
+    pub fn image_store_dir(&self) -> PathBuf {
+        self.root.join("image-store")
+    }
 }
 
 #[cfg(test)]
@@ -94,6 +102,16 @@ mod tests {
             dir.settings_file(),
             Path::new("/Users/me/Library/Application Support/Lodestone Launcher/settings.json")
         );
+    }
+
+    #[test]
+    fn the_image_store_is_beside_the_snapshot_store() {
+        let dir = DataDir::at("/data");
+        assert_eq!(dir.image_store_dir(), Path::new("/data/image-store"));
+        let snapshots = dir.root().join("snapshots");
+        assert!(!dir.image_store_dir().starts_with(&snapshots));
+        assert!(!snapshots.starts_with(dir.image_store_dir()));
+        assert!(!dir.image_store_dir().starts_with(dir.instances_dir()));
     }
 
     #[cfg(target_os = "macos")]

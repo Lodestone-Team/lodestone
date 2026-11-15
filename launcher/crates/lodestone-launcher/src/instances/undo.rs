@@ -514,9 +514,17 @@ impl Instances {
                     .map_err(|err| UndoError::Refused(err.to_string()))?;
             }
         }
+        let operation = self
+            .store
+            .get(id)
+            .ok()
+            .and_then(|saved| self.settings_operation(&saved, &instance));
         self.store
             .save(&instance)
             .map_err(|err| UndoError::Refused(err.to_string()))?;
+        if let Some(operation) = operation {
+            operation.succeed();
+        }
         self.forget_background(id, cx);
         self.update_listed(instance, cx);
         Ok(())
