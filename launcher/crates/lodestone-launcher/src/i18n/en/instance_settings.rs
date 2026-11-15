@@ -195,6 +195,7 @@ crate::i18n::messages! {
         SnapshotName = "Name",
         NoSnapshots = "No snapshots yet.",
         SnapshotSizes = "{total}, {new} new",
+        SnapshotNothingNew = "{total}, nothing new",
         /// A snapshot's details: it holds the mods and configs, not only the worlds.
         SnapshotWithMods = "With mods",
         PreparingFile = "Preparing the file…",

@@ -163,6 +163,7 @@ pub fn text(message: M) -> &'static str {
         M::SnapshotName => "Nom",
         M::NoSnapshots => "Aucun instantané pour l’instant.",
         M::SnapshotSizes => "{total}, dont {new} nouveaux",
+        M::SnapshotNothingNew => "{total}, rien de nouveau",
         M::SnapshotWithMods => "Avec les mods",
         M::PreparingFile => "Préparation du fichier…",
         M::DragToShare => "Faites glisser le fichier dans une autre app, ou\u{a0}:",

@@ -95,9 +95,10 @@ pub fn details(record: &SnapshotRecord) -> String {
             .collect();
         parts.push(format::list(&worlds));
     }
-    // A snapshot that only refers to files others have stores nothing new: its size alone.
+    // A snapshot that only refers to files others have stores nothing new: say so, so its
+    // size doesn't read as space it takes.
     parts.push(if record.new_bytes == 0 {
-        format::bytes(record.bytes)
+        tr!(M::SnapshotNothingNew, total = format::bytes(record.bytes))
     } else {
         tr!(
             M::SnapshotSizes,

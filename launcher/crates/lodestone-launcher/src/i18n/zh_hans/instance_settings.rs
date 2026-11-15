@@ -158,6 +158,7 @@ pub fn text(message: M) -> &'static str {
         M::SnapshotName => "名称",
         M::NoSnapshots => "还没有快照。",
         M::SnapshotSizes => "{total}，其中新增 {new}",
+        M::SnapshotNothingNew => "{total}，无新增",
         M::SnapshotWithMods => "含模组",
         M::PreparingFile => "正在准备文件…",
         M::DragToShare => "将文件拖到其他应用中，或：",

@@ -158,6 +158,7 @@ pub fn text(message: M) -> &'static str {
         M::SnapshotName => "名稱",
         M::NoSnapshots => "還沒有快照。",
         M::SnapshotSizes => "{total}，其中新增 {new}",
+        M::SnapshotNothingNew => "{total}，無新增",
         M::SnapshotWithMods => "含模組",
         M::PreparingFile => "正在準備檔案…",
         M::DragToShare => "將檔案拖到其他 App 中，或：",
