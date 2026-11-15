@@ -3,26 +3,28 @@
 //! instance" (no instance yet) and for Play (an instance linked to the server).
 
 use std::{
-    collections::{BTreeSet, HashMap},
+    collections::{BTreeSet, HashMap, HashSet},
+    fs,
     path::Path,
 };
 
-use lodestone_image::{Image, Source};
+use lodestone_image::{Image, Source, paths::is_config};
 
 use super::{
     SyncError,
     base::{BasePack, base_pack},
-    placed::{CurseForgeFile, placed},
-    plan::{ServerPlan, loader_of, plan},
+    placed::{BaseShare, CurseForgeFile, needs_server_copy, placed},
+    plan::{AUTHORITATIVE, ServerPlan, loader_of, plan},
     received::{apply_delta, check_view},
     views::KeptViews,
 };
 use crate::{
     content::{CurseForge, InstanceDirs, Modrinth, install::InstallProgress},
-    cores::player_image::{ImageAnswer, ServerImage},
+    content::{disabled_name, is_disabled_name},
+    cores::player_image::{ImageAnswer, ServerImage, sha256_of_file},
     game::download::{CancelToken, Downloader},
     instances::Instance,
-    modpack::ModpackRecord,
+    modpack::{FileSource, ModpackRecord, PackFile, import::sha1_on_disk, merge::Digest},
 };
 
 /// The instance a view is for: an existing one linked to the server, or a new one.
@@ -103,26 +105,33 @@ pub async fn prepare(
     progress.set_label("Asking the server for its files");
     let mut answer = server.image(&have, on_preparing, cancel).await?;
     let mut asked_again = false;
+    // the server says the instance is in step, but its mods aren't all on disk: every
+    // file is read when planning, not taken as unchanged by its record
+    let mut mods_changed = false;
     let view = loop {
         let kept = |id: &str| views.as_ref().and_then(|v| v.load(id));
-        let found = match &answer {
+        let found = match answer {
             ImageAnswer::Current { view } => {
                 if Some(view.as_str()) == target.applied
-                    && let Some((_, instance)) = target.existing
-                    && let Some(applied) = kept(view)
+                    && let Some((dirs, instance)) = target.existing
+                    && let Some(applied) = kept(&view)
                     && game_matches(instance, &applied)
                 {
-                    return Ok(Prepared::Current);
+                    if server_mods_on_disk(dirs) {
+                        return Ok(Prepared::Current);
+                    }
+                    mods_changed = true;
                 }
-                // another view it keeps is current: switch to it
-                kept(view)
+                // another view it keeps is current: switch to it; or the applied one, whose
+                // mods aren't all on disk any more, placed again
+                kept(&view)
             }
             ImageAnswer::View { image, view } => {
-                check_view(image, view)?;
-                Some((**image).clone())
+                check_view(&image, &view)?;
+                Some(*image)
             }
             ImageAnswer::Delta { delta, view } => match kept(&delta.from) {
-                Some(from) => Some(apply_delta(&from, delta, view)?),
+                Some(from) => Some(apply_delta(&from, &delta, &view)?),
                 None => None,
             },
         };
@@ -149,12 +158,26 @@ pub async fn prepare(
         cancel,
     )
     .await?;
-    let curseforge = resolve_curseforge(lookup.curseforge, &view).await;
-    let placed = placed(&view, base.as_ref().map(|b| &b.pack), &curseforge)?;
-    let current = target
+    let curseforge = resolve_curseforge(lookup.curseforge, &view).await?;
+    let server_copies = match &base {
+        Some(base) => base.server_copies(&needs_server_copy(&view, &base.pack))?,
+        None => Vec::new(),
+    };
+    let share = base.as_ref().map(|base| BaseShare {
+        pack: &base.pack,
+        server_overrides: &server_copies,
+    });
+    let placed = placed(&view, share, &curseforge)?;
+    let mut current = target
         .existing
         .and_then(|(dirs, _)| ModpackRecord::load(&dirs.instance))
         .unwrap_or_default();
+    if let (Some(views), Some((dirs, _))) = (&views, target.existing)
+        && let Some(placing) = views.placing()
+        && Some(placing.id.as_str()) != target.applied
+    {
+        with_interrupted(&mut current, &placing, &dirs.game);
+    }
     let plan = plan(
         target.existing,
         &current,
@@ -162,6 +185,7 @@ pub async fn prepare(
         placed,
         base.as_ref(),
         target.name,
+        !mods_changed,
     )?;
     let newly_lacking = match &views {
         Some(views) => {
@@ -225,14 +249,103 @@ fn game_matches(instance: &Instance, view: &Image) -> bool {
         && instance.loader_version.as_deref() == loader.as_ref().map(|l| l.version.as_str())
 }
 
+/// Whether every mod the instance's `modpack.json` says the applied view placed is on
+/// disk as placed (a mod the player turned off counts): when one is missing or changed,
+/// the server's answer that the instance is in step isn't taken, and the applied view is
+/// placed again, so the server's `mods/` stays authoritative and the player can join.
+/// Without a record, the view placed nothing to check.
+pub fn server_mods_on_disk(dirs: &InstanceDirs) -> bool {
+    let Some(record) = ModpackRecord::load(&dirs.instance) else {
+        return true;
+    };
+    record
+        .files
+        .iter()
+        .filter(|(path, _)| {
+            AUTHORITATIVE
+                .iter()
+                .any(|dir| path.starts_with(&format!("{dir}/")))
+        })
+        .all(|(path, file)| {
+            let mut candidates = vec![path.clone()];
+            if !is_disabled_name(path) {
+                candidates.push(disabled_name(path));
+            }
+            candidates.iter().any(|candidate| {
+                let on_disk = dirs.game.join(candidate);
+                if !fs::symlink_metadata(&on_disk).is_ok_and(|m| m.is_file()) {
+                    return false;
+                }
+                match file.digest() {
+                    Digest::Sha256(want) => {
+                        sha256_of_file(&on_disk).is_ok_and(|have| have.eq_ignore_ascii_case(&want))
+                    }
+                    Digest::Sha1(want) => {
+                        sha1_on_disk(&on_disk).is_some_and(|have| have.eq_ignore_ascii_case(&want))
+                    }
+                }
+            })
+        })
+}
+
+/// Adds to `current` (what `modpack.json` says the applied view placed) the files of
+/// `placing`, the view an update was placing when it stopped before its records, that are
+/// on disk as that view names them: the server's files, placed by the update, which the
+/// next view may drop. Without this, a file the stopped update placed would look changed
+/// by the player (it isn't what `modpack.json` records), and stay for ever.
+fn with_interrupted(current: &mut ModpackRecord, placing: &Image, game: &Path) {
+    for entry in &placing.entries {
+        let path = entry.path.as_str();
+        let recorded = current
+            .files
+            .get(path)
+            .and_then(|file| file.sha256.as_deref())
+            .is_some_and(|sha256| sha256.eq_ignore_ascii_case(&entry.sha256));
+        if recorded {
+            continue;
+        }
+        let on_disk = game.join(path);
+        let placed = fs::symlink_metadata(&on_disk)
+            .is_ok_and(|meta| meta.is_file() && meta.len() == entry.size)
+            && sha256_of_file(&on_disk)
+                .is_ok_and(|sha256| sha256.eq_ignore_ascii_case(&entry.sha256));
+        if !placed {
+            continue;
+        }
+        current.files.insert(
+            path.to_string(),
+            PackFile {
+                sha1: entry.sha1.clone().unwrap_or_default(),
+                source: if is_config(&entry.path) {
+                    FileSource::Override
+                } else {
+                    FileSource::Index
+                },
+                project: match &entry.source {
+                    Source::Modrinth { project, .. } => Some(project.clone()),
+                    _ => None,
+                },
+                sha256: Some(entry.sha256.clone()),
+            },
+        );
+    }
+}
+
+/// At most this many CurseForge files of one view are looked up (500 a request): the rest
+/// are listed for the player to download by hand, so a hostile view can't spend the
+/// Launcher's CurseForge quota.
+pub const MAX_CURSEFORGE_LOOKUPS: usize = 2_000;
+
 /// Where the CurseForge files `view` names that may be downloaded come from, asked of
-/// CurseForge in one request; one it doesn't know or that can't be downloaded is left out
-/// (the player is told to get it by hand).
+/// CurseForge in one request per 500. One CurseForge doesn't have, or has no download
+/// for, is left out (the player is told to get it by hand); CurseForge being out of
+/// reach (offline, an error, no CurseForge in this build) is an error, since files it
+/// would give aren't files their authors keep from other apps.
 async fn resolve_curseforge(
     curseforge: Option<&CurseForge>,
     view: &Image,
-) -> HashMap<(u64, u64), CurseForgeFile> {
-    let wanted: Vec<(u64, u64)> = view
+) -> Result<HashMap<(u64, u64), CurseForgeFile>, SyncError> {
+    let wanted: HashSet<(u64, u64)> = view
         .entries
         .iter()
         .filter_map(|entry| match entry.source {
@@ -243,15 +356,28 @@ async fn resolve_curseforge(
             } => Some((project, file)),
             _ => None,
         })
+        .take(MAX_CURSEFORGE_LOOKUPS)
         .collect();
     let mut found = HashMap::new();
-    let Some(curseforge) = curseforge.filter(|_| !wanted.is_empty()) else {
-        return found;
-    };
-    let ids: Vec<u64> = wanted.iter().map(|(_, file)| *file).collect();
-    let Ok(files) = curseforge.files_by_id(&ids).await else {
-        return found;
-    };
+    if wanted.is_empty() {
+        return Ok(found);
+    }
+    let curseforge = curseforge.ok_or_else(|| {
+        SyncError::CurseForgeUnavailable(format!(
+            "{} has no CurseForge connection now",
+            crate::wording::app_name()
+        ))
+    })?;
+    let ids: Vec<u64> = wanted
+        .iter()
+        .map(|(_, file)| *file)
+        .collect::<BTreeSet<u64>>()
+        .into_iter()
+        .collect();
+    let files = curseforge
+        .files_by_id(&ids)
+        .await
+        .map_err(|err| SyncError::CurseForgeUnavailable(err.to_string()))?;
     for file in files {
         if !wanted.contains(&(file.mod_id, file.id)) || !file.downloadable() {
             continue;
@@ -269,5 +395,5 @@ async fn resolve_curseforge(
             found.insert((file.mod_id, file.id), CurseForgeFile { url, sha1 });
         }
     }
-    found
+    Ok(found)
 }

@@ -54,15 +54,23 @@ pub const RULES_HEADER: &str = "x-lodestone-rules";
 pub const MAX_HAVE: usize = 16;
 /// Objects are fetched this many at a time (the spec asks players for at most 4).
 pub const MAX_PARALLEL_OBJECTS: usize = 4;
-/// A file is fetched again at most this many times in a row after a failed fetch (a body
-/// cut short, one that doesn't hash to its name, a stall, a server or transport error):
-/// the spec's "at most 3 times in a row per file", so the fourth failure gives up.
+/// A file is fetched again at most this many times after a failed fetch (a body cut
+/// short, one that doesn't hash to its name, a stall, a server or transport error): the
+/// spec's "at most 3 times in a row per file", so the fourth failure gives up. Failures
+/// are counted per file in all, not reset by the busy or preparing answers between them,
+/// so answers that alternate can't keep a file going for ever.
 pub const MAX_RETRIES: u32 = 3;
 /// A file is given up on after this many 503 `Internal` answers in a row: the server's
 /// record of its content failed, and asking sooner than it says won't help.
 pub const MAX_INTERNAL: u32 = 3;
 /// The longest a 503's `Retry-After` is waited, whatever the server says.
 pub const MAX_RETRY_AFTER: Duration = Duration::from_secs(30);
+/// The shortest: a `Retry-After` of 0 is waited this long, so every wait counts against
+/// its limit and a server can't make the Launcher ask again without pausing (the core
+/// never says less than 1).
+pub const MIN_RETRY_AFTER: Duration = Duration::from_secs(1);
+/// The longest wait a [`ImageError::PrepareFailed`] reports, whatever the server says.
+const MAX_REPORTED_WAIT: u64 = 24 * 60 * 60;
 /// An error body is read only up to this.
 const MAX_ERROR_BYTES: u64 = 64 * 1024;
 /// The wait after a failed fetch of a file, before the next.
@@ -138,7 +146,8 @@ pub enum ImageError {
     #[error("This server runs a newer Lodestone. Update {app} to join it.", app = crate::wording::app_name())]
     UpdateLodestone,
     /// 503 `Internal`: the server couldn't record its content; asking again before
-    /// `retry_after` seconds gets the same answer.
+    /// `retry_after` seconds (the server's `Retry-After`, not clamped, at most a day) gets
+    /// the same answer.
     #[error("The server couldn't prepare its files. Try again in a few minutes.")]
     PrepareFailed { retry_after: u64 },
     /// 503 `Conflict` for longer than [`Limits::preparing`].
@@ -349,14 +358,14 @@ impl ServerImage {
                             Err(ManifestError::UnsupportedSchema { .. }) => {
                                 Err(ImageError::UpdateLodestone)
                             }
-                            Err(err) => Err(ImageError::Invalid(err.to_string())),
+                            Err(err) => Err(invalid(err)),
                         },
                         Some("delta") => match Delta::from_json(&bytes) {
                             Ok(delta) => Ok(ImageAnswer::Delta {
                                 delta: Box::new(delta),
                                 view,
                             }),
-                            Err(err) => Err(ImageError::Invalid(err.to_string())),
+                            Err(err) => Err(invalid(err)),
                         },
                         _ => Err(ImageError::Invalid(
                             "it doesn't say whether it sent a view or a delta".into(),
@@ -368,7 +377,7 @@ impl ServerImage {
                     match unavailable.kind.as_deref() {
                         Some("Internal") => {
                             return Err(ImageError::PrepareFailed {
-                                retry_after: unavailable.retry_after.as_secs(),
+                                retry_after: unavailable.reported_wait,
                             });
                         }
                         _ => {
@@ -524,6 +533,9 @@ impl ServerImage {
                 if headers.length.is_some_and(|length| length != size) {
                     return Fetched::Failed(None);
                 }
+                // the file starts over: what earlier fetches counted goes
+                progress.sub_bytes(*counted);
+                *counted = 0;
                 false
             }
             206 if have > 0 => {
@@ -572,6 +584,8 @@ impl ServerImage {
             Err(err) => return Fetched::Fatal(io_error(dest, err)),
         };
         let mut written = if append { have } else { 0 };
+        // a file fetched whole is hashed as it comes; a resumed one is read again at the end
+        let mut hasher = (!append).then(lodestone_image::hex::Sha256Hasher::new);
         let mut buffer = vec![0u8; 256 * 1024];
         loop {
             if cancel.is_cancelled() {
@@ -597,6 +611,9 @@ impl ServerImage {
             if let Err(err) = file.write_all(&buffer[..read]) {
                 return Fetched::Fatal(io_error(dest, err));
             }
+            if let Some(hasher) = &mut hasher {
+                hasher.update(&buffer[..read]);
+            }
             written += read as u64;
             *counted += read as u64;
             progress.add_bytes(read as u64);
@@ -609,7 +626,11 @@ impl ServerImage {
             return Fetched::Fatal(io_error(dest, err));
         }
         drop(file);
-        match sha256_of_file(dest) {
+        let actual = match hasher {
+            Some(hasher) => Ok(hasher.finish_hex()),
+            None => sha256_of_file(dest),
+        };
+        match actual {
             Ok(actual) if actual == sha256 => Fetched::Done,
             Ok(_) => {
                 let _ = fs::remove_file(dest);
@@ -730,16 +751,20 @@ impl Headers {
         })
     }
 
-    /// `Retry-After` in seconds, clamped to [`MAX_RETRY_AFTER`]; a missing or odd one is
-    /// the spec's usual 5 seconds.
-    fn retry_after(&self) -> Duration {
-        let seconds = self
-            .retry_after
+    /// `Retry-After` in seconds as the server gave it; a missing or odd one is the spec's
+    /// usual 5 seconds.
+    fn retry_after_secs(&self) -> u64 {
+        self.retry_after
             .as_deref()
             .filter(|v| !v.is_empty() && v.bytes().all(|b| b.is_ascii_digit()))
             .map(|v| v.parse::<u64>().unwrap_or(u64::MAX))
-            .unwrap_or(5);
-        Duration::from_secs(seconds).min(MAX_RETRY_AFTER)
+            .unwrap_or(5)
+    }
+
+    /// The wait before asking again: `Retry-After` clamped to [`MIN_RETRY_AFTER`] and
+    /// [`MAX_RETRY_AFTER`].
+    fn retry_after(&self) -> Duration {
+        Duration::from_secs(self.retry_after_secs()).clamp(MIN_RETRY_AFTER, MAX_RETRY_AFTER)
     }
 }
 
@@ -758,6 +783,8 @@ pub fn rules_newer(value: Option<&str>) -> bool {
 struct Unavailable {
     kind: Option<String>,
     retry_after: Duration,
+    /// The server's own wait, in seconds, for messages.
+    reported_wait: u64,
 }
 
 /// Reads a 503's JSON body (only when it says it is JSON, and only so much of it) for its
@@ -775,6 +802,7 @@ async fn read_unavailable(headers: &Headers, body: &mut AsyncBody, idle: Duratio
     Unavailable {
         kind,
         retry_after: headers.retry_after(),
+        reported_wait: headers.retry_after_secs().min(MAX_REPORTED_WAIT),
     }
 }
 
@@ -799,6 +827,12 @@ async fn error_status(
         Err(err) => ImageError::Core(err),
         Ok(()) => ImageError::Invalid(format!("it answered {status}")),
     }
+}
+
+/// A view or delta that can't be read, said without the characters a server could use to
+/// garble the message (the parser quotes what it read).
+fn invalid(err: impl std::fmt::Display) -> ImageError {
+    ImageError::Invalid(lodestone_image::display_text(&err.to_string()).into_owned())
 }
 
 fn too_large(limit: u64) -> ImageError {

@@ -211,26 +211,29 @@ async fn fetch_one(
             }
         }
         let host = url.host_str().unwrap_or_default();
-        if !download.sha512.is_empty() {
-            let sha512 = hash::sha512_of(dest).map_err(io_error(dest))?;
-            if !sha512.eq_ignore_ascii_case(&download.sha512) {
-                let _ = fs::remove_file(dest);
-                last_error = Some(format!(
-                    "the download from {host} is damaged: its SHA-512 hash doesn't match"
-                ));
-                continue;
-            }
+        // the SHA-512 and (for a server's file whose SHA-1 the download checked) the
+        // SHA-256, in one read of the file
+        let want_sha256 = sha256.filter(|_| !download.sha1.is_empty());
+        let (sha512, actual_sha256) =
+            sha512_and_sha256(dest, !download.sha512.is_empty(), want_sha256.is_some())
+                .map_err(io_error(dest))?;
+        if let Some(sha512) = sha512
+            && !sha512.eq_ignore_ascii_case(&download.sha512)
+        {
+            let _ = fs::remove_file(dest);
+            last_error = Some(format!(
+                "the download from {host} is damaged: its SHA-512 hash doesn't match"
+            ));
+            continue;
         }
-        if let Some(sha256) = sha256.filter(|_| !download.sha1.is_empty()) {
-            let actual =
-                crate::cores::player_image::sha256_of_file(dest).map_err(io_error(dest))?;
-            if !actual.eq_ignore_ascii_case(sha256) {
-                let _ = fs::remove_file(dest);
-                last_error = Some(format!(
-                    "the download from {host} isn't the server's file: its SHA-256 hash doesn't match"
-                ));
-                continue;
-            }
+        if let (Some(sha256), Some(actual)) = (want_sha256, actual_sha256)
+            && !actual.eq_ignore_ascii_case(sha256)
+        {
+            let _ = fs::remove_file(dest);
+            last_error = Some(format!(
+                "the download from {host} isn't the server's file: its SHA-256 hash doesn't match"
+            ));
+            continue;
         }
         return Ok(());
     }
@@ -239,6 +242,38 @@ async fn fetch_one(
         slash_path(&download.path),
         last_error.unwrap_or_else(|| "it has no download URL".into())
     )))
+}
+
+/// The SHA-512 and SHA-256 of the file at `path` (each only when asked for), read once.
+fn sha512_and_sha256(
+    path: &Path,
+    sha512: bool,
+    sha256: bool,
+) -> std::io::Result<(Option<String>, Option<String>)> {
+    use sha2::Digest as _;
+    if !sha512 && !sha256 {
+        return Ok((None, None));
+    }
+    let mut file = File::open(path)?;
+    let mut hash512 = sha512.then(sha2::Sha512::new);
+    let mut hash256 = sha256.then(lodestone_image::hex::Sha256Hasher::new);
+    let mut buffer = vec![0u8; 256 * 1024];
+    loop {
+        let read = std::io::Read::read(&mut file, &mut buffer)?;
+        if read == 0 {
+            break;
+        }
+        if let Some(hasher) = &mut hash512 {
+            hasher.update(&buffer[..read]);
+        }
+        if let Some(hasher) = &mut hash256 {
+            hasher.update(&buffer[..read]);
+        }
+    }
+    Ok((
+        hash512.map(|h| format!("{:x}", h.finalize())),
+        hash256.map(|h| h.finish_hex()),
+    ))
 }
 
 /// Copies the override files `files` from the pack at `pack_path` to the paths `dest`

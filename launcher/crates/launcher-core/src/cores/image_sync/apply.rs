@@ -6,11 +6,12 @@
 //! An update runs through [`ServerUpdate`], which holds its order: refused while the
 //! instance's files are held (its game runs), the record before it ([`before_server_update`]),
 //! the operation "Updated from <server>", the files, `content.json` and `modpack.json`
-//! (inside the updater), then, on the window's thread, the instance's loader version, the
-//! operation's success, and last [`mark_applied`]: the kept view and the link's applied
-//! view. A crash anywhere before the link leaves the old applied view, so the next Play
-//! plans again against the `modpack.json` written so far and converges; a new instance
-//! only appears once whole.
+//! (inside the updater), then, on the window's thread, the instance's loader version and
+//! the operation's success, and last, off it, [`mark_applied`]: the kept view and the
+//! link's applied view. A crash anywhere before the link leaves the old applied view, so
+//! the next Play plans again against the `modpack.json` written so far (the view being
+//! placed is named in the kept views, so the files it placed count as the server's) and
+//! converges; a new instance only appears once whole.
 
 use std::{fs, sync::Arc};
 
@@ -35,14 +36,46 @@ use crate::{
 /// Records the instance's content before a server's update changes its files ("Before a
 /// server update"), so every file the update replaces is in an image. The one place this
 /// happens: the snapshot before a server update joins it here. A failure is logged and
-/// the update goes on (it compares the files themselves).
-pub fn before_server_update(images: &Images, instance: &str, server: &str) {
-    if let Err(err) = images.record_before_change(instance, labels::BEFORE_SERVER_UPDATE) {
-        crate::images::warn(
-            "images.before_server_update",
-            instance,
-            &format!("Couldn't record the content before updating from {server}: {err}"),
-        );
+/// the update goes on (it compares the files themselves, and keeps its own rollback
+/// copy); whether the record was made is returned.
+pub fn before_server_update(images: &Images, instance: &str, server: &str) -> bool {
+    match images.record_before_change(instance, labels::BEFORE_SERVER_UPDATE) {
+        Ok(_) => true,
+        Err(err) => {
+            crate::images::warn(
+                "images.before_server_update",
+                instance,
+                &format!("Couldn't record the content before updating from {server}: {err}"),
+            );
+            false
+        }
+    }
+}
+
+/// How old a staging folder an update left (`.lodestone-update-*`: a crash part way) is
+/// before the next server update deletes it.
+const STALE_STAGING: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
+
+/// Deletes the staging folders older updates of the instance at `dirs` left behind.
+fn remove_stale_staging(dirs: &InstanceDirs) {
+    let Ok(entries) = fs::read_dir(&dirs.instance) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let stale = entry
+            .file_name()
+            .to_string_lossy()
+            .starts_with(".lodestone-update-")
+            && entry.file_type().is_ok_and(|t| t.is_dir())
+            && entry
+                .metadata()
+                .and_then(|m| m.modified())
+                .ok()
+                .and_then(|t| t.elapsed().ok())
+                .is_some_and(|age| age > STALE_STAGING);
+        if stale {
+            let _ = fs::remove_dir_all(entry.path());
+        }
     }
 }
 
@@ -144,8 +177,9 @@ async fn build(
 /// its writes must happen. [`Self::start`] refuses while the instance's files are held;
 /// [`Self::place`] (on a background thread) records the content first and places the
 /// files inside the operation "Updated from <server>"; [`PlacedUpdate::finish`] (on the
-/// window's thread, where the instance is saved) saves the loader version, lets the
-/// operation succeed and names the view in the link. A view that changes nothing on disk
+/// window's thread, where the instance is saved) saves the loader version and lets the
+/// operation succeed; [`AppliedUpdate::record`] names the view in the link. A view that
+/// changes nothing on disk
 /// (the files are the view's already: a crash before the link, or a view that only lacks
 /// files the player was told about) is only recorded: its `modpack.json` if that names
 /// other files, then the link.
@@ -205,14 +239,26 @@ impl ServerUpdate {
                 ready: self.ready,
             });
         }
-        before_server_update(&self.images, &id, &self.server);
+        remove_stale_staging(&self.dirs);
+        KeptViews::open(&self.dirs.instance)
+            .begin_placing(&self.ready.plan.view)
+            .map_err(|err| SyncError::io("the server's view", err))?;
+        let recorded = before_server_update(&self.images, &id, &self.server);
         let operation = self.images.begin(&id, labels::server_updated(&self.server));
         match update_instance(sources, &self.dirs, &self.ready.plan, progress, cancel).await {
-            Ok(_) => Ok(PlacedUpdate {
-                operation: Some(operation),
-                dirs: self.dirs,
-                ready: self.ready,
-            }),
+            Ok(outcome) => {
+                // The record before the update holds what it replaced, so its rollback
+                // copy, there only to undo a swap that fails part way, isn't kept: a
+                // server that updates weekly would grow it for ever.
+                if recorded {
+                    let _ = fs::remove_dir_all(&outcome.snapshot);
+                }
+                Ok(PlacedUpdate {
+                    operation: Some(operation),
+                    dirs: self.dirs,
+                    ready: self.ready,
+                })
+            }
             Err(err) => {
                 // the files changed part way, or not at all
                 operation.succeed_part_way();
@@ -236,27 +282,48 @@ impl PlacedUpdate {
         self.ready.plan.loader.as_ref().map(|l| l.version.clone())
     }
 
-    /// Ends the update: `save_loader` saves the instance's loader version (only the loader
-    /// version follows a server, never the Minecraft version or the loader, which the plan
-    /// checked are the instance's), the operation succeeds (once the loader is saved, so
-    /// its image has it; whatever the save did, since the files changed), and then, when
-    /// the save worked, the view is applied: last of all.
+    /// Ends the update on the window's thread: `save_loader` saves the instance's loader
+    /// version (only the loader version follows a server, never the Minecraft version or
+    /// the loader, which the plan checked are the instance's), and the operation succeeds
+    /// (once the loader is saved, so its image has it; whatever the save did, since the
+    /// files changed). When the save worked, what is left is naming the view, last of all
+    /// and off the window's thread ([`AppliedUpdate::record`]).
     pub fn finish(
         self,
         save_loader: impl FnOnce(Option<String>) -> Result<(), String>,
-    ) -> Result<(), SyncError> {
+    ) -> Result<AppliedUpdate, SyncError> {
         let saved = save_loader(self.loader_version());
         if let Some(operation) = self.operation {
             operation.succeed();
         }
         saved.map_err(SyncError::Io)?;
+        Ok(AppliedUpdate {
+            dirs: self.dirs,
+            ready: self.ready,
+        })
+    }
+}
+
+/// A server's view whose files and loader version are in place: only its record is left.
+#[must_use = "the view isn't applied until it is recorded"]
+pub struct AppliedUpdate {
+    dirs: InstanceDirs,
+    ready: Arc<Ready>,
+}
+
+impl AppliedUpdate {
+    /// Keeps the view and names it in the link ([`mark_applied`]): the update's last
+    /// write. It writes (and syncs) the whole view, so it runs off the window's thread.
+    pub fn record(self) -> Result<(), SyncError> {
         mark_applied(&self.dirs, &self.ready.plan.view)
     }
 }
 
 /// Updates the instance at `dirs` to `plan`'s view: its files, `content.json` and
-/// `modpack.json`. [`ServerUpdate::place`] runs it, in its operation; outside that, only
-/// for tests of what a crash part way leaves.
+/// `modpack.json`, without the record before it or the operation. [`ServerUpdate::place`]
+/// runs it, in its operation; outside that, only tests of what a crash part way leaves
+/// call it (the app always goes through [`ServerUpdate`]).
+#[doc(hidden)]
 pub async fn update_instance(
     sources: &Sources<'_>,
     dirs: &InstanceDirs,
@@ -274,13 +341,14 @@ pub async fn update_instance(
 pub fn mark_applied(dirs: &InstanceDirs, view: &Image) -> Result<(), SyncError> {
     let views = KeptViews::open(&dirs.instance);
     views
-        .keep(view)
+        .keep_once(view)
         .map_err(|err| SyncError::io("the server's view", err))?;
     let mut link = link::load_link(&dirs.instance)
         .ok_or_else(|| SyncError::Io("The instance isn't linked to a server any more.".into()))?;
     link.view = Some(view.id.clone());
     link.pack_etag = None;
     link::save_link(&dirs.instance, &link).map_err(|err| SyncError::Modpack(err.into()))?;
+    views.done_placing();
     views.prune(&view.id);
     Ok(())
 }

@@ -43,6 +43,11 @@ impl Digest {
             Digest::Sha1(hex) | Digest::Sha256(hex) => hex,
         }
     }
+
+    /// Whether both name the same hash of the same bytes.
+    fn same(&self, other: &Digest) -> bool {
+        self.kind() == other.kind() && self.hex().eq_ignore_ascii_case(other.hex())
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -184,6 +189,30 @@ impl Disk<'_> {
             .find(|path| std::fs::symlink_metadata(game.join(path)).is_ok_and(|m| m.is_file()))
     }
 
+    /// The size of the file at `actual`.
+    fn len(&self, actual: &str) -> Option<u64> {
+        let meta = std::fs::symlink_metadata(self.game?.join(actual)).ok()?;
+        meta.is_file().then_some(meta.len())
+    }
+
+    /// Whether `relative` names, in other letter case, the file at `other` on a disk that
+    /// doesn't tell case apart: it is found, but its folder lists it only as `other`.
+    fn same_file_other_case(&self, relative: &str, other: &str) -> bool {
+        let Some(game) = self.game else {
+            return false;
+        };
+        if relative == other || !relative.eq_ignore_ascii_case(other) {
+            return false;
+        }
+        let path = game.join(relative);
+        let (Some(parent), Some(name)) = (path.parent(), path.file_name()) else {
+            return false;
+        };
+        std::fs::symlink_metadata(&path).is_ok()
+            && std::fs::read_dir(parent)
+                .is_ok_and(|entries| !entries.flatten().any(|e| e.file_name() == name))
+    }
+
     /// Whether the file at `actual` has `digest`.
     fn matches(&self, actual: &str, digest: &Digest) -> bool {
         self.hash(actual, digest.kind())
@@ -191,16 +220,30 @@ impl Disk<'_> {
     }
 }
 
+/// How a merge treats the files on disk.
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct Rules<'a> {
+    /// The new files under these folders (a server's `mods/`) replace the user's changed
+    /// copies instead of keeping them.
+    pub authoritative: &'a [&'a str],
+    /// A file whose recorded hash is the new one's, and whose size on disk is the new
+    /// file's, is taken as unchanged without being read: a server's view, which is
+    /// planned at every Play that brings a change, so a change of one entry reads only
+    /// what changed. (A file changed by hand to the same size is put right when its
+    /// entry next changes, or by the check on a server's answer that the instance is in
+    /// step, which reads the mods.)
+    pub trust_recorded: bool,
+}
+
 /// Plans the move from the files `current` records to the files `new` places, for the
-/// game folder `game` (`None` for a new instance, which has none yet). The new files under
-/// the folders `authoritative` (a server's `mods/`) replace the user's changed copies
-/// instead of keeping them.
+/// game folder `game` (`None` for a new instance, which has none yet), by `rules`.
 pub(crate) fn plan(
     game: Option<&Path>,
     current: &BTreeMap<String, PackFile>,
     new: &BTreeMap<String, Wanted>,
-    authoritative: &[&str],
+    rules: Rules<'_>,
 ) -> Merged {
+    let authoritative = rules.authoritative;
     let replaces = |path: &str| {
         authoritative
             .iter()
@@ -211,6 +254,12 @@ pub(crate) fn plan(
         hashes: RefCell::new(HashMap::new()),
     };
     let mut merged = Merged::default();
+    // Unchanged by its record and size, without reading it (see `Rules::trust_recorded`).
+    let unchanged = |old: Option<&PackFile>, actual: &str, wanted: &Wanted| {
+        rules.trust_recorded
+            && old.is_some_and(|old| old.digest().same(&wanted.digest))
+            && disk.len(actual) == Some(wanted.fetch.size())
+    };
 
     // The old version's files that go away, by project, to pair them with new versions.
     let mut removed_by_project: HashMap<String, String> = HashMap::new();
@@ -229,6 +278,12 @@ pub(crate) fn plan(
         }
         match disk.find(path) {
             None => {}
+            // a new file names it in other letter case: it is that file (renaming only the
+            // letters of a file the disk can't tell apart would delete it)
+            Some(actual)
+                if new
+                    .keys()
+                    .any(|other| disk.same_file_other_case(other, &actual)) => {}
             Some(actual) if disk.matches(&actual, &old.digest()) => {
                 if let Some(project) = &old.project {
                     removed_by_project.insert(project.clone(), actual.clone());
@@ -248,6 +303,7 @@ pub(crate) fn plan(
         };
         let actual = disk.find(path);
         match (current.get(path), actual) {
+            (old, Some(actual)) if unchanged(old, &actual, wanted) => {}
             (_, Some(actual)) if disk.matches(&actual, &wanted.digest) => {}
             (Some(old), Some(actual)) if disk.matches(&actual, &old.digest()) => {
                 merged.updated.push((actual.clone(), actual.clone()));
@@ -299,6 +355,7 @@ pub(crate) fn plan(
                 merged.overrides_written.push(path.clone());
                 merged.writes.push((wanted.fetch.clone(), path.clone()));
             }
+            (old, Some(actual)) if unchanged(old, &actual, wanted) => {}
             (_, Some(actual)) if disk.matches(&actual, &wanted.digest) => {}
             (Some(old), Some(actual)) if disk.matches(&actual, &old.digest()) => {
                 merged.overrides_written.push(actual.clone());
@@ -319,4 +376,102 @@ pub(crate) fn record_files(new: &BTreeMap<String, Wanted>) -> BTreeMap<String, P
     new.iter()
         .map(|(path, wanted)| (path.clone(), wanted.record.clone()))
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use lodestone_image::hex::sha256_hex;
+
+    use super::*;
+
+    /// A server's file, from the server.
+    fn object(bytes: &[u8]) -> Wanted {
+        Wanted {
+            digest: Digest::Sha256(sha256_hex(bytes)),
+            record: PackFile {
+                sha1: String::new(),
+                source: FileSource::Index,
+                project: None,
+                sha256: Some(sha256_hex(bytes)),
+            },
+            fetch: Fetch::Object {
+                sha256: sha256_hex(bytes),
+                size: bytes.len() as u64,
+            },
+        }
+    }
+
+    fn game_with(files: &[(&str, &[u8])]) -> tempfile::TempDir {
+        let dir = tempfile::tempdir().unwrap();
+        for (path, bytes) in files {
+            let path = dir.path().join(path);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, bytes).unwrap();
+        }
+        dir
+    }
+
+    /// A server's plan doesn't read a file whose record is the new file and whose size is
+    /// right: here its bytes differ, which only reading would find.
+    #[test]
+    fn trusted_records_skip_reading_unchanged_files() {
+        let game = game_with(&[("config/a.toml", b"AAAA"), ("mods/b.jar", b"BBBB")]);
+        let mut a = object(b"aaaa");
+        a.record.source = FileSource::Override;
+        let current: BTreeMap<String, PackFile> = [
+            ("config/a.toml".to_string(), a.record.clone()),
+            ("mods/b.jar".to_string(), object(b"bbbb").record),
+        ]
+        .into();
+        let new: BTreeMap<String, Wanted> = [
+            ("config/a.toml".to_string(), a),
+            ("mods/b.jar".to_string(), object(b"bbbb")),
+        ]
+        .into();
+        let read = plan(Some(game.path()), &current, &new, Rules::default());
+        assert_eq!(read.kept_changed, ["mods/b.jar"]);
+        assert_eq!(read.overrides_kept, ["config/a.toml"]);
+        let trusted = plan(
+            Some(game.path()),
+            &current,
+            &new,
+            Rules {
+                trust_recorded: true,
+                ..Rules::default()
+            },
+        );
+        assert_eq!(trusted, Merged::default());
+        // a size that differs is read
+        std::fs::write(game.path().join("mods/b.jar"), b"BBBBB").unwrap();
+        let trusted = plan(
+            Some(game.path()),
+            &current,
+            &new,
+            Rules {
+                trust_recorded: true,
+                ..Rules::default()
+            },
+        );
+        assert_eq!(trusted.kept_changed, ["mods/b.jar"]);
+    }
+
+    /// A file the next version places under the same name in other letter case: on a disk
+    /// that doesn't tell case apart (macOS's and Windows's) it is the same file, so it
+    /// isn't removed; on one that does, the old name goes and the new one is written.
+    #[test]
+    fn a_change_of_letter_case_keeps_the_file() {
+        let game = game_with(&[("mods/Sodium.jar", b"sodium")]);
+        let current: BTreeMap<String, PackFile> =
+            [("mods/Sodium.jar".to_string(), object(b"sodium").record)].into();
+        let new: BTreeMap<String, Wanted> =
+            [("mods/sodium.jar".to_string(), object(b"sodium"))].into();
+        let merged = plan(Some(game.path()), &current, &new, Rules::default());
+        if game.path().join("mods/SODIUM.JAR").exists() {
+            assert!(merged.removals.is_empty());
+            assert!(merged.writes.is_empty());
+        } else {
+            assert_eq!(merged.removals, ["mods/Sodium.jar"]);
+            assert_eq!(merged.added, ["mods/sodium.jar"]);
+        }
+    }
 }

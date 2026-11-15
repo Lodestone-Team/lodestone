@@ -128,6 +128,30 @@ impl UpdatePlan {
         })
     }
 
+    /// Leaves the files at `paths` (in the game folder; a mod also by its `.disabled`
+    /// name) on disk as they are though the new version doesn't place them, still
+    /// recorded as `current` records them: the files a server's view can't give, which
+    /// the player keeps when they have them ("Files a view can't give").
+    pub(crate) fn keep_files(&mut self, paths: &BTreeSet<String>, current: &ModpackRecord) {
+        let kept = |path: &str| paths.contains(path) || paths.contains(&enabled_name(path));
+        self.removals.retain(|path| !kept(path));
+        self.removed.retain(|path| !kept(path));
+        // a new file paired with a kept one is added beside it, not instead of it
+        let (paired, updated): (Vec<_>, Vec<_>) = std::mem::take(&mut self.updated)
+            .into_iter()
+            .partition(|(old, new)| old != new && kept(old));
+        self.updated = updated;
+        self.added.extend(paired.into_iter().map(|(_, new)| new));
+        for path in paths {
+            if let Some(file) = current.files.get(path) {
+                self.record
+                    .files
+                    .entry(path.clone())
+                    .or_insert_with(|| file.clone());
+            }
+        }
+    }
+
     /// Also removes the files at `paths` (on disk), which aren't the pack's: the mods
     /// of added packs that the new version supersedes ([`super::addon::superseded`]).
     pub(crate) fn remove_also(&mut self, paths: Vec<String>) {
@@ -174,7 +198,11 @@ pub fn plan_with(
     for file in &pack.overrides {
         new.insert(file.path.clone(), Wanted::override_file(file));
     }
-    let plan = plan_files(Some(&dirs.game), current, &new, record, authoritative);
+    let rules = merge::Rules {
+        authoritative,
+        trust_recorded: false,
+    };
+    let plan = plan_files(Some(&dirs.game), current, &new, record, rules);
     UpdatePlan {
         game_version: pack.game_version.clone(),
         loader,
@@ -185,15 +213,16 @@ pub fn plan_with(
 
 /// The plan for moving the game folder `game` (`None` for a new instance) from the files
 /// `current` records to the files `new` places (a pack's, or a server's image's), whose
-/// record is `record` with those files. The caller fills in the game.
-pub fn plan_files(
+/// record is `record` with those files, by the merge's `rules`. The caller fills in the
+/// game.
+pub(crate) fn plan_files(
     game: Option<&Path>,
     current: &ModpackRecord,
     new: &BTreeMap<String, Wanted>,
     record: ModpackRecord,
-    authoritative: &[&str],
+    rules: merge::Rules<'_>,
 ) -> UpdatePlan {
-    let merged = merge::plan(game, &current.files, new, authoritative);
+    let merged = merge::plan(game, &current.files, new, rules);
     UpdatePlan {
         record: ModpackRecord {
             files: merge::record_files(new),

@@ -150,6 +150,8 @@ crate::i18n::messages! {
         UpdateModsFailed = "Couldn't update the mods",
         StopGameFirst = "Stop the game first.",
         FinishFinderFirst = "Finish the Find it for me search first: it has some of the mods turned off.",
+        /// Another job is changing the instance's files (an install, a restore, a copy).
+        FilesBusy = "Wait for the instance's files to finish changing, then try again.",
         UpdateInstanceFailed = "Couldn't update the instance",
         InstanceNotSaved = "The mods were updated, but the instance couldn't be saved: {error}",
         BadJoinAddress = "The server's address or port isn't one Minecraft can join.",
@@ -281,6 +283,7 @@ crate::i18n::messages! {
         /// {game} and {instance} are "Minecraft 1.21.1 with Fabric 0.16.10".
         ErrGameChanged = "The server now runs {game}, and this instance is for {instance}. Make a new instance for the server.",
         ErrCurseForgeBase = "The server is built on a CurseForge modpack, which Lodestone Launcher can't install from a server yet.",
+        ErrCurseForgeUnreachable = "CurseForge couldn't be reached, and the server has files from it. Check your connection, then try again.",
         /// {detail} says what, in English.
         ErrRefused = "The server sent files Lodestone Launcher won't install: {detail}",
         ErrBaseFileMissing = "The server's modpack has no file {path}, which the server says comes from it. Ask the server's owner to update the modpack.",

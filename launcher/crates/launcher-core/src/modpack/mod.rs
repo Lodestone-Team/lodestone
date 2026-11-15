@@ -25,7 +25,7 @@ pub mod merge;
 pub mod update;
 
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     fs::File,
     io::{self, Read},
     path::{Path, PathBuf},
@@ -453,6 +453,17 @@ pub(crate) fn read_overrides<R: Read + io::Seek>(
     prefixes: &[&str],
     skipped: &mut Vec<SkippedPath>,
 ) -> Result<Vec<OverrideFile>, ModpackError> {
+    read_overrides_of(archive, prefixes, None, skipped)
+}
+
+/// [`read_overrides`], only of the files at the paths `only` (in the game folder, with
+/// `/`) when given: the rest are neither read nor hashed.
+pub(crate) fn read_overrides_of<R: Read + io::Seek>(
+    archive: &mut zip::ZipArchive<R>,
+    prefixes: &[&str],
+    only: Option<&BTreeSet<String>>,
+    skipped: &mut Vec<SkippedPath>,
+) -> Result<Vec<OverrideFile>, ModpackError> {
     // The overrides, later folders winning, each hashed.
     let mut overrides: BTreeMap<String, OverrideFile> = BTreeMap::new();
     for prefix in prefixes {
@@ -477,6 +488,9 @@ pub(crate) fn read_overrides<R: Read + io::Seek>(
                 }
             };
             if is_dir {
+                continue;
+            }
+            if only.is_some_and(|only| !only.contains(&slash_path(&relative_path))) {
                 continue;
             }
             if entry

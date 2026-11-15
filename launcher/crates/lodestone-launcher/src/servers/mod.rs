@@ -34,7 +34,6 @@ pub(crate) mod control;
 
 use std::{
     collections::{HashMap, HashSet},
-    convert::Infallible,
     path::PathBuf,
     rc::Rc,
     sync::{
@@ -308,11 +307,13 @@ fn pinned_http(pin: Option<&CertificatePin>) -> Option<Arc<PinnedHttp>> {
 pub enum Busy {
     /// Asking the server for its image (`creating` for a new instance) and getting what
     /// installing it needs (its base pack); `preparing` once the server says it is still
-    /// preparing its files.
+    /// preparing its files. The row's Cancel stops it through `cancel` (the server may
+    /// prepare for minutes, and a base pack may be large).
     Asking {
         preparing: Arc<AtomicBool>,
         creating: bool,
         progress: Arc<InstallProgress>,
+        cancel: CancelToken,
     },
     /// Downloading the server's `.mrpack` client pack (a core older than milestone 3).
     Fetching,
@@ -1944,18 +1945,21 @@ impl Servers {
         }
         let preparing = Arc::new(AtomicBool::new(false));
         let progress = Arc::new(InstallProgress::default());
+        let cancel = CancelToken::new();
         self.busy.insert(
             row.clone(),
             Busy::Asking {
                 preparing: preparing.clone(),
                 creating: true,
                 progress: progress.clone(),
+                cancel: cancel.clone(),
             },
         );
         self.tick_while_busy(row.clone(), cx);
         let lookup = self.lookup_parts(cx);
         let name = server.name.clone();
         let asked = image.clone();
+        let mine = preparing.clone();
         let work = cx.background_spawn(async move {
             let target = Target {
                 existing: None,
@@ -1968,7 +1972,7 @@ impl Servers {
                 lookup.lookup(),
                 &|| preparing.store(true, Ordering::Relaxed),
                 &progress,
-                &CancelToken::new(),
+                &cancel,
             )
             .await
         });
@@ -1976,7 +1980,7 @@ impl Servers {
         self.tasks.push(cx.spawn(async move |this, cx| {
             let result = work.await;
             this.update(cx, |this, cx| {
-                this.busy.remove(&row);
+                this.done_asking(&row, &mine);
                 match result {
                     Ok(Prepared::Ready(ready)) => {
                         let pending = PendingPull::CreateImage(PendingImage {
@@ -1995,6 +1999,7 @@ impl Servers {
                     Err(SyncError::Image(ImageError::OlderCore)) => {
                         this.create_plain(&core_uuid, &server, cx)
                     }
+                    Err(err) if is_cancelled(&err) => this.friend_cancelled(&core_uuid, cx),
                     Err(err) => this.fail_core(&core_uuid, create_failed, err, cx),
                 }
                 cx.notify();
@@ -2199,14 +2204,20 @@ impl Servers {
         }
         let files = pending.pulls();
         let row = pending.row();
-        self.busy.insert(row.clone(), Busy::CheckingMods);
+        // the row shows the check unless another job has it (that job's entry stays)
+        let marked = !self.busy.contains_key(&row);
+        if marked {
+            self.busy.insert(row.clone(), Busy::CheckingMods);
+        }
         let api = self.instances.read(cx).modrinth();
         let work =
             cx.background_spawn(async move { trust::advisory(api.as_deref(), &files).await });
         self.tasks.push(cx.spawn(async move |this, cx| {
             let advisory = work.await;
             this.update(cx, |this, cx| {
-                this.busy.remove(&row);
+                if marked && matches!(this.busy.get(&row), Some(Busy::CheckingMods)) {
+                    this.busy.remove(&row);
+                }
                 let focus = cx.focus_handle();
                 this.advisory.open(
                     AdvisoryPrompt {
@@ -2272,6 +2283,10 @@ impl Servers {
             return;
         };
         let row: RowKey = (pending.core.clone(), pending.server.uuid.clone());
+        // another job of the row (asking the server again, say) is under way
+        if self.busy.contains_key(&row) {
+            return self.fail(move || (create_failed(), t(M::FilesBusy).into()), cx);
+        }
         let store = self.instances.read(cx).store();
         let images = self.instances.read(cx).images();
         let lookup = self.lookup_parts(cx);
@@ -2442,23 +2457,25 @@ impl Servers {
         }
         let preparing = Arc::new(AtomicBool::new(false));
         let progress = Arc::new(InstallProgress::default());
+        let cancel = CancelToken::new();
         self.busy.insert(
             row.clone(),
             Busy::Asking {
                 preparing: preparing.clone(),
                 creating: false,
                 progress: progress.clone(),
+                cancel: cancel.clone(),
             },
         );
         self.tick_while_busy(row.clone(), cx);
         let instances = self.instances.read(cx);
         let dirs = instances.content_dirs(&instance_id);
         let store = instances.store();
-        let images = instances.images();
         let lookup = self.lookup_parts(cx);
         let image_id = instance_id.clone();
         let name = server.name.clone();
         let asked = image.clone();
+        let mine = preparing.clone();
         let check = cx.background_spawn(async move {
             let instance = store
                 .get(&image_id)
@@ -2475,42 +2492,57 @@ impl Servers {
                 lookup.lookup(),
                 &|| preparing.store(true, Ordering::Relaxed),
                 &progress,
-                &CancelToken::new(),
+                &cancel,
             )
-            .await?;
-            match prepared {
-                Prepared::Current => Ok(ImageCheck::InStep),
-                Prepared::Ready(ready) if !ready.asks(Some(&instance)) => {
-                    // the files are the view's already and it lacks nothing new: only
-                    // recorded (the record naming its files, then the link the view); the
-                    // loader version is the instance's already
-                    let ready: Arc<Ready> = Arc::from(ready);
-                    let sources = lookup.sources(&ready, &asked);
-                    // Play checked the game isn't running, and nothing changes on disk
-                    let Ok(update) = ServerUpdate::start(
-                        images,
-                        instance,
-                        &name,
-                        dirs,
-                        ready.clone(),
-                        None::<Infallible>,
-                    );
-                    update
-                        .place(&sources, &progress, &CancelToken::new())
-                        .await?
-                        .finish(|_| Ok(()))?;
-                    Ok(ImageCheck::InStep)
+            .await;
+            let prepared = match prepared {
+                Ok(prepared) => prepared,
+                // An instance with nothing of a server's (vanilla, no view applied, no
+                // files placed) joins whatever went wrong asking: there is nothing to
+                // install for it to lack, as before the server's image existed.
+                Err(err)
+                    if !matches!(
+                        err,
+                        SyncError::UpdateLodestone
+                            | SyncError::Image(ImageError::UpdateLodestone | ImageError::OlderCore)
+                    ) && !is_cancelled(&err)
+                        && instance.loader == Loader::None
+                        && link.view.is_none()
+                        && modpack::ModpackRecord::load(&dirs.instance).is_none() =>
+                {
+                    eprintln!("Couldn't ask {name} for its files ({err}); joining as it is");
+                    return Ok(ImageCheck::InStep);
                 }
-                Prepared::Ready(ready) => Ok(ImageCheck::Changed(ready)),
-            }
+                Err(err) => return Err(err),
+            };
+            Ok(match prepared {
+                Prepared::Current => ImageCheck::InStep,
+                // the files are the view's already and it lacks nothing new: only recorded,
+                // through the update (which checks on the window's thread that the
+                // instance's files are free)
+                Prepared::Ready(ready) if !ready.asks(Some(&instance)) => {
+                    ImageCheck::RecordOnly(ready)
+                }
+                Prepared::Ready(ready) => ImageCheck::Changed(ready),
+            })
         });
         let core_uuid = core_uuid.to_string();
         self.tasks.push(cx.spawn(async move |this, cx| {
             let result = check.await;
             this.update(cx, |this, cx| {
-                this.busy.remove(&row);
+                this.done_asking(&row, &mine);
                 match result {
                     Ok(ImageCheck::InStep) => this.join(&core_uuid, &server, &instance_id, cx),
+                    Ok(ImageCheck::RecordOnly(ready)) => this.apply_server_update(
+                        PendingImage {
+                            core: core_uuid.clone(),
+                            server,
+                            instance_id: Some(instance_id),
+                            ready: Arc::new(*ready),
+                            image,
+                        },
+                        cx,
+                    ),
                     Ok(ImageCheck::Changed(ready)) => {
                         let instance = this.instances.read(cx).store().get(&instance_id).ok();
                         let summary = &ready.plan.summary;
@@ -2552,6 +2584,7 @@ impl Servers {
                             this.join(&core_uuid, &server, &instance_id, cx)
                         }
                     }
+                    Err(err) if is_cancelled(&err) => this.friend_cancelled(&core_uuid, cx),
                     Err(err) => {
                         this.fail_core(&core_uuid, || t(M::CheckModsFailed).into(), err, cx)
                     }
@@ -2817,12 +2850,17 @@ impl Servers {
         cx.notify();
     }
 
-    /// Why an instance's files can't change now: its game runs, or a "Find it for me"
-    /// search has its mods turned off.
+    /// Why an instance's files can't change now: its game runs, another job writes them
+    /// (a Content tab install, a restore, a copy) or it is being deleted, or a "Find it
+    /// for me" search has its mods turned off.
     fn files_held(&self, instance_id: &str, cx: &Context<Self>) -> Option<M> {
         let instances = self.instances.read(cx);
         if instances.is_active(instance_id) {
             Some(M::StopGameFirst)
+        } else if instances.files_busy(instance_id)
+            || instances.file_op(instance_id) == Some(crate::instances::FileOp::Delete)
+        {
+            Some(M::FilesBusy)
         } else if instances.finder_saved(instance_id) {
             // A saved "Find it for me" search has mods turned off (see
             // Instances::finder_saved).
@@ -2842,6 +2880,13 @@ impl Servers {
             return;
         };
         let row: RowKey = (pending.core.clone(), pending.server.uuid.clone());
+        // another job of the row (another update, asking the server again) is under way
+        if self.busy.contains_key(&row) {
+            return self.fail(
+                move || (t(M::UpdateModsFailed).into(), t(M::FilesBusy).into()),
+                cx,
+            );
+        }
         let lookup = self.lookup_parts(cx);
         let instances = self.instances.read(cx);
         let dirs = instances.content_dirs(&instance_id);
@@ -2877,6 +2922,7 @@ impl Servers {
         // so the check before a launch never takes a half-applied update for a change made by
         // hand.
         let busy = self.instances.read(cx).mark_files_busy(&instance_id);
+        let mine = progress.clone();
         let work = cx.background_spawn(async move {
             let sources = lookup.sources(&ready, &image);
             let placed = update.place(&sources, &progress, &CancelToken::new()).await;
@@ -2887,41 +2933,91 @@ impl Servers {
         });
         self.tasks.push(cx.spawn(async move |this, cx| {
             let placed = work.await;
-            this.update(cx, |this, cx| {
-                this.busy.remove(&row);
-                let busy = busy;
+            let finished = this.update(cx, |this, cx| {
                 let placed = match placed {
                     Ok(placed) => placed,
                     Err(err) => {
-                        return this.fail_core(
+                        this.done_updating(&row, &mine);
+                        this.fail_core(
                             &pending.core,
                             || t(M::UpdateModsFailed).into(),
                             PullError::from(err),
                             cx,
                         );
+                        return None;
                     }
                 };
-                let saved = placed
-                    .finish(|version| this.save_loader_version(&instance_id, version, cx))
-                    .map_err(|err| err.to_string());
+                match placed.finish(|version| this.save_loader_version(&instance_id, version, cx)) {
+                    Ok(applied) => Some(applied),
+                    Err(err) => {
+                        this.done_updating(&row, &mine);
+                        let err = err.to_string();
+                        this.fail(
+                            move || {
+                                (
+                                    t(M::UpdateInstanceFailed).into(),
+                                    tr!(M::InstanceNotSaved, error = err),
+                                )
+                            },
+                            cx,
+                        );
+                        None
+                    }
+                }
+            });
+            let Ok(Some(applied)) = finished else {
+                return;
+            };
+            // the view's record, last: it writes the whole view, off the window's thread
+            let recorded = cx.background_spawn(async move { applied.record() }).await;
+            this.update(cx, |this, cx| {
+                this.done_updating(&row, &mine);
                 // Joining plays the instance: its files are done.
                 drop(busy);
-                match saved {
+                match recorded {
                     Ok(()) => this.join(&pending.core, &pending.server, &instance_id, cx),
-                    Err(err) => this.fail(
-                        move || {
-                            (
-                                t(M::UpdateInstanceFailed).into(),
-                                tr!(M::InstanceNotSaved, error = err),
-                            )
-                        },
-                        cx,
-                    ),
+                    Err(err) => {
+                        let err = sync_error(&err);
+                        this.fail(
+                            move || {
+                                (
+                                    t(M::UpdateInstanceFailed).into(),
+                                    tr!(M::InstanceNotSaved, error = err),
+                                )
+                            },
+                            cx,
+                        )
+                    }
                 }
                 cx.notify();
             })
             .ok();
         }));
+        cx.notify();
+    }
+
+    /// Ends the row's "Asking" whose `preparing` flag is `mine`, leaving any other job's
+    /// entry (one that started meanwhile) alone.
+    fn done_asking(&mut self, row: &RowKey, mine: &Arc<AtomicBool>) {
+        if matches!(self.busy.get(row), Some(Busy::Asking { preparing, .. }) if Arc::ptr_eq(preparing, mine))
+        {
+            self.busy.remove(row);
+        }
+    }
+
+    /// Ends the row's update whose progress is `mine`, leaving any other job's entry alone.
+    fn done_updating(&mut self, row: &RowKey, mine: &Arc<InstallProgress>) {
+        if matches!(self.busy.get(row), Some(Busy::UpdatingMods(progress)) if Arc::ptr_eq(progress, mine))
+        {
+            self.busy.remove(row);
+        }
+    }
+
+    /// The row's Cancel while it asks the server for its image.
+    pub fn cancel_asking(&mut self, core: &str, server: &str, cx: &mut Context<Self>) {
+        if let Some(Busy::Asking { cancel, .. }) = self.busy.get(&(core.into(), server.into())) {
+            cancel.cancel();
+        }
         cx.notify();
     }
 
@@ -3472,7 +3568,19 @@ enum Check {
 /// What Play found asking a server for its image.
 enum ImageCheck {
     InStep,
+    /// A view that changes nothing and lacks nothing new: only recorded.
+    RecordOnly(Box<Ready>),
     Changed(Box<Ready>),
+}
+
+/// Whether a failure is the player's Cancel.
+fn is_cancelled(err: &SyncError) -> bool {
+    matches!(
+        err,
+        SyncError::Cancelled
+            | SyncError::Image(ImageError::Cancelled)
+            | SyncError::Modpack(ModpackError::Cancelled)
+    )
 }
 
 /// What looking up a view's files needs, owned, for a background task.
@@ -3641,6 +3749,7 @@ pub fn sync_error(err: &SyncError) -> String {
             tr!(M::ErrGameChanged, game = game, instance = instance)
         }
         SyncError::CurseForgeBase => t(M::ErrCurseForgeBase).into(),
+        SyncError::CurseForgeUnavailable(_) => t(M::ErrCurseForgeUnreachable).into(),
         SyncError::Refused(detail) => tr!(M::ErrRefused, detail = detail),
         SyncError::Image(ImageError::Invalid(detail)) => tr!(M::ErrRefused, detail = detail),
         SyncError::BaseFileMissing(path) => tr!(M::ErrBaseFileMissing, path = path),

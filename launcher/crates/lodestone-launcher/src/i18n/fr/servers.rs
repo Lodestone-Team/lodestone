@@ -174,6 +174,9 @@ pub fn text(message: M) -> &'static str {
         }
         M::UpdateModsFailed => "Impossible de mettre à jour les mods",
         M::StopGameFirst => "Quittez d’abord le jeu.",
+        M::FilesBusy => {
+            "Attendez que les fichiers de l’instance aient fini de changer, puis réessayez."
+        }
         M::FinishFinderFirst => {
             "Terminez d’abord la recherche Le trouver pour moi\u{a0}: elle a désactivé une partie des mods."
         }
@@ -335,6 +338,9 @@ pub fn text(message: M) -> &'static str {
         }
         M::ErrGameChanged => {
             "Le serveur utilise maintenant {game}, et cette instance est pour {instance}. Créez une nouvelle instance pour le serveur."
+        }
+        M::ErrCurseForgeUnreachable => {
+            "CurseForge est injoignable, et le serveur a des fichiers qui en viennent. Vérifiez votre connexion, puis réessayez."
         }
         M::ErrCurseForgeBase => {
             "Le serveur repose sur un modpack CurseForge, que Lodestone Launcher ne peut pas encore installer depuis un serveur."

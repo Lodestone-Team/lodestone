@@ -9,17 +9,19 @@
 //! pack, or who makes a second instance, downloads it once.
 
 use std::{
+    collections::BTreeSet,
     fs,
     path::{Path, PathBuf},
 };
 
 use lodestone_image::{Base, hex::is_sha512};
+use lodestone_minecraft::mrpack::Side;
 
 use super::SyncError;
 use crate::{
     content::{Modrinth, ModrinthError, install::InstallProgress},
     game::download::{CancelToken, Downloader},
-    modpack::{self, ModpackError, PackInfo, import},
+    modpack::{self, ModpackError, OverrideFile, PackInfo, import},
 };
 
 /// How many base packs the cache keeps.
@@ -34,6 +36,25 @@ pub struct BasePack {
     pub project: String,
     pub version: String,
     pub sha512: String,
+}
+
+impl BasePack {
+    /// The pack's files at `paths` in its server share (`overrides/` with
+    /// `server-overrides/` over them), read and hashed: where the core takes a `base`
+    /// entry from when the client share has another copy at its path
+    /// ([`super::placed::BaseShare`]). Only those files are read.
+    pub fn server_copies(&self, paths: &BTreeSet<String>) -> Result<Vec<OverrideFile>, SyncError> {
+        if paths.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut archive = modpack::open_pack(&self.path)?;
+        Ok(modpack::read_overrides_of(
+            &mut archive,
+            &Side::Server.override_dirs(),
+            Some(paths),
+            &mut Vec::new(),
+        )?)
+    }
 }
 
 /// The base pack of a view whose base is `base`, from the cache in `cache` or Modrinth.

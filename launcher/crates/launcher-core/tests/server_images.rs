@@ -25,7 +25,8 @@ use launcher_core::{
         image_sync::{
             SyncError,
             apply::{ServerUpdate, build_instance, update_instance},
-            prepare::{Lookup, Prepared, Ready, Target, prepare},
+            prepare::{Lookup, Prepared, Ready, Target, prepare, prepare as prepare_fn},
+            views::KeptViews,
         },
         link::{self, ServerLink},
         player_image::ServerImage,
@@ -359,11 +360,13 @@ impl World {
             Ok(placed) => placed,
             Err(err) => return Ok(Err(err)),
         };
-        let finished = placed.finish(|version| {
-            let mut instance = self.store.get(id).unwrap();
-            instance.loader_version = version;
-            self.store.save(&instance).map_err(|e| e.to_string())
-        });
+        let finished = placed
+            .finish(|version| {
+                let mut instance = self.store.get(id).unwrap();
+                instance.loader_version = version;
+                self.store.save(&instance).map_err(|e| e.to_string())
+            })
+            .and_then(|applied| applied.record());
         self.images.flush(id).unwrap();
         Ok(finished)
     }
@@ -416,7 +419,9 @@ fn builds_an_instance_from_a_servers_image_and_keeps_it_in_step() {
     assert_eq!(summary.loader, "Fabric 0.16.10");
     let mut added = summary.added_mods.clone();
     added.sort();
-    assert_eq!(added, ["jei.jar", "own.jar", "sodium.jar"]);
+    // sodium is the pack's own, at the pack's version, though the core names it by its
+    // Modrinth URL
+    assert_eq!(added, ["jei.jar", "own.jar"]);
     assert_eq!(summary.server_only, ["mods/own.jar"]);
     assert_eq!(summary.missing.len(), 1);
     assert_eq!(summary.missing[0].0, "mods/linked.jar");
@@ -1078,6 +1083,26 @@ fn curseforge_entries_are_downloaded_when_allowed_and_listed_otherwise() {
             &CancelToken::new(),
         )))
     };
+    // CurseForge out of reach, or no CurseForge at all: nothing is planned, so no file is
+    // taken for one the player must get by hand
+    cf.state().next_status = Some(500);
+    assert!(matches!(
+        prepare(),
+        Err(SyncError::CurseForgeUnavailable(_))
+    ));
+    let without = block_on(http::in_http_runtime(prepare_fn(
+        &world.server,
+        Target {
+            existing: None,
+            applied: None,
+            name: "SMP",
+        },
+        world.lookup(),
+        &|| {},
+        &InstallProgress::default(),
+        &CancelToken::new(),
+    )));
+    assert!(matches!(without, Err(SyncError::CurseForgeUnavailable(_))));
     let Prepared::Ready(ready) = prepare().unwrap() else {
         panic!("a plan");
     };
@@ -1090,9 +1115,11 @@ fn curseforge_entries_are_downloaded_when_allowed_and_listed_otherwise() {
         .into_iter()
         .filter(|r| r.method == "POST" && r.path.ends_with("mods/files"))
         .collect();
-    assert_eq!(asked.len(), 1);
-    assert!(asked[0].body.contains("1001") && asked[0].body.contains("1003"));
-    assert!(!asked[0].body.contains("1002"));
+    // (the first was answered 500)
+    assert_eq!(asked.len(), 2);
+    let asked = &asked[1];
+    assert!(asked.body.contains("1001") && asked.body.contains("1003"));
+    assert!(!asked.body.contains("1002"));
     let instance = build(&ready).unwrap();
     let game = world.game(&instance.id);
     assert_eq!(read(&game.join("mods/allowed.jar")), "allowed");
@@ -1124,5 +1151,184 @@ fn curseforge_entries_are_downloaded_when_allowed_and_listed_otherwise() {
     assert_eq!(
         std::fs::read_dir(world.store.root()).unwrap().count(),
         before
+    );
+}
+
+/// The server answers 204 (in step), but a mod of the server's is gone or changed on disk
+/// (deleted, updated through the Content tab, damaged): the applied view is placed again,
+/// so the server's `mods/` stays authoritative and the player can join.
+#[test]
+fn a_server_mod_changed_on_disk_is_put_back_though_the_server_says_in_step() {
+    let world = World::new();
+    let first = world.content(&world.pack1, &world.sodium1);
+    world.core.publish(&first, &[("", b"the server's own mod")]);
+    let (instance, _) = world.create();
+    let id = instance.id;
+    let game = world.game(&id);
+    assert!(world.play(&id).unwrap().is_none());
+
+    std::fs::remove_file(game.join("mods/jei.jar")).unwrap();
+    let ready = world.play(&id).unwrap().expect("the applied view, again");
+    assert_eq!(ready.plan.summary.changes.added, ["mods/jei.jar"]);
+    assert_eq!(read(&game.join("mods/jei.jar")), "jei 1");
+    // a 204 both times: nothing new was asked for
+    assert!(world.play(&id).unwrap().is_none());
+
+    // the same size, other bytes: read, not taken as unchanged by its record
+    std::fs::write(game.join("mods/jei.jar"), b"JEI 9").unwrap();
+    std::fs::write(game.join("mods/own.jar"), b"another mod entirely").unwrap();
+    let ready = world.play(&id).unwrap().expect("the applied view, again");
+    let mut updated = ready.plan.summary.changes.updated.clone();
+    updated.sort();
+    assert_eq!(updated, ["mods/jei.jar", "mods/own.jar"]);
+    assert_eq!(read(&game.join("mods/jei.jar")), "jei 1");
+    assert_eq!(read(&game.join("mods/own.jar")), "the server's own mod");
+    assert!(world.play(&id).unwrap().is_none());
+}
+
+/// A file the applied view placed that the next view can't give (the server's copy kept
+/// changing while it recorded) stays on disk and in `modpack.json`: removing it would
+/// leave the player without a mod the server still runs. Once the view gives it again,
+/// it is updated as usual.
+#[test]
+fn files_a_view_cant_give_stay_on_disk() {
+    let world = World::new();
+    let mut first = world.content(&world.pack1, &world.sodium1);
+    first.entries.push(object_entry("mods/foo.jar", b"foo 1"));
+    world
+        .core
+        .publish(&first, &[("", b"the server's own mod"), ("", b"foo 1")]);
+    let (instance, _) = world.create();
+    let id = instance.id;
+    let game = world.game(&id);
+    let dirs = InstanceDirs::new(world.store.dir(&id));
+    assert_eq!(read(&game.join("mods/foo.jar")), "foo 1");
+
+    let mut second = first.clone();
+    second.entries.retain(|e| e.path.as_str() != "mods/foo.jar");
+    second.withheld.push(lodestone_image::Withheld {
+        path: "mods/foo.jar".into(),
+        reason: lodestone_image::WithheldReason::KeptChanging,
+    });
+    world.core.publish(&second, &[]);
+    let ready = world.play(&id).unwrap().expect("another view");
+    assert!(ready.plan.summary.changes.removed.is_empty());
+    assert_eq!(ready.plan.summary.missing[0].0, "mods/foo.jar");
+    assert_eq!(read(&game.join("mods/foo.jar")), "foo 1");
+    let record = ModpackRecord::load(&dirs.instance).unwrap();
+    assert!(record.files.contains_key("mods/foo.jar"));
+
+    let mut third = first.clone();
+    third.entries.retain(|e| e.path.as_str() != "mods/foo.jar");
+    third.entries.push(object_entry("mods/foo.jar", b"foo 2"));
+    world.core.publish(&third, &[("", b"foo 2")]);
+    let ready = world.play(&id).unwrap().expect("another view");
+    assert_eq!(ready.plan.summary.changes.updated, ["mods/foo.jar"]);
+    assert_eq!(read(&game.join("mods/foo.jar")), "foo 2");
+}
+
+/// An update that stopped part way (after placing files, before its records) and a server
+/// that moves on before the next Play: the files the stopped update placed are the
+/// server's, so the next view removes the ones it drops, instead of keeping them as the
+/// player's.
+#[test]
+fn files_a_stopped_update_placed_are_the_servers() {
+    let world = World::new();
+    let first = world.content(&world.pack1, &world.sodium1);
+    world.core.publish(&first, &[("", b"the server's own mod")]);
+    let (instance, ready) = world.create();
+    let id = instance.id;
+    let first_view = ready.plan.view.id.clone();
+    let game = world.game(&id);
+    let dirs = InstanceDirs::new(world.store.dir(&id));
+
+    // view 2 adds a mod and changes the server's own one; its update stops before the
+    // records
+    let mut second = first.clone();
+    second.entries.retain(|e| e.path.as_str() != "mods/own.jar");
+    second
+        .entries
+        .push(object_entry("mods/own.jar", b"the server's own mod, 2"));
+    second
+        .entries
+        .push(object_entry("mods/new.jar", b"a new mod"));
+    world.core.publish(
+        &second,
+        &[("", b"the server's own mod, 2"), ("", b"a new mod")],
+    );
+    let instance = world.store.get(&id).unwrap();
+    let Prepared::Ready(ready) = world
+        .prepare(Some((&dirs, &instance)), Some(&first_view))
+        .unwrap()
+    else {
+        panic!("expected a plan");
+    };
+    KeptViews::open(&dirs.instance)
+        .begin_placing(&ready.plan.view)
+        .unwrap();
+    block_on(http::in_http_runtime(update_instance(
+        &world.sources(&ready),
+        &dirs,
+        &ready.plan,
+        &InstallProgress::default(),
+        &CancelToken::new(),
+    )))
+    .unwrap();
+    // as if `modpack.json` hadn't been saved
+    let mut record = ModpackRecord::load(&dirs.instance).unwrap();
+    record.files.remove("mods/new.jar");
+    record.files.get_mut("mods/own.jar").unwrap().sha256 =
+        Some(sha256_hex(b"the server's own mod"));
+    record.save(&dirs.instance).unwrap();
+
+    // view 3 drops both
+    let mut third = first.clone();
+    third.entries.retain(|e| e.path.as_str() != "mods/own.jar");
+    world.core.publish(&third, &[]);
+    let ready = world.play(&id).unwrap().expect("another view");
+    let mut removed = ready.plan.summary.changes.removed.clone();
+    removed.sort();
+    assert_eq!(removed, ["mods/new.jar", "mods/own.jar"]);
+    assert!(!game.join("mods/new.jar").exists());
+    assert!(!game.join("mods/own.jar").exists());
+    assert!(KeptViews::open(&dirs.instance).placing().is_none());
+}
+
+/// A pack with a client-only copy of a mod (`client-overrides/`) beside the one both sides
+/// get (`overrides/`): the core takes a `base` entry from its server share, so the player
+/// gets the `overrides/` copy, read again from the cached pack, instead of the view being
+/// refused.
+#[test]
+fn a_base_entry_from_the_packs_server_share_is_installed() {
+    let world = World::new();
+    let pack_bytes = make_pack(
+        "3.0",
+        json!([index_file(&world.sodium1, "mods/sodium.jar", "required")]),
+        &[
+            ("overrides/mods/both.jar", b"for both sides"),
+            ("client-overrides/mods/both.jar", b"for clients"),
+        ],
+    );
+    let pack = FakeVersion::new("pv3", PACK, "3.0", &["fabric"], &["1.21.1"], "2026-03-01")
+        .file("cozy-3.mrpack", &pack_bytes);
+    world.modrinth.version(pack.clone());
+    let mut content = content_image("1.21.1", Loader::Fabric, Some("0.16.10"));
+    content.base = Some(Base::ModrinthPack {
+        project: PACK.into(),
+        version: pack.id.clone(),
+        sha512: pack.sha512(),
+    });
+    content
+        .entries
+        .push(modrinth_entry("mods/sodium.jar", &world.sodium1));
+    content
+        .entries
+        .push(base_entry("mods/both.jar", b"for both sides"));
+    world.core.publish(&content, &[]);
+    let (instance, ready) = world.create();
+    assert!(ready.plan.summary.added_mods.is_empty());
+    assert_eq!(
+        read(&world.game(&instance.id).join("mods/both.jar")),
+        "for both sides"
     );
 }

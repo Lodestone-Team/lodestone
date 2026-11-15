@@ -10,27 +10,21 @@
 //! ([`super::placed`]), since the client view's rules let through paths a server must
 //! never write on a player's machine (`options.txt`, `servers.dat`, worlds).
 
-use lodestone_image::{Base, Delta, Image, Kind, Side, ViewError, apply, view::check_received};
+use lodestone_image::{
+    Base, Delta, Image, Kind, Side, ViewError, apply, display_text, view::check_received,
+};
 
 use super::SyncError;
 use crate::images::scope::MAX_PACK_FILES;
 
 /// Checks a view received from a server, whole or made from a delta, against the id the
-/// server named for it (`X-Lodestone-View`).
+/// server named for it (`X-Lodestone-View`). The cheap checks come first, so a huge
+/// hostile answer is refused before its view is worked out again.
 pub fn check_view(image: &Image, expected: &str) -> Result<(), SyncError> {
-    match check_received(image, Side::Client) {
-        Ok(()) => {}
-        Err(ViewError::UnsupportedRules(_)) => return Err(SyncError::UpdateLodestone),
-        Err(err) => {
-            return Err(SyncError::Refused(format!(
-                "it isn't the server's client view ({err})"
-            )));
-        }
-    }
-    if image.id != expected {
-        return Err(SyncError::Refused(
-            "its view isn't the one it said is current".into(),
-        ));
+    if image.entries.len() > MAX_PACK_FILES {
+        return Err(SyncError::Refused(format!(
+            "it has more than {MAX_PACK_FILES} files"
+        )));
     }
     if image.kind != Kind::Content
         || !image.worlds.is_empty()
@@ -40,22 +34,48 @@ pub fn check_view(image: &Image, expected: &str) -> Result<(), SyncError> {
             "it holds worlds or other data, not only mods and configs".into(),
         ));
     }
+    if image.id != expected {
+        return Err(SyncError::Refused(
+            "its view isn't the one it said is current".into(),
+        ));
+    }
+    match check_received(image, Side::Client) {
+        Ok(()) => {}
+        Err(ViewError::UnsupportedRules(_)) => return Err(SyncError::UpdateLodestone),
+        Err(err) => {
+            return Err(SyncError::Refused(format!(
+                "it isn't the server's client view ({})",
+                display_text(&err.to_string())
+            )));
+        }
+    }
+    // after the view check, which says whether the base is a known kind at all
     if matches!(image.base, Some(Base::CurseforgePack { .. })) {
         return Err(SyncError::CurseForgeBase);
-    }
-    if image.entries.len() > MAX_PACK_FILES {
-        return Err(SyncError::Refused(format!(
-            "it has more than {MAX_PACK_FILES} files"
-        )));
     }
     Ok(())
 }
 
 /// Applies a delta from the server to the kept view its `from` names, and checks the
-/// result as a whole view.
+/// result as a whole view. A delta that would make a view of too many files is refused
+/// before it is applied.
 pub fn apply_delta(kept: &Image, delta: &Delta, expected: &str) -> Result<Image, SyncError> {
-    let view = apply(kept, delta)
-        .map_err(|err| SyncError::Refused(format!("its changes don't apply ({err})")))?;
+    let entries = kept
+        .entries
+        .len()
+        .saturating_add(delta.added.len())
+        .saturating_sub(delta.removed.len());
+    if entries > MAX_PACK_FILES {
+        return Err(SyncError::Refused(format!(
+            "it has more than {MAX_PACK_FILES} files"
+        )));
+    }
+    let view = apply(kept, delta).map_err(|err| {
+        SyncError::Refused(format!(
+            "its changes don't apply ({})",
+            display_text(&err.to_string())
+        ))
+    })?;
     check_view(&view, expected)?;
     Ok(view)
 }

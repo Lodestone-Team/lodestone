@@ -23,6 +23,9 @@ use crate::storage;
 pub const VIEWS_FOLDER: &str = "server-views";
 /// How many views an instance keeps, the applied one among them.
 pub const KEPT_VIEWS: usize = 4;
+/// The file naming the view an update is placing, from before its files change until the
+/// link names it: what a crash part way leaves.
+const PLACING: &str = "placing";
 
 /// An instance's kept views.
 pub struct KeptViews {
@@ -61,6 +64,35 @@ impl KeptViews {
     pub fn keep(&self, view: &Image) -> std::io::Result<()> {
         fs::create_dir_all(&self.dir)?;
         storage::write_atomic(&self.path(&view.id), &view.to_json_pretty())
+    }
+
+    /// Keeps `view` unless it is kept already.
+    pub fn keep_once(&self, view: &Image) -> std::io::Result<()> {
+        if self.path(&view.id).is_file() {
+            return Ok(());
+        }
+        self.keep(view)
+    }
+
+    /// Notes that an update starts placing `view`'s files: keeps it and names it, until
+    /// [`Self::done_placing`]. Harmless on its own, since the link still names the view
+    /// applied before.
+    pub fn begin_placing(&self, view: &Image) -> std::io::Result<()> {
+        self.keep_once(view)?;
+        storage::write_atomic(&self.dir.join(PLACING), view.id.as_bytes())
+    }
+
+    /// The view an update was placing and didn't record (it stopped part way, or the
+    /// Launcher stopped), when it is still kept.
+    pub fn placing(&self) -> Option<Image> {
+        let bytes = fs::read(self.dir.join(PLACING)).ok()?;
+        let id = std::str::from_utf8(&bytes).ok()?.trim();
+        self.load(id)
+    }
+
+    /// The view an update placed is recorded: it is no longer being placed.
+    pub fn done_placing(&self) {
+        let _ = fs::remove_file(self.dir.join(PLACING));
     }
 
     /// The ids of the kept views, newest first.

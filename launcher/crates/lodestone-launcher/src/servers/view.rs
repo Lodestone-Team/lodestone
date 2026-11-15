@@ -21,7 +21,7 @@ use launcher_core::ui_skin::SurfaceId;
 use launcher_core::wording;
 
 use super::{
-    AdvisoryAnswer, AdvisoryPrompt, CertPrompt, CoreEntry, CoreStatus, NoticeKind, Servers,
+    AdvisoryAnswer, AdvisoryPrompt, Busy, CertPrompt, CoreEntry, CoreStatus, NoticeKind, Servers,
     TrustPrompt, UpdatePrompt, core_error, loader_label, local::FoundCore, power_state,
     status_label, trust_explanation, withheld_reason,
 };
@@ -309,6 +309,19 @@ impl Servers {
                     .child(small(busy.label()))
                     .into_any_element(),
             );
+            // asking the server may wait minutes while it prepares its files
+            if matches!(busy, Busy::Asking { .. }) {
+                let (c, s) = (core_uuid.clone(), server.uuid.clone());
+                actions.push(
+                    Button::new(
+                        SharedString::from(format!("cancel-asking-{row_id}")),
+                        t(CommonMsg::Cancel),
+                    )
+                    .size(ButtonSize::Slim)
+                    .on_click(cx.listener(move |this, _, _, cx| this.cancel_asking(&c, &s, cx)))
+                    .into_any_element(),
+                );
+            }
         }
         if busy.is_none() {
             if let Some(friend) = friend_play.clone() {

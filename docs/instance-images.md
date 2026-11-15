@@ -2103,16 +2103,21 @@ side of "Server to player" open. The code is `launcher/crates/launcher-core/src/
   on every answer: digits only, a number past 32 bits counts as newer, anything else says
   nothing; newer than `RULES` is "update Lodestone" whatever the status. A view of an
   unknown schema, or rules the view check doesn't know, is the same.
-- **Waiting and giving up.** Every `Retry-After` is clamped to 30 s (5 s when missing or
-  odd), and waits are counted, not timed, so a test's instant sleep ends them too.
-  `…/image` asks again through `Conflict` until its waits add up to 10 minutes (the first
-  record of a big server), then says the server is still preparing; `Internal` stops at
-  once ("couldn't prepare its files", with the seconds left). An object: `TooManyRequests`
-  is waited out, uncounted, for up to 10 minutes of waits; `Conflict` for up to 2 minutes;
+- **Waiting and giving up.** Every `Retry-After` is clamped to between 1 s and 30 s (5 s
+  when missing or odd; a 0 is waited 1 s, so a hostile server can't make the Launcher ask
+  without pausing), and waits are counted, not timed, so a test's instant sleep ends them
+  too. `…/image` asks again through `Conflict` until its waits add up to 10 minutes (the
+  first record of a big server), then says the server is still preparing; `Internal` stops
+  at once ("couldn't prepare its files, try again in a few minutes"; the error carries the
+  server's own `Retry-After`, unclamped up to a day). An object: `TooManyRequests` is
+  waited out for up to 10 minutes of waits; `Conflict` for up to 2 minutes;
   a body cut short, a stall, a body past the size its view gives, a wrong hash, a 5xx and a
   transport error each count as a failure, and the file is fetched again at most 3 times
   (`MAX_RETRIES`: the fourth failure gives up, the spec's "at most 3 times in a row per
-  file"); `Internal` answers are counted on their own, and the third in a row gives up
+  file", counted per file in all: the busy and preparing answers between failures don't
+  reset it, so alternating answers can't keep a file going for ever; bytes an attempt
+  counted in the progress are taken back when a 200 starts the file over); `Internal`
+  answers are counted on their own, and the third in a row gives up
   (`MAX_INTERNAL`, the spec's "3 `Internal` answers in a row"; any other answer resets
   that count). A 404 is "the view
   changed" (Play again asks for the image), a 400 is refused. At most 4 objects download
@@ -2122,7 +2127,10 @@ side of "Server to player" open. The code is `launcher/crates/launcher-core/src/
 - **What a view must be.** Besides `check_received` and the id the server named
   (`image_sync::received`), a view must be a `content` image without worlds, on no base,
   a `loader` base or a `modrinth_pack` base (a `curseforge_pack` base is refused with its
-  own message), of at most 100,000 entries. A delta is applied only to the kept view its
+  own message), of at most 100,000 entries. The cheap checks (the count, the kind, the
+  id) come before `check_received`, and a delta that would make more than 100,000 entries
+  is refused before it is applied, so a huge hostile answer isn't worked out again first.
+  Parse errors a UI shows go through `display_text`. A delta is applied only to the kept view its
   `from` names; one the instance doesn't keep (or a 204 naming a view it doesn't keep)
   asks once more with `have` empty, for the whole view.
 - **What a server may place** (`image_sync::placed`). The client view's rules let through
@@ -2132,7 +2140,11 @@ side of "Server to player" open. The code is `launcher/crates/launcher-core/src/
   content scope) or at a path the base pack's own client share places (not one the content
   scope never takes from a pack); anything else refuses the whole view. Placed paths that
   differ only in letter case, and a placed total past 64 GB (the import bound), refuse it
-  too. Writes go to a staging folder inside the instance, every parent checked against
+  too, and so does a `modrinth` entry whose URL isn't a file on Modrinth's CDN
+  (`https://cdn.modrinth.com/data/<project>/versions/<version>/<file>`) of the project and
+  version the entry names: never CurseForge's CDN (which would get around a CurseForge
+  author's choice) or another host a pack may use, and never a project the entry only
+  claims (`addon::superseded_by` trusts it). Writes go to a staging folder inside the instance, every parent checked against
   links (`ParentCheck`), then are renamed in.
 - **Kept views.** An instance keeps the views it applied in `<instance>/server-views/<id>.json`
   (outside the game folder, so never content): the applied one and the 3 newest others.
@@ -2153,6 +2165,25 @@ side of "Server to player" open. The code is `launcher/crates/launcher-core/src/
   view gives none) and, for files from the view's entries, its SHA-256 (`PackFile::sha256`),
   which the merge compares by when set; it records what the view placed, never the disk's
   hashes, so a change the player kept is still theirs at the next update.
+- **Reading only what changed.** A server's plan (`merge::Rules::trust_recorded`) takes a
+  file as unchanged without reading it when `modpack.json` records the hash the view now
+  places and its size on disk is the view's: a delta of one entry reads only that entry's
+  file (and the files removed). Modpack updates still read every file. A file changed by
+  hand to the same size isn't seen then; the check on a 204 below reads the mods.
+- **A 204 is checked against the mods on disk.** When the server answers that the applied
+  view is current, every `mods/` file `modpack.json` says it placed must be on disk as
+  placed (by SHA-256 when recorded, else SHA-1; a mod the player turned off counts), as
+  the client pack sync checked on a 304. When one is missing or changed (deleted, updated
+  through the Content tab, damaged) the kept applied view is planned again without the
+  shortcut above, so the merge puts the server's mod back and the update prompt says so.
+- **An update that stopped part way.** Before placing a view's files, the update keeps the
+  view and names it in `server-views/placing` (harmless: the link still names the old
+  view); recording the view in the link removes it. When the next Play plans another view
+  while `placing` names a kept view that isn't the applied one, the files on disk that are
+  that view's entries, byte for byte, count as placed by it (added to what `modpack.json`
+  says), so the next view removes the ones it drops instead of keeping them as the
+  player's. (Only the view's entries: a base file a stopped base update placed and the
+  next view drops stays, as a pack's dropped config does.)
 - **Merge rules for a server's files.** `mods/` is authoritative (a server's mod the player
   changed is replaced, so they can join), as the client pack sync had it. Entries in a
   config folder (`config/`, `defaultconfigs/`, `kubejs/`) are placed as a pack's overrides
@@ -2160,17 +2191,36 @@ side of "Server to player" open. The code is `launcher/crates/launcher-core/src/
   other entries as a pack's index files (removed when unchanged). The player's own mods,
   their edited configs and a pack config the server deleted stay. A mod an added pack has
   that the view now has too is removed (`addon::superseded_by`).
+- **Files a view can't give stay on disk when the player has them.** A path the new view
+  lists as a needed withheld file (it kept changing, couldn't be read, is a link), or as a
+  CurseForge file to download by hand, is never removed, and its line in `modpack.json`
+  stays: the server still has that file, and removing the player's copy would leave them
+  without it. When a later view gives it again it is updated as usual. A CurseForge file
+  to get by hand that `modpack.json` records with the entry's SHA-256 isn't listed as
+  missing: the player has it.
+- **Renames of letter case.** A file the next view places under the same name in other
+  letter case is, on a disk that doesn't tell case apart (macOS's and Windows's
+  defaults), the same file: it isn't removed (removals run first, so it would be the only
+  copy). On a disk that tells case apart the old name goes and the new one is written.
 - **Where files come from.** Modrinth entries from Modrinth's CDN (the URL the entry names,
   through the Modrinth client's host check), checked by SHA-1 when given (else SHA-256 as
   they download), SHA-512 and SHA-256; `object` entries from the server; `base` entries are
   the pack's file at that path, whose SHA-1, SHA-512 and size must be the entry's when it
-  gives them (a missing one is refused: the pack must have it), checked by SHA-256 too;
-  downloadable CurseForge entries through the CurseForge client (one request for all,
-  `files_by_id`; the URL CurseForge gives, once `download_url` says its host is
+  gives them (a missing one is refused: the pack must have it), checked by SHA-256 too.
+  The pack's file is its client share's copy, or, when that isn't the entry's (a pack with
+  a `client-overrides/` copy at the path), its server share's (`overrides/` with
+  `server-overrides/` over them, which is where the core took it from); only those paths
+  are read again from the pack. Downloadable CurseForge entries come through the
+  CurseForge client (one request per 500, `files_by_id`, for at most 2,000 entries of a
+  view: the rest are listed by hand, so a hostile view can't spend the Launcher's
+  CurseForge quota; the URL CurseForge gives, once `download_url` says its host is
   CurseForge's CDN, fetched through the client as a CurseForge pack's files are), checked
   by CurseForge's SHA-1 and the entry's SHA-256; the others (marked not downloadable, or
   with no download on CurseForge) are listed for the player to download by hand and not
-  placed. CurseForge entries never come from a real core yet, so that path is tested end
+  placed. CurseForge out of reach (offline, an error, no CurseForge in this build) when a
+  view has downloadable CurseForge entries refuses the install with its own message
+  ("CurseForge couldn't be reached"): a file it would give isn't one its author keeps
+  from other apps. CurseForge entries never come from a real core yet, so that path is tested end
   to end against the CurseForge and Modrinth mocks only (`tests/server_images.rs`).
 - **The base pack.** A `modrinth_pack` base is taken only from Modrinth: the version must be
   the base's project, Modrinth's listing of its `.mrpack` must have the base's SHA-512, and
@@ -2193,11 +2243,14 @@ side of "Server to player" open. The code is `launcher/crates/launcher-core/src/
 - **Showing what will be installed.** "Create matching instance" always shows what the new
   instance gets (base pack, Minecraft and loader, mods the server added, files only the
   server has, files it couldn't share and CurseForge files to download by hand) before
-  anything is installed, unless the view places nothing (a vanilla server) and lacks
+  anything is installed (the mods the server added are its `mods/` entries that aren't the
+  base pack's own file at that path: a `base` entry, or a Modrinth file with the SHA-1 or
+  SHA-512 of the pack's), unless the view places nothing (a vanilla server) and lacks
   nothing (no needed withheld file, no CurseForge file to get by hand): from a core
   trusted for mods with Install and Cancel, otherwise inside the trust advisory. While it
   asks the server and gets the base pack, the server's row shows the pack's download
-  (bytes of bytes). Play's update prompt lists the changes, a new loader version and the
+  (bytes of bytes), with a Cancel (the server may prepare for minutes, and a pack may be
+  large). Play's update prompt lists the changes, a new loader version and the
   files the server couldn't share.
 - **Files a player lacks are said before Play, once per view.** A view that changes
   nothing on disk but lacks files the applied view didn't (`Ready::newly_lacking`: needed
@@ -2217,23 +2270,38 @@ side of "Server to player" open. The code is `launcher/crates/launcher-core/src/
   a plain instance; Play keeps an instance from it in step through the `.mrpack` when its
   link has a `pack_etag` or the listing says it has a pack, else joins (`cores::sync`,
   kept only for this). A server listed publicly without the client-pack scope
-  (`has_client_pack` missing) shares no files: a plain instance, as before.
+  (`has_client_pack` missing) shares no files: a plain instance, as before. An instance
+  with nothing of a server's (vanilla, no applied view, no `modpack.json`) joins when
+  asking the server fails for any reason but "update Lodestone", as Play joined vanilla,
+  Paper and Spigot servers before images: it has nothing to install to lack.
 - **Records and crash safety.** A new instance is staged whole beside the instances (files,
   `content.json`, `modpack.json`, the link with its view, the kept view) and renamed into
   place, then recorded "Created from <server>"; nothing is left when it fails. An update
   runs through `image_sync::apply::ServerUpdate`, which the app and the tests both use, so
   its order lives in one place: `start` refuses while the instance's files are held (the
-  caller says why: the game runs, a "Find it for me" search is saved); `place` records
-  first through `before_server_update` (the one call site; the snapshot before a server
-  update joins it there) and places the files as the operation "Updated from <server>"
-  while Play is held (staged, a rollback copy, swapped in; then `content.json`,
-  `modpack.json`), the operation succeeding part way when placing fails; `finish`, on the
-  window's thread, saves the loader version, lets the operation succeed and, only when the
-  save worked, keeps the view and names it in the link. A view that changes nothing on
-  disk goes through the same `ServerUpdate` and is only recorded (`modpack.json` when it
-  names other files, as a change of which files are content, then the link). A crash
-  before the link leaves the old view named, and the next Play finds the files in place
-  (no changes) and only records the view.
+  caller says why: the game runs, another job writes its files or deletes it, a "Find it
+  for me" search is saved), and the Servers page refuses an install while the server's
+  row has another job under way (a row's job ends only its own entry); `place` deletes
+  staging folders older updates left (over a day old), keeps the view as being placed
+  (above), records first through `before_server_update` (the one call site; the snapshot
+  before a server update joins it there) and places the files as the operation "Updated
+  from <server>" while Play is held (staged, a rollback copy, swapped in; then
+  `content.json`, `modpack.json`), the operation succeeding part way when placing fails;
+  once placed, the rollback copy (`backups/modpack-update/<time>/`) is deleted when the
+  record before the update was made, since that image holds the same files; `finish`, on
+  the window's thread, saves the loader version and lets the operation succeed; only when
+  the save worked, `AppliedUpdate::record`, off the window's thread (it writes the whole
+  view), keeps the view and names it in the link. A view that changes nothing on disk
+  goes through the same `ServerUpdate` (Play hands it to the window's thread, which
+  checks the files are free) and is only recorded (`modpack.json` when it names other
+  files, as a change of which files are content, then the link). A crash after
+  `modpack.json` was saved and before the link leaves the old view named, and the next
+  Play finds the files in place (no changes) and only records the view; a crash part way
+  through placing leaves `content.json` and `modpack.json` as they were, so the next Play
+  plans again against them (with the stopped update's files counted as the server's,
+  above) and asks before placing the rest; its staging folder and rollback copy stay
+  until a later update deletes the staging folder. Staged files aren't synced before
+  they are renamed in (as modpack updates).
 - **The control API and CLI.** The advisory's data gains `summary` (base, game, mods,
   files only the server has, `missing` with each path and reason, CurseForge files); the
   update prompt's gains `missing`, `curseforge`, `loader` and `only_lacking` (the prompt

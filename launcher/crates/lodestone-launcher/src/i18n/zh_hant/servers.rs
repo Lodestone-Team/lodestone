@@ -142,6 +142,7 @@ pub fn text(message: M) -> &'static str {
         M::AskOwnerToStart => "請它的擁有者啟動它，或在「Lodestone Host」頁面登入主機後自行啟動。",
         M::UpdateModsFailed => "無法更新模組",
         M::StopGameFirst => "請先結束遊戲。",
+        M::FilesBusy => "請等待該實例的檔案處理完成，然後再試一次。",
         M::FinishFinderFirst => "請先完成「幫我找出來」的尋找：它關閉了部分模組。",
         M::UpdateInstanceFailed => "無法更新實例",
         M::InstanceNotSaved => "模組已更新，但無法儲存實例：{error}",
@@ -277,6 +278,9 @@ pub fn text(message: M) -> &'static str {
         }
         M::ErrGameChanged => {
             "伺服器現在執行 {game}，而此實例適用於 {instance}。請為該伺服器建立新的實例。"
+        }
+        M::ErrCurseForgeUnreachable => {
+            "無法連線到 CurseForge，而伺服器有來自它的檔案。請檢查網路連線，然後再試一次。"
         }
         M::ErrCurseForgeBase => {
             "伺服器以 CurseForge 模組包為基礎，Lodestone Launcher 暫時無法從伺服器安裝。"

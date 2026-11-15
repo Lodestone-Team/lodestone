@@ -10,6 +10,8 @@
 //! refused for an existing instance ([`SyncError::GameChanged`]). The loader version
 //! follows the server's.
 
+use std::collections::BTreeSet;
+
 use lodestone_image::{Image, Loader, Source, WithheldReason, display_text};
 
 use super::{
@@ -24,7 +26,7 @@ use crate::{
     instances::{self, Instance},
     modpack::{
         ModpackRecord, addon,
-        merge::Fetch,
+        merge::{self, Fetch},
         update::{self, UpdatePlan},
     },
 };
@@ -118,7 +120,9 @@ fn loader_label(loader: Option<&LoaderChoice>) -> String {
 /// The plan to bring an instance to `view`, which places `placed` over its base pack
 /// `base`: the instance at `existing` (its folders, and its `instance.json`), whose
 /// `modpack.json` is `current`, or a new one (`None`). `name` names the server, for a
-/// server without a base pack.
+/// server without a base pack. With `trust_recorded`, a file whose recorded hash is the
+/// view's and whose size is right isn't read (`merge::Rules::trust_recorded`); without,
+/// every file is (the mods were found changed on disk).
 pub fn plan(
     existing: Option<(&InstanceDirs, &Instance)>,
     current: &ModpackRecord,
@@ -126,6 +130,7 @@ pub fn plan(
     placed: Placed,
     base: Option<&BasePack>,
     name: &str,
+    trust_recorded: bool,
 ) -> Result<ServerPlan, SyncError> {
     let loader = loader_of(&view)?;
     if let Some((_, instance)) = existing {
@@ -164,10 +169,48 @@ pub fn plan(
         current,
         &placed.files,
         record,
-        &AUTHORITATIVE,
+        merge::Rules {
+            authoritative: &AUTHORITATIVE,
+            trust_recorded,
+        },
     );
     update.game_version = view.game.minecraft.clone();
     update.loader = loader.clone();
+    // A CurseForge file to get by hand that the player has, as the view names it, isn't
+    // missing.
+    let has = |path: &str, sha256: &str| {
+        current
+            .files
+            .get(path)
+            .and_then(|file| file.sha256.as_deref())
+            .is_some_and(|have| have.eq_ignore_ascii_case(sha256))
+    };
+    let curseforge_listed: Vec<String> = placed
+        .curseforge_listed
+        .iter()
+        .map(|(path, _, _)| path.clone())
+        .filter(|path| {
+            !view
+                .entries
+                .iter()
+                .any(|e| e.path.as_str() == path && has(path, &e.sha256))
+        })
+        .collect();
+    // Files the view can't give (withheld, or CurseForge's to get by hand) stay on disk
+    // when the player has them, still recorded: removing them would leave the player
+    // without a file the server still has.
+    let cant_give: BTreeSet<String> = placed
+        .missing
+        .iter()
+        .map(|w| w.path.clone())
+        .chain(
+            placed
+                .curseforge_listed
+                .iter()
+                .map(|(path, _, _)| path.clone()),
+        )
+        .collect();
+    update.keep_files(&cant_give, current);
     // A mod a pack the player added has, which the server's view has too, goes, so the
     // game doesn't load two versions of it.
     if let Some(dirs) = dirs {
@@ -188,7 +231,7 @@ pub fn plan(
             .entries
             .iter()
             .filter(|e| e.path.first().eq_ignore_ascii_case("mods"))
-            .filter(|e| !matches!(e.source, Source::Base {}))
+            .filter(|e| !placed.from_base.contains(e.path.as_str()))
             .filter(|e| placed.files.contains_key(e.path.as_str()))
             .map(|e| e.path.file_name().to_string())
             .collect(),
@@ -203,11 +246,7 @@ pub fn plan(
             .iter()
             .map(|w| (w.display_path().into_owned(), w.reason.clone()))
             .collect(),
-        curseforge_listed: placed
-            .curseforge_listed
-            .iter()
-            .map(|(path, _, _)| path.clone())
-            .collect(),
+        curseforge_listed,
         changes: PackChanges::from_plan(&update),
     };
     Ok(ServerPlan {

@@ -131,7 +131,7 @@ fn waits_while_the_server_prepares_its_files_and_gives_up_when_it_failed() {
     let before = core.requests().len();
     assert_eq!(
         ask(&image, &[]).unwrap_err(),
-        ImageError::PrepareFailed { retry_after: 30 }
+        ImageError::PrepareFailed { retry_after: 60 }
     );
     assert_eq!(core.requests().len(), before + 1);
 
@@ -142,6 +142,56 @@ fn waits_while_the_server_prepares_its_files_and_gives_up_when_it_failed() {
     assert_eq!(ask(&image, &[]).unwrap_err(), ImageError::StillPreparing);
     // 600 s of waits in 30 s steps: 21 asks
     assert_eq!(core.requests().len(), before + 1 + 21);
+}
+
+/// A `Retry-After` of 0 is waited a second, so the waits still add up to their limits and
+/// a hostile server can't make the Launcher ask again and again without pausing.
+#[test]
+fn a_retry_after_of_zero_still_waits_and_gives_up() {
+    let core = ImageCore::start();
+    let bytes = b"a small mod".to_vec();
+    smp(&core, &[("mods/a.jar", &bytes)]);
+    let (image, waits) = source(&core, true);
+    let image = image.with_limits(Limits {
+        object_idle: Duration::from_millis(400),
+        image_idle: Duration::from_secs(5),
+        preparing: Duration::from_secs(10),
+        conflict: Duration::from_secs(10),
+        busy: Duration::from_secs(10),
+        ..Limits::default()
+    });
+    for _ in 0..100 {
+        core.fault(Fault::ImageUnavailable("Conflict", 0));
+    }
+    assert_eq!(ask(&image, &[]).unwrap_err(), ImageError::StillPreparing);
+    // 10 s of one-second waits: 11 asks
+    assert_eq!(core.requests().len(), 11);
+    assert!(
+        waits
+            .lock()
+            .unwrap()
+            .iter()
+            .all(|w| *w == Duration::from_secs(1))
+    );
+    core.state().faults.clear();
+
+    let dir = tempfile::tempdir().unwrap();
+    let dest = dir.path().join("a.jar");
+    for kind in ["TooManyRequests", "Conflict"] {
+        for _ in 0..100 {
+            core.fault(Fault::ObjectUnavailable(kind, 0));
+        }
+        let before = core.requests().len();
+        assert!(
+            matches!(
+                fetch(&image, &bytes, &dest),
+                Err(ImageError::FileFailed { .. })
+            ),
+            "{kind}"
+        );
+        assert_eq!(core.requests().len(), before + 11, "{kind}");
+        core.state().faults.clear();
+    }
 }
 
 #[test]

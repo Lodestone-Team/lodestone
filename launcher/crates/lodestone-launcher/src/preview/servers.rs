@@ -430,6 +430,7 @@ fn apply_servers(scene: &str, servers: &mut Servers, cx: &mut Context<Servers>) 
                     )),
                     creating: scene == "servers-base-pack",
                     progress: std::sync::Arc::new(progress),
+                    cancel: Default::default(),
                 },
             );
         }

@@ -26,7 +26,7 @@ use super::SyncError;
 use crate::{
     images::scope::{self, is_content},
     modpack::{
-        FileSource, PackFile, PackInfo,
+        FileSource, OverrideFile, PackFile, PackInfo,
         merge::{Digest, Fetch, Wanted},
         slash_path,
     },
@@ -53,19 +53,38 @@ pub struct Placed {
     /// gets them by hand. (path, project, file)
     pub curseforge_listed: Vec<(String, u64, u64)>,
     pub total_bytes: u64,
+    /// The paths of the view's entries that are the base pack's own file there (a `base`
+    /// entry, or a Modrinth file with the hash of the one the pack places): not mods the
+    /// server added.
+    pub from_base: BTreeSet<String>,
 }
 
-/// What `view` places on top of its base pack's client share `pack` (`None` for a view
+/// A view's base pack, as [`placed`] needs it: its client share, and the files of its
+/// server share's `overrides/` with `server-overrides/` over them, which the core takes a
+/// `base` entry from when the client share has another copy at its path.
+#[derive(Clone, Copy)]
+pub struct BaseShare<'a> {
+    pub pack: &'a PackInfo,
+    pub server_overrides: &'a [OverrideFile],
+}
+
+/// What `view` places on top of its base pack `base`'s client share (`None` for a view
 /// without a base). `curseforge` resolves the CurseForge files the view names that may be
 /// downloaded (by project and file); one it doesn't resolve is listed for the player.
 pub fn placed(
     view: &Image,
-    pack: Option<&PackInfo>,
+    base: Option<BaseShare<'_>>,
     curseforge: &HashMap<(u64, u64), CurseForgeFile>,
 ) -> Result<Placed, SyncError> {
     // 1. The base's client share.
     let mut share: BTreeMap<String, Wanted> = BTreeMap::new();
-    if let Some(pack) = pack {
+    let mut server_overrides: HashMap<&str, &OverrideFile> = HashMap::new();
+    if let Some(BaseShare {
+        pack,
+        server_overrides: overrides,
+    }) = base
+    {
+        server_overrides.extend(overrides.iter().map(|file| (file.path.as_str(), file)));
         for download in &pack.downloads {
             share.insert(slash_path(&download.path), Wanted::download(download));
         }
@@ -80,8 +99,14 @@ pub fn placed(
     }
     // 3. The view's entries over it.
     let mut curseforge_listed = Vec::new();
+    let mut from_base = BTreeSet::new();
     for entry in &view.entries {
         let path = entry.path.as_str();
+        if matches!(entry.source, Source::Base {})
+            || share.get(path).is_some_and(|copy| same_file(entry, copy))
+        {
+            from_base.insert(path.to_string());
+        }
         let pack_places = share.contains_key(path) && {
             let parts: Vec<&str> = entry.path.components().collect();
             !scope::never_pack_content(&parts)
@@ -104,9 +129,24 @@ pub fn placed(
             sha256: Some(entry.sha256.clone()),
         };
         let wanted = match &entry.source {
-            Source::Modrinth { project, url, .. } => {
+            Source::Modrinth {
+                project,
+                version,
+                url,
+            } => {
+                // only from Modrinth's CDN, and from the project and version it names
                 let url = url::Url::parse(url)
-                    .map_err(|_| SyncError::Refused(format!("{path} has no valid URL")))?;
+                    .ok()
+                    .filter(|url| {
+                        crate::modpack::cdn_ids(url)
+                            .is_some_and(|ids| ids == (project.clone(), version.clone()))
+                    })
+                    .ok_or_else(|| {
+                        SyncError::Refused(format!(
+                            "{} isn't a file on Modrinth's CDN of the project it names",
+                            lodestone_image::display_text(path)
+                        ))
+                    })?;
                 Wanted {
                     digest: Digest::Sha256(entry.sha256.clone()),
                     record: record(entry.sha1.as_deref(), Some(project.clone())),
@@ -131,12 +171,28 @@ pub fn placed(
                 },
             },
             Source::Base {} => {
-                let Some(from_pack) = share.get(path) else {
+                // the client share's copy, else the server share's, which is where the
+                // core took it from when the pack has a client-only copy at the path
+                let candidates: Vec<Wanted> = share
+                    .get(path)
+                    .cloned()
+                    .into_iter()
+                    .chain(server_overrides.get(path).map(|f| Wanted::override_file(f)))
+                    .collect();
+                if candidates.is_empty() {
                     return Err(SyncError::BaseFileMissing(
                         lodestone_image::display_text(path).into_owned(),
                     ));
-                };
-                base_file(entry, from_pack, source)?
+                }
+                candidates
+                    .iter()
+                    .find_map(|copy| base_file(entry, copy, source))
+                    .ok_or_else(|| {
+                        SyncError::Refused(format!(
+                            "{} isn't the modpack's file, though it says it is",
+                            lodestone_image::display_text(path)
+                        ))
+                    })?
             }
             Source::Curseforge {
                 project,
@@ -193,39 +249,76 @@ pub fn placed(
         missing: needed_withheld(view).into_iter().cloned().collect(),
         curseforge_listed,
         total_bytes,
+        from_base,
     })
 }
 
-/// A `base` entry: the pack's copy at its path, which must be the file the entry names.
+/// The paths of `view`'s `base` entries that the client share of `pack` has no matching
+/// copy of: those are looked up in the pack's server share ([`BaseShare`]).
+pub fn needs_server_copy(view: &Image, pack: &PackInfo) -> BTreeSet<String> {
+    let mut share: HashMap<String, Wanted> = HashMap::new();
+    for download in &pack.downloads {
+        share.insert(slash_path(&download.path), Wanted::download(download));
+    }
+    for file in &pack.overrides {
+        share.insert(file.path.clone(), Wanted::override_file(file));
+    }
+    view.entries
+        .iter()
+        .filter(|entry| matches!(entry.source, Source::Base {}))
+        .filter(|entry| {
+            share
+                .get(entry.path.as_str())
+                .is_none_or(|copy| base_file(entry, copy, FileSource::Index).is_none())
+        })
+        .map(|entry| entry.path.as_str().to_string())
+        .collect()
+}
+
+/// Whether `entry` is the file `copy` (the base's at its path) by a hash both give.
+fn same_file(entry: &lodestone_image::Entry, copy: &Wanted) -> bool {
+    let sha1 = !copy.record.sha1.is_empty()
+        && entry
+            .sha1
+            .as_deref()
+            .is_some_and(|sha1| sha1.eq_ignore_ascii_case(&copy.record.sha1));
+    let sha512 = match &copy.fetch {
+        Fetch::Download { download, .. } => {
+            !download.sha512.is_empty()
+                && entry
+                    .sha512
+                    .as_deref()
+                    .is_some_and(|sha512| sha512.eq_ignore_ascii_case(&download.sha512))
+        }
+        _ => false,
+    };
+    sha1 || sha512
+}
+
+/// A `base` entry from the pack's copy `from_pack` at its path, when that copy is the
+/// file the entry names (by every hash and size both give); `None` when it isn't.
 fn base_file(
     entry: &lodestone_image::Entry,
     from_pack: &Wanted,
     source: FileSource,
-) -> Result<Wanted, SyncError> {
-    let path = entry.path.as_str();
-    let differs = || {
-        SyncError::Refused(format!(
-            "{} isn't the modpack's file, though it says it is",
-            lodestone_image::display_text(path)
-        ))
-    };
+) -> Option<Wanted> {
     let pack_sha1 = &from_pack.record.sha1;
     if entry
         .sha1
         .as_deref()
         .is_some_and(|sha1| !sha1.eq_ignore_ascii_case(pack_sha1))
     {
-        return Err(differs());
+        return None;
     }
     let fetch = match &from_pack.fetch {
         Fetch::Download { download, .. } => {
             if let (Some(theirs), false) = (entry.sha512.as_deref(), download.sha512.is_empty())
                 && !theirs.eq_ignore_ascii_case(&download.sha512)
             {
-                return Err(differs());
+                return None;
             }
             if download.size > 0 && download.size != entry.size {
-                return Err(differs());
+                return None;
             }
             Fetch::Download {
                 download: download.clone(),
@@ -234,16 +327,16 @@ fn base_file(
         }
         Fetch::Override { file, .. } => {
             if file.size != entry.size {
-                return Err(differs());
+                return None;
             }
             Fetch::Override {
                 file: file.clone(),
                 expect_sha256: Some(entry.sha256.clone()),
             }
         }
-        Fetch::Object { .. } => return Err(differs()),
+        Fetch::Object { .. } => return None,
     };
-    Ok(Wanted {
+    Some(Wanted {
         digest: Digest::Sha256(entry.sha256.clone()),
         record: PackFile {
             sha1: pack_sha1.clone(),
@@ -275,7 +368,6 @@ mod tests {
     };
 
     use super::*;
-    use crate::modpack::OverrideFile;
 
     fn sha1(bytes: &[u8]) -> String {
         crate::game::download::sha1_hex(bytes)
@@ -348,6 +440,13 @@ mod tests {
         view(&image, Side::Client, RULES).unwrap()
     }
 
+    fn base(pack: &PackInfo) -> Option<BaseShare<'_>> {
+        Some(BaseShare {
+            pack,
+            server_overrides: &[],
+        })
+    }
+
     fn paths(placed: &Placed) -> Vec<&str> {
         placed.files.keys().map(String::as_str).collect()
     }
@@ -374,7 +473,7 @@ mod tests {
                 Source::Object {},
             ));
         });
-        let placed = placed(&view, Some(&pack()), &HashMap::new()).unwrap();
+        let placed = placed(&view, base(&pack()), &HashMap::new()).unwrap();
         assert_eq!(
             paths(&placed),
             [
@@ -412,7 +511,7 @@ mod tests {
                 .push(entry("mods/gone.jar", b"gone", Source::Base {}));
         });
         assert!(matches!(
-            placed(&view, Some(&pack()), &HashMap::new()),
+            placed(&view, base(&pack()), &HashMap::new()),
             Err(SyncError::BaseFileMissing(path)) if path == "mods/gone.jar"
         ));
         let view = client_view(|image| {
@@ -421,7 +520,7 @@ mod tests {
             image.entries.push(changed);
         });
         assert!(matches!(
-            placed(&view, Some(&pack()), &HashMap::new()),
+            placed(&view, base(&pack()), &HashMap::new()),
             Err(SyncError::Refused(_))
         ));
         // no base pack at all
@@ -452,7 +551,7 @@ mod tests {
             });
             assert!(
                 matches!(
-                    placed(&view, Some(&pack()), &HashMap::new()),
+                    placed(&view, base(&pack()), &HashMap::new()),
                     Err(SyncError::Refused(_))
                 ),
                 "{path}"
@@ -468,7 +567,7 @@ mod tests {
             let view = client_view(|image| {
                 image.entries.push(entry(path, b"x", Source::Object {}));
             });
-            placed(&view, Some(&pack()), &HashMap::new()).unwrap();
+            placed(&view, base(&pack()), &HashMap::new()).unwrap();
         }
     }
 
@@ -543,5 +642,138 @@ mod tests {
             [("mods/blocked.jar".to_string(), 1, 2)]
         );
         assert_eq!(paths(&placed), ["mods/allowed.jar"]);
+    }
+
+    fn modrinth(project: &str, version: &str, url: &str) -> Source {
+        Source::Modrinth {
+            project: project.into(),
+            version: version.into(),
+            url: url.into(),
+        }
+    }
+
+    /// A Modrinth entry is downloaded only from Modrinth's CDN, and only from the project
+    /// and version it names: never from CurseForge's CDN (which would get around a
+    /// CurseForge author's choice) or any other host a pack may use.
+    #[test]
+    fn modrinth_files_only_come_from_modrinths_cdn() {
+        for (project, url) in [
+            (
+                "AANobbMI",
+                "https://edge.forgecdn.net/files/1234/567/blocked.jar",
+            ),
+            (
+                "AANobbMI",
+                "https://github.com/someone/mod/releases/download/1/x.jar",
+            ),
+            (
+                "AANobbMI",
+                "https://cdn.modrinth.com/data/OTHER/versions/V1/x.jar",
+            ),
+        ] {
+            // the view check refuses some of these on its own; whatever it lets through,
+            // this refuses too
+            let mut view = client_view(|_| {});
+            let mut jar = entry("mods/x.jar", b"x", modrinth(project, "V1", url));
+            jar.sha1 = Some(sha1(b"x"));
+            jar.sha512 = Some("c".repeat(128));
+            view.entries.push(jar);
+            assert!(
+                matches!(
+                    placed(&view, None, &HashMap::new()),
+                    Err(SyncError::Refused(_))
+                ),
+                "{url}"
+            );
+        }
+        let url = "https://cdn.modrinth.com/data/AANobbMI/versions/V1/x.jar";
+        let view = client_view(|image| {
+            let mut jar = entry("mods/x.jar", b"x", modrinth("AANobbMI", "V1", url));
+            jar.sha512 = Some("c".repeat(128));
+            image.entries.push(jar);
+        });
+        let placed = placed(&view, None, &HashMap::new()).unwrap();
+        assert_eq!(
+            placed.files["mods/x.jar"].record.project.as_deref(),
+            Some("AANobbMI")
+        );
+    }
+
+    /// A pack with a client-only copy of a mod (in `client-overrides/`) and another in
+    /// `overrides/`: the core takes a `base` entry from its server share, so the entry is
+    /// the `overrides/` copy, which the pack's zip has too. (A config marked for players
+    /// is the same.)
+    #[test]
+    fn a_base_entry_can_be_the_server_shares_copy() {
+        let mut pack = pack();
+        let client_copy = OverrideFile {
+            path: "mods/both.jar".into(),
+            index: 7,
+            size: 6,
+            sha1: sha1(b"client"),
+        };
+        pack.overrides.push(client_copy);
+        let server_copy = OverrideFile {
+            path: "mods/both.jar".into(),
+            index: 4,
+            size: 11,
+            sha1: sha1(b"both sides!"),
+        };
+        let view = client_view(|image| {
+            image
+                .entries
+                .push(entry("mods/both.jar", b"both sides!", Source::Base {}));
+        });
+        let share = BaseShare {
+            pack: &pack,
+            server_overrides: std::slice::from_ref(&server_copy),
+        };
+        let found = placed(&view, Some(share), &HashMap::new()).unwrap();
+        let foo = &found.files["mods/both.jar"];
+        assert!(matches!(
+            &foo.fetch,
+            Fetch::Override { file, expect_sha256: Some(sha) }
+                if file.index == 4 && *sha == sha256_hex(b"both sides!")
+        ));
+        assert!(found.from_base.contains("mods/both.jar"));
+        // neither copy: refused
+        let view = client_view(|image| {
+            image
+                .entries
+                .push(entry("mods/both.jar", b"another one", Source::Base {}));
+        });
+        assert!(matches!(
+            placed(&view, Some(share), &HashMap::new()),
+            Err(SyncError::Refused(_))
+        ));
+    }
+
+    /// A mod the base pack ships, at the same version, isn't one the server added, even
+    /// when the core names it by its Modrinth URL rather than as `base`.
+    #[test]
+    fn the_bases_own_files_are_told_apart() {
+        let url = "https://cdn.modrinth.com/data/P/versions/V/x.jar";
+        let view = client_view(|image| {
+            let mut sodium = entry("mods/sodium.jar", b"sodium", modrinth("P", "V", url));
+            sodium.sha1 = Some(sha1(b"sodium"));
+            sodium.sha512 = Some("a".repeat(128));
+            image.entries.push(sodium);
+            let mut newer = entry("mods/bundled.jar", b"newer", modrinth("P", "V", url));
+            newer.sha1 = Some(sha1(b"newer"));
+            newer.sha512 = Some("d".repeat(128));
+            image.entries.push(newer);
+            image
+                .entries
+                .push(entry("mods/own.jar", b"own", Source::Object {}));
+        });
+        let placed = placed(&view, base(&pack()), &HashMap::new()).unwrap();
+        assert_eq!(
+            placed
+                .from_base
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+            ["mods/sodium.jar"]
+        );
     }
 }

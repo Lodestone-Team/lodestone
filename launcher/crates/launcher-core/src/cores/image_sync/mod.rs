@@ -56,6 +56,13 @@ pub enum SyncError {
     Refused(String),
     #[error("The server is built on a CurseForge modpack, which {app} can't install from a server yet.", app = crate::wording::app_name())]
     CurseForgeBase,
+    /// The view has CurseForge files that may be downloaded, and CurseForge couldn't be
+    /// asked where (offline, an error, no CurseForge connection): nothing is placed, so a
+    /// file the player has isn't taken for one they must get by hand.
+    #[error(
+        "CurseForge couldn't be reached ({0}), and the server has files from it. Try again later."
+    )]
+    CurseForgeUnavailable(String),
     /// The base pack's version is gone from Modrinth, so its files can't be had.
     #[error(
         "The server's modpack (project {project}, version {version}) is no longer on Modrinth, so its files can't be downloaded. Ask the server's owner to update the modpack."
