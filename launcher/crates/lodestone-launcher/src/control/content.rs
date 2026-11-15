@@ -1969,9 +1969,12 @@ pub fn import_code(call: Call, cx: &mut App) -> Reply {
     let id = instance.id.clone();
     let images = control.instances.read(cx).images();
     let image_id = id.clone();
+    // Play waits while the code's content is installed, as it does for the Content tab's.
+    let busy = control.instances.read(cx).mark_files_busy(&id);
     let work = cx.spawn(async move |cx| {
         let outcome = cx
             .background_spawn(async move {
+                let _busy = busy;
                 crate::instances::record_created(&images, &image_id, &created_label);
                 let operation = images.begin(&image_id, labels::SHARE_CODE);
                 let outcome =

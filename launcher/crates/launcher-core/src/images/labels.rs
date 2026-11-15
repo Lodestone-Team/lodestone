@@ -215,6 +215,8 @@ pub fn reverted(snapshot: &str) -> String {
 }
 
 /// "Find it for me" ended: the mods it found stay off, or every mod it turned off is back.
+/// The second records only when putting them back failed part way (with " (stopped part
+/// way)"): one that succeeded records nothing ([`super::Images::search_put_back`]).
 pub fn mod_finder_ended(kept_off: &[String]) -> String {
     match kept_off {
         [] => "Find it for me put the mods back".into(),

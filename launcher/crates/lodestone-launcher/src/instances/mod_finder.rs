@@ -527,9 +527,12 @@ impl ModFinder {
         let search = self.search.clone();
         let dirs = self.dirs.clone();
         // The search's end is one operation: no image was recorded while it renamed mods,
-        // and nothing at all when it puts every mod back as it was.
+        // and nothing at all when it puts every mod back as it was (what the game wrote
+        // during the tries then joins the next operation's image).
         let kept_off: Vec<String> = keep_off.iter().cloned().collect();
-        let operation = self.instances.read(cx).images().begin(
+        let images = self.instances.read(cx).images();
+        let id = self.id.clone();
+        let operation = images.begin(
             &self.id,
             launcher_core::images::labels::mod_finder_ended(&kept_off),
         );
@@ -538,7 +541,14 @@ impl ModFinder {
                 Some(search) => mod_finder::restore(&dirs, search, &keep_off),
                 None => mod_finder::forget(&dirs),
             };
-            operation.finish_partly(&result);
+            if result.is_ok() && keep_off.is_empty() {
+                drop(operation);
+                if let Err(err) = images.search_put_back(&id) {
+                    log::warn!("Couldn't take the content of {id} in again: {err}");
+                }
+            } else {
+                operation.finish_partly(&result);
+            }
             result
         });
         self.task = Some(cx.spawn(async move |this, cx| {

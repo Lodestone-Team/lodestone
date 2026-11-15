@@ -1674,3 +1674,55 @@ fn the_check_before_a_search_records_a_change_made_by_hand() {
     assert!(recorded.changed);
     assert_eq!(s.labels(), [OUTSIDE_LABEL, "Created"]);
 }
+
+#[test]
+fn a_search_that_put_every_mod_back_records_nothing() {
+    let s = Setup::new();
+    s.write("mods/a.jar", b"a");
+    s.write("config/x.toml", b"1");
+    s.images.record_now(s.id(), "Created").unwrap();
+    assert_eq!(s.images.check_now(s.id()).unwrap(), None);
+    let finder = s
+        .store
+        .dir(s.id())
+        .join(crate::content::mod_finder::FILE_NAME);
+    // A try: the search turns the mod off, and the game rewrites a config as it runs.
+    std::fs::write(&finder, b"{}").unwrap();
+    std::fs::rename(s.game("mods/a.jar"), s.game("mods/a.jar.disabled")).unwrap();
+    assert!(matches!(
+        s.images.before_launch(s.id()),
+        Checked::Skipped(_)
+    ));
+    s.write("config/x.toml", b"22");
+    s.images.end_session(s.id());
+    // The search ends with every mod back: no image, and the next launch finds no change.
+    std::fs::rename(s.game("mods/a.jar.disabled"), s.game("mods/a.jar")).unwrap();
+    std::fs::remove_file(&finder).unwrap();
+    assert_eq!(s.images.search_put_back(s.id()).unwrap(), None);
+    assert_eq!(s.labels(), ["Created"]);
+    assert_eq!(s.images.before_launch(s.id()), Checked::Unchanged);
+    s.images.end_session(s.id());
+    // What the game wrote during the tries joins the next operation's image.
+    let recorded = s.change("mods/b.jar", b"b", "Added b.jar");
+    assert!(recorded.changed);
+    assert_eq!(s.labels(), ["Added b.jar", "Created"]);
+    let current = s.state().current.unwrap();
+    let image = s.image(&current);
+    let config = image
+        .entries
+        .iter()
+        .find(|e| e.path.to_string().ends_with("x.toml"))
+        .unwrap();
+    assert_eq!(config.size, 2);
+}
+
+#[test]
+fn a_search_that_put_every_mod_back_still_records_what_was_queued() {
+    let s = Setup::new();
+    s.images.record_now(s.id(), "Created").unwrap();
+    let op = s.images.begin(s.id(), "Added c.jar");
+    s.write("mods/c.jar", b"c");
+    op.succeed();
+    assert!(s.images.search_put_back(s.id()).unwrap().is_some());
+    assert_eq!(s.labels(), ["Added c.jar", "Created"]);
+}

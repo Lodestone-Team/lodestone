@@ -458,10 +458,13 @@ impl Instances {
         let downloader = self.content_downloader.clone();
         let images = self.images();
         let image_id = id.clone();
+        // Play waits while the code's content is installed.
+        let busy = self.mark_files_busy(&id);
         let work = {
             let progress = progress.clone();
             let cancel = cancel.clone();
             cx.background_spawn(async move {
+                let _busy = busy;
                 // The empty instance's image first: none of the code's content is in it.
                 super::record_created(&images, &image_id, &created);
                 let operation = images.begin(&image_id, labels::SHARE_CODE);

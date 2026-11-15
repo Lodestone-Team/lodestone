@@ -1210,7 +1210,11 @@ same, it does the same. The code is `launcher/crates/launcher-core/src/images/`.
   folder's `mods/`, `config/`, `defaultconfigs/`, `kubejs/`, `resourcepacks/` and
   `shaderpacks/`, disabled `*.disabled` files included (turning a mod off is a content
   change). Something other than a folder at one of those names (a link named `config`) is
-  offered too, so it is withheld as a link rather than silently missing. Never content:
+  offered too, so it is withheld as a link rather than silently missing. A game folder
+  (`<instance>/minecraft`) that is itself a link isn't followed either: its images are
+  empty, the check before a launch sees no change, and each record logs a warning (the
+  layout gives the game folder no path an image could withhold). A linked instance folder
+  is followed, as the walk's root. Never content:
   any name starting with `.lodestone` at any depth (folded; downloads in flight are
   `.lodestone-<sha1>.download`), `saves/`, screenshots, logs, crash reports,
   `options.txt` and the other files the game writes, and anything outside the game folder
@@ -1258,8 +1262,11 @@ same, it does the same. The code is `launcher/crates/launcher-core/src/images/`.
   for, and beginning and succeeding it touch no disk, so both are safe on the window's
   thread. Launcher downloads, files added from the computer and every other file the
   Launcher writes whole (`storage::write_atomic`, through `.lodestone-tmp-<random>`) land
-  under `.lodestone-*` names, which are never content, and are renamed into place; Play
-  waits while content is installed or added (from the Content tab or the CLI), and the app
+  under `.lodestone-*` names, which are never content, and are renamed into place (an
+  import from another game folder leaves `.lodestone-*` files out too); Play
+  waits while content is installed or added (from the Content tab or the CLI, a share
+  code's content, or a server's mods brought in step, until the loader it brings is
+  saved), and the app
   refuses content changes while the game runs, so a record never reads a file half written
   (one that changes while read is withheld as `kept_changing`), and a temporary file a
   crash leaves behind is in no image. A record during a
@@ -1367,7 +1374,7 @@ same, it does the same. The code is `launcher/crates/launcher-core/src/images/`.
   so on a Mac it costs little space; on NTFS and ext4 there are no clones, so the first
   start after the update takes about as much disk space again as all instances' content
   (20 instances of 1 to 2 GB each take some 30 GB), in the background and without asking.
-  The free-space check counts every record under way, so records of several instances at
+  The free-space check counts every image record under way, so records of several instances at
   once (this pass, imports, merged records) stop short of filling the disk together (they
   leave 1 GiB), and an instance that didn't fit is tried again at the next start. Milestone 5's storage
   view shows the store's size.
@@ -1377,7 +1384,10 @@ same, it does the same. The code is `launcher/crates/launcher-core/src/images/`.
   reserved, and 1 GiB to spare, as the snapshot store keeps: most records are work nobody
   asked for, and the game's world saves need the room more. It is conservative: a record
   under way counts in full though part of it is already written, and an object APFS
-  clones (a whole file of 1 MiB or less) counts whole though it costs almost nothing.
+  clones (a whole file of 1 MiB or less) counts whole though it costs almost nothing. The
+  reservation is the image store's own: the snapshot store, until milestone 5 replaces it,
+  checks for its own 1 GiB spare separately, without counting records under way, so a
+  snapshot taken during a big record can eat into the spare the two would otherwise keep.
 - **Records before a change.** `Images::record_before_change` runs before a modpack update
   ("Before a modpack update") and before a server's mods are brought in step ("Before a
   server update"): what is queued, else "Changed by hand" (or "Changed while the game ran
@@ -1427,7 +1437,10 @@ same, it does the same. The code is `launcher/crates/launcher-core/src/images/`.
   when the loader changed too) or "Changed the recommended memory",
   merged with the update's own label when it is one. "Find it for me" records nothing while
   it searches; its end is one operation ("Find it for me turned off <file>", or nothing when
-  every mod went back as it was). Its tries are launches whose checks do nothing, and each
+  every mod went back as it was: then `Images::search_put_back` takes the baseline again
+  without recording, as a session's end, so what the game wrote during the tries joins the
+  next operation's image; a put-back that failed part way is "Find it for me put the mods
+  back (stopped part way)"). Its tries are launches whose checks do nothing, and each
   try's end takes the baseline again, so before the search first turns a mod off it runs
   the quick check (`Images::check_now`): a change made by hand before the search is
   "Changed by hand", not folded into a try's baseline and recorded under the search's end.
@@ -1458,7 +1471,12 @@ same, it does the same. The code is `launcher/crates/launcher-core/src/images/`.
   (an instance's first record writes its state before any manifest, so only a deleted
   instance's leftovers look like that), takes them for an earlier instance's: a record or
   check deletes them first, the history shows none. Nothing is recorded or deleted while
-  `instance.json` can't be read. An instance folder deleted outside the Launcher (in
+  `instance.json` can't be read, nor while `content-state.json` can't be looked at or read
+  (a permission, a network share timing out, a file another program holds): the record
+  fails and is tried again later, so a passing error never replaces the real pointer or
+  takes the images for another instance's. A state file that was read but isn't one (not
+  JSON, a bad pointer) is damaged: it names no image and no instance, so nothing is deleted
+  for it. An instance folder deleted outside the Launcher (in
   Finder or Explorer, by a sync tool) is forgotten once the Launcher starts and before
   every collection: `images/<id>/` goes, under the instance's record lock, when nothing is
   at `instances/<id>` or a real folder there has no `instance.json`, though not while the

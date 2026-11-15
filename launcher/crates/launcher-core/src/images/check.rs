@@ -235,7 +235,7 @@ impl Images {
 
     /// Notes that a session began (`running_since`), for an instance with an image.
     fn note_running(&self, instance: &str) -> Result<(), ImageError> {
-        let mut current = state::load(self.store(), instance);
+        let mut current = state::load_present(self.store(), instance)?.state;
         if current.current.is_none() {
             return Ok(());
         }
@@ -245,7 +245,7 @@ impl Images {
 
     /// Forgets `running_since`: the session it marks ended.
     fn forget_running(&self, instance: &str) -> Result<(), ImageError> {
-        let mut current = state::load(self.store(), instance);
+        let mut current = state::load_present(self.store(), instance)?.state;
         if current.running_since.take().is_none() {
             return Ok(());
         }
@@ -372,6 +372,32 @@ impl Images {
             Check::Recorded(recorded) => Some(recorded),
             Check::Unchanged | Check::NoImageYet => None,
         })
+    }
+
+    /// A "Find it for me" search ended with every mod back as it was (its saved search
+    /// already forgotten): records nothing of its own, as a session's end. Each try's end
+    /// took the baseline with the mods renamed and with what the game wrote; this takes it
+    /// again, so the next launch's check doesn't take the mods' return for a change made
+    /// by hand, and what the game wrote during the tries joins the next operation's image.
+    /// Something queued meanwhile is recorded under its own labels instead. Blocking.
+    pub fn search_put_back(&self, instance: &str) -> Result<Option<Recorded>, ImageError> {
+        if !self.accepts(instance) {
+            return Ok(None);
+        }
+        let slot = self.slot(instance);
+        let _record = slot.lock_record();
+        let _writing = self.enter()?;
+        if !slot.pending().is_empty()
+            && let Some(recorded) = self.record_held(&slot, instance, None)?
+        {
+            return Ok(Some(recorded));
+        }
+        let ctx = InstanceContext::load(self.instances(), instance)?;
+        let state = self.guarded_state(&ctx)?;
+        if state.current.is_some() {
+            self.retake_baseline(&ctx, state)?;
+        }
+        Ok(None)
     }
 
     /// Before a change that replaces files (a modpack update; a server's update in
