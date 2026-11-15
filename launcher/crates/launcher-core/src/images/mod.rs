@@ -144,9 +144,9 @@ pub(crate) struct Slot {
     /// handled begins a session before the old one is over, and the old end must not take
     /// the baseline again under the new game ([`check`]).
     pub(crate) session: AtomicUsize,
-    /// The check before this session's launch couldn't run (a record held the instance
-    /// past the wait, or the store was suspended), so the session's end runs it instead of
-    /// taking the baseline again ([`check`]).
+    /// The check before this session's launch couldn't run (the store was suspended, the
+    /// record failed, or there was no image and no record under way), so the session's end
+    /// runs it instead of taking the baseline again ([`check`]).
     pub(crate) unchecked: AtomicBool,
 }
 
@@ -200,6 +200,8 @@ pub(crate) struct Activity {
 #[derive(Default)]
 struct ActivityState {
     suspended: bool,
+    /// Suspended for the rest of the process ([`Suspension::keep`]): nothing resumes it.
+    kept: bool,
     writers: usize,
 }
 
@@ -249,9 +251,12 @@ pub struct Suspension {
 impl Suspension {
     /// Keeps the store suspended for the rest of the process: after a data move, whose
     /// Launcher restarts to read the store at its new place. A write here would remake the
-    /// old folder.
+    /// old folder. Remembered: a later suspension that is dropped (another move, cancelled
+    /// in a Launcher whose restart failed) doesn't resume it.
     pub fn keep(mut self) {
-        self.images = None;
+        if let Some(images) = self.images.take() {
+            images.activity.lock().kept = true;
+        }
     }
 }
 
@@ -445,9 +450,16 @@ impl Images {
         })
     }
 
-    /// Lets writes run again, with the collection and merged records that waited.
+    /// Lets writes run again, with the collection and merged records that waited, unless
+    /// a suspension was kept.
     fn resume(self: &Arc<Self>) {
-        self.activity.lock().suspended = false;
+        {
+            let mut state = self.activity.lock();
+            if state.kept {
+                return;
+            }
+            state.suspended = false;
+        }
         if self.gc.pending.load(Ordering::SeqCst) {
             self.request_gc();
         }
@@ -463,8 +475,10 @@ impl Images {
     /// (`images/<id>/`), and anything queued for it. Its objects go at the collection this
     /// asks for. Call it once the instance's folder is gone (moved to the Trash): instance
     /// ids are reused, so a new instance of the same name must not inherit this history.
-    /// Waits for a record of it that is running. An instance folder deleted outside the
-    /// Launcher is forgotten too, by [`Self::forget_deleted`].
+    /// Waits for a record of it that is running, however long (its first image of a big
+    /// pack may take minutes; Delete's spinner waits that long, which is rare and safe). An
+    /// instance folder deleted outside the Launcher is forgotten too, by
+    /// [`Self::forget_deleted`].
     pub fn delete_instance(&self, id: &str) -> Result<(), ImageError> {
         if !self.accepts(id) {
             return Ok(());
@@ -538,7 +552,11 @@ impl Images {
         forgotten
     }
 
-    /// Deletes `images/<id>/`. The caller holds the instance's record lock.
+    /// Deletes `images/<id>/`. The caller holds the instance's record lock. Today the
+    /// folder holds only content images; milestone 5 must change this (and its callers
+    /// [`Self::delete_instance`], [`Self::forget_deleted`] and the id-reuse guard) before
+    /// data images move in, so deleting an instance or moving its folder never deletes its
+    /// backups (`docs/instance-images.md`, "Launcher store decisions").
     pub(crate) fn wipe_locked(&self, id: &str) -> Result<(), ImageError> {
         let dir = self.store.instance_dir(id)?;
         remove_tree(&dir).map_err(ImageError::io(format!(

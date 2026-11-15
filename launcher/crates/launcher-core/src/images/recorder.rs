@@ -12,7 +12,8 @@
 //! Queued labels are recorded together once nothing more has succeeded for
 //! [`super::MERGE_WINDOW`], or at the latest [`super::MAX_DEFER`] after the first: the
 //! changes made within a few seconds of each other are one image, labelled with what each
-//! did. A new instance is
+//! did. An operation that only changes which files are content
+//! ([`Images::begin_rescope`]) records with no label of its own. A new instance is
 //! recorded at once ([`Images::record_now`]), and so is anything a caller needs the id of
 //! ([`Operation::succeed_and_record`], [`Images::flush`]).
 //!
@@ -99,17 +100,43 @@ pub(crate) struct Queued {
 #[derive(Debug, Default)]
 pub(crate) struct Pending {
     labels: Vec<Queued>,
+    /// An operation that changes which files are content succeeded
+    /// ([`Images::begin_rescope`]): a record is due even without a label.
+    rescoped: bool,
     first: Option<Instant>,
     last: Option<Instant>,
     /// After a failed record: not before then.
     not_before: Option<Instant>,
 }
 
+/// What [`Pending::take`] took.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub(crate) struct Taken {
+    pub(crate) labels: Vec<Queued>,
+    /// Whether an operation that changes which files are content succeeded too.
+    pub(crate) rescoped: bool,
+}
+
+impl Taken {
+    fn is_empty(&self) -> bool {
+        self.labels.is_empty() && !self.rescoped
+    }
+}
+
 impl Pending {
+    /// Queues a success. An empty label counts as one to wait for, but isn't kept: an
+    /// operation that says nothing (a job that did nothing) records nothing of its own.
     pub(crate) fn push(&mut self, label: String, generation: u64, now: Instant) {
         if !label.trim().is_empty() {
             self.labels.push(Queued { label, generation });
         }
+        self.first.get_or_insert(now);
+        self.last = Some(now);
+    }
+
+    /// Queues the success of an operation that changed which files are content.
+    pub(crate) fn push_rescope(&mut self, now: Instant) {
+        self.rescoped = true;
         self.first.get_or_insert(now);
         self.last = Some(now);
     }
@@ -130,23 +157,25 @@ impl Pending {
         self.first.is_none()
     }
 
-    /// Takes the queued labels.
-    pub(crate) fn take(&mut self) -> Vec<Queued> {
+    /// Takes what is queued.
+    pub(crate) fn take(&mut self) -> Taken {
         self.first = None;
         self.last = None;
         self.not_before = None;
-        std::mem::take(&mut self.labels)
+        Taken {
+            labels: std::mem::take(&mut self.labels),
+            rescoped: std::mem::take(&mut self.rescoped),
+        }
     }
 
-    /// Puts labels a failed record took back in front, due again after [`RETRY_AFTER`].
-    /// Without any, nothing: an empty queue would hold the check before a launch to what
-    /// is queued, and the change it should find would be folded into the baseline.
-    pub(crate) fn restore(&mut self, mut labels: Vec<Queued>, now: Instant) {
-        if labels.is_empty() {
+    /// Puts what a failed record took back in front, due again after [`RETRY_AFTER`].
+    pub(crate) fn restore(&mut self, mut taken: Taken, now: Instant) {
+        if taken.is_empty() {
             return;
         }
-        labels.append(&mut self.labels);
-        self.labels = labels;
+        taken.labels.append(&mut self.labels);
+        self.labels = taken.labels;
+        self.rescoped |= taken.rescoped;
         self.first.get_or_insert(now);
         self.last.get_or_insert(now);
         self.not_before = Some(now + RETRY_AFTER);
@@ -163,6 +192,8 @@ pub struct Operation {
     /// What each step of a job did ([`Self::note`]), after `label`.
     notes: Vec<String>,
     generation: u64,
+    /// It changes which files are content ([`Images::begin_rescope`]).
+    rescope: bool,
 }
 
 impl Operation {
@@ -170,6 +201,14 @@ impl Operation {
     /// succeeds within the merge window.
     pub fn succeed(mut self) {
         if let Some(images) = self.images.take() {
+            if self.rescope {
+                images
+                    .slot(&self.instance)
+                    .pending()
+                    .push_rescope(Instant::now());
+                images.wake_worker();
+                return;
+            }
             let label = self.take_label();
             images.queue(&self.instance, label, self.generation);
         }
@@ -199,6 +238,15 @@ impl Operation {
     /// action that changes nothing when it fails (one file renamed, one file added).
     pub fn finish<T, E>(self, result: &Result<T, E>) {
         if result.is_ok() {
+            self.succeed();
+        }
+    }
+
+    /// Succeeds when `done`: for an action whose error can come after it changed files in
+    /// one known way (a removal that failed to forget the file in `options.txt` once the
+    /// file was in the Trash: `done` is whether the file is gone).
+    pub fn finish_if(self, done: bool) {
+        if done {
             self.succeed();
         }
     }
@@ -256,6 +304,7 @@ impl Images {
                 label,
                 notes: Vec::new(),
                 generation: 0,
+                rescope: false,
             };
         }
         let generation = self.slot(instance).generation.load(Ordering::SeqCst);
@@ -265,6 +314,20 @@ impl Images {
             label,
             notes: Vec::new(),
             generation,
+            rescope: false,
+        }
+    }
+
+    /// Starts an operation that changes which files are content without changing one (a
+    /// rebuilt server pack whose `modpack.json` lists other files): when it succeeds, a
+    /// record runs with no label of its own, merged with what else succeeds, so the
+    /// baseline follows the new rules and the next launch's check doesn't take the change
+    /// for one made by hand. When no content file changed, that record only takes the
+    /// baseline again.
+    pub fn begin_rescope(self: &Arc<Self>, instance: &str) -> Operation {
+        Operation {
+            rescope: true,
+            ..self.begin(instance, "")
         }
     }
 
@@ -350,24 +413,26 @@ impl Images {
     /// Takes the queued labels and records (see the module), for a caller holding the
     /// instance's record lock. `label` follows the queued labels in the image's label, and
     /// makes a record happen when nothing is queued (`""` records with no label of its
-    /// own); with neither, nothing is recorded. It is never added to an image that holds
-    /// the same contents already. On failure the queued labels go back on the queue, unless
-    /// the instance is gone.
+    /// own), as does an operation that changed which files are content; with none of
+    /// these, nothing is recorded. It is never added to an image that holds the same contents
+    /// already. On failure what was queued goes back on the queue, unless the instance is
+    /// gone.
     pub(crate) fn record_held(
         &self,
         slot: &Slot,
         instance: &str,
         label: Option<&str>,
     ) -> Result<Option<Recorded>, ImageError> {
-        let labels = slot.pending().take();
-        if labels.is_empty() && label.is_none() {
+        let taken = slot.pending().take();
+        let own = label.or(taken.rescoped.then_some(""));
+        if taken.labels.is_empty() && own.is_none() {
             return Ok(None);
         }
-        match self.record_locked(slot, instance, &labels, label) {
+        match self.record_locked(slot, instance, &taken.labels, own) {
             Ok(recorded) => Ok(Some(recorded)),
             Err(ImageError::Gone(id)) => Err(ImageError::Gone(id)),
             Err(e) => {
-                slot.pending().restore(labels, Instant::now());
+                slot.pending().restore(taken, Instant::now());
                 Err(e)
             }
         }
@@ -405,9 +470,12 @@ impl Images {
                 baseline,
                 scope_rules: SCOPE_RULES,
                 game: Some(image.game.clone()),
-                // Only a session that runs now keeps it: one no end was seen of is over
-                // once a record has taken the content again.
-                running_since: state.running_since.filter(|_| slot.in_session()),
+                // A session that runs now is noted (the record may have held the check
+                // before its launch off); one no end was seen of is over once a record has
+                // taken the content again.
+                running_since: slot
+                    .in_session()
+                    .then(|| state.running_since.unwrap_or(image.created)),
                 instance_created: Some(ctx.instance.created),
             };
             let have = self
@@ -607,10 +675,7 @@ impl Images {
     /// Whether a "Find it for me" search of the instance is saved: it renames mods on
     /// purpose, so nothing is recorded or checked until it ends.
     pub(crate) fn finder_running(&self, instance: &str) -> bool {
-        self.instances()
-            .dir(instance)
-            .join(crate::content::mod_finder::FILE_NAME)
-            .exists()
+        crate::content::mod_finder::is_saved(&self.instances().dir(instance))
     }
 }
 
@@ -649,8 +714,15 @@ pub(crate) fn run_worker(images: WeakImages, worker: Arc<Worker>) {
                 wake_at(deadline);
                 continue;
             }
-            if let Err(e) = this.flush(&id) {
-                super::warn("images.record", &id, &e.to_string());
+            // Never waits on a record of the instance under way (its first image can take
+            // minutes): the other instances' labels would wait behind it.
+            match this.flush_unless_busy(&id) {
+                Ok(_) => {}
+                Err(ImageError::Busy) => {
+                    wake_at(now + timing.merge);
+                    continue;
+                }
+                Err(e) => super::warn("images.record", &id, &e.to_string()),
             }
             // Recording took a while: look at every instance again before sleeping.
             wake_at(Instant::now());
@@ -683,21 +755,46 @@ mod tests {
             busy.push(format!("{second}"), 0, start + Duration::from_secs(second));
         }
         assert_eq!(busy.deadline(timing), Some(start + timing.max_defer));
-        assert_eq!(busy.take().len(), 40);
+        assert_eq!(busy.take().labels.len(), 40);
         assert!(busy.is_empty());
-        // An empty label still counts as a success to wait for, but isn't kept.
+        // An empty label still counts as a success to wait for, but isn't kept; a change
+        // of which files are content is kept as one.
         busy.push(" ".into(), 0, start);
         assert!(!busy.is_empty());
-        assert!(busy.take().is_empty());
-        // Labels a failed record took go back in front, due after the retry wait.
+        assert_eq!(busy.take(), Taken::default());
+        busy.push_rescope(start);
+        assert_eq!(busy.deadline(timing), Some(start + timing.merge));
+        assert_eq!(
+            busy.take(),
+            Taken {
+                labels: Vec::new(),
+                rescoped: true,
+            }
+        );
+        // What a failed record took goes back in front, due after the retry wait.
         let queued = |label: &str| Queued {
             label: label.into(),
             generation: 3,
         };
         busy.push("later".into(), 3, start);
-        busy.restore(vec![queued("first")], start);
+        busy.restore(
+            Taken {
+                labels: vec![queued("first")],
+                rescoped: true,
+            },
+            start,
+        );
         assert_eq!(busy.deadline(timing), Some(start + RETRY_AFTER));
-        assert_eq!(busy.take(), vec![queued("first"), queued("later")]);
+        assert_eq!(
+            busy.take(),
+            Taken {
+                labels: vec![queued("first"), queued("later")],
+                rescoped: true,
+            }
+        );
         assert_eq!(busy.deadline(timing), None);
+        // Nothing taken, nothing restored.
+        busy.restore(Taken::default(), start);
+        assert!(busy.is_empty());
     }
 }

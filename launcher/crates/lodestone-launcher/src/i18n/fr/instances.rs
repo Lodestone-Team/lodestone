@@ -168,6 +168,9 @@ pub fn text(message: M) -> &'static str {
         M::CouldntImportModpack => "Impossible d’importer le modpack",
         M::CouldntUpdateModpack => "Impossible de mettre à jour le modpack",
         M::StopGameFirst => "Arrêtez d’abord le jeu.",
+        M::FinishFinderFirst => {
+            "Terminez d’abord la recherche Le trouver pour moi\u{a0}: elle a désactivé une partie des mods."
+        }
         M::ModpackUpdated => "Modpack mis à jour",
         M::ModpackUpdatedMessage => {
             "{name} utilise maintenant {pack} {version}. Les fichiers remplacés sont conservés dans {path}."

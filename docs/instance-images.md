@@ -580,7 +580,7 @@ The core's root is its backup folder (`<lodestone>/backups`); the Launcher's is
 | Core | A Lodestone action: Mods tab install, remove, enable, disable, update; modpack update or restore; upload, edit or delete in content folders; a "For players" mark; a loader version change | Content image per operation, labelled |
 | Core | Server about to start, if a quick check finds content changed outside Lodestone | Content image "Changed outside Lodestone" |
 | Core | Backup (scheduled or manual) | Data image, linked to the current content image |
-| Launcher | A Launcher action: install or remove content, apply a server update, update the pack, loader version change | Content image per operation |
+| Launcher | A Launcher action: install or remove content, apply a server update, update the pack, loader version change, instance creation or import; the first start with images, for each instance from before (see "First images" in "Launcher store decisions") | Content image per operation |
 | Launcher | Game about to launch, if a quick check finds content changed by hand | Content image |
 | Launcher | Snapshot on demand; before risky operations (content updates, modpack updates, server updates, loader version changes); after a play session only if the user turns it on | Data or full image |
 
@@ -713,8 +713,14 @@ names anything by it.
   Some client mods keep account tokens there (an account switcher's accounts file), and
   the game rewrites them into the next image, so up to 30 images may keep a token after
   the mod dropped it. That is fine in the local store, which is readable by its owner
-  only. Any image that leaves the computer (milestone 4's second half, and milestone 6) must strip
-  or withhold such files.
+  only on Unix (mode 0700) and in the default data folder on Windows (its user profile's
+  permissions); a data folder moved elsewhere (another drive, an exFAT disk) has whatever
+  protection its new place gives, like the rest of the data folder (`accounts.json`
+  included). Any image that leaves the computer (milestone 4's second half, and milestone
+  6) must strip or withhold such files. Pack files never include the files the game
+  writes, `command_history.txt` (commands typed, a server's `/login` password among them)
+  and `hotbar.nbt` included, and an image that leaves the computer must never carry those
+  either.
 
 ## Milestones
 
@@ -1177,7 +1183,9 @@ same, it does the same. The code is `launcher/crates/launcher-core/src/images/`.
   delete what the other names (tested with both collectors over old objects). Nothing is
   created until the first write, which makes the store's folder readable by its owner only
   (mode 0700 on Unix): the Launcher's own files are, and an object taken from a 0600 mod
-  config would otherwise be readable by anyone who can reach the data folder. Settings ›
+  config would otherwise be readable by anyone who can reach the data folder. On Windows the
+  folder gets the data folder's permissions (a user profile's, by default), and a data
+  folder moved to another drive or an exFAT disk gets what that place gives. Settings ›
   Storage counts it under "Other" until milestone 5 replaces the snapshot store with
   images.
 - **Suspending for a data move.** A data move carries the store like everything else.
@@ -1188,9 +1196,11 @@ same, it does the same. The code is `launcher/crates/launcher-core/src/images/`.
   still queue their labels; records and deletes refuse (`Suspended`), the check is skipped
   (its session is still marked), the merged records' thread sleeps, and a collection
   waits. Cancel works while it waits for a write (`Images::suspend_unless`). A move that
-  fails or is cancelled resumes the store, and what waited then runs. A
-  move that succeeds keeps it suspended until the Launcher restarts at the new place, since
-  a write would remake the old folder or leave a manifest whose objects the copy lacks.
+  fails or is cancelled resumes the store, and what waited then runs. A move that succeeds
+  keeps it suspended until the Launcher restarts at the new place (`Suspension::keep`, which
+  is remembered: a later move, cancelled in a Launcher whose restart failed, doesn't resume
+  it), since a write would remake the old folder or leave a manifest whose objects the copy
+  lacks.
 - **One collector.** The store's own GC, in a background thread, one at a time; a request
   while one runs makes it run once more. Pruning asks at most every 15 minutes; deleting an
   instance asks at once. It takes no lock of the Launcher's, only the store's own and the
@@ -1212,9 +1222,10 @@ same, it does the same. The code is `launcher/crates/launcher-core/src/images/`.
   overrides, and the updater's three-way merge changes them, so "Before a modpack update"
   has to hold them. Files the game writes are never taken this way, even when a pack ships
   them: `options.txt` and the other options files, `servers.dat`, the user caches,
-  `saves/`, `screenshots/`, the always-left-out folders, `versions/`, `libraries/`,
+  `command_history.txt`, `hotbar.nbt`, `saves/`, `screenshots/`, the always-left-out folders, `versions/`, `libraries/`,
   `assets/`, `session.lock` and Lodestone's own names. The list a scope takes is bounded by
-  count and by 16 MiB of paths, and holds each path once (a folder holding a pack file is
+  count and by 16 MiB of paths (a path over 4,096 bytes is skipped, not the end of the
+  list), and holds each path once (a folder holding a pack file is
   found by an ordered lookup, not a set of every folder), so a pack of deep paths can't
   make each record or check build gigabytes. Data packs belong to their world (`saves/`):
   adding, enabling or removing one in the Worlds tab or the CLI makes no content image,
@@ -1253,11 +1264,18 @@ same, it does the same. The code is `launcher/crates/launcher-core/src/images/`.
   image generation when it begins: when its record finds nothing changed but a new image
   was written since it began (which may hold its files), its label is added to the current
   image (saved again under the same id); otherwise it changed nothing, and its label is
-  dropped. This replaces the core's job and `wrote` machinery. The CurseForge blocked-files
-  watcher installs a file found in Downloads only while the game isn't running (it waits
-  otherwise), and saving `modpack.json` for a server's rebuilt pack with the same mods is
-  an operation without a label (the file names which files are content; a change of
-  nothing records nothing).
+  dropped. This replaces the core's job and `wrote` machinery. Known: a label is carried
+  whenever a new image was written after its operation began, even when that operation
+  changed nothing, so a job that failed before changing anything can add its part-way
+  label ("Partly installed X") to an earlier operation's image; skipping part-way labels
+  would drop the steps of a job that did change files, so it stays. An operation that says
+  nothing (a job that did nothing) records nothing. The CurseForge blocked-files watcher
+  installs a file found in Downloads only while the game isn't running (it waits
+  otherwise). Saving `modpack.json` for a server's rebuilt pack with the same mods changes
+  which files are content (the file names them), so it is an operation of its own
+  (`Images::begin_rescope`) that records with no label, or only takes the baseline again
+  when nothing new is in; otherwise the next launch's check would take the new list for a
+  change made by hand.
 - **The merge window and its thread.** Successes are merged until 3 s pass without one, or
   30 s after the first at the latest, by one thread ("lodestone-images"). It leaves an
   instance alone while its game session lasts and while a "Find it for me" search is saved
@@ -1265,10 +1283,12 @@ same, it does the same. The code is `launcher/crates/launcher-core/src/images/`.
   that fails keeps its labels and is tried again after a minute; one for an instance that
   is gone drops them. The thread sleeps until woken while nothing is queued (it polls every
   5 s only while labels wait for a saved search to end), so an idle Launcher has no timer
-  of its own. When the Launcher quits, `Images::settle` waits up to 6 s for what is queued
-  (on the window's thread, since GPUI gives a quit handler's future 200 ms), skipping an
-  instance whose search is saved or whose record is running: those changes are found by
-  the next launch's check.
+  of its own. It never waits on a record of an instance that is under way (the first image
+  of a big pack can take minutes): it comes back to that instance after the merge window,
+  so the others' labels don't wait behind it. When the Launcher quits, `Images::settle`
+  waits up to 6 s for what is queued (on the window's thread, since GPUI gives a quit
+  handler's future 200 ms), skipping an instance whose search is saved or whose record is
+  running: those changes are found by the next launch's check.
 - **Order of writes.** As the core's: snapshot (objects claimed), a free-space check (what
   it will read and 256 MiB to spare), manifest (the store flushes what it names; temp file
   and rename; once more when a collection took an object meanwhile), then
@@ -1284,25 +1304,35 @@ same, it does the same. The code is `launcher/crates/launcher-core/src/images/`.
   before the game's files are prepared. It first counts a session of the instance, which
   holds merged records off, whatever it then does: a count, not a flag, so Play pressed
   again as the last run's end is handled doesn't let that end take the baseline under the
-  new game. It does nothing more while a "Find it for me" search is saved, waits at most
-  10 s for a record of the instance (one that has begun runs to its end), and never fails
+  new game. It does nothing more while a "Find it for me" search is saved, and never fails
   the launch; a recorded change or a failure is noted in the run's log. It records what is
   queued (a queue of empty labels records nothing, and the check still looks); else an
   unlabelled record under new scope rules; else "Changed by hand" when a content file's
   size or modification time differs from the baseline (no file is read: a test makes a mod
   unreadable) or the game differs from the current image's (a loader version edited into
   `instance.json`). Then it notes the session in the state (`running_since`). It never
-  records an instance's first image, which hashes every file and would hold the launch
-  for seconds on a big pack. When it couldn't run (the instance has no image yet, the
-  record still held it after 10 s, the store was suspended, or recording failed), the
-  session's end runs it instead of taking the baseline again: a change made by hand before
-  the launch is still recorded and not folded into the baseline, with what the game wrote
-  in the same image, since nothing tells the two apart then. Otherwise, however the run
-  ends (the game exits or crashes, the launch fails or is cancelled after the check),
-  `Images::session_ended` takes the baseline again in the background without an image, so
-  what the game wrote (configs rewritten at startup, Forge's `splash.properties`) joins the
-  next image an operation records. The baseline keeps the current image's game, so a game
-  changed by hand during the session is still found.
+  records an instance's first image, nor waits for one being recorded, which hashes every
+  file and would hold the launch for seconds on a big pack: when a record holds an
+  instance that has no image yet (a new pack's, or the first-images pass at startup), Play
+  goes on at once. Any other record gets at most 10 s (one that has begun runs to its
+  end). Either way, a record that held the instance took the content before the game
+  started, a change made by hand included, so that session ends like any other: the
+  baseline is taken again and what the game wrote makes no image of its own. A record that
+  runs while a session lasts notes the session (`running_since`) as the check would have.
+  When the check couldn't run for another reason (the store was suspended, recording
+  failed, or there is no image yet and no record under way), the session's end runs it
+  instead of taking the baseline again, labelled as the launch's check would have been: a
+  change made by hand before the launch is still recorded and not folded into the
+  baseline, with what the game wrote in the same image, since nothing tells the two apart
+  then. A failed check still notes the session as running when the instance has an image,
+  so if no end is seen of it the next check's label says the game may have made the
+  change; a session that began while the store was suspended can't be noted, and its
+  changes are "Changed by hand". Otherwise, however the run ends (the game exits or
+  crashes, the launch fails or is cancelled after the check), `Images::session_ended` takes
+  the baseline again in the background without an image, so what the game wrote (configs
+  rewritten at startup, Forge's `splash.properties`) joins the next image an operation
+  records. The baseline keeps the current image's game, so a game changed by hand during
+  the session is still found.
 - **Sessions no end was seen of.** With Settings › After launch set to quit, the Launcher
   exits while the game runs, and it can die while the game runs: `running_since` is then
   still set at the next check. That check can't tell what the game wrote from a change by
@@ -1317,26 +1347,44 @@ same, it does the same. The code is `launcher/crates/launcher-core/src/images/`.
   instance at a time, most recently played first, leaving an instance whose game runs (its
   session's end records it) or whose search is saved, and stopping while the store is
   suspended. So the first change to an existing instance has a parent holding what it
-  replaced. Known gap: an operation on an instance in the moments before the pass reaches
-  it records after the change; its image is then the first, without a parent.
+  replaced. The pass skips only an instance with a current image: one whose first record
+  failed (a full disk, or the free-space check refusing a big pack) keeps the state file
+  that record wrote first, and is tried again at the next start. Known gap: an operation on
+  an instance in the moments before the pass reaches it records after the change; its
+  image is then the first, without a parent. Cost: the pass copies every instance's
+  content (mods, configs, resource and shader packs) into the store. APFS clones the files,
+  so on a Mac it costs little space; on NTFS and ext4 there are no clones, so the first
+  start after the update takes about as much disk space again as all instances' content
+  (20 instances of 1 to 2 GB each take some 30 GB), in the background and without asking.
+  Each record's free-space check stops it short of filling the disk (it leaves 256 MiB),
+  and an instance that didn't fit is tried again at the next start. Milestone 5's storage
+  view shows the store's size.
 - **Records before a change.** `Images::record_before_change` runs before a modpack update
   ("Before a modpack update") and before a server's mods are brought in step ("Before a
   server update"): what is queued, else "Changed by hand" (or "Changed while the game ran
-  or by hand") when the quick check finds a change, else the change's own label, so every file it replaces is in an image (nothing new
-  is written when the content is the current image). A failure is logged and the change goes
-  on. Milestone 4's second half keeps this hook when server images replace the client pack
+  or by hand") when the quick check finds a change, else the change's own label, so every
+  file it replaces is in an image (nothing new is written when the content is the current
+  image). A failure is logged and the change goes on. Neither update starts while a "Find
+  it for me" search is saved (the app and the CLI say to finish it first, as they say to
+  stop the game): the search has mods turned off, the record before the update would take
+  them as changed by hand, and the search's end would restore files the update replaced. Milestone 4's second half keeps this hook when server images replace the client pack
   sync (`servers/mod.rs`, `apply_sync`).
 - **Triggers and labels.** Each begins its operation right before files change and
   succeeds once they did. An action that changes nothing when it fails (one file renamed,
-  added or moved to the Trash) records nothing on failure. One that can fail part way
+  added or moved to the Trash) records nothing on failure. A removal whose file went to the
+  Trash before the rest failed (taking a resource pack out of `options.txt`, or turning off
+  the shader it was) still records "Removed <file>": it succeeds once the file is gone
+  (`files::is_gone`). One that can fail part way
   after changing files succeeds all the same, so what it did change is its own image and
   not "Changed by hand" at the next launch: an install that placed some files adds
   "Partly installed <title>", and a pack update, a server's update, a share code, adding or
   removing an added pack, a revert and the end of "Find it for me" add " (stopped part
   way)" to their label. When nothing changed, nothing is recorded, as for any operation.
   New instances are recorded once their files are in place, in the background (Duplicate,
-  an import and the like are done without waiting for it), except a pack's instance that a
-  share code changes next: "Created <name>" (the
+  an import and the like are done without waiting for it). An instance that something
+  changes next is recorded first, in the task that then changes it: a pack's instance that
+  a share code changes next, and a share code's empty instance before the code's content
+  installs, so none of that content is in "Created". Labels: "Created <name>" (the
   New instance dialog, the CLI, a share code's empty instance, a server without a pack),
   "Copied from <name>" (Duplicate, Copy with another version or loader), "Imported from
   <launcher>", "Installed <pack> <version>" (Modrinth and CurseForge packs, and a share code
@@ -1371,8 +1419,9 @@ same, it does the same. The code is `launcher/crates/launcher-core/src/images/`.
   `KEEP_CONTENT`, `newest_content_first` and `join_labels` are the shared crate's
   (`lodestone_image::lineage`), so both programs keep and list content images alike.
 - **Retention.** Under the instance's record lock after every record that wrote an image:
-  keep every data and full image and its `content` link (ready for milestone 5's
-  snapshots), the images held with `Images::keep_while` (for milestone 5's restores), the
+  keep every data and full image and its `content` link (so pruning is ready for milestone
+  5's snapshots; deleting an instance's images is not, see "Deleting and reused ids"), the
+  images held with `Images::keep_while` (for milestone 5's restores), the
   current image and its parent, and the newest 30 content images by `newest_content_first`;
   delete the other content manifests. While a manifest can't be read, nothing is deleted,
   and nothing shows it yet: milestone 5's history should surface an unreadable manifest so
@@ -1391,9 +1440,16 @@ same, it does the same. The code is `launcher/crates/launcher-core/src/images/`.
   every collection: `images/<id>/` goes, under the instance's record lock, when nothing is
   at `instances/<id>` or a real folder there has no `instance.json`, though not while the
   instances folder itself is missing (a drive that isn't there), and never for a link or
-  junction whose target can't be reached (a pack kept on an unplugged drive). Otherwise its manifests would keep its objects from every
-  collection. Ids the store can't name (a Windows device name such as `con`) record
-  nothing.
+  junction whose target can't be reached (a pack kept on an unplugged drive). Otherwise its
+  manifests would keep its objects from every collection. Ids the store can't name (a
+  Windows device name such as `con`) record nothing. Each of these deletes all of
+  `images/<id>/`, which today holds only content images. Milestone 5 must change them
+  (`Images::wipe_locked`, `delete_instance`, `forget_deleted` and the id-reuse guard)
+  before data images move into this store: a deleted instance, or a folder renamed in
+  Finder or briefly removed by a sync tool, must not take its backups with it. Data and full
+  images, and the content images they link to, should stay until the user deletes them, as
+  the snapshot store keeps a deleted instance's snapshots until Settings › Storage cleans
+  them up.
 - **Cost.** A record after a Mods action re-reads only changed files, but the snapshot
   claims every cached file and stats each chunk of a big file: for a 900 MB pack (300 mods
   of 3 MiB, chunked) that is about 190 ms of planning, and a record after a mod update
@@ -1413,5 +1469,7 @@ same, it does the same. The code is `launcher/crates/launcher-core/src/images/`.
   loader_version, game_shown, base, files, withheld}]}`, where `label_shown` and
   `game_shown` went through `display_text`; `--human` prints one line each from them (the
   CLI itself has no `lodestone_image`). An unknown
-  instance is `not_found`; one without images has an empty list. The window shows no
+  instance is `not_found`; one without images has an empty list. It waits at most 3 s for
+  a record of the instance under way (the first image of a big pack can take minutes),
+  then lists without it: the newest image may be missing then. The window shows no
   history yet: milestone 5 adds history and restore.

@@ -1488,10 +1488,7 @@ impl LauncherShell {
             .collect();
         let check = cx.background_spawn(async move {
             candidates.into_iter().find_map(|(id, dirs)| {
-                dirs.instance
-                    .join(launcher_core::content::mod_finder::FILE_NAME)
-                    .exists()
-                    .then_some(id)
+                launcher_core::content::mod_finder::is_saved(&dirs.instance).then_some(id)
             })
         });
         cx.spawn(async move |this, cx| {

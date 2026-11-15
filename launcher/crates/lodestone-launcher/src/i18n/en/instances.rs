@@ -174,6 +174,7 @@ crate::i18n::messages! {
         CouldntImportModpack = "Couldn't import the modpack",
         CouldntUpdateModpack = "Couldn't update the modpack",
         StopGameFirst = "Stop the game first.",
+        FinishFinderFirst = "Finish the Find it for me search first: it has some of the mods turned off.",
         ModpackUpdated = "Modpack updated",
         /// "Survival now runs Fabulously Optimized 6.1.0. The files it replaced are saved in …".
         ModpackUpdatedMessage = "{name} now runs {pack} {version}. The files it replaced are saved in {path}.",

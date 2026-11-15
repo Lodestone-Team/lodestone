@@ -10,9 +10,10 @@
 //!   against it without reading any file.
 //! - `game` is the game the current image has, so a loader version edited into
 //!   `instance.json` by hand is a change too.
-//! - `running_since` is set from the check before a launch until the session ends, so a
-//!   Launcher that died while the game ran knows at the next launch that the baseline is
-//!   stale (the game rewrote configs) and takes it again without recording.
+//! - `running_since` is set from the check before a launch (or a record during the
+//!   session) until the session ends, so a Launcher that died while the game ran knows at
+//!   the next launch that the game may have changed files since the baseline: that check
+//!   records any change as "Changed while the game ran or by hand" ([`super::check`]).
 //! - `instance_created` is the instance's `created` time: instance ids are folder names
 //!   and are reused once an instance is deleted, and a different time means these images
 //!   are another instance's ([`super::recorder`]'s id-reuse guard).

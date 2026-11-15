@@ -1264,6 +1264,13 @@ impl Instances {
         *self.content_revisions.entry(id.to_string()).or_default() += 1;
     }
 
+    /// Whether a "Find it for me" search of the instance is saved: it has some of the mods
+    /// turned off until it ends, so an update that replaces files waits for it. One look at
+    /// the disk.
+    pub fn finder_saved(&self, id: &str) -> bool {
+        launcher_core::content::mod_finder::is_saved(&self.content_dirs(id).instance)
+    }
+
     pub fn is_active(&self, id: &str) -> bool {
         self.runs
             .get(id)
@@ -1339,11 +1346,25 @@ impl Instances {
         loader: Option<&LoaderChoice>,
         cx: &mut Context<Self>,
     ) -> Result<Instance, String> {
+        let instance = self.create_unrecorded(name, version, loader, cx)?;
+        self.record_created(&instance.id, labels::created(&instance.name), cx);
+        Ok(instance)
+    }
+
+    /// [`Self::create`] without recording the first content image: for a caller that
+    /// changes the instance next and records it first ([`record_created`]) in the task
+    /// that then changes it, so nothing it adds is in "Created".
+    pub(crate) fn create_unrecorded(
+        &mut self,
+        name: &str,
+        version: &str,
+        loader: Option<&LoaderChoice>,
+        cx: &mut Context<Self>,
+    ) -> Result<Instance, String> {
         let instance = self
             .store
             .create(name, version, loader)
             .map_err(|err| err.to_string())?;
-        self.record_created(&instance.id, labels::created(&instance.name), cx);
         self.pick_skin_banner(&instance.id);
         self.selected = Some(instance.id.clone());
         self.refresh(&instance.id, cx);

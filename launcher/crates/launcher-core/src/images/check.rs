@@ -14,10 +14,10 @@
 //! images) gets its first ("Content when the Launcher began recording") from
 //! [`Images::record_first_images`], which the Launcher runs in the background when it
 //! starts, one instance at a time, most recently played first: so the first operation on it
-//! has a parent holding what it replaces. The check never records a first image itself:
-//! hashing a whole pack would hold the launch for seconds, so it leaves the instance to its
-//! session's end, which records it with what the game wrote (nothing earlier to compare it
-//! with).
+//! has a parent holding what it replaces. The check never records a first image itself,
+//! nor waits for one being recorded: hashing a whole pack would hold the launch for
+//! seconds. With no image and no record under way, it leaves the instance to its session's
+//! end, which records it with what the game wrote (nothing earlier to compare it with).
 //!
 //! While the game runs it writes files of its own (configs mods rewrite at startup). Those
 //! never make an image of their own: the check marks the session ([`super::Slot::session`],
@@ -34,12 +34,20 @@
 //! never folded into the baseline, at the cost of an image of the game's own writes after
 //! each such session.
 //!
-//! When the check can't run (a record still held the instance after [`GATE_WAIT`], the
-//! store was suspended, recording failed, or there is no image yet), the session is marked
-//! all the same, and its end runs the check instead of taking the baseline again: a change
-//! made by hand before the launch is still "Changed by hand" rather than folded into the
-//! baseline, with what the game wrote in the same image, since nothing tells the two apart
-//! then.
+//! When the check can't run because a record holds the instance (an operation's, or its
+//! first image hashing a new pack), it doesn't wait for long: an instance being recorded
+//! for the first time has nothing to check against, so Play goes on at once, and any other
+//! record gets at most [`GATE_WAIT`]. Either way the session's end takes the baseline again
+//! as for any session: the record walked the content before the game started, so it holds
+//! the state before the launch, a change made by hand included, and what the game writes
+//! afterwards is no image of its own. When the check can't run for another reason (the
+//! store was suspended, recording failed, or there is no image yet and no record is under
+//! way), the session's end runs the check instead: a change made by hand before the launch
+//! is still "Changed by hand" rather than folded into the baseline, with what the game
+//! wrote in the same image, since nothing tells the two apart then. A session whose check
+//! failed is noted as running all the same when the instance has an image, so if no end is
+//! seen of it the next check's label says the game may have made the change. One that
+//! began while the store was suspended can't be noted; its changes are "Changed by hand".
 //!
 //! A "Find it for me" search renames mods on purpose: while one is saved the check does
 //! nothing (the session is still marked), and its end is one operation of its own.
@@ -107,10 +115,20 @@ impl Images {
             slot.unchecked.store(true, Ordering::SeqCst);
             why
         };
-        let Some(_record) = lock_within(&slot.record, self.timing().gate) else {
-            return unchecked(Checked::Skipped(
-                "a record of the instance is still running",
-            ));
+        // A record holding the instance took the content before the game starts: the
+        // session's end takes the baseline again as usual (see the module).
+        let _record = match slot.record.try_lock() {
+            Ok(guard) => guard,
+            Err(std::sync::TryLockError::Poisoned(poisoned)) => poisoned.into_inner(),
+            Err(std::sync::TryLockError::WouldBlock) if !self.has_current_image(instance) => {
+                return Checked::Skipped("the instance's first image is being recorded");
+            }
+            Err(std::sync::TryLockError::WouldBlock) => {
+                match lock_within(&slot.record, self.timing().gate) {
+                    Some(guard) => guard,
+                    None => return Checked::Skipped("a record of the instance is still running"),
+                }
+            }
         };
         let Ok(_writing) = self.enter() else {
             return unchecked(Checked::Skipped("the image store is paused"));
@@ -121,7 +139,14 @@ impl Images {
             Ok(Check::NoImageYet) => {
                 return unchecked(Checked::Skipped("the instance has no content image yet"));
             }
-            Err(e) => return unchecked(Checked::Failed(e.to_string())),
+            Err(e) => {
+                // Noted as running all the same, so the next check's label is right if no
+                // end is seen of this session.
+                if let Err(e) = self.note_running(instance) {
+                    super::warn("images.check", instance, &e.to_string());
+                }
+                return unchecked(Checked::Failed(e.to_string()));
+            }
         };
         if let Err(e) = self.note_running(instance) {
             super::warn("images.check", instance, &e.to_string());
@@ -142,8 +167,9 @@ impl Images {
         if defer_first && !self.has_current(&ctx, &state) {
             return Ok(Check::NoImageYet);
         }
-        // What is queued first; a queue of only empty labels records nothing, and the
-        // quick check still runs.
+        // What is queued first (a change of which files are content records with no
+        // label, taking the baseline under the new rules); a queue of only empty labels
+        // records nothing, and the quick check still runs.
         if !slot.pending().is_empty()
             && let Some(recorded) = self.record_held(slot, instance, None)?
         {
@@ -158,11 +184,22 @@ impl Images {
 
     /// Whether the state's current image is there.
     fn has_current(&self, ctx: &InstanceContext, state: &ContentState) -> bool {
+        self.current_present(&ctx.id, state)
+    }
+
+    fn current_present(&self, instance: &str, state: &ContentState) -> bool {
         state.current.as_deref().is_some_and(|id| {
             self.store()
-                .manifest_path(&ctx.id, id)
+                .manifest_path(instance, id)
                 .is_ok_and(|path| path.is_file())
         })
+    }
+
+    /// Whether the instance has a current image, read without the record lock: the state
+    /// file is replaced whole and moves to an image only once its manifest is saved, so
+    /// this never sees one half written.
+    pub(crate) fn has_current_image(&self, instance: &str) -> bool {
+        self.current_present(instance, &state::load(self.store(), instance))
     }
 
     /// What to record for a change since the baseline `state` keeps, as the image's label:
@@ -239,6 +276,9 @@ impl Images {
                 let unchecked = slot.unchecked.swap(false, Ordering::SeqCst);
                 let ended = self.enter().and_then(|_writing| {
                     if unchecked && !self.finder_running(instance) {
+                        // The check the launch missed, labelled as it would have been then
+                        // (a failed check noted the session as running).
+                        self.forget_running(instance)?;
                         self.check_held(&slot, instance, false)?;
                         return self.forget_running(instance);
                     }
@@ -250,8 +290,10 @@ impl Images {
                     self.retake_baseline(&ctx, state)
                 });
                 match ended {
-                    // Suspended: `running_since` (set when there was an image) has the next
-                    // check record any change, rather than fold it into the baseline.
+                    // Suspended: the baseline stays as it was, so the next check records any
+                    // change rather than fold it in ("Changed while the game ran or by hand"
+                    // when the check before the launch noted the session, "Changed by hand"
+                    // when the store was suspended then too).
                     Ok(()) | Err(ImageError::Gone(_)) | Err(ImageError::Suspended) => {}
                     Err(e) => super::warn("images.session", instance, &e.to_string()),
                 }
@@ -277,7 +319,7 @@ impl Images {
             if self.suspended() {
                 break;
             }
-            if !self.accepts(id) || self.has_state(id) {
+            if !self.accepts(id) || self.has_current_image(id) {
                 continue;
             }
             match self.record_first(id) {
@@ -289,12 +331,9 @@ impl Images {
         recorded
     }
 
-    /// Whether the instance has a state file (an image, or a first record under way).
-    fn has_state(&self, instance: &str) -> bool {
-        state::path(self.store(), instance).is_ok_and(|path| path.exists())
-    }
-
-    /// The first image of one instance, unless it has a state file by now. Labelled with
+    /// The first image of one instance, unless it has one by now. An instance with a state
+    /// file but no image (a first record that failed: the disk was full, or the free-space
+    /// check refused) is tried again, so it never stays without one. Labelled with
     /// what is queued when an operation came first (its files are already in place), and
     /// [`INITIAL_LABEL`] otherwise.
     fn record_first(&self, instance: &str) -> Result<bool, ImageError> {
@@ -304,7 +343,7 @@ impl Images {
         }
         let _record = slot.lock_record();
         let _writing = self.enter()?;
-        if self.has_state(instance) || slot.in_session() {
+        if self.has_current_image(instance) || slot.in_session() {
             return Ok(false);
         }
         let own = slot.pending().is_empty().then_some(INITIAL_LABEL);
@@ -391,7 +430,7 @@ impl Images {
 }
 
 /// `lock`, waiting at most `max`.
-fn lock_within(lock: &Mutex<()>, max: Duration) -> Option<MutexGuard<'_, ()>> {
+pub(crate) fn lock_within(lock: &Mutex<()>, max: Duration) -> Option<MutexGuard<'_, ()>> {
     let until = Instant::now() + max;
     loop {
         match lock.try_lock() {

@@ -8,6 +8,9 @@ use serde::Serialize;
 use super::context::InstanceContext;
 use super::{ImageError, Images, state};
 
+/// The longest [`Images::history`] waits for a record of the instance under way.
+pub const HISTORY_WAIT: std::time::Duration = std::time::Duration::from_secs(3);
+
 /// An instance's content images.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct History {
@@ -61,16 +64,19 @@ impl Images {
     /// The instance's content images (see [`History`]). Each is loaded whole, so its id is
     /// checked; one that can't be read is left out. [`ImageError::Gone`] for an instance
     /// that doesn't exist; an empty history for one with no images, or whose images are an
-    /// earlier instance's of the same id. Blocking, and waits for a record of the instance
-    /// that is running.
+    /// earlier instance's of the same id. Blocking: waits at most [`HISTORY_WAIT`] for a
+    /// record of the instance that is running (the first image of a big pack can take
+    /// minutes), then lists without it.
     pub fn history(&self, instance: &str) -> Result<History, ImageError> {
         let ctx = InstanceContext::load(self.instances(), instance)?;
         if !self.accepts(instance) {
             return Ok(History::default());
         }
-        // Not in the middle of a record, which saves the manifest before the pointer.
+        // Not in the middle of a record if it can help it. Listed during one, the worst is
+        // that its image is missing, or listed without being current yet: a record saves
+        // the manifest before the pointer.
         let slot = self.slot(instance);
-        let _record = slot.lock_record();
+        let _record = super::check::lock_within(&slot.record, HISTORY_WAIT);
         let loaded = state::load_present(self.store(), instance);
         let listing = self.listing(instance)?;
         let has_manifests = !listing.content.is_empty() || !listing.links.is_empty();

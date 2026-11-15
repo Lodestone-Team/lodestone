@@ -375,7 +375,9 @@ impl Instances {
     /// background, like a modpack import (with its progress in the sidebar). Returns
     /// the new instance's id.
     /// Makes the empty instance a share code describes: its Minecraft version and
-    /// loader, named `name`, else the code's name, else "1.21.1 Fabric".
+    /// loader, named `name`, else the code's name, else "1.21.1 Fabric". Records nothing:
+    /// the caller records its first image (`labels::created`) before the code's content
+    /// installs, in the same task, so none of that content is in "Created".
     pub fn create_from_share_code(
         &mut self,
         code: &launcher_core::content::share::ShareCode,
@@ -394,7 +396,7 @@ impl Instances {
             .kind()
             .zip(code.loader_version.clone())
             .map(|(kind, version)| LoaderChoice { kind, version });
-        self.create(&name, &code.game_version, loader.as_ref(), cx)
+        self.create_unrecorded(&name, &code.game_version, loader.as_ref(), cx)
     }
 
     /// Makes an instance from a share code. A code based on a modpack is imported like
@@ -431,10 +433,13 @@ impl Instances {
         let instance = self.create_from_share_code(&code, name, cx)?;
         let id = instance.id.clone();
         let name = instance.name.clone();
+        let created = labels::created(&name);
         if code.items.is_empty() {
+            self.record_created(&id, created, cx);
             return Ok(Some(id));
         }
         let Some(api) = self.modrinth.clone() else {
+            self.record_created(&id, created, cx);
             cx.emit(InstancesEvent::LaunchFailed {
                 title: t(M::ShareCodeContentFailed).into(),
                 message: t(M::ShareCodeOffline).into(),
@@ -443,6 +448,7 @@ impl Instances {
             return Ok(Some(id));
         };
         let (Some(target), dirs) = (self.content_target(&id), self.content_dirs(&id)) else {
+            self.record_created(&id, created, cx);
             return Ok(Some(id));
         };
         self.next_import += 1;
@@ -450,11 +456,15 @@ impl Instances {
         let progress = Arc::new(InstallProgress::default());
         let cancel = CancelToken::new();
         let downloader = self.content_downloader.clone();
-        let operation = self.images().begin(&id, labels::SHARE_CODE);
+        let images = self.images();
+        let image_id = id.clone();
         let work = {
             let progress = progress.clone();
             let cancel = cancel.clone();
             cx.background_spawn(async move {
+                // The empty instance's image first: none of the code's content is in it.
+                super::record_created(&images, &image_id, &created);
+                let operation = images.begin(&image_id, labels::SHARE_CODE);
                 let outcome =
                     share::install(&api, &downloader, &dirs, &target, &code, &progress, &cancel)
                         .await;
@@ -877,6 +887,17 @@ impl Instances {
             cx.emit(InstancesEvent::LaunchFailed {
                 title: t(M::CouldntUpdateModpack).into(),
                 message: t(M::StopGameFirst).into(),
+                about: About::Instance(id.clone()),
+            });
+            return;
+        }
+        // A saved search has mods turned off: the update would replace files it restores
+        // later, and the record before the update would take them as changed by hand.
+        if self.finder_saved(&id) {
+            self.discard_update(&prompt);
+            cx.emit(InstancesEvent::LaunchFailed {
+                title: t(M::CouldntUpdateModpack).into(),
+                message: t(M::FinishFinderFirst).into(),
                 about: About::Instance(id.clone()),
             });
             return;

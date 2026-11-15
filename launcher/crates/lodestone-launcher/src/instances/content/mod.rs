@@ -1445,7 +1445,8 @@ impl ContentView {
         let work = cx.background_spawn(async move {
             let result =
                 files::delete(&dirs, &target, kind, &file_name).map_err(|err| err.to_string());
-            operation.finish(&result);
+            // The file may be in the Trash even when forgetting it afterwards failed.
+            operation.finish_if(result.is_ok() || files::is_gone(&dirs, kind, &file_name));
             result
         });
         self._delete = Some(cx.spawn(async move |this, cx| {

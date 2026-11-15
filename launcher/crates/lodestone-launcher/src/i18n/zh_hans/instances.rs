@@ -148,6 +148,7 @@ pub fn text(message: M) -> &'static str {
         M::CouldntImportModpack => "无法导入整合包",
         M::CouldntUpdateModpack => "无法更新整合包",
         M::StopGameFirst => "请先停止游戏。",
+        M::FinishFinderFirst => "请先完成“帮我找出来”的查找：它关闭了部分模组。",
         M::ModpackUpdated => "整合包已更新",
         M::ModpackUpdatedMessage => {
             "{name} 现在运行 {pack} {version}。被替换的文件已保存在 {path}。"

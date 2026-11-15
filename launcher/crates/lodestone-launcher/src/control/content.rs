@@ -853,7 +853,9 @@ fn change_items(
                     .map(|item| {
                         let operation = images.begin(&image_id, label(item));
                         let result = change(&dirs, &target, item);
-                        operation.finish(&result);
+                        // A removal can fail after the file went to the Trash.
+                        let (kind, name) = (item.file.kind, &item.file.file_name);
+                        operation.finish_if(result.is_ok() || files::is_gone(&dirs, kind, name));
                         result
                     })
                     .collect::<Result<Vec<Value>, _>>()
@@ -1933,26 +1935,39 @@ pub fn import_code(call: Call, cx: &mut App) -> Reply {
         let instances = control.instances.read(cx);
         super::instances::instance_json(&instance, instances, control.servers.read(cx))
     };
-    let Some(api) = api else {
-        return ready(Ok(
-            json!({ "instance": summary, "installed": [], "failed": [] }),
-        ));
+    // The instance's first image comes before any of the code's content (see
+    // `Instances::create_from_share_code`).
+    let created_label = labels::created(&instance.name);
+    let installing = match api {
+        Some(api) => {
+            context(&control, &instance, cx).map(|(dirs, target)| Some((api, dirs, target)))
+        }
+        None => Ok(None),
     };
-    let (dirs, target) = tri!(context(&control, &instance, cx));
+    let (api, dirs, target) = match installing {
+        Ok(Some(installing)) => installing,
+        other => {
+            control.instances.update(cx, |instances, cx| {
+                instances.record_created(&instance.id, created_label, cx)
+            });
+            return ready(
+                other.map(|_| json!({ "instance": summary, "installed": [], "failed": [] })),
+            );
+        }
+    };
     let downloader = control.instances.read(cx).content_downloader();
     let progress = Arc::new(InstallProgress::default());
     let cancel = CancelToken::new();
     let (job_progress, job_cancel) = (progress.clone(), cancel.clone());
     let refresh = Rc::downgrade(&control);
     let id = instance.id.clone();
-    let operation = control
-        .instances
-        .read(cx)
-        .images()
-        .begin(&id, labels::SHARE_CODE);
+    let images = control.instances.read(cx).images();
+    let image_id = id.clone();
     let work = cx.spawn(async move |cx| {
         let outcome = cx
             .background_spawn(async move {
+                crate::instances::record_created(&images, &image_id, &created_label);
+                let operation = images.begin(&image_id, labels::SHARE_CODE);
                 let outcome =
                     share::install(&api, &downloader, &dirs, &target, &code, &progress, &cancel)
                         .await;

@@ -49,6 +49,9 @@ pub const MAX_PACK_FILES: usize = 100_000;
 /// The most bytes of paths a scope holds, whatever their number: a bound on memory when a
 /// pack lists long paths.
 pub const MAX_PACK_PATH_BYTES: usize = 16 << 20;
+/// The longest pack path a scope takes: no real path is longer, and one that is (a hostile
+/// `modpack.json`) is skipped rather than using up [`MAX_PACK_PATH_BYTES`].
+pub const MAX_PACK_PATH_LEN: usize = 4096;
 
 /// Top-level folders of the game folder never taken from a pack's file list: worlds, what
 /// the game and the Launcher keep, and the spec's always-left-out folders.
@@ -69,7 +72,9 @@ const NEVER_PACK_FOLDERS: [&str; 13] = [
 ];
 
 /// Top-level files the game writes as it plays, never taken from a pack's file list.
-const GAME_FILES: [&str; 8] = [
+/// `command_history.txt` holds the commands the player typed, passwords given to a
+/// server's `/login` among them.
+const GAME_FILES: [&str; 10] = [
     "options.txt",
     "optionsof.txt",
     "optionsshaders.txt",
@@ -78,6 +83,8 @@ const GAME_FILES: [&str; 8] = [
     "realms_persistence.json",
     "usercache.json",
     "usernamecache.json",
+    "command_history.txt",
+    "hotbar.nbt",
 ];
 
 /// Folders of the game folder whose every file is content.
@@ -159,17 +166,18 @@ impl ContentScope {
     /// The scope with the pack files at `paths` (relative to the game folder, as
     /// `modpack.json` keys them), at most [`MAX_PACK_FILES`] of them and
     /// [`MAX_PACK_PATH_BYTES`] of paths. Paths that are content already, that
-    /// [`never_pack_content`] keeps out, or that aren't plain relative paths are left out.
+    /// [`never_pack_content`] keeps out, that are longer than [`MAX_PACK_PATH_LEN`], or that
+    /// aren't plain relative paths are left out.
     pub fn new<'a>(paths: impl IntoIterator<Item = &'a str>) -> Self {
         let mut scope = ContentScope::default();
         for path in paths {
+            if path.len() > MAX_PACK_PATH_LEN || path.contains('\\') {
+                continue;
+            }
             if scope.files.len() >= MAX_PACK_FILES
                 || scope.bytes.saturating_add(path.len()) > MAX_PACK_PATH_BYTES
             {
                 break;
-            }
-            if path.contains('\\') {
-                continue;
             }
             let parts: Vec<&str> = path.split('/').collect();
             if parts
@@ -325,6 +333,8 @@ mod tests {
             "mods/a.jar",
             "options.txt",
             "servers.dat",
+            "command_history.txt",
+            "Hotbar.nbt",
             "saves/World/level.dat",
             "logs/latest.log",
             ".lodestone_modpack/update.json",
@@ -354,6 +364,9 @@ mod tests {
             ("scripts/sub", true),
             ("options.txt", false),
             ("servers.dat", false),
+            // What the player typed (a server's /login password among it).
+            ("command_history.txt", false),
+            ("hotbar.nbt", false),
             ("saves/World/level.dat", false),
             ("saves", true),
             ("logs/latest.log", false),
@@ -396,6 +409,15 @@ mod tests {
             deep_scope.files.len() < deep.len(),
             "the byte bound cut the list"
         );
+        // One path too long to be real is skipped, not the end of the list.
+        let huge = format!("0{}/x", "a".repeat(MAX_PACK_PATH_LEN));
+        let after_huge = ContentScope::new([huge.as_str(), "scripts/after.zs"]);
+        assert!(after_huge.lists(&Candidate {
+            disk: "",
+            path: Some(&p("scripts/after.zs")),
+            is_dir: false,
+        }));
+        assert_eq!(after_huge.files.len(), 1);
         let folder = format!("x00000{}", "/a".repeat(100));
         assert!(deep_scope.accepts(&Candidate {
             disk: "",

@@ -484,6 +484,12 @@ fn path(dirs: &InstanceDirs) -> PathBuf {
     dirs.instance.join(FILE_NAME)
 }
 
+/// Whether a search of the instance whose folder is `instance_dir` is saved: it has some
+/// of the mods turned off until it ends, so nothing else may change them meanwhile.
+pub fn is_saved(instance_dir: &std::path::Path) -> bool {
+    instance_dir.join(FILE_NAME).exists()
+}
+
 /// The instance's interrupted search, if it has one.
 pub fn load(dirs: &InstanceDirs) -> Option<Search> {
     let bytes = std::fs::read(path(dirs)).ok()?;

@@ -2147,11 +2147,12 @@ impl Servers {
                 }
             };
             if !plan.changes_files() {
-                // the same mods in a rebuilt pack: remember it. An operation without a
-                // label: modpack.json names the pack's files, which the content images take
-                // (a rebuilt pack can list another), and a change of nothing records nothing.
+                // the same mods in a rebuilt pack: remember it. modpack.json names the
+                // pack's files, which the content images take, and a rebuilt pack can list
+                // others: a change of which files are content, recorded without a label
+                // (or only the baseline taken again when nothing new is in).
                 let _ = std::fs::remove_file(&pack_path);
-                let operation = images.begin(&image_id, "");
+                let operation = images.begin_rescope(&image_id);
                 let saved = plan.record.save(&dirs.instance);
                 operation.finish(&saved);
                 let mut link = link;
@@ -2341,6 +2342,19 @@ impl Servers {
             let _ = std::fs::remove_file(&pending.pack_path);
             return self.fail(
                 || (t(M::UpdateModsFailed).into(), t(M::StopGameFirst).into()),
+                cx,
+            );
+        }
+        // A saved "Find it for me" search has mods turned off (see Instances::finder_saved).
+        if self.instances.read(cx).finder_saved(&pending.instance_id) {
+            let _ = std::fs::remove_file(&pending.pack_path);
+            return self.fail(
+                || {
+                    (
+                        t(M::UpdateModsFailed).into(),
+                        t(M::FinishFinderFirst).into(),
+                    )
+                },
                 cx,
             );
         }

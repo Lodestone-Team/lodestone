@@ -981,15 +981,15 @@ fn a_check_that_couldnt_run_still_holds_merged_records_and_runs_at_the_end() {
     });
     s.write("mods/a.jar", b"a");
     s.images.record_now(s.id(), "Created Pack").unwrap();
-    // A mod dropped in by hand, then Play while a record holds the instance past the wait.
+    // A mod dropped in by hand, then Play while the store is suspended (a data move).
     s.write("mods/by-hand.jar", b"hand");
     let slot = s.images.slot(s.id());
-    let held = slot.lock_record();
+    let suspension = s.images.suspend();
     assert!(matches!(
         s.images.before_launch(s.id()),
         Checked::Skipped(_)
     ));
-    drop(held);
+    drop(suspension);
     // The session is marked all the same: nothing is recorded while the game writes.
     assert!(slot.in_session());
     s.write("config/written-by-the-game.json", b"{}");
@@ -1007,12 +1007,12 @@ fn a_check_that_couldnt_run_still_holds_merged_records_and_runs_at_the_end() {
     assert!(s.paths(&newest).contains(&"mods/by-hand.jar".to_string()));
     // Without anything queued, a change by hand is "Changed by hand".
     s.write("mods/by-hand-2.jar", b"hand");
-    let held = slot.lock_record();
+    let suspension = s.images.suspend();
     assert!(matches!(
         s.images.before_launch(s.id()),
         Checked::Skipped(_)
     ));
-    drop(held);
+    drop(suspension);
     s.images.end_session(s.id());
     assert_eq!(s.labels()[0], OUTSIDE_LABEL);
     // A check that ran leaves the session's end to take the baseline again.
@@ -1022,6 +1022,133 @@ fn a_check_that_couldnt_run_still_holds_merged_records_and_runs_at_the_end() {
     assert_eq!(s.labels().len(), 3);
     assert_eq!(s.images.before_launch(s.id()), Checked::Unchanged);
     s.images.end_session(s.id());
+}
+
+#[test]
+fn a_record_holding_the_instance_at_launch_leaves_the_games_writes_out() {
+    let s = Setup::with_timing(Timing {
+        gate: Duration::from_millis(50),
+        ..Timing::default()
+    });
+    s.write("mods/a.jar", b"a");
+    s.images.record_now(s.id(), "Created Pack").unwrap();
+    // A pack installed, its record still running when Play is pressed.
+    let slot = s.images.slot(s.id());
+    let held = slot.lock_record();
+    s.write("mods/pack.jar", b"pack");
+    assert_eq!(
+        s.images.before_launch(s.id()),
+        Checked::Skipped("a record of the instance is still running")
+    );
+    s.images
+        .record_held(&slot, s.id(), Some("Installed Pack 1.0"))
+        .unwrap();
+    drop(held);
+    // The game rewrites a config at startup: it joins the baseline, not an image.
+    s.write("config/written-by-the-game.json", b"{}");
+    s.images.end_session(s.id());
+    assert_eq!(s.labels(), ["Installed Pack 1.0", "Created Pack"]);
+    assert_eq!(s.state().running_since, None);
+    assert_eq!(s.images.before_launch(s.id()), Checked::Unchanged);
+    s.images.end_session(s.id());
+}
+
+#[test]
+fn play_never_waits_for_a_first_image() {
+    // The default wait: were the check to wait, this test would take ten seconds.
+    let s = Setup::with_timing(Timing::default());
+    s.write("mods/a.jar", b"a");
+    let slot = s.images.slot(s.id());
+    // A new pack's first image is being recorded (the startup pass, or an import).
+    let held = slot.lock_record();
+    let started = Instant::now();
+    assert_eq!(
+        s.images.before_launch(s.id()),
+        Checked::Skipped("the instance's first image is being recorded")
+    );
+    assert!(started.elapsed() < Duration::from_secs(2));
+    s.images
+        .record_held(&slot, s.id(), Some("Installed Pack 1.0"))
+        .unwrap();
+    // Recorded during the session, so a Launcher that quits now knows the game ran.
+    assert!(s.state().running_since.is_some());
+    drop(held);
+    s.write("config/written-by-the-game.json", b"{}");
+    s.images.end_session(s.id());
+    assert_eq!(s.labels(), ["Installed Pack 1.0"]);
+    assert_eq!(s.state().running_since, None);
+    assert_eq!(s.images.before_launch(s.id()), Checked::Unchanged);
+    s.images.end_session(s.id());
+}
+
+#[test]
+fn a_change_of_which_files_are_content_records_without_a_label() {
+    let s = Setup::new();
+    s.write("mods/a.jar", b"a");
+    s.write("scripts/a.zs", b"a script");
+    s.images.record_now(s.id(), "Created").unwrap();
+    // A rebuilt server pack with the same files lists one more already on disk.
+    let op = s.images.begin_rescope(s.id());
+    let files = ["scripts/a.zs", "mods/a.jar"]
+        .into_iter()
+        .map(|path| (path.to_string(), crate::modpack::PackFile::default()))
+        .collect();
+    let saved = crate::modpack::ModpackRecord {
+        files,
+        ..Default::default()
+    }
+    .save(&s.store.dir(s.id()));
+    op.finish(&saved);
+    let recorded = s.images.flush(s.id()).unwrap().unwrap();
+    assert!(recorded.changed);
+    assert_eq!(s.image(&recorded.id).label, None);
+    assert!(s.paths(&recorded.id).contains(&"scripts/a.zs".to_string()));
+    // Not "Changed by hand" at the next launch.
+    assert_eq!(s.images.before_launch(s.id()), Checked::Unchanged);
+    s.images.end_session(s.id());
+    assert_eq!(s.labels(), ["", "Created"]);
+    // When nothing new is in, it only takes the baseline again.
+    s.images.begin_rescope(s.id()).succeed();
+    let again = s.images.flush(s.id()).unwrap().unwrap();
+    assert!(!again.changed);
+    assert_eq!(s.labels().len(), 2);
+}
+
+#[test]
+fn merged_records_never_wait_on_another_instances_record() {
+    let s = Setup::with_timing(Timing {
+        merge: Duration::from_millis(30),
+        max_defer: Duration::from_millis(200),
+        ..Timing::default()
+    });
+    let other = s.store.create("Other", "1.21.1", None).unwrap();
+    s.images.record_now(s.id(), "Created Pack").unwrap();
+    s.images.record_now(&other.id, "Created Other").unwrap();
+    // The first instance's record runs (a big pack's first image) when both change.
+    let slot = s.images.slot(s.id());
+    let held = slot.lock_record();
+    let op = s.images.begin(s.id(), "Added a.jar");
+    s.write("mods/a.jar", b"a");
+    op.succeed();
+    let op = s.images.begin(&other.id, "Added b.jar");
+    std::fs::create_dir_all(s.store.game_dir(&other.id).join("mods")).unwrap();
+    std::fs::write(s.store.game_dir(&other.id).join("mods/b.jar"), b"b").unwrap();
+    op.succeed();
+    let other_labels = || s.images.history(&other.id).unwrap().images.len();
+    let until = Instant::now() + Duration::from_secs(10);
+    while other_labels() < 2 && Instant::now() < until {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert_eq!(
+        other_labels(),
+        2,
+        "the other instance is recorded meanwhile"
+    );
+    drop(held);
+    while s.labels().len() < 2 && Instant::now() < until {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert_eq!(s.labels(), ["Added a.jar", "Created Pack"]);
 }
 
 #[test]
@@ -1364,6 +1491,29 @@ fn first_images_of_instances_from_before_recording() {
     assert_eq!(s.images.record_first_images(), 0);
 }
 
+#[cfg(unix)]
+#[test]
+fn a_first_image_that_failed_is_tried_again_at_the_next_start() {
+    let s = Setup::new();
+    s.write("mods/a.jar", b"a");
+    // The disk is full (or the free-space check refuses a big pack).
+    let objects = s.images.store().root().join("objects");
+    std::fs::create_dir_all(&objects).unwrap();
+    set_folders_writable(&objects, false);
+    let first = s.images.record_first_images();
+    set_folders_writable(&objects, true);
+    assert_eq!(first, 0);
+    assert!(state::path(s.images.store(), s.id()).unwrap().exists());
+    assert_eq!(s.state().current, None);
+    // The state file a failed first record leaves is no reason to skip the instance.
+    assert_eq!(s.images.record_first_images(), 1);
+    assert_eq!(s.labels(), [INITIAL_LABEL]);
+    let initial = s.history().images[0].id.clone();
+    assert!(s.paths(&initial).contains(&"mods/a.jar".to_string()));
+    let updated = s.change("mods/a.jar", b"a, updated", "Updated a");
+    assert_eq!(updated.parent.as_deref(), Some(initial.as_str()));
+}
+
 #[test]
 fn a_job_is_one_operation_with_each_steps_label() {
     let s = Setup::new();
@@ -1405,6 +1555,14 @@ fn a_suspension_waiting_for_a_write_can_be_cancelled() {
     assert!(s.images.suspended());
     drop(suspension);
     assert!(!s.images.suspended());
+    // Kept after a data move, the store stays suspended whatever suspension comes next
+    // (another move, cancelled in a Launcher whose restart failed).
+    s.images.suspend().keep();
+    assert!(s.images.suspended());
+    drop(s.images.suspend());
+    assert!(s.images.suspended());
+    assert!(s.images.suspend_unless(&|| false).is_some());
+    assert!(s.images.suspended());
 }
 
 #[cfg(unix)]
