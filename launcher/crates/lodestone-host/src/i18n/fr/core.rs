@@ -223,8 +223,13 @@ pub fn text(message: M) -> &'static str {
         M::DiscordSection => "Discord",
         M::DiscordInvites => "Invitations Discord pour les serveurs partagés",
         M::DiscordInvitesHint => {
-            "Quand un serveur est partagé avec un lien d’invitation, votre statut Discord l’affiche, avec « Demander à rejoindre », et vous pouvez inviter des gens depuis les discussions Discord. L’invitation, clé comprise, passe par Discord jusqu’à tous ceux que vous invitez ou acceptez : quiconque l’a peut rejoindre, comme avec le lien."
+            "Quand un serveur est partagé avec un lien d’invitation, votre statut Discord l’affiche, avec « Demander à rejoindre », et vous pouvez inviter des gens depuis les discussions Discord. L’invitation, clé comprise, passe par Discord jusqu’à tous ceux que vous invitez ou acceptez : quiconque l’a peut rejoindre, comme avec le lien. Rejoindre ne marche que pour les amis dont Lodestone Launcher est à jour : envoyez le lien d’invitation aux autres."
         }
+        M::DiscordShowing => "Dans votre statut Discord : {name}",
+        M::DiscordShowingHint => {
+            "Pour les amis chez qui le bouton Rejoindre ne fait rien (launcher trop ancien) : copiez le lien et envoyez-le-leur."
+        }
+        M::DiscordCopyLink => "Copier le lien d’invitation",
         M::DiscordHosting => "Héberge {name}",
         M::DiscordAsksToJoin => "{name} demande à rejoindre {server} sur Discord",
         M::DiscordLetJoin => "Accepter",

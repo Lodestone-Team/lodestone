@@ -9,6 +9,11 @@
 //! When someone asks to join, a toast asks the owner to let them in; unanswered,
 //! Discord drops the request after about 30 seconds.
 //!
+//! Join only works for friends whose launcher takes Discord's invites (and has
+//! Lodestone at all): an older launcher can't. So the toast, and Settings › Profile
+//! › Discord while a server shows, also copy the invite link itself to send them.
+//! Discord refuses buttons on a status with a join secret, so the status can't.
+//!
 //! Where it costs: nothing while the setting is off (no thread, no requests). While
 //! on, the share status of running servers is fetched from the local core when they
 //! start, when the Overview changes or reads it, and once every [`SHARE_POLL`] (for
@@ -38,7 +43,7 @@ use lodestone_connect::Invite;
 use lodestone_ui::components::Toast;
 
 use crate::{
-    i18n::{CoreMsg, t, tr},
+    i18n::{CoreMsg, InstancesMsg, t, tr},
     prefs::Prefs,
     state::HostState,
 };
@@ -64,8 +69,8 @@ pub struct DiscordInvites {
     checked: HashSet<String>,
     /// When each server was first shown as hosted (Unix milliseconds).
     since: HashMap<String, u64>,
-    /// The server shown, for the "asks to join" toast.
-    hosting: Option<String>,
+    /// The server shown, for the "asks to join" toast and Copy invite link.
+    hosting: Option<Hosted>,
     /// The last status handed to the thread.
     sent: Option<Option<Activity>>,
     worker: Option<mpsc::Sender<HostCommand>>,
@@ -111,6 +116,7 @@ impl DiscordInvites {
         if !Self::enabled(cx) {
             self.checked.clear();
             self._poll = None;
+            self.set_hosting(None, cx);
             self.show(None, cx);
             return;
         }
@@ -155,10 +161,27 @@ impl DiscordInvites {
             let since = *self.since.entry(instance.uuid.clone()).or_insert(now);
             hosting_activity(instance, link, since)
         });
-        self.hosting = hosted
+        let hosting = hosted
             .filter(|_| activity.is_some())
-            .map(|(instance, _)| instance.name.clone());
+            .map(|(instance, link)| Hosted {
+                name: instance.name.clone(),
+                link: link.to_string(),
+            });
+        self.set_hosting(hosting, cx);
         self.show(activity, cx);
+    }
+
+    /// The server the status shows, with its invite link (Settings › Profile ›
+    /// Discord copies it).
+    pub fn hosted(&self) -> Option<&Hosted> {
+        self.hosting.as_ref()
+    }
+
+    fn set_hosting(&mut self, hosting: Option<Hosted>, cx: &mut Context<Self>) {
+        if self.hosting != hosting {
+            self.hosting = hosting;
+            cx.notify();
+        }
     }
 
     /// Fetches the share status of `uuids` from the core.
@@ -257,7 +280,7 @@ impl DiscordInvites {
 
     /// Someone asks to join on Discord: a toast lets the owner let them in.
     fn ask(&mut self, request: JoinRequest, cx: &mut Context<Self>) {
-        let (Some(server), Some(worker), Some(state)) = (
+        let (Some(hosted), Some(worker), Some(state)) = (
             self.hosting.clone(),
             self.worker.clone(),
             self.state.upgrade(),
@@ -267,17 +290,38 @@ impl DiscordInvites {
         let text = tr!(
             CoreMsg::DiscordAsksToJoin,
             name = request.name,
-            server = server
+            server = hosted.name
         );
         let user_id = request.user_id.clone();
+        let weak = state.downgrade();
         let toast = Toast::info(text)
             .key(format!("discord-join-{}", request.user_id))
             .duration(REQUEST_TOAST)
             .action(t(CoreMsg::DiscordLetJoin), move |_, _| {
                 let _ = worker.send(HostCommand::Accept(user_id.clone()));
+            })
+            // for a friend whose Join can't work (an older launcher)
+            .action(t(CoreMsg::DiscordCopyLink), move |_, cx| {
+                copy_link(&hosted.link, &weak, cx)
             });
         state.update(cx, |state, cx| state.toast(toast, cx));
     }
+}
+
+/// A shared server the status shows.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Hosted {
+    pub name: String,
+    /// The whole invite link (`https://connect.lodestone.cc/j/…`), not the join
+    /// secret: what a friend whose Join doesn't work is sent.
+    pub link: String,
+}
+
+/// Copies the invite link and says so (never showing the link: it holds the key).
+pub fn copy_link(link: &str, state: &WeakEntity<HostState>, cx: &mut App) {
+    crate::pages::parts::copy(link, cx);
+    let toast = Toast::success(t(InstancesMsg::ShareCopied)).key("copied");
+    state.update(cx, |state, cx| state.toast(toast, cx)).ok();
 }
 
 /// The Overview read or changed `uuid`'s share status: the status follows at once.

@@ -123,7 +123,7 @@ impl ProfilePage {
             section.set_search(search.clone());
             section
         });
-        let subscriptions = vec![
+        let mut subscriptions = vec![
             cx.observe(&search, |_, _, cx| cx.notify()),
             cx.subscribe(&username, |this, _, event, cx| {
                 let TextSettingEvent::Submit(name) = event;
@@ -136,6 +136,10 @@ impl ProfilePage {
                     .update(cx, |field, cx| field.set_value(&name, cx));
             }),
         ];
+        // the server in the Discord status (its Copy invite link)
+        if let Some(discord) = state.read(cx).discord.clone() {
+            subscriptions.push(cx.observe(&discord, |_, _, cx| cx.notify()));
+        }
         Self {
             state,
             menu: None,
@@ -324,9 +328,15 @@ impl ProfilePage {
     fn discord(&self, query: &SettingsQuery, cx: &mut Context<Self>) -> Option<AnyElement> {
         self.state.read(cx).discord.as_ref()?;
         let on = Prefs::get(cx).discord_invites;
-        query
-            .section(t(CoreMsg::DiscordSection), None)
-            .card([SettingRow::new(t(CoreMsg::DiscordInvites))
+        let hosted = self
+            .state
+            .read(cx)
+            .discord
+            .as_ref()
+            .and_then(|discord| discord.read(cx).hosted().cloned())
+            .filter(|_| on);
+        let mut rows = vec![
+            SettingRow::new(t(CoreMsg::DiscordInvites))
                 .hint(t(CoreMsg::DiscordInvitesHint))
                 .child(
                     Toggle::new("discord-invites", on)
@@ -335,7 +345,26 @@ impl ProfilePage {
                             let value = *value;
                             Prefs::update(cx, |p| p.discord_invites = value)
                         }),
-                )])
+                ),
+        ];
+        // the server in the status: its link, for friends whose Join can't work
+        if let Some(hosted) = hosted {
+            let state = self.state.downgrade();
+            rows.push(
+                SettingRow::new(tr!(CoreMsg::DiscordShowing, name = hosted.name))
+                    .hint(t(CoreMsg::DiscordShowingHint))
+                    .child(
+                        Button::new("discord-copy-link", t(CoreMsg::DiscordCopyLink))
+                            .size(ButtonSize::Slim)
+                            .on_click(move |_, _, cx| {
+                                crate::discord::copy_link(&hosted.link, &state, cx)
+                            }),
+                    ),
+            );
+        }
+        query
+            .section(t(CoreMsg::DiscordSection), None)
+            .card(rows)
             .finish()
             .map(IntoElement::into_any_element)
     }

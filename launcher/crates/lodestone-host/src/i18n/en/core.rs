@@ -167,7 +167,12 @@ crate::i18n::messages! {
         DiscordSection = "Discord",
         DiscordInvites = "Discord invites for shared servers",
         /// "Ask to Join" is Discord's button on a profile. The invite holds the key that lets people join.
-        DiscordInvitesHint = "While a server is shared with an invite link, your Discord status shows it, with Ask to Join, and you can invite people from Discord chats. The invite, key included, goes through Discord to everyone you invite or let in: anyone who has it can join, as with the link.",
+        DiscordInvitesHint = "While a server is shared with an invite link, your Discord status shows it, with Ask to Join, and you can invite people from Discord chats. The invite, key included, goes through Discord to everyone you invite or let in: anyone who has it can join, as with the link. Join only works for friends whose Lodestone Launcher is up to date: send the others the invite link.",
+        /// A row under the setting while a server shows in the status. {name} is the server's name.
+        DiscordShowing = "In your Discord status: {name}",
+        DiscordShowingHint = "For friends whose Join button does nothing (an older launcher): copy the link and send it to them.",
+        /// A button in that row and in the “asks to join” toast: copies the server's whole invite link.
+        DiscordCopyLink = "Copy invite link",
         /// The owner's Discord status, seen by their Discord friends. {name} is the server's name.
         DiscordHosting = "Hosting {name}",
         /// A toast: someone pressed Ask to Join on the owner's Discord profile. {name} is their Discord name, {server} the server's.

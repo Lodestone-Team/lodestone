@@ -73,6 +73,13 @@ everyone the owner invites or lets in there.
 - `lodestone-launcher/src/discord_join.rs`: hands the invites Discord sends to the
   join dialog, and registers the launch command.
 
+Join only works for friends whose launcher takes Discord's invites: an older one
+never connects or registers the launch command, and people without Lodestone have
+nothing to open. Discord refuses buttons on a status with a join secret, so the
+status can't carry the link. Instead the "asks to join" toast and Settings ›
+Profile › Discord (while a server shows) have **Copy invite link**, which copies the
+whole `https://connect.lodestone.cc/j/…` link to send them.
+
 What Discord wants (checked against the Discord app in November 2026):
 
 - `party.id` (2 to 128 characters), `party.size` (`[current, max]`, 0 people
