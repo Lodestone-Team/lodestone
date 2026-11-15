@@ -624,12 +624,12 @@ impl ContentView {
             .insert(id.to_string(), Finished { message, queued_cf });
     }
 
-    /// The instance's folders and what it accepts, with its shader mod.
     /// The instances' content images: each change here is an operation.
     fn images(&self, cx: &gpui::App) -> Arc<Images> {
         self.instances.read(cx).images()
     }
 
+    /// The instance's folders and what it accepts, with its shader mod.
     pub fn context(&self, cx: &gpui::App) -> Option<(String, InstanceDirs, Target)> {
         let id = self.instance_id.clone()?;
         let instances = self.instances.read(cx);

@@ -35,8 +35,10 @@ use crate::content::provenance::{self, Provenance};
 use crate::content::{ContentKind, enabled_name};
 use crate::instances::{self, Instance, InstanceError, InstanceStore};
 use crate::modpack::ModpackRecord;
+use crate::modpack::addon::AddedPacks;
 
 use super::ImageError;
+use super::scope::ContentScope;
 
 /// The most resource packs an image's settings take from `options.txt`: far more than any
 /// game lists, and well under what an image may hold.
@@ -53,6 +55,9 @@ pub struct InstanceContext {
     pub provenance: Provenance,
     /// `options.txt`'s resource packs, in the game's order.
     pub resource_packs: Vec<String>,
+    /// Which of its files are content: the content folders, and the files its pack and its
+    /// added packs wrote elsewhere.
+    pub scope: ContentScope,
 }
 
 impl InstanceContext {
@@ -68,9 +73,18 @@ impl InstanceContext {
             .map(|options| options.enabled)
             .unwrap_or_default();
         resource_packs.truncate(MAX_RESOURCE_PACKS);
+        let record = ModpackRecord::load(&dir);
+        let added = AddedPacks::load(&dir);
+        let scope = ContentScope::new(
+            record
+                .iter()
+                .chain(added.packs.iter().map(|pack| &pack.record))
+                .flat_map(|record| record.files.keys().map(String::as_str)),
+        );
         Ok(InstanceContext {
             id: id.to_string(),
-            record: ModpackRecord::load(&dir),
+            record,
+            scope,
             provenance: Provenance::load(&dir),
             resource_packs,
             instance,
@@ -218,6 +232,7 @@ mod tests {
             record,
             provenance: Provenance::default(),
             resource_packs: vec!["vanilla".into(), "file/Faithful.zip".into()],
+            scope: ContentScope::default(),
         }
     }
 

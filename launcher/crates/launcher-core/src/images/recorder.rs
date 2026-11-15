@@ -29,9 +29,12 @@
 //! contents give the same id: then nothing is written but the baseline. Otherwise, in this
 //! order: the manifest (the store makes its objects durable first, then writes it to a
 //! temporary file and renames it), the pointer and baseline ([`super::state`]), the stat
-//! cache, then pruning ([`super::retention`]). A failure before the manifest is saved
-//! writes nothing and keeps the labels queued for a later try; a crash after it leaves the
-//! old pointer, which the next record moves. A collection running at the same time can take
+//! cache, then pruning ([`super::retention`]). An instance's first record (no state file
+//! yet) writes the state first, naming only the instance (`instance_created`), so the
+//! manifests that follow are known as this instance's. A failure before the manifest is saved writes nothing more and
+//! keeps the labels queued for a later try; a crash after it leaves the old pointer (or
+//! none), which the next record moves: to the image the crash left when the contents are
+//! still its, keeping its label. A collection running at the same time can take
 //! an object the snapshot was about to name; saving then fails as missing (the store never
 //! names what it lost), and the record is taken again once.
 //!
@@ -47,11 +50,11 @@ use std::time::{Duration, Instant};
 use lodestone_image::lineage::join_labels;
 use lodestone_image::manifest::App;
 use lodestone_image::store::StoreError;
-use lodestone_image::store::snapshot::{self, Snapshot, SnapshotOptions};
+use lodestone_image::store::snapshot::{self, Candidate, Snapshot, SnapshotOptions};
 use lodestone_image::{DiskLayout, Image, Kind, Producer};
 
 use super::context::InstanceContext;
-use super::scope::{SCOPE_RULES, content_filter};
+use super::scope::SCOPE_RULES;
 use super::state::{self, Baseline, ContentState};
 use super::{ImageError, Images, Slot, Timing, WeakImages, Worker};
 
@@ -237,6 +240,7 @@ impl Images {
             return Ok(None);
         }
         let _record = slot.lock_record();
+        let _writing = self.enter()?;
         self.record_held(&slot, instance, None)
     }
 
@@ -248,6 +252,7 @@ impl Images {
         }
         let slot = self.slot(instance);
         let _record = slot.lock_record();
+        let _writing = self.enter()?;
         self.record_held(&slot, instance, Some(label))
     }
 
@@ -262,7 +267,7 @@ impl Images {
             .name("lodestone-images-settle".into())
             .spawn(move || {
                 for (id, slot) in this.slots() {
-                    if slot.session.load(Ordering::SeqCst) {
+                    if slot.session.load(Ordering::SeqCst) || this.suspended() {
                         continue;
                     }
                     if let Err(e) = this.flush(&id) {
@@ -310,7 +315,15 @@ impl Images {
         own: Option<&str>,
     ) -> Result<Recorded, ImageError> {
         let ctx = InstanceContext::load(self.instances(), instance)?;
-        let state = self.guarded_state(&ctx)?;
+        let loaded = self.guarded(&ctx)?;
+        let mut state = loaded.state;
+        if !loaded.present {
+            // The first record: the state names the instance before any manifest is
+            // written, so a crash after the manifest leaves images the guard knows as this
+            // instance's, not an earlier one's (see [`state::belongs_elsewhere`]).
+            state.instance_created = Some(ctx.instance.created);
+            state::save(self.store(), instance, &state)?;
+        }
         let texts: Vec<String> = labels
             .iter()
             .map(|q| q.label.clone())
@@ -333,16 +346,19 @@ impl Images {
                 .store()
                 .manifest_path(instance, &image.id)
                 .is_ok_and(|path| path.is_file());
-            if have && state.current.as_deref() == Some(image.id.as_str()) {
-                // Nothing changed: keep the image's time, take the baseline again.
-                self.save_state(
-                    instance,
-                    &ContentState {
-                        recorded: state.recorded,
-                        ..next
-                    },
-                    &snapshot,
-                )?;
+            let same = state.current.as_deref() == Some(image.id.as_str());
+            if have && (same || state.current.is_none()) {
+                // Nothing changed: keep the image's time, take the baseline again. With no
+                // pointer, the image is the one a first record saved before it crashed (or
+                // lost its state): the pointer moves to it, with its own label and time.
+                let recorded = if same {
+                    state.recorded
+                } else {
+                    self.store()
+                        .load_header(instance, &image.id)
+                        .map_or(image.created, |header| header.created)
+                };
+                self.save_state(instance, &ContentState { recorded, ..next }, &snapshot)?;
                 self.carry_labels(slot, instance, &image.id, labels);
                 return Ok(Recorded {
                     id: image.id,
@@ -385,6 +401,12 @@ impl Images {
     /// an earlier instance of the same name ([`state::belongs_elsewhere`]) are deleted
     /// first. The caller holds the record lock.
     pub(crate) fn guarded_state(&self, ctx: &InstanceContext) -> Result<ContentState, ImageError> {
+        Ok(self.guarded(ctx)?.state)
+    }
+
+    /// [`Self::guarded_state`], with whether a state file is there (none after the guard
+    /// deleted an earlier instance's images).
+    fn guarded(&self, ctx: &InstanceContext) -> Result<state::Loaded, ImageError> {
         let loaded = state::load_present(self.store(), &ctx.id);
         let has_manifests = !self.store().manifest_ids(&ctx.id)?.is_empty();
         if state::belongs_elsewhere(&loaded, has_manifests, ctx.instance.created) {
@@ -394,9 +416,12 @@ impl Images {
                 "the images under this id are an earlier instance's; deleting them",
             );
             self.wipe_locked(&ctx.id)?;
-            return Ok(ContentState::default());
+            return Ok(state::Loaded {
+                state: ContentState::default(),
+                present: false,
+            });
         }
-        Ok(loaded.state)
+        Ok(loaded)
     }
 
     /// The labels of operations a new image was written during (see the module), added to
@@ -457,9 +482,10 @@ impl Images {
     ) -> Result<(Image, Snapshot, Baseline), ImageError> {
         let store = self.store();
         let cache = store.load_stat_cache_named(&ctx.id, CONTENT_STAT_CACHE);
+        let filter = |candidate: &Candidate| ctx.scope.accepts(candidate);
         let options = SnapshotOptions {
             cache: Some(&cache),
-            filter: Some(&content_filter),
+            filter: Some(&filter),
             ..SnapshotOptions::default()
         };
         let plan = snapshot::plan(store, &ctx.dir, &DiskLayout::Client, &options)?;
@@ -531,7 +557,13 @@ pub(crate) fn run_worker(images: WeakImages, worker: Arc<Worker>) {
         let timing = this.timing();
         let now = Instant::now();
         let mut next = now + IDLE_CHECK;
-        for (id, slot) in this.slots() {
+        // Suspended, nothing is recorded; resuming wakes this thread.
+        let slots = if this.suspended() {
+            Vec::new()
+        } else {
+            this.slots()
+        };
+        for (id, slot) in slots {
             let Some(deadline) = slot.pending().deadline(timing) else {
                 continue;
             };

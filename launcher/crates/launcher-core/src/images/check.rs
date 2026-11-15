@@ -11,16 +11,22 @@
 //! progress and never fails the launch: the caller notes what it returns.
 //!
 //! While the game runs it writes files of its own (configs mods rewrite at startup). Those
-//! never make an image of their own: the check marks the session (`running_since` in the
-//! state, and [`super::Slot::session`], which holds merged records off), and when the
-//! session ends, however it ends (the game exited, crashed, or never started),
-//! [`Images::session_ended`] takes the baseline again without recording, so they join the
-//! next image an operation records. A Launcher that died while the game ran finds
-//! `running_since` still set at the next launch and takes the baseline again instead of
-//! calling what the game wrote "Changed by hand".
+//! never make an image of their own: the check marks the session ([`super::Slot::session`],
+//! which holds merged records off, set first, whatever the check then does; and
+//! `running_since` in the state), and when the session ends, however it ends (the game
+//! exited, crashed, or never started), [`Images::session_ended`] takes the baseline again
+//! without recording, so they join the next image an operation records. A Launcher that
+//! died while the game ran finds `running_since` still set at the next launch and takes the
+//! baseline again instead of calling what the game wrote "Changed by hand".
+//!
+//! When the check can't run (a record still held the instance after [`GATE_WAIT`], or the
+//! store was suspended), the session is marked all the same, and its end runs the check
+//! instead of taking the baseline again: a change made by hand before the launch is still
+//! "Changed by hand" rather than folded into the baseline, with what the game wrote in the
+//! same image, since nothing tells the two apart then.
 //!
 //! A "Find it for me" search renames mods on purpose: while one is saved the check does
-//! nothing, and its end is one operation of its own.
+//! nothing (the session is still marked), and its end is one operation of its own.
 //!
 //! [`Images::record_before_change`] is the one record that takes in what the game wrote: it
 //! runs before a modpack update (and, in milestone 4's second half, before a server's
@@ -31,12 +37,12 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
 use lodestone_image::DiskLayout;
-use lodestone_image::store::snapshot::{self, SnapshotOptions};
+use lodestone_image::store::snapshot::{self, Candidate, SnapshotOptions};
 
 use super::context::InstanceContext;
 use super::labels::{INITIAL_LABEL, OUTSIDE_LABEL};
 use super::recorder::Recorded;
-use super::scope::{SCOPE_RULES, content_filter};
+use super::scope::SCOPE_RULES;
 use super::state::{self, Baseline, ContentState};
 use super::{ImageError, Images, Slot};
 
@@ -63,19 +69,27 @@ impl Images {
         if !self.accepts(instance) {
             return Checked::Skipped("the image store can't name this instance");
         }
+        let slot = self.slot(instance);
+        // From here on the game may write files: merged records wait for the session's end
+        // whatever happens below.
+        slot.session.store(true, Ordering::SeqCst);
+        slot.unchecked.store(false, Ordering::SeqCst);
         if self.finder_running(instance) {
             return Checked::Skipped("a Find it for me search is saved");
         }
-        let slot = self.slot(instance);
-        let Some(_record) = lock_within(&slot.record, GATE_WAIT) else {
+        let Some(_record) = lock_within(&slot.record, self.timing().gate) else {
+            slot.unchecked.store(true, Ordering::SeqCst);
             return Checked::Skipped("a record of the instance is still running");
+        };
+        let Ok(_writing) = self.enter() else {
+            slot.unchecked.store(true, Ordering::SeqCst);
+            return Checked::Skipped("the image store is paused");
         };
         let checked = match self.check_held(&slot, instance) {
             Ok(Some(recorded)) => Checked::Recorded(recorded),
             Ok(None) => Checked::Unchanged,
             Err(e) => Checked::Failed(e.to_string()),
         };
-        slot.session.store(true, Ordering::SeqCst);
         if let Err(e) = self.note_running(instance) {
             super::warn("images.check", instance, &e.to_string());
         }
@@ -138,8 +152,8 @@ impl Images {
 
     /// The game session that [`Self::before_launch`] began ended, however it ended (the
     /// game exited or crashed, or the launch failed or was cancelled before it ran): takes
-    /// the baseline again without recording, in the background, then lets merged records
-    /// run. Never blocks.
+    /// the baseline again without recording (or, when the check before the launch couldn't
+    /// run, runs it now), in the background, then lets merged records run. Never blocks.
     pub fn session_ended(self: &Arc<Self>, instance: &str) {
         if !self.accepts(instance) {
             return;
@@ -159,15 +173,22 @@ impl Images {
         let slot = self.slot(instance);
         {
             let _record = slot.lock_record();
-            let retaken = InstanceContext::load(self.instances(), instance).and_then(|ctx| {
+            let unchecked = slot.unchecked.swap(false, Ordering::SeqCst);
+            let ended = self.enter().and_then(|_writing| {
+                if unchecked && !self.finder_running(instance) {
+                    return self.check_held(&slot, instance).map(|_| ());
+                }
+                let ctx = InstanceContext::load(self.instances(), instance)?;
                 let state = self.guarded_state(&ctx)?;
                 if state.current.is_none() {
                     return Ok(());
                 }
                 self.retake_baseline(&ctx, state)
             });
-            match retaken {
-                Ok(()) | Err(ImageError::Gone(_)) => {}
+            match ended {
+                // Suspended: `running_since` (set when there was an image) has the next
+                // check take the baseline again.
+                Ok(()) | Err(ImageError::Gone(_)) | Err(ImageError::Suspended) => {}
                 Err(e) => super::warn("images.session", instance, &e.to_string()),
             }
             slot.session.store(false, Ordering::SeqCst);
@@ -193,6 +214,7 @@ impl Images {
         }
         let slot = self.slot(instance);
         let _record = slot.lock_record();
+        let _writing = self.enter()?;
         if !slot.pending().is_empty() {
             return self.record_held(&slot, instance, None);
         }
@@ -228,9 +250,10 @@ impl Images {
 
     /// Every content file's size and modification time, by disk path, without reading any.
     pub(crate) fn stat_content(&self, ctx: &InstanceContext) -> Result<Baseline, ImageError> {
+        let filter = |candidate: &Candidate| ctx.scope.accepts(candidate);
         let options = SnapshotOptions {
             cache: None,
-            filter: Some(&content_filter),
+            filter: Some(&filter),
             ..SnapshotOptions::default()
         };
         // Without a stat cache, planning only walks: it reads and claims nothing.

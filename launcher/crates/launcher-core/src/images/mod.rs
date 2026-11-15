@@ -30,6 +30,12 @@
 //! state file, pruning and deleting), then its queue ([`Slot::pending`]). The store needs
 //! none: its writers claim what they rely on, and a collection holds the store's own
 //! collection lock.
+//!
+//! Every write to the store (a record, the check, a session's end, deleting an instance's
+//! images, a collection) runs inside [`Activity`]'s count, so [`Images::suspend`] can stop
+//! them all and wait for the last to end: a data move copies or renames the store, and a
+//! write during it would leave a manifest naming objects the new place lacks, or remake the
+//! old folder.
 
 pub mod check;
 pub mod context;
@@ -70,11 +76,13 @@ pub const MAX_DEFER: Duration = Duration::from_secs(30);
 /// manifest of every instance.
 pub const PRUNE_GC_INTERVAL: Duration = Duration::from_secs(15 * 60);
 
-/// How the merge window runs: [`MERGE_WINDOW`] and [`MAX_DEFER`], or shorter in tests.
+/// How the merge window runs: [`MERGE_WINDOW`] and [`MAX_DEFER`], and how long the check
+/// before a launch waits for a record ([`check::GATE_WAIT`]), or shorter in tests.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Timing {
     pub merge: Duration,
     pub max_defer: Duration,
+    pub gate: Duration,
 }
 
 impl Default for Timing {
@@ -82,6 +90,7 @@ impl Default for Timing {
         Timing {
             merge: MERGE_WINDOW,
             max_defer: MAX_DEFER,
+            gate: check::GATE_WAIT,
         }
     }
 }
@@ -105,6 +114,8 @@ pub enum ImageError {
     },
     #[error("another record of this instance is still running")]
     Busy,
+    #[error("the image store is paused while the data folder moves")]
+    Suspended,
     #[error("{0}")]
     Invalid(String),
 }
@@ -130,6 +141,10 @@ pub(crate) struct Slot {
     /// Set from the check before a launch until the session ends: the game writes files
     /// of its own meanwhile, so nothing is recorded.
     pub(crate) session: AtomicBool,
+    /// The check before this session's launch couldn't run (a record held the instance
+    /// past the wait, or the store was suspended), so the session's end runs it instead of
+    /// taking the baseline again ([`check`]).
+    pub(crate) unchecked: AtomicBool,
 }
 
 impl Slot {
@@ -150,6 +165,80 @@ pub(crate) struct Worker {
     signal: Condvar,
 }
 
+/// How many writes to the store run, and whether new ones may start
+/// ([`Images::suspend`]).
+#[derive(Default)]
+pub(crate) struct Activity {
+    state: Mutex<ActivityState>,
+    idle: Condvar,
+}
+
+#[derive(Default)]
+struct ActivityState {
+    suspended: bool,
+    writers: usize,
+}
+
+impl Activity {
+    fn lock(&self) -> MutexGuard<'_, ActivityState> {
+        self.state.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Counts a write until the guard is dropped; `None` while suspended.
+    pub(crate) fn enter(self: &Arc<Self>) -> Option<Writing> {
+        let mut state = self.lock();
+        if state.suspended {
+            return None;
+        }
+        state.writers += 1;
+        Some(Writing {
+            activity: self.clone(),
+        })
+    }
+
+    pub(crate) fn suspended(&self) -> bool {
+        self.lock().suspended
+    }
+}
+
+/// A write to the store in progress ([`Activity::enter`]).
+pub(crate) struct Writing {
+    activity: Arc<Activity>,
+}
+
+impl Drop for Writing {
+    fn drop(&mut self) {
+        let mut state = self.activity.lock();
+        state.writers -= 1;
+        if state.writers == 0 {
+            self.activity.idle.notify_all();
+        }
+    }
+}
+
+/// Every write to the store stopped, until it is dropped ([`Images::suspend`]).
+#[must_use = "the store resumes when this is dropped"]
+pub struct Suspension {
+    images: Option<Arc<Images>>,
+}
+
+impl Suspension {
+    /// Keeps the store suspended for the rest of the process: after a data move, whose
+    /// Launcher restarts to read the store at its new place. A write here would remake the
+    /// old folder.
+    pub fn keep(mut self) {
+        self.images = None;
+    }
+}
+
+impl Drop for Suspension {
+    fn drop(&mut self) {
+        if let Some(images) = self.images.take() {
+            images.resume();
+        }
+    }
+}
+
 /// Whether a collection runs, and whether another was asked for meanwhile.
 #[derive(Default)]
 pub(crate) struct GcState {
@@ -163,6 +252,8 @@ pub(crate) struct GcState {
 
 /// The Launcher's images: see the module.
 pub struct Images {
+    /// Itself, for the collection's thread.
+    this: Weak<Images>,
     store: Arc<Store>,
     data_root: PathBuf,
     instances: InstanceStore,
@@ -174,6 +265,8 @@ pub struct Images {
     gc: Arc<GcState>,
     /// Ids already logged as ones the store can't name.
     refused: Mutex<std::collections::HashSet<String>>,
+    /// The writes running, and whether the store is suspended.
+    activity: Arc<Activity>,
 }
 
 impl Images {
@@ -185,7 +278,8 @@ impl Images {
 
     /// [`Self::open`] with another merge window (tests).
     pub fn with_timing(data: &DataDir, timing: Timing) -> Arc<Images> {
-        Arc::new(Images {
+        Arc::new_cyclic(|this| Images {
+            this: this.clone(),
             store: Arc::new(Store::new(data.image_store_dir(), Encoding::Raw)),
             data_root: data.root().to_path_buf(),
             instances: InstanceStore::new(data.instances_dir()),
@@ -195,6 +289,7 @@ impl Images {
             keep: Mutex::default(),
             gc: Arc::default(),
             refused: Mutex::default(),
+            activity: Arc::default(),
         })
     }
 
@@ -246,11 +341,54 @@ impl Images {
             .collect()
     }
 
+    /// Counts a write to the store until the guard is dropped, or refuses while the store
+    /// is suspended. Callers holding a record lock take it after that lock.
+    pub(crate) fn enter(&self) -> Result<Writing, ImageError> {
+        self.activity.enter().ok_or(ImageError::Suspended)
+    }
+
+    /// Stops every write to the store and waits for the running ones to end: a record (however
+    /// long the first record of a big pack takes), a check, a collection. Until the guard is
+    /// dropped, operations still queue their labels, but records, checks, deleting an
+    /// instance's images and collections refuse ([`ImageError::Suspended`]) or wait, and the
+    /// merged records' thread sleeps. For a data move, which copies or renames the store:
+    /// drop the guard if the move fails or is cancelled, [`Suspension::keep`] it once the
+    /// data is at its new place. Blocking.
+    pub fn suspend(self: &Arc<Self>) -> Suspension {
+        let mut state = self.activity.lock();
+        state.suspended = true;
+        while state.writers > 0 {
+            state = self
+                .activity
+                .idle
+                .wait(state)
+                .unwrap_or_else(|e| e.into_inner());
+        }
+        Suspension {
+            images: Some(self.clone()),
+        }
+    }
+
+    /// Lets writes run again, with the collection and merged records that waited.
+    fn resume(self: &Arc<Self>) {
+        self.activity.lock().suspended = false;
+        if self.gc.pending.load(Ordering::SeqCst) {
+            self.request_gc();
+        }
+        self.wake_worker();
+    }
+
+    /// Whether [`Self::suspend`] stopped writes.
+    pub fn suspended(&self) -> bool {
+        self.activity.suspended()
+    }
+
     /// Forgets a deleted instance: its manifests, content state and stat cache
     /// (`images/<id>/`), and anything queued for it. Its objects go at the collection this
     /// asks for. Call it once the instance's folder is gone (moved to the Trash): instance
     /// ids are reused, so a new instance of the same name must not inherit this history.
-    /// Waits for a record of it that is running.
+    /// Waits for a record of it that is running. An instance folder deleted outside the
+    /// Launcher is forgotten too, by [`Self::forget_deleted`].
     pub fn delete_instance(&self, id: &str) -> Result<(), ImageError> {
         if !self.accepts(id) {
             return Ok(());
@@ -258,11 +396,76 @@ impl Images {
         let slot = self.slot(id);
         {
             let _record = slot.lock_record();
+            let _writing = self.enter()?;
             slot.pending().take();
             self.wipe_locked(id)?;
         }
         self.request_gc();
         Ok(())
+    }
+
+    /// Forgets every instance whose folder is gone without the Launcher deleting it
+    /// (deleted in Finder or Explorer, or by a sync tool): its `images/<id>/` would
+    /// otherwise keep its objects from every collection. Asks for a collection when it
+    /// forgot any, and returns how many. Run once when the Launcher starts, and before
+    /// every collection. Blocking.
+    pub fn forget_deleted(&self) -> Result<usize, ImageError> {
+        let forgotten = {
+            let _writing = self.enter()?;
+            self.forget_deleted_held()
+        };
+        if forgotten > 0 {
+            self.request_gc();
+        }
+        Ok(forgotten)
+    }
+
+    /// [`Self::forget_deleted`] without asking for a collection, inside a counted write.
+    /// Nothing is forgotten while the instances folder itself is missing (a drive that
+    /// isn't there), and only an instance folder without `instance.json` counts as gone:
+    /// an `instance.json` that can't be read is no deletion.
+    fn forget_deleted_held(&self) -> usize {
+        if !self.instances.root().is_dir() {
+            return 0;
+        }
+        let Ok(entries) = std::fs::read_dir(self.store.images_dir()) else {
+            return 0;
+        };
+        let gone = |id: &str| {
+            matches!(
+                std::fs::symlink_metadata(self.instances.dir(id).join("instance.json")),
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound
+            )
+        };
+        let mut forgotten = 0;
+        for entry in entries.flatten() {
+            let Some(id) = entry.file_name().to_str().map(str::to_string) else {
+                continue;
+            };
+            if !valid_instance_id(&id) || !entry.file_type().is_ok_and(|t| t.is_dir()) || !gone(&id)
+            {
+                continue;
+            }
+            let slot = self.slot(&id);
+            let _record = slot.lock_record();
+            // Looked at again under the lock: an instance made meanwhile keeps its images.
+            if !gone(&id) {
+                continue;
+            }
+            slot.pending().take();
+            match self.wipe_locked(&id) {
+                Ok(()) => {
+                    warn(
+                        "images.forgotten",
+                        &id,
+                        "the instance's folder is gone; its images are deleted",
+                    );
+                    forgotten += 1;
+                }
+                Err(e) => warn("images.forgotten", &id, &e.to_string()),
+            }
+        }
+        forgotten
     }
 
     /// Deletes `images/<id>/`. The caller holds the instance's record lock.
@@ -275,21 +478,32 @@ impl Images {
     }
 
     /// Starts a collection in the background, or, while one runs, has it run once more
-    /// when it ends (what was deleted meanwhile may have freed more).
+    /// when it ends (what was deleted meanwhile may have freed more). While the store is
+    /// suspended, the collection waits for it to resume. Each collection first forgets the
+    /// instances deleted outside the Launcher ([`Self::forget_deleted`]).
     pub fn request_gc(&self) {
         let state = self.gc.clone();
         state.requests.fetch_add(1, Ordering::SeqCst);
         state.pending.store(true, Ordering::SeqCst);
-        if state.running.swap(true, Ordering::SeqCst) {
+        if self.suspended() || state.running.swap(true, Ordering::SeqCst) {
             return;
         }
-        let store = self.store.clone();
+        let Some(images) = self.this.upgrade() else {
+            state.running.store(false, Ordering::SeqCst);
+            return;
+        };
         let spawned = std::thread::Builder::new()
             .name("lodestone-images-gc".into())
-            .spawn(move || run_gc(&store, &state));
+            .spawn(move || run_gc(&images));
         if spawned.is_err() {
             self.gc.running.store(false, Ordering::SeqCst);
         }
+    }
+
+    /// Whether a collection runs now.
+    #[cfg(test)]
+    pub(crate) fn gc_running(&self) -> bool {
+        self.gc.running.load(Ordering::SeqCst)
     }
 
     /// [`Self::request_gc`] for pruning, at most every [`PRUNE_GC_INTERVAL`]: what a
@@ -364,11 +578,24 @@ pub(crate) type WeakImages = Weak<Images>;
 
 /// Collects until no request came in while the last collection ran. A request sets
 /// `pending` before it looks at `running`, and this clears `running` before it looks at
-/// `pending`, so a request is never lost between the two.
-fn run_gc(store: &Store, state: &GcState) {
+/// `pending`, so a request is never lost between the two. Suspended, it stops and leaves
+/// the request pending for [`Images::resume`].
+fn run_gc(images: &Images) {
+    let state = &images.gc;
     loop {
+        let Some(writing) = images.activity.enter() else {
+            state.pending.store(true, Ordering::SeqCst);
+            state.running.store(false, Ordering::SeqCst);
+            // Resumed in between, before it saw the request: collect after all, unless
+            // another collection took over.
+            if images.suspended() || state.running.swap(true, Ordering::SeqCst) {
+                return;
+            }
+            continue;
+        };
         state.pending.store(false, Ordering::SeqCst);
-        match store.gc(&GcOptions::default()) {
+        images.forget_deleted_held();
+        match images.store.gc(&GcOptions::default()) {
             Ok(report) if report.objects_removed + report.chunks_removed > 0 => {
                 crate::trace::emit("images.gc", || {
                     serde_json::json!({
@@ -380,6 +607,7 @@ fn run_gc(store: &Store, state: &GcState) {
             Ok(_) => {}
             Err(e) => warn("images.gc", "", &e.to_string()),
         }
+        drop(writing);
         state.running.store(false, Ordering::SeqCst);
         if !state.pending.load(Ordering::SeqCst) || state.running.swap(true, Ordering::SeqCst) {
             return;

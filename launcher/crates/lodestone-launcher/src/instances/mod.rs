@@ -630,6 +630,15 @@ impl Instances {
         );
         let store = InstanceStore::new(data_dir.instances_dir());
         let images = Images::open(&data_dir);
+        // Instances deleted outside the Launcher (in Finder or Explorer) since it last ran:
+        // their images would keep their files from every collection.
+        let forgetting = images.clone();
+        cx.background_spawn(async move {
+            if let Err(err) = forgetting.forget_deleted() {
+                log::warn!("Couldn't forget the images of deleted instances: {err}");
+            }
+        })
+        .detach();
         // What succeeded in the last few seconds is recorded before the process ends,
         // rather than found as "Changed by hand" at the next launch. On the window's
         // thread: GPUI waits only 200 ms for a quit handler's future. Returns at once when
@@ -1544,20 +1553,27 @@ impl Instances {
     }
 
     /// The operation saving `after` over `before` is in the instance's content images, if
-    /// any: the loader version and the recommended memory are in them, so a change from
-    /// Settings, Undo, a modpack's or a server's update, or the CLI is an operation (merged
-    /// with the update's own when it is one). Succeed it once the instance is saved.
+    /// any: the game (Minecraft version, loader and loader version) and the recommended
+    /// memory are in them, so a change from Settings, Undo, a revert, a modpack's or a
+    /// server's update, or the CLI is an operation (merged with the update's own when it is
+    /// one), and the check before the next launch doesn't take it for a change by hand.
+    /// Succeed it once the instance is saved.
     pub(crate) fn settings_operation(
         &self,
         before: &Instance,
         after: &Instance,
     ) -> Option<launcher_core::images::Operation> {
-        let label = if before.loader_version != after.loader_version {
-            labels::loader_changed(after.loader, after.loader_version.as_deref())
-        } else if before.recommended_memory != after.recommended_memory {
-            labels::MEMORY_CHANGED.to_string()
-        } else {
-            return None;
+        let minecraft =
+            (before.game_version != after.game_version).then_some(after.game_version.as_str());
+        let loader = (before.loader != after.loader
+            || before.loader_version != after.loader_version)
+            .then(|| (after.loader, after.loader_version.as_deref()));
+        let label = match labels::game_changed(minecraft, loader) {
+            Some(label) => label,
+            None if before.recommended_memory != after.recommended_memory => {
+                labels::MEMORY_CHANGED.to_string()
+            }
+            None => return None,
         };
         Some(self.images.begin(&after.id, label))
     }
@@ -2579,8 +2595,6 @@ fn ticker(id: String, cx: &mut Context<Instances>) -> Task<()> {
     })
 }
 
-/// Creates the instances entity for the app, in the same data directory as the
-/// accounts.
 /// Records the first content image of the new instance `id` (blocking: for a background
 /// task that just made it). A failure is only logged: the check before its first launch
 /// records it then.
@@ -2602,6 +2616,8 @@ fn content_check_note(checked: &Checked) -> Option<(Level, String)> {
     }
 }
 
+/// Creates the instances entity for the app, in the same data directory as the
+/// accounts.
 pub fn create(accounts: &Entity<Accounts>, cx: &mut App) -> Entity<Instances> {
     let data_dir = accounts.read(cx).data_dir().clone();
     let accounts = accounts.clone();

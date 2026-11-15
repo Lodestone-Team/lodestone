@@ -405,9 +405,17 @@ impl StorageSettings {
             let request = request.clone();
             cx.background_spawn(async move {
                 // The content images queued in the last few seconds are written before
-                // their store moves with everything else.
+                // their store moves with everything else; then every write to the store
+                // stops (waiting for a record or collection still running), so the copy
+                // never holds a manifest without its objects and nothing remakes the old
+                // folder. Moved, the store stays stopped until the Launcher restarts.
                 images.settle(Duration::from_secs(6));
-                data_move::run(&request, &progress, &cancel)
+                let suspended = images.suspend();
+                let moved = data_move::run(&request, &progress, &cancel);
+                if moved.is_ok() {
+                    suspended.keep();
+                }
+                moved
             })
         };
         let task = cx.spawn(async move |this, cx| {

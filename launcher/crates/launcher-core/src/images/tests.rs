@@ -27,6 +27,7 @@ impl Setup {
             // Long enough that only an explicit flush records, unless a test says.
             merge: Duration::from_secs(600),
             max_defer: Duration::from_secs(600),
+            ..Timing::default()
         })
     }
 
@@ -851,6 +852,7 @@ fn merged_records_run_on_their_own_and_wait_for_the_session() {
     let s = Setup::with_timing(Timing {
         merge: Duration::from_millis(50),
         max_defer: Duration::from_millis(400),
+        ..Timing::default()
     });
     s.images.record_now(s.id(), "Created Pack").unwrap();
     let wait_for = |n: usize| {
@@ -902,4 +904,271 @@ fn merged_records_run_on_their_own_and_wait_for_the_session() {
     e.succeed();
     slow.images.settle(Duration::from_secs(10));
     assert_eq!(slow.labels()[0], "e");
+}
+
+#[test]
+fn a_crash_after_the_first_manifest_keeps_its_image() {
+    let s = Setup::new();
+    s.write("mods/a.jar", b"a");
+    let first = s
+        .images
+        .record_now(s.id(), "Created Pack")
+        .unwrap()
+        .unwrap();
+    // A crash after the manifest and before the pointer: what the first record wrote
+    // before its manifest is a state naming only the instance.
+    state::save(
+        s.images.store(),
+        s.id(),
+        &state::ContentState {
+            instance_created: Some(s.instance.created),
+            ..state::ContentState::default()
+        },
+    )
+    .unwrap();
+    // The next record (here the check before a launch) takes the image up, label and all,
+    // rather than taking it for an earlier instance's.
+    let Checked::Recorded(adopted) = s.images.before_launch(s.id()) else {
+        panic!("the pointer wasn't moved")
+    };
+    assert_eq!(adopted.id, first.id);
+    assert!(!adopted.changed);
+    assert_eq!(s.state().current.as_deref(), Some(first.id.as_str()));
+    assert_eq!(s.labels(), ["Created Pack"]);
+    s.images.end_session(s.id());
+
+    // The first record writes that state before anything else: here its objects can't be
+    // written (a file is where their folder goes), and the state is there all the same.
+    let fresh = Setup::new();
+    fresh.write("mods/b.jar", b"b");
+    let blocked = fresh.images.store().root().join("objects");
+    std::fs::create_dir_all(blocked.parent().unwrap()).unwrap();
+    std::fs::write(&blocked, b"in the way").unwrap();
+    assert!(fresh.images.record_now(fresh.id(), "Created Pack").is_err());
+    let written = fresh.state();
+    assert_eq!(written.instance_created, Some(fresh.instance.created));
+    assert_eq!(written.current, None);
+    std::fs::remove_file(&blocked).unwrap();
+    let recorded = fresh
+        .images
+        .record_now(fresh.id(), "Created Pack")
+        .unwrap()
+        .unwrap();
+    assert!(recorded.changed);
+    assert_eq!(fresh.labels(), ["Created Pack"]);
+}
+
+#[test]
+fn a_check_that_couldnt_run_still_holds_merged_records_and_runs_at_the_end() {
+    let s = Setup::with_timing(Timing {
+        merge: Duration::from_millis(50),
+        max_defer: Duration::from_millis(400),
+        gate: Duration::from_millis(100),
+    });
+    s.write("mods/a.jar", b"a");
+    s.images.record_now(s.id(), "Created Pack").unwrap();
+    // A mod dropped in by hand, then Play while a record holds the instance past the wait.
+    s.write("mods/by-hand.jar", b"hand");
+    let slot = s.images.slot(s.id());
+    let held = slot.lock_record();
+    assert!(matches!(
+        s.images.before_launch(s.id()),
+        Checked::Skipped(_)
+    ));
+    drop(held);
+    // The session is marked all the same: nothing is recorded while the game writes.
+    assert!(slot.session.load(Ordering::SeqCst));
+    s.write("config/written-by-the-game.json", b"{}");
+    let op = s.images.begin(s.id(), "Added queued.jar");
+    s.write("mods/queued.jar", b"q");
+    op.succeed();
+    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!(s.history().images.len(), 1);
+    // The session's end runs the check that couldn't run: what is queued, then what
+    // changed by hand, is recorded instead of folded into the baseline.
+    s.images.end_session(s.id());
+    assert!(!slot.session.load(Ordering::SeqCst));
+    assert_eq!(s.labels(), ["Added queued.jar", "Created Pack"]);
+    let newest = s.history().images[0].id.clone();
+    assert!(s.paths(&newest).contains(&"mods/by-hand.jar".to_string()));
+    // Without anything queued, a change by hand is "Changed by hand".
+    s.write("mods/by-hand-2.jar", b"hand");
+    let held = slot.lock_record();
+    assert!(matches!(
+        s.images.before_launch(s.id()),
+        Checked::Skipped(_)
+    ));
+    drop(held);
+    s.images.end_session(s.id());
+    assert_eq!(s.labels()[0], OUTSIDE_LABEL);
+    // A check that ran leaves the session's end to take the baseline again.
+    assert_eq!(s.images.before_launch(s.id()), Checked::Unchanged);
+    s.write("config/written-again.json", b"{}");
+    s.images.end_session(s.id());
+    assert_eq!(s.labels().len(), 3);
+    assert_eq!(s.images.before_launch(s.id()), Checked::Unchanged);
+    s.images.end_session(s.id());
+}
+
+#[test]
+fn a_suspended_store_writes_nothing_until_it_resumes() {
+    let s = Setup::new();
+    s.images.record_now(s.id(), "Created Pack").unwrap();
+    let images_dir = s.images.store().instance_dir(s.id()).unwrap();
+    let listing = |dir: &Path| {
+        let mut all = Vec::new();
+        let mut stack = vec![dir.to_path_buf()];
+        while let Some(dir) = stack.pop() {
+            for entry in std::fs::read_dir(&dir).unwrap().flatten() {
+                let meta = entry.metadata().unwrap();
+                if meta.is_dir() {
+                    stack.push(entry.path());
+                } else {
+                    all.push((entry.path(), meta.len(), meta.modified().unwrap()));
+                }
+            }
+        }
+        all.sort();
+        all
+    };
+
+    // Suspending waits for a write that is running.
+    let writing = s.images.enter().unwrap();
+    let (tx, rx) = std::sync::mpsc::channel();
+    let images = s.images.clone();
+    let suspender = std::thread::spawn(move || {
+        let suspended = images.suspend();
+        tx.send(()).unwrap();
+        suspended
+    });
+    assert!(rx.recv_timeout(Duration::from_millis(200)).is_err());
+    drop(writing);
+    rx.recv_timeout(Duration::from_secs(10)).unwrap();
+    let suspended = suspender.join().unwrap();
+    assert!(s.images.suspended());
+
+    let before = listing(s.images.store().root());
+    let op = s.images.begin(s.id(), "Added a.jar");
+    s.write("mods/a.jar", b"a");
+    op.succeed();
+    assert!(matches!(
+        s.images.flush(s.id()),
+        Err(ImageError::Suspended)
+    ));
+    assert!(matches!(
+        s.images.record_now(s.id(), "x"),
+        Err(ImageError::Suspended)
+    ));
+    assert!(matches!(
+        s.images.record_before_change(s.id(), "x"),
+        Err(ImageError::Suspended)
+    ));
+    assert!(matches!(
+        s.images.before_launch(s.id()),
+        Checked::Skipped(_)
+    ));
+    s.images.end_session(s.id());
+    assert!(matches!(
+        s.images.delete_instance(s.id()),
+        Err(ImageError::Suspended)
+    ));
+    assert!(matches!(
+        s.images.forget_deleted(),
+        Err(ImageError::Suspended)
+    ));
+    let requests = s.images.gc_requests();
+    s.images.request_gc();
+    assert_eq!(s.images.gc_requests(), requests + 1);
+    assert!(!s.images.gc_running(), "no collection while suspended");
+    s.images.settle(Duration::from_secs(5));
+    assert_eq!(listing(s.images.store().root()), before, "nothing written");
+    assert!(images_dir.is_dir());
+
+    // Resumed, the queued label is recorded, and the collection that waited runs.
+    drop(suspended);
+    assert!(!s.images.suspended());
+    s.images.flush(s.id()).unwrap().unwrap();
+    assert_eq!(s.labels()[0], "Added a.jar");
+
+    // Kept, the store stays suspended for good (a data move that succeeded).
+    s.images.suspend().keep();
+    assert!(s.images.suspended());
+    assert!(matches!(
+        s.images.record_now(s.id(), "x"),
+        Err(ImageError::Suspended)
+    ));
+}
+
+#[test]
+fn instances_deleted_outside_the_launcher_are_forgotten() {
+    let s = Setup::new();
+    s.images.record_now(s.id(), "Created Pack").unwrap();
+    let other = s.store.create("Other", "1.21.1", None).unwrap();
+    s.images.record_now(&other.id, "Created Other").unwrap();
+    // Nothing is gone yet.
+    assert_eq!(s.images.forget_deleted().unwrap(), 0);
+    // Deleted in Finder: its folder goes, its images stay behind.
+    std::fs::remove_dir_all(s.store.dir(&other.id)).unwrap();
+    let theirs = s.images.store().instance_dir(&other.id).unwrap();
+    assert!(theirs.is_dir());
+    assert_eq!(s.images.forget_deleted().unwrap(), 1);
+    assert!(!theirs.exists());
+    assert_eq!(s.history().images.len(), 1, "the other instance keeps its images");
+
+    // A collection forgets them too, before it collects.
+    let third = s.store.create("Third", "1.21.1", None).unwrap();
+    s.images.record_now(&third.id, "Created Third").unwrap();
+    std::fs::remove_dir_all(s.store.dir(&third.id)).unwrap();
+    let theirs = s.images.store().instance_dir(&third.id).unwrap();
+    s.images.request_gc();
+    let until = Instant::now() + Duration::from_secs(10);
+    while (theirs.exists() || s.images.gc_running()) && Instant::now() < until {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert!(!theirs.exists());
+
+    // Nothing is forgotten while the instances folder itself is missing (a drive that
+    // isn't there).
+    let instances = s.data.instances_dir();
+    let away = s.data.root().join("instances-away");
+    std::fs::rename(&instances, &away).unwrap();
+    assert_eq!(s.images.forget_deleted().unwrap(), 0);
+    std::fs::rename(&away, &instances).unwrap();
+    assert_eq!(s.history().images.len(), 1);
+}
+
+#[test]
+fn files_a_pack_wrote_outside_the_content_folders_are_content() {
+    let s = Setup::new();
+    s.write("mods/a.jar", b"a");
+    s.write("scripts/recipes.zs", b"recipes");
+    s.write("scripts/mine.zs", b"by hand");
+    s.write("options.txt", b"from the pack");
+    let files = ["scripts/recipes.zs", "options.txt", "mods/a.jar"]
+        .into_iter()
+        .map(|path| (path.to_string(), crate::modpack::PackFile::default()))
+        .collect();
+    crate::modpack::ModpackRecord {
+        files,
+        ..Default::default()
+    }
+    .save(&s.store.dir(s.id()))
+    .unwrap();
+    let recorded = s
+        .images
+        .record_now(s.id(), "Installed Pack")
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        s.paths(&recorded.id),
+        ["mods/a.jar", "scripts/recipes.zs"],
+        "the pack's script, not the game's options or a script added by hand"
+    );
+    // The quick check looks at them too.
+    s.write("scripts/recipes.zs", b"edited by hand");
+    assert!(matches!(
+        s.images.before_launch(s.id()),
+        Checked::Recorded(Recorded { changed: true, .. })
+    ));
+    assert_eq!(s.labels()[0], OUTSIDE_LABEL);
 }

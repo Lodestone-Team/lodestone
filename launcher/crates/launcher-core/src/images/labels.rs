@@ -125,12 +125,26 @@ pub fn shader(file: Option<&str>) -> String {
     }
 }
 
-/// The loader version changed in place.
-pub fn loader_changed(loader: Loader, version: Option<&str>) -> String {
-    match version {
-        Some(version) => format!("Changed {} to {version}", loader.label()),
-        None => format!("Changed {}", loader.label()),
-    }
+/// The game the instance plays changed in place: `minecraft` is the new Minecraft
+/// version when it changed, `loader` the new loader and its version when either changed.
+/// `None` when neither did.
+pub fn game_changed(minecraft: Option<&str>, loader: Option<(Loader, Option<&str>)>) -> Option<String> {
+    let loader_text = |loader: Loader, version: Option<&str>| match version {
+        Some(version) if loader != Loader::None => format!("{} {version}", loader.label()),
+        _ => loader.label().to_string(),
+    };
+    Some(match (minecraft, loader) {
+        (None, None) => return None,
+        (Some(minecraft), None) => format!("Changed Minecraft to {minecraft}"),
+        (Some(minecraft), Some((loader, version))) => format!(
+            "Changed Minecraft to {minecraft} with {}",
+            loader_text(loader, version)
+        ),
+        (None, Some((loader, Some(version)))) if loader != Loader::None => {
+            format!("Changed {} to {version}", loader.label())
+        }
+        (None, Some((loader, version))) => format!("Changed to {}", loader_text(loader, version)),
+    })
 }
 
 /// The recommended memory changed (a pack's or a server's update brings it).
@@ -239,10 +253,23 @@ mod tests {
     #[test]
     fn other_labels() {
         assert_eq!(enabled("a.jar", false), "Disabled a.jar");
+        let game = |minecraft, loader| game_changed(minecraft, loader).unwrap_or_default();
         assert_eq!(
-            loader_changed(Loader::Fabric, Some("0.16.10")),
+            game(None, Some((Loader::Fabric, Some("0.16.10")))),
             "Changed Fabric to 0.16.10"
         );
+        assert_eq!(game(None, Some((Loader::None, None))), "Changed to Vanilla");
+        assert_eq!(game(None, Some((Loader::Quilt, None))), "Changed to Quilt");
+        assert_eq!(game(Some("1.21.1"), None), "Changed Minecraft to 1.21.1");
+        assert_eq!(
+            game(Some("1.21.1"), Some((Loader::NeoForge, Some("21.1.5")))),
+            "Changed Minecraft to 1.21.1 with NeoForge 21.1.5"
+        );
+        assert_eq!(
+            game(Some("1.21.1"), Some((Loader::None, None))),
+            "Changed Minecraft to 1.21.1 with Vanilla"
+        );
+        assert_eq!(game_changed(None, None), None);
         assert_eq!(pack_updated("FO", "6.4.0"), "Updated FO to 6.4.0");
         assert_eq!(pack_updated("FO", ""), "Updated FO");
         assert_eq!(installed_pack("FO", ""), "Installed FO");

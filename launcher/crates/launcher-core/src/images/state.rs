@@ -3,8 +3,8 @@
 //!
 //! - `current` is the content image the instance's folder is in now: the parent of the
 //!   next one. It moves only after that image's manifest is saved, so it never names a
-//!   manifest that isn't there. A crash between the two leaves the old pointer, and the
-//!   next record finds the same image again and moves it.
+//!   manifest that isn't there. A crash between the two leaves the old pointer (none, at
+//!   the first record), and the next record finds the same image again and moves it.
 //! - `baseline` is each content file's size and modification time as of the last record
 //!   (or the end of the last game session): the check before a launch compares the folder
 //!   against it without reading any file.
@@ -133,8 +133,10 @@ pub fn save(store: &Store, instance: &str, state: &ContentState) -> Result<(), I
 
 /// Whether images under `state` (`present`: a state file was there) belong to another
 /// instance than the one created at `created`: a state naming another creation time, or
-/// manifests with no state at all (a deleted instance's folder whose state went first).
-/// A damaged state names nobody, so it never counts.
+/// manifests with no state at all (a deleted instance's folder whose state went first). An
+/// instance's first record writes the state naming it before any manifest
+/// ([`super::recorder`]), so a crash part way through a record never leaves manifests
+/// without one. A damaged state names nobody, so it never counts.
 pub(crate) fn belongs_elsewhere(loaded: &Loaded, has_manifests: bool, created: u64) -> bool {
     match loaded.state.instance_created {
         Some(theirs) => theirs != created,
