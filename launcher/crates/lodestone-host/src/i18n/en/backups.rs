@@ -105,6 +105,28 @@ crate::i18n::messages! {
         BackupFailed = "Backup failed",
         RestoreDone = "Restore done",
         RestoreFailed = "Restore failed",
+        /// Exporting a backup as a file for another computer.
+        ExportLabel = "Export as a file for another Lodestone Host",
+        /// The export dialog; {name} is the backup's name or date.
+        ExportTitle = "Export “{name}”",
+        ExportBody = "Saves this backup as a .lodeimg file that another Lodestone Host can open. Passwords in server.properties are blanked, and files that hold a password or token are left out.",
+        ExportPlugins = "Include plugin settings (they can hold passwords)",
+        ExportPluginsHint = "Everything in the plugins’ folders: settings, databases and player data.",
+        ExportAction = "Export…",
+        /// While the core writes the file.
+        ExportPreparing = "Preparing the file…",
+        /// While the file downloads.
+        ExportSaving = "Saving the file…",
+        /// {name}: the file's name.
+        Exported = "Saved {name}",
+        /// {names}: secrets made empty, as "server.properties: rcon.password".
+        ExportedBlanked = "Made empty: {names}",
+        /// {names}: CurseForge files whose authors don't allow downloads elsewhere.
+        ExportedNotDownloadable = "Not in the file, as their authors don’t allow downloads elsewhere: {names}",
+        /// {names}: settings files left out because they hold a password, a token or a key.
+        ExportedSecretsWithheld = "Left out, as they hold a password or token (the other server writes its defaults): {names}",
+        ExportFailed = "Couldn’t export the backup: {error}",
+        ExportCancelled = "The export was cancelled",
     }
 
     pub enum BackupsPlural {
@@ -113,5 +135,11 @@ crate::i18n::messages! {
         EveryMinutes = ("Every {count} minute", "Every {count} minutes"),
         EveryHours = ("Every {count} hour", "Every {count} hours"),
         EveryDays = ("Every {count} day", "Every {count} days"),
+        /// After "Saved …": how many files the export took out (Lodestone's settings, the
+        /// EULA, server software, crash logs, plugin settings).
+        ExportedLeftOut = (
+            "{count} file that mustn’t leave this computer was taken out",
+            "{count} files that mustn’t leave this computer were taken out"
+        ),
     }
 }

@@ -908,7 +908,7 @@ Works for Fabric, Quilt, Forge and NeoForge servers.
 | World only | The world's folders, after a safety image |
 | World and its mods | The world plus the content it ran with, in one swap (the core's `world_and_mods`: the content files of the data image itself, which needs its content link) |
 | Everything | The whole image (the core's current Everything scope) |
-| As new | A new server or instance beside the original |
+| As new | A new server or instance beside the original; on the core also from a `.lodeimg` file another Host or a Launcher exported ("M6a decisions") |
 
 When the current content differs from a world's linked content, the restore says what
 differs and offers to restore it too (the Launcher's restore, M5; the core's world restore
@@ -948,8 +948,12 @@ object or chunk nothing needs. Import asks the caller whether the disk has room 
 it will unpack, then checks each chunk's and each whole file's SHA-256 before the store
 names anything by it.
 
-- Host to Host: restore as new from an image.
-- Launcher to Host: "Host this" sends the image; the core makes a server from its server view.
+- Host to Host: a backup exported as a `.lodeimg` (its secrets taken out) becomes a new
+  server on another Host (done: "M6a decisions").
+- Launcher to Host: the core makes a server from the server view of a Launcher's `.lodeimg`,
+  with one picked world as its level (done in the core and the GPUI Host's "From a file":
+  "M6a decisions"); the Launcher's own "Host this", which sends it, is milestone 6's second
+  part.
 - Host to Launcher: "Download this world" sends a data image; the Launcher builds the linked
   content image.
 - Launcher to Launcher: share an image file (`.lodeimg`, an exported snapshot, M5), or an
@@ -977,8 +981,53 @@ names anything by it.
   in the local store. The objects endpoint (M3) serves only objects the server's current
   client view names with source `object` (and its client settings' icon and background),
   never any other object of the store by its hash: not a `modrinth`, `base` or
-  `curseforge` entry, a world, a backup's file or another server's; an export of a server
-  that leaves the computer (M6) must strip or withhold those files.
+  `curseforge` entry, a world, a backup's file or another server's. An export of a server
+  that leaves the computer (`POST /instance/{uuid}/backups/{id}/export`) blanks every
+  `server.properties` value whose key says password, secret or token (and
+  `text-filtering-config`) and drops its lines the reader can't parse, blanks Paper's
+  Velocity forwarding secret (`config/paper-global.yml`, and `paper.yml` before 1.19) and
+  Pufferfish's Sentry key, and withholds the plugins' folders unless the owner includes
+  them, Lodestone's own files (its settings hold the Java command and arguments), the
+  console's history, the JVM's crash and dump files, the programs and scripts at the top,
+  known keys to the server and services' logins (proxy forwarding secrets, NeoForge's
+  forwarding mods' settings and any settings at the top of `config/` that name velocity,
+  forwarding or proxy, Paper's `config/legacy-backup/` copy of the old `paper.yml` with
+  its Velocity secret, Floodgate's folder and Geyser's copies of its key and saved logins,
+  database passwords of LuckPerms, CoreProtect, Plan, LiteBans, AuthMe, EasyAuth, Ledger
+  and the map plugins, ServerTap's REST API key, AuthMe's and EasyAuth's players' password hashes, Discord bots'
+  tokens (SDLink's encrypted one with its key too), BungeeGuard's and the vote listeners'
+  tokens and keys, Dynmap's and BlueMap's web pages for a database; "M6a decisions" lists
+  them and the ones checked that hold none), banned
+  players' IP addresses and what the Launcher's export takes out. On top of those named
+  lists, a generic rule withholds every settings file the export would still carry that
+  holds a credential under a name that says so, whichever mod or plugin wrote it
+  (`share::secrets`, "M6a decisions", Credentials found by their names): a key whose words
+  name a password, secret, token or key (`botToken`, `secret-key`, `discord.bot.token`,
+  `[secret] key`) with a value that isn't a placeholder, a value that is a login by its
+  shape (a URL with a password, a Discord webhook or bot token), key and token files by
+  their names (`.token`, `*.pem`, `*.key`, `id_rsa`, `.env`, `credentials.json`,
+  `token.txt`), and settings files too big to read; "Include plugin settings" doesn't change
+  it, since a credential that reaches an outside account or lets someone in never travels,
+  and a server made from a file never takes such a file either. A YAML file it cleans is edited only
+  when every line is in an allowlist of simple block style that SnakeYAML reads the way
+  the editor does (`export::read_simple_yaml`), and withheld otherwise, so no form of YAML
+  (a flow mapping over lines, an escaped key, a byte order mark before a flow mapping, a
+  dotted key Bukkit's settings split into nested ones) can carry a secret past it. A server made from a file never takes those keys or programs,
+  empties the same secrets, places nothing runnable, keeps functions below operator level,
+  takes the operators' files (`ops.json`, Bukkit's `permissions.yml` and `commands.yml`,
+  whose aliases run as the console, and permission mods' and plugins' data: LuckPerms', FTB
+  Ranks', PermissionsEx's, GroupManager's, UltraPermissions', player-roles',
+  ForgeEssentials', Command Aliases') only when the owner asks, sets the settings that would
+  run a file, give operators' powers or move the worlds out of the server's folder to their
+  defaults, deletes a settings file outside the same allowlist, writes `server.properties`
+  again from what its reader parsed (online mode as the `true` or `false` Minecraft reads,
+  which trims nothing from the value), and refuses a file whose `server.properties` or
+  `ops.json` the summary can't read whole as the server would, so the summary shows what
+  the server does and a file's settings give its sender no way in. The reader of
+  `server.properties` follows Java's `Properties` line for line, comments included: a `#`
+  or `!` line while the logical line is still empty (after a line holding only `\`) is a
+  comment that ends with its own line, whatever backslash it ends with, so the setting
+  after it is read as its own and its secret blanked.
 - The core's history API returns labels and paths as they are; a client that shows them
   writes their control and direction characters visibly (as `display_text` does).
 - A Launcher content image takes the whole `config/` folder and every file a pack lists.
@@ -993,8 +1042,9 @@ names anything by it.
   official launcher's account files (`launcher_accounts*.json`,
   `launcher_msa_credentials*.bin`, `launcher_profiles.json` at the top of the game folder,
   which a `.minecraft` folder pasted into an instance brings) and the account files of
-  known account switchers, and names them in `excludes` ("M5 decisions", best effort); milestone 6 must do the same
-  (milestone 4's second half only receives images). The JVM's
+  known account switchers, and names them in `excludes` ("M5 decisions", best effort); the
+  core's export does the same for a server's ("M6a decisions"; milestone 4's second half
+  only receives images). The JVM's
   crash and dump files count as secrets too: it writes them into its working folder, the
   game folder, and a crash log (`hs_err_pid*`) holds the whole command line, the access
   token included. No Launcher snapshot takes them (`hs_err_pid*`, `replay_pid*`,
@@ -1025,7 +1075,15 @@ names anything by it.
    old snapshot store or world backup zips: they are removed. (Done: see "M5 decisions".
    It also has the full-image option.)
 6. Moving images between computers (Host to Host, Launcher to Host, Host to Launcher,
-   Launcher to Launcher).
+   Launcher to Launcher). Done in two parts: first the core's export of a backup as a
+   `.lodeimg` and its import of a Host's or a Launcher's `.lodeimg` as a new server, with
+   the GPUI Host's UI for both (done: "M6a decisions"); then the Launcher's "Host this" and
+   "Download this world", which call those routes. Left for the second part: the
+   Launcher opening a core's `.lodeimg` (today it refuses one plainly, "M6a decisions",
+   Interop), and one known core change (CurseForge downloads stay out of the core: the
+   developer decided so, see "M6a decisions", Making it): a structured end of a creation from a file (the names it couldn't
+   download, in the `InstanceCreation` progression's end value), so a translated
+   "Host this" can say what was left out ("M6a decisions", Not cancelled once made).
 
 Nothing converts old data in any milestone.
 
@@ -2958,3 +3016,677 @@ the world backup zips is read or converted.
   report progress per download, not per byte placed. In launcher-core,
   `DownloadError::Failed` gained `answered` (whether a server answered the last try),
   which imports' `Breaker` reads.
+
+### M6a decisions
+
+Decisions the first part of milestone 6 made where this document left moving a server's
+images open. The code is `core/src/images/share/` (`export.rs`, `uploads.rs`,
+`inspect.rs`, `import.rs`), `core/src/handlers/backups.rs` (the export route) and
+`core/src/handlers/instance_images.rs`; the Host's client is
+`launcher-core/src/cores/admin/images.rs`, its UI `lodestone-host/src/pages/backups.rs`
+(Export…) and `pages/create_instance/image.rs` ("From a file"). M5's Launcher export and
+import are the model.
+
+- **Routes.** `POST /instance/{uuid}/backups/{id}/export` (ReadInstanceFile, like the zip
+  download; body `{ "include_plugin_data": false }`, answer `ExportedBackup`: a key for
+  `GET /file/{key}`, the file's name `<server> - <backup id>.lodeimg` and size, and what it
+  left out, blanked and can't carry, and `secrets_withheld`, the files it left out because
+  they hold a password or token, each a `NameList`: at most 64 names with their count).
+  `POST /instance/image/upload` (CreateInstance; multipart field `file`, a `.lodeimg`; answer
+  `ImageUpload`: an `upload_id` and the file's `ImageSummary`).
+  `DELETE /instance/image/upload/{upload_id}` (CreateInstance, the uploader only).
+  `DELETE /file/{key}` (the user who made the link only): lets go of a download link and
+  deletes the file made for it (a backup's zip or export) at once instead of an hour later;
+  the Host calls it once an export's download ends, however it ends.
+  `POST /instance/create_from_image` (CreateInstance, and WriteGlobalFile when the file
+  carries protected files; `CreateFromImageRequest`: `upload_id`, `image` (the id the
+  summary showed: a file that changed since is 409), `name`, `port`, `accept_eula`,
+  `world`, `keep_operators`, optional `flavour` (one of the summary's `server_choices`),
+  `description`, `min_ram`, `max_ram`; answer the new
+  server's uuid, which comes as an `InstanceCreation` progression whose end message lists
+  what the server didn't get). ts-rs bindings are in `dashboard/src/bindings`; the Tauri
+  dashboard has no UI for them.
+- **The export is a derived image.** It runs while the store's collections are held off
+  (the hold lives in the blocking work, so it lasts to the end of the reads even when the
+  request is dropped first) and only reads the store, writing a temporary file in
+  `<lodestone>/tmp/backup-downloads/` (the carried objects' size checked against the free
+  space first) that `GET /file/{key}` streams and then deletes, like the zip download,
+  which writes there too: no copy of the store. Startup empties that folder in the
+  background (`share::clear_leftovers`: renamed aside at once, then deleted), so a core
+  stopped while writing or before the download doesn't keep a world-sized file. Progress is the bytes of the
+  carried objects read (`container::export_with_progress`), sent as the progression's
+  percent; a dropped request cancels it (the `Preparing` guard both downloads share). Both
+  images are changed and sealed anew, so the export has ids of its own: (1) each data entry
+  whose path and SHA-256 its content image has takes that entry's source, SHA-1, SHA-512,
+  `env` and `env_from`, so Modrinth and CurseForge files travel as references and owner
+  marks and sides travel; (2) `base` sources become `object` (the core's `base` entries are
+  pack overrides, which no importer fetches from the `.mrpack`; the images keep their
+  `base`); (3) the patterns below are taken out of both and added to their `excludes`; (4)
+  secrets are blanked; (5) the label is "<server> – <backup name or time>", no parent,
+  producer core. A backup whose content image is gone exports without one. Backup excludes
+  near the 1,000-pattern budget plus the export's own refuse the export (409) rather than
+  write an invalid manifest.
+- **What an export takes out** (`export::SERVER_PRIVATE`, matched case-sensitively as
+  patterns and in any letter case by `export::is_private`): `.lodestone*` at any depth
+  (Lodestone's settings with the Java command and arguments, the modpack records, the
+  marks file); `/eula.txt` (accepted per person); `/.console_history` (commands the admin
+  typed); the server software, `/libraries/`, `/versions/`, `/*.jar`,
+  `/user_jvm_args.txt` (the importer's installers make their own; an untrusted server jar
+  never runs), every program or script at the top (`/*.sh`, `/*.bat`, `/*.cmd`, `/*.ps1`,
+  `/*.command`, `/*.exe`, `/*.msi`, `/*.dll`, `/*.so`, `/*.dylib`: start scripts hold
+  environment tokens, and Spigot's restart runs a script; a server from a file never takes
+  them either) and the installers' logs, `/forge-installer.log`, `/installer.log`,
+  `/*.jar.log` (Forge's and NeoForge's installer writes them on every server it makes,
+  and again on the importer's); the JVM's `/hs_err_pid*`, `/replay_pid*`,
+  `/java_pid*.hprof`, `/*.mdmp`, `/core`, `/core.*` and `share::is_jvm_crash_name`; the
+  files that hold a key to the server or a service's login
+  (`export::is_way_in`, which a server made from a file never takes either): Velocity's
+  `/forwarding.secret`, the forwarding settings `/config/FabricProxy-Lite.toml`, the old
+  FabricProxy's `/config/FabricProxy.toml` and Proxy Compatible Forge's settings
+  (`/config/proxy-compatible-forge.toml` since 1.2.0, where it reads `forwarding.secret`
+  with forwarding on by default, `/config/proxy-compatible-forge.cfg` for Minecraft
+  1.12.2, `/config/pcf-common.toml` before), NeoForge's forwarding mods' settings
+  (NeoVelocity's `/config/neovelocity-common.toml`, whose `forwarding-secret` it trusts
+  whatever `online-mode` says, and NeoForwarding's `/config/neoforwarding-server.toml`),
+  and every file or folder at the top of `config/` whose name says velocity, forwarding or
+  proxy in any letter case (`/config/*velocity*`, `/config/*forwarding*`,
+  `/config/*proxy*`: new forwarding mods keep appearing), Paper's
+  `/config/legacy-backup/` folder (when Paper moved a server to 1.19's settings it moved
+  the old `paper.yml` there as `paper.yml.old`, which still holds
+  `settings.velocity-support.secret`, the secret `paper-global.yml` took over; Paper never
+  reads the folder again), Floodgate's whole folder as a mod or a plugin
+  (`/config/floodgate/`, `/plugins/floodgate/`: whoever holds its key joins as any
+  Bedrock player through their own Geyser, and its `config.yml` names the key's file
+  (`key-file-name`), so a key under any other name, `k2.pem`, would be read as surely as
+  `key.pem`; without the folder Floodgate writes its defaults and a new key), and in
+  Geyser's folders every `.pem` (`/config/Geyser-*/*.pem`, `/plugins/Geyser-*/*.pem`: a
+  copy of Floodgate's key, under the name Geyser's `floodgate-key-file` gives) and
+  `saved-refresh-tokens.json` (the Microsoft logins Geyser keeps for Bedrock players);
+  and the settings of plugins and mods that hold a database's password, a bot's token or
+  a token that lets its holder in (each folder as `config/<folder>/` and
+  `plugins/<folder>/`, in any letter case; `export::WAY_IN_SETTINGS`): LuckPerms'
+  (`/config/luckperms/luckperms.conf`, `/plugins/LuckPerms/config.yml`: its database
+  password, and its database decides every permission), the Discord bots of DiscordSRV,
+  EssentialsX Discord and Discord Integration (`/plugins/DiscordSRV/config.yml`, the
+  copies of it DiscordSRV keeps when it updates its settings, `config.yml-build.<version>.old`
+  with the token still in them (any name beginning `config.yml` in its folder,
+  `/plugins/DiscordSRV/config.yml*`), and `/plugins/DiscordSRV/.token`, which DiscordSRV
+  reads before its settings' `BotToken`,
+  `/plugins/EssentialsDiscord/config.yml`, Discord Integration's
+  `/config/Discord-Integration.toml` as a mod and `/plugins/DiscordIntegration/config.toml`
+  as a plugin: the bot's token, whose Discord users, or its admin roles, can run
+  commands), CoreProtect's, Plan's and LiteBans'
+  databases (`/plugins/CoreProtect/config.yml`, `/plugins/Plan/config.yml`,
+  `/config/plan/config.yml`, `/plugins/LiteBans/config.yml`), ServerTap's REST API key
+  (`/plugins/ServerTap/config.yml`: its bare `key:` authenticates every call, the one that
+  runs console commands included), AuthMe's whole folder
+  (`/plugins/AuthMe/`: its database and mail passwords, and its players' password
+  hashes), BungeeGuard's tokens (`/plugins/BungeeGuard/config.yml`: whoever holds one
+  joins through their own proxy), and Votifier's and NuVotifier's tokens and keys
+  (`/plugins/Votifier/config.yml`, `/plugins/Votifier/rsa/`, the same under
+  `NuVotifier/` and `/config/nuvotifier/`: votes give rewards); and the map plugins'
+  databases: BlueMap's whole storages folder (`/config/bluemap/storages/`,
+  `/plugins/BlueMap/storages/`: every storage's file, whatever its name) and its web page
+  for SQL (`sql.php` at any depth: its web root can be moved), Dynmap's
+  `/dynmap/configuration.txt` and `/plugins/dynmap/configuration.txt` and its
+  `web/standalone/` folder as a mod and a plugin (`/dynmap/web/standalone/`,
+  `/plugins/dynmap/web/standalone/`: Dynmap writes the database's password into
+  `MySQL_config.php` or `PostgreSQL_config.php` there at every start, so the folder comes
+  back; those two names go at any depth, wherever its web path was moved); and the Discord
+  bots and logins of mods: Simple Voice Chat Discord Bridge's bots' tokens
+  (`/config/voicechat-discord.yml` as a mod, `/plugins/voicechat-discord/config.yml` as a
+  plugin), SDLink's settings (`/config/simple-discord-link/`: its bot token, encrypted,
+  and the Discord roles that run commands) and the key that decrypts the token
+  (`/sdlinkstorage/`, `sdlink.enc`), EasyAuth's database folder (`/EasyAuth/`: its
+  players' password hashes, in `easyauth.db` by default) and settings
+  (`/config/EasyAuth/`: its MySQL, PostgreSQL and MongoDB logins in `storage.conf`, its
+  proxy's shared secret in `proxy.conf`), and Ledger's `/config/ledger.toml` (its
+  database extension's password); Discord-MC-Chat's bot token (2.x's
+  `/config/discord-mc-chat.json`, the `/config/discord-mc-chat-backup.json` it makes when
+  it upgrades them, 3.x's `/config/discord_mc_chat/` folder), Mc2Discord's
+  (`/config/mc2discord.toml`), and Tebex's store key, which runs the store's commands on
+  the server (`/mods/tebex/` as a mod, `/plugins/Tebex/config.yml` as a plugin, the old
+  `/plugins/BuycraftX/`). Checked and left as they are, holding no credential:
+  Simple Voice Chat itself (its addon Simple Voice Chat Discord Bridge holds bots' tokens,
+  above), Chunky, squaremap, spark,
+  EssentialsX's own settings, CrossStitch (Velocity's argument types for Fabric). The
+  other plugins' settings go with "Include plugin settings" only, and a mod's config
+  folder travels, but neither ever carries a file the generic rule finds a credential in
+  (Credentials found by their names, below). A server from a file never takes any of these
+  either. `/banned-ips.json` (banned
+  players' IP addresses: personal data, and meaningless on another network;
+  `banned-players.json` travels); a player's files (`share::PLAYER_PRIVATE`, the list the
+  Launcher's export takes out, matched in any case by `share::is_player_private`), for a
+  server made from a game folder: `command_history.txt`, `hotbar.nbt`, `ias.json`,
+  `essential/microsoft_accounts.json`, `essential/mojang_accounts.json` at any depth, and
+  the official launcher's `/launcher_profiles.json`, `/launcher_accounts*.json` and
+  `/launcher_msa_credentials*.bin`; and `plugins/*/`, every plugin's folder (settings,
+  databases, player data), unless the owner turns on "Include plugin settings (they can
+  hold passwords)" (the Host offers it for Paper and Spigot servers; Floodgate's folder stays
+  out even then). Plugin jars travel. Logs, crash reports and caches are never
+  in a manifest. The answer lists the paths taken out; the Host's toast only counts them,
+  beside the secrets made empty and the files that hold a password or token, which it
+  names.
+- **Blanked, not withheld.** `server.properties` is written again from its properties alone
+  (`export::rebuilt_properties`), last value winning as Java reads them, with every key
+  whose name says password, secret or token (`rcon.password`, `management-server-secret`
+  among them) and `text-filtering-config` (its JSON holds the filtering service's API key)
+  empty, so comments, repeated keys (an old password a later line overrides, one commented
+  out) and lines the reader can't parse (`rcon.password=x\uD800`: Java's `Properties`
+  takes unpaired surrogates, the reader doesn't) never travel; Minecraft rewrites the file
+  at its next start anyway. It is read with every line break Java's `Properties` takes (a
+  lone carriage return too), so a password after one isn't read as part of the line
+  before, and a `#` or `!` line after a line holding only `\` is a comment that ends with
+  its own line, as Java reads it, so the password on the next line isn't read as part of
+  the comment's value (`PropertiesDocument::parse`). YAML files (`export::YAML_SECRETS`) get their values emptied in place: `secret`
+  in Paper's `config/paper-global.yml` and, before 1.19, `paper.yml` (the Velocity
+  forwarding secret), and `sentry-dsn` in `pufferfish.yml`. The cleaned copy is stored as
+  an unnamed object (collected later) and the entry names the blanked keys in an unknown
+  field, `"blanked": ["rcon.password", …]` (at most 8 keys of at most 64 bytes, within an
+  entry's budget; readers keep it), which the importer's summary shows.
+  **The YAML editor reads an allowlist** (`export::read_simple_yaml`): a YAML file it
+  cleans or pins is edited only when every line is in a strict subset of block style that
+  SnakeYAML (which Paper, Spigot and Bukkit use) provably reads the way the editor does,
+  and is otherwise withheld whatever it holds. Three rounds found a way past checks that
+  looked for odd forms (a flow collection over several lines, an escaped key, a byte order
+  mark before a flow mapping), so nothing is looked for: anything not allowed is out. The
+  subset: one byte order mark at the start at most (read past, as SnakeYAML does, and kept
+  in the copy), no other U+FEFF, no control character but the tab (in comments only), no
+  line break but `\n` and `\r\n` (no lone carriage return, U+0085, U+2028, U+2029);
+  indentation by spaces; at most one `---`, before everything else, and no other document
+  marker or directive; every other line blank, a comment, a key or a list item. A key is
+  plain or quoted without escapes (`''`, `\`), of ASCII letters, digits, `_`, `-` and
+  spaces, beginning with a letter, a digit or `_` (or such parts joined by colons, a
+  namespaced id: Paper 1.21.4 writes `minecraft:elytra:`), and never with a `.`: Bukkit's
+  settings (Spigot's, Bukkit's, the old `paper.yml`'s, Pufferfish's) split every key at
+  its dots, so a top-level `settings.restart-script:` after the nested `settings:` is
+  Spigot's restart script to them (and `settings.world-container:`,
+  `settings.permissions-file:` Bukkit's, `settings.velocity-support.secret:` the old
+  Paper's forwarding secret), out of the sight of an editor that matches one key at a
+  time; the files Bukkit saves nest their keys, so a real one has no dotted key, followed by `: ` and its value or
+  `:` alone, so no `?` or merge key, tag, anchor or alias. A value is a plain scalar on its
+  line (no indicator first, no `: `, no `:` at its end, a comment only after a space),
+  wrapped onto following lines more indented than its key that only go on with it (no
+  indicator first, `: `, comment or tab: Paper writes its long `no-permission` message so);
+  a single-quoted scalar, which may go on over following non-blank lines more indented than
+  its key up to its closing quote (`paper.yml` before 1.19 wraps one so); a double-quoted
+  one on its line; a one-line flow collection, only `{}` or a list of scalars (`[]`,
+  `[a, 'b']`, `[minecraft:elytra]`; a quote inside a plain item, `a"b`, is refused, not
+  read as the start of a quoted one); or a block scalar (`|`, `>`, with `-` or `+`), every
+  non-blank line of which is more indented than its key and at least as indented as its
+  first. A list item is one such scalar on its line (no `- key: value`, nested list or `-`
+  alone), at its key's indentation or deeper. A deeper line comes only under a key with an
+  empty value or going on with a value, and a less indented one must return to an
+  indentation a line above opened. So every key SnakeYAML finds is a line's key here, at
+  its line, and the lines the editor drops with a key's old value (`KeyLine::end`: its
+  wrapped or block scalar's lines, or the keys and items under it) come from the same
+  reading of indentation. Keys are matched in any letter case at any depth. The settings
+  files Paper, Spigot and Bukkit write today (`paper-global.yml` and
+  `paper-world-defaults.yml` of Paper 1.20 and 1.21, `spigot.yml`, `bukkit.yml`,
+  `commands.yml`, the old `paper.yml`, `pufferfish.yml`) are all in the subset and travel
+  cleaned (`real_settings_files_are_read_and_cleaned`). A copy of any of these files that
+  can't be cleaned (over 1 MiB, unreadable from the store, a YAML file that isn't UTF-8 or
+  isn't in the subset) is withheld instead: taken out of both images, its exact path
+  (`/config/paper-global.yml`) added to their `excludes` and listed in the answer's
+  `left_out`, so a file that leaves the computer never carries those secrets.
+  Beyond these and the named bots', databases' and forwarding mods' settings above, the
+  generic rule below withholds any other settings file with a credential in it; the export
+  dialog says so ("Passwords in server.properties are blanked, and files that hold a
+  password or token are left out").
+- **Credentials found by their names** (`share::secrets`, on top of the named lists, which
+  stay: they also cover files with no credential key, a database or a key under another
+  name). Four rounds of checks each found more mods and plugins whose settings hold a bot
+  token, a store key, a proxy's forwarding secret or permission data the lists didn't
+  know, and the lists will never be complete, so an export also reads every file it would
+  still carry and withholds one that holds a credential, whatever the "Include plugin
+  settings" option says (a credential that reaches an outside account or lets someone in
+  never travels), and a server made from a file never takes one (below).
+  *Which files*: every file whose extension is `.toml`, `.yml`, `.yaml`, `.json`,
+  `.json5`, `.jsonc`, `.properties`, `.conf`, `.cfg`, `.hocon`, `.ini`, `.env`, `.snbt`
+  or `.txt` (any letter case) anywhere outside the worlds, and in a world's
+  `serverconfig/` (Forge's per-world settings), plus files with no extension in a settings
+  folder (`config/`, `plugins/`, `defaultconfigs/`, a folder in `mods/`, a world's
+  `serverconfig/`: Plasmo Voice's `forwarding-secret`). A copy of a settings or key file
+  is read as the file it was made from (`secrets::underlying_name`): when a name's own
+  extension is neither read, a key's nor plainly data, it is judged by the first settings
+  or key extension in it that a separator (`-`, `_`, `.`, `~`, a space, `(`, `+`, `,`) or
+  the name's end follows, so DiscordSRV's `config.yml-build.1.28.0.old` (it moves its
+  settings there when it updates them, token and all, and its `messages.yml`,
+  `voice.yml`, `linking.yml`, `synchronization.yml` and `alerts.yml` likewise),
+  `config.json.bak`, `settings.toml~`, `config.yml.disabled`, `bot.token.old` and
+  `server.properties.old` are read or withheld as their originals are; `mods/x.jar.disabled`
+  and `icon.png.bak` are not read. Not `server.properties` and the
+  YAML files of `YAML_SECRETS`, which keep their precise blanking (edited, not withheld),
+  and not a Modrinth or CurseForge file, which travels as a reference to its public bytes.
+  *How a file is read* (`secrets::find_credential`): JSON, JSON5, JSONC and SNBT by their
+  tokens (strings, bare words, braces, brackets; comments skipped), every other format
+  line by line, following YAML's indentation, TOML's and INI's `[sections]`, HOCON's and
+  Forge `.cfg`'s braces, lists (`- item`, `[`…`]`, `.cfg`'s `<`…`>`), Forge's type letters
+  (`S:botToken=`), `.env`'s `export` and `.properties`' `key value`; a block scalar or a
+  TOML multi-line string is judged by its first line. A file it can't follow is still read
+  line by line, which errs towards finding a credential. Each key is judged with the key
+  above it (`secret: { key: … }` is a secret key).
+  *Which keys* (`secrets::credential_key`): the key is split into words at separators,
+  dots and camelCase (`botToken`: bot token, `secret_key`, `apiKey`, `rcon.password`); it
+  names a credential when its last word is `password`, `passwd`, `passphrase`, `secret`,
+  `token`, `credential(s)`, `webhook`, `apikey` (or a word ending in one: `bottoken`,
+  `rconpassword`; plurals too: `allowed-tokens`), `pwd`, `bearer` or `dsn`; when it is
+  `key` after `api`, `secret`, `private`, `license`, `access`, `auth`, `store`, `server`,
+  `signing`, `encryption`, `client`, `master`, `shared`, `hmac`, `rcon`, `bot`, `webhook`,
+  `session` and a few services' names (also as one word: `secretkey`; the word before may
+  be the parent key's last); `pass` after a word that makes it a password (`db`, `mysql`,
+  `rcon`, `smtp`, `user`, `admin`…); `url` after `webhook`; or `value` (`string`, `text`,
+  `data`) under such a key. Bare `key`, `keys` or `pass` only in a file where a key whose
+  words include `auth` is switched on (`useKeyAuth: true`, `auth: true`; ServerTap's REST
+  API `key:` authenticates its calls), never otherwise; nor a key whose last word only
+  begins like one (`keyFileName`, `keepInventory`, `passive`, `tokenExpiry`,
+  `forwarding-secret-file`, `passwordMinLength`). A `dsn` that is a database's address
+  with no login in it (`jdbc:mysql://localhost/worldguard`: no `user@` and no
+  `password=`) doesn't count; a Sentry DSN, its key before an `@`, does.
+  *Which values* (`secrets::real_value`): a placeholder doesn't count: empty or blank, a
+  boolean, `~`, a number of fewer than 8 digits (`max-tokens: 64`), one character
+  repeated (`xxxxxx`, `******`), a reference (`${BOT_TOKEN}`, `{{token}}`, `%token%`,
+  `<token>`, `[]`, `{}`), `changeme`, `changeit`, `none`, `null`, `default`, `example`,
+  `password`, `token`, `secret`, `key` and the like, passwords settings files ship with
+  (HuskHomes' `pa55w0rd`, `passw0rd`, `password123`, `defaultpass`, `guest`), the key's own
+  name or last word (`BOT_TOKEN` for `botToken`, `TOKEN`), a value that repeats the value
+  of a key in the same file naming a user or a database (`username`, `user`, `login`,
+  `database`, `db`, `db-name`: WorldGuard's `password: worldguard` beside `username:
+  worldguard`), and an instruction (`your-token-here`, `INSERT-TOKEN-HERE`,
+  `INSERT BOT TOKEN HERE`, `Paste your key`). A password is not discounted because the
+  settings say its database isn't in use (HuskHomes' `type: SQLITE`, WorldGuard's
+  `use: false`): a real password the owner once set stays a real password, so such a file
+  is withheld, named in `secrets_withheld`, rather than sent. So the defaults of a
+  fresh install, whose secrets are empty or such placeholders, travel: DiscordSRV's
+  `BotToken: ""`, EssentialsX Discord's and Discord Integration's `INSERT…HERE`, Plan's
+  `Password: password`, LuckPerms' `password: ''`, FabricProxy-Lite's `secret = ""`,
+  Sponge's `secret=""`, HuskHomes' (as a mod and a plugin), WorldGuard's, ServerTap's
+  `key: 'change_me'`, Simple Voice Chat, Chunky, spark, Geyser, Forge's server settings
+  and Paper's, Spigot's and Bukkit's (`real_default_settings_hold_no_credential`).
+  *Values that are logins by their shape*, whatever the key (`secrets::credential_value`):
+  a URL with a password (`mongodb://user:secret@host`, unless the password is a
+  placeholder), a `password=` parameter of a JDBC URL, a Discord webhook URL with its token
+  and a Discord bot token.
+  *By name* (`secrets::withheld_by_name`), files that are a credential with no keys,
+  anywhere but in a world's region, entity and POI data: `.token` and `*.token`, `*.key`,
+  `*.pem`, `*.p12`, `*.pfx`, `*.jks`, `*.keystore`, `*.secret`, `*.kdbx`, `id_rsa*`,
+  `id_ed25519*`, `id_ecdsa*`, `id_dsa*`, `.env*`, `.netrc`, `.pgpass`, `.htpasswd`,
+  `credentials`, `credentials.json`, `token.txt`, `secret*.txt`, and a `.txt` file or one
+  with no extension whose name is a credential key (`bot-token.txt`, `forwarding-secret`).
+  *Too big* (`secrets::too_large`, over `secrets::MAX_SCANNED_FILE`, 4 MiB): a file the
+  scan would read, and any file in a settings folder whose extension isn't plainly data
+  (`.jar`, `.zip`, `.gz`, images, sounds, fonts, `.nbt`, `.dat`, `.mca`, `.mcr`, `.mcc`,
+  schematics, and databases, `.db`, `.sqlite`, which the scan never reads at any size),
+  is withheld rather than sent unread.
+  A file withheld so is taken out of both images, its exact path added to their
+  `excludes` (so it is in `left_out` too) and listed in the answer's `secrets_withheld`,
+  which the Host's toast names ("Left out, as they hold a password or token (the other
+  server writes its defaults): …"); the log names the file and the key, never the value.
+  A file the export can't read from the store is withheld too.
+- **Large writes share the disk.** Every large write (a file written into `tmp/` for a
+  download link: a folder zipped, a backup zipped or exported; an upload arriving; a
+  server being made from a file, from its unpack to the end of placing its files)
+  reserves what it is still to write in one count per core
+  (`util::disk::LargeWrites`, `ImageService::large_writes`), and each write's free-space
+  check asks for what all the others still need too, so no two writes at the same time
+  ever count on the same space (an export no longer passes its check against space an
+  import is filling, nor the reverse). A user's links may hold at most 3 backup files (zips and exports, counting those
+  being written; `global_fs::MAX_BACKUP_FILES_PER_USER`, as `MAX_ZIPPED_FOLDERS_PER_USER`
+  caps zipped folders; more are 429), so repeated requests can't keep the disk at its
+  margin for the links' hour; the place goes with the write onto its blocking thread, so a
+  dropped request doesn't free it before the write ends. `DELETE /file/{key}` frees one at
+  once: the Host lets go of each backup file it saved, zip or export, once its download
+  ends however it ended (and of an export whose task was dropped, from a drop guard), so
+  files it already saved never hold the user's places.
+- **Zips kept.** The plain backup zip (`…/download`) and the world zip download stay: they
+  are for using a world outside Lodestone.
+- **Uploads.** Streamed into `<lodestone>/tmp/image-uploads/image-*.lodeimg` (wiped at
+  start), at most 64 GB (the container's own limit), refused at once when the request's
+  `Content-Length` says more or the disk can't take it, the free space checked again every
+  256 MiB written; then read on a blocking thread. At most 4 arrive at once and 2 of one
+  user's (more are 409), and each one arriving reserves its declared size, less what has
+  arrived, among the core's large writes (`uploads::Receiving`), so it never counts on the
+  same space as another upload, an import or an export. Kept an hour
+  for the uploader alone, at most 2 of each user's (their own oldest goes: one user's
+  uploads never push out another's); creating a server forgets it once placed, the Host
+  discards it when the person backs out or closes the dialog (and when Cancel is pressed
+  as the core answers: the file it took is discarded), and a task deletes uploads past
+  their hour every 5 minutes (`Uploads::prune_periodically`), so a file whose uploader
+  went away doesn't keep its space until the next upload. Wiping the folder at start runs
+  in the background (`share::clear_leftovers`). Uploads let go of are deleted outside the
+  uploads' lock, on a blocking thread (a file of up to 64 GB can take seconds to unlink).
+  Files are read one at a time (`Uploads::reading`, for the upload and for the creation's
+  second read): a small file can unpack to manifests of 512 MiB and a million entries,
+  which reading holds several times over. The turn (an owned permit) and the upload's slot
+  among those arriving go into the blocking read, so a client that hangs up mid-read
+  doesn't free them for the next file while its read goes on. At most one server is made
+  from an upload at a time (`Uploads::take`; another request for it is 409 "A server is
+  already being made from this file" until that creation ends, however it ends), so a
+  client retrying can't queue creations that each hold a file's manifests and plan in
+  memory while they wait for their turn to place.
+- **Reading a file** (`inspect`): the container's checks, then a file is refused (400) for
+  a `.lodestone*` name at any depth, a top-level `mods`, `config`, `defaultconfigs`,
+  `kubejs`, `plugins`, `libraries`, `versions` or `saves` spelled with other than ASCII
+  letters (`share::spelled_like`), a Minecraft or loader version `share::plausible_version`
+  refuses, more than `share::MAX_DOWNLOADS` (20,000) distinct downloads, two paths that are
+  one on a disk that ignores letter case (`paths::case_collisions`: a server made from it
+  would hold one of them on macOS and Windows and both on Linux, where the summary could
+  read `OPS.JSON` and the server `ops.json`), or a top-level settings file
+  (`import::SETTINGS_FILES`: `server.properties`, `ops.json`, `permissions.yml`,
+  `commands.yml`) spelled in other letters than the server reads it (`SERVER.PROPERTIES`)
+  or over 1 MiB. `server.properties` and `ops.json` are read by their exact names before
+  anything is imported (`Container::read_object`, at most 1 MiB, checked by SHA-256; a
+  file whose copy can't be read whole is refused, so a padded `server.properties` can't
+  turn online mode off unseen; a server takes them, and `permissions.yml` and
+  `commands.yml`, only from the file's own bytes, never as a download, so the summary
+  describes what is placed). `server.properties` is read with Java's line breaks, as it
+  is placed; `offline_mode` is set when `online-mode` is anything but exactly `true` (any
+  letter case, nothing around it), as Minecraft reads it (`Boolean.valueOf` on the value
+  as `Properties` parsed it, which trims nothing: `online-mode=\ true` with an escaped
+  space, an escaped tab or a no-break space before `true` is off, though a reader that
+  trims Unicode whitespace would call it on). Starting a server reads its `online-mode` and
+  `enable-rcon` the same way (`server::LaunchSettings`: the default when the key is
+  missing, otherwise on only for `true`), so Lodestone's own player lookups agree with
+  the server. A file is refused when its `server.properties` has any
+  line the reader can't parse (`inspect::check_properties`: a malformed or
+  unpaired-surrogate `\u` escape, an empty key; the line isn't shown, it may hold a
+  password): Java's `Properties` may still read it (`online-mode=false\uD800`, which
+  Minecraft reads as off), and the summary would say online mode is on; a server takes the
+  file written again from the parsed properties alone, so nothing unparsed reaches it
+  either. An `ops.json` that strict JSON can't read as a list of objects (a byte order
+  mark, text after the list, a comment, a key twice in an entry: Minecraft's Gson reads
+  some of these) is refused too, rather than shown as no operators; an empty one has none.
+  These are the only settings files the summary reads (`permissions.yml`, `commands.yml`
+  and LuckPerms' data are named, not read), and the only ones the import edits are
+  `server.properties` (rebuilt) and the YAML files of `YAML_SECRETS` and `PINNED_YAML`
+  (the allowlist above, deleted when outside it), so no file the core can't read passes
+  through it to the server. `operators` lists every `ops.json` entry (ops are kept by
+  uuid: a name, with the uuid when another entry has that name too, or the uuid of an
+  entry with none), the file's `permissions.yml` and `commands.yml`, and the permission
+  mods' and plugins' data it has (each shown once by its folder, `plugins/LuckPerms/`,
+  `saves/world/serverconfig/ftbranks/`, or file, `config/roles.json`), which
+  `keep_operators` also takes. The summary: who made it
+  (`made_by` from the producer: it only steers the dialog), game, loader and flavour, the
+  server Lodestone makes and why not, worlds with sizes and the default (a Host's level, a
+  Launcher's last played), the sender's excludes and withheld files, blanked keys (a
+  `NameList`, counted up to 100,000), what a
+  server never takes, the operators and offline mode. What the server takes is worked out
+  by `import::plan` for the default world (the whole file's when no server can be made):
+  the mods it downloads from Modrinth and their size, its CurseForge mods and the ones it
+  can't get, `carried_mods` (mod and plugin files it takes whose bytes the file carries:
+  the trust warning names them; a Launcher jar that says it runs only on clients is only
+  found once placed, so it is still named), `client_only` (mods left out as their server
+  side is `unsupported`), whether WriteGlobalFile is needed, scripts skipped,
+  `unpacked_bytes` and `needed_bytes` (creating the server checks the free space again for
+  the world picked, so the Host doesn't stop Create when only the default world doesn't
+  fit), `server_mods` (every mod and plugin file it takes, from any source: the Host's
+  trust warning, "It has N mods or plugins: programs that run on the server. Only use
+  files from people you trust.", shows whenever there is one, as the Launcher's import
+  does, with the carried ones named and the Modrinth ones listed on the download line; a
+  file with none that still carries protected files of its own, jars or programs, gets
+  "It has protected files of its own … Only use files from people you trust.") and
+  `secrets_not_taken` (the `is_way_in` files the file has, and every file the generic
+  rule finds holding a credential: `inspect::credential_files`, below). Create stays off while the
+  file carries protected files the person may not add, which the core always refuses. Every text goes through `display_text`, but a world's `folder` comes as the file
+  names it, an id the request sends back, beside `folder_shown`, written visibly; lists
+  hold at most 64 names. The core's prose fields (`unsupported`, `server_note`) are for
+  the dashboard: the Host writes its own, translated, from the loader and flavour, and the
+  Paper note only while Paper is picked.
+- **Which server.** Fabric, Forge and NeoForge images make those servers; a vanilla game
+  makes a vanilla server, or Paper when its flavour is Paper, and Paper for the Bukkit
+  family's other servers (Spigot, Bukkit, Purpur, Folia: they run its plugins and share its
+  world layout; the core can't make Spigot servers), which the summary says. A vanilla
+  game's file may become either (`server_choices` is `["Vanilla", "Paper"]`, and the
+  request's `flavour` picks; the Host offers "Server software" then), so a player's
+  singleplayer world can be hosted on Paper for plugins, its world split the Paper way; a
+  modded game's only makes its own loader's server (another `flavour` is 400). Quilt and
+  unknown loaders are refused ("Lodestone can't make Quilt servers"). The loader version is
+  the file's when it can still be downloaded, else the newest, as the folder import does
+  (`ServerSetup::resolve`).
+- **The server's view, never software or the EULA** (`import::plan`, pure and run before
+  anything is made): the placed entries (the image's over its content link's) in the
+  server's view, by the shared crate's own rule (`view::in_view(entry, Side::Server)`: a
+  path a server can hold, whose server side isn't `unsupported`; a player's own files and
+  client-only mods are left out), which `inspect` uses too. A Host's file is a server's
+  own folder, so its files at a server's path all stay, client-only mods included: those
+  were the mods the old server gave players ("For players"), and the new server's client
+  view gives them to players too (dropping them would stop players getting them). Never
+  server software (every program or script at the top included), `eula.txt` (the EULA is
+  accepted only when the request says the user ticked it), `ops.json`, Bukkit's
+  `permissions.yml` (which can give every player the operator commands) and Bukkit's
+  `commands.yml` (its aliases replace any command, and run their commands as whoever typed
+  it: the core types `stop`, `save-off` and `save-all` into the console, so an alias of
+  `stop` would run as the console when the owner stops the server; without it the server
+  writes its defaults), and permission mods' and plugins' data
+  (`import::is_permissions_data`): LuckPerms' (everything in `config/luckperms/` or
+  `plugins/LuckPerms/` but its settings, which are a way in: its H2 or SQLite database,
+  `yaml-storage/` and `json-storage/` decide who has which permission, `*` included); FTB
+  Ranks' ranks and players in any world's `serverconfig/ftbranks/` and the pack's
+  `defaultconfigs/ftbranks/` (copied into a new world: its `command.*` nodes override any
+  command's permission level, `command.op` among them) and FTB Utilities' rank files in
+  `local/ftbutilities/`; the folders of PermissionsEx, GroupManager, UltraPermissions,
+  bPermissions, zPermissions and PowerRanks (`plugins/<folder>/`); player-roles'
+  `config/roles.json` (roles that give commands and operator powers); ForgeEssentials'
+  `ForgeEssentials/` folder and its world data (`<world>/FEData/`: permissions and
+  groups); and Command Aliases' `config/commandaliases*` (aliases that can run any command
+  as the console, like Bukkit's `commands.yml`); unless `keep_operators` (off by default:
+  an operator runs any command; `import::is_operators_file`), each named in the summary's
+  operators by its folder (`saves/world/serverconfig/ftbranks/`, `plugins/PermissionsEx/`)
+  or file, scripts unless the
+  owner may add them while code execution is on (counted), nor a file that has no bytes
+  and no source this core downloads. Every file is placed without its execute bits
+  (`mode & 0o666`), so nothing the sender placed runs as a program by name.
+  Launch settings never come from a file: `.lodestone*` is refused, and the installer
+  writes the server's own.
+- **Worlds.** A Host's file keeps every world; its level is the request's `world` or the
+  file's `level-name`. A Launcher's file gives only the picked world, renamed to the
+  server's level (`ServerLayout::unused_level` of the other top-level names, normally
+  `world`); none when `world` is left out (the server makes a new one). Worlds are laid out
+  in the server layout, split the Paper way for a Paper server; a file the layout can't
+  place (a world named like server content) is refused before anything is made. The
+  singleplayer player's inventory in `level.dat` doesn't become a server player's.
+- **Making it.** Every new server goes through `ServerSetup` (`AppState::server_setup`):
+  `Installers` in the core, `FakeSetup` in tests, so creating, importing and making from an
+  image are tested with no network, no server jar and no EULA. A file's server goes
+  through this creation flow (the installer, then `materialize` straight into the folder
+  `.lodestone_creating` guards), not restore-as-new's staging and rename
+  (`backups::restore::stage_all`): restore-as-new copies the backup's server software and
+  Lodestone files and runs no installer, while a file gives neither and the installer
+  must run first. The installer sets the server up in its new folder; then, one creation
+  from a file at a time (`Uploads::placing`: each counts on the free space it checks), with
+  collections held off from the import of the objects to the end of placing them: the
+  objects the plan's files name are imported (`Container::import_objects_where_verified`,
+  every byte checked, the objects the store already has too: a file must carry every byte
+  it places, or a hash and a size alone would get another server's file out of the shared
+  store; a Launcher file's other worlds, a player's files and client-only mods are never
+  unpacked; the creation reserves these, the downloads and the placed files among the
+  core's large writes until its files are placed, and the free-space check asks for them
+  plus what the other large writes still need); every
+  Modrinth entry with a SHA-512 and its own project's and version's canonical CDN URL
+  (`inspect::names_modrinth_file`, the Launcher's rule) is downloaded once per file and
+  claimed source, 8 at a time, through `<server>/.lodestone-download-<n>`, its size and
+  SHA-512 checked, then stored and its SHA-256 checked; a download that fails is logged and
+  the import goes on, and after 8 failures in a row no new one starts (the core's
+  downloads don't say whether anyone answered); an entry no download confirmed is placed
+  from the file's own bytes as a plain file, or left out and listed; confirmed files are noted
+  as Modrinth's, so the first content image records their sources. The core has no
+  CurseForge client (it has no CurseForge API key; the Launcher's is compiled into the
+  Launcher), so a CurseForge file is placed only from bytes the file carries, and the rest
+  are left out and listed: the Host's summary says so plainly as a warning ("Lodestone
+  servers can't download from CurseForge yet, so these files won't be installed"). This
+  differs from the brief, which asked for CurseForge downloads: the developer decided that
+  CurseForge downloads stay out of the core for now, so they are out of scope (no
+  CurseForge key or client in the core). The core's own content images
+  never record CurseForge sources, so only a Launcher's file loses mods this way. The
+  installer's `server.properties` is deleted when the file has one, the free space is
+  checked once more for the placed files (the downloads took their share), and the files
+  are materialized straight into the folder, each created new, so nothing the installer wrote
+  is overwritten: a file the installer already wrote (a loader's log, say) keeps the
+  installer's copy and the file's is skipped, rather than failing the creation.
+  Then a Launcher file's placed `mods/*.jar` whose server side nothing knew is deleted
+  when its own
+  `fabric.mod.json` or `quilt.mod.json` says client only (a server loading it crashes;
+  jars that declare nothing stay, and Forge's are read as the recorder reads them,
+  without this check; a Host's file keeps its jars as its server had them);
+  `server.properties` is read with Java's line breaks, written again from the properties
+  the reader parsed alone (`export::rebuilt_properties`: no comment, repeated key or line
+  it couldn't parse reaches the server) and pinned (the port, `query.port` set
+  to the same port (the old computer's could be another server's query listener here),
+  `level-name`, an empty `server-ip` (the old computer's address wouldn't bind here),
+  every secret empty, `enable-rcon=false`, `management-server-enabled=false`,
+  `online-mode` written as the `true` or `false` Minecraft reads from it (so the placed
+  file says plainly what the summary showed: `\ true` is placed as `false`), and
+  `function-permission-level` at most 2, Minecraft's default: at 3 or 4 a world's datapack
+  could run `/op`); the YAML secrets an export blanks are emptied in the placed copies
+  (Paper's Velocity forwarding secret: with it empty Paper refuses forwarded players until
+  the owner sets their own), and `export::PINNED_YAML` is set whatever the file said:
+  Spigot's `settings.restart-script` to its default `./start.sh` (Spigot's restart and
+  watchdog run `sh <restart-script>`, which could be any placed file; no file places a
+  `start.sh`), Bukkit's `settings.permissions-file` to `permissions.yml` (which comes only
+  with the operators) and its `settings.world-container` to `.` when the file sets it (it
+  could put the worlds anywhere the core can write, outside the server's folder, its
+  backups and its users' permissions), and Bukkit's old command aliases, a top-level
+  `aliases:` section in `bukkit.yml`, to `now-in-commands.yml`, the string Bukkit writes
+  there once it has moved them (several keys per file, set one after the other,
+  `export::pin_yaml_all`): with a section there and no `commands.yml`, Paper's, Spigot's,
+  Purpur's and Folia's `CraftServer` move the section into a new `commands.yml` at the
+  first start (each alias's commands with ` $1-`), and those aliases replace any command,
+  `stop` and `save-all` included, which the core types into the console, so the sender's
+  `stop: [op sender, stop]` would make them an operator the first time the owner stopped
+  the server, although `commands.yml` comes only with the operators. The section is pinned
+  with or without the operators (real files have said `now-in-commands.yml` since Bukkit
+  moved aliases out, so only a crafted file loses anything), and an export leaves it as
+  it is, since the owner's own aliases are no secret and every server made from the file
+  pins it; a copy the cleaning can't read is deleted (the server writes
+  its defaults), and that is any copy with a line outside the editor's allowlist
+  (`export::read_simple_yaml`, as an export withholds one: a top-level
+  `settings.restart-script:`, which Bukkit's settings split at its dots,
+  `"restart\x2Dscript"`, a
+  `settings: {` with `bungeecord: false, restart-script: world/evil.txt` on the next line,
+  or a byte order mark before `{settings:{` would otherwise be Spigot's restart script to
+  SnakeYAML, unpinned), each deleted copy named in the
+  creation's end message ("settings file(s) couldn't be checked for keys to the server and
+  were left out", `import::Placed::settings_removed`), not only the log, since the owner's
+  settings from the file are gone; and the `is_way_in` files are never placed
+  (`import::Why::Secret`, listed in the summary and the creation's end message), nor any
+  file the generic rule finds a credential in: `inspect::credential_files` reads the
+  carried bytes of every file the export's scan would read (`Container::read_object_any`,
+  whole or from its chunk list, up to 4 MiB, every byte checked; a settings file whose
+  bytes don't match its hash refuses the whole file at once) and names the files that
+  hold one (a sender's bot token, proxy secret, store key or webhook), the key and token
+  files by their names, the files too big to read, and any such settings file the server
+  would download rather than take from the file's bytes (it can't be checked before it is
+  placed); `import::plan_checked` drops them as `Why::Secret`, so a sender-supplied
+  credential never configures the new server, and the end message says "file(s) holding a
+  key to the server, a password or a token were left out, so the server writes its
+  defaults". So a hostile file's settings give its
+  sender no way in: not RCON, the management server, a proxy's forwarding, Floodgate (its
+  whole folder, so not a key its settings rename), a LuckPerms database or a Discord bot
+  of theirs, a script Spigot runs, worlds outside the server's folder, or operators'
+  powers through functions, Bukkit's permissions, its command aliases or LuckPerms' own
+  storage (taken only with the operators). Its mods and plugins are code from whoever made it, which the trust warning is
+  for, and plugins' own settings (`plugins/*/`) come as the file has them. The owner's
+  marks go to the marks file; a base is followed
+  (`follow_base`), its origin taken from Modrinth when its version is a plausible id
+  (`check_api_segment`). The first content image is "Created from <file name>", the name
+  written visibly (`display_text`); no backup record is made, as a restore as new makes
+  none. The server is never started.
+- **Unfinished creations aren't servers.** Every new server's folder (from a file or not)
+  holds `.lodestone_creating` (its uuid) until the installer and any step after it (a
+  file's placing, a modpack's install) are done, and gets its `.lodestone_config` only
+  then, written atomically before the marker goes: the core never loads a server whose
+  creation a stop interrupted (half a world, a partial `mods/`, the file's own
+  `server.properties`). At startup, before the servers are read, a folder with the marker
+  and no `.lodestone_config` is deleted with its images
+  (`instance::remove_unfinished_creations`), the images first while the marker still names
+  them (a core stopped in between finds the folder again at the next start); one with both
+  only loses the marker. Such a folder can hold a half-unpacked world, so startup only
+  moves it into
+  `<instances>.unfinished` beside the servers' folder (a rename) and empties that in the
+  background (`share::clear_leftovers`, read-only files cleared as Windows needs); a
+  folder that can't be moved is deleted in place. A creation that fails while the core
+  runs discards its folder the same way and in the same order
+  (`instance::discard_unfinished`, shared with startup): its images first, keeping the
+  folder and its marker for the next start when they can't be deleted, then the folder
+  renamed aside in one step and emptied in the background, so a stop or a failed delete
+  never leaves part of a folder with no marker, nor images naming its objects. A folder
+  whose marker couldn't be written is removed at once, so no folder without a marker is
+  left.
+- **Downloads that fail.** A download whose host failed or answered no file (or one over
+  its size) is one file left out; any other failure (its file couldn't be written: a full
+  disk) stops the creation, which then deletes what it made, so a server is never made
+  without its mods with the network blamed. An entry no download confirmed is placed from
+  the file's own bytes only (an object the file carries, imported and checked), never from
+  another object the shared store has under that hash, which would let a file name any
+  server's files by hash alone. The same holds for the file's plain objects: the unpack
+  reads and checks the file's bytes of every object it places even when the store has it
+  already (`import_objects_where_verified`), so a file naming another server's object by
+  its hash and size, with other bytes of that length, is refused.
+- **Not cancelled once made.** An upload is cancelled with its request (the Host's Cancel
+  drops it at once, while it is sent or read); making the server, like every creation,
+  runs to its end or fails and deletes what it made: its images and then its folder at
+  once (Unfinished creations aren't servers), and
+  the objects it unpacked or downloaded, which no image names but the store's grace keeps
+  for an hour, by a collection asked for once that hour is past
+  (`ImageService::request_gc_after(gc::AFTER_GRACE)`, and at every startup: the timer of a
+  creation that failed in the previous run is lost with it). The Host shows how a creation ended when the creation flow says
+  more than its plain success (what a file's server didn't get) or it failed, from the
+  `InstanceCreation` progression's end, for every way of making a server; a backup
+  restored as a new server says nothing more, as its page already said it started. The
+  text is the core's English, as the Files tab's zip toasts are; the rest of the dialog is
+  translated. A structured outcome (the lists of what was left out in the progression's
+  end value) would let the Host translate it, but the end value is shared with every
+  creation and the dashboard. It is a known core change of milestone 6's second part
+  (listed under Milestones), whose "Host this" shows the outcome in the Launcher's
+  languages: the names that weren't downloaded and the files not taken, as data beside
+  the English message.
+- **The Host's export says what it is for.** "Export as a file for another Lodestone
+  Host": the Launcher can't open a core export yet (Interop), so the dialog doesn't offer
+  it. The dialog shows an indeterminate bar while the core writes the file and the bytes
+  once it downloads (known gap: the core sends the writing's percent as a progression the
+  Host doesn't follow yet, and every container entry is deflated, so a world of 20 GB
+  spends minutes "Preparing"); the request waits up to 4 hours (Cancel ends it sooner).
+  The default file name is "<server> - <backup name or id>.lodeimg", never a relative
+  time. The ticker redraws the page only while the dialog shows the export. Once the
+  download ends, however it ends (Cancel pressed just as the core answered too), the
+  client lets go of the core's file (`DELETE /file/{key}`), so a world-sized file doesn't
+  wait out the link's hour on the core's disk.
+- **The Host's client.** `upload_image` waits an hour plus a second per 256 KiB of the
+  file (a fixed hour would end a large world sent over a home connection);
+  `upload_image_named` sends a file under another name (for "Host this", which uploads a
+  temporary export: the server is "Created from" the name given). Its Cancel makes the
+  body fail with an error the async adapter doesn't retry (`Interrupted` would spin the
+  HTTP client's only worker forever). Its Cancel watcher ends with the request's future,
+  also when that is dropped (a dialog closed mid-upload, which also cancels the upload).
+  `create_from_image` waits up to 15 minutes: before it answers, the core opens the upload
+  again (its index and manifests, which for a file of a million entries take a while),
+  checks the disk and looks the server software up over the network.
+- **The Host's "From a file" summary.** The new server's name starts as the file's label
+  with the characters a server's name can't have replaced (`:` becomes `.`, the others
+  `-`: an unnamed backup's label has the time, "14:10"), and the Name field says so before
+  the request for a name typed with them (`modpack::NAME_FORBIDDEN`, for every way of
+  making a server). The disk line and the no-room warning follow the world picked
+  (`ImageSummary::needed_bytes_for`: a Launcher's file places only that world, so the
+  default world's size comes off and the picked one's goes on, each twice, unpacked then
+  placed; a Host's file places every world); the core checks again.
+- **Interop.** One container both ways: the core's files are what `lodestone_image::container`
+  writes and the Launcher reads, and the core reads any valid `.lodeimg`. The Launcher's
+  import (M5) can't place a core export (a server's layout: `server.properties`, plugins),
+  so it refuses a file whose producer is the core before anything is unpacked, saying so
+  plainly ("This file is a server's backup exported from Lodestone Host. The Launcher can't
+  open server backups yet") instead of naming the first path the client layout refuses.
+  Known gap: milestone 6's second part ("Download this world") must place a core export's
+  client view instead, and removes this refusal (`check_maker` in
+  `launcher-core/src/images/export.rs`, the one change this milestone made to the
+  Launcher's import). Exports from the two programs differ in bytes (deflate), so compare
+  them by image id.
+- **The shared crate changed only additively**: `container::export_with_progress`
+  (`export` calls it), `Container::read_object`, `Container::read_object_any` (a carried
+  object whole or from its chunk list, for the import's credential scan),
+  `Container::unpacked_bytes_of`,
+  `Container::import_objects_where` and `Container::import_objects_where_verified`
+  (`import_objects` shares their loop), and the `share` module (`MAX_DOWNLOADS`,
+  `placed_entries`, `plausible_version`, `strip`, `is_jvm_crash_name`,
+  `is_launcher_account_file`, `PLAYER_PRIVATE`, `is_player_private`, `spelled_like`).
+  The Launcher's own copies of these in `launcher-core/src/images/export.rs` move to
+  `share` in milestone 6's second part.

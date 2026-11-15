@@ -1,7 +1,8 @@
 //! The "New server" dialog: every game the core offers (`GET /games`, then the setup
 //! manifest's form) and the Modrinth modpack flow, after `InstanceCreateForm.tsx` and
 //! `ModpackCreateForm.tsx`. "Existing server" makes one from a server folder the user
-//! already has ([`import`]).
+//! already has ([`import`]), and "From a file" from a `.lodeimg` another Host or a
+//! Launcher exported ([`image`]).
 //!
 //! Steps: Select game → Basic settings (name, description) → Server settings (the
 //! core's manifest) → Auto settings, then "Create Server" with the Minecraft EULA box,
@@ -11,6 +12,7 @@
 
 mod eula;
 mod fields;
+mod image;
 mod import;
 mod modpack;
 mod modrinth_search;
@@ -39,6 +41,7 @@ use lodestone_ui::{
 
 use self::{
     fields::{Field, HasFields},
+    image::{ImageEvent, ImageFlow},
     import::{ImportEvent, ImportFlow},
     modpack::{ModpackEvent, ModpackFlow},
 };
@@ -92,6 +95,7 @@ pub struct CreateInstance {
     submitting: bool,
     modpack: Option<Entity<ModpackFlow>>,
     import: Option<Entity<ImportFlow>>,
+    image: Option<Entity<ImageFlow>>,
     _subscriptions: Vec<Subscription>,
     _tasks: Vec<Task<()>>,
 }
@@ -133,6 +137,7 @@ impl CreateInstance {
             submitting: false,
             modpack: None,
             import: None,
+            image: None,
             _subscriptions: Vec::new(),
             _tasks: Vec::new(),
         };
@@ -430,6 +435,26 @@ impl CreateInstance {
         cx.notify();
     }
 
+    /// Opens the flow for a `.lodeimg` file (the "From a file" card).
+    pub fn open_image(&mut self, cx: &mut Context<Self>) {
+        let state = self.state.clone();
+        let flow = cx.new(|cx| ImageFlow::new(state, cx));
+        self.watch_image(flow, cx);
+    }
+
+    fn watch_image(&mut self, flow: Entity<ImageFlow>, cx: &mut Context<Self>) {
+        self._subscriptions
+            .push(cx.subscribe(&flow, |this, _, event, cx| match event {
+                ImageEvent::Back => {
+                    this.image = None;
+                    cx.notify();
+                }
+                ImageEvent::Done => cx.emit(CreateInstanceEvent::Close),
+            }));
+        self.image = Some(flow);
+        cx.notify();
+    }
+
     /// For screenshots (`--open-menu`): opens the modpack search's sort list, or the
     /// first list field of the step shown.
     #[cfg(feature = "screenshot")]
@@ -456,9 +481,19 @@ impl CreateInstance {
     }
 
     /// For screenshots: moves the dialog on to `step` (`games`, `basic`, `server`,
-    /// `auto`, `modpack`, `import`, or `import:<folder>` to read a folder) as soon as
-    /// what it needs has loaded.
+    /// `auto`, `modpack`, `import`, `import:<folder>` to read a folder, or a sample
+    /// file's summary, `image` or `image-launcher`) as soon as what it needs has loaded.
     pub fn advance_for_screenshot(&mut self, step: &str, cx: &mut Context<Self>) {
+        #[cfg(feature = "screenshot")]
+        if let Some(launcher) = match step {
+            "image" => Some(false),
+            "image-launcher" => Some(true),
+            _ => None,
+        } {
+            let state = self.state.clone();
+            let flow = cx.new(|cx| ImageFlow::with_sample(state, launcher, cx));
+            return self.watch_image(flow, cx);
+        }
         if step == "modpack" {
             return self.open_modpack(cx);
         }
@@ -684,6 +719,19 @@ impl CreateInstance {
             .on_press(cx.listener(|this, _, _, cx| this.open_import(cx)))
             .into_any_element(),
         );
+        body.push(
+            game_card(
+                "game-image",
+                &HandlerGameType::MinecraftJavaVanilla.game(),
+                t(M::GameTypeImage).into(),
+                t(M::GameTypeImageDescription),
+                Some(t(M::GameTypeNew)),
+                false,
+                cx,
+            )
+            .on_press(cx.listener(|this, _, _, cx| this.open_image(cx)))
+            .into_any_element(),
+        );
         match &self.games {
             Load::Loading => body.push(loading_line(t(M::LoadingForm))),
             Load::Failed(error) => body.push(error_line(tr!(M::GamesFailed, error = error))),
@@ -843,10 +891,15 @@ impl Render for CreateInstance {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let this = cx.entity().downgrade();
         let height = px(HEIGHT).min(window.viewport_size().height - px(48.));
-        let content = match (self.modpack.clone(), self.import.clone()) {
-            (Some(flow), _) => flow.into_any_element(),
-            (None, Some(flow)) => flow.into_any_element(),
-            (None, None) => self.render_flow(cx),
+        let content = match (
+            self.modpack.clone(),
+            self.import.clone(),
+            self.image.clone(),
+        ) {
+            (Some(flow), _, _) => flow.into_any_element(),
+            (None, Some(flow), _) => flow.into_any_element(),
+            (None, None, Some(flow)) => flow.into_any_element(),
+            (None, None, None) => self.render_flow(cx),
         };
         div().absolute().inset_0().child(
             Dialog::new(

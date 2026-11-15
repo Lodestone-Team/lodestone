@@ -10,6 +10,10 @@
 //! chunks/<sha256>       the chunks those lists name
 //! ```
 //!
+//! [`export_with_progress`] reports how far a write got, [`Container::read_object`]
+//! reads one small carried file before anything is imported, and
+//! [`Container::import_objects_where`] imports only the objects an import places.
+//!
 //! A file over 1 MiB travels as its chunk list, as the store keeps it, so the same image
 //! gives the same export from any store.
 //!
@@ -147,6 +151,20 @@ pub fn export(
     to: &Path,
     cancel: Cancel,
 ) -> Result<ExportReport, ContainerError> {
+    export_with_progress(store, image, linked, to, cancel, &mut |_, _| {})
+}
+
+/// [`export`], telling `progress` how far it got: the plain bytes of the carried objects
+/// read so far and in all (each file's size, whatever its chunks share), from `(0, total)`
+/// to `(total, total)`. Called after each object and each chunk.
+pub fn export_with_progress(
+    store: &Store,
+    image: &Image,
+    linked: &[Image],
+    to: &Path,
+    cancel: Cancel,
+    progress: &mut dyn FnMut(u64, u64),
+) -> Result<ExportReport, ContainerError> {
     image.validate().map_err(ManifestError::Invalid)?;
     image.verify()?;
     for other in linked {
@@ -164,16 +182,17 @@ pub fn export(
     let carried = carried_objects(&images).map_err(invalid)?;
 
     let part = part_path(to);
-    let result = write_zip(store, image, linked, &carried, &part, cancel).and_then(|report| {
-        fs::rename(&part, to).map_err(|source| ContainerError::Io {
-            what: format!("Failed to write {}", to.display()),
-            source,
-        })?;
-        if let Some(dir) = to.parent() {
-            let _ = sync_parent(dir);
-        }
-        Ok(report)
-    });
+    let result =
+        write_zip(store, image, linked, &carried, &part, cancel, progress).and_then(|report| {
+            fs::rename(&part, to).map_err(|source| ContainerError::Io {
+                what: format!("Failed to write {}", to.display()),
+                source,
+            })?;
+            if let Some(dir) = to.parent() {
+                let _ = sync_parent(dir);
+            }
+            Ok(report)
+        });
     if result.is_err() {
         let _ = fs::remove_file(&part);
     }
@@ -202,6 +221,7 @@ fn write_zip(
     carried: &BTreeMap<String, u64>,
     part: &Path,
     cancel: Cancel,
+    progress: &mut dyn FnMut(u64, u64),
 ) -> Result<ExportReport, ContainerError> {
     let io = |source: io::Error| ContainerError::Io {
         what: format!("Failed to write {}", part.display()),
@@ -236,6 +256,11 @@ fn write_zip(
         zip.write_all(&json).map_err(io)?;
     }
 
+    let total = carried
+        .values()
+        .fold(0u64, |sum, size| sum.saturating_add(*size));
+    let mut done: u64 = 0;
+    progress(done, total);
     let mut written_chunks: HashSet<String> = HashSet::new();
     for (sha256, &size) in carried {
         if cancel() {
@@ -247,6 +272,8 @@ fn write_zip(
                     .map_err(zip_err)?;
                 store.read_object(sha256, size, &mut zip, cancel)?;
                 report.bytes = report.bytes.saturating_add(size);
+                done = done.saturating_add(size);
+                progress(done, total);
             }
             ObjectForm::Chunked(list) => {
                 let encoded = list.encode();
@@ -262,6 +289,8 @@ fn write_zip(
                     }
                     let bytes = store.read_chunk(chunk)?;
                     hasher.update(&bytes);
+                    done = done.saturating_add(bytes.len() as u64);
+                    progress(done.min(total), total);
                     if written_chunks.insert(chunk.sha256.clone()) {
                         zip.start_file(
                             format!("chunks/{}", chunk.sha256),
@@ -605,10 +634,105 @@ impl Container {
         self.unpacked
     }
 
+    /// The bytes importing the carried objects `wanted` picks may unpack, for a free-space
+    /// check before [`Container::import_objects_where`]: each one's size, and a chunk
+    /// list's own bytes. An upper bound, as chunks two objects share count twice.
+    pub fn unpacked_bytes_of(&self, wanted: &dyn Fn(&str) -> bool) -> u64 {
+        self.objects
+            .iter()
+            .filter(|(sha256, _)| wanted(sha256))
+            .map(|(_, carried)| match carried {
+                Carried::Whole { size } => *size,
+                Carried::Chunked { size, list_bytes } => size.saturating_add(*list_bytes),
+            })
+            .fold(0, u64::saturating_add)
+    }
+
     /// What placing the image's files writes ([`files_size`]), for a free-space check
     /// before materializing it; a linked image's is `files_size` of it.
     pub fn image_bytes(&self) -> u64 {
         files_size(&self.image)
+    }
+
+    /// The bytes of the carried object `sha256` when the export holds it whole (a file of
+    /// at most 1 MiB) and it is at most `max_bytes`, checked against its SHA-256: for
+    /// reading a small file (a server's `server.properties`) before anything is imported.
+    /// Refuses an object the image doesn't carry, one carried as a chunk list, and one over
+    /// `max_bytes`.
+    pub fn read_object(&mut self, sha256: &str, max_bytes: u64) -> Result<Vec<u8>, ContainerError> {
+        let size = match self.objects.get(sha256) {
+            Some(Carried::Whole { size }) => *size,
+            Some(Carried::Chunked { .. }) => {
+                return Err(invalid(format!(
+                    "objects/{sha256} is too big to read whole"
+                )))
+            }
+            None => return Err(invalid(format!("it doesn't carry the object {sha256}"))),
+        };
+        if size > max_bytes {
+            return Err(invalid(format!(
+                "objects/{sha256} is too big to read whole"
+            )));
+        }
+        let name = format!("objects/{sha256}");
+        let bytes = read_entry(&mut self.archive, &name, size)?;
+        if sha256_hex(&bytes) != sha256 {
+            return Err(invalid(format!("{name} doesn't match its hash")));
+        }
+        Ok(bytes)
+    }
+
+    /// The bytes of the carried object `sha256` when it is at most `max_bytes`, whole or put
+    /// together from its chunk list (each chunk and then the whole file checked against its
+    /// SHA-256): for reading a settings file of a few MiB before anything is imported.
+    /// [`Container::read_object`] for an object carried whole; refuses an object the image
+    /// doesn't carry and one over `max_bytes`.
+    pub fn read_object_any(
+        &mut self,
+        sha256: &str,
+        max_bytes: u64,
+    ) -> Result<Vec<u8>, ContainerError> {
+        let (size, list_bytes) = match self.objects.get(sha256) {
+            Some(Carried::Whole { .. }) => return self.read_object(sha256, max_bytes),
+            Some(Carried::Chunked { size, list_bytes }) => (*size, *list_bytes),
+            None => return Err(invalid(format!("it doesn't carry the object {sha256}"))),
+        };
+        if size > max_bytes {
+            return Err(invalid(format!(
+                "objects/{sha256} is too big to read whole"
+            )));
+        }
+        let name = format!("objects/{sha256}");
+        let list = read_entry(&mut self.archive, &name, list_bytes)?;
+        let archive = &mut self.archive;
+        let mut out = Vec::with_capacity(usize::try_from(size).unwrap_or(0));
+        let mut problem: Option<ContainerError> = None;
+        let walked = ChunkList::visit(&mut &list[..], &mut |hash, chunk_size| {
+            let read = (|| {
+                if out.len() as u64 + u64::from(chunk_size) > size {
+                    return Err(invalid(format!("{name} is bigger than it says")));
+                }
+                let chunk_name = format!("chunks/{hash}");
+                let bytes = read_entry(archive, &chunk_name, u64::from(chunk_size))?;
+                if sha256_hex(&bytes) != hash {
+                    return Err(invalid(format!("{chunk_name} doesn't match its hash")));
+                }
+                out.extend_from_slice(&bytes);
+                Ok(())
+            })();
+            read.map_err(|e| {
+                problem = Some(e);
+                String::new()
+            })
+        });
+        if let Some(problem) = problem {
+            return Err(problem);
+        }
+        walked.map_err(|why| invalid(format!("{name}: {why}")))?;
+        if out.len() as u64 != size || sha256_hex(&out) != sha256 {
+            return Err(invalid(format!("{name} doesn't match its hash or size")));
+        }
+        Ok(out)
     }
 
     /// Adds the export's objects to `store`, after `check_room` agreed to
@@ -623,8 +747,121 @@ impl Container {
         cancel: Cancel,
     ) -> Result<ImportReport, ContainerError> {
         check_room(self.unpacked).map_err(ContainerError::NoRoom)?;
+        self.import_picked(store, &|_| true, false, cancel)
+    }
+
+    /// [`Container::import_objects`] for only the carried objects `wanted` picks, after
+    /// `check_room` agreed to [`Container::unpacked_bytes_of`] them: for an import that
+    /// places part of the image (one world of several), so the rest is never unpacked.
+    pub fn import_objects_where(
+        &mut self,
+        store: &Store,
+        wanted: &dyn Fn(&str) -> bool,
+        check_room: &dyn Fn(u64) -> Result<(), String>,
+        cancel: Cancel,
+    ) -> Result<ImportReport, ContainerError> {
+        check_room(self.unpacked_bytes_of(wanted)).map_err(ContainerError::NoRoom)?;
+        self.import_picked(store, wanted, false, cancel)
+    }
+
+    /// [`Container::import_objects_where`] for a file from someone else into a store that
+    /// holds other people's files: an object the store already has is still read from the
+    /// export and checked against its SHA-256 and size before it counts as imported. Else
+    /// an export naming an object by its hash alone, with bytes of the right length but
+    /// not its own, would get a copy of whatever the store holds under that hash (another
+    /// server's file) placed wherever its image says, and would learn whether the store
+    /// has it.
+    pub fn import_objects_where_verified(
+        &mut self,
+        store: &Store,
+        wanted: &dyn Fn(&str) -> bool,
+        check_room: &dyn Fn(u64) -> Result<(), String>,
+        cancel: Cancel,
+    ) -> Result<ImportReport, ContainerError> {
+        check_room(self.unpacked_bytes_of(wanted)).map_err(ContainerError::NoRoom)?;
+        self.import_picked(store, wanted, true, cancel)
+    }
+
+    /// Reads the carried object `sha256` from the export without storing it, and checks
+    /// its bytes (each chunk's, then the whole file's) against its SHA-256 and size.
+    fn verify_carried(
+        archive: &mut zip::ZipArchive<BufReader<File>>,
+        sha256: &str,
+        carried: Carried,
+        cancel: Cancel,
+    ) -> Result<(), ContainerError> {
+        let name = format!("objects/{sha256}");
+        let mut hasher = Sha256::new();
+        let mut read = 0_u64;
+        let size = match carried {
+            Carried::Whole { size } => {
+                let entry = archive
+                    .by_name(&name)
+                    .map_err(|_| invalid(format!("{name} can't be read")))?;
+                let mut limited = entry.take(size.saturating_add(1));
+                let mut buffer = vec![0u8; 64 * 1024];
+                loop {
+                    if cancel() {
+                        return Err(ContainerError::Cancelled);
+                    }
+                    let n = limited
+                        .read(&mut buffer)
+                        .map_err(|e| invalid(format!("{name} can't be read ({e})")))?;
+                    if n == 0 {
+                        break;
+                    }
+                    hasher.update(&buffer[..n]);
+                    read += n as u64;
+                }
+                size
+            }
+            Carried::Chunked { size, list_bytes } => {
+                let list = read_entry(archive, &name, list_bytes)?;
+                let mut problem: Option<ContainerError> = None;
+                let walked = ChunkList::visit(&mut &list[..], &mut |hash, chunk_size| {
+                    let checked = (|| {
+                        if cancel() {
+                            return Err(ContainerError::Cancelled);
+                        }
+                        let chunk_name = format!("chunks/{hash}");
+                        let bytes = read_entry(archive, &chunk_name, u64::from(chunk_size))?;
+                        if sha256_hex(&bytes) != hash {
+                            return Err(invalid(format!("{chunk_name} doesn't match its hash")));
+                        }
+                        hasher.update(&bytes);
+                        read += bytes.len() as u64;
+                        Ok(())
+                    })();
+                    checked.map_err(|e| {
+                        problem = Some(e);
+                        String::new()
+                    })
+                });
+                if let Some(problem) = problem {
+                    return Err(problem);
+                }
+                walked.map_err(|why| invalid(format!("{name}: {why}")))?;
+                size
+            }
+        };
+        if read != size || crate::hex::lower_hex(&hasher.finalize()) != sha256 {
+            return Err(invalid(format!("{name} doesn't match its hash or size")));
+        }
+        Ok(())
+    }
+
+    fn import_picked(
+        &mut self,
+        store: &Store,
+        wanted: &dyn Fn(&str) -> bool,
+        verify_existing: bool,
+        cancel: Cancel,
+    ) -> Result<ImportReport, ContainerError> {
         let mut report = ImportReport::default();
         for (sha256, &carried) in &self.objects {
+            if !wanted(sha256) {
+                continue;
+            }
             if cancel() {
                 return Err(ContainerError::Cancelled);
             }
@@ -634,6 +871,9 @@ impl Container {
             // Complete, every chunk of a list included (a list that lost a damaged chunk
             // gets it back from the export), and touched against a collection running now.
             if store.claim_object(sha256, size) {
+                if verify_existing {
+                    Self::verify_carried(&mut self.archive, sha256, carried, cancel)?;
+                }
                 continue;
             }
             let name = format!("objects/{sha256}");

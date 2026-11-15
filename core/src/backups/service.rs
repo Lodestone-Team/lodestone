@@ -2522,26 +2522,32 @@ impl BackupService {
     /// from verified objects. Returns the zip, the folder that owns it and its size.
     ///
     /// Stops at the next file once `cancel` (a child of [`Self::cancel_token`]) is
-    /// cancelled: the handler does that when the request is dropped.
-    pub async fn zip(
+    /// cancelled: the handler does that when the request is dropped. `keep` (the user's
+    /// place among the files being written for download) goes into the blocking work and
+    /// comes back with the zip, so it is held as long as the write runs, even when the
+    /// request is dropped first.
+    pub async fn zip<K: Send + 'static>(
         self: &Arc<Self>,
         uuid: &InstanceUuid,
         id: &str,
         tmp_dir: PathBuf,
         file_name: String,
         cancel: CancellationToken,
-    ) -> Result<(PathBuf, tempfile::TempDir, u64), Error> {
+        keep: K,
+    ) -> Result<(PathBuf, tempfile::TempDir, u64, K), Error> {
         let hold = hold_off_collection(self.image_store()).await?;
         let backup = self.load(uuid, id).await?;
         let files = backup.files_on_disk()?;
         let store = self.image_store();
         let token = cancel;
+        let large_writes = self.images.large_writes.clone();
         let zipped = blocking(move || {
             let total = files
                 .iter()
                 .map(|f| f.entry.size)
                 .fold(0, u64::saturating_add);
-            require_free_space(&tmp_dir, total, "to download the backup")?;
+            // held against the core's other large writes at the same time
+            let _space = large_writes.require(&tmp_dir, total, "to download the backup")?;
             std::fs::create_dir_all(&tmp_dir).context("Failed to create the temporary folder")?;
             let temp_dir =
                 tempfile::tempdir_in(&tmp_dir).context("Failed to create a temporary folder")?;
@@ -2577,11 +2583,75 @@ impl BackupService {
             let size = std::fs::metadata(&out)
                 .context("Failed to read the zip")?
                 .len();
-            Ok((out, temp_dir, size))
+            Ok((out, temp_dir, size, keep))
         })
         .await;
         drop(hold);
         zipped
+    }
+}
+
+impl BackupService {
+    /// Writes a backup as a `.lodeimg` file for another computer
+    /// ([`crate::images::share::export`]) into a new temporary folder in `tmp_dir`, telling
+    /// `progress` the bytes read so far and in all. Returns what it wrote and the folder
+    /// that owns the file. Collections are held off from the cleaned copies it stores to
+    /// the end of the write, which only reads the store, whether or not the caller still
+    /// waits for it.
+    ///
+    /// Stops at the next object once `cancel` (a child of [`Self::cancel_token`]) is
+    /// cancelled: the handler does that when the request is dropped. `keep` is held as
+    /// [`Self::zip`] holds it.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn export<K: Send + 'static>(
+        self: &Arc<Self>,
+        uuid: &InstanceUuid,
+        id: &str,
+        server_name: String,
+        include_plugin_data: bool,
+        tmp_dir: PathBuf,
+        file_name: String,
+        cancel: CancellationToken,
+        mut progress: impl FnMut(u64, u64) + Send + 'static,
+        keep: K,
+    ) -> Result<
+        (
+            crate::images::share::export::BackupExport,
+            tempfile::TempDir,
+            K,
+        ),
+        Error,
+    > {
+        use crate::images::share::export;
+        let hold = hold_off_collection(self.image_store()).await?;
+        let backup = self.load(uuid, id).await?;
+        let store = self.image_store();
+        let large_writes = self.images.large_writes.clone();
+        // the hold lives in the blocking work, so it lasts exactly as long as the store is
+        // read, even when the request (and this future) is dropped first
+        blocking(move || {
+            let _hold = hold;
+            let prepared = export::prepare(&store, &backup, &server_name, include_plugin_data)?;
+            // held against the core's other large writes at the same time
+            let _space = large_writes.require(
+                &tmp_dir,
+                prepared.carried_bytes()?,
+                "to export the backup",
+            )?;
+            std::fs::create_dir_all(&tmp_dir).context("Failed to create the temporary folder")?;
+            let temp_dir =
+                tempfile::tempdir_in(&tmp_dir).context("Failed to create a temporary folder")?;
+            let out = temp_dir.path().join(&file_name);
+            let written = export::write(
+                &store,
+                &prepared,
+                &out,
+                &|| cancel.is_cancelled(),
+                &mut progress,
+            )?;
+            Ok((written, temp_dir, keep))
+        })
+        .await
     }
 }
 

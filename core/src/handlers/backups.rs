@@ -9,6 +9,7 @@
 //! | `POST /instance/{uuid}/backups/{id}/restore` | WriteInstanceFile, StopInstance and StartInstance when it stops and starts the server, and WriteGlobalFile or owner rights for what it changes. Everything and `world_and_mods` can change the server's Minecraft and loader version to the backup's (with the server software they put back), which needs no AccessSetting |
 //! | `POST /instance/{uuid}/backups/{id}/restore_as_new` | CreateInstance, ReadInstanceFile, and WriteGlobalFile or owner rights for what the backup holds |
 //! | `POST /instance/{uuid}/backups/{id}/download` | ReadInstanceFile |
+//! | `POST /instance/{uuid}/backups/{id}/export` | ReadInstanceFile (a `.lodeimg` without the server's secrets) |
 //! | `GET /instance/{uuid}/backups/policy` | ReadInstanceFile |
 //! | `PUT /instance/{uuid}/backups/policy` | AccessSetting and WriteInstanceFile (a policy can prune history) |
 //!
@@ -19,7 +20,7 @@
 #[cfg(test)]
 mod tests;
 
-use std::path::Path as FsPath;
+use std::path::{Path as FsPath, PathBuf};
 use std::sync::Arc;
 
 use axum::extract::{Path, State};
@@ -37,6 +38,7 @@ use crate::backups::{BackupInfo, BackupList, BackupPolicy, RestoreRequest};
 use crate::error::{Error, ErrorKind};
 use crate::event_broadcaster::EventBroadcaster;
 use crate::events::{new_fs_event, Event, FSOperation, FSTarget, ProgressionEventID};
+use crate::images::share::inspect::NameList;
 use crate::implementations::minecraft::MinecraftInstance;
 use crate::prelude::{path_to_tmp, GameInstance};
 use crate::traits::t_configurable::TConfigurable;
@@ -44,7 +46,7 @@ use crate::traits::t_server::{State as InstanceState, TServer};
 use crate::types::InstanceUuid;
 use crate::AppState;
 
-use super::global_fs::{register_download, DownloadScope};
+use super::global_fs::{register_download, take_backup_file_slot, DownloadScope};
 use super::instance::sanitize_instance_dir_name;
 use super::instance_fs::{is_instance_protected, is_protected};
 use super::util::{get_instance, is_code_path, require_code_write, AuthedUser};
@@ -101,6 +103,42 @@ pub struct BackupDownload {
     pub file_name: String,
     #[ts(type = "number")]
     pub size: u64,
+}
+
+/// `POST /instance/{uuid}/backups/{id}/export`: a backup as a `.lodeimg` file for another
+/// Host, with its secrets taken out (`images::share::export`). The Launcher opens one only
+/// from milestone 6's second part.
+#[derive(Debug, Default, Deserialize, Serialize, TS)]
+#[ts(export)]
+pub struct ExportBackupRequest {
+    /// Include everything in the plugins' folders (settings, databases, player data),
+    /// which can hold passwords. Off by default: only the plugin jars travel.
+    #[serde(default)]
+    #[ts(optional)]
+    pub include_plugin_data: Option<bool>,
+}
+
+/// `POST /instance/{uuid}/backups/{id}/export`'s answer: a key for `GET /file/{key}`, and
+/// what the file leaves out, for the person who exported it to know.
+#[derive(Debug, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct ExportedBackup {
+    pub key: String,
+    pub file_name: String,
+    #[ts(type = "number")]
+    pub size: u64,
+    /// Files taken out (Lodestone's, the EULA, server software, crash files, plugin
+    /// settings), by path.
+    pub left_out: NameList,
+    /// Secret values made empty, as `<file>: <key>`.
+    pub blanked: NameList,
+    /// CurseForge files whose authors don't allow downloads elsewhere: named, not
+    /// carried, so whoever opens the file won't get them.
+    pub not_downloadable: NameList,
+    /// Files taken out because they hold a password or token (found by their keys' names,
+    /// a key or token file, or too big to check), by path; also in `left_out`. The other
+    /// server writes its defaults for them.
+    pub secrets_withheld: NameList,
 }
 
 /// The Minecraft server `uuid`. 404 when there is none (Docker containers included).
@@ -388,17 +426,17 @@ async fn restore_as_new(
     Ok(Json(BackupTask { task_id }))
 }
 
-/// A backup being zipped for download. If the request is dropped first (the client went
-/// away, or gave up waiting), dropping this ends the progression, which would otherwise
-/// show forever, and stops the zip.
-struct Zipping {
+/// A backup being written to a file for download (a zip, or a `.lodeimg` export). If the
+/// request is dropped first (the client went away, or gave up waiting), dropping this ends
+/// the progression, which would otherwise show forever, and stops the work.
+struct Preparing {
     broadcaster: EventBroadcaster,
     /// `None` once the End was sent.
     event_id: Option<ProgressionEventID>,
     cancel: CancellationToken,
 }
 
-impl Zipping {
+impl Preparing {
     fn end(mut self, success: bool, message: &str) {
         if let Some(event_id) = self.event_id.take() {
             self.broadcaster.send(Event::new_progression_event_end(
@@ -411,7 +449,7 @@ impl Zipping {
     }
 }
 
-impl Drop for Zipping {
+impl Drop for Preparing {
     fn drop(&mut self) {
         self.cancel.cancel();
         if let Some(event_id) = self.event_id.take() {
@@ -443,6 +481,7 @@ async fn download_backup(
         });
     }
     let file_name = format!("{}-backup-{id}.zip", sanitize_instance_dir_name(&name));
+    let slot = take_backup_file_slot(&state, &requester, &downloads_dir()).await?;
     let (start, event_id) = Event::new_progression_event_start(
         format!("Zipping a backup of {name} for download"),
         None,
@@ -450,7 +489,7 @@ async fn download_backup(
         requester.caused_by(),
     );
     state.event_broadcaster.send(start);
-    let zipping = Zipping {
+    let zipping = Preparing {
         broadcaster: state.event_broadcaster.clone(),
         event_id: Some(event_id),
         cancel: state.backups.cancel_token().child_token(),
@@ -460,12 +499,13 @@ async fn download_backup(
         .zip(
             &uuid,
             &id,
-            path_to_tmp().clone(),
+            downloads_dir(),
             file_name.clone(),
             zipping.cancel.clone(),
+            slot,
         )
         .await;
-    let (out, temp_dir, size) = match zipped {
+    let (out, temp_dir, size, slot) = match zipped {
         Ok(zipped) => zipped,
         Err(e) => {
             zipping.end(false, &e.source.to_string());
@@ -482,6 +522,8 @@ async fn download_backup(
         DownloadScope::InstanceFile(uuid),
     )
     .await;
+    // the link holds the file now, and counts for its owner from here on
+    drop(slot);
     state.event_broadcaster.send(new_fs_event(
         FSOperation::Download,
         FSTarget::File(out),
@@ -491,6 +533,123 @@ async fn download_backup(
         key,
         file_name,
         size,
+    }))
+}
+
+/// Where backups are written for download (zips and `.lodeimg` exports), each in a
+/// temporary folder of its own; startup empties it (`images::share::clear_leftovers`), as a
+/// core stopped while writing or before the download leaves files the size of a world.
+pub(crate) fn downloads_dir() -> PathBuf {
+    path_to_tmp().join("backup-downloads")
+}
+
+/// Sends a progression's progress in whole percents, as the bytes read grow.
+fn percent_progress(
+    broadcaster: EventBroadcaster,
+    event_id: ProgressionEventID,
+) -> impl FnMut(u64, u64) + Send + 'static {
+    let mut sent = 0u64;
+    move |done, total| {
+        let percent = if total == 0 {
+            100
+        } else {
+            (u128::from(done) * 100 / u128::from(total)).min(100) as u64
+        };
+        if percent > sent {
+            broadcaster.send(Event::new_progression_event_update(
+                &event_id,
+                "Writing the file",
+                (percent - sent) as f64,
+            ));
+            sent = percent;
+        }
+    }
+}
+
+async fn export_backup(
+    State(state): State<AppState>,
+    Path((uuid, id)): Path<(InstanceUuid, String)>,
+    requester: AuthedUser,
+    body: Option<Json<ExportBackupRequest>>,
+) -> Result<Json<ExportedBackup>, Error> {
+    requester
+        .require(&state, UserAction::ReadInstanceFile(uuid.clone()))
+        .await?;
+    let instance = minecraft(&state, &uuid)?;
+    state.backups.store().instance_dir(&uuid)?;
+    let name = instance.name().await;
+    if !crate::backups::store::valid_backup_id(&id) {
+        return Err(Error {
+            kind: ErrorKind::NotFound,
+            source: eyre!("Backup not found"),
+        });
+    }
+    let include_plugin_data = body
+        .and_then(|Json(body)| body.include_plugin_data)
+        .unwrap_or(false);
+    let file_name = format!(
+        "{} - {id}.{}",
+        sanitize_instance_dir_name(&name),
+        crate::images::share::EXTENSION
+    );
+    let slot = take_backup_file_slot(&state, &requester, &downloads_dir()).await?;
+    let (start, event_id) = Event::new_progression_event_start(
+        format!("Exporting a backup of {name}"),
+        Some(100.0),
+        None,
+        requester.caused_by(),
+    );
+    state.event_broadcaster.send(start);
+    let preparing = Preparing {
+        broadcaster: state.event_broadcaster.clone(),
+        event_id: Some(event_id.clone()),
+        cancel: state.backups.cancel_token().child_token(),
+    };
+    let exported = state
+        .backups
+        .export(
+            &uuid,
+            &id,
+            name,
+            include_plugin_data,
+            downloads_dir(),
+            file_name.clone(),
+            preparing.cancel.clone(),
+            percent_progress(state.event_broadcaster.clone(), event_id),
+            slot,
+        )
+        .await;
+    let (written, temp_dir, slot) = match exported {
+        Ok(exported) => exported,
+        Err(e) => {
+            preparing.end(false, &e.source.to_string());
+            return Err(e);
+        }
+    };
+    preparing.end(true, "Export complete");
+    let key = register_download(
+        &state,
+        written.file.clone(),
+        Some(temp_dir),
+        // the whole user, so an API key's scope is checked again when the link is used
+        requester.0.clone(),
+        DownloadScope::InstanceFile(uuid),
+    )
+    .await;
+    drop(slot);
+    state.event_broadcaster.send(new_fs_event(
+        FSOperation::Download,
+        FSTarget::File(written.file.clone()),
+        requester.caused_by(),
+    ));
+    Ok(Json(ExportedBackup {
+        key,
+        file_name,
+        size: written.bytes,
+        left_out: NameList::of(&written.left_out),
+        blanked: NameList::of(&written.blanked),
+        not_downloadable: NameList::of(&written.not_downloadable),
+        secrets_withheld: NameList::of(&written.secrets_withheld),
     }))
 }
 
@@ -521,5 +680,6 @@ pub fn get_backup_routes(state: AppState) -> Router {
             "/instance/{uuid}/backups/{id}/download",
             post(download_backup),
         )
+        .route("/instance/{uuid}/backups/{id}/export", post(export_backup))
         .with_state(state)
 }

@@ -47,15 +47,12 @@ struct LaunchSettings {
 
 impl LaunchSettings {
     fn from_properties(doc: &PropertiesDocument) -> Result<Self, Error> {
+        // as Minecraft reads a flag: its default when the key is missing, otherwise on only
+        // when the value is exactly `true` in any letter case (`Boolean.valueOf`, which
+        // trims nothing: `online-mode= true` with an escaped space, or empty, is off)
         let flag = |key: &str, default: bool| {
-            doc.get(key).map_or(default, |v| {
-                let v = v.trim();
-                if default {
-                    !v.eq_ignore_ascii_case("false")
-                } else {
-                    v.eq_ignore_ascii_case("true")
-                }
-            })
+            doc.get(key)
+                .map_or(default, |v| v.eq_ignore_ascii_case("true"))
         };
         let port = match doc.get("server-port").map(str::trim) {
             None | Some("") => DEFAULT_PORT,
@@ -1326,6 +1323,22 @@ mod tests {
         // RCON without a password does not start
         let s = settings("enable-rcon=true\nrcon.password=\n").unwrap();
         assert_eq!(s.rcon, None);
+
+        // read as Minecraft reads them: only `true` is on, nothing trimmed
+        for off in [
+            "online-mode=\\ true\n",
+            "online-mode=\\ttrue\n",
+            "online-mode=\u{a0}true\n",
+            "online-mode=yes\n",
+            "online-mode=\n",
+        ] {
+            assert!(!settings(off).unwrap().online_mode, "{off:?}");
+        }
+        assert!(settings("online-mode = TRUE\n").unwrap().online_mode);
+        assert!(settings("enable-rcon=\\ true\nrcon.password=pw\n")
+            .unwrap()
+            .rcon
+            .is_none());
 
         assert!(settings("server-port=70000\n").is_err());
         assert!(settings("server-port=abc\n").is_err());

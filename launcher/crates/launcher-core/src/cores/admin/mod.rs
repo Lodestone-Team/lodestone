@@ -16,6 +16,7 @@
 //! | [`instance_settings`] | settings manifest, auto start, listing, resource pack | C |
 //! | [`mods`] | mods, plugins, Modrinth, modpacks | A (modpacks) and C (mods) |
 //! | [`backups`] | backups: list, take, restore, download, schedule | backups |
+//! | [`images`] | a backup exported as a `.lodeimg`, a server made from one | images |
 //! | [`users`] | users, permissions, profile, API keys, Minecraft links | D |
 //! | [`core_settings`] | global settings, public listing, UPnP | D |
 //!
@@ -27,6 +28,7 @@ pub mod console;
 pub mod core_settings;
 pub mod events;
 pub mod files;
+pub mod images;
 pub mod instance_settings;
 pub mod instances;
 pub mod models;

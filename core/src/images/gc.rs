@@ -39,7 +39,15 @@ pub(crate) struct GcState {
     /// How many collections were asked for, for tests of who asks.
     #[cfg(test)]
     pub(crate) requests: std::sync::atomic::AtomicUsize,
+    /// How many collections were asked for later ([`ImageService::request_gc_after`]).
+    #[cfg(test)]
+    pub(crate) delayed_requests: std::sync::atomic::AtomicUsize,
 }
+
+/// How long after a failed write a collection is asked for: past the store's grace, which
+/// keeps every object written in the last hour, by a margin for the clocks of the disk.
+pub const AFTER_GRACE: Duration =
+    Duration::from_secs(lodestone_image::store::gc::GRACE.as_secs() + 5 * 60);
 
 impl ImageService {
     /// Deletes what no image uses (see the module). Blocking; waits for a collection that
@@ -71,6 +79,32 @@ impl ImageService {
             *last = Some(now);
         }
         self.request_gc();
+    }
+
+    /// How many collections were asked for later.
+    #[cfg(test)]
+    pub(crate) fn delayed_gc_requests(&self) -> usize {
+        self.gc.delayed_requests.load(Ordering::SeqCst)
+    }
+
+    /// [`Self::request_gc`] once `delay` has passed. For objects a failed or interrupted
+    /// write left (a server made from a file unpacks and downloads gigabytes before it can
+    /// fail): a collection now would keep them, since they are newer than the store's
+    /// grace, and nothing else may ask for one for days on a quiet core. Does nothing
+    /// outside a tokio runtime.
+    pub fn request_gc_after(self: &Arc<Self>, delay: Duration) {
+        #[cfg(test)]
+        self.gc.delayed_requests.fetch_add(1, Ordering::SeqCst);
+        let Ok(runtime) = tokio::runtime::Handle::try_current() else {
+            return;
+        };
+        let service = Arc::downgrade(self);
+        runtime.spawn(async move {
+            tokio::time::sleep(delay).await;
+            if let Some(service) = service.upgrade() {
+                service.request_gc();
+            }
+        });
     }
 
     /// Starts a collection in the background, or, while one runs, has it run again when it

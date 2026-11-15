@@ -1,4 +1,5 @@
 use std::path::{Path as FsPath, PathBuf};
+use std::sync::Arc;
 
 use axum::extract::State;
 use axum::routing::{delete, get, post};
@@ -7,7 +8,7 @@ use axum::{extract::Path, Json};
 
 use color_eyre::eyre::{eyre, Context};
 use futures::future::BoxFuture;
-use tracing::error;
+use tracing::{error, warn};
 
 use crate::auth::user::UserAction;
 use crate::error::{Error, ErrorKind};
@@ -168,10 +169,21 @@ pub(super) type PostSetupStep = Box<
 /// `total_progress`.
 const RECORD_PROGRESS: f64 = 1.0;
 
+/// The file in a server folder whose creation hasn't finished, holding the new server's
+/// uuid. Its `.lodestone_config` is written only once the creation's last step is done,
+/// so the core never loads a half-made server; at startup a folder with this file and no
+/// `.lodestone_config` is deleted ([`remove_unfinished_creations`]).
+pub(crate) const CREATING_MARKER: &str = ".lodestone_creating";
+
 /// Creates the folder of a new Minecraft instance and sets it up in the background, with
 /// progression events (`total_progress` for setting it up; recording its first content
 /// image adds [`RECORD_PROGRESS`]), like `POST /instance/create/{game_type}`. On failure the folder is
 /// removed. Returns the new instance's UUID right away.
+///
+/// The folder holds [`CREATING_MARKER`] until the setup and `post_setup` are done, and
+/// gets its `.lodestone_config` only then: a core stopped in the middle (while a file's
+/// world is unpacked, say) leaves a folder that startup deletes, not a server with half
+/// its files.
 pub(super) async fn spawn_minecraft_instance_creation(
     state: AppState,
     requester: &AuthedUser,
@@ -192,16 +204,19 @@ pub(super) async fn spawn_minecraft_instance_creation(
 
     let dot_lodestone_config =
         DotLodestoneConfig::new(instance_uuid.clone(), GameType::MinecraftJava);
-
-    // write dot lodestone config
-
-    tokio::fs::write(
-        setup_path.join(".lodestone_config"),
-        serde_json::to_string_pretty(&dot_lodestone_config)
-            .context("Failed to serialize .lodestone_config")?,
+    let dot_lodestone_json = serde_json::to_string_pretty(&dot_lodestone_config)
+        .context("Failed to serialize .lodestone_config")?;
+    if let Err(e) = crate::persist::write_atomic(
+        &setup_path.join(CREATING_MARKER),
+        instance_uuid.to_string(),
+        None,
     )
     .await
-    .context("Failed to write .lodestone_config file")?;
+    {
+        // without its marker startup would never remove the folder
+        remove_failed_instance_dir(setup_path).await;
+        return Err(e);
+    }
 
     tokio::task::spawn({
         let uuid = instance_uuid.clone();
@@ -217,29 +232,44 @@ pub(super) async fn spawn_minecraft_instance_creation(
             );
             event_broadcaster.send(progression_start_event);
             let created = async {
-                let instance = minecraft::MinecraftInstance::new(
-                    setup_config.clone(),
-                    dot_lodestone_config.clone(),
-                    setup_path.clone(),
-                    &event_id,
-                    state.event_broadcaster.clone(),
-                    state.code_execution.clone(),
-                )
-                .await?;
-                let Some(post_setup) = post_setup else {
-                    return Ok((instance, None));
+                let instance = state
+                    .server_setup
+                    .install(
+                        setup_config.clone(),
+                        dot_lodestone_config.clone(),
+                        setup_path.clone(),
+                        &event_id,
+                        state.event_broadcaster.clone(),
+                        state.code_execution.clone(),
+                    )
+                    .await?;
+                let (instance, message) = match post_setup {
+                    None => (instance, None),
+                    Some(post_setup) => {
+                        let message =
+                            post_setup(setup_path.clone(), event_id.clone(), uuid.clone()).await?;
+                        // read the instance again: the step may have changed its files
+                        drop(instance);
+                        let instance = minecraft::MinecraftInstance::restore(
+                            setup_path.clone(),
+                            dot_lodestone_config,
+                            state.event_broadcaster.clone(),
+                            state.code_execution.clone(),
+                        )
+                        .await?;
+                        (instance, message)
+                    }
                 };
-                let message =
-                    post_setup(setup_path.clone(), event_id.clone(), uuid.clone()).await?;
-                // read the instance again: the step may have changed its files
-                drop(instance);
-                let instance = minecraft::MinecraftInstance::restore(
-                    setup_path.clone(),
-                    dot_lodestone_config,
-                    state.event_broadcaster.clone(),
-                    state.code_execution.clone(),
+                // finished: from now on the core loads it
+                crate::persist::write_atomic(
+                    &setup_path.join(".lodestone_config"),
+                    dot_lodestone_json,
+                    None,
                 )
                 .await?;
+                if let Err(e) = tokio::fs::remove_file(setup_path.join(CREATING_MARKER)).await {
+                    warn!("Failed to remove the new server's creation marker: {e}");
+                }
                 Ok::<_, Error>((instance, message))
             }
             .await;
@@ -252,16 +282,25 @@ pub(super) async fn spawn_minecraft_instance_creation(
                         Some(&format!("Server creation failed: {e}")),
                         None,
                     ));
-                    remove_failed_instance_dir(setup_path).await;
-                    // what a modpack's setup recorded before the failure (its pack.json and
-                    // first image), whose objects would otherwise never be collected
-                    match state.images.delete_instance(&uuid).await {
-                        Ok(()) => state.images.request_gc(),
-                        Err(e) => error!(
-                            "Failed to delete the images of the failed server {uuid}: {}",
-                            e.source
-                        ),
+                    // the images first (what a modpack's setup or a file's import recorded
+                    // before the failure), then the folder, moved aside with its marker in
+                    // one step: startup's order, so a core stopped meanwhile, or a delete
+                    // that fails, leaves a folder the next start still recognises
+                    if discard_unfinished(setup_path, Some(&uuid), &state.images).await {
+                        state.images.request_gc();
+                        let instances = path_to_instances().clone();
+                        let _ = tokio::task::spawn_blocking(move || {
+                            if let Some(aside) = unfinished_dir(&instances) {
+                                crate::images::share::clear_leftovers(&aside);
+                            }
+                        })
+                        .await;
                     }
+                    // and the objects a file's import unpacked or downloaded, which no
+                    // image names but the store's grace keeps for an hour
+                    state
+                        .images
+                        .request_gc_after(crate::images::gc::AFTER_GRACE);
                     return;
                 }
             };
@@ -307,6 +346,114 @@ pub(super) async fn spawn_minecraft_instance_creation(
         }
     });
     Ok(instance_uuid)
+}
+
+/// Deletes the server folders in `instances_dir` whose creation a stopped core didn't
+/// finish ([`CREATING_MARKER`] and no `.lodestone_config`), and their images (a file's
+/// import may have recorded some), before the servers are read. A folder with both is a
+/// finished server whose marker wasn't removed yet: it only loses the marker.
+///
+/// A folder's images are deleted first, while its marker still names them: a core stopped
+/// in between finds the folder, and its marker, at the next start. A half-made folder can
+/// hold a half-unpacked world of many gigabytes, so it is then only moved aside, into
+/// `<instances>.unfinished` beside the servers' folder, which is emptied in the background
+/// (`images::share::clear_leftovers`, read-only files too).
+///
+/// It always asks for a collection once the store's grace is past: the objects a write cut
+/// off in the previous run stored (a creation from a file that failed, its timer lost with
+/// the run) are named by nothing and go then.
+pub(crate) async fn remove_unfinished_creations(
+    instances_dir: &FsPath,
+    images: &Arc<crate::images::ImageService>,
+) {
+    let dir = instances_dir.to_path_buf();
+    let unfinished = tokio::task::spawn_blocking(move || {
+        let mut unfinished = Vec::new();
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            return unfinished;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let marker = path.join(CREATING_MARKER);
+            let Ok(uuid) = std::fs::read_to_string(&marker) else {
+                continue;
+            };
+            if path.join(".lodestone_config").exists() {
+                let _ = std::fs::remove_file(&marker);
+                continue;
+            }
+            unfinished.push((path, uuid.trim().to_string()));
+        }
+        unfinished
+    })
+    .await
+    .unwrap_or_default();
+    for (path, uuid) in unfinished {
+        // only a uuid the core makes names an images folder
+        let uuid = uuid
+            .strip_prefix("INSTANCE_")
+            .is_some_and(|rest| uuid::Uuid::parse_str(rest).is_ok())
+            .then(|| InstanceUuid::from(uuid));
+        discard_unfinished(path, uuid.as_ref(), images).await;
+    }
+    let aside = unfinished_dir(instances_dir);
+    if let Some(aside) = aside {
+        let _ = tokio::task::spawn_blocking(move || crate::images::share::clear_leftovers(&aside))
+            .await;
+    }
+    images.request_gc_after(crate::images::gc::AFTER_GRACE);
+}
+
+/// Discards the folder `path` of a server whose creation didn't finish, and the images
+/// of `uuid`, in an order a stop or a failure at any point can't spoil: the images first,
+/// while the folder's marker still names them (if they can't be deleted the folder and
+/// its marker stay, for the next start to try again, and this answers false); then the
+/// folder is renamed into `<instances>.unfinished` in one step, for the caller to empty
+/// in the background (`images::share::clear_leftovers`). A deletion in place, which a
+/// stop can cut off after the marker went, is only the fallback when the rename fails.
+async fn discard_unfinished(
+    path: PathBuf,
+    uuid: Option<&InstanceUuid>,
+    images: &Arc<crate::images::ImageService>,
+) -> bool {
+    if let Some(uuid) = uuid {
+        if let Err(e) = images.delete_instance(uuid).await {
+            error!(
+                "Failed to delete the images of the unfinished server {uuid}: {}",
+                e.source
+            );
+            return false;
+        }
+    }
+    warn!(
+        "Deleting {}, a server whose creation didn't finish",
+        path.display()
+    );
+    let aside = path.parent().and_then(unfinished_dir);
+    let _ = tokio::task::spawn_blocking(move || {
+        let moved = aside.as_ref().is_some_and(|aside| {
+            let to = aside.join(format!(
+                "{}-{}",
+                path.file_name().unwrap_or_default().to_string_lossy(),
+                crate::util::rand_alphanumeric(8)
+            ));
+            std::fs::create_dir_all(aside).is_ok() && std::fs::rename(&path, to).is_ok()
+        });
+        if !moved {
+            if let Err(e) = crate::images::remove_tree(&path) {
+                error!("Failed to delete {}: {e}", path.display());
+            }
+        }
+    })
+    .await;
+    true
+}
+
+/// Where startup moves the half-made server folders of `instances_dir` before deleting
+/// them: `<instances>.unfinished`, beside it, so the servers' folder never lists them.
+fn unfinished_dir(instances_dir: &FsPath) -> Option<PathBuf> {
+    let name = instances_dir.file_name()?.to_str()?;
+    Some(instances_dir.with_file_name(format!("{name}.unfinished")))
 }
 
 /// The first content image of a server just created, before it is listed: "Created

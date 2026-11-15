@@ -87,6 +87,24 @@ pub fn text(message: M) -> &'static str {
         M::BackupFailed => "备份失败",
         M::RestoreDone => "恢复完成",
         M::RestoreFailed => "恢复失败",
+        M::ExportLabel => "导出为文件，供其他 Lodestone Host 使用",
+        M::ExportTitle => "导出“{name}”",
+        M::ExportBody => {
+            "将此备份保存为 .lodeimg 文件，其他 Lodestone Host 可以打开。server.properties 中的密码会被清空，含有密码或令牌的文件会被排除。"
+        }
+        M::ExportPlugins => "包含插件设置（其中可能有密码）",
+        M::ExportPluginsHint => "插件文件夹中的全部内容：设置、数据库和玩家数据。",
+        M::ExportAction => "导出…",
+        M::ExportPreparing => "正在准备文件…",
+        M::ExportSaving => "正在保存文件…",
+        M::Exported => "已保存 {name}",
+        M::ExportedBlanked => "已清空：{names}",
+        M::ExportedNotDownloadable => "未包含在文件中，因为其作者不允许在别处下载：{names}",
+        M::ExportedSecretsWithheld => {
+            "已排除，因为其中含有密码或令牌（另一台服务器会写入默认设置）：{names}"
+        }
+        M::ExportFailed => "无法导出备份：{error}",
+        M::ExportCancelled => "导出已取消",
     }
 }
 
@@ -97,5 +115,9 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::EveryMinutes => ["每 {count} 分钟", "每 {count} 分钟"],
         P::EveryHours => ["每 {count} 小时", "每 {count} 小时"],
         P::EveryDays => ["每 {count} 天", "每 {count} 天"],
+        P::ExportedLeftOut => [
+            "已移除 {count} 个不能离开这台电脑的文件",
+            "已移除 {count} 个不能离开这台电脑的文件",
+        ],
     }
 }

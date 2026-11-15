@@ -738,3 +738,215 @@ fn a_compressible_manifest_with_a_huge_unknown_field_is_refused_cheaply() {
     let error = open_error(&file);
     assert!(error.contains("larger than it keeps"), "{error}");
 }
+
+#[test]
+fn progress_reaches_the_total_and_the_bytes_are_exports() {
+    let (dir, store) = store(Encoding::Raw);
+    let fixture = fixture(&store);
+    let plain = dir.path().join("plain.lodeimg");
+    let watched = dir.path().join("watched.lodeimg");
+    let linked = std::slice::from_ref(&fixture.content);
+    export(&store, &fixture.data, linked, &plain, NEVER).unwrap();
+    let mut seen: Vec<(u64, u64)> = Vec::new();
+    export_with_progress(
+        &store,
+        &fixture.data,
+        linked,
+        &watched,
+        NEVER,
+        &mut |done, total| seen.push((done, total)),
+    )
+    .unwrap();
+    // The same file whether watched or not.
+    assert_eq!(fs::read(&plain).unwrap(), fs::read(&watched).unwrap());
+    let images = [&fixture.data, &fixture.content];
+    let total: u64 = carried_objects(&images).unwrap().values().sum();
+    assert_eq!(seen.first(), Some(&(0, total)));
+    assert_eq!(seen.last(), Some(&(total, total)));
+    assert!(seen.windows(2).all(|w| w[0].0 <= w[1].0 && w[1].1 == total));
+    // Chunks report as they go: more updates than objects.
+    assert!(seen.len() > 6, "{seen:?}");
+}
+
+#[test]
+fn a_small_carried_object_can_be_read_before_importing() {
+    let dir = tempfile::tempdir().unwrap();
+    let (_, entries) = small_export();
+    let file = dir.path().join("small.zip");
+    write_entries(&file, &entries);
+    let mut container = open(&file, &Limits::default()).unwrap();
+    assert_eq!(
+        container
+            .read_object(&sha256_hex(b"aaaa"), 1 << 20)
+            .unwrap(),
+        b"aaaa"
+    );
+    // Too big for what the caller allows.
+    let error = container
+        .read_object(&sha256_hex(b"bbbbbb"), 5)
+        .unwrap_err();
+    assert!(error.to_string().contains("too big"), "{error}");
+    // Not carried.
+    let error = container
+        .read_object(&sha256_hex(b"cccc"), 1 << 20)
+        .unwrap_err();
+    assert!(error.to_string().contains("doesn't carry"), "{error}");
+
+    // Right size, other bytes: refused, not returned.
+    let (_, mut tampered) = small_export();
+    tampered[1].1 = b"AAAA".to_vec();
+    let file = dir.path().join("tampered.zip");
+    write_entries(&file, &tampered);
+    let mut container = open(&file, &Limits::default()).unwrap();
+    let error = container
+        .read_object(&sha256_hex(b"aaaa"), 1 << 20)
+        .unwrap_err();
+    assert!(error.to_string().contains("doesn't match"), "{error}");
+}
+
+#[test]
+fn a_chunked_object_is_never_read_whole() {
+    let (dir, store) = store(Encoding::Raw);
+    let fixture = fixture(&store);
+    let file = dir.path().join("big.lodeimg");
+    export(
+        &store,
+        &fixture.data,
+        std::slice::from_ref(&fixture.content),
+        &file,
+        NEVER,
+    )
+    .unwrap();
+    let mut container = open(&file, &Limits::default()).unwrap();
+    let big = sha256_hex(&fixture.big);
+    let error = container.read_object(&big, u64::MAX).unwrap_err();
+    assert!(error.to_string().contains("too big"), "{error}");
+}
+
+#[test]
+fn only_the_picked_objects_are_imported() {
+    let (dir, store) = store(Encoding::Raw);
+    let fixture = fixture(&store);
+    let file = dir.path().join("picked.lodeimg");
+    export(
+        &store,
+        &fixture.data,
+        std::slice::from_ref(&fixture.content),
+        &file,
+        NEVER,
+    )
+    .unwrap();
+    let mut container = open(&file, &Limits::default()).unwrap();
+    let level = sha256_hex(b"level");
+    let big = sha256_hex(&fixture.big);
+    let only_level = |sha256: &str| sha256 == level;
+    assert_eq!(container.unpacked_bytes_of(&only_level), 5);
+    // a chunked object counts its plain size and its list
+    let with_big = container.unpacked_bytes_of(&|sha256| sha256 == big);
+    assert!(with_big > fixture.big.len() as u64, "{with_big}");
+    assert_eq!(container.unpacked_bytes_of(&|_| false), 0);
+
+    let (_other_dir, other) = crate::store::tests::store(Encoding::Raw);
+    let asked = std::cell::Cell::new(0);
+    let report = container
+        .import_objects_where(
+            &other,
+            &only_level,
+            &|bytes| {
+                asked.set(bytes);
+                Ok(())
+            },
+            NEVER,
+        )
+        .unwrap();
+    assert_eq!(asked.get(), 5, "the room asked for is the pick's");
+    assert_eq!(report.objects, 1);
+    assert!(other.object_complete(&level, 5));
+    assert!(!other.object_complete(&big, fixture.big.len() as u64));
+    assert!(!other.object_complete(&sha256_hex(b"jei config"), 10));
+
+    // the room check can refuse the pick before anything is unpacked
+    let (_third_dir, third) = crate::store::tests::store(Encoding::Raw);
+    let mut container = open(&file, &Limits::default()).unwrap();
+    let refused =
+        container.import_objects_where(&third, &|_| true, &|_| Err("no room".into()), NEVER);
+    assert!(matches!(refused, Err(ContainerError::NoRoom(_))));
+    assert!(!third.object_complete(&level, 5));
+}
+
+/// An export naming an object the store already has must still carry its bytes: else a
+/// hash and a size alone would get a copy of whatever the store holds under them.
+#[test]
+fn a_verified_import_checks_objects_the_store_already_has() {
+    let (dir, store) = store(Encoding::Raw);
+    let fixture = fixture(&store);
+    let file = dir.path().join("verified.lodeimg");
+    export(
+        &store,
+        &fixture.data,
+        std::slice::from_ref(&fixture.content),
+        &file,
+        NEVER,
+    )
+    .unwrap();
+    let mut archive = zip::ZipArchive::new(File::open(&file).unwrap()).unwrap();
+    let mut entries: Vec<(String, Vec<u8>)> = Vec::new();
+    for i in 0..archive.len() {
+        let mut entry = archive.by_index(i).unwrap();
+        let mut bytes = Vec::new();
+        entry.read_to_end(&mut bytes).unwrap();
+        entries.push((entry.name().unwrap().into_owned(), bytes));
+    }
+    let level = sha256_hex(b"level");
+    let big = sha256_hex(&fixture.big);
+    let all = |_: &str| true;
+
+    // the whole file's bytes: the same length, not its own
+    let mut forged = entries.clone();
+    let whole = forged
+        .iter()
+        .position(|(n, _)| *n == format!("objects/{level}"))
+        .unwrap();
+    forged[whole].1 = b"XXXXX".to_vec();
+    let altered = dir.path().join("forged-whole.lodeimg");
+    write_entries(&altered, &forged);
+    // the store has every object, so the plain import never reads them
+    let mut container = open(&altered, &Limits::default()).unwrap();
+    assert!(container
+        .import_objects_where(&store, &all, &no_check, NEVER)
+        .is_ok());
+    let mut container = open(&altered, &Limits::default()).unwrap();
+    let error = container
+        .import_objects_where_verified(&store, &all, &no_check, NEVER)
+        .unwrap_err();
+    assert!(error.to_string().contains("doesn't match"), "{error}");
+
+    // a chunk's bytes
+    let mut forged = entries.clone();
+    let chunk = forged
+        .iter()
+        .position(|(n, _)| n.starts_with("chunks/"))
+        .unwrap();
+    forged[chunk].1[0] ^= 1;
+    let altered = dir.path().join("forged-chunk.lodeimg");
+    write_entries(&altered, &forged);
+    let mut container = open(&altered, &Limits::default()).unwrap();
+    let error = container
+        .import_objects_where_verified(&store, &|sha256| sha256 == big, &no_check, NEVER)
+        .unwrap_err();
+    assert!(error.to_string().contains("doesn't match"), "{error}");
+
+    // the real file passes, and a store without the objects gets them as before
+    let mut container = open(&file, &Limits::default()).unwrap();
+    let report = container
+        .import_objects_where_verified(&store, &all, &no_check, NEVER)
+        .unwrap();
+    assert_eq!(report.objects, 0, "nothing new for the store that has them");
+    let (_other_dir, other) = crate::store::tests::store(Encoding::Raw);
+    let mut container = open(&file, &Limits::default()).unwrap();
+    container
+        .import_objects_where_verified(&other, &all, &no_check, NEVER)
+        .unwrap();
+    assert!(other.object_complete(&level, 5));
+    assert!(other.object_complete(&big, fixture.big.len() as u64));
+}
