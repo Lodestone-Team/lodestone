@@ -32,7 +32,7 @@ async fn collect(
     range: Option<ByteRange>,
 ) -> Result<Vec<u8>, std::io::Error> {
     let permit = Downloads::default()
-        .try_start(&InstanceUuid::default())
+        .try_start(&InstanceUuid::default(), None)
         .unwrap();
     let stream = object_stream(
         store.clone(),
@@ -270,13 +270,13 @@ fn downloads_are_limited_per_server_and_in_all() {
         .collect();
     let mut held = Vec::new();
     for _ in 0..MAX_OBJECT_STREAMS_PER_SERVER {
-        held.push(downloads.try_start(&servers[0]).unwrap());
+        held.push(downloads.try_start(&servers[0], None).unwrap());
     }
     // one server's limit leaves the others theirs
-    assert!(downloads.try_start(&servers[0]).is_none());
+    assert!(downloads.try_start(&servers[0], None).is_none());
     for server in &servers[1..] {
         while held.len() < MAX_OBJECT_STREAMS {
-            let Some(permit) = downloads.try_start(server) else {
+            let Some(permit) = downloads.try_start(server, None) else {
                 break;
             };
             held.push(permit);
@@ -285,13 +285,13 @@ fn downloads_are_limited_per_server_and_in_all() {
     assert_eq!(downloads.running(), MAX_OBJECT_STREAMS);
     // all of them: nobody starts, not even a server with none running
     assert!(downloads
-        .try_start(&InstanceUuid::from("INSTANCE_new".to_string()))
+        .try_start(&InstanceUuid::from("INSTANCE_new".to_string()), None)
         .is_none());
     held.pop();
-    assert!(downloads.try_start(&servers[0]).is_none());
+    assert!(downloads.try_start(&servers[0], None).is_none());
     held.clear();
     assert_eq!(downloads.running(), 0);
-    assert!(downloads.try_start(&servers[0]).is_some());
+    assert!(downloads.try_start(&servers[0], None).is_some());
 }
 
 /// A player that stops reading: the download ends after the idle time and gives its place
@@ -308,7 +308,7 @@ async fn a_download_nobody_reads_ends_and_frees_its_place() {
         stored.sha256.clone(),
         stored.size,
         None,
-        downloads.try_start(&uuid).unwrap(),
+        downloads.try_start(&uuid, None).unwrap(),
         Duration::from_millis(200),
     );
     let mut stream = std::pin::pin!(stream);
@@ -333,7 +333,7 @@ async fn a_download_nobody_reads_ends_and_frees_its_place() {
         stored.sha256.clone(),
         stored.size,
         None,
-        downloads.try_start(&uuid).unwrap(),
+        downloads.try_start(&uuid, None).unwrap(),
         Duration::from_millis(200),
     );
     let mut stream = std::pin::pin!(stream);
@@ -344,4 +344,109 @@ async fn a_download_nobody_reads_ends_and_frees_its_place() {
     }
     assert_eq!(out, bytes);
     assert_eq!(downloads.running(), 0);
+}
+
+/// One client can't take every place: it has [`MAX_OBJECT_STREAMS_PER_CLIENT`] over every
+/// server, an IPv6 client its whole /64, and a route that can't tell clients apart only the
+/// other limits.
+#[test]
+fn downloads_are_limited_per_client() {
+    let downloads = Downloads::default();
+    let address = |text: &str| ClientKey::of_address(text.parse().unwrap());
+    let one = address("203.0.113.5");
+    assert_eq!(address("::ffff:203.0.113.5"), one);
+    let six = address("2001:db8:1:2::1");
+    assert_eq!(address("2001:db8:1:2:ffff::9"), six);
+    assert_ne!(address("2001:db8:1:3::1"), six);
+    let servers = [
+        InstanceUuid::from("INSTANCE_a".to_string()),
+        InstanceUuid::from("INSTANCE_b".to_string()),
+    ];
+    let mut held = Vec::new();
+    for n in 0..MAX_OBJECT_STREAMS_PER_CLIENT {
+        held.push(downloads.try_start(&servers[n % 2], Some(&one)).unwrap());
+    }
+    assert!(downloads.try_start(&servers[0], Some(&one)).is_none());
+    assert!(downloads.try_start(&servers[1], Some(&one)).is_none());
+    // others still start, on the same servers
+    let other = downloads.try_start(&servers[0], Some(&six)).unwrap();
+    let friend = ClientKey::Friend([7; 32]);
+    let by_friend = downloads.try_start(&servers[0], Some(&friend)).unwrap();
+    let unknown = downloads.try_start(&servers[0], None).unwrap();
+    // one ends: the client may start one more
+    held.pop();
+    held.push(downloads.try_start(&servers[1], Some(&one)).unwrap());
+    // a client whose server is full keeps its places as they were
+    drop((other, by_friend, unknown));
+    held.clear();
+    assert_eq!(downloads.running(), 0);
+    assert!(
+        downloads.clients.lock().unwrap().is_empty(),
+        "clients with no downloads are forgotten"
+    );
+}
+
+/// An object whose manifest is pruned while it is sent (a view superseded meanwhile): a
+/// collection may take it between two reads, and the stream then ends short, but it never
+/// sends other bytes, and a collection never waits for more than the read in progress.
+#[tokio::test]
+async fn a_stream_of_an_object_pruned_meanwhile_ends_short() {
+    let (dir, store) = store();
+    let bytes = noise(6 << 20, 23);
+    let stored = store.put_bytes(&bytes).unwrap();
+    let mut image = Image::new(
+        Kind::Content,
+        Game {
+            minecraft: "1.20.1".into(),
+            loader: Loader::Fabric,
+            loader_version: None,
+        },
+    );
+    image.entries = vec![Entry::new(
+        CanonicalPath::new("mods/big.jar").unwrap(),
+        stored.size,
+        stored.sha256.clone(),
+        Source::Object {},
+    )];
+    image.seal();
+    store.save_manifest("INSTANCE_a", &image).unwrap();
+    age(dir.path());
+    let permit = Downloads::default()
+        .try_start(&InstanceUuid::default(), None)
+        .unwrap();
+    let stream = object_stream(
+        store.clone(),
+        stored.sha256.clone(),
+        stored.size,
+        None,
+        permit,
+        IDLE_TIMEOUT,
+    );
+    let mut stream = std::pin::pin!(stream);
+    let mut out = stream.next().await.unwrap().unwrap().to_vec();
+    // pruned after the first piece, and collected while the download is under way
+    store.delete_manifest("INSTANCE_a", &image.id).unwrap();
+    let collecting = store.clone();
+    let collected = tokio::task::spawn_blocking(move || collecting.gc(&GcOptions::default()))
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(collected.chunks_removed > 0, "{collected:?}");
+    let mut whole = true;
+    while let Some(piece) = stream.next().await {
+        match piece {
+            Ok(piece) => out.extend_from_slice(&piece),
+            Err(_) => {
+                whole = false;
+                break;
+            }
+        }
+    }
+    assert!(!whole, "the file was collected before it was all read");
+    assert!(out.len() < bytes.len());
+    assert_eq!(
+        &out[..],
+        &bytes[..out.len()],
+        "what came is the file's start"
+    );
 }

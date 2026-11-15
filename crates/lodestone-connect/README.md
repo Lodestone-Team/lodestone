@@ -116,7 +116,11 @@ the friend accepts no streams from the host.
   two. Nothing else of the core's API answers, and no route takes a request body. So the
   launcher's core client, pointed at a forwarded info port as `http://127.0.0.1:<port>`,
   reads these as it reads a core whose servers are listed publicly. `info::get` reads at
-  most 256 KiB of an answer, so objects need a client that streams.
+  most 256 KiB of an answer and silently stops there, and these answers can be larger: an
+  object is a whole file, and the client view of a big pack (about 450 Modrinth mods) or a
+  delta to it passes 256 KiB too. Read the image and object routes through the forwarded
+  port (`Joined::forward`) with an ordinary HTTP client that streams; `info::get` is only
+  for `/api/v1/connect/info` and the instance list.
 - **Hello (2)**: the host answers one byte, `0x4c`, and closes the stream. `join` sends
   one right after connecting, to prove it has the token and to check the host accepts
   it.

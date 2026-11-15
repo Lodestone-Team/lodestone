@@ -9,11 +9,12 @@
 //! - views by content id (a content id is its contents, and a view of it under one set of
 //!   rules never changes);
 //! - deltas by the two view ids;
-//! - which content image each view id comes from, per instance, learned lazily from the
+//! - which content images each view id comes from, per instance, learned lazily from the
 //!   instance's manifests the first time a player names a view the core hasn't seen.
 //!
-//! A request costs one small read of the pointer (`content-state.json`'s `current`) and then
-//! cache hits. The pointer moves only after its manifest is saved, and manifests are
+//! A request costs a look at the state file (its size, time and inode: the pointer,
+//! `content-state.json`'s `current`, is read again only when they change) and then cache
+//! hits. The pointer moves only after its manifest is saved, and manifests are
 //! written by an atomic rename, so a request never sees a half-written image; the current
 //! image and its parent are never pruned, and saving a manifest checks every object it
 //! names is in the store, so the objects a current view names are there. Nothing here holds
@@ -25,6 +26,7 @@ use std::sync::{Arc, Mutex as StdMutex};
 use std::time::{Duration, Instant};
 
 use axum::body::Bytes;
+use color_eyre::eyre::WrapErr;
 use lodestone_image::store::{Store, StoreError};
 use lodestone_image::{delta, view, Image, Kind, Side, Source, RULES};
 use tracing::warn;
@@ -32,6 +34,7 @@ use tracing::warn;
 use crate::error::{Error, ErrorKind};
 use crate::types::InstanceUuid;
 
+use super::state::StateStamp;
 use super::{blocking, ImageService, InstanceContext};
 
 /// The most view ids a player may send in `have`.
@@ -45,7 +48,9 @@ const VIEW_CACHE_BYTES: usize = 32 << 20;
 const DELTA_CACHE: usize = 64;
 const DELTA_CACHE_BYTES: usize = 16 << 20;
 /// How long after a failed first record ([`ImageService::record_first`]) the next may
-/// start; it doubles with each failure in a row, up to [`FIRST_RECORD_MAX_WAIT`].
+/// start; it doubles with each failure in a row, up to [`FIRST_RECORD_MAX_WAIT`]. Also how
+/// long after a record that stores missing objects again ([`ImageService::record_again`])
+/// the next may start, whatever its outcome.
 pub const FIRST_RECORD_WAIT: Duration = Duration::from_secs(60);
 pub const FIRST_RECORD_MAX_WAIT: Duration = Duration::from_secs(30 * 60);
 
@@ -167,44 +172,79 @@ impl<K: Eq + Hash + Clone, V: Clone> Bounded<K, V> {
     }
 }
 
-/// Which content image each client view id comes from, for one instance.
+/// Which content images each client view id comes from, for one instance.
 #[derive(Default)]
 struct Known {
-    /// Client view id to a content image id with that view.
-    views: HashMap<String, String>,
-    /// Manifests already looked at (content or not), so each is read once.
-    seen: HashSet<String>,
+    /// Client view id to the content images with that view: many share one, since a change
+    /// only the server sees (`server.properties`, a server-only mod) leaves it as it was.
+    views: HashMap<String, HashSet<String>>,
+    /// Manifests already looked at, each with its client view id (`None`: not a content
+    /// image, or unreadable), so each is read once.
+    seen: HashMap<String, Option<String>>,
+}
+
+impl Known {
+    fn learn(&mut self, manifest: &str, view_id: Option<&str>) {
+        if let Some(view_id) = view_id {
+            self.views
+                .entry(view_id.to_string())
+                .or_default()
+                .insert(manifest.to_string());
+        }
+        self.seen
+            .insert(manifest.to_string(), view_id.map(str::to_string));
+    }
+
+    /// Forgets a manifest that is gone. Its view stays known while another manifest has it.
+    fn forget(&mut self, manifest: &str) {
+        let Some(Some(view_id)) = self.seen.remove(manifest) else {
+            return;
+        };
+        if let Some(contents) = self.views.get_mut(&view_id) {
+            contents.remove(manifest);
+            if contents.is_empty() {
+                self.views.remove(&view_id);
+            }
+        }
+    }
 }
 
 /// The caches of what players are served (see the module). Part of [`ImageService`].
 pub(crate) struct ViewCache {
     views: StdMutex<Bounded<String, Arc<ServedView>>>,
+    /// One computation of a content id's view at a time, so players who all ask at once
+    /// for a new image wait for one.
+    computing: StdMutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
     /// `None`: the delta is no smaller than the view, which is sent instead.
     deltas: StdMutex<Bounded<(String, String), Option<Bytes>>>,
     known: StdMutex<HashMap<InstanceUuid, Known>>,
     /// One scan of an instance's manifests at a time.
     lookups: StdMutex<HashMap<InstanceUuid, Arc<tokio::sync::Mutex<()>>>>,
-    /// Instances whose first content image a player's request is recording, or whose
-    /// last such record failed.
+    /// Each instance's pointer as last read, with the state file's stamp then.
+    pointers: StdMutex<HashMap<InstanceUuid, (StateStamp, Option<String>)>>,
+    /// Instances a player's request is recording in the background, or whose next such
+    /// record must wait.
     first_records: StdMutex<HashMap<InstanceUuid, FirstRecordState>>,
 }
 
-/// Where the first record of an instance that has no content image is.
+/// Where the background records ([`ImageService::record_first`],
+/// [`ImageService::record_again`]) of an instance are.
 enum FirstRecordState {
     Running,
-    /// The last `failures` records in a row failed; the next may start at `retry_at`.
-    Failed {
+    /// None may start before `retry_at`. `failures` is how many failed in a row.
+    Waiting {
         failures: u32,
         retry_at: Instant,
     },
 }
 
-/// What [`ImageService::record_first`] did.
+/// What [`ImageService::record_first`] (or [`ImageService::record_again`]) did.
 #[derive(Debug, PartialEq, Eq)]
 pub enum FirstRecord {
-    /// The first content image is being recorded (by this request or an earlier one).
+    /// The record is running (started by this request or an earlier one).
     Recording,
-    /// The last record failed; the next starts once this has passed.
+    /// The last record failed (or, for [`ImageService::record_again`], ran a moment ago);
+    /// the next starts once this has passed.
     Failed { retry_after: Duration },
 }
 
@@ -219,9 +259,11 @@ impl Default for ViewCache {
     fn default() -> ViewCache {
         ViewCache {
             views: StdMutex::new(Bounded::new()),
+            computing: Default::default(),
             deltas: StdMutex::new(Bounded::new()),
             known: Default::default(),
             lookups: Default::default(),
+            pointers: Default::default(),
             first_records: Default::default(),
         }
     }
@@ -232,31 +274,48 @@ fn locked<T>(mutex: &StdMutex<T>) -> std::sync::MutexGuard<'_, T> {
 }
 
 impl ViewCache {
-    /// Forgets a deleted instance's view ids. Its views and deltas age out.
+    /// Forgets a deleted instance. Its views and deltas age out.
     pub(crate) fn forget(&self, uuid: &InstanceUuid) {
         locked(&self.known).remove(uuid);
         locked(&self.lookups).remove(uuid);
+        locked(&self.pointers).remove(uuid);
+        locked(&self.first_records).remove(uuid);
     }
 
-    fn content_of(&self, uuid: &InstanceUuid, view_id: &str) -> Option<String> {
+    /// The content images known to have the client view `view_id`.
+    fn contents_of(&self, uuid: &InstanceUuid, view_id: &str) -> Vec<String> {
         locked(&self.known)
             .get(uuid)
-            .and_then(|known| known.views.get(view_id).cloned())
+            .and_then(|known| known.views.get(view_id))
+            .map(|contents| contents.iter().cloned().collect())
+            .unwrap_or_default()
+    }
+
+    fn knows(&self, uuid: &InstanceUuid, view_id: &str) -> bool {
+        locked(&self.known)
+            .get(uuid)
+            .is_some_and(|known| known.views.contains_key(view_id))
     }
 
     fn learn(&self, uuid: &InstanceUuid, view_id: &str, content_id: &str) {
-        let mut known = locked(&self.known);
-        let known = known.entry(uuid.clone()).or_default();
-        known
-            .views
-            .insert(view_id.to_string(), content_id.to_string());
-        known.seen.insert(content_id.to_string());
+        locked(&self.known)
+            .entry(uuid.clone())
+            .or_default()
+            .learn(content_id, Some(view_id));
+    }
+
+    fn unlearn(&self, uuid: &InstanceUuid, content_id: &str) {
+        if let Some(known) = locked(&self.known).get_mut(uuid) {
+            known.forget(content_id);
+        }
     }
 }
 
 /// The client view of the content image `content_id` of `uuid`, from its manifest (which
 /// is checked against its id as it is read). Blocking.
 fn served_view(store: &Store, uuid: &InstanceUuid, content_id: &str) -> Result<ServedView, Error> {
+    // What a player sees is only the top message: the store's errors name its folders,
+    // so they go only into the log, as causes.
     let image = store
         .load_manifest(uuid.as_ref(), content_id)
         .map_err(|e| match e {
@@ -264,21 +323,21 @@ fn served_view(store: &Store, uuid: &InstanceUuid, content_id: &str) -> Result<S
                 kind: ErrorKind::NotFound,
                 source: color_eyre::eyre::eyre!("The server's content image is gone"),
             },
-            e => Error::from(color_eyre::eyre::eyre!(
-                "Failed to read the content image {content_id} of {uuid}: {e}"
-            )),
+            e => Error::from(
+                color_eyre::Report::new(e)
+                    .wrap_err(format!("Failed to read the content image {content_id}")),
+            ),
         })?;
-    let view = view(&image, Side::Client, RULES).map_err(|e| {
-        Error::from(color_eyre::eyre::eyre!(
-            "Failed to compute the client view of {content_id}: {e}"
-        ))
-    })?;
+    let view = view(&image, Side::Client, RULES)
+        .map_err(color_eyre::Report::new)
+        .wrap_err(format!("Failed to compute the client view of {content_id}"))?;
     Ok(ServedView::new(content_id.to_string(), view))
 }
 
 impl ImageService {
     /// The client view of the instance's current content image, or `None` while it has
-    /// none (start one with [`Self::record_first`]).
+    /// none (start one with [`Self::record_first`]). A pointer whose manifest went missing
+    /// or can't be read counts as none: the next record saves it again.
     pub async fn client_view(&self, uuid: &InstanceUuid) -> Result<Option<Arc<ServedView>>, Error> {
         if !Self::accepts(uuid) {
             return Err(Error {
@@ -286,22 +345,73 @@ impl ImageService {
                 source: color_eyre::eyre::eyre!("Server not found"),
             });
         }
-        let root = self.root.clone();
-        let id = uuid.clone();
-        let Some(current) = blocking(move || Ok(super::state::current_pointer(&root, &id))).await?
-        else {
+        let Some(current) = self.current_pointer(uuid).await? else {
             return Ok(None);
         };
         match self.served(uuid, &current).await {
             Ok(view) => Ok(Some(view)),
-            // A pointer whose manifest went missing: the next record saves it again.
-            Err(e) if matches!(e.kind, ErrorKind::NotFound) => Ok(None),
-            Err(e) => Err(e),
+            Err(e) => {
+                if !matches!(e.kind, ErrorKind::NotFound) {
+                    warn!(
+                        "The current content image of {uuid} can't be read; recording it again: {:#}",
+                        e.source
+                    );
+                }
+                Ok(None)
+            }
         }
     }
 
+    /// The instance's current content image id, read from its state file only when the
+    /// file changed since the last read ([`super::state::stamp`]).
+    async fn current_pointer(&self, uuid: &InstanceUuid) -> Result<Option<String>, Error> {
+        let cached = locked(&self.views.pointers).get(uuid).cloned();
+        let root = self.root.clone();
+        let id = uuid.clone();
+        let (stamp, pointer) = blocking(move || {
+            // Taken before the read: a save in between leaves a stamp that no longer
+            // matches, so the next request reads again.
+            let stamp = super::state::stamp(&root, &id);
+            let pointer = match (&cached, stamp) {
+                (Some((was, pointer)), Some(now)) if *was == now => pointer.clone(),
+                _ => super::state::current_pointer(&root, &id),
+            };
+            Ok((stamp, pointer))
+        })
+        .await?;
+        let mut pointers = locked(&self.views.pointers);
+        match stamp {
+            Some(stamp) => {
+                pointers.insert(uuid.clone(), (stamp, pointer.clone()));
+            }
+            None => {
+                pointers.remove(uuid);
+            }
+        }
+        Ok(pointer)
+    }
+
     /// The client view of the content image `content_id`, from the cache or its manifest.
+    /// Players asking at once for a view not cached yet wait for one computation.
     async fn served(
+        &self,
+        uuid: &InstanceUuid,
+        content_id: &str,
+    ) -> Result<Arc<ServedView>, Error> {
+        if let Some(view) = locked(&self.views.views).get(&content_id.to_string()) {
+            return Ok(view);
+        }
+        let computing = locked(&self.views.computing)
+            .entry(content_id.to_string())
+            .or_default()
+            .clone();
+        let _one = computing.lock().await;
+        let result = self.compute_served(uuid, content_id).await;
+        locked(&self.views.computing).remove(content_id);
+        result
+    }
+
+    async fn compute_served(
         &self,
         uuid: &InstanceUuid,
         content_id: &str,
@@ -329,6 +439,10 @@ impl ImageService {
     /// [`ClientAnswer::Current`]; another known view gives a delta from it (or the whole
     /// view when that is no larger); none known gives the whole view. `None` while the
     /// instance has no content image.
+    ///
+    /// The ids are first looked up among the views the core has learnt; the instance's
+    /// manifests are scanned for ids it hasn't seen only when none of those decides, so a
+    /// player that keeps a few pruned ids after its current one costs no scan.
     pub async fn client_answer(
         &self,
         uuid: &InstanceUuid,
@@ -337,27 +451,46 @@ impl ImageService {
         let Some(current) = self.client_view(uuid).await? else {
             return Ok(None);
         };
+        if let Some(answer) = self.answer_from_known(uuid, have, &current).await? {
+            return Ok(Some(answer));
+        }
         let unknown = have
             .iter()
-            .any(|id| id != current.id() && self.views.content_of(uuid, id).is_none());
+            .any(|id| id != current.id() && !self.views.knows(uuid, id));
         if unknown {
             self.learn_view_ids(uuid).await?;
-        }
-        for id in have {
-            if id == current.id() {
-                return Ok(Some(ClientAnswer::Current(current)));
-            }
-            let Some(content) = self.views.content_of(uuid, id) else {
-                continue;
-            };
-            match self.served(uuid, &content).await {
-                Ok(from) => return Ok(Some(self.delta(from, current).await?)),
-                // Pruned since it was learnt: as if it were unknown.
-                Err(e) if matches!(e.kind, ErrorKind::NotFound) => continue,
-                Err(e) => return Err(e),
+            if let Some(answer) = self.answer_from_known(uuid, have, &current).await? {
+                return Ok(Some(answer));
             }
         }
         Ok(Some(ClientAnswer::View(current)))
+    }
+
+    /// The answer from the first id of `have` that is the current view or one the core
+    /// knows, if any.
+    async fn answer_from_known(
+        &self,
+        uuid: &InstanceUuid,
+        have: &[String],
+        current: &Arc<ServedView>,
+    ) -> Result<Option<ClientAnswer>, Error> {
+        for id in have {
+            if id == current.id() {
+                return Ok(Some(ClientAnswer::Current(current.clone())));
+            }
+            for content in self.views.contents_of(uuid, id) {
+                match self.served(uuid, &content).await {
+                    Ok(from) => return Ok(Some(self.delta(from, current.clone()).await?)),
+                    // Pruned since it was learnt: another image with the view may still be
+                    // there.
+                    Err(e) if matches!(e.kind, ErrorKind::NotFound) => {
+                        self.views.unlearn(uuid, &content)
+                    }
+                    Err(e) => return Err(e),
+                }
+            }
+        }
+        Ok(None)
     }
 
     /// The answer for a player with the view `from`: a delta to `current`, cached.
@@ -397,10 +530,10 @@ impl ImageService {
     }
 
     /// Learns the client view id of each content manifest of `uuid` not looked at yet, and
-    /// forgets those of manifests that are gone. Each manifest is read once while the core
-    /// runs (a view id is a function of the content id and the rules), and one scan of an
-    /// instance runs at a time, so a burst of requests naming unknown views costs one
-    /// listing of the instance's folder each.
+    /// forgets manifests that are gone (a view stays known while any manifest left has it).
+    /// Each manifest is read once while the core runs (a view id is a function of the
+    /// content id and the rules), and one scan of an instance runs at a time, so a burst of
+    /// requests naming unknown views costs one listing of the instance's folder each.
     async fn learn_view_ids(&self, uuid: &InstanceUuid) -> Result<(), Error> {
         let lookup = locked(&self.views.lookups)
             .entry(uuid.clone())
@@ -409,7 +542,7 @@ impl ImageService {
         let _scan = lookup.lock().await;
         let seen: HashSet<String> = locked(&self.views.known)
             .get(uuid)
-            .map(|known| known.seen.clone())
+            .map(|known| known.seen.keys().cloned().collect())
             .unwrap_or_default();
         let store = self.store();
         let links = self.links.clone();
@@ -417,7 +550,8 @@ impl ImageService {
         let (ids, learnt) = blocking(move || {
             let ids = store
                 .manifest_ids(id.as_ref())
-                .map_err(|e| color_eyre::eyre::eyre!("Failed to list the images: {e}"))?;
+                .map_err(color_eyre::Report::new)
+                .wrap_err("Failed to list the server's images")?;
             let mut learnt = Vec::new();
             for manifest in &ids {
                 let data = locked(&links).contains_key(manifest);
@@ -429,7 +563,10 @@ impl ImageService {
                         match served_view(&store, &id, manifest) {
                             Ok(served) => Some(served.view.id),
                             Err(e) => {
-                                warn!("Failed to read the content image {manifest}: {}", e.source);
+                                warn!(
+                                    "Failed to read the content image {manifest}: {:#}",
+                                    e.source
+                                );
                                 None
                             }
                         }
@@ -448,25 +585,44 @@ impl ImageService {
         let present: HashSet<String> = ids.into_iter().collect();
         let mut known = locked(&self.views.known);
         let known = known.entry(uuid.clone()).or_default();
-        known.seen.retain(|id| present.contains(id));
-        known.views.retain(|_, content| present.contains(content));
+        let gone: Vec<String> = known
+            .seen
+            .keys()
+            .filter(|id| !present.contains(*id))
+            .cloned()
+            .collect();
+        for manifest in gone {
+            known.forget(&manifest);
+        }
         for (manifest, view_id) in learnt {
-            if let Some(view_id) = view_id {
-                known.views.insert(view_id, manifest.clone());
-            }
-            known.seen.insert(manifest);
+            known.learn(&manifest, view_id.as_deref());
         }
         Ok(())
     }
 
     /// Records the instance's first content image in the background, once however many
     /// players ask, when it still has none (or its pointer names a manifest that went
-    /// missing). Unlike the startup sweep it also records a running server (on one
-    /// thread), and leaves `running_since` as it is, so the next stop takes the baseline
-    /// again as usual. After a record fails, none starts again for [`FIRST_RECORD_WAIT`],
-    /// doubling with each failure in a row: players can't make the core rescan a server
-    /// (holding its owner's operations off) over and over.
+    /// missing or can't be read). Unlike the startup sweep it also records a running server
+    /// (on one thread), and leaves `running_since` as it is, so the next stop takes the
+    /// baseline again as usual. After a record fails, none starts again for
+    /// [`FIRST_RECORD_WAIT`], doubling with each failure in a row: players can't make the
+    /// core rescan a server (holding its owner's operations off) over and over.
     pub fn record_first(self: &Arc<Self>, ctx: InstanceContext) -> FirstRecord {
+        self.record_in_background(ctx, false)
+    }
+
+    /// Records the instance's content in the background to store again what the store lost
+    /// of its current image (an object a player asked for that was missing or found
+    /// damaged): a record stores every file the content stat cache can't claim. Like
+    /// [`Self::record_first`], once however many ask, and none starts again for
+    /// [`FIRST_RECORD_WAIT`] after one ends, whether it succeeded or not, so a file that
+    /// stays missing (or a player that keeps asking) can't make the core rescan the server
+    /// over and over.
+    pub fn record_again(self: &Arc<Self>, ctx: InstanceContext) -> FirstRecord {
+        self.record_in_background(ctx, true)
+    }
+
+    fn record_in_background(self: &Arc<Self>, ctx: InstanceContext, again: bool) -> FirstRecord {
         if !Self::accepts(&ctx.uuid) {
             return FirstRecord::Recording;
         }
@@ -475,72 +631,58 @@ impl ImageService {
             let mut records = locked(&self.views.first_records);
             let failures = match records.get(&ctx.uuid) {
                 Some(FirstRecordState::Running) => return FirstRecord::Recording,
-                Some(FirstRecordState::Failed { retry_at, .. }) if *retry_at > now => {
+                Some(FirstRecordState::Waiting { retry_at, .. }) if *retry_at > now => {
                     return FirstRecord::Failed {
                         retry_after: *retry_at - now,
                     }
                 }
-                Some(FirstRecordState::Failed { failures, .. }) => *failures,
+                Some(FirstRecordState::Waiting { failures, .. }) => *failures,
                 None => 0,
             };
             records.insert(ctx.uuid.clone(), FirstRecordState::Running);
             failures
         };
+        let settle = Settle {
+            service: self.clone(),
+            uuid: ctx.uuid.clone(),
+            failures,
+            again,
+            outcome: None,
+        };
         let this = self.clone();
         tokio::spawn(async move {
-            let uuid = ctx.uuid.clone();
-            let result = this.record_first_now(ctx).await;
-            let mut records = locked(&this.views.first_records);
-            match result {
-                Ok(()) => {
-                    records.remove(&uuid);
-                }
-                Err(e) => {
-                    let failures = failures.saturating_add(1);
-                    let wait = first_record_wait(failures);
-                    warn!(
-                        "Failed to record the first content image of {uuid} (trying again in {wait:?} at the earliest): {}",
-                        e.source
-                    );
-                    records.insert(
-                        uuid,
-                        FirstRecordState::Failed {
-                            failures,
-                            retry_at: this.clock.now() + wait,
-                        },
-                    );
-                }
-            }
+            let mut settle = settle;
+            settle.outcome = Some(this.record_first_now(ctx, again).await);
         });
         FirstRecord::Recording
     }
 
-    async fn record_first_now(&self, ctx: InstanceContext) -> Result<(), Error> {
+    async fn record_first_now(&self, ctx: InstanceContext, again: bool) -> Result<(), Error> {
         let slot = self.slot(&ctx.uuid);
         let _gate = slot.gate.clone().write_owned().await;
         let _lock = slot.lock.clone().lock_owned().await;
-        let root = self.root.clone();
-        let store = self.store();
-        let uuid = ctx.uuid.clone();
-        let has_image = blocking(move || {
-            Ok(super::state::load(&root, &uuid).current.is_some_and(|id| {
-                store
-                    .manifest_path(uuid.as_ref(), &id)
-                    .is_ok_and(|path| path.is_file())
-            }))
-        })
-        .await?;
-        if has_image {
-            return Ok(());
+        if !again {
+            let root = self.root.clone();
+            let store = self.store();
+            let uuid = ctx.uuid.clone();
+            let has_image = blocking(move || {
+                Ok(super::state::load(&root, &uuid)
+                    .current
+                    .is_some_and(|id| store.load_manifest(uuid.as_ref(), &id).is_ok()))
+            })
+            .await?;
+            if has_image {
+                return Ok(());
+            }
         }
-        self.record_held(
-            &slot,
-            ctx,
-            Some(super::recorder::INITIAL_LABEL.to_string()),
-            1,
-        )
-        .await
-        .map(|_| ())
+        let label = if again {
+            super::recorder::OUTSIDE_LABEL
+        } else {
+            super::recorder::INITIAL_LABEL
+        };
+        self.record_held(&slot, ctx, Some(label.to_string()), 1)
+            .await
+            .map(|_| ())
     }
 
     /// Whether a first record started by [`Self::record_first`] is running.
@@ -550,6 +692,63 @@ impl ImageService {
             locked(&self.views.first_records).get(uuid),
             Some(FirstRecordState::Running)
         )
+    }
+}
+
+/// Settles a background record when its task ends, however it ends: with its outcome, or
+/// as failed when the task panicked or was dropped first, so an instance is never left
+/// "recording" for good.
+struct Settle {
+    service: Arc<ImageService>,
+    uuid: InstanceUuid,
+    /// How many failed in a row before this one.
+    failures: u32,
+    again: bool,
+    outcome: Option<Result<(), Error>>,
+}
+
+impl Drop for Settle {
+    fn drop(&mut self) {
+        let outcome = self.outcome.take().unwrap_or_else(|| {
+            Err(Error::from(color_eyre::eyre::eyre!(
+                "The record stopped before it ended"
+            )))
+        });
+        let now = self.service.clock.now();
+        let mut records = locked(&self.service.views.first_records);
+        if !matches!(records.get(&self.uuid), Some(FirstRecordState::Running)) {
+            // The instance was deleted meanwhile.
+            return;
+        }
+        match outcome {
+            Ok(()) if self.again => {
+                records.insert(
+                    self.uuid.clone(),
+                    FirstRecordState::Waiting {
+                        failures: 0,
+                        retry_at: now + FIRST_RECORD_WAIT,
+                    },
+                );
+            }
+            Ok(()) => {
+                records.remove(&self.uuid);
+            }
+            Err(e) => {
+                let failures = self.failures.saturating_add(1);
+                let wait = first_record_wait(failures);
+                warn!(
+                    "Failed to record the content of {} for its players (trying again in {wait:?} at the earliest): {:#}",
+                    self.uuid, e.source
+                );
+                records.insert(
+                    self.uuid.clone(),
+                    FirstRecordState::Waiting {
+                        failures,
+                        retry_at: now + wait,
+                    },
+                );
+            }
+        }
     }
 }
 

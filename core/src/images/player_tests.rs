@@ -4,7 +4,7 @@
 //! the server's changes through deltas, all over the HTTP API. Every core lives in a
 //! temporary folder; no server is started, nothing is downloaded and no EULA is accepted.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -235,6 +235,50 @@ impl<'a> Player<'a> {
                     .unwrap()
                     .to_string_lossy()
                     .replace('\\', "/")
+            })
+            .collect()
+    }
+}
+
+impl Player<'_> {
+    /// What a player ends up with from a view of an image built on a pack, as M4 does it:
+    /// the pack's files for clients (`share`, by canonical path, as read from the
+    /// `.mrpack`: index files whose client side isn't unsupported, `overrides/` with
+    /// `client-overrides/` over them), less the view's `removed`, with the view's entries
+    /// placed over them by path. Placed into a new folder and read back: each file with its
+    /// bytes' SHA-256.
+    fn install(&self, view: &Image, share: &[(&str, &[u8])]) -> BTreeMap<String, String> {
+        let staging = tempfile::tempdir_in(self._dir.path()).unwrap().keep();
+        materialize(
+            &self.store,
+            view,
+            &DiskLayout::Client,
+            &staging,
+            &MaterializeOptions {
+                durable: false,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        for (path, bytes) in share {
+            let taken_out = view.removed.iter().any(|p| p.as_str() == *path);
+            let listed = view.entries.iter().any(|e| e.path.as_str() == *path);
+            if !taken_out && !listed {
+                write(&staging, &format!("minecraft/{path}"), bytes);
+            }
+        }
+        walkdir::WalkDir::new(&staging)
+            .into_iter()
+            .flatten()
+            .filter(|e| e.file_type().is_file())
+            .map(|e| {
+                let path = e
+                    .path()
+                    .strip_prefix(&staging)
+                    .unwrap()
+                    .to_string_lossy()
+                    .replace('\\', "/");
+                (path, sha256_hex(&std::fs::read(e.path()).unwrap()))
             })
             .collect()
     }
@@ -571,6 +615,236 @@ async fn a_player_of_a_modpack_server_gets_the_base_from_the_pack() {
         .unwrap();
     assert_eq!(response.status(), StatusCode::PARTIAL_CONTENT);
     assert_eq!(response.bytes().await.unwrap().to_vec(), vec![7; 16]);
+    let past = player
+        .http
+        .get(player.url(&format!("objects/{}", background.sha256)))
+        .bearer_auth(&core.owner)
+        .header("range", format!("bytes={}-", background.size))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(past.status(), StatusCode::RANGE_NOT_SATISFIABLE);
+    assert_eq!(
+        past.headers()["content-range"],
+        format!("bytes */{}", background.size).as_str()
+    );
+}
+
+/// A server installed from a Modrinth pack, recorded by the core: its content image lists
+/// what the server has, names the pack as its base and takes out (`removed`) the pack's
+/// files the owner deleted, disabled or replaced under another name. A player that
+/// installs the pack's client files, takes those out and places the entries over them ends
+/// with exactly what the server's players need: the pack's client-only mods and
+/// `client-overrides/`, the pack's configs, the server's own mods, and none of what the
+/// owner took out. When the owner then removes a pack mod, the delta takes it out too.
+#[tokio::test]
+async fn a_player_of_a_pack_server_installs_the_pack_less_what_the_server_took_out() {
+    use crate::images::base::{save_base, BaseFile, BaseInfo};
+    let core = content::core(Kind::Fabric).await;
+    let sha1 = |bytes: &[u8]| {
+        use sha1::Digest;
+        sha1::Sha1::digest(bytes)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>()
+    };
+    let both = lodestone_image::Env::new(EnvValue::Required, EnvValue::Required);
+    // what the pack wrote on the server (`pack.json`)
+    let pack_file = |bytes: &[u8], env: lodestone_image::Env, download: bool| BaseFile {
+        sha1: sha1(bytes),
+        env: Some(env),
+        modrinth_url: download.then(|| {
+            format!(
+                "https://cdn.modrinth.com/data/AAAAAAAA/versions/BBBBBBBB/{}.jar",
+                sha1(bytes)
+            )
+        }),
+        sha512: download.then(|| "e".repeat(128)),
+        ..Default::default()
+    };
+    let info = BaseInfo {
+        base: Some(lodestone_image::Base::ModrinthPack {
+            project: "pack".into(),
+            version: "1.0.0".into(),
+            sha512: "c".repeat(128),
+        }),
+        files: BTreeMap::from([
+            ("mods/pack.jar".into(), pack_file(b"pack mod", both, true)),
+            (
+                "mods/fabric-api-0.92.0.jar".into(),
+                pack_file(b"old api", both, true),
+            ),
+            (
+                "mods/crashes-clients.jar".into(),
+                pack_file(b"crashes clients", both, true),
+            ),
+            (
+                "mods/disabled.jar".into(),
+                pack_file(b"disabled pack mod", both, true),
+            ),
+            (
+                "config/pack.toml".into(),
+                pack_file(b"pack config", both, false),
+            ),
+            // replaced by `client-overrides/config/x.toml` for clients
+            (
+                "config/x.toml".into(),
+                pack_file(
+                    b"server x",
+                    lodestone_image::Env::new(EnvValue::Unsupported, EnvValue::Required),
+                    false,
+                ),
+            ),
+        ]),
+    };
+    save_base(core.state.images().root(), &core.uuid, &info).unwrap();
+    // the server's folder: the owner updated Fabric API (a new file name), deleted one pack
+    // mod and disabled another
+    write(&core.root, "mods/pack.jar", b"pack mod");
+    write(&core.root, "mods/fabric-api-0.92.2.jar", b"new api");
+    write(
+        &core.root,
+        "mods/disabled.jar.disabled",
+        b"disabled pack mod",
+    );
+    write(&core.root, "config/pack.toml", b"pack config");
+    write(&core.root, "config/x.toml", b"server x");
+    // the pack's files for clients, as the player reads them from the `.mrpack`
+    let share: Vec<(&str, &[u8])> = vec![
+        ("mods/pack.jar", b"pack mod"),
+        ("mods/fabric-api-0.92.0.jar", b"old api"),
+        ("mods/crashes-clients.jar", b"crashes clients"),
+        ("mods/disabled.jar", b"disabled pack mod"),
+        // a client-only index file: never on the server
+        ("mods/sodium.jar", b"sodium"),
+        ("config/pack.toml", b"pack config"),
+        ("config/x.toml", b"client x"),
+        ("options.txt", b"client options"),
+    ];
+
+    let player = Player::new(&core, vec![b"pack mod".to_vec()]);
+    let Answer::View(view) = player.image(&[]).await else {
+        panic!("the whole view");
+    };
+    assert_eq!(view.base, info.base);
+    let removed: Vec<&str> = view.removed.iter().map(|p| p.as_str()).collect();
+    assert_eq!(
+        removed,
+        [
+            "mods/crashes-clients.jar",
+            "mods/disabled.jar",
+            "mods/fabric-api-0.92.0.jar"
+        ]
+    );
+    assert!(player.fetch(&view).await);
+    let installed = player.install(&view, &share);
+    let hash = |bytes: &[u8]| sha256_hex(bytes);
+    let expected = BTreeMap::from([
+        (
+            "minecraft/config/pack.toml".to_string(),
+            hash(b"pack config"),
+        ),
+        ("minecraft/config/x.toml".to_string(), hash(b"client x")),
+        ("minecraft/mods/base.jar".to_string(), hash(b"base mod")),
+        (
+            "minecraft/mods/fabric-api-0.92.2.jar".to_string(),
+            hash(b"new api"),
+        ),
+        ("minecraft/mods/pack.jar".to_string(), hash(b"pack mod")),
+        ("minecraft/mods/sodium.jar".to_string(), hash(b"sodium")),
+        ("minecraft/options.txt".to_string(), hash(b"client options")),
+    ]);
+    assert_eq!(installed, expected);
+
+    // the owner removes a pack mod: the delta takes it out of the player's install too
+    std::fs::remove_file(core.root.join("mods/pack.jar")).unwrap();
+    let ctx = crate::images::context_of(&core.state, &core.uuid)
+        .await
+        .unwrap();
+    core.state
+        .images
+        .record_now(ctx, "Removed Pack Mod".into())
+        .await
+        .unwrap();
+    let next = match player.image(&[&view.id]).await {
+        Answer::Delta(delta, current) => {
+            let next = apply(&view, &delta).unwrap();
+            assert_eq!(next.id, current);
+            next
+        }
+        // the core sends the view when the delta would be no smaller
+        Answer::View(next) => *next,
+        Answer::Current(_) => panic!("the view changed"),
+    };
+    assert!(next.removed.iter().any(|p| p.as_str() == "mods/pack.jar"));
+    assert!(player.fetch(&next).await);
+    let mut expected = expected;
+    expected.remove("minecraft/mods/pack.jar");
+    assert_eq!(player.install(&next, &share), expected);
+}
+
+/// An object the current view names that the store lost (deleted when found damaged): the
+/// server says so with a 503 and stores it again from its disk in the background, and the
+/// player gets it on a later try.
+#[tokio::test]
+async fn a_lost_object_is_stored_again_for_the_player() {
+    let core = content::core(Kind::Fabric).await;
+    write(&core.root, "mods/own.jar", b"the server's own mod");
+    let recorded = core.record_initial().await;
+    let player = Player::new(&core, Vec::new());
+    let Answer::View(view) = player.image(&[]).await else {
+        panic!("the whole view");
+    };
+    let own = view
+        .entries
+        .iter()
+        .find(|e| e.path.as_str() == "mods/own.jar")
+        .unwrap()
+        .clone();
+    let store = core.state.images().store();
+    let path = store.object_path(&own.sha256).unwrap();
+    let mut permissions = std::fs::metadata(&path).unwrap().permissions();
+    #[allow(clippy::permissions_set_readonly_false)]
+    permissions.set_readonly(false);
+    std::fs::set_permissions(&path, permissions).unwrap();
+    std::fs::remove_file(&path).unwrap();
+
+    let response = player
+        .http
+        .get(player.url(&format!("objects/{}", own.sha256)))
+        .bearer_auth(&core.owner)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(response.headers()["retry-after"], "5");
+    let body: serde_json::Value = response.json().await.unwrap();
+    assert_eq!(body["kind"], "Conflict");
+    // a HEAD looks too (the file may be back already)
+    let head = player
+        .http
+        .head(player.url(&format!("objects/{}", own.sha256)))
+        .bearer_auth(&core.owner)
+        .send()
+        .await
+        .unwrap();
+    assert!(matches!(
+        head.status(),
+        StatusCode::SERVICE_UNAVAILABLE | StatusCode::OK
+    ));
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    loop {
+        let (status, bytes) = player.object(&own.sha256).await;
+        if status == StatusCode::OK {
+            assert_eq!(bytes, b"the server's own mod");
+            break;
+        }
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+        assert!(std::time::Instant::now() < deadline);
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    // the same image: nothing about the content changed
+    assert_eq!(core.current().await.id, recorded.id);
 }
 
 #[tokio::test]

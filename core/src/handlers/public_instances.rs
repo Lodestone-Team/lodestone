@@ -16,9 +16,11 @@
 //! allows (see [`PublicInstance`]), are cached, and answer "not found" alike for
 //! missing, unlisted and hidden instances.
 
+use std::net::SocketAddr;
+
 use axum::{
     body::Body,
-    extract::{Path, Query, State},
+    extract::{ConnectInfo, Path, Query, State},
     http::{
         header::{
             CACHE_CONTROL, CONTENT_DISPOSITION, CONTENT_LENGTH, CONTENT_TYPE, ETAG, IF_NONE_MATCH,
@@ -27,7 +29,7 @@ use axum::{
     },
     response::Response,
     routing::get,
-    Json, Router,
+    Extension, Json, Router,
 };
 use color_eyre::eyre::{eyre, Context};
 use tokio_util::io::ReaderStream;
@@ -40,6 +42,7 @@ use crate::{
     auth::user::{User, UserAction},
     error::{Error, ErrorKind},
     events::{Event, EventInner, InstanceEvent, InstanceEventInner},
+    images::objects::ClientKey,
     mods::{bad_request, client::build_client_pack, InstalledModLoader},
     prelude::GameInstance,
     public_listing::{
@@ -379,14 +382,21 @@ async fn get_public_image(
     image_response(&state, &uuid, query).await
 }
 
+/// Who asks for an object, for the per-client download limit: the peer's address, which
+/// the main port's server gives every request (see `crate::images::objects::ClientKey`).
+fn client_of(peer: Option<Extension<ConnectInfo<SocketAddr>>>) -> Option<ClientKey> {
+    peer.map(|Extension(ConnectInfo(addr))| ClientKey::of_address(addr.ip()))
+}
+
 async fn get_public_object(
     State(state): State<AppState>,
     Path((uuid, sha256)): Path<(InstanceUuid, String)>,
     method: Method,
     headers: HeaderMap,
+    peer: Option<Extension<ConnectInfo<SocketAddr>>>,
 ) -> Result<Response, Error> {
     public_allows(&state, &uuid).await?;
-    object_response(&state, &uuid, &sha256, &method, &headers).await
+    object_response(&state, &uuid, &sha256, &method, &headers, client_of(peer)).await
 }
 
 async fn get_launcher_image(
@@ -405,9 +415,10 @@ async fn get_launcher_object(
     requester: AuthedUser,
     method: Method,
     headers: HeaderMap,
+    peer: Option<Extension<ConnectInfo<SocketAddr>>>,
 ) -> Result<Response, Error> {
     launcher_allows(&state, &requester, &uuid).await?;
-    object_response(&state, &uuid, &sha256, &method, &headers).await
+    object_response(&state, &uuid, &sha256, &method, &headers, client_of(peer)).await
 }
 
 async fn get_public_listing(

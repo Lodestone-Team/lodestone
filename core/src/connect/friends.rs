@@ -47,6 +47,7 @@ use tokio::sync::{mpsc, Mutex};
 use tracing::{info, warn};
 
 use super::{game_port_open, shared_server_of, SHARED_SCOPE};
+use crate::images::objects::ClientKey;
 use crate::{
     error::{Error, ErrorKind},
     handlers::{
@@ -994,5 +995,14 @@ async fn get_friend_object(
     headers: HeaderMap,
 ) -> Result<Response, Error> {
     friend_allows(&routes, &friend, &uuid)?;
-    object_response(&routes.state, &uuid, &sha256, &method, &headers).await
+    let client = ClientKey::Friend(friend.0);
+    object_response(
+        &routes.state,
+        &uuid,
+        &sha256,
+        &method,
+        &headers,
+        Some(client),
+    )
+    .await
 }

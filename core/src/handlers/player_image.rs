@@ -22,13 +22,16 @@ use axum::{
         HeaderMap, HeaderValue, Method, StatusCode,
     },
     response::{IntoResponse, Response},
+    Json,
 };
 use color_eyre::eyre::{eyre, Context};
 use lodestone_image::hex::is_sha256;
 use serde::Deserialize;
 
 use crate::error::{Error, ErrorKind};
-use crate::images::objects::{object_stream, ByteRange, IDLE_TIMEOUT};
+use lodestone_image::store::chunklist::CHUNKED_ABOVE;
+
+use crate::images::objects::{object_stream, object_there, ByteRange, ClientKey, IDLE_TIMEOUT};
 use crate::images::serve::{ClientAnswer, FirstRecord, MAX_HAVE};
 use crate::types::InstanceUuid;
 use crate::AppState;
@@ -41,6 +44,9 @@ pub const VIEW_HEADER: &str = "x-lodestone-view";
 const RECORDING_RETRY_SECS: u64 = 5;
 /// How long a player waits before fetching again while too many downloads run.
 const BUSY_RETRY_SECS: u64 = 1;
+/// How long a player waits before fetching an object again that the store lacks while a
+/// record stores it again.
+const MISSING_RETRY_SECS: u64 = 5;
 
 /// The query of `…/image`.
 #[derive(Debug, Deserialize)]
@@ -92,18 +98,27 @@ fn parse_have(text: Option<&str>) -> Result<Vec<String>, Error> {
     Ok(ids)
 }
 
-/// A 503 with the error body and `Retry-After`.
+/// A 503 with the error body and `Retry-After`. Not logged: players poll these every few
+/// seconds (the record behind them logs what goes wrong, once).
 fn unavailable(kind: ErrorKind, message: &str, retry_after: u64) -> Response {
-    let mut response = Error {
+    let body = Json(Error {
         kind,
         source: eyre!("{message}"),
-    }
-    .into_response();
-    *response.status_mut() = StatusCode::SERVICE_UNAVAILABLE;
+    });
+    let mut response = (StatusCode::SERVICE_UNAVAILABLE, body).into_response();
     response
         .headers_mut()
         .insert(RETRY_AFTER, HeaderValue::from(retry_after));
     response
+}
+
+/// `Retry-After` for a background record that must wait `retry_after`: at least the usual
+/// wait.
+fn retry_secs(retry_after: std::time::Duration) -> u64 {
+    retry_after
+        .as_secs_f64()
+        .ceil()
+        .max(RECORDING_RETRY_SECS as f64) as u64
 }
 
 /// The answer while the instance has no content image: its first is recorded in the
@@ -122,10 +137,29 @@ async fn recording(state: &AppState, uuid: &InstanceUuid) -> Response {
         FirstRecord::Failed { retry_after } => unavailable(
             ErrorKind::Internal,
             "The server's content couldn't be recorded; try again later",
-            retry_after
-                .as_secs_f64()
-                .ceil()
-                .max(RECORDING_RETRY_SECS as f64) as u64,
+            retry_secs(retry_after),
+        ),
+    }
+}
+
+/// The answer for an object the current view names that the store lacks (gone, or found
+/// damaged and deleted): a record stores the server's file again in the background, and
+/// the player fetches again after it.
+async fn missing(state: &AppState, uuid: &InstanceUuid) -> Response {
+    let again = match crate::images::context_of(state, uuid).await {
+        Some(ctx) => state.images().record_again(ctx),
+        None => FirstRecord::Recording,
+    };
+    match again {
+        FirstRecord::Recording => unavailable(
+            ErrorKind::Conflict,
+            "The server is storing this file again; try again in a few seconds",
+            MISSING_RETRY_SECS,
+        ),
+        FirstRecord::Failed { retry_after } => unavailable(
+            ErrorKind::Internal,
+            "The server doesn't have this file right now; try again later",
+            retry_secs(retry_after),
         ),
     }
 }
@@ -165,7 +199,9 @@ pub(crate) async fn image_response(
     }
 }
 
-/// What a `Range` header asks of a file of `size` bytes.
+/// What a `Range` header asks of a file of `size` bytes. A file of at most 1 MiB is kept
+/// whole and has to be read and checked whole to send any of it, so its ranges are
+/// ignored (HTTP allows that): a range of it would cost the core as much as the file.
 #[derive(Debug, PartialEq, Eq)]
 enum RangeAsk {
     /// No range, or one this doesn't serve (several ranges, another unit, bad syntax): the
@@ -178,6 +214,9 @@ enum RangeAsk {
 
 /// Reads one `bytes=a-b`, `bytes=a-` or `bytes=-n` range (RFC 9110).
 fn parse_range(headers: &HeaderMap, size: u64) -> RangeAsk {
+    if size <= CHUNKED_ABOVE {
+        return RangeAsk::Whole;
+    }
     let Some(text) = headers.get(RANGE).and_then(|v| v.to_str().ok()) else {
         return RangeAsk::Whole;
     };
@@ -198,11 +237,11 @@ fn parse_range(headers: &HeaderMap, size: u64) -> RangeAsk {
     match (first.trim(), last.trim()) {
         ("", suffix) => match number(suffix) {
             Some(0) => RangeAsk::Unsatisfiable,
-            Some(n) if size > 0 => RangeAsk::Part(ByteRange {
+            // `size` is over 1 MiB here, never 0
+            Some(n) => RangeAsk::Part(ByteRange {
                 start: size.saturating_sub(n),
                 end: size - 1,
             }),
-            Some(_) => RangeAsk::Unsatisfiable,
             None => RangeAsk::Whole,
         },
         (start, end) => {
@@ -231,12 +270,14 @@ fn parse_range(headers: &HeaderMap, size: u64) -> RangeAsk {
 /// `GET`/`HEAD …/objects/{sha256}`: the bytes of a file the current client view names with
 /// source `object` (or the client settings' icon or background), whole or one range.
 /// Nothing else in the store is served: it holds worlds, backups and server-only files too.
+/// `client` is who asks, when the route can tell ([`ClientKey`]), for the per-client limit.
 pub(crate) async fn object_response(
     state: &AppState,
     uuid: &InstanceUuid,
     sha256: &str,
     method: &Method,
     headers: &HeaderMap,
+    client: Option<ClientKey>,
 ) -> Result<Response, Error> {
     if !is_sha256(sha256) {
         return Err(bad_request("Not a SHA-256"));
@@ -249,6 +290,29 @@ pub(crate) async fn object_response(
     else {
         return Err(not_found());
     };
+    // Taken before the store is looked at, which waits while a collection runs: so the
+    // requests waiting are bounded by the download limits too (a HEAD gives its place back
+    // once it has looked).
+    let Some(permit) = state.images().downloads.try_start(uuid, client.as_ref()) else {
+        return Ok(unavailable(
+            ErrorKind::TooManyRequests,
+            "Too many downloads are running; try again in a moment",
+            BUSY_RETRY_SECS,
+        ));
+    };
+    let store = state.images().store();
+    let sha = sha256.to_string();
+    let there = crate::images::blocking(move || {
+        object_there(&store, &sha, size)
+            .map_err(color_eyre::Report::new)
+            .context("Failed to look for the file in the store")
+            .map_err(Error::from)
+    })
+    .await?;
+    if !there {
+        drop(permit);
+        return Ok(missing(state, uuid).await);
+    }
     let builder = Response::builder()
         .header(CONTENT_TYPE, "application/octet-stream")
         .header(ETAG, format!("\"{sha256}\""))
@@ -278,13 +342,6 @@ pub(crate) async fn object_response(
             .body(Body::empty())
             .context("Failed to build the response")?);
     }
-    let Some(permit) = state.images().downloads.try_start(uuid) else {
-        return Ok(unavailable(
-            ErrorKind::TooManyRequests,
-            "Too many downloads are running; try again in a moment",
-            BUSY_RETRY_SECS,
-        ));
-    };
     let stream = object_stream(
         state.images().store(),
         sha256.to_string(),
@@ -314,26 +371,31 @@ mod tests {
 
     #[test]
     fn ranges() {
-        assert_eq!(parse_range(&HeaderMap::new(), 10), RangeAsk::Whole);
-        assert_eq!(range("bytes=0-4", 10), part(0, 4));
-        assert_eq!(range("bytes=5-", 10), part(5, 9));
-        assert_eq!(range("bytes=5-100", 10), part(5, 9));
-        assert_eq!(range("bytes=-3", 10), part(7, 9));
-        assert_eq!(range("bytes=-30", 10), part(0, 9));
-        assert_eq!(range("bytes=9-9", 10), part(9, 9));
-        assert_eq!(range("bytes=10-", 10), RangeAsk::Unsatisfiable);
-        assert_eq!(range("bytes=-0", 10), RangeAsk::Unsatisfiable);
-        assert_eq!(range("bytes=0-", 0), RangeAsk::Unsatisfiable);
-        assert_eq!(range("bytes=-1", 0), RangeAsk::Unsatisfiable);
+        // a small file is sent whole, whatever the range
+        assert_eq!(range("bytes=0-4", 10), RangeAsk::Whole);
+        assert_eq!(range("bytes=-1", CHUNKED_ABOVE), RangeAsk::Whole);
+        assert_eq!(range("bytes=-1", 0), RangeAsk::Whole);
+        // past that, one range is served
+        let n = CHUNKED_ABOVE + 10;
+        let last = n - 1;
+        assert_eq!(parse_range(&HeaderMap::new(), n), RangeAsk::Whole);
+        assert_eq!(range("bytes=0-4", n), part(0, 4));
+        assert_eq!(range("bytes=5-", n), part(5, last));
+        assert_eq!(range(&format!("bytes=5-{}", n + 90), n), part(5, last));
+        assert_eq!(range("bytes=-3", n), part(n - 3, last));
+        assert_eq!(range(&format!("bytes=-{}", n + 20), n), part(0, last));
+        assert_eq!(range(&format!("bytes={last}-{last}"), n), part(last, last));
+        assert_eq!(range(&format!("bytes={n}-"), n), RangeAsk::Unsatisfiable);
+        assert_eq!(range("bytes=-0", n), RangeAsk::Unsatisfiable);
         // what isn't served is ignored: the whole file
-        assert_eq!(range("bytes=0-1,3-4", 10), RangeAsk::Whole);
-        assert_eq!(range("items=0-1", 10), RangeAsk::Whole);
-        assert_eq!(range("bytes=4-2", 10), RangeAsk::Whole);
-        assert_eq!(range("bytes=a-2", 10), RangeAsk::Whole);
-        assert_eq!(range("bytes=+1-2", 10), RangeAsk::Whole);
-        assert_eq!(range("bytes=-", 10), RangeAsk::Whole);
-        assert_eq!(range("bytes=1", 10), RangeAsk::Whole);
-        assert_eq!(range("bytes=99999999999999999999999-", 10), RangeAsk::Whole);
+        assert_eq!(range("bytes=0-1,3-4", n), RangeAsk::Whole);
+        assert_eq!(range("items=0-1", n), RangeAsk::Whole);
+        assert_eq!(range("bytes=4-2", n), RangeAsk::Whole);
+        assert_eq!(range("bytes=a-2", n), RangeAsk::Whole);
+        assert_eq!(range("bytes=+1-2", n), RangeAsk::Whole);
+        assert_eq!(range("bytes=-", n), RangeAsk::Whole);
+        assert_eq!(range("bytes=1", n), RangeAsk::Whole);
+        assert_eq!(range("bytes=99999999999999999999999-", n), RangeAsk::Whole);
     }
 
     #[test]

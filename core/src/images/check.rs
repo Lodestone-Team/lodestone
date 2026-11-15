@@ -20,7 +20,6 @@
 //! image yet gets its first when it stops, or at startup if it is stopped.
 
 use std::collections::BTreeMap;
-use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -33,41 +32,42 @@ use crate::error::Error;
 use crate::types::InstanceUuid;
 
 use super::recorder::{content_scope, Recorded, EXCLUDES_LABEL, INITIAL_LABEL, OUTSIDE_LABEL};
-use super::scope::{content_filter, SCOPE_RULES};
+use super::scope::{ContentFilter, SCOPE_RULES};
 use super::state::{self, ContentState};
 use super::{blocking, ImageService, InstanceContext, Slot};
 
 /// The longest the check before a start waits for an operation or record in progress.
 pub const GATE_WAIT: Duration = Duration::from_secs(10);
 
-/// Whether the content files under `root` differ from `baseline` (disk path to size and
-/// modification time): a file added, removed, resized or touched. Reads no file, only
+/// Whether the content files of the server `ctx` differ from `baseline` (disk path to size
+/// and modification time): a file added, removed, resized or touched. Reads no file, only
 /// their metadata. Blocking.
 pub fn quick_changed(
     store: &Store,
-    root: &Path,
+    ctx: &InstanceContext,
     layout: &DiskLayout,
     excludes: &[String],
     baseline: &BTreeMap<String, (u64, i64)>,
 ) -> Result<bool, Error> {
-    Ok(stat_content(store, root, layout, excludes)? != *baseline)
+    Ok(stat_content(store, ctx, layout, excludes)? != *baseline)
 }
 
 /// Every content file's size and modification time, by disk path, without reading any.
 fn stat_content(
     store: &Store,
-    root: &Path,
+    ctx: &InstanceContext,
     layout: &DiskLayout,
     excludes: &[String],
 ) -> Result<BTreeMap<String, (u64, i64)>, Error> {
+    let filter = ContentFilter::new(&ctx.level_name);
     let options = SnapshotOptions {
         excludes,
         cache: None,
-        filter: Some(&content_filter),
+        filter: Some(&|candidate| filter.accepts(candidate)),
         ..SnapshotOptions::default()
     };
     // Without a stat cache, planning only walks: it reads and claims nothing.
-    let plan = snapshot::plan(store, root, layout, &options)
+    let plan = snapshot::plan(store, &ctx.root, layout, &options)
         .map_err(|e| color_eyre::eyre::eyre!("Failed to look at the server's content: {e}"))?;
     Ok(plan
         .to_read
@@ -135,7 +135,7 @@ impl ImageService {
         let before = state.excludes.clone();
         blocking(move || {
             let (layout, excludes) = content_scope(&check)?;
-            if quick_changed(&store, &check.root, &layout, &before, &baseline)? {
+            if quick_changed(&store, &check, &layout, &before, &baseline)? {
                 Ok(Some(OUTSIDE_LABEL))
             } else if excludes != before {
                 Ok(Some(EXCLUDES_LABEL))
@@ -313,7 +313,7 @@ impl ImageService {
         let excludes = state.excludes.clone();
         let baseline = blocking(move || {
             let (layout, _) = content_scope(&check)?;
-            stat_content(&store, &check.root, &layout, &excludes)
+            stat_content(&store, &check, &layout, &excludes)
         })
         .await?;
         self.save_content_state(

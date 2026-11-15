@@ -15,20 +15,23 @@
 //! content stores the file again from its disk.
 //!
 //! Downloads are limited ([`Downloads`]): at most [`MAX_OBJECT_STREAMS`] at once over every
-//! server and route, at most [`MAX_OBJECT_STREAMS_PER_SERVER`] of one server, and a download
-//! whose player takes no piece for [`IDLE_TIMEOUT`] ends (cut short, as a failed check
-//! does), giving its place back. So a client that opens downloads and stops reading holds
-//! them for a minute at most, and only one server's.
+//! server and route, at most [`MAX_OBJECT_STREAMS_PER_SERVER`] of one server, at most
+//! [`MAX_OBJECT_STREAMS_PER_CLIENT`] of one client where the route can tell clients apart
+//! ([`ClientKey`]), and a download whose player takes no piece for [`IDLE_TIMEOUT`] ends
+//! (cut short, as a failed check does), giving its place back. So a client that opens
+//! downloads and stops reading holds them for a minute at most, and one client can't take
+//! a server's every place, let alone every server's.
 
 use std::collections::HashMap;
+use std::net::{IpAddr, Ipv6Addr};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
 
 use axum::body::Bytes;
 use futures::Stream;
+use lodestone_image::hex::Sha256Hasher;
 use lodestone_image::store::chunklist::{ChunkList, CHUNKED_ABOVE};
 use lodestone_image::store::{ObjectForm, Store, StoreError};
-use sha2::{Digest, Sha256};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tokio_stream::wrappers::ReceiverStream;
 use tracing::{debug, warn};
@@ -37,9 +40,13 @@ use crate::types::InstanceUuid;
 
 /// The most object downloads that run at once, over every server and route.
 pub const MAX_OBJECT_STREAMS: usize = 64;
-/// The most object downloads of one server that run at once, so a client that holds
+/// The most object downloads of one server that run at once, so clients that hold
 /// downloads open can only crowd out that server's players.
 pub const MAX_OBJECT_STREAMS_PER_SERVER: usize = 16;
+/// The most object downloads one client runs at once, over every server ([`ClientKey`]). A
+/// player runs at most 4; this leaves room for a few behind one address (a household's
+/// router), while one client alone can't hold a server's every place.
+pub const MAX_OBJECT_STREAMS_PER_CLIENT: usize = 8;
 /// How long a download waits for its player to take the next piece before it ends. With
 /// pieces of [`PIECE`], a player must read at least about 4 KiB/s.
 pub const IDLE_TIMEOUT: Duration = Duration::from_secs(60);
@@ -48,10 +55,39 @@ const UNIT: usize = 1 << 20;
 /// The most bytes handed to the connection at once.
 const PIECE: usize = 256 << 10;
 
-/// Which downloads may start ([`MAX_OBJECT_STREAMS`], [`MAX_OBJECT_STREAMS_PER_SERVER`]).
+/// Who a download is for, as far as its route can tell (see [`Downloads`]). The main
+/// port's routes know the peer's address; a friend tunnel knows the friend. A Connect
+/// invite's info port knows neither (every player of an invite comes through the same
+/// streams), so its downloads have only the per-server and overall limits.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) enum ClientKey {
+    /// An IPv4 address, or an IPv6 address's /64 (one household or host is given a whole
+    /// /64, so its addresses count as one).
+    Address(IpAddr),
+    /// A friend, by their key.
+    Friend([u8; 32]),
+}
+
+impl ClientKey {
+    pub(crate) fn of_address(address: IpAddr) -> ClientKey {
+        match address.to_canonical() {
+            IpAddr::V6(v6) => {
+                let prefix = u128::from(v6) & !((1u128 << 64) - 1);
+                ClientKey::Address(IpAddr::V6(Ipv6Addr::from(prefix)))
+            }
+            v4 => ClientKey::Address(v4),
+        }
+    }
+}
+
+/// Which downloads may start ([`MAX_OBJECT_STREAMS`], [`MAX_OBJECT_STREAMS_PER_SERVER`],
+/// [`MAX_OBJECT_STREAMS_PER_CLIENT`]).
 pub(crate) struct Downloads {
     all: Arc<Semaphore>,
     servers: StdMutex<HashMap<InstanceUuid, Arc<Semaphore>>>,
+    /// How many downloads each client runs; a client with none has no entry, so the map
+    /// only ever holds clients that are downloading.
+    clients: Arc<StdMutex<HashMap<ClientKey, usize>>>,
 }
 
 impl Default for Downloads {
@@ -59,20 +95,60 @@ impl Default for Downloads {
         Downloads {
             all: Arc::new(Semaphore::new(MAX_OBJECT_STREAMS)),
             servers: Default::default(),
+            clients: Default::default(),
         }
     }
 }
 
-/// A running download's places: one of its server's and one of all.
+/// A running download's places: one of its client's (when the route knows the client), one
+/// of its server's and one of all.
 pub(crate) struct DownloadPermit {
+    _client: Option<ClientPlace>,
     _server: OwnedSemaphorePermit,
     _all: OwnedSemaphorePermit,
 }
 
+/// One of a client's places, given back when dropped.
+struct ClientPlace {
+    clients: Arc<StdMutex<HashMap<ClientKey, usize>>>,
+    key: ClientKey,
+}
+
+impl Drop for ClientPlace {
+    fn drop(&mut self) {
+        let mut clients = self.clients.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(running) = clients.get_mut(&self.key) {
+            *running -= 1;
+            if *running == 0 {
+                clients.remove(&self.key);
+            }
+        }
+    }
+}
+
 impl Downloads {
-    /// A place for one more download of `uuid`'s objects, or `None` while either limit is
-    /// reached.
-    pub(crate) fn try_start(&self, uuid: &InstanceUuid) -> Option<DownloadPermit> {
+    /// A place for one more download of `uuid`'s objects for `client` (`None`: a route that
+    /// can't tell clients apart), or `None` while any limit is reached.
+    pub(crate) fn try_start(
+        &self,
+        uuid: &InstanceUuid,
+        client: Option<&ClientKey>,
+    ) -> Option<DownloadPermit> {
+        let client = match client {
+            Some(key) => {
+                let mut clients = self.clients.lock().unwrap_or_else(|e| e.into_inner());
+                let running = clients.entry(key.clone()).or_insert(0);
+                if *running >= MAX_OBJECT_STREAMS_PER_CLIENT {
+                    return None;
+                }
+                *running += 1;
+                Some(ClientPlace {
+                    clients: self.clients.clone(),
+                    key: key.clone(),
+                })
+            }
+            None => None,
+        };
         let server = self
             .servers
             .lock()
@@ -83,6 +159,7 @@ impl Downloads {
         let server = server.try_acquire_owned().ok()?;
         let all = self.all.clone().try_acquire_owned().ok()?;
         Some(DownloadPermit {
+            _client: client,
             _server: server,
             _all: all,
         })
@@ -124,7 +201,7 @@ struct Progress {
     /// The next chunk to read, and where in the file it starts.
     next: usize,
     offset: u64,
-    hasher: Sha256,
+    hasher: Sha256Hasher,
     done: bool,
 }
 
@@ -155,7 +232,7 @@ pub(crate) fn object_stream(
         list: None,
         next: 0,
         offset: 0,
-        hasher: Sha256::new(),
+        hasher: Sha256Hasher::new(),
         done: false,
     };
     // Room for one piece: the task reads ahead at most one unit.
@@ -178,15 +255,17 @@ pub(crate) fn object_stream(
                 }
             };
             progress = back;
-            let mut bytes = match bytes {
-                Ok(bytes) => Bytes::from(bytes),
+            let bytes = match bytes {
+                Ok(bytes) => bytes,
                 Err(e) => {
                     let _ = tokio::time::timeout(idle, tx.send(Err(e))).await;
                     return;
                 }
             };
-            while !bytes.is_empty() {
-                let piece = bytes.split_to(bytes.len().min(PIECE));
+            for piece in bytes.chunks(PIECE) {
+                // A copy of its own, so a connection that stalls holds one piece, not the
+                // whole unit it was cut from.
+                let piece = Bytes::copy_from_slice(piece);
                 match tokio::time::timeout(idle, tx.send(Ok(piece))).await {
                     Ok(Ok(())) => {}
                     // The player went away.
@@ -275,8 +354,8 @@ impl Progress {
         if self.next >= list.chunks.len() || self.offset > range.end {
             self.done = true;
             if self.full {
-                let digest = std::mem::take(&mut self.hasher).finalize();
-                if format!("{digest:x}") != self.sha256 {
+                let digest = std::mem::take(&mut self.hasher).finish_hex();
+                if digest != self.sha256 {
                     return Err(StoreError::Damaged(self.sha256.clone()));
                 }
             }
@@ -297,6 +376,26 @@ impl Progress {
             _ => warn!("Failed to send the object {}: {e}", self.sha256),
         }
         std::io::Error::other(e.to_string())
+    }
+}
+
+/// Whether the store holds the object `sha256` for a file of `size` bytes, whole or as a
+/// sound chunk list: what a download needs before it promises a body. Reads at most the
+/// chunk list (a damaged whole object is only found as it is sent). A damaged one is
+/// deleted, so a record stores it again. Blocking.
+pub(crate) fn object_there(store: &Store, sha256: &str, size: u64) -> Result<bool, StoreError> {
+    let _hold = store.hold_off_collection()?;
+    match store.object_form(sha256, size) {
+        Ok(_) => Ok(true),
+        Err(StoreError::Missing(_) | StoreError::WrongSize { .. }) => Ok(false),
+        Err(StoreError::Damaged(_)) => {
+            warn!("The stored object {sha256} is damaged; deleting it");
+            if let Err(e) = store.remove_damaged(sha256) {
+                warn!("Failed to delete the damaged object {sha256}: {e}");
+            }
+            Ok(false)
+        }
+        Err(e) => Err(e),
     }
 }
 

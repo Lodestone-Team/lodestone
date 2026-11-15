@@ -1277,6 +1277,21 @@ async fn the_image_routes_follow_the_client_pack_scope() {
         let response = get(format!("{base}{query}")).await;
         assert_eq!(response.status(), StatusCode::BAD_REQUEST, "{query}");
     }
+    // a repeated parameter is refused before anything else, with a plain-text body
+    let unlisted = format!("{}/public/instances/{}/image", core.base, "INSTANCE_nope");
+    for url in [&base, &unlisted] {
+        let response = get(format!("{url}?side=client&have={view_id}&have={view_id}")).await;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        assert!(response.headers()[CONTENT_TYPE]
+            .to_str()
+            .unwrap()
+            .starts_with("text/plain"));
+    }
+    // HEAD answers as GET does, without the body
+    let head = core.client.head(&image).send().await.unwrap();
+    assert_eq!(head.status(), StatusCode::OK);
+    assert_eq!(head.headers()["x-lodestone-view"], view_id.as_str());
+    assert!(head.bytes().await.unwrap().is_empty());
 
     // a player whose views were pruned gets the whole view and diffs it itself: nothing
     // takes a body
@@ -1319,32 +1334,21 @@ async fn the_image_routes_follow_the_client_pack_scope() {
         jar_bytes.len().to_string().as_str()
     );
     assert!(head.bytes().await.unwrap().is_empty());
-    // one range
-    let part = core
-        .client
-        .get(&object)
-        .header("range", "bytes=2-9")
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(part.status(), StatusCode::PARTIAL_CONTENT);
-    assert_eq!(
-        part.headers()["content-range"],
-        format!("bytes 2-9/{}", jar_bytes.len()).as_str()
-    );
-    assert_eq!(part.bytes().await.unwrap(), &jar_bytes[2..=9]);
-    let past = core
-        .client
-        .get(&object)
-        .header("range", format!("bytes={}-", jar_bytes.len()))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(past.status(), StatusCode::RANGE_NOT_SATISFIABLE);
-    assert_eq!(
-        past.headers()["content-range"],
-        format!("bytes */{}", jar_bytes.len()).as_str()
-    );
+    // a small file is read whole to send any of it, so a range gets the whole file
+    for range in [
+        "bytes=2-9".to_string(),
+        format!("bytes={}-", jar_bytes.len()),
+    ] {
+        let part = core
+            .client
+            .get(&object)
+            .header("range", range)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(part.status(), StatusCode::OK);
+        assert_eq!(part.bytes().await.unwrap(), jar_bytes);
+    }
     // never anything the view doesn't name: server.properties is in the content image
     let content = core
         .state

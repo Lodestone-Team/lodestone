@@ -137,6 +137,31 @@ pub fn current_pointer(store_root: &Path, uuid: &InstanceUuid) -> Option<String>
         .filter(|id| lodestone_image::hex::is_sha256(id))
 }
 
+/// One version of an instance's state file, told apart without reading it: its size, time
+/// and (on Unix) inode. [`save`] replaces the file by a rename, so every save makes a new
+/// inode, and two saves that look the same by all three are next to impossible. Serving
+/// players reads the pointer again only when this changes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StateStamp {
+    len: u64,
+    modified: Option<std::time::SystemTime>,
+    inode: u64,
+}
+
+/// The state file's [`StateStamp`], or `None` when it isn't there. Blocking.
+pub fn stamp(store_root: &Path, uuid: &InstanceUuid) -> Option<StateStamp> {
+    let meta = std::fs::metadata(path(store_root, uuid).ok()?).ok()?;
+    #[cfg(unix)]
+    let inode = std::os::unix::fs::MetadataExt::ino(&meta);
+    #[cfg(not(unix))]
+    let inode = 0;
+    Some(StateStamp {
+        len: meta.len(),
+        modified: meta.modified().ok(),
+        inode,
+    })
+}
+
 /// Replaces the instance's state, crash-safely (temp file, flushed, renamed). Blocking.
 pub fn save(store_root: &Path, uuid: &InstanceUuid, state: &ContentState) -> Result<(), Error> {
     let path = path(store_root, uuid)?;
@@ -179,6 +204,12 @@ mod tests {
         assert_eq!(current_pointer(dir.path(), &uuid), state.current);
         std::fs::write(path(dir.path(), &uuid).unwrap(), br#"{"current":"../x"}"#).unwrap();
         assert_eq!(current_pointer(dir.path(), &uuid), None);
+        // Each save is a new version of the file.
+        let before = stamp(dir.path(), &uuid).unwrap();
+        save(dir.path(), &uuid, &state).unwrap();
+        let after = stamp(dir.path(), &uuid).unwrap();
+        assert_ne!(before, after);
+        assert_eq!(stamp(dir.path(), &uuid), Some(after));
         // A baseline taken under other scope rules isn't trusted.
         let old = ContentState {
             scope_rules: 0,

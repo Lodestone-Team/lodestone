@@ -844,7 +844,8 @@ async fn get_shared_object(
     headers: HeaderMap,
 ) -> Result<Response, Error> {
     shared_allows(&shared, &uuid)?;
-    object_response(&shared.state, &uuid, &sha256, &method, &headers).await
+    // An invite's players all come through the same streams: no per-client limit.
+    object_response(&shared.state, &uuid, &sha256, &method, &headers, None).await
 }
 
 /// The path of the folder with the shared instances' identities, in `stores`.

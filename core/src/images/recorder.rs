@@ -15,8 +15,10 @@
 //! content ([`super::scope`], the policy's excludes as canonical patterns, the "content"
 //! stat cache so only changed files are read, one thread while the server runs), builds
 //! the image (base, sources and `env` from what is known: [`super::base`],
-//! [`super::env`]), and seals it. The same contents give the same id: then nothing is
-//! written but the baseline. Otherwise the manifest is saved (the store makes its objects
+//! [`super::env`]; the pack's files the server no longer has are the image's `removed`,
+//! see [`removed_pack_files`]), and seals it. The same contents give the same id: then
+//! nothing is written but the baseline (unless its manifest can't be read, which is then
+//! saved again). Otherwise the manifest is saved (the store makes its objects
 //! durable first, then writes it to a temporary file and renames it), then the pointer
 //! and baseline ([`super::state`]), then the stat cache, then old manifests are pruned. A
 //! failure before the manifest is saved writes nothing and keeps the labels queued for the
@@ -26,15 +28,16 @@
 //! name; saving then fails as missing (the store never names what it lost), and the record
 //! is taken again once.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use lodestone_image::manifest::{App, MAX_TEXT_LEN};
+use lodestone_image::store::excludes::Excludes;
 use lodestone_image::store::snapshot::{self, Snapshot, SnapshotOptions};
 use lodestone_image::store::{Store, StoreError};
-use lodestone_image::{DiskLayout, Entry, Image, Kind, Producer, Source};
+use lodestone_image::{CanonicalPath, DiskLayout, Entry, Image, Kind, Producer, Source};
 use sha1::Digest;
 use tokio::sync::{OwnedRwLockReadGuard, OwnedRwLockWriteGuard};
 use tracing::warn;
@@ -46,7 +49,7 @@ use super::base::{BaseFile, BaseInfo};
 use super::env::{self, JarFacts, ModrinthHint};
 use super::excludes::canonical_excludes_where;
 use super::layout::{game_of, server_layout, server_settings, InstanceContext};
-use super::scope::{content_filter, exclude_reaches_content, SCOPE_RULES};
+use super::scope::{exclude_reaches_content, is_content, ContentFilter, SCOPE_RULES};
 use super::state::ContentState;
 use super::{blocking, ImageService, Slot};
 
@@ -611,12 +614,9 @@ impl ImageService {
             let store = self.store();
             let id = ctx.uuid.clone();
             let image_id = image.id.clone();
-            let have = blocking(move || {
-                Ok(store
-                    .manifest_path(id.as_ref(), &image_id)
-                    .is_ok_and(|path| path.is_file()))
-            })
-            .await?;
+            // A manifest that can't be read (damaged) is saved again, as if it weren't there.
+            let have =
+                blocking(move || Ok(store.load_manifest(id.as_ref(), &image_id).is_ok())).await?;
             if have && state.current.as_deref() == Some(image.id.as_str()) {
                 // Nothing changed: keep the image's time, take the baseline again.
                 next.recorded = state.recorded;
@@ -805,9 +805,16 @@ impl ImageService {
             }
         }
 
+        let removed = match base {
+            Some(base) if base.base.is_some() => {
+                removed_pack_files(&layout, &excludes, &baseline, base, &entries)
+            }
+            _ => Vec::new(),
+        };
         let mut image = Image::new(Kind::Content, game_of(&ctx.game_version, &ctx.flavour));
         snapshot.fill(&mut image);
         image.entries = entries;
+        image.removed = removed;
         image.settings = server_settings(&ctx.flavour);
         image.base = base.and_then(|b| b.base.clone());
         image.excludes = excludes;
@@ -933,11 +940,12 @@ async fn take_snapshot(
     blocking(move || {
         let (layout, excludes) = content_scope(&ctx)?;
         let cache = store.load_stat_cache_named(ctx.uuid.as_ref(), CONTENT_STAT_CACHE);
+        let filter = ContentFilter::new(&ctx.level_name);
         let options = SnapshotOptions {
             excludes: &excludes,
             cache: Some(&cache),
             threads,
-            filter: Some(&content_filter),
+            filter: Some(&|candidate| filter.accepts(candidate)),
             ..SnapshotOptions::default()
         };
         let plan = snapshot::plan(&store, &ctx.root, &layout, &options)
@@ -1026,6 +1034,40 @@ async fn matching_base_files(
         Ok(matched)
     })
     .await
+}
+
+/// The pack's files the server no longer has where the pack put them, as canonical paths:
+/// the image's `removed`. A player installs the image's base and takes these out before
+/// placing the entries ("Server to player"), so a pack file the owner deleted, disabled
+/// (`x.jar` became `x.jar.disabled`) or replaced under another name (an update to
+/// `fabric-api-0.92.2.jar`) doesn't come back on players' machines. A pack file is
+/// removed when the walk didn't find it (`found`: every content file it found, by disk
+/// path, readable or not) and it is content the image would carry (in the content scope,
+/// not left out by `excludes`); files outside that scope say nothing either way. Never a
+/// path the image lists, which an image can't both remove and carry.
+fn removed_pack_files(
+    layout: &DiskLayout,
+    excludes: &[String],
+    found: &BTreeMap<String, (u64, i64)>,
+    base: &BaseInfo,
+    entries: &[Entry],
+) -> Vec<CanonicalPath> {
+    let listed: HashSet<&str> = entries.iter().map(|e| e.path.as_str()).collect();
+    let excludes = Excludes::new(excludes);
+    let mut removed: Vec<CanonicalPath> = base
+        .files
+        .keys()
+        .filter(|disk| !found.contains_key(disk.as_str()))
+        .filter_map(|disk| layout.from_disk(disk).ok().flatten())
+        .filter(|path| {
+            is_content(path, false)
+                && !excludes.excludes(path.as_str(), false)
+                && !listed.contains(path.as_str())
+        })
+        .collect();
+    removed.sort();
+    removed.dedup();
+    removed
 }
 
 /// Writes the SHA-256 and size of pack files a record matched by SHA-1 (`learned`: the

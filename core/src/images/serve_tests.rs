@@ -353,16 +353,89 @@ async fn a_view_whose_image_is_gone_is_unknown() {
         fx.answer(&[&view_of(&old).id]).await,
         ClientAnswer::View(_)
     ));
-    // and a scan forgets it
+    // and the core forgets it
     assert!(matches!(
         fx.answer(&["e".repeat(64).as_str()]).await,
         ClientAnswer::View(_)
     ));
-    assert!(fx
-        .service
-        .views
-        .content_of(&fx.uuid, &view_of(&old).id)
-        .is_none());
+    assert!(!fx.service.views.knows(&fx.uuid, &view_of(&old).id));
+}
+
+/// Many content images share one client view (a change only the server sees). Pruning the
+/// one the core happened to learn the view from must not make it forget the view while
+/// another image still has it.
+#[tokio::test]
+async fn a_shared_view_survives_the_pruning_of_one_of_its_images() {
+    let fx = fixture();
+    let mut content = server_content(&fx);
+    content.retain(|e| e.path.as_str() != "server.properties");
+    let mut first = content.clone();
+    first.push(fx.object("server.properties", b"motd=One\n", EnvInputs::default()));
+    let mut second = content.clone();
+    second.push(fx.object("server.properties", b"motd=Two\n", EnvInputs::default()));
+    let c1 = fx.save(first, "One");
+    let c2 = fx.save(second.clone(), "Two");
+    assert_eq!(view_of(&c1).id, view_of(&c2).id);
+    let shared = view_of(&c1).id;
+    let mut third = second;
+    third.push(fx.object("mods/new.jar", b"new mod", EnvInputs::default()));
+    let current = fx.save(third, "Added");
+    fx.set_current(&current.id);
+    assert!(matches!(
+        fx.answer(&[&shared]).await,
+        ClientAnswer::Delta { .. }
+    ));
+    // retention prunes one of the two, whichever the core learnt the view from
+    let learnt = fx.service.views.contents_of(&fx.uuid, &shared);
+    assert_eq!(learnt.len(), 2, "both images are known to have the view");
+    fx.store()
+        .delete_manifest(fx.uuid.as_ref(), &c1.id)
+        .unwrap();
+    // a scan (an unknown id) forgets the pruned image, not the view
+    assert!(matches!(
+        fx.answer(&["f".repeat(64).as_str()]).await,
+        ClientAnswer::View(_)
+    ));
+    assert_eq!(
+        fx.service.views.contents_of(&fx.uuid, &shared),
+        vec![c2.id.clone()]
+    );
+    assert!(matches!(
+        fx.answer(&[&shared]).await,
+        ClientAnswer::Delta { .. }
+    ));
+    // and once both are gone, the next scan forgets the view (its view was cached by
+    // content id, which still answers until then: a content id's view never changes)
+    fx.store()
+        .delete_manifest(fx.uuid.as_ref(), &c2.id)
+        .unwrap();
+    assert!(matches!(
+        fx.answer(&["f".repeat(64).as_str()]).await,
+        ClientAnswer::View(_)
+    ));
+    assert!(!fx.service.views.knows(&fx.uuid, &shared));
+    assert!(matches!(fx.answer(&[&shared]).await, ClientAnswer::View(_)));
+}
+
+/// A player that keeps pruned ids after one the core knows costs no scan: the known one
+/// decides first.
+#[tokio::test]
+async fn known_ids_answer_before_unknown_ones_are_looked_up() {
+    let fx = fixture();
+    let content = server_content(&fx);
+    let current = fx.save(content, "Initial");
+    fx.set_current(&current.id);
+    let current_view = view_of(&current).id;
+    let pruned = "d".repeat(64);
+    assert!(matches!(
+        fx.answer(&[&current_view, &pruned]).await,
+        ClientAnswer::Current(_)
+    ));
+    // no scan ran: the store's manifests were never looked at
+    assert!(locked(&fx.service.views.known)
+        .get(&fx.uuid)
+        .is_none_or(|known| !known.seen.contains_key(&pruned) && known.seen.len() == 1));
+    assert!(locked(&fx.service.views.lookups).get(&fx.uuid).is_none());
 }
 
 #[tokio::test]
@@ -703,4 +776,46 @@ fn bounded_maps_forget_the_least_recently_used() {
     assert_eq!(map.weight, 2000);
     map.insert(5, vec![0; 1], 3, 1000, weigh);
     assert_eq!(map.weight, 1);
+}
+
+/// A background record whose task ends without an outcome (it panicked) counts as failed,
+/// so the instance isn't left "being recorded" for good; a record that stored lost objects
+/// again makes the next wait however it went; and deleting the instance forgets it all.
+#[tokio::test]
+async fn background_records_always_settle() {
+    let fx = fixture();
+    let state = |fx: &Fixture| match locked(&fx.service.views.first_records).get(&fx.uuid) {
+        None => None,
+        Some(FirstRecordState::Running) => Some(None),
+        Some(FirstRecordState::Waiting { failures, .. }) => Some(Some(*failures)),
+    };
+    let settle = |again: bool, outcome: Option<Result<(), Error>>| {
+        locked(&fx.service.views.first_records).insert(fx.uuid.clone(), FirstRecordState::Running);
+        Settle {
+            service: fx.service.clone(),
+            uuid: fx.uuid.clone(),
+            failures: 0,
+            again,
+            outcome,
+        }
+    };
+    let panicking = settle(false, None);
+    let ended = tokio::spawn(async move {
+        let _settle = panicking;
+        panic!("a bug while recording");
+    })
+    .await;
+    assert!(ended.is_err());
+    assert_eq!(state(&fx), Some(Some(1)));
+    drop(settle(false, Some(Ok(()))));
+    assert_eq!(state(&fx), None);
+    drop(settle(true, Some(Ok(()))));
+    assert_eq!(state(&fx), Some(Some(0)));
+    fx.service.views.forget(&fx.uuid);
+    assert_eq!(state(&fx), None);
+    // a record that settles after its instance was deleted leaves nothing behind
+    let late = settle(true, Some(Ok(())));
+    fx.service.views.forget(&fx.uuid);
+    drop(late);
+    assert_eq!(state(&fx), None);
 }

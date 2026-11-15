@@ -21,7 +21,10 @@
 //! Never content: Lodestone's own files (any name starting with `.lodestone`, at any depth:
 //! the modpack update's working files in `.lodestone_modpack/`, the instance's local
 //! settings, the "For players" marks,
-//! which a content image carries as each file's `owner_mark` instead) and world files.
+//! which a content image carries as each file's `owner_mark` instead) and world files,
+//! including those of a level that `level-name` puts inside a content folder
+//! (`level-name=mods/survival`): the disk layout can't take such a level for a world, so
+//! [`ContentFilter`] keeps it out by name (worlds never go to players).
 //!
 //! Names match ignoring ASCII letter case, as Windows and macOS's default disks do; the
 //! `.lodestone` prefix is folded fully, so `.LodeſTone…` is Lodestone's too (NTFS
@@ -32,7 +35,7 @@ use lodestone_image::CanonicalPath;
 
 /// The version of these rules. A baseline taken under other rules is out of date (see
 /// [`super::state::ContentState::scope_rules`]).
-pub const SCOPE_RULES: u32 = 1;
+pub const SCOPE_RULES: u32 = 2;
 
 /// Folders whose every file is content.
 const CONTENT_FOLDERS: [&str; 6] = [
@@ -113,6 +116,87 @@ pub fn content_filter(candidate: &Candidate) -> bool {
             // is an odd one, but nothing in it is content either way.
             !parts.first().is_some_and(|first| same(first, "saves"))
                 && is_content_parts(&parts, candidate.is_dir)
+        }
+    }
+}
+
+/// Folders and files a vanilla level holds directly in its folder: what is kept out of
+/// content for a level whose folder is a content folder itself (`level-name=mods`), where
+/// the rest of the folder stays content.
+const LEVEL_PARTS: [&str; 16] = [
+    "level.dat",
+    "level.dat_old",
+    "uid.dat",
+    "icon.png",
+    "region",
+    "entities",
+    "poi",
+    "playerdata",
+    "advancements",
+    "stats",
+    "data",
+    "datapacks",
+    "dimensions",
+    "serverconfig",
+    "DIM-1",
+    "DIM1",
+];
+
+/// The content filter of one server: [`content_filter`], less the files of a level that
+/// `level-name` puts inside a content folder (see the module). A record and the check
+/// before a start use the same one, so they agree on what is content.
+#[derive(Debug, Clone, Default)]
+pub struct ContentFilter {
+    /// The level's folder as disk path parts, when it is inside a content folder.
+    level: Option<Vec<String>>,
+}
+
+impl ContentFilter {
+    /// The filter for a server whose `level-name` is `level_name`.
+    pub fn new(level_name: &str) -> ContentFilter {
+        let parts: Vec<String> = level_name
+            .split(['/', '\\'])
+            .filter(|part| !part.is_empty() && *part != ".")
+            .map(str::to_string)
+            .collect();
+        let inside = !parts.iter().any(|part| part == "..")
+            && parts
+                .first()
+                .is_some_and(|first| CONTENT_FOLDERS.iter().any(|folder| same(first, folder)));
+        ContentFilter {
+            level: inside.then_some(parts),
+        }
+    }
+
+    /// Whether the walk offers content (see [`SnapshotOptions::filter`]).
+    ///
+    /// [`SnapshotOptions::filter`]: lodestone_image::store::snapshot::SnapshotOptions::filter
+    pub fn accepts(&self, candidate: &Candidate) -> bool {
+        content_filter(candidate) && !self.in_level(candidate.disk)
+    }
+
+    /// Whether the disk path `disk` is the level's or in it.
+    fn in_level(&self, disk: &str) -> bool {
+        let Some(level) = &self.level else {
+            return false;
+        };
+        let parts: Vec<&str> = disk.split('/').collect();
+        let under = |n: usize| {
+            parts.len() >= n
+                && level
+                    .iter()
+                    .zip(&parts)
+                    .take(n)
+                    .all(|(level, part)| same(level, part))
+        };
+        if level.len() > 1 {
+            under(level.len())
+        } else {
+            // the content folder itself: only what a level keeps there
+            under(1)
+                && parts
+                    .get(1)
+                    .is_some_and(|part| LEVEL_PARTS.iter().any(|name| same(part, name)))
         }
     }
 }
@@ -327,6 +411,39 @@ mod tests {
         assert!(!content_filter(&candidate("saves", true)));
         assert!(!content_filter(&candidate("saves/mods/x.jar", false)));
         assert!(!content_filter(&candidate("options.txt", false)));
+    }
+
+    #[test]
+    fn a_level_inside_a_content_folder_is_not_content() {
+        let candidate = |disk: &'static str, is_dir: bool| Candidate {
+            disk,
+            path: None,
+            is_dir,
+        };
+        let nested = ContentFilter::new("mods/survival");
+        assert!(!nested.accepts(&candidate("mods/survival", true)));
+        assert!(!nested.accepts(&candidate("mods/survival/level.dat", false)));
+        assert!(!nested.accepts(&candidate("MODS/Survival/playerdata/a.dat", false)));
+        assert!(nested.accepts(&candidate("mods/a.jar", false)));
+        assert!(nested.accepts(&candidate("mods/survivalist.jar", false)));
+        let folder = ContentFilter::new("config");
+        assert!(!folder.accepts(&candidate("config/level.dat", false)));
+        assert!(!folder.accepts(&candidate("config/region", true)));
+        assert!(!folder.accepts(&candidate("config/DIM-1/region/r.0.0.mca", false)));
+        assert!(folder.accepts(&candidate("config/sodium.json", false)));
+        assert!(folder.accepts(&candidate("config/jei", true)));
+        // a level elsewhere changes nothing
+        for level in ["world", "worlds/main", "../mods/x", ""] {
+            let filter = ContentFilter::new(level);
+            assert!(
+                filter.accepts(&candidate("mods/x/level.dat", false)),
+                "{level}"
+            );
+            assert!(
+                filter.accepts(&candidate("config/level.dat", false)),
+                "{level}"
+            );
+        }
     }
 
     #[test]
