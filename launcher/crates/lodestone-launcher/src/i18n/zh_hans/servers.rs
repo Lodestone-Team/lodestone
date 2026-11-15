@@ -238,6 +238,11 @@ pub fn text(message: M) -> &'static str {
         M::InstallThisTime => "仅本次安装",
         M::TrustAndInstall => "信任 {core} 并安装",
         M::BusyPreparing => "正在等待服务器准备文件…",
+        M::BusyBasePack => "正在获取服务器的整合包（{done} / {total}）…",
+        M::LacksFiles => "{name} 有你无法获得的文件",
+        M::LacksFilesBody => {
+            "你的实例已有服务器的文件，但服务器还有一些无法共享的文件。没有它们你可能无法加入。"
+        }
         M::InstallTitle => "安装 {name} 的文件？",
         M::InstallIntro => {
             "{core} 上 {server} 的新实例将获得 Minecraft {version}（{loader}），以及来自服务器的这些文件。"
@@ -275,6 +280,11 @@ pub fn text(message: M) -> &'static str {
             "服务器基于 CurseForge 整合包，Lodestone Launcher 暂时无法从服务器安装。"
         }
         M::ErrRefused => "服务器发送了 Lodestone Launcher 不会安装的文件：{detail}",
+        M::ErrBaseFileMissing => {
+            "服务器的整合包中没有文件 {path}，但服务器说它来自整合包。请让服务器的所有者更新整合包。"
+        }
+        M::ErrOlderCore => "该主机运行的是较旧版本的 Lodestone，无法以这种方式共享其服务器的文件。",
+        M::ErrInstallFiles => "无法安装服务器的文件：{detail}",
 
         M::KeyDays90 => "90 天",
         M::KeyYear => "1 年",

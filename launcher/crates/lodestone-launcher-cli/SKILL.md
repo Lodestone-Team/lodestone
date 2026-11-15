@@ -626,6 +626,14 @@ lodestone-launcher-cli servers join Smp                     # may fail with mods
 lodestone-launcher-cli servers join Smp --update-mods
 ```
 
+`create-instance` answers with `summary` (what the instance got: `base`, `minecraft`,
+`loader`, `added_mods`, `server_only`, `missing` with each path and reason, and
+`curseforge`, files to download from CurseForge by hand). Tell the user about any
+`missing` or `curseforge` files: they may not be able to join without them. A
+`mods_changed` whose `data.changes.only_lacking` is true changes nothing on the
+instance: the server now has files it can't share (`missing`, `curseforge`); tell the
+user, then either flag plays.
+
 A plain address works too: `play launch Survival --join mc.example.com:25565`.
 
 Back up a world (quit the game first; ask the user before stopping it):

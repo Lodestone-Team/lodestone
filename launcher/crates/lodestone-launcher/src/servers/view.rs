@@ -1494,8 +1494,13 @@ fn slot_layers<T>(
     }
 }
 
-/// "<server> has different mods": update before joining, or play as it is.
+/// "<server> has different mods": update before joining, or play as it is. A view that
+/// changes nothing on disk but lacks files: "<server> has files you won't get", with
+/// Play (which records the view) and Cancel.
 fn update_dialog(servers: &Entity<Servers>, prompt: &UpdatePrompt) -> AnyElement {
+    if prompt.only_lacking {
+        return lacking_dialog(servers, prompt);
+    }
     let entity = servers.clone();
     let changes = &prompt.changes;
     let mut lines: Vec<String> = Vec::new();
@@ -1549,6 +1554,39 @@ fn update_dialog(servers: &Entity<Servers>, prompt: &UpdatePrompt) -> AnyElement
     )
     .footer(
         Button::new("cancel-update", t(CommonMsg::Cancel))
+            .variant(ButtonVariant::Ghost)
+            .on_click(move |_, _, cx| cancel.update(cx, |this, cx| this.cancel_prompt(cx))),
+    )
+    .into_any_element()
+}
+
+/// Before playing on a server whose view only lacks files the player didn't lack before.
+fn lacking_dialog(servers: &Entity<Servers>, prompt: &UpdatePrompt) -> AnyElement {
+    let entity = servers.clone();
+    let play = servers.clone();
+    let cancel = servers.clone();
+    Dialog::new(
+        "server-lacks-files",
+        tr!(M::LacksFiles, name = prompt.server.name),
+        prompt.focus.clone(),
+    )
+    .on_close(move |_, cx| entity.update(cx, |this, cx| this.cancel_prompt(cx)))
+    .child(
+        div()
+            .flex()
+            .flex_col()
+            .gap_2()
+            .text_color(crate::theme::ink::secondary())
+            .child(t(M::LacksFilesBody))
+            .children(missing_block(&prompt.missing, &prompt.curseforge)),
+    )
+    .footer(
+        Button::new("play-lacking", t(M::Play))
+            .variant(ButtonVariant::Primary)
+            .on_click(move |_, _, cx| play.update(cx, |this, cx| this.answer_prompt(true, cx))),
+    )
+    .footer(
+        Button::new("cancel-lacking", t(CommonMsg::Cancel))
             .variant(ButtonVariant::Ghost)
             .on_click(move |_, _, cx| cancel.update(cx, |this, cx| this.cancel_prompt(cx))),
     )

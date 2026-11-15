@@ -574,25 +574,29 @@ fn changes_json(prompt: &crate::servers::UpdatePrompt) -> Value {
         "missing": missing_json(&prompt.missing),
         "curseforge": prompt.curseforge,
         "loader": prompt.loader,
+        "only_lacking": prompt.only_lacking,
     })
 }
 
-/// Answers the advisory for `server_name` as `accept` says; the error when it isn't
-/// accepted.
+/// Answers the advisory for `server_name` as `accept` says: what a server's image
+/// installs (its summary, files it lacks included) when it was installed, the error when
+/// it isn't accepted.
 fn handle_advisory(
     servers: &mut Servers,
     server_name: &str,
     accept: bool,
     cx: &mut gpui::Context<Servers>,
-) -> Option<Result<(), ErrorObject>> {
+) -> Option<Result<Option<Value>, ErrorObject>> {
     let prompt = servers.advisory.current()?;
     if prompt.server_name != server_name {
         return None;
     }
-    // from a trusted core, only what a new instance gets is shown: install it
+    // from a trusted core, only what a new instance gets is shown: install it, and say
+    // what it gets (and lacks) in the answer
     if accept || prompt.advisory.is_none() {
+        let summary = prompt.summary.as_ref().map(summary_json);
         servers.answer_advisory(AdvisoryAnswer::InstallOnce, cx);
-        return Some(Ok(()));
+        return Some(Ok(summary));
     }
     let data = advisory_json(prompt);
     servers.answer_advisory(AdvisoryAnswer::Cancel, cx);
@@ -651,16 +655,19 @@ pub fn join_instance(call: Call, instance: Instance, options: JoinOptions, cx: &
                         }
                         None => {
                             let changes = changes_json(prompt);
+                            let message = if prompt.only_lacking {
+                                "The server has files it can't share that the player would need (see missing and curseforge); nothing on the instance changes. Tell the user; pass --update-mods or --skip-update to play without them."
+                            } else {
+                                "The server's mods changed since this instance was made. Ask the user: pass --update-mods to bring the instance in step, or --skip-update to play as it is."
+                            };
                             servers.cancel_prompt(cx);
-                            Err(api_error(
-                                codes::MODS_CHANGED,
-                                "The server's mods changed since this instance was made. Ask the user: pass --update-mods to bring the instance in step, or --skip-update to play as it is.",
-                            )
-                            .with_data(json!({ "changes": changes })))
+                            Err(api_error(codes::MODS_CHANGED, message)
+                                .with_data(json!({ "changes": changes })))
                         }
                     });
                 }
                 handle_advisory(servers, &server_name, options.accept_advisory, cx)
+                    .map(|answer| answer.map(|_| ()))
             });
             match answered {
                 Some(Err(err)) => return Some(Err(err)),
@@ -749,6 +756,8 @@ pub fn create_instance(call: Call, cx: &mut App) -> Reply {
         .update(cx, |servers, cx| servers.create_instance(&core, server, cx));
     let watch = control.clone();
     let work = cx.spawn(async move |cx| -> ApiResult {
+        // what the instance got, once the prompt showing it is answered
+        let mut summary: Option<Value> = None;
         let outcome = poll_until(
             cx,
             None,
@@ -758,8 +767,9 @@ pub fn create_instance(call: Call, cx: &mut App) -> Reply {
                 if let Some(answer) = watch.servers.update(cx, |servers, cx| {
                     handle_advisory(servers, &name, params.accept_advisory, cx)
                 }) {
-                    if let Err(err) = answer {
-                        return Some(Err(err));
+                    match answer {
+                        Err(err) => return Some(Err(err)),
+                        Ok(shown) => summary = shown.or(summary.take()),
                     }
                     return None;
                 }
@@ -785,6 +795,7 @@ pub fn create_instance(call: Call, cx: &mut App) -> Reply {
             let servers = watch.servers.read(cx);
             json!({
                 "instance": outcome,
+                "summary": summary,
                 "notice": servers.notice.as_ref().map(|notice| {
                     let (title, message) = notice.text();
                     json!({ "title": title, "message": message })

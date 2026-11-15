@@ -290,6 +290,11 @@ pub fn text(message: M) -> &'static str {
         M::InstallThisTime => "Installer cette fois",
         M::TrustAndInstall => "Faire confiance à {core} et installer",
         M::BusyPreparing => "Le serveur prépare ses fichiers…",
+        M::BusyBasePack => "Téléchargement du modpack du serveur, {done} sur {total}…",
+        M::LacksFiles => "{name} a des fichiers que vous n’aurez pas",
+        M::LacksFilesBody => {
+            "Votre instance a les fichiers du serveur, mais le serveur en a qu’il ne peut pas partager. Vous ne pourrez peut-être pas le rejoindre sans eux."
+        }
         M::InstallTitle => "Installer les fichiers de {name} ?",
         M::InstallIntro => {
             "La nouvelle instance pour {server} sur {core} reçoit Minecraft {version} avec {loader}, et ces fichiers du serveur."
@@ -337,6 +342,13 @@ pub fn text(message: M) -> &'static str {
         M::ErrRefused => {
             "Le serveur a envoyé des fichiers que Lodestone Launcher n’installera pas : {detail}"
         }
+        M::ErrBaseFileMissing => {
+            "Le modpack du serveur n’a pas de fichier {path}, alors que le serveur dit qu’il en vient. Demandez au propriétaire du serveur de mettre le modpack à jour."
+        }
+        M::ErrOlderCore => {
+            "L’hôte utilise un Lodestone plus ancien, qui ne partage pas les fichiers de ses serveurs de cette façon."
+        }
+        M::ErrInstallFiles => "Impossible d’installer les fichiers du serveur : {detail}",
 
         M::KeyDays90 => "90\u{a0}jours",
         M::KeyYear => "1\u{a0}an",

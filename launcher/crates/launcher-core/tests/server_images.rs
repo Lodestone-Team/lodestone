@@ -1,9 +1,10 @@
 //! Milestone 4's second half end to end: an instance built from a server's image and kept
 //! in step with it through `cores::image_sync`, against a fake core that serves images as
 //! milestone 3's does (`image_core`) and a Modrinth mock for the base pack and the CDN,
-//! with the Launcher's data folder (instances and image store) in a temporary folder. No
-//! game runs and no server starts.
+//! (and a CurseForge mock for CurseForge entries), with the Launcher's data folder
+//! (instances and image store) in a temporary folder. No game runs and no server starts.
 
+mod curseforge;
 mod image_core;
 mod modrinth;
 
@@ -23,7 +24,7 @@ use launcher_core::{
         CoreClient,
         image_sync::{
             SyncError,
-            apply::{before_server_update, build_instance, mark_applied, update_instance},
+            apply::{ServerUpdate, build_instance, update_instance},
             prepare::{Lookup, Prepared, Ready, Target, prepare},
         },
         link::{self, ServerLink},
@@ -317,34 +318,54 @@ impl World {
         (instance, ready)
     }
 
-    /// Play on the linked instance: ask, and when something changed, update as the app
-    /// does (the record before, the operation, the loader version, then the link).
-    fn play(&self, id: &str) -> Result<Option<Box<Ready>>, SyncError> {
+    /// Play on the linked instance: ask, and when the view differs, update through
+    /// [`ServerUpdate`] as the app does, saving the loader version as the app's window
+    /// does (on the instance in the store).
+    fn play(&self, id: &str) -> Result<Option<Arc<Ready>>, SyncError> {
         let dirs = InstanceDirs::new(self.store.dir(id));
         let instance = self.store.get(id).unwrap();
         let applied = link::load_link(&dirs.instance).unwrap().view;
-        let ready = match self.prepare(Some((&dirs, &instance)), applied.as_deref())? {
+        let ready: Arc<Ready> = match self.prepare(Some((&dirs, &instance)), applied.as_deref())? {
             Prepared::Current => return Ok(None),
-            Prepared::Ready(ready) => ready,
+            Prepared::Ready(ready) => Arc::from(ready),
         };
-        if ready.changes(Some(&instance)) {
-            before_server_update(&self.images, id, "SMP");
-            let operation = self.images.begin(id, labels::server_updated("SMP"));
-            block_on(http::in_http_runtime(update_instance(
-                &self.sources(&ready),
-                &dirs,
-                &ready.plan,
-                &InstallProgress::default(),
-                &CancelToken::new(),
-            )))?;
-            let mut instance = self.store.get(id).unwrap();
-            instance.loader_version = ready.plan.loader.as_ref().map(|l| l.version.clone());
-            self.store.save(&instance).unwrap();
-            operation.succeed();
-            self.images.flush(id).unwrap();
-        }
-        mark_applied(&dirs, &ready.plan.view).unwrap();
+        self.update(id, &ready, None::<&str>).unwrap()?;
         Ok(Some(ready))
+    }
+
+    /// Updates the instance to `ready`'s view, unless `held`; the inner result is the
+    /// update's.
+    fn update(
+        &self,
+        id: &str,
+        ready: &Arc<Ready>,
+        held: Option<&'static str>,
+    ) -> Result<Result<(), SyncError>, &'static str> {
+        let dirs = InstanceDirs::new(self.store.dir(id));
+        let instance = self.store.get(id).unwrap();
+        let update = ServerUpdate::start(
+            self.images.clone(),
+            instance,
+            "SMP",
+            dirs,
+            ready.clone(),
+            held,
+        )?;
+        let placed = match block_on(http::in_http_runtime(update.place(
+            &self.sources(ready),
+            &InstallProgress::default(),
+            &CancelToken::new(),
+        ))) {
+            Ok(placed) => placed,
+            Err(err) => return Ok(Err(err)),
+        };
+        let finished = placed.finish(|version| {
+            let mut instance = self.store.get(id).unwrap();
+            instance.loader_version = version;
+            self.store.save(&instance).map_err(|e| e.to_string())
+        });
+        self.images.flush(id).unwrap();
+        Ok(finished)
     }
 
     fn game(&self, id: &str) -> std::path::PathBuf {
@@ -788,5 +809,320 @@ fn hostile_views_and_deltas_install_nothing() {
     assert_eq!(
         link::load_link(&dirs.instance).unwrap().view.as_deref(),
         Some(applied.as_str())
+    );
+}
+
+/// The update's order, as the app runs it: refused while the instance's files are held
+/// (its game runs) without recording or changing anything; the loader version saved
+/// while the link still names the old view; a failed save leaves the link on the old
+/// view, so the next Play places the view again.
+#[test]
+fn an_update_is_refused_while_held_and_names_the_view_last() {
+    let world = World::new();
+    let first = world.content(&world.pack1, &world.sodium1);
+    world.core.publish(&first, &[("", b"the server's own mod")]);
+    let (instance, ready) = world.create();
+    let id = instance.id;
+    let first_view = ready.plan.view.id.clone();
+    let dirs = InstanceDirs::new(world.store.dir(&id));
+    let game = world.game(&id);
+
+    let mut second = first.clone();
+    second
+        .entries
+        .push(object_entry("mods/new.jar", b"a new mod"));
+    second.game.loader_version = Some("0.16.11".into());
+    world.core.publish(&second, &[("", b"a new mod")]);
+    let instance = world.store.get(&id).unwrap();
+    let Prepared::Ready(ready) = world
+        .prepare(Some((&dirs, &instance)), Some(&first_view))
+        .unwrap()
+    else {
+        panic!("expected a plan");
+    };
+    let ready: Arc<Ready> = Arc::from(ready);
+    assert!(ready.asks(Some(&instance)));
+    let labels_before = world.labels(&id);
+
+    // the game runs: nothing recorded, nothing placed
+    assert_eq!(
+        world
+            .update(&id, &ready, Some("the game runs"))
+            .unwrap_err(),
+        "the game runs"
+    );
+    world.images.flush(&id).unwrap();
+    assert_eq!(world.labels(&id), labels_before);
+    assert!(!game.join("mods/new.jar").exists());
+    assert_eq!(
+        link::load_link(&dirs.instance).unwrap().view.as_deref(),
+        Some(first_view.as_str())
+    );
+
+    // the loader version can't be saved: the files are placed and recorded, the link
+    // still names the old view
+    let update = ServerUpdate::start(
+        world.images.clone(),
+        world.store.get(&id).unwrap(),
+        "SMP",
+        dirs.clone(),
+        ready.clone(),
+        None::<()>,
+    )
+    .unwrap();
+    let placed = block_on(http::in_http_runtime(update.place(
+        &world.sources(&ready),
+        &InstallProgress::default(),
+        &CancelToken::new(),
+    )))
+    .unwrap();
+    assert_eq!(placed.loader_version().as_deref(), Some("0.16.11"));
+    let result = placed.finish(|version| {
+        assert_eq!(version.as_deref(), Some("0.16.11"));
+        // saved before the link names the view
+        assert_eq!(
+            link::load_link(&dirs.instance).unwrap().view.as_deref(),
+            Some(first_view.as_str())
+        );
+        Err("the disk is full".into())
+    });
+    assert!(matches!(result, Err(SyncError::Io(_))));
+    world.images.flush(&id).unwrap();
+    assert_eq!(read(&game.join("mods/new.jar")), "a new mod");
+    // (nothing changed since "Created", so the record before it is that image)
+    assert_eq!(
+        world.labels(&id)[..2],
+        ["Updated from SMP", "Created from SMP"]
+    );
+    assert_eq!(
+        link::load_link(&dirs.instance).unwrap().view.as_deref(),
+        Some(first_view.as_str())
+    );
+
+    // the next Play: the files are in place, the loader version isn't saved, so the view
+    // is placed again (nothing to download) and applied once the loader is saved
+    let again = world.play(&id).unwrap().unwrap();
+    assert!(!again.plan.update.changes_files());
+    assert_eq!(
+        world.store.get(&id).unwrap().loader_version.as_deref(),
+        Some("0.16.11")
+    );
+    assert_eq!(
+        link::load_link(&dirs.instance).unwrap().view.as_deref(),
+        Some(again.plan.view.id.as_str())
+    );
+    assert!(world.play(&id).unwrap().is_none());
+}
+
+/// A view that changes nothing on disk but withholds a file players need: the player is
+/// asked (the update prompt lists it) before playing, once; a withheld file players don't
+/// need (a server config) asks nothing.
+#[test]
+fn a_view_that_only_lacks_files_asks_before_playing() {
+    let world = World::new();
+    let first = world.content(&world.pack1, &world.sodium1);
+    world.core.publish(&first, &[("", b"the server's own mod")]);
+    let (instance, ready) = world.create();
+    let id = instance.id;
+    let dirs = InstanceDirs::new(world.store.dir(&id));
+    assert!(ready.newly_lacking.is_empty());
+
+    // the owner adds a mod that is a link on the server
+    let mut second = first.clone();
+    second.withheld.push(lodestone_image::Withheld {
+        path: "mods/linked.jar".into(),
+        reason: lodestone_image::WithheldReason::Symlink,
+    });
+    world.core.publish(&second, &[]);
+    let instance = world.store.get(&id).unwrap();
+    let applied = link::load_link(&dirs.instance).unwrap().view;
+    let Prepared::Ready(ready) = world
+        .prepare(Some((&dirs, &instance)), applied.as_deref())
+        .unwrap()
+    else {
+        panic!("another view");
+    };
+    assert!(!ready.changes(Some(&instance)));
+    assert_eq!(ready.newly_lacking, ["mods/linked.jar"]);
+    assert!(ready.asks(Some(&instance)));
+    assert_eq!(ready.plan.summary.missing[0].0, "mods/linked.jar");
+    // playing on records the view (nothing changes on disk, nothing is labelled)
+    let labels = world.labels(&id);
+    world.play(&id).unwrap().unwrap();
+    assert_eq!(world.labels(&id), labels);
+    assert_eq!(
+        link::load_link(&dirs.instance).unwrap().view.as_deref(),
+        Some(ready.plan.view.id.as_str())
+    );
+    // told once: the next Play joins
+    assert!(world.play(&id).unwrap().is_none());
+
+    // a withheld server config isn't something a player lacks
+    let mut third = second.clone();
+    third.withheld.push(lodestone_image::Withheld {
+        path: "config/secret.toml".into(),
+        reason: lodestone_image::WithheldReason::KeptChanging,
+    });
+    world.core.publish(&third, &[]);
+    let instance = world.store.get(&id).unwrap();
+    let applied = link::load_link(&dirs.instance).unwrap().view;
+    let Prepared::Ready(ready) = world
+        .prepare(Some((&dirs, &instance)), applied.as_deref())
+        .unwrap()
+    else {
+        panic!("another view");
+    };
+    assert!(ready.newly_lacking.is_empty());
+    assert!(!ready.asks(Some(&instance)));
+}
+
+/// CurseForge entries of a view: one CurseForge lets other apps download is fetched from
+/// its CDN (through the CurseForge client, `files_by_id` then `download_url`) and checked
+/// by CurseForge's SHA-1 and the entry's SHA-256; one the server marks not downloadable,
+/// and one CurseForge has no download for, are listed for the player and not placed. A
+/// file whose bytes aren't the entry's SHA-256 is refused, and no instance is left.
+#[test]
+fn curseforge_entries_are_downloaded_when_allowed_and_listed_otherwise() {
+    use curseforge::{CurseForgeMock, FakeFile};
+    let world = World::new();
+    let cf = CurseForgeMock::start();
+    let cf_api = cf.client();
+    let date = "2026-01-01T00:00:00Z";
+    let allowed = FakeFile::new(
+        1001,
+        77,
+        "allowed.jar",
+        &["1.21.1", "Fabric"],
+        date,
+        b"allowed".to_vec(),
+    );
+    let blocked = FakeFile::new(
+        1003,
+        79,
+        "blocked.jar",
+        &["1.21.1", "Fabric"],
+        date,
+        b"blocked".to_vec(),
+    )
+    .blocked();
+    cf.file(allowed.clone()).file(blocked.clone());
+    let curseforge_entry =
+        |path: &str, project: u64, file: u64, bytes: &[u8], downloadable: bool| {
+            Entry::new(
+                CanonicalPath::new(path).unwrap(),
+                bytes.len() as u64,
+                sha256_hex(bytes),
+                Source::Curseforge {
+                    project,
+                    file,
+                    downloadable,
+                },
+            )
+        };
+    let mut content = content_image("1.21.1", Loader::Fabric, Some("0.16.10"));
+    content.entries.push(curseforge_entry(
+        "mods/allowed.jar",
+        77,
+        1001,
+        b"allowed",
+        true,
+    ));
+    content.entries.push(curseforge_entry(
+        "mods/server-says-no.jar",
+        78,
+        1002,
+        b"no",
+        false,
+    ));
+    content.entries.push(curseforge_entry(
+        "mods/blocked.jar",
+        79,
+        1003,
+        b"blocked",
+        true,
+    ));
+    world.core.publish(&content, &[]);
+
+    let lookup = Lookup {
+        curseforge: Some(&cf_api),
+        ..world.lookup()
+    };
+    let prepare = || {
+        block_on(http::in_http_runtime(prepare(
+            &world.server,
+            Target {
+                existing: None,
+                applied: None,
+                name: "SMP",
+            },
+            lookup,
+            &|| {},
+            &InstallProgress::default(),
+            &CancelToken::new(),
+        )))
+    };
+    let build = |ready: &Ready| {
+        let sources = Sources {
+            platforms: Platforms::new(Some(&world.api), Some(&cf_api)),
+            downloader: &world.downloader,
+            pack: None,
+            objects: Some(&world.server),
+        };
+        block_on(http::in_http_runtime(build_instance(
+            &world.store,
+            &sources,
+            &ready.plan,
+            "SMP",
+            world.link(),
+            &InstallProgress::default(),
+            &CancelToken::new(),
+        )))
+    };
+    let Prepared::Ready(ready) = prepare().unwrap() else {
+        panic!("a plan");
+    };
+    let mut listed = ready.plan.summary.curseforge_listed.clone();
+    listed.sort();
+    assert_eq!(listed, ["mods/blocked.jar", "mods/server-says-no.jar"]);
+    // one request for the downloadable ones
+    let asked: Vec<_> = cf
+        .requests()
+        .into_iter()
+        .filter(|r| r.method == "POST" && r.path.ends_with("mods/files"))
+        .collect();
+    assert_eq!(asked.len(), 1);
+    assert!(asked[0].body.contains("1001") && asked[0].body.contains("1003"));
+    assert!(!asked[0].body.contains("1002"));
+    let instance = build(&ready).unwrap();
+    let game = world.game(&instance.id);
+    assert_eq!(read(&game.join("mods/allowed.jar")), "allowed");
+    assert!(!game.join("mods/blocked.jar").exists());
+    assert!(!game.join("mods/server-says-no.jar").exists());
+    assert!(
+        cf.requests()
+            .iter()
+            .any(|r| r.path.contains("edge.forgecdn.net") && r.path.ends_with("allowed.jar"))
+    );
+    let record =
+        ModpackRecord::load(&InstanceDirs::new(world.store.dir(&instance.id)).instance).unwrap();
+    assert_eq!(record.files["mods/allowed.jar"].sha1, allowed.sha1());
+
+    // the entry's SHA-256 isn't CurseForge's file: refused, nothing left
+    let mut wrong = content.clone();
+    wrong
+        .entries
+        .retain(|e| e.path.as_str() != "mods/allowed.jar");
+    let mut entry = curseforge_entry("mods/allowed.jar", 77, 1001, b"allowed", true);
+    entry.sha256 = sha256_hex(b"something else");
+    wrong.entries.push(entry);
+    world.core.publish(&wrong, &[]);
+    let Prepared::Ready(ready) = prepare().unwrap() else {
+        panic!("a plan");
+    };
+    let before = std::fs::read_dir(world.store.root()).unwrap().count();
+    assert!(build(&ready).is_err());
+    assert_eq!(
+        std::fs::read_dir(world.store.root()).unwrap().count(),
+        before
     );
 }

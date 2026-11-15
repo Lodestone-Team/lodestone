@@ -384,7 +384,7 @@ mod screenshot {
                     .timer(Duration::from_millis(500))
                     .await;
             }
-            // `--mods many|last|pack|few[-end]`: sample mods on the Mods tab's Installed view
+            // `--mods many|last|pack|few|forge[-end]`: sample mods on the Mods tab's Installed view
             // (with `--tab mods --fake-instance`)
             if let Some(scene) = arg_after("--mods") {
                 gpui::AppContext::update_window(cx, window.into(), |_, window, cx| {

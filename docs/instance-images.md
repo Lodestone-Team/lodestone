@@ -2109,9 +2109,12 @@ side of "Server to player" open. The code is `launcher/crates/launcher-core/src/
   record of a big server), then says the server is still preparing; `Internal` stops at
   once ("couldn't prepare its files", with the seconds left). An object: `TooManyRequests`
   is waited out, uncounted, for up to 10 minutes of waits; `Conflict` for up to 2 minutes;
-  a body cut short, a stall, a body past the size its view gives, a wrong hash, a 5xx, a
-  transport error and `Internal` each count as a failure, and the third gives up on the
-  file (the spec's "3 times in a row" and "3 `Internal` answers"). A 404 is "the view
+  a body cut short, a stall, a body past the size its view gives, a wrong hash, a 5xx and a
+  transport error each count as a failure, and the file is fetched again at most 3 times
+  (`MAX_RETRIES`: the fourth failure gives up, the spec's "at most 3 times in a row per
+  file"); `Internal` answers are counted on their own, and the third in a row gives up
+  (`MAX_INTERNAL`, the spec's "3 `Internal` answers in a row"; any other answer resets
+  that count). A 404 is "the view
   changed" (Play again asks for the image), a 400 is refused. At most 4 objects download
   at once. A large file (over 1 MiB) resumes with `Range: bytes=<have>-`; a 206 must say
   exactly that range, a 200 starts over, a 416 deletes and starts over. Every object's
@@ -2163,9 +2166,12 @@ side of "Server to player" open. The code is `launcher/crates/launcher-core/src/
   the pack's file at that path, whose SHA-1, SHA-512 and size must be the entry's when it
   gives them (a missing one is refused: the pack must have it), checked by SHA-256 too;
   downloadable CurseForge entries through the CurseForge client (one request for all,
-  `files_by_id`), checked by CurseForge's SHA-1 and the entry's SHA-256; the others are
-  listed for the player to download by hand and not placed. CurseForge entries never come
-  from a real core yet, so that path is tested against mocks only.
+  `files_by_id`; the URL CurseForge gives, once `download_url` says its host is
+  CurseForge's CDN, fetched through the client as a CurseForge pack's files are), checked
+  by CurseForge's SHA-1 and the entry's SHA-256; the others (marked not downloadable, or
+  with no download on CurseForge) are listed for the player to download by hand and not
+  placed. CurseForge entries never come from a real core yet, so that path is tested end
+  to end against the CurseForge and Modrinth mocks only (`tests/server_images.rs`).
 - **The base pack.** A `modrinth_pack` base is taken only from Modrinth: the version must be
   the base's project, Modrinth's listing of its `.mrpack` must have the base's SHA-512, and
   the download (from the CDN) is checked against it. Packs are cached in
@@ -2187,10 +2193,20 @@ side of "Server to player" open. The code is `launcher/crates/launcher-core/src/
 - **Showing what will be installed.** "Create matching instance" always shows what the new
   instance gets (base pack, Minecraft and loader, mods the server added, files only the
   server has, files it couldn't share and CurseForge files to download by hand) before
-  anything is installed, unless the view places nothing (a vanilla server): from a core
-  trusted for mods with Install and Cancel, otherwise inside the trust advisory. Play's
-  update prompt lists the changes, a new loader version and the files the server
-  couldn't share. The advisory takes a server's own files (no SHA-1 to ask Modrinth by)
+  anything is installed, unless the view places nothing (a vanilla server) and lacks
+  nothing (no needed withheld file, no CurseForge file to get by hand): from a core
+  trusted for mods with Install and Cancel, otherwise inside the trust advisory. While it
+  asks the server and gets the base pack, the server's row shows the pack's download
+  (bytes of bytes). Play's update prompt lists the changes, a new loader version and the
+  files the server couldn't share.
+- **Files a player lacks are said before Play, once per view.** A view that changes
+  nothing on disk but lacks files the applied view didn't (`Ready::newly_lacking`: needed
+  withheld files and CurseForge files to get by hand, compared with the applied view's,
+  whose CurseForge files count as lacking when `modpack.json` doesn't list them) opens
+  "<server> has files you won't get" with Play (which records the view: no advisory,
+  nothing installed) and Cancel. Once that view is applied, Play joins without asking
+  again until another view lacks something new. Without a kept applied view, every lacking
+  file counts as new. The advisory takes a server's own files (no SHA-1 to ask Modrinth by)
   for uploaded ones, and a Modrinth file without a SHA-1 for Modrinth's (its CDN and
   SHA-512). Missing files are `lodestone_image::view::needed_withheld` (the shared crate
   gained it: the rule "Files a view can't give" states), shown through `display_text`.
@@ -2205,18 +2221,30 @@ side of "Server to player" open. The code is `launcher/crates/launcher-core/src/
 - **Records and crash safety.** A new instance is staged whole beside the instances (files,
   `content.json`, `modpack.json`, the link with its view, the kept view) and renamed into
   place, then recorded "Created from <server>"; nothing is left when it fails. An update
-  records first through `image_sync::apply::before_server_update` (the one call site;
-  the snapshot before a server update joins it there), runs as the operation "Updated
-  from <server>" while Play is held (refused while the game runs or a "Find it for me"
-  search is saved), and writes in this order: files (staged, a rollback copy, swapped in),
-  `content.json`, `modpack.json`, the loader version, the kept view, the link's view. A
-  crash before the link leaves the old view named, and the next Play finds the files in
-  place (no changes) and only records the view.
+  runs through `image_sync::apply::ServerUpdate`, which the app and the tests both use, so
+  its order lives in one place: `start` refuses while the instance's files are held (the
+  caller says why: the game runs, a "Find it for me" search is saved); `place` records
+  first through `before_server_update` (the one call site; the snapshot before a server
+  update joins it there) and places the files as the operation "Updated from <server>"
+  while Play is held (staged, a rollback copy, swapped in; then `content.json`,
+  `modpack.json`), the operation succeeding part way when placing fails; `finish`, on the
+  window's thread, saves the loader version, lets the operation succeed and, only when the
+  save worked, keeps the view and names it in the link. A view that changes nothing on
+  disk goes through the same `ServerUpdate` and is only recorded (`modpack.json` when it
+  names other files, as a change of which files are content, then the link). A crash
+  before the link leaves the old view named, and the next Play finds the files in place
+  (no changes) and only records the view.
 - **The control API and CLI.** The advisory's data gains `summary` (base, game, mods,
   files only the server has, `missing` with each path and reason, CurseForge files); the
-  update prompt's gains `missing`, `curseforge` and `loader`. A trusted core's install
-  prompt is answered Install. A server that needs a newer Lodestone fails with the new
-  code `update_required` (exit 1).
+  update prompt's gains `missing`, `curseforge`, `loader` and `only_lacking` (the prompt
+  for a view that only lacks files, still `mods_changed`; either answer plays). A trusted
+  core's install prompt is answered Install, and `servers.create_instance` answers with
+  the `summary` the instance got, so a caller can tell the user what is missing. A server
+  that needs a newer Lodestone fails with the new code `update_required` (exit 1).
+- **Errors in the player's language.** Every way installing a server's files can fail has
+  a translated message (a base file the pack lacks, a cancelled install, an older core,
+  and a local failure as "Couldn't install the server's files: <detail>", the detail in
+  English).
 - **The Host** offers the "For players" mark for every mod loader (see "M3 decisions").
 - **Tests against the core's own answers.** The Launcher's tests run against a fake core
   whose answers `lodestone_image`'s `view` and `diff` compute, with scripted faults for

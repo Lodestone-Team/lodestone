@@ -54,9 +54,13 @@ pub const RULES_HEADER: &str = "x-lodestone-rules";
 pub const MAX_HAVE: usize = 16;
 /// Objects are fetched this many at a time (the spec asks players for at most 4).
 pub const MAX_PARALLEL_OBJECTS: usize = 4;
-/// A file is given up on after this many failed fetches: a body cut short, one that
-/// doesn't hash to its name, a stall, a server or transport error.
-pub const MAX_FAILURES: u32 = 3;
+/// A file is fetched again at most this many times in a row after a failed fetch (a body
+/// cut short, one that doesn't hash to its name, a stall, a server or transport error):
+/// the spec's "at most 3 times in a row per file", so the fourth failure gives up.
+pub const MAX_RETRIES: u32 = 3;
+/// A file is given up on after this many 503 `Internal` answers in a row: the server's
+/// record of its content failed, and asking sooner than it says won't help.
+pub const MAX_INTERNAL: u32 = 3;
 /// The longest a 503's `Retry-After` is waited, whatever the server says.
 pub const MAX_RETRY_AFTER: Duration = Duration::from_secs(30);
 /// An error body is read only up to this.
@@ -408,6 +412,7 @@ impl ServerImage {
             path: lodestone_image::display_text(path).into_owned(),
         };
         let mut failures = 0u32;
+        let mut internal = 0u32;
         let mut conflict_waited = Duration::ZERO;
         let mut busy_waited = Duration::ZERO;
         // bytes of this file counted in `progress`, taken back if it fails
@@ -428,6 +433,9 @@ impl ServerImage {
                     cancel,
                 )
                 .await;
+            if !matches!(outcome, Fetched::Internal(_)) {
+                internal = 0;
+            }
             let failure = match outcome {
                 Fetched::Done => break Ok(()),
                 Fetched::Fatal(err) => break Err(err),
@@ -447,10 +455,18 @@ impl ServerImage {
                     (self.sleep)(wait).await;
                     continue;
                 }
+                Fetched::Internal(wait) => {
+                    internal += 1;
+                    if internal >= MAX_INTERNAL {
+                        break Err(failed());
+                    }
+                    (self.sleep)(wait).await;
+                    continue;
+                }
                 Fetched::Failed(wait) => wait,
             };
             failures += 1;
-            if failures >= MAX_FAILURES {
+            if failures > MAX_RETRIES {
                 break Err(failed());
             }
             (self.sleep)(failure.unwrap_or(RETRY_PAUSE)).await;
@@ -527,7 +543,8 @@ impl ServerImage {
                 return match unavailable.kind.as_deref() {
                     Some("TooManyRequests") => Fetched::Busy(unavailable.retry_after),
                     Some("Conflict") => Fetched::Conflict(unavailable.retry_after),
-                    // Internal: counted like any failure, so three in a row give up
+                    Some("Internal") => Fetched::Internal(unavailable.retry_after),
+                    // another kind: counted like any failure
                     _ => Fetched::Failed(Some(unavailable.retry_after)),
                 };
             }
@@ -644,8 +661,10 @@ pub struct ObjectItem {
 /// What one fetch of an object came to.
 enum Fetched {
     Done,
-    /// Counts against [`MAX_FAILURES`]; waits the given time (else a moment) first.
+    /// Counts against [`MAX_RETRIES`]; waits the given time (else a moment) first.
     Failed(Option<Duration>),
+    /// 503 `Internal`: counts against [`MAX_INTERNAL`]; waits the given time first.
+    Internal(Duration),
     /// 503 `TooManyRequests`: wait, uncounted.
     Busy(Duration),
     /// 503 `Conflict`: wait, against [`Limits::conflict`].

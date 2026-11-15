@@ -240,6 +240,11 @@ pub fn text(message: M) -> &'static str {
         M::InstallThisTime => "僅這次安裝",
         M::TrustAndInstall => "信任 {core} 並安裝",
         M::BusyPreparing => "正在等待伺服器準備檔案…",
+        M::BusyBasePack => "正在取得伺服器的模組包（{done} / {total}）…",
+        M::LacksFiles => "{name} 有你無法取得的檔案",
+        M::LacksFilesBody => {
+            "你的實例已有伺服器的檔案，但伺服器還有一些無法分享的檔案。沒有它們你可能無法加入。"
+        }
         M::InstallTitle => "安裝 {name} 的檔案？",
         M::InstallIntro => {
             "{core} 上 {server} 的新實例將取得 Minecraft {version}（{loader}），以及來自伺服器的這些檔案。"
@@ -277,6 +282,11 @@ pub fn text(message: M) -> &'static str {
             "伺服器以 CurseForge 模組包為基礎，Lodestone Launcher 暫時無法從伺服器安裝。"
         }
         M::ErrRefused => "伺服器傳送了 Lodestone Launcher 不會安裝的檔案：{detail}",
+        M::ErrBaseFileMissing => {
+            "伺服器的模組包中沒有檔案 {path}，但伺服器說它來自模組包。請讓伺服器的擁有者更新模組包。"
+        }
+        M::ErrOlderCore => "該主機執行的是較舊版本的 Lodestone，無法以這種方式分享其伺服器的檔案。",
+        M::ErrInstallFiles => "無法安裝伺服器的檔案：{detail}",
 
         M::KeyDays90 => "90 天",
         M::KeyYear => "1 年",

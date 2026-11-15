@@ -71,8 +71,8 @@ pub(super) fn mod_icon(url: Option<&str>, size: f32, cx: &mut Context<ModsPage>)
 }
 
 /// Whether players need an installed mod (`ClientRequirementLabel`): optional mods
-/// show nothing. With `marks` (Fabric, where the row has "For players"), the box says
-/// "players need this" instead of a tag.
+/// show nothing. With `marks` (a mod on any mod loader, where the row has "For players"),
+/// the box says "players need this" instead of a tag.
 fn requirement_label(id: SharedString, m: &InstalledMod, marks: bool) -> Option<AnyElement> {
     match m.client_requirement {
         ClientRequirement::Required if marks => None,
@@ -1091,8 +1091,9 @@ impl ModsPage {
 impl ModsPage {
     /// Sample mods on the Installed view, for the development screenshots' `--mods
     /// <scene>`: `many` (158 mods on 8 pages, 40 of them in the folded client pack),
-    /// `last` (their last page), `pack` (the client pack unfolded) or `few` (a handful,
-    /// with no pager and no fold); with `-end` (`many-end`), scrolled to the bottom.
+    /// `last` (their last page), `pack` (the client pack unfolded), `few` (a handful,
+    /// with no pager and no fold) or `forge` (the handful on a Forge server, whose rows
+    /// have "For players" too); with `-end` (`many-end`), scrolled to the bottom.
     #[cfg(feature = "screenshot")]
     pub fn demo_installed(&mut self, scene: &str, cx: &mut Context<Self>) {
         let (scene, end) = match scene.strip_suffix("-end") {
@@ -1121,7 +1122,8 @@ impl ModsPage {
             "Clumps",
             "Ksyxis",
         ];
-        let (count, needed) = if scene == "few" { (6, 3) } else { (158, 40) };
+        let few = scene == "few" || scene == "forge";
+        let (count, needed) = if few { (6, 3) } else { (158, 40) };
         let mods: Vec<serde_json::Value> = (0..count)
             .map(|index| {
                 let base = NAMES[index % NAMES.len()];
@@ -1156,9 +1158,14 @@ impl ModsPage {
                 })
             })
             .collect();
+        let (loader, game_version, loader_version) = if scene == "forge" {
+            ("forge", "1.20.1", "1.20.1-47.4.28")
+        } else {
+            ("fabric", "1.21.4", "0.16.10")
+        };
         let mut list: InstalledModList = serde_json::from_value(serde_json::json!({
-            "kind": "mod", "loader": "fabric", "game_version": "1.21.4",
-            "directory": "mods", "loader_version": "0.16.10", "mods": mods,
+            "kind": "mod", "loader": loader, "game_version": game_version,
+            "directory": "mods", "loader_version": loader_version, "mods": mods,
         }))
         .expect("the sample mods read");
         list.client_required_count = list

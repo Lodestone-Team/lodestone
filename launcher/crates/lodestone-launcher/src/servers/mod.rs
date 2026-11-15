@@ -34,6 +34,7 @@ pub(crate) mod control;
 
 use std::{
     collections::{HashMap, HashSet},
+    convert::Infallible,
     path::PathBuf,
     rc::Rc,
     sync::{
@@ -59,7 +60,7 @@ use launcher_core::{
         client::display_address,
         image_sync::{
             SyncError,
-            apply::{before_server_update, build_instance, mark_applied, update_instance},
+            apply::{ServerUpdate, before_server_update, build_instance},
             base::prune_cache,
             plan::{PackChanges, Summary},
             prepare::{Lookup, Prepared, Ready, Target, prepare},
@@ -79,7 +80,7 @@ use launcher_core::{
     },
     instances::Loader,
     modpack::{
-        self, ModpackError, ModpackRecord, PackInfo,
+        self, ModpackError, PackInfo,
         fetch::Sources,
         import::{self, ImportOptions},
         update::{self, UpdatePlan},
@@ -305,11 +306,13 @@ fn pinned_http(pin: Option<&CertificatePin>) -> Option<Arc<PinnedHttp>> {
 /// What a server row (or a linked instance's Play) is doing.
 #[derive(Clone, Debug)]
 pub enum Busy {
-    /// Asking the server for its image (`creating` for a new instance); `preparing` once
-    /// the server says it is still preparing its files.
+    /// Asking the server for its image (`creating` for a new instance) and getting what
+    /// installing it needs (its base pack); `preparing` once the server says it is still
+    /// preparing its files.
     Asking {
         preparing: Arc<AtomicBool>,
         creating: bool,
+        progress: Arc<InstallProgress>,
     },
     /// Downloading the server's `.mrpack` client pack (a core older than milestone 3).
     Fetching,
@@ -337,6 +340,19 @@ impl Busy {
         match self {
             Busy::Asking { preparing, .. } if preparing.load(Ordering::Relaxed) => {
                 t(M::BusyPreparing).into()
+            }
+            // the base pack downloading
+            Busy::Asking { progress, .. }
+                if progress.downloads.snapshot().bytes_total > 0
+                    && progress.downloads.snapshot().bytes_done
+                        < progress.downloads.snapshot().bytes_total =>
+            {
+                let snapshot = progress.downloads.snapshot();
+                tr!(
+                    M::BusyBasePack,
+                    done = format::bytes(snapshot.bytes_done),
+                    total = format::bytes(snapshot.bytes_total)
+                )
             }
             Busy::Asking { creating: true, .. } | Busy::Fetching => t(M::BusyFetching).into(),
             Busy::Asking { .. } => t(M::BusyChecking).into(),
@@ -472,6 +488,9 @@ pub struct UpdatePrompt {
     pub curseforge: Vec<String>,
     /// The loader version the update brings ("Fabric 0.16.11"), when it changes.
     pub loader: Option<String>,
+    /// Nothing changes on disk: the server's view only lacks files the player didn't lack
+    /// before (`missing`, `curseforge`). Playing records the view; nothing is installed.
+    pub only_lacking: bool,
     pending: Option<PendingPull>,
     pub focus: FocusHandle,
 }
@@ -1924,11 +1943,13 @@ impl Servers {
             return;
         }
         let preparing = Arc::new(AtomicBool::new(false));
+        let progress = Arc::new(InstallProgress::default());
         self.busy.insert(
             row.clone(),
             Busy::Asking {
                 preparing: preparing.clone(),
                 creating: true,
+                progress: progress.clone(),
             },
         );
         self.tick_while_busy(row.clone(), cx);
@@ -1946,7 +1967,7 @@ impl Servers {
                 target,
                 lookup.lookup(),
                 &|| preparing.store(true, Ordering::Relaxed),
-                &InstallProgress::default(),
+                &progress,
                 &CancelToken::new(),
             )
             .await
@@ -2145,10 +2166,13 @@ impl Servers {
             pending.discard();
             return;
         };
-        // a new instance from an image shows what it gets, unless that is nothing
+        // a new instance from an image shows what it gets, unless that is nothing, and
+        // always what it won't get ("Files a view can't give": said before it plays)
         let shows_summary = matches!(
             &pending,
             PendingPull::CreateImage(p) if p.ready.plan.update.changes_files()
+                || !p.ready.plan.summary.missing.is_empty()
+                || !p.ready.plan.summary.curseforge_listed.is_empty()
         );
         if !needs_advisory && !shows_summary {
             return self.install(pending, cx);
@@ -2417,11 +2441,13 @@ impl Servers {
             return;
         }
         let preparing = Arc::new(AtomicBool::new(false));
+        let progress = Arc::new(InstallProgress::default());
         self.busy.insert(
             row.clone(),
             Busy::Asking {
                 preparing: preparing.clone(),
                 creating: false,
+                progress: progress.clone(),
             },
         );
         self.tick_while_busy(row.clone(), cx);
@@ -2448,23 +2474,31 @@ impl Servers {
                 target,
                 lookup.lookup(),
                 &|| preparing.store(true, Ordering::Relaxed),
-                &InstallProgress::default(),
+                &progress,
                 &CancelToken::new(),
             )
             .await?;
             match prepared {
                 Prepared::Current => Ok(ImageCheck::InStep),
-                Prepared::Ready(ready) if !ready.changes(Some(&instance)) => {
-                    // the files are the view's already: the record names its files (a
-                    // change of which files are content, recorded without a label), and
-                    // the link the view
-                    let record = &ready.plan.update.record;
-                    if ModpackRecord::load(&dirs.instance).as_ref() != Some(record) {
-                        let operation = images.begin_rescope(&image_id);
-                        let saved = record.save(&dirs.instance);
-                        operation.finish(&saved);
-                    }
-                    mark_applied(&dirs, &ready.plan.view)?;
+                Prepared::Ready(ready) if !ready.asks(Some(&instance)) => {
+                    // the files are the view's already and it lacks nothing new: only
+                    // recorded (the record naming its files, then the link the view); the
+                    // loader version is the instance's already
+                    let ready: Arc<Ready> = Arc::from(ready);
+                    let sources = lookup.sources(&ready, &asked);
+                    // Play checked the game isn't running, and nothing changes on disk
+                    let Ok(update) = ServerUpdate::start(
+                        images,
+                        instance,
+                        &name,
+                        dirs,
+                        ready.clone(),
+                        None::<Infallible>,
+                    );
+                    update
+                        .place(&sources, &progress, &CancelToken::new())
+                        .await?
+                        .finish(|_| Ok(()))?;
                     Ok(ImageCheck::InStep)
                 }
                 Prepared::Ready(ready) => Ok(ImageCheck::Changed(ready)),
@@ -2481,6 +2515,7 @@ impl Servers {
                         let instance = this.instances.read(cx).store().get(&instance_id).ok();
                         let summary = &ready.plan.summary;
                         let new_loader = ready.plan.loader.as_ref().map(|l| l.version.clone());
+                        let only_lacking = !ready.changes(instance.as_ref());
                         let loader = (instance.and_then(|i| i.loader_version) != new_loader)
                             .then(|| summary.loader.clone());
                         let focus = cx.focus_handle();
@@ -2493,6 +2528,7 @@ impl Servers {
                                 missing: summary.missing.clone(),
                                 curseforge: summary.curseforge_listed.clone(),
                                 loader,
+                                only_lacking,
                                 pending: Some(PendingPull::SyncImage(PendingImage {
                                     core: core_uuid.clone(),
                                     server,
@@ -2619,6 +2655,7 @@ impl Servers {
                                 missing: Vec::new(),
                                 curseforge: Vec::new(),
                                 loader: None,
+                                only_lacking: false,
                                 pending: Some(PendingPull::Sync(PendingSync {
                                     core: core_uuid.clone(),
                                     server,
@@ -2764,6 +2801,10 @@ impl Servers {
             pending.discard();
             return self.join(&core, &server, &instance_id, cx);
         }
+        // a view that only lacks files installs nothing: no advisory, only recorded
+        if prompt.only_lacking {
+            return self.install(pending, cx);
+        }
         self.gate(pending, PullKind::ModSync, cx);
     }
 
@@ -2792,91 +2833,77 @@ impl Servers {
     }
 
     /// Brings the instance in step with the server's image ("Updated from <server>"),
-    /// then joins. Everything the update replaces is recorded first ("Before a server
-    /// update"); the loader version follows the server's.
+    /// then joins, through [`ServerUpdate`]: refused while the game runs or a "Find it for
+    /// me" search is saved, everything the update replaces recorded first ("Before a
+    /// server update"), and the loader version following the server's before the link
+    /// names the view.
     fn apply_server_update(&mut self, pending: PendingImage, cx: &mut Context<Self>) {
         let Some(instance_id) = pending.instance_id.clone() else {
             return;
         };
-        if let Some(why) = self.files_held(&instance_id, cx) {
-            return self.fail(move || (t(M::UpdateModsFailed).into(), t(why).into()), cx);
-        }
         let row: RowKey = (pending.core.clone(), pending.server.uuid.clone());
         let lookup = self.lookup_parts(cx);
         let instances = self.instances.read(cx);
         let dirs = instances.content_dirs(&instance_id);
         let images = instances.images();
+        let instance = match instances.store().get(&instance_id) {
+            Ok(instance) => instance,
+            Err(err) => {
+                let err = err.to_string();
+                return self.fail(move || (t(M::UpdateModsFailed).into(), err.clone()), cx);
+            }
+        };
+        let held = self.files_held(&instance_id, cx);
+        let update = match ServerUpdate::start(
+            images,
+            instance,
+            &pending.server.name,
+            dirs,
+            pending.ready.clone(),
+            held,
+        ) {
+            Ok(update) => update,
+            Err(why) => {
+                return self.fail(move || (t(M::UpdateModsFailed).into(), t(why).into()), cx);
+            }
+        };
         let progress = Arc::new(InstallProgress::default());
         self.busy
             .insert(row.clone(), Busy::UpdatingMods(progress.clone()));
         self.tick_while_busy(row.clone(), cx);
-        let image_id = instance_id.clone();
-        let server_name = pending.server.name.clone();
         let ready = pending.ready.clone();
         let image = pending.image.clone();
         // Play waits from the record before the update until the loader it brings is saved,
         // so the check before a launch never takes a half-applied update for a change made by
         // hand.
         let busy = self.instances.read(cx).mark_files_busy(&instance_id);
-        let update_dirs = dirs.clone();
         let work = cx.background_spawn(async move {
-            before_server_update(&images, &image_id, &server_name);
-            let operation = images.begin(
-                &image_id,
-                launcher_core::images::labels::server_updated(&server_name),
-            );
             let sources = lookup.sources(&ready, &image);
-            let applied = update_instance(
-                &sources,
-                &update_dirs,
-                &ready.plan,
-                &progress,
-                &CancelToken::new(),
-            )
-            .await;
-            // The files changed (all of them, or part way): the operation succeeds whatever
-            // happens next. On success it does once the loader version is saved, so the
-            // image has it.
-            match applied {
-                Ok(_) => {
-                    prune_cache(&lookup.cache);
-                    (Ok(()), Some(operation))
-                }
-                Err(err) => {
-                    operation.succeed_part_way();
-                    (Err(PullError::from(err)), None)
-                }
+            let placed = update.place(&sources, &progress, &CancelToken::new()).await;
+            if placed.is_ok() {
+                prune_cache(&lookup.cache);
             }
+            placed
         });
         self.tasks.push(cx.spawn(async move |this, cx| {
-            let (result, mut operation) = work.await;
+            let placed = work.await;
             this.update(cx, |this, cx| {
                 this.busy.remove(&row);
                 let busy = busy;
-                if let Err(err) = result {
-                    return this.fail_core(
-                        &pending.core,
-                        || t(M::UpdateModsFailed).into(),
-                        err,
-                        cx,
-                    );
-                }
-                // only the loader version follows the server: never the Minecraft version
-                // or the loader, which the plan checked are the instance's
-                let version = pending
-                    .ready
-                    .plan
-                    .loader
-                    .as_ref()
-                    .map(|l| l.version.clone());
-                let saved = this.save_loader_version(&instance_id, version, cx);
-                if let Some(operation) = operation.take() {
-                    operation.succeed();
-                }
-                // the view is applied once everything else is written
-                let saved = saved.and_then(|()| {
-                    mark_applied(&dirs, &pending.ready.plan.view).map_err(|e| e.to_string())
-                });
+                let placed = match placed {
+                    Ok(placed) => placed,
+                    Err(err) => {
+                        return this.fail_core(
+                            &pending.core,
+                            || t(M::UpdateModsFailed).into(),
+                            PullError::from(err),
+                            cx,
+                        );
+                    }
+                };
+                let saved = placed
+                    .finish(|version| this.save_loader_version(&instance_id, version, cx))
+                    .map_err(|err| err.to_string());
                 // Joining plays the instance: its files are done.
                 drop(busy);
                 match saved {
@@ -3359,6 +3386,7 @@ impl Servers {
         loader: Option<String>,
         cx: &mut Context<Self>,
     ) {
+        let only_lacking = changes == PackChanges::default() && loader.is_none();
         let prompt = UpdatePrompt {
             core: core.into(),
             server,
@@ -3366,6 +3394,7 @@ impl Servers {
             changes,
             missing,
             curseforge: Vec::new(),
+            only_lacking,
             loader,
             pending: None,
             focus: cx.focus_handle(),
@@ -3614,7 +3643,15 @@ pub fn sync_error(err: &SyncError) -> String {
         SyncError::CurseForgeBase => t(M::ErrCurseForgeBase).into(),
         SyncError::Refused(detail) => tr!(M::ErrRefused, detail = detail),
         SyncError::Image(ImageError::Invalid(detail)) => tr!(M::ErrRefused, detail = detail),
-        err => err.to_string(),
+        SyncError::BaseFileMissing(path) => tr!(M::ErrBaseFileMissing, path = path),
+        SyncError::Image(ImageError::OlderCore) => t(M::ErrOlderCore).into(),
+        SyncError::Cancelled | SyncError::Image(ImageError::Cancelled) => t(M::Cancelled).into(),
+        SyncError::Modpack(ModpackError::Cancelled) => t(M::Cancelled).into(),
+        SyncError::Modpack(ModpackError::Image(err)) => sync_error(&SyncError::Image(err.clone())),
+        SyncError::Modpack(err) => tr!(M::ErrInstallFiles, detail = err.to_string()),
+        SyncError::Io(detail) | SyncError::Image(ImageError::Io(detail)) => {
+            tr!(M::ErrInstallFiles, detail = detail)
+        }
     }
 }
 

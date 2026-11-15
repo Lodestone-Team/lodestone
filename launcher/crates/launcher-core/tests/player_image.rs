@@ -316,9 +316,19 @@ fn objects_resume_and_check_their_hash() {
     fetch(&image, &bytes, &dest).unwrap();
     assert_eq!(std::fs::read(&dest).unwrap(), bytes);
 
-    // wrong bytes every time: given up on after three tries, nothing left behind
+    // wrong bytes three times in a row: fetched again each time, the fourth works
     std::fs::remove_file(&dest).unwrap();
     for _ in 0..3 {
+        core.fault(Fault::WrongBytes);
+    }
+    let before = core.requests().len();
+    fetch(&image, &bytes, &dest).unwrap();
+    assert_eq!(core.requests().len(), before + 4);
+    assert_eq!(std::fs::read(&dest).unwrap(), bytes);
+
+    // wrong bytes every time: given up on after three retries, nothing left behind
+    std::fs::remove_file(&dest).unwrap();
+    for _ in 0..4 {
         core.fault(Fault::WrongBytes);
     }
     let before = core.requests().len();
@@ -328,7 +338,7 @@ fn objects_resume_and_check_their_hash() {
             path: "mods/big.jar".into()
         }
     );
-    assert_eq!(core.requests().len(), before + 3);
+    assert_eq!(core.requests().len(), before + 4);
     assert!(!dest.exists());
     // each failed try waited a moment first
     assert!(
@@ -372,14 +382,21 @@ fn busy_lost_and_failing_objects() {
     assert_eq!(core.requests().len(), before + 25);
     core.state().faults.clear();
 
-    // three Internal answers in a row
+    // three Internal answers in a row: given up on at the third
     for _ in 0..3 {
         core.fault(Fault::ObjectUnavailable("Internal", 60));
     }
+    let before = core.requests().len();
     assert!(matches!(
         fetch(&image, &bytes, &dest),
         Err(ImageError::FileFailed { .. })
     ));
+    assert_eq!(core.requests().len(), before + 3);
+    // two, then the file
+    for _ in 0..2 {
+        core.fault(Fault::ObjectUnavailable("Internal", 60));
+    }
+    fetch(&image, &bytes, &dest).unwrap();
 
     // not served any more: the view changed
     core.fault(Fault::ObjectStatus(404));

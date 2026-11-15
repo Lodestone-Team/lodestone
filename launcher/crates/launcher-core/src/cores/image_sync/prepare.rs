@@ -2,7 +2,10 @@
 //! changes ("Server to player", the Launcher's steps 1 and 4): for "Create matching
 //! instance" (no instance yet) and for Play (an instance linked to the server).
 
-use std::{collections::HashMap, path::Path};
+use std::{
+    collections::{BTreeSet, HashMap},
+    path::Path,
+};
 
 use lodestone_image::{Image, Source};
 
@@ -48,6 +51,10 @@ pub struct Ready {
     pub plan: ServerPlan,
     /// The base pack, whose overrides the install copies.
     pub base: Option<BasePack>,
+    /// Files the player lacks with this view that they didn't with the view the instance
+    /// applied last (paths as shown): withheld files a player would need, and CurseForge
+    /// files to download by hand. Empty for a new instance, which shows them all anyway.
+    pub newly_lacking: Vec<String>,
 }
 
 impl Ready {
@@ -56,6 +63,13 @@ impl Ready {
         let loader = self.plan.loader.as_ref().map(|l| l.version.as_str());
         self.plan.update.changes_files()
             || instance.is_some_and(|i| i.loader_version.as_deref() != loader)
+    }
+
+    /// Whether the player must be asked before playing: installing changes something, or
+    /// the view lacks files the applied one didn't ("Files a view can't give": a player
+    /// says so before it plays). A view that does neither is only recorded as applied.
+    pub fn asks(&self, instance: Option<&Instance>) -> bool {
+        self.changes(instance) || !self.newly_lacking.is_empty()
     }
 }
 
@@ -149,7 +163,55 @@ pub async fn prepare(
         base.as_ref(),
         target.name,
     )?;
-    Ok(Prepared::Ready(Box::new(Ready { plan, base })))
+    let newly_lacking = match &views {
+        Some(views) => {
+            let applied = target.applied.and_then(|id| views.load(id));
+            newly_lacking(&plan, applied.as_ref(), &current)
+        }
+        None => Vec::new(),
+    };
+    Ok(Prepared::Ready(Box::new(Ready {
+        plan,
+        base,
+        newly_lacking,
+    })))
+}
+
+/// The files `plan`'s view lacks that `applied` (the view the instance applied last,
+/// whose placed files `current` records) didn't: needed withheld files and CurseForge
+/// files to download by hand, as the summary shows them. Without an applied view, all of
+/// them.
+fn newly_lacking(
+    plan: &ServerPlan,
+    applied: Option<&Image>,
+    current: &ModpackRecord,
+) -> Vec<String> {
+    let mut before: BTreeSet<String> = BTreeSet::new();
+    if let Some(applied) = applied {
+        before.extend(
+            lodestone_image::view::needed_withheld(applied)
+                .into_iter()
+                .map(|w| w.display_path().into_owned()),
+        );
+        // a CurseForge file the applied view named that it didn't place was listed
+        before.extend(
+            applied
+                .entries
+                .iter()
+                .filter(|e| matches!(e.source, Source::Curseforge { .. }))
+                .map(|e| e.path.as_str())
+                .filter(|path| !current.files.contains_key(*path))
+                .map(str::to_string),
+        );
+    }
+    let summary = &plan.summary;
+    summary
+        .missing
+        .iter()
+        .map(|(path, _)| path.clone())
+        .chain(summary.curseforge_listed.iter().cloned())
+        .filter(|path| !before.contains(path))
+        .collect()
 }
 
 /// Whether the instance runs the game `view` names, loader version included (an update
@@ -194,10 +256,16 @@ async fn resolve_curseforge(
         if !wanted.contains(&(file.mod_id, file.id)) || !file.downloadable() {
             continue;
         }
-        let (Ok(url), Some(sha1)) = (curseforge.download_url(&file), file.sha1()) else {
+        // the URL CurseForge gave, once its host is one of CurseForge's CDN: the download
+        // asks the CurseForge client for it again, as for a CurseForge pack's files
+        let (Ok(_), Some(sha1)) = (curseforge.download_url(&file), file.sha1()) else {
             continue;
         };
-        if let Ok(url) = url::Url::parse(&url) {
+        if let Some(url) = file
+            .download_url
+            .as_deref()
+            .and_then(|u| url::Url::parse(u).ok())
+        {
             found.insert((file.mod_id, file.id), CurseForgeFile { url, sha1 });
         }
     }

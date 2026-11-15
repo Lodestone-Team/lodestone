@@ -241,6 +241,12 @@ crate::i18n::messages! {
         // ===== A server's image: what it installs, and what went wrong =====
         /// The server records its files the first time a player asks: minutes for a big server.
         BusyPreparing = "Waiting for the server to prepare its files…",
+        /// While the server's modpack downloads, before anything is installed: sizes.
+        BusyBasePack = "Getting the server's modpack, {done} of {total}…",
+        /// Asked before playing when the server's files are the instance's, but it has
+        /// files it can't share that the player would need.
+        LacksFiles = "{name} has files you won't get",
+        LacksFilesBody = "Your instance has the server's files, but the server has some it can't share. You may not be able to join without them.",
         InstallTitle = "Install {name}'s files?",
         /// {loader} is the loader and its version: "Fabric 0.16.10", or "Vanilla".
         InstallIntro = "A new instance for {server} on {core} gets Minecraft {version} with {loader}, and these files from the server.",
@@ -277,6 +283,11 @@ crate::i18n::messages! {
         ErrCurseForgeBase = "The server is built on a CurseForge modpack, which Lodestone Launcher can't install from a server yet.",
         /// {detail} says what, in English.
         ErrRefused = "The server sent files Lodestone Launcher won't install: {detail}",
+        ErrBaseFileMissing = "The server's modpack has no file {path}, which the server says comes from it. Ask the server's owner to update the modpack.",
+        /// A host whose Lodestone is too old to serve its servers' files this way.
+        ErrOlderCore = "The host runs an older Lodestone, which doesn't share its servers' files this way.",
+        /// {detail} says what went wrong, in English.
+        ErrInstallFiles = "Couldn't install the server's files: {detail}",
 
         // ===== "Add host" and signing in =====
         /// How long the device's key lasts.

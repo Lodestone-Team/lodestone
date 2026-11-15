@@ -36,9 +36,11 @@ pub const SCENES: &[&str] = &[
     "servers-add",
     "servers-update",
     "servers-update-missing",
+    "servers-update-lacking",
     "servers-install",
     "servers-install-missing",
     "servers-preparing",
+    "servers-base-pack",
     "servers-signed-out",
     "servers-lan",
     "servers-lan-empty",
@@ -335,7 +337,7 @@ fn apply_servers(scene: &str, servers: &mut Servers, cx: &mut Context<Servers>) 
                 _ => {}
             }
         }
-        "servers-add" | "servers-update" | "servers-update-missing" => {
+        "servers-add" | "servers-update" | "servers-update-missing" | "servers-update-lacking" => {
             servers.preview(
                 vec![home(true)],
                 vec![("home".into(), "smp".into(), "survival-smp".into())],
@@ -358,6 +360,16 @@ fn apply_servers(scene: &str, servers: &mut Servers, cx: &mut Context<Servers>) 
                     changes,
                     missing(),
                     Some("Fabric 0.16.14".into()),
+                    cx,
+                ),
+                // nothing changes on disk, but the server now has a mod it can't share
+                "servers-update-lacking" => servers.preview_update(
+                    "home",
+                    smp(),
+                    "survival-smp",
+                    PackChanges::default(),
+                    missing(),
+                    None,
                     cx,
                 ),
                 _ => {}
@@ -392,17 +404,32 @@ fn apply_servers(scene: &str, servers: &mut Servers, cx: &mut Context<Servers>) 
                 cx,
             );
         }
-        "servers-preparing" => {
+        "servers-preparing" | "servers-base-pack" => {
             servers.preview(
                 vec![home(true)],
                 vec![("home".into(), "smp".into(), "survival-smp".into())],
             );
+            let progress = launcher_core::content::install::InstallProgress::default();
+            if scene == "servers-base-pack" {
+                // the server's modpack downloading before Create matching instance asks
+                progress
+                    .downloads
+                    .set(launcher_core::game::download::ProgressSnapshot {
+                        files_total: 1,
+                        files_done: 0,
+                        bytes_total: 412_000_000,
+                        bytes_done: 137_500_000,
+                    });
+            }
             servers.preview_busy(
                 "home",
                 "smp",
                 Busy::Asking {
-                    preparing: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true)),
-                    creating: false,
+                    preparing: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(
+                        scene == "servers-preparing",
+                    )),
+                    creating: scene == "servers-base-pack",
+                    progress: std::sync::Arc::new(progress),
                 },
             );
         }
