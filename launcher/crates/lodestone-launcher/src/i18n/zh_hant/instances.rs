@@ -23,6 +23,8 @@ pub fn text(message: M) -> &'static str {
 
         M::PreparingNote => "正在準備 Minecraft {version}（{loader}）",
         M::JoiningNote => "遊戲啟動後將加入 {address}",
+        M::ContentRecordedNote => "已記錄實例目前的模組和設定",
+        M::ContentCheckFailedNote => "無法記錄實例的模組和設定：{error}",
         M::VerifyingNote => "正在驗證 Minecraft {version}（{loader}）的遊戲檔案",
         M::RosettaNote => "遊戲透過 Rosetta 2 在 Intel（x86_64）Java 中執行。",
         M::StartingJavaNote => "正在啟動 Java：{command}",

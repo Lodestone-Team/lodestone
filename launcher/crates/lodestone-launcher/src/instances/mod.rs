@@ -55,6 +55,7 @@ use launcher_core::{
         platform::{self, Arch, Os, Platform},
         process::{GameEvent, GameProcess},
     },
+    images::{Checked, Images, labels},
     instances::{Instance, InstanceStore},
     paths::DataDir,
     settings::{self as launcher_settings, InstanceDefaults, Settings},
@@ -301,6 +302,9 @@ struct Run {
     /// The game, prepared, waiting for the player to agree to run it under Rosetta 2
     /// ([`InstancesEvent::ConfirmRosetta`]); the run stays preparing meanwhile.
     pending: Option<PendingStart>,
+    /// The check before the launch ran ([`Images::before_launch`]), so the instance's
+    /// content images wait for this run to end ([`Images::session_ended`]).
+    image_session: bool,
 }
 
 /// One of [`Instances::rosetta_note`]'s answers from a version file: the answer,
@@ -330,6 +334,7 @@ impl Default for Run {
             window_opened: false,
             window_wait: None,
             pending: None,
+            image_session: false,
         }
     }
 }
@@ -567,6 +572,9 @@ pub struct Instances {
     content_revisions: HashMap<String, u64>,
     /// Redraws while imports and updates run.
     import_ticker: Option<Task<()>>,
+    /// The instances' content images: every action that changes an instance's content
+    /// begins an operation here ([`Images::begin`]) in its background task.
+    images: Arc<Images>,
     /// Counts changes to the shared game settings made in the launcher's Settings, so
     /// an instance's Settings tab shows the new values.
     shared_revision: u64,
@@ -621,6 +629,7 @@ impl Instances {
             data_dir.clone(),
         );
         let store = InstanceStore::new(data_dir.instances_dir());
+        let images = Images::open(&data_dir);
         // Copies of images that are gone, and the oldest past the limit.
         let hero_cache = launcher_core::hero_cache::HeroCache::new(&data_dir);
         let pruning = hero_cache.clone();
@@ -691,6 +700,7 @@ impl Instances {
             modpack_updates: HashMap::new(),
             content_revisions: HashMap::new(),
             import_ticker: None,
+            images,
         };
         this.reload(cx);
         if settings_notice.is_some() {
@@ -1314,6 +1324,7 @@ impl Instances {
             .store
             .create(name, version, loader)
             .map_err(|err| err.to_string())?;
+        self.record_created(&instance.id, labels::created(&instance.name), cx);
         self.pick_skin_banner(&instance.id);
         self.selected = Some(instance.id.clone());
         self.refresh(&instance.id, cx);
@@ -1400,7 +1411,23 @@ impl Instances {
 
     pub fn save(&mut self, instance: &Instance, cx: &mut Context<Self>) -> Result<(), String> {
         let before = self.store.get(&instance.id).ok();
+        // The loader version and recommended memory are in the instance's content images:
+        // a change from Settings, Undo, a modpack's or a server's update, or the CLI is an
+        // operation (merged with the update's own when it is one).
+        let operation = before.as_ref().and_then(|before| {
+            let label = if before.loader_version != instance.loader_version {
+                labels::loader_changed(instance.loader, instance.loader_version.as_deref())
+            } else if before.recommended_memory != instance.recommended_memory {
+                labels::MEMORY_CHANGED.to_string()
+            } else {
+                return None;
+            };
+            Some(self.images.begin(&instance.id, label))
+        });
         self.store.save(instance).map_err(|err| err.to_string())?;
+        if let Some(operation) = operation {
+            operation.succeed();
+        }
         if let Some(before) = before {
             launcher_core::trace::settings_changed(
                 "instance",
@@ -1509,6 +1536,19 @@ impl Instances {
     /// The instance store, for imports that build instances in the background.
     pub fn store(&self) -> InstanceStore {
         self.store.clone()
+    }
+
+    /// The instances' content images, for actions that change content in the background.
+    pub fn images(&self) -> Arc<Images> {
+        self.images.clone()
+    }
+
+    /// Records the first content image of the new instance `id`, in the background.
+    pub(crate) fn record_created(&self, id: &str, label: String, cx: &mut Context<Self>) {
+        let images = self.images.clone();
+        let id = id.to_string();
+        cx.background_spawn(async move { record_created(&images, &id, &label) })
+            .detach();
     }
 
     /// Keeps the Content tab off the network, for the offscreen screenshots.
@@ -1769,6 +1809,7 @@ impl Instances {
             .accounts
             .update(cx, |accounts, cx| accounts.launch_account(cx));
         let installer = self.installer.clone();
+        let images = self.images.clone();
         let data = self.data_dir.clone();
         let machine = self.machine.clone();
         let game_dir = self.store.game_dir(id);
@@ -1795,6 +1836,29 @@ impl Instances {
                     return;
                 }
             };
+            // Content changed by hand since the last record is recorded before the game
+            // can change anything (see `Images::before_launch`); it never stops a launch.
+            let checked = cx
+                .background_spawn({
+                    let images = images.clone();
+                    let id = id.clone();
+                    async move { images.before_launch(&id) }
+                })
+                .await;
+            this.update(cx, |this, _| {
+                let note = content_check_note(&checked);
+                match this.runs.get_mut(&id) {
+                    Some(run) if !matches!(run.state, RunState::Idle) => {
+                        run.image_session = true;
+                        if let Some((level, note)) = note {
+                            run.log.note(level, note);
+                        }
+                    }
+                    // The run ended while the check ran.
+                    _ => images.session_ended(&id),
+                }
+            })
+            .ok();
             let java = match &instance.java_override {
                 Some(path) => JavaChoice::Override(path.clone()),
                 None => JavaChoice::Mojang,
@@ -1997,6 +2061,11 @@ impl Instances {
             run.state = RunState::Idle;
             run.task = None;
             run.ticker = None;
+            // However the run ended (the game exited or crashed, or it never started):
+            // what the game wrote joins the next content image, not one of its own.
+            if std::mem::take(&mut run.image_session) {
+                self.images.session_ended(id);
+            }
         }
         cx.notify();
     }
@@ -2493,6 +2562,27 @@ fn ticker(id: String, cx: &mut Context<Instances>) -> Task<()> {
 
 /// Creates the instances entity for the app, in the same data directory as the
 /// accounts.
+/// Records the first content image of the new instance `id` (blocking: for a background
+/// task that just made it). A failure is only logged: the check before its first launch
+/// records it then.
+pub(crate) fn record_created(images: &Images, id: &str, label: &str) {
+    if let Err(err) = images.record_now(id, label) {
+        log::warn!("Couldn't record the content of {id}: {err}");
+    }
+}
+
+/// What the check before a launch did, as a note for the run's log: only a recorded
+/// change, or a failure.
+fn content_check_note(checked: &Checked) -> Option<(Level, String)> {
+    match checked {
+        Checked::Recorded(recorded) if recorded.changed => {
+            Some((Level::Info, t(M::ContentRecordedNote).to_string()))
+        }
+        Checked::Failed(err) => Some((Level::Warn, tr!(M::ContentCheckFailedNote, error = err))),
+        _ => None,
+    }
+}
+
 pub fn create(accounts: &Entity<Accounts>, cx: &mut App) -> Entity<Instances> {
     let data_dir = accounts.read(cx).data_dir().clone();
     let accounts = accounts.clone();

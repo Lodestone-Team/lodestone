@@ -1528,9 +1528,15 @@ impl LauncherShell {
             } else {
                 file_name.clone()
             };
-            launcher_core::content::files::set_mod_enabled(&dirs, &current, enabled)
+            let operation = instances.images().begin(
+                &id,
+                launcher_core::images::labels::enabled(&current, enabled),
+            );
+            let result = launcher_core::content::files::set_mod_enabled(&dirs, &current, enabled)
                 .map(|_| ())
-                .map_err(|err| err.to_string())
+                .map_err(|err| err.to_string());
+            operation.finish(&result);
+            result
         };
         launcher_core::trace::emit("crash.suspect_toggled", || {
             serde_json::json!({

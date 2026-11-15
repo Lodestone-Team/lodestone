@@ -18,6 +18,7 @@ use launcher_core::content::{
     install::{InstallOutcome, InstallProgress, Placed},
     listing,
 };
+use launcher_core::images::labels;
 
 use super::{
     ContentView, Job, Load, PAGE_SIZE,
@@ -295,6 +296,8 @@ impl ContentView {
         let modrinth = self.modrinth(cx);
         let downloader = self.instances.read(cx).content_downloader();
         let busy = self.instances.read(cx).mark_files_busy(&id);
+        let images = self.images(cx);
+        let image_id = id.clone();
         let progress = Arc::new(InstallProgress::default());
         let cancel = launcher_core::game::download::CancelToken::new();
         let kinds: Vec<ContentKind> = requests.iter().map(|r| r.kind).collect();
@@ -322,6 +325,7 @@ impl ContentView {
                         request,
                     )
                     .await?;
+                    let operation = images.begin(&image_id, "");
                     let outcome = curseforge_install::execute(
                         &cf,
                         modrinth.as_deref(),
@@ -333,6 +337,9 @@ impl ContentView {
                         &cancel,
                     )
                     .await?;
+                    if let Some(label) = labels::installed(&outcome, kind) {
+                        operation.succeed_as(label);
+                    }
                     total.installed.extend(outcome.installed);
                     total.removed.extend(outcome.removed);
                     total.skipped.extend(outcome.skipped);
@@ -465,19 +472,22 @@ impl ContentView {
         let task = cx.spawn(async move |this, cx| {
             loop {
                 cx.background_executor().timer(WATCH_EVERY).await;
-                let Ok(Some((folder, waiting, dirs, target))) = this.update(cx, |this, cx| {
-                    let blocked = this.blocked.as_ref()?;
-                    let folder = blocked.folder.clone()?;
-                    let waiting: Vec<(usize, CfPlannedFile)> = blocked
-                        .files
-                        .iter()
-                        .enumerate()
-                        .filter(|(i, _)| !blocked.added[*i])
-                        .map(|(i, f)| (i, f.clone()))
-                        .collect();
-                    let (_, dirs, target) = this.context(cx)?;
-                    Some((folder, waiting, dirs, target))
-                }) else {
+                let Ok(Some((folder, waiting, dirs, target, id, images))) =
+                    this.update(cx, |this, cx| {
+                        let blocked = this.blocked.as_ref()?;
+                        let folder = blocked.folder.clone()?;
+                        let waiting: Vec<(usize, CfPlannedFile)> = blocked
+                            .files
+                            .iter()
+                            .enumerate()
+                            .filter(|(i, _)| !blocked.added[*i])
+                            .map(|(i, f)| (i, f.clone()))
+                            .collect();
+                        let (id, dirs, target) = this.context(cx)?;
+                        let images = this.images(cx);
+                        Some((folder, waiting, dirs, target, id, images))
+                    })
+                else {
                     // The card was closed, or there is nothing to watch.
                     if this
                         .update(cx, |this, _| this.blocked.is_none())
@@ -498,9 +508,11 @@ impl ContentView {
                             .into_iter()
                             .map(|(at, path)| {
                                 let (index, planned) = &waiting[at];
+                                let operation = images.begin(&id, labels::added(&planned.title()));
                                 let result = curseforge_install::install_downloaded(
                                     &dirs, &target, planned, &path,
                                 );
+                                operation.finish(&result);
                                 (*index, planned.title(), result)
                             })
                             .collect::<Vec<_>>()

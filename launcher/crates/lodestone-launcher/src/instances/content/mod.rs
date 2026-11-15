@@ -33,6 +33,7 @@ use launcher_core::{
         shaders::{self, ShaderModOffer},
     },
     game::{download::CancelToken, loaders::LoaderKind},
+    images::{Images, labels},
 };
 use lodestone_minecraft::modrinth::{
     ClientSearchParams, ModrinthProject, ModrinthSearchIndex, ModrinthSearchResponse, RawVersion,
@@ -624,6 +625,11 @@ impl ContentView {
     }
 
     /// The instance's folders and what it accepts, with its shader mod.
+    /// The instances' content images: each change here is an operation.
+    fn images(&self, cx: &gpui::App) -> Arc<Images> {
+        self.instances.read(cx).images()
+    }
+
     pub fn context(&self, cx: &gpui::App) -> Option<(String, InstanceDirs, Target)> {
         let id = self.instance_id.clone()?;
         let instances = self.instances.read(cx);
@@ -1003,6 +1009,8 @@ impl ContentView {
         };
         let downloader = self.instances.read(cx).content_downloader();
         let busy = self.instances.read(cx).mark_files_busy(&id);
+        let images = self.images(cx);
+        let image_id = id.clone();
         let progress = Arc::new(InstallProgress::default());
         let cancel = CancelToken::new();
         let kinds: Vec<ContentKind> = requests.iter().map(|r| r.kind).collect();
@@ -1019,6 +1027,9 @@ impl ContentView {
                         None => t(M::CheckingDependencies).to_string(),
                     });
                     let plan = install::plan(&api, &dirs, &target, request).await?;
+                    // Each install is an operation: one that succeeds before a later one
+                    // fails is still recorded.
+                    let operation = images.begin(&image_id, "");
                     let outcome = install::execute(
                         &api,
                         &downloader,
@@ -1029,6 +1040,9 @@ impl ContentView {
                         &cancel,
                     )
                     .await?;
+                    if let Some(label) = labels::installed(&outcome, kind) {
+                        operation.succeed_as(label);
+                    }
                     total.installed.extend(outcome.installed);
                     total.removed.extend(outcome.removed);
                     total.skipped.extend(outcome.skipped);
@@ -1207,17 +1221,20 @@ impl ContentView {
     fn change(
         &mut self,
         kind: ContentKind,
+        label: String,
         change: impl FnOnce(&InstanceDirs, &Target) -> Result<(), launcher_core::content::ContentError>,
         cx: &mut Context<Self>,
     ) -> bool {
         if !self.can_change(cx) {
             return false;
         }
-        let Some((_, dirs, target)) = self.context(cx) else {
+        let Some((id, dirs, target)) = self.context(cx) else {
             return false;
         };
+        let operation = self.images(cx).begin(&id, label);
         let changed = match change(&dirs, &target) {
             Ok(()) => {
+                operation.succeed();
                 self.message = None;
                 true
             }
@@ -1304,14 +1321,17 @@ impl ContentView {
         if !self.can_change(cx) {
             return;
         }
-        let Some((_, dirs, _)) = self.context(cx) else {
+        let Some((id, dirs, _)) = self.context(cx) else {
             return;
         };
+        let images = self.images(cx);
         self.message = None;
         let mut errors = Vec::new();
         for file_name in file_names {
+            let operation = images.begin(&id, labels::enabled(file_name, enabled));
             match files::set_mod_enabled(&dirs, file_name, enabled) {
                 Ok(new_name) => {
+                    operation.succeed();
                     // Show it at once: reading a large folder again takes a moment, and
                     // until then the row would show the old state and the old name.
                     if let Load::Ready(listing) = &mut self.section_mut(ContentKind::Mod).listing
@@ -1347,6 +1367,7 @@ impl ContentView {
         // either can land on another page, which is turned to.
         let changed = self.change(
             ContentKind::ResourcePack,
+            labels::enabled(&file_name, enabled),
             |dirs, target| {
                 files::set_pack_enabled(dirs, target, &file_name, enabled, compatibility)
                     .map(|_| ())
@@ -1363,6 +1384,7 @@ impl ContentView {
     pub fn move_pack(&mut self, file_name: String, up: bool, cx: &mut Context<Self>) {
         let moved = self.change(
             ContentKind::ResourcePack,
+            labels::RESOURCE_PACKS_CHANGED.to_string(),
             |dirs, target| {
                 let name = file_name.clone();
                 let change = if up {
@@ -1385,6 +1407,7 @@ impl ContentView {
         };
         self.change(
             ContentKind::ShaderPack,
+            labels::shader(file_name.as_deref()),
             |dirs, _| files::select_shader(dirs, loader, file_name.as_deref()),
             cx,
         );
@@ -1405,8 +1428,12 @@ impl ContentView {
         };
         // The Trash can take a while (on Windows it walks a folder's every file).
         self.deleting = Some((id.clone(), kind, file_name.clone()));
+        let operation = self.images(cx).begin(&id, labels::removed(&file_name));
         let work = cx.background_spawn(async move {
-            files::delete(&dirs, &target, kind, &file_name).map_err(|err| err.to_string())
+            let result =
+                files::delete(&dirs, &target, kind, &file_name).map_err(|err| err.to_string());
+            operation.finish(&result);
+            result
         });
         self._delete = Some(cx.spawn(async move |this, cx| {
             let result = work.await;
@@ -1444,8 +1471,9 @@ impl ContentView {
         let Some((id, dirs, target)) = self.context(cx) else {
             return;
         };
+        let operation = self.images(cx).begin(&id, "");
         let work = cx.background_spawn(async move {
-            paths
+            let results = paths
                 .into_iter()
                 .map(|path| {
                     let name = path
@@ -1454,7 +1482,15 @@ impl ContentView {
                         .unwrap_or_default();
                     (name, files::add(&dirs, &target, kind, &path))
                 })
-                .collect::<Vec<_>>()
+                .collect::<Vec<_>>();
+            let added: Vec<String> = results
+                .iter()
+                .filter_map(|(_, r)| r.as_ref().ok().cloned())
+                .collect();
+            if let Some(label) = labels::added_files(&added, kind) {
+                operation.succeed_as(label);
+            }
+            results
         });
         self._prompt = Some(cx.spawn(async move |this, cx| {
             let results = work.await;

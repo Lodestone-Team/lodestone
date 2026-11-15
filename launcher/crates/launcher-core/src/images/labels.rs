@@ -68,11 +68,16 @@ pub fn installed(outcome: &InstallOutcome, kind: ContentKind) -> Option<String> 
     }
 }
 
+/// One file added.
+pub fn added(name: &str) -> String {
+    format!("Added {name}")
+}
+
 /// Files added from the computer.
 pub fn added_files(files: &[String], kind: ContentKind) -> Option<String> {
     match files {
         [] => None,
-        [file] => Some(format!("Added {file}")),
+        [file] => Some(added(file)),
         many => Some(count("Added", many.len(), kind)),
     }
 }

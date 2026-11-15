@@ -19,6 +19,7 @@ use launcher_core::{
         share,
     },
     game::download::CancelToken,
+    images::{Images, labels},
     instances::Instance,
     mc_text,
     modpack::addon::{self, AddedPack},
@@ -398,16 +399,20 @@ struct InstallParams {
 }
 
 /// The Content tab's install: each request planned and run in turn (a shader mod
-/// before its first shader pack), with the shader loader read again after mods.
+/// before its first shader pack), with the shader loader read again after mods. Each
+/// install is an operation of the instance's content images.
+#[allow(clippy::too_many_arguments)]
 async fn run_requests(
     api: Arc<Modrinth>,
     downloader: launcher_core::game::download::Downloader,
+    images: (Arc<Images>, String),
     dirs: InstanceDirs,
     mut target: Target,
     requests: Vec<InstallRequest>,
     progress: Arc<InstallProgress>,
     cancel: CancelToken,
 ) -> Result<InstallOutcome, ErrorObject> {
+    let (images, id) = images;
     let content_error = |err: launcher_core::content::ContentError| {
         let text = err.to_string();
         if cancel.is_cancelled() {
@@ -429,9 +434,13 @@ async fn run_requests(
         let plan = install::plan(&api, &dirs, &target, request)
             .await
             .map_err(content_error)?;
+        let operation = images.begin(&id, "");
         let outcome = install::execute(&api, &downloader, &dirs, &target, plan, &progress, &cancel)
             .await
             .map_err(content_error)?;
+        if let Some(label) = labels::installed(&outcome, kind) {
+            operation.succeed_as(label);
+        }
         total.installed.extend(outcome.installed);
         total.removed.extend(outcome.removed);
         total.skipped.extend(outcome.skipped);
@@ -463,6 +472,7 @@ fn start_install(
     let api = tri!(modrinth(&control, cx));
     let (dirs, target) = tri!(context(&control, instance, cx));
     let downloader = control.instances.read(cx).content_downloader();
+    let images = control.instances.read(cx).images();
     let progress = Arc::new(InstallProgress::default());
     let cancel = CancelToken::new();
     let job_progress = progress.clone();
@@ -473,7 +483,14 @@ fn start_install(
         let requests = plan(cx).await?;
         let outcome = cx
             .background_spawn(run_requests(
-                api, downloader, dirs, target, requests, progress, cancel,
+                api,
+                downloader,
+                (images, id.clone()),
+                dirs,
+                target,
+                requests,
+                progress,
+                cancel,
             ))
             .await;
         if let Some(control) = refresh.upgrade() {
@@ -642,7 +659,14 @@ pub fn add_file(call: Call, cx: &mut App) -> Reply {
     let (dirs, target) = tri!(context(&control, &instance, cx));
     let path = params.path.clone();
     let id = instance.id.clone();
-    let work = cx.background_spawn(async move { files::add(&dirs, &target, kind, &path) });
+    let operation = control.instances.read(cx).images().begin(&id, "");
+    let work = cx.background_spawn(async move {
+        let added = files::add(&dirs, &target, kind, &path);
+        if let Ok(name) = &added {
+            operation.succeed_as(labels::added(name));
+        }
+        added
+    });
     cx.spawn(async move |cx| {
         let name = work
             .await
@@ -731,6 +755,7 @@ fn change_items(
     call: Call,
     cx: &mut App,
     confirm: Option<&str>,
+    label: fn(&Item) -> String,
     change: fn(&InstanceDirs, &Target, &Item) -> Result<Value, ErrorObject>,
 ) -> Reply {
     let params: ItemParams = params!(call);
@@ -752,6 +777,7 @@ fn change_items(
     };
     let (dirs, target) = tri!(context(&control, &instance, cx));
     let api = control.instances.read(cx).modrinth();
+    let images = control.instances.read(cx).images();
     let id = instance.id.clone();
     cx.spawn(async move |cx| {
         let find_dirs = dirs.clone();
@@ -767,11 +793,17 @@ fn change_items(
             can_change(&control, &instance, cx)
         })?;
         let kinds: Vec<ContentKind> = items.iter().map(|i| i.file.kind).collect();
+        let image_id = id.clone();
         let results = cx
             .background_spawn(async move {
                 items
                     .iter()
-                    .map(|item| change(&dirs, &target, item))
+                    .map(|item| {
+                        let operation = images.begin(&image_id, label(item));
+                        let result = change(&dirs, &target, item);
+                        operation.finish(&result);
+                        result
+                    })
                     .collect::<Result<Vec<Value>, _>>()
             })
             .await;
@@ -790,6 +822,7 @@ pub fn remove(call: Call, cx: &mut App) -> Reply {
         call,
         cx,
         Some("moves to the Trash:"),
+        |item| labels::removed(&item.file.file_name),
         |dirs, target, item| {
             files::delete(dirs, target, item.file.kind, &item.file.file_name)
                 .map_err(content_failed)?;
@@ -842,16 +875,32 @@ fn set_enabled(
     }
 }
 
+/// What turning `item` on or off is called in the instance's content images.
+fn enabled_label(item: &Item, enabled: bool) -> String {
+    match item.file.kind {
+        ContentKind::ShaderPack => labels::shader(enabled.then_some(item.file.file_name.as_str())),
+        _ => labels::enabled(&item.file.file_name, enabled),
+    }
+}
+
 pub fn enable(call: Call, cx: &mut App) -> Reply {
-    change_items(call, cx, None, |dirs, target, item| {
-        set_enabled(dirs, target, item, true)
-    })
+    change_items(
+        call,
+        cx,
+        None,
+        |item| enabled_label(item, true),
+        |dirs, target, item| set_enabled(dirs, target, item, true),
+    )
 }
 
 pub fn disable(call: Call, cx: &mut App) -> Reply {
-    change_items(call, cx, None, |dirs, target, item| {
-        set_enabled(dirs, target, item, false)
-    })
+    change_items(
+        call,
+        cx,
+        None,
+        |item| enabled_label(item, false),
+        |dirs, target, item| set_enabled(dirs, target, item, false),
+    )
 }
 
 #[derive(Deserialize)]
@@ -1842,10 +1891,19 @@ pub fn import_code(call: Call, cx: &mut App) -> Reply {
     let (job_progress, job_cancel) = (progress.clone(), cancel.clone());
     let refresh = Rc::downgrade(&control);
     let id = instance.id.clone();
+    let operation = control
+        .instances
+        .read(cx)
+        .images()
+        .begin(&id, labels::SHARE_CODE);
     let work = cx.spawn(async move |cx| {
         let outcome = cx
             .background_spawn(async move {
-                share::install(&api, &downloader, &dirs, &target, &code, &progress, &cancel).await
+                let outcome =
+                    share::install(&api, &downloader, &dirs, &target, &code, &progress, &cancel)
+                        .await;
+                operation.finish(&outcome);
+                outcome
             })
             .await;
         if let Some(control) = refresh.upgrade() {
