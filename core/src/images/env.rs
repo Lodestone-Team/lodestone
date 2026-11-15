@@ -11,11 +11,20 @@
 //! 3. `modrinth_environment` and `modrinth_project`: what Modrinth said about the file's
 //!    version, keyed by the file's SHA-512, as Lodestone learned it while installing or
 //!    listing mods ([`ModrinthHints`]) and kept with the instance's content state.
-//! 4. `jar_environment`: what the jar itself says (`fabric.mod.json`), scanned once per
-//!    jar contents and kept in memory ([`JarScans`]).
+//! 4. `jar_environment`: what the jar itself says (`fabric.mod.json` `environment`,
+//!    `quilt.mod.json` `minecraft.environment`, a Forge or NeoForge `mods.toml`'s
+//!    `clientSideOnly` and `displayTest`: `lodestone_minecraft::jar::mods_toml_environment`),
+//!    scanned once per jar contents and kept in memory ([`JarScans`]).
 //!
 //! An input that isn't known stays unknown. Asking Modrinth here would hold up a record and
 //! make image ids depend on the network's timing, so nothing here does.
+//!
+//! So a file's sides are settled when its image is recorded, and the client view a server
+//! serves its players (`super::serve`) is a pure function of the image: nothing is looked up
+//! while answering a player. What Modrinth says about a jar later (a Mods-tab listing) takes
+//! effect at the next record. A side nothing knows stays `unknown`, and the client view
+//! carries everything not `unsupported` on clients: a mod nobody can place goes to players
+//! (they can always join), and the owner's "Not for players" mark takes it out.
 
 use std::collections::HashMap;
 use std::sync::Mutex as StdMutex;

@@ -114,6 +114,29 @@ pub fn load(store_root: &Path, uuid: &InstanceUuid) -> ContentState {
     }
 }
 
+/// Only the pointer of a state file ([`current_pointer`]): the baseline and hints are
+/// skipped unbuilt.
+#[derive(Deserialize)]
+struct Pointer {
+    #[serde(default)]
+    current: Option<String>,
+}
+
+/// The instance's current content image, read without building the rest of the state:
+/// what serving players reads on every request. `None` when there is none or the file
+/// can't be read, like [`load`]. Blocking.
+pub fn current_pointer(store_root: &Path, uuid: &InstanceUuid) -> Option<String> {
+    let path = path(store_root, uuid).ok()?;
+    if std::fs::metadata(&path).ok()?.len() > MAX_BYTES {
+        return None;
+    }
+    let bytes = std::fs::read(&path).ok()?;
+    serde_json::from_slice::<Pointer>(&bytes)
+        .ok()?
+        .current
+        .filter(|id| lodestone_image::hex::is_sha256(id))
+}
+
 /// Replaces the instance's state, crash-safely (temp file, flushed, renamed). Blocking.
 pub fn save(store_root: &Path, uuid: &InstanceUuid, state: &ContentState) -> Result<(), Error> {
     let path = path(store_root, uuid)?;
@@ -149,6 +172,13 @@ mod tests {
         // Fields a newer core adds are ignored, and missing ones default.
         std::fs::write(path(dir.path(), &uuid).unwrap(), br#"{"later":1}"#).unwrap();
         assert_eq!(load(dir.path(), &uuid), ContentState::default());
+        // The pointer alone reads the same.
+        std::fs::write(path(dir.path(), &uuid).unwrap(), b"{oops").unwrap();
+        assert_eq!(current_pointer(dir.path(), &uuid), None);
+        save(dir.path(), &uuid, &state).unwrap();
+        assert_eq!(current_pointer(dir.path(), &uuid), state.current);
+        std::fs::write(path(dir.path(), &uuid).unwrap(), br#"{"current":"../x"}"#).unwrap();
+        assert_eq!(current_pointer(dir.path(), &uuid), None);
         // A baseline taken under other scope rules isn't trusted.
         let old = ContentState {
             scope_rules: 0,

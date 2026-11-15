@@ -26,8 +26,9 @@ use std::{
 };
 
 use axum::{
-    extract::{Path as UrlPath, State},
-    http::HeaderMap,
+    body::Bytes,
+    extract::{DefaultBodyLimit, Path as UrlPath, Query, State},
+    http::{HeaderMap, Method},
     response::Response,
     routing::get,
     Json, Router,
@@ -51,9 +52,11 @@ pub mod friends;
 use crate::{
     error::{Error, ErrorKind},
     handlers::{
+        player_image::{image_response, object_response, summary_response, ImageQuery},
         public_instances::{pack_response, public_instance},
         util::get_instance,
     },
+    images::serve::MAX_SUMMARY_BYTES,
     public_listing::{PublicInstance, PublicInstanceList, PublicScope},
     traits::{
         t_configurable::{Game, TConfigurable},
@@ -730,7 +733,10 @@ struct Shared {
 ///
 /// - `GET /api/v1/connect/info`: [`SharedServer`];
 /// - `GET /api/v1/public/instances`: the instance alone, as the public list shows it;
-/// - `GET /api/v1/public/instances/{uuid}/client-pack`: its client modpack.
+/// - `GET /api/v1/public/instances/{uuid}/client-pack`: its client modpack;
+/// - `GET`/`POST /api/v1/public/instances/{uuid}/image` and
+///   `GET /api/v1/public/instances/{uuid}/objects/{sha256}`: its client view, deltas and
+///   objects (`crate::handlers::player_image`).
 ///
 /// Everything else is 404.
 pub(crate) fn info_router(state: AppState, uuid: InstanceUuid) -> Router {
@@ -740,6 +746,16 @@ pub(crate) fn info_router(state: AppState, uuid: InstanceUuid) -> Router {
         .route(
             "/api/v1/public/instances/{uuid}/client-pack",
             get(get_shared_pack),
+        )
+        .route(
+            "/api/v1/public/instances/{uuid}/image",
+            get(get_shared_image)
+                .post(post_shared_image)
+                .layer(DefaultBodyLimit::max(MAX_SUMMARY_BYTES)),
+        )
+        .route(
+            "/api/v1/public/instances/{uuid}/objects/{sha256}",
+            get(get_shared_object),
         )
         .with_state(Shared { state, uuid })
 }
@@ -798,16 +814,51 @@ async fn get_shared_list(State(shared): State<Shared>) -> Result<Json<PublicInst
     }))
 }
 
+/// Whether `uuid` is the shared instance, and there.
+fn shared_allows(shared: &Shared, uuid: &InstanceUuid) -> Result<(), Error> {
+    if *uuid != shared.uuid {
+        return Err(not_found());
+    }
+    get_instance(&shared.state, uuid)?;
+    Ok(())
+}
+
 async fn get_shared_pack(
     State(shared): State<Shared>,
     UrlPath(uuid): UrlPath<InstanceUuid>,
     headers: HeaderMap,
 ) -> Result<Response, Error> {
-    if uuid != shared.uuid {
-        return Err(not_found());
-    }
-    get_instance(&shared.state, &uuid)?;
+    shared_allows(&shared, &uuid)?;
     pack_response(&shared.state, &uuid, &headers).await
+}
+
+async fn get_shared_image(
+    State(shared): State<Shared>,
+    UrlPath(uuid): UrlPath<InstanceUuid>,
+    Query(query): Query<ImageQuery>,
+) -> Result<Response, Error> {
+    shared_allows(&shared, &uuid)?;
+    image_response(&shared.state, &uuid, query).await
+}
+
+async fn post_shared_image(
+    State(shared): State<Shared>,
+    UrlPath(uuid): UrlPath<InstanceUuid>,
+    Query(query): Query<ImageQuery>,
+    body: Bytes,
+) -> Result<Response, Error> {
+    shared_allows(&shared, &uuid)?;
+    summary_response(&shared.state, &uuid, query, body).await
+}
+
+async fn get_shared_object(
+    State(shared): State<Shared>,
+    UrlPath((uuid, sha256)): UrlPath<(InstanceUuid, String)>,
+    method: Method,
+    headers: HeaderMap,
+) -> Result<Response, Error> {
+    shared_allows(&shared, &uuid)?;
+    object_response(&shared.state, &uuid, &sha256, &method, &headers).await
 }
 
 /// The path of the folder with the shared instances' identities, in `stores`.
