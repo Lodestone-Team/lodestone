@@ -30,7 +30,7 @@ use launcher_core::{
     },
     discord::{
         self,
-        invite::{CONFIRM_WAIT, HOST_EVENTS, HostCommand, host_loop, join_secret},
+        invite::{CONFIRM_WAIT, HOST_EVENTS, HostCommand, host_loop, join_secret, party_id},
         ipc::{Activity, Assets, Connection, JoinRequest, Party, Secrets, Timestamps, field},
     },
 };
@@ -349,7 +349,7 @@ fn hosting_activity(instance: &InstanceInfo, link: &str, since: u64) -> Option<A
             ..Default::default()
         },
         buttons: Vec::new(),
-        party: Party::new(format!("lodestone-{}", instance.uuid), players, max),
+        party: Party::new(party_id(&instance.uuid), players, max),
         secrets: Secrets::join(secret),
     })
 }
@@ -403,7 +403,7 @@ mod tests {
         assert_eq!(value["state"], "Minecraft 1.21.4");
         assert_eq!(
             value["party"],
-            json!({ "id": "lodestone-a", "size": [3, 10] })
+            json!({ "id": party_id("a"), "size": [3, 10] })
         );
         assert_eq!(value["assets"]["large_image"], "lodestone");
         assert_eq!(value["timestamps"]["start"], 1000);

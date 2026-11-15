@@ -82,7 +82,9 @@ pub struct Activity {
 /// "Ask to Join", and the secret only on an accepted request or an invite card.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct Party {
-    /// 2 to 128 characters; only the application sees it.
+    /// 2 to 128 characters. Everyone who sees the status gets it (the join secret
+    /// is never sent with the status), so it should say nothing: see
+    /// [`super::invite::party_id`].
     pub id: String,
     /// Current and most. Discord takes 0 people.
     pub size: [u32; 2],

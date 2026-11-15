@@ -82,6 +82,9 @@ What Discord wants (checked against the Discord app in November 2026):
   PARTY_PRIVACY_VOICE_CHANNEL flag, and then Discord gives the join secret to any
   friend who asks for it, without the host letting them in. With JOIN only, viewers
   get "Ask to Join", and the secret only on an accepted request or an invite card.
+- What friends receive with the status (checked from a friend's account): details,
+  state, party id and size, `flags` and assets, never `secrets`. The party id is
+  seen, so the Host's is a hash of the instance id (`invite::party_id`).
 - Only `join` in `secrets`: another field, even null, makes invites arrive blank
   (Lachee/discord-rpc-csharp#286). Buttons together with secrets are refused
   (error 5005), so the Host's status has none.

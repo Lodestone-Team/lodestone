@@ -88,6 +88,14 @@ pub fn invite_from_secret(secret: &str) -> Option<Invite> {
     Invite::parse(&link).ok()
 }
 
+/// A party id for `seed` (a server's instance id): the same for the same server, and
+/// telling the friends who see the status (they get the party id) nothing about it.
+pub fn party_id(seed: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let digest = Sha256::digest(format!("lodestone-party:{seed}").as_bytes());
+    format!("lodestone-{}", hex(&digest[..8]))
+}
+
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
@@ -446,6 +454,15 @@ mod tests {
         ));
         let secret = join_secret(&test).unwrap();
         assert_eq!(invite_from_secret(&secret).unwrap().link(), test.link());
+    }
+
+    #[test]
+    fn party_ids_are_stable_and_say_nothing() {
+        let id = party_id("3b2c7a10-uuid");
+        assert_eq!(id, party_id("3b2c7a10-uuid"));
+        assert_ne!(id, party_id("another"));
+        assert!(!id.contains("3b2c7a10"));
+        assert_eq!(id.len(), "lodestone-".len() + 16);
     }
 
     #[test]
