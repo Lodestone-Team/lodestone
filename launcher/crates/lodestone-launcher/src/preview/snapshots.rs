@@ -136,6 +136,14 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
             }
             return;
         }
+        "snapshot-restore-new" => {
+            // "As a new instance": the name of the copy.
+            shell.open_snapshot(SnapshotRequest::Restore(id, named("Before 1.21")), cx);
+            if let Some(dialog) = shell.snapshot_dialog() {
+                dialog.update(cx, |dialog, _| dialog.preset_choice(Choice::AsNew));
+            }
+            return;
+        }
         "snapshot-export" => SnapshotRequest::Export(id, named("Before 1.21")),
         "snapshot-delete" => SnapshotRequest::Delete(id, named("Before updating Sodium")),
         _ => SnapshotRequest::Import(import_file(&data_dir)),
