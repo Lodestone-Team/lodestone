@@ -876,16 +876,21 @@ fn bounded_wrote(paths: Option<Vec<String>>) -> Option<Vec<String>> {
 
 /// What a job wrote (disk paths, a folder standing for everything in it), to look up whether
 /// it is or holds a disk path by the path and its folders: as many lookups as the path is
-/// deep, however many it wrote.
-struct WroteSet<'a> {
+/// deep, however many it wrote. Letter case is ignored (ASCII, as `scope::same` does): a
+/// request's path keeps the case it was typed in, the image the case on disk, and on a disk
+/// that ignores case both name the same file. Erring this way only keeps a label.
+struct WroteSet {
     /// A path is the server folder itself: it covers everything.
     all: bool,
-    paths: HashSet<&'a str>,
+    paths: HashSet<String>,
 }
 
-impl<'a> WroteSet<'a> {
-    fn new(wrote: &'a [String]) -> Self {
-        let paths: HashSet<&str> = wrote.iter().map(|path| path.trim_matches('/')).collect();
+impl WroteSet {
+    fn new(wrote: &[String]) -> Self {
+        let paths: HashSet<String> = wrote
+            .iter()
+            .map(|path| path.trim_matches('/').to_ascii_lowercase())
+            .collect();
         Self {
             all: paths.contains(""),
             paths,
@@ -894,10 +899,14 @@ impl<'a> WroteSet<'a> {
 
     /// Whether one of the paths is or holds `disk`.
     fn covers(&self, disk: &str) -> bool {
-        if self.all || self.paths.contains(disk) {
+        if self.all {
             return true;
         }
-        let mut folder = disk;
+        let disk = disk.to_ascii_lowercase();
+        if self.paths.contains(disk.as_str()) {
+            return true;
+        }
+        let mut folder = disk.as_str();
         while let Some((parent, _)) = folder.rsplit_once('/') {
             if self.paths.contains(parent) {
                 return true;
@@ -1273,6 +1282,11 @@ mod tests {
         assert!(set.covers("mods/a.jar"));
         assert!(!set.covers("config/other.toml"));
         assert!(!set.covers("mods/b.jar"));
+        // a request typed `Config`, the folder on disk is `config` (or `Mods`, from "mods")
+        assert!(covers("Config/a.toml", "config/a.toml"));
+        assert!(covers("Config", "config/sub/a.toml"));
+        assert!(covers("mods/x.jar", "Mods/x.jar"));
+        assert!(!covers("Config/a.toml", "config/b.toml"));
     }
 
     #[test]
