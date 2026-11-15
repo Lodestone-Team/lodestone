@@ -219,10 +219,11 @@ impl Operation {
     /// For a job: what it wrote, as disk paths relative to the server folder,
     /// `/`-separated, a folder standing for everything in it (replacing what was said
     /// before). Its label is added to an image another record took its files in with only
-    /// when the entries under these differ ([`Queued::job`]). Not said: any content file.
-    pub fn wrote(&mut self, paths: Vec<String>) {
+    /// when the entries under these differ ([`Queued::job`]). Not said, or `None`: any
+    /// content file.
+    pub fn wrote(&mut self, paths: impl Into<Option<Vec<String>>>) {
         if let Some(job) = &mut self.job {
-            job.wrote = Some(paths);
+            job.wrote = paths.into();
         }
     }
 

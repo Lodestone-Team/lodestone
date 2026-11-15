@@ -1,4 +1,5 @@
 use std::path::{Path as FsPath, PathBuf};
+use std::sync::Arc;
 
 use axum::{
     body::Bytes,
@@ -562,34 +563,46 @@ impl ContentScope {
         })
     }
 
-    /// Starts a content operation labelled `label` when any of `paths` (each with whether
-    /// it is a folder) is covered: one that holds the content gate, or with `job` a long
-    /// job's, which doesn't ([`ImageService::begin_job`]) and writes `paths` (or what is in
-    /// them; [`Operation::wrote`]). Begin it after every permission check passed and right
-    /// before the change; dropping it without succeeding records nothing.
+    /// Whether any of `paths` (each with whether it is a folder) is covered.
+    fn covers_any(&self, paths: &[(&FsPath, bool)]) -> bool {
+        paths
+            .iter()
+            .any(|(path, is_dir)| self.covers(path, *is_dir))
+    }
+
+    /// Starts a content operation labelled `label`, which holds the content gate, when any
+    /// of `paths` (each with whether it is a folder) is covered. Begin it after every
+    /// permission check passed and right before the change; dropping it without succeeding
+    /// records nothing.
     async fn begin(
         &self,
-        state: &AppState,
+        images: &Arc<ImageService>,
         uuid: &InstanceUuid,
         paths: &[(&FsPath, bool)],
         label: String,
-        job: bool,
     ) -> Option<Operation> {
-        if !paths
-            .iter()
-            .any(|(path, is_dir)| self.covers(path, *is_dir))
-        {
+        if !self.covers_any(paths) {
             return None;
         }
-        Some(if job {
-            let mut op = state.images.begin_job(uuid, label);
-            if let Some(wrote) = self.disk_paths(paths.iter().map(|(path, _)| *path)) {
-                op.wrote(wrote);
-            }
-            op
-        } else {
-            state.images.begin(uuid, label).await
-        })
+        Some(images.begin(uuid, label).await)
+    }
+
+    /// [`Self::begin`] for a long job, which holds no content gate while it runs
+    /// ([`ImageService::begin_job`]) and writes into `paths`: it ends with
+    /// [`ContentJob::succeed`], given what it placed there.
+    fn begin_job(
+        self,
+        images: &Arc<ImageService>,
+        uuid: &InstanceUuid,
+        paths: &[(&FsPath, bool)],
+        label: String,
+    ) -> Option<ContentJob> {
+        if !self.covers_any(paths) {
+            return None;
+        }
+        let mut op = images.begin_job(uuid, label);
+        op.wrote(self.disk_paths(paths.iter().map(|(path, _)| *path)));
+        Some(ContentJob { scope: self, op })
     }
 
     /// `paths` (in the instance folder) as disk paths, for [`Operation::wrote`]; `None`
@@ -599,6 +612,24 @@ impl ContentScope {
             .into_iter()
             .map(|path| disk_path(path.strip_prefix(&self.root).ok()?))
             .collect()
+    }
+}
+
+/// A Files API job's content operation (see [`ContentScope::begin_job`]).
+struct ContentJob {
+    scope: ContentScope,
+    op: Operation,
+}
+
+impl ContentJob {
+    /// The job succeeded, having placed `placed` (paths in the instance folder, a folder
+    /// standing for everything in it): what it actually wrote, which a name already taken
+    /// may have moved from where it was asked to write (`a.toml` copied as `a_1.toml`).
+    /// Its label is added to an image another record took those files in by what is under
+    /// them ([`Operation::wrote`]), so the names it was asked for would lose it.
+    fn succeed<'a>(mut self, placed: impl IntoIterator<Item = &'a FsPath>) {
+        self.op.wrote(self.scope.disk_paths(placed));
+        self.op.succeed();
     }
 }
 
@@ -628,23 +659,23 @@ async fn content_op(
 ) -> Option<Operation> {
     ContentScope::of(state, uuid, root)
         .await?
-        .begin(state, uuid, paths, label, false)
+        .begin(&state.images, uuid, paths, label)
         .await
 }
 
 /// [`content_op`] for a job that runs in the background for as long as its data takes (a
-/// copy, an unzip): it holds no content gate while it runs.
+/// copy, an unzip), writing into `paths`: it holds no content gate while it runs, and ends
+/// with [`ContentJob::succeed`].
 async fn content_job(
     state: &AppState,
     uuid: &InstanceUuid,
     root: &FsPath,
     paths: &[(&FsPath, bool)],
     label: String,
-) -> Option<Operation> {
+) -> Option<ContentJob> {
     ContentScope::of(state, uuid, root)
         .await?
-        .begin(state, uuid, paths, label, true)
-        .await
+        .begin_job(&state.images, uuid, paths, label)
 }
 
 /// Refuses a Files API change while a backup is being restored into the instance: the
@@ -1112,7 +1143,7 @@ async fn copy_instance_files(
         .iter()
         .map(|(path, is_dir)| (path.as_path(), *is_dir))
         .collect();
-    let op = content_job(&state, &uuid, &root, &landing, label).await;
+    let job = content_job(&state, &uuid, &root, &landing, label).await;
 
     let event_broadcaster = state.event_broadcaster.clone();
     let caused_by = requester.caused_by();
@@ -1154,12 +1185,7 @@ async fn copy_instance_files(
             }
         };
 
-        let inner = || -> Result<(), Error> {
-            copy_entries_in(&paths_source, &path_dest, path_to_tmp(), handle)?;
-            Ok(())
-        };
-
-        let result = inner();
+        let result = copy_entries_in(&paths_source, &path_dest, path_to_tmp(), handle);
         // the copy can fail before the first progress callback, for example when a source
         // is missing, so make sure there is an event to end
         let event_id = progression_event_id.unwrap_or_else(|| {
@@ -1182,7 +1208,7 @@ async fn copy_instance_files(
                     }),
                 ));
             }
-            Ok(()) => {
+            Ok(placed) => {
                 event_broadcaster.send(Event::new_progression_event_end(
                     event_id,
                     true,
@@ -1193,16 +1219,17 @@ async fn copy_instance_files(
                         message: "File(s) copied successfully".to_string(),
                     }),
                 ));
-                return true;
+                return Some(placed);
             }
         }
-        false
+        None
     });
-    // the job's operation ends with it, recorded only when the copy succeeded
-    if let Some(op) = op {
+    // the job's operation ends with it, recorded only when the copy succeeded, with the
+    // names the copy took (a copy of `a.toml` into its own folder lands as `a_1.toml`)
+    if let Some(job) = job {
         tokio::spawn(async move {
-            if let Ok(true) = copy.await {
-                op.succeed();
+            if let Ok(Some(placed)) = copy.await {
+                job.succeed(placed.iter().map(PathBuf::as_path));
             }
         });
     }
@@ -1900,21 +1927,14 @@ pub async fn unzip_instance_file(
         .iter()
         .map(|dir| (dir.as_path(), true))
         .collect();
-    let scope = ContentScope::of(&state, &uuid, &root).await;
-    let mut op = match &scope {
-        Some(scope) => {
-            scope
-                .begin(
-                    &state,
-                    &uuid,
-                    &landing,
-                    format!("Unzipped {}", label_path(&root, &path_to_zip_file)),
-                    true,
-                )
-                .await
-        }
-        None => None,
-    };
+    let job = content_job(
+        &state,
+        &uuid,
+        &root,
+        &landing,
+        format!("Unzipped {}", label_path(&root, &path_to_zip_file)),
+    )
+    .await;
     let check = code_entry_check(
         root,
         destinations,
@@ -1935,14 +1955,7 @@ pub async fn unzip_instance_file(
         event_broadcaster.send(progression_event_start);
 
         let result = unzip_file_checked_async(path_to_zip_file, unzip_option, check).await;
-        if let (Ok(placed), Some(op), Some(scope)) = (&result, &mut op, &scope) {
-            // What it placed in the destination, rather than all of it: an unzip of a world
-            // into the server folder wrote no content.
-            if let Some(wrote) = scope.disk_paths(placed.iter().map(PathBuf::as_path)) {
-                op.wrote(wrote);
-            }
-        }
-        if let Err(e) = result {
+        if let Err(e) = &result {
             event_broadcaster.send(Event::new_progression_event_end(
                 event_id,
                 false,
@@ -1964,9 +1977,11 @@ pub async fn unzip_instance_file(
                     message: format!("Unzipped {relative_path}"),
                 }),
             ));
-            if let Some(op) = op {
-                op.succeed();
-            }
+        }
+        if let (Ok(placed), Some(job)) = (result, job) {
+            // What it placed in the destination, rather than all of it: an unzip of a world
+            // into the server folder wrote no content.
+            job.succeed(placed.iter().map(PathBuf::as_path));
         }
     });
 
@@ -2021,7 +2036,7 @@ async fn zip_instance_files(
     }
 
     // an archive that lands among the content (a zip in `config/`) is a content change
-    let op = content_job(
+    let job = content_job(
         &state,
         &uuid,
         &root,
@@ -2057,9 +2072,9 @@ async fn zip_instance_files(
     tokio::spawn(async move {
         event_broadcaster.send(progression_start_event);
 
-        if let Err(e) =
-            zip_files_async(&target_relative_paths, destination_relative_path, false).await
-        {
+        let zipped =
+            zip_files_async(&target_relative_paths, destination_relative_path, false).await;
+        if let Err(e) = &zipped {
             event_broadcaster.send(Event::new_progression_event_end(
                 event_id,
                 false,
@@ -2071,9 +2086,6 @@ async fn zip_instance_files(
                 }),
             ));
         } else {
-            if let Some(op) = op {
-                op.succeed();
-            }
             event_broadcaster.send(Event::new_progression_event_end(
                 event_id,
                 true,
@@ -2084,6 +2096,11 @@ async fn zip_instance_files(
                     message: format!("Zipped {aggregate_name}"),
                 }),
             ));
+        }
+        // where the archive landed: a free name next to the one asked for when that was
+        // taken (`x_1.zip`)
+        if let (Ok(archive), Some(job)) = (zipped, job) {
+            job.succeed([archive.as_path()]);
         }
     });
 
@@ -2145,6 +2162,7 @@ pub fn get_instance_fs_routes(state: AppState) -> Router {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::util::zip_files_in;
 
     /// An upload never replaces anything at its name, a dangling link included (which
     /// `Path::exists` takes for a free name): it goes to the next free name instead.
@@ -2268,6 +2286,137 @@ mod tests {
         assert_eq!(
             label_path(&root, &root.join("config").join("x.toml")),
             "config/x.toml"
+        );
+    }
+
+    /// A copy or a zip that lands on a name already taken writes the next free one
+    /// (`a_1.toml`), and says so when it ends: when another record took that file in first,
+    /// the job's label is kept by what it actually wrote, not dropped for the name it was
+    /// asked to write, which that record left as it was.
+    #[tokio::test]
+    async fn a_job_that_took_a_free_name_keeps_its_label() {
+        use crate::images::InstanceContext;
+        use crate::implementations::minecraft::{FabricLoaderVersion, Flavour};
+
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("server");
+        let write = |path: &str, bytes: &[u8]| {
+            let path = root.join(path);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, bytes).unwrap();
+        };
+        write("server.properties", b"level-name=world\n");
+        write("mods/a.jar", b"mod a");
+        write("config/a.toml", b"a = 1");
+        write("config/x.zip", b"an older archive");
+        write("world/level.dat", b"level");
+        let root = std::fs::canonicalize(&root).unwrap();
+        let tmp = dir.path().join("tmp");
+        std::fs::create_dir(&tmp).unwrap();
+        let flavour = Flavour::Fabric {
+            loader_version: Some(FabricLoaderVersion::new("0.16.10".into())),
+            installer_version: None,
+        };
+        let uuid = InstanceUuid::from("INSTANCE_11111111-2222-3333-4444-555555555555".to_string());
+        let ctx = InstanceContext {
+            uuid: uuid.clone(),
+            root: root.clone(),
+            game_version: "1.21.1".into(),
+            flavour: flavour.clone(),
+            level_name: "world".into(),
+            policy_exclude: Vec::new(),
+            running: false,
+        };
+        let images = Arc::new(ImageService::new(dir.path().join("backups")));
+        images
+            .record_now(ctx.clone(), "Created".into())
+            .await
+            .unwrap();
+        let scope = || {
+            let (layout, _) =
+                crate::images::layout::server_layout(&root, "world", &flavour).unwrap();
+            ContentScope {
+                root: root.clone(),
+                layout: Some(layout),
+            }
+        };
+        let label = |id: &str| {
+            images
+                .store()
+                .list_manifests(uuid.as_ref())
+                .unwrap()
+                .images
+                .into_iter()
+                .find(|image| image.id == id)
+                .unwrap()
+                .label
+        };
+        // An edit records an image while the job runs, after the job placed its file.
+        let edit = |label: &'static str| {
+            let (images, ctx, uuid) = (images.clone(), ctx.clone(), uuid.clone());
+            async move {
+                let recorded = images
+                    .begin(&uuid, label)
+                    .await
+                    .succeed_and_record(ctx)
+                    .await
+                    .unwrap()
+                    .unwrap();
+                assert!(recorded.changed);
+                recorded
+            }
+        };
+
+        // config/a.toml copied into config/ lands as config/a_1.toml
+        let a = root.join("config/a.toml");
+        let copy = scope()
+            .begin_job(
+                &images,
+                &uuid,
+                &[(&a, false)],
+                "Copied config/a.toml to config".into(),
+            )
+            .unwrap();
+        let placed = copy_entries_in(
+            std::slice::from_ref(&a),
+            &root.join("config"),
+            &tmp,
+            |_, _, _| {},
+        )
+        .unwrap();
+        assert_eq!(placed, [root.join("config/a_1.toml")]);
+        write("config/b.toml", b"b = 1");
+        let edited = edit("Edited config/b.toml").await;
+        copy.succeed(placed.iter().map(PathBuf::as_path));
+        let again = images.flush(ctx.clone()).await.unwrap().unwrap();
+        assert!(!again.changed);
+        assert_eq!(again.id, edited.id);
+        assert_eq!(
+            label(&edited.id).as_deref(),
+            Some("Edited config/b.toml; Copied config/a.toml to config")
+        );
+
+        // a zip to config/x.zip, which is taken, lands as config/x_1.zip
+        let x = root.join("config/x.zip");
+        let zip = scope()
+            .begin_job(
+                &images,
+                &uuid,
+                &[(&x, false)],
+                "Zipped to config/x.zip".into(),
+            )
+            .unwrap();
+        let archive = zip_files_in(&[root.join("config/b.toml")], &x, false, &tmp).unwrap();
+        assert_eq!(archive, root.join("config/x_1.zip"));
+        write("config/b.toml", b"b = 2");
+        let edited = edit("Edited config/b.toml").await;
+        zip.succeed([archive.as_path()]);
+        let again = images.flush(ctx).await.unwrap().unwrap();
+        assert!(!again.changed);
+        assert_eq!(again.id, edited.id);
+        assert_eq!(
+            label(&edited.id).as_deref(),
+            Some("Edited config/b.toml; Zipped to config/x.zip")
         );
     }
 

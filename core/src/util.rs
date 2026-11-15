@@ -658,7 +658,7 @@ fn copy_file_into_zip<W: Write + std::io::Seek>(
 
 /// Zips `files` into `dest`. Symbolic links inside folders are skipped, so a link cannot
 /// pull files from outside the folder into the archive.
-fn zip_files_in(
+pub(crate) fn zip_files_in(
     files: &[impl AsRef<Path>],
     dest: &Path,
     overwrite_dest: bool,

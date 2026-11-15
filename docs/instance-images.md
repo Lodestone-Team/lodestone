@@ -783,9 +783,11 @@ of M2 adds its own subsection.
   and that image, though: otherwise the job changed no content, such as an unzip of a world,
   a copy into a folder the policy excludes or an install that rewrote the same bytes, and its
   label is dropped like any operation's that changed nothing, whatever else was recorded
-  meanwhile. A job says what it wrote (`Operation::wrote`): a copy its landing paths, a zip
-  its archive, an unzip what it placed in the destination, an install the mods or plugins
-  folder; when that image was pruned meanwhile, the label is kept). A
+  meanwhile. A job says what it wrote (`Operation::wrote`) once it is done, as it actually
+  wrote it: a copy the paths it placed and a zip its archive, each at the free name it took
+  when the one asked for was taken (`a.toml` copied into its own folder is `a_1.toml`), an
+  unzip what it placed in the destination, an install the mods or plugins folder; when that
+  image was pruned meanwhile, the label is kept). A
   modpack update or restore begins with `ImageService::begin_exclusive`, which waits for
   every Files API operation (not the jobs, which hold no gate) and keeps new ones out, so
   none lands between its last check of the files and their placement; placing a new file
