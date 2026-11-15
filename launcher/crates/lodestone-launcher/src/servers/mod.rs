@@ -2372,6 +2372,13 @@ impl Servers {
         let images = self.instances.read(cx).images();
         let image_id = pending.instance_id.clone();
         let server_name = pending.server.name.clone();
+        // Play waits from the record before the update until the loader it brings is saved,
+        // so the check before a launch never takes a half-applied update for a change made by
+        // hand.
+        let busy = self
+            .instances
+            .read(cx)
+            .mark_files_busy(&pending.instance_id);
         let work = cx.background_spawn(async move {
             // Milestone 4's second half replaces this client pack sync with server images;
             // the records around it stay: everything the update replaces is in an image
@@ -2426,6 +2433,7 @@ impl Servers {
             }
             this.update(cx, |this, cx| {
                 this.busy.remove(&row);
+                let busy = busy;
                 match result {
                     Ok(()) => {
                         // the loader and Minecraft version follow the server's pack
@@ -2468,6 +2476,8 @@ impl Servers {
                         if let Some(operation) = operation.take() {
                             operation.succeed();
                         }
+                        // Joining plays the instance: its files are done.
+                        drop(busy);
                         match saved {
                             Ok(()) => {
                                 this.join(&pending.core, &pending.server, &pending.instance_id, cx)

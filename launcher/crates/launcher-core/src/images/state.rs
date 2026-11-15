@@ -77,45 +77,50 @@ pub fn path(store: &Store, instance: &str) -> Result<PathBuf, ImageError> {
     Ok(store.instance_dir(instance)?.join(FILE))
 }
 
-/// The instance's state; the default (no pointer, no baseline) when it is missing or
-/// can't be read.
+/// The instance's state; the default (no pointer, no baseline) when it is missing, damaged
+/// or can't be read. For a look that changes nothing (whether there is a current image);
+/// what writes the state reads it with [`load_present`].
 pub fn load(store: &Store, instance: &str) -> ContentState {
-    load_present(store, instance).state
+    load_present(store, instance)
+        .map(|loaded| loaded.state)
+        .unwrap_or_default()
 }
 
-pub(crate) fn load_present(store: &Store, instance: &str) -> Loaded {
+/// The state file of `instance`, and whether it is there. A file that is surely gone (or an
+/// id the store can't name) is missing; one that was read but isn't a state (too big, not
+/// a file, not JSON, a bad pointer) is damaged: there, but naming nobody and no image.
+/// Failing to look at or read it (a permission, a network share timing out, a file another
+/// program holds on Windows) is an error rather than either: a record that went on would
+/// replace the real pointer, so it fails and is tried again, and the id-reuse guard never
+/// takes a passing error for proof the state is gone.
+pub(crate) fn load_present(store: &Store, instance: &str) -> Result<Loaded, ImageError> {
     let missing = Loaded {
         state: ContentState::default(),
         present: false,
     };
     let Ok(path) = path(store, instance) else {
-        return missing;
+        return Ok(missing);
     };
-    let damaged = Loaded {
-        state: ContentState::default(),
-        present: true,
+    let damaged = |why: &str| {
+        super::warn("images.state", instance, why);
+        Ok(Loaded {
+            state: ContentState::default(),
+            present: true,
+        })
     };
     let meta = match std::fs::symlink_metadata(&path) {
         Ok(meta) => meta,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return missing,
-        // Only a file that is surely gone is missing: a missing state with manifests would
-        // count as another instance's images, which are deleted. Any other error (a
-        // network share timing out, a permission) is a damaged state, which names nobody.
-        Err(_) => {
-            super::warn(
-                "images.state",
-                instance,
-                "the content state can't be looked at",
-            );
-            return damaged;
-        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(missing),
+        Err(e) => return Err(ImageError::io("Couldn't look at the content state")(e)),
     };
     if !meta.is_file() || meta.len() > MAX_BYTES {
-        super::warn("images.state", instance, "the content state isn't readable");
-        return damaged;
+        return damaged("the content state isn't a file of a state's size");
     }
-    let Ok(bytes) = std::fs::read(&path) else {
-        return damaged;
+    let bytes = match std::fs::read(&path) {
+        Ok(bytes) => bytes,
+        // Gone between the two looks: a record of another process replaced it.
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(missing),
+        Err(e) => return Err(ImageError::io("Couldn't read the content state")(e)),
     };
     match serde_json::from_slice::<ContentState>(&bytes) {
         Ok(state)
@@ -124,15 +129,12 @@ pub(crate) fn load_present(store: &Store, instance: &str) -> Loaded {
                 .as_deref()
                 .is_none_or(lodestone_image::hex::is_sha256) =>
         {
-            Loaded {
+            Ok(Loaded {
                 state,
                 present: true,
-            }
+            })
         }
-        _ => {
-            super::warn("images.state", instance, "the content state is damaged");
-            damaged
-        }
+        _ => damaged("the content state is damaged"),
     }
 }
 
@@ -166,7 +168,7 @@ mod tests {
     fn missing_damaged_and_odd_states_are_none() {
         let dir = tempfile::tempdir().unwrap();
         let store = Store::new(dir.path(), Encoding::Raw);
-        let loaded = load_present(&store, "a");
+        let loaded = load_present(&store, "a").unwrap();
         assert!(!loaded.present);
         assert_eq!(loaded.state, ContentState::default());
         let mut state = ContentState {
@@ -187,7 +189,7 @@ mod tests {
 
         let file = path(&store, "a").unwrap();
         std::fs::write(&file, b"{oops").unwrap();
-        let loaded = load_present(&store, "a");
+        let loaded = load_present(&store, "a").unwrap();
         assert!(loaded.present, "a damaged file is there");
         assert_eq!(loaded.state, ContentState::default());
         std::fs::write(&file, br#"{"current":"../x"}"#).unwrap();
@@ -198,7 +200,7 @@ mod tests {
         // A folder where the file goes is damaged, not missing.
         std::fs::remove_file(&file).unwrap();
         std::fs::create_dir(&file).unwrap();
-        assert!(load_present(&store, "a").present);
+        assert!(load_present(&store, "a").unwrap().present);
         // An id the store can't name has no state.
         assert!(path(&store, "../x").is_err());
         assert_eq!(load(&store, "con"), ContentState::default());
@@ -206,20 +208,26 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn a_state_that_cant_be_looked_at_is_there_not_missing() {
+    fn a_state_that_cant_be_looked_at_is_an_error_not_missing() {
         use std::os::unix::fs::PermissionsExt as _;
         let dir = tempfile::tempdir().unwrap();
         let store = Store::new(dir.path(), Encoding::Raw);
         save(&store, "a", &ContentState::default()).unwrap();
         let folder = path(&store, "a").unwrap().parent().unwrap().to_path_buf();
         std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o000)).unwrap();
-        let loaded = load_present(&store, "a");
+        let looked = load_present(&store, "a");
         std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o700)).unwrap();
         assert!(
-            loaded.present,
-            "an error other than not found is no proof it is gone"
+            matches!(looked, Err(ImageError::Io { .. })),
+            "an error other than not found is neither missing nor damaged"
         );
-        assert!(!belongs_elsewhere(&loaded, true, 5));
+        // A file that can be looked at but not read is an error too.
+        let file = path(&store, "a").unwrap();
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let read = load_present(&store, "a");
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
+        assert!(matches!(read, Err(ImageError::Io { .. })));
+        assert_eq!(load(&store, "a"), ContentState::default());
     }
 
     #[test]

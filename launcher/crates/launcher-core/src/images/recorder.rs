@@ -54,6 +54,7 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
+use lodestone_image::layout::CLIENT_GAME_FOLDER;
 use lodestone_image::lineage::join_labels;
 use lodestone_image::manifest::App;
 use lodestone_image::store::StoreError;
@@ -550,7 +551,7 @@ impl Images {
     /// [`Self::guarded_state`], with whether a state file is there (none after the guard
     /// deleted an earlier instance's images).
     fn guarded(&self, ctx: &InstanceContext) -> Result<state::Loaded, ImageError> {
-        let loaded = state::load_present(self.store(), &ctx.id);
+        let loaded = state::load_present(self.store(), &ctx.id)?;
         let has_manifests = !self.store().manifest_ids(&ctx.id)?.is_empty();
         if state::belongs_elsewhere(&loaded, has_manifests, ctx.instance.created) {
             super::warn(
@@ -657,6 +658,17 @@ impl Images {
         image
             .validate()
             .map_err(|e| ImageError::Invalid(format!("The content image isn't valid: {e}")))?;
+        // The walk follows no link under the instance folder, the game folder included, so a
+        // linked game folder records as empty (see "What content is" in the spec).
+        if std::fs::symlink_metadata(ctx.dir.join(CLIENT_GAME_FOLDER))
+            .is_ok_and(|meta| meta.file_type().is_symlink())
+        {
+            super::warn(
+                "images.record",
+                &ctx.id,
+                "the game folder is a link, which content images don't follow",
+            );
+        }
         if !snapshot.too_long.is_empty() {
             super::warn(
                 "images.record",

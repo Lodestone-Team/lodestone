@@ -77,7 +77,7 @@ impl Images {
         // the manifest before the pointer.
         let slot = self.slot(instance);
         let _record = super::check::lock_within(&slot.record, HISTORY_WAIT);
-        let loaded = state::load_present(self.store(), instance);
+        let loaded = state::load_present(self.store(), instance)?;
         let listing = self.listing(instance)?;
         let has_manifests = !listing.content.is_empty() || !listing.links.is_empty();
         if state::belongs_elsewhere(&loaded, has_manifests, ctx.instance.created) {
